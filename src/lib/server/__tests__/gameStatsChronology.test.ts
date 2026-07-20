@@ -10,6 +10,7 @@ import {
   recordGameStatsRefreshSuccess,
   recordProviderRefreshSuccess,
   beginProviderRefreshAttempt,
+  __resetGameStatsProvenanceForTests,
   type GameStatsRefreshAttempt,
 } from '../providerRefreshStatus.ts';
 import {
@@ -457,11 +458,13 @@ test('the failed-begin exception is honored only through its explicit handle', a
   );
 
   // (c) a failed-begin handle cannot overwrite a LATER successfully persisted attempt.
+  // Its one-shot provenance was consumed in (a), so once a later begin supersedes it
+  // the handle is no longer authentic — refused nonmutatingly, never overwriting.
   const later = await beginGameStatsRefreshAttempt(SCOPE); // ord 3, persisted, in-progress
   assert.equal(later.ordinal, 3);
   assert.equal(
     await recordGameStatsRefreshFailure(SCOPE, { attempt: failedBegin, error: 'late' }),
-    'skipped-older'
+    'game-stats-failed-begin-handle-invalid'
   );
   assert.equal((await read()).latestAttemptOutcome, 'in-progress'); // later still latest
   assert.equal((await read()).lastAttemptId, later.attemptId);
@@ -526,4 +529,207 @@ test('a malformed stored ordinal remains a refusal across a simulated process re
     lastAttemptOrdinal: number;
   };
   assert.equal(stored.lastAttemptOrdinal, 0); // still malformed — never restarted at 1
+});
+
+// ===========================================================================
+// PLATFORM-086H3B-FAILED-BEGIN-PROVENANCE — the failed-begin exception is
+// authorized ONLY by the EXACT runtime-issued handle (a module-private WeakMap),
+// never by structural fields; it authorizes the FAILURE terminal only; it is
+// one-shot with a bounded retry; a later persisted attempt supersedes it; and a
+// process restart (provenance reset) invalidates a nonpersisted handle.
+// ===========================================================================
+
+// Obtain a GENUINE failed-begin handle: begin whose own durable write fails.
+async function failedBeginHandle(): Promise<GameStatsRefreshAttempt> {
+  __setAppStateFileCommitFailureForTests(new Error('begin commit down'));
+  const handle = await beginGameStatsRefreshAttempt(SCOPE);
+  __setAppStateFileCommitFailureForTests(null);
+  assert.equal(handle.persistence, 'failed');
+  return handle;
+}
+
+test('a FABRICATED failed-begin handle cannot use the exception (failure/no-op/success refuse, mutate nothing)', async () => {
+  const real = await beginGameStatsRefreshAttempt(SCOPE); // durable ordinal N = 1
+  await recordGameStatsRefreshFailure(SCOPE, { attempt: real, error: 'seed' });
+  const before = await read();
+  const fabricated: GameStatsRefreshAttempt = {
+    attemptId: 'fabricated-token',
+    ordinal: 2, // N + 1
+    startedAt: '2024-10-07T00:00:00.000Z',
+    scopeKey: SCOPE_KEY,
+    persistence: 'failed',
+  };
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: fabricated, error: 'x' }),
+    'game-stats-failed-begin-handle-invalid'
+  );
+  assert.equal(
+    await recordGameStatsRefreshNoop(SCOPE, { attempt: fabricated }),
+    'game-stats-failed-begin-terminal-not-allowed'
+  );
+  assert.equal(
+    await recordGameStatsRefreshSuccess(SCOPE, { attempt: fabricated, commitStamp: stamp('L', 1) }),
+    'game-stats-failed-begin-terminal-not-allowed'
+  );
+  const after = await read();
+  assert.equal(after.latestAttemptOutcome, before.latestAttemptOutcome); // unchanged
+  assert.deepEqual(after.lastError, before.lastError); // unchanged
+  assert.equal(after.lastCommittedStamp, before.lastCommittedStamp); // never advanced
+});
+
+test('copied / serialized / reconstructed / mutated failed-begin handles have no exception authority', async () => {
+  await beginGameStatsRefreshAttempt(SCOPE); // durable ordinal 1
+  const authentic = await failedBeginHandle(); // ordinal 2, authentic, registered
+  const before = await read();
+
+  const spread = { ...authentic };
+  const json = JSON.parse(JSON.stringify(authentic)) as GameStatsRefreshAttempt;
+  const reconstructed: GameStatsRefreshAttempt = {
+    attemptId: authentic.attemptId,
+    ordinal: authentic.ordinal,
+    startedAt: authentic.startedAt,
+    scopeKey: authentic.scopeKey,
+    persistence: 'failed',
+  };
+  for (const copy of [spread, json, reconstructed]) {
+    assert.equal(
+      await recordGameStatsRefreshFailure(SCOPE, { attempt: copy, error: 'x' }),
+      'game-stats-failed-begin-handle-invalid'
+    );
+  }
+
+  // FRESH authentic handles with a single mutated field lose authority (field
+  // disagreement with the immutable snapshot); a mutated scope is caught earlier.
+  const mutatedToken = await failedBeginHandle();
+  mutatedToken.attemptId = `${mutatedToken.attemptId}-x`;
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: mutatedToken, error: 'x' }),
+    'game-stats-failed-begin-handle-invalid'
+  );
+  const mutatedOrdinal = await failedBeginHandle();
+  mutatedOrdinal.ordinal = mutatedOrdinal.ordinal + 40;
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: mutatedOrdinal, error: 'x' }),
+    'game-stats-failed-begin-handle-invalid'
+  );
+  const mutatedScope = await failedBeginHandle();
+  mutatedScope.scopeKey = `${mutatedScope.scopeKey}::tampered`;
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: mutatedScope, error: 'x' }),
+    'game-stats-refresh-attempt-malformed'
+  );
+  assert.deepEqual(await read(), before); // nothing mutated by any inauthentic handle
+
+  // The EXACT authentic object still carries authority (positive control).
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: authentic, error: 'real' }),
+    'persisted'
+  );
+  assert.equal((await read()).latestAttemptOutcome, 'failed');
+});
+
+test('an AUTHENTIC failed-begin handle authorizes ONLY failure (never success / no-op / committed evidence)', async () => {
+  await beginGameStatsRefreshAttempt(SCOPE); // durable ordinal 1
+  const authentic = await failedBeginHandle(); // ordinal 2
+  assert.equal(
+    await recordGameStatsRefreshSuccess(SCOPE, { attempt: authentic, commitStamp: stamp('L', 1) }),
+    'game-stats-failed-begin-terminal-not-allowed'
+  );
+  assert.equal((await read()).lastCommittedStamp, undefined); // never advanced
+  assert.equal(
+    await recordGameStatsRefreshNoop(SCOPE, { attempt: authentic }),
+    'game-stats-failed-begin-terminal-not-allowed'
+  );
+  // Failure remains allowed — the success/no-op refusals did not consume the handle.
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: authentic, error: 'boom' }),
+    'persisted'
+  );
+  assert.equal((await read()).latestAttemptOutcome, 'failed');
+});
+
+test('a later persisted attempt supersedes an authentic failed-begin handle (never overwrites)', async () => {
+  await beginGameStatsRefreshAttempt(SCOPE); // durable ordinal 1
+  const failed = await failedBeginHandle(); // authentic, ordinal 2, NOT yet recorded
+  const b1 = await beginGameStatsRefreshAttempt(SCOPE); // persists ordinal 2
+  assert.equal(b1.ordinal, 2);
+  // Its ordinal no longer strictly exceeds the stored ordinal → stale, never wins.
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: failed, error: 'late' }),
+    'skipped-older'
+  );
+  assert.equal((await read()).latestAttemptOutcome, 'in-progress'); // b1 unchanged
+  assert.equal((await read()).lastAttemptId, b1.attemptId);
+  // A further begin — the stale handle stays nonmutating.
+  await beginGameStatsRefreshAttempt(SCOPE); // ordinal 3
+  const beforeStale = await read();
+  const res = await recordGameStatsRefreshFailure(SCOPE, { attempt: failed, error: 'late2' });
+  assert.ok(res === 'skipped-older' || res === 'game-stats-failed-begin-handle-invalid', res);
+  assert.deepEqual(await read(), beforeStale); // no chronology field changed
+});
+
+test('failed-begin is retry-eligible after an UNCONFIRMED terminal write, then consumed one-shot', async () => {
+  await beginGameStatsRefreshAttempt(SCOPE); // durable ordinal 1
+  const authentic = await failedBeginHandle(); // ordinal 2
+  // Terminal write itself fails → 'failed', no durable mutation → retry eligible.
+  __setAppStateFileCommitFailureForTests(new Error('terminal write down'));
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: authentic, error: 'x' }),
+    'failed'
+  );
+  __setAppStateFileCommitFailureForTests(null);
+  // Retry succeeds (no later attempt persisted).
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: authentic, error: 'x' }),
+    'persisted'
+  );
+  assert.equal((await read()).latestAttemptOutcome, 'failed');
+  // One-shot: provenance consumed after confirmed success — a third invocation
+  // writes nothing (a failed-begin handle never owns normally).
+  const before = await read();
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: authentic, error: 'again' }),
+    'game-stats-failed-begin-handle-invalid'
+  );
+  assert.deepEqual(await read(), before);
+});
+
+test('a process restart (provenance reset) invalidates a nonpersisted failed-begin handle', async () => {
+  await beginGameStatsRefreshAttempt(SCOPE); // durable ordinal 1
+  const authentic = await failedBeginHandle(); // ordinal 2
+  __resetGameStatsProvenanceForTests(); // simulate a process restart — in-memory provenance gone
+  const before = await read();
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: authentic, error: 'x' }),
+    'game-stats-failed-begin-handle-invalid'
+  );
+  assert.deepEqual(await read(), before); // durable status survives the "restart"; handle does not
+});
+
+test('normally persisted handles remain authorized after a provenance reset (durable ownership)', async () => {
+  const a = await beginGameStatsRefreshAttempt(SCOPE); // ordinal 1, persisted → owns durably
+  __resetGameStatsProvenanceForTests(); // failed-begin provenance is irrelevant to normal ownership
+  assert.equal(
+    await recordGameStatsRefreshFailure(SCOPE, { attempt: a, error: 'boom' }),
+    'persisted'
+  );
+  assert.equal((await read()).latestAttemptOutcome, 'failed');
+  // And a normal success still owns after reset.
+  const b = await beginGameStatsRefreshAttempt(SCOPE); // ordinal 2
+  __resetGameStatsProvenanceForTests();
+  assert.equal(
+    await recordGameStatsRefreshSuccess(SCOPE, { attempt: b, commitStamp: stamp('L', 1) }),
+    'persisted'
+  );
+  assert.equal((await read()).latestAttemptOutcome, 'succeeded');
+});
+
+test('composite publication is never complete for failed-begin refusals', () => {
+  for (const code of [
+    'game-stats-failed-begin-terminal-not-allowed',
+    'game-stats-failed-begin-handle-invalid',
+  ] as const) {
+    assert.equal(composeGameStatsStatusPublication('persisted', code).complete, false);
+    assert.equal(composeGameStatsStatusPublication(code, 'persisted').complete, false);
+  }
 });

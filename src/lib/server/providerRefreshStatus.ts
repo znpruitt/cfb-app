@@ -671,6 +671,19 @@ const GAME_STATS_DATASET: ProviderDataset = 'game-stats';
  *     structurally invalid (empty/non-string token, non-positive/unsafe/
  *     non-integer ordinal, empty `startedAt`, or a scope identity that does not
  *     match the mutation's scope). Rejected before any storage mutation.
+ *
+ * PLATFORM-086H3B-FAILED-BEGIN-PROVENANCE-REMEDIATION stable refusals (persist
+ * nothing; never `durablyRecorded`) — the failed-begin exception is RUNTIME-OPAQUE
+ * (tied to the exact handle object `begin` issued after its own write failed, via a
+ * module-private registry), NOT to the structural `persistence: 'failed'` field:
+ *   - `game-stats-failed-begin-terminal-not-allowed` — a handle that CLAIMS the
+ *     failed-begin exception (`persistence: 'failed'`) was passed to SUCCESS or
+ *     NO-OP; the exception authorizes ONLY the failure terminal. Refused before any
+ *     storage mutation (committed evidence never advances).
+ *   - `game-stats-failed-begin-handle-invalid` — a handle claiming the exception on
+ *     the FAILURE terminal is NOT an authentic runtime-issued failed-begin handle
+ *     (fabricated, copied/spread, serialized, reconstructed, proxied, field-mutated,
+ *     or issued in a prior process). Structural fields alone never grant authority.
  */
 export type ProviderStatusMutationResult =
   | 'persisted'
@@ -683,7 +696,9 @@ export type ProviderStatusMutationResult =
   | 'refresh-attempt-ordinal-exhausted'
   | 'refresh-attempt-ordinal-malformed'
   | 'game-stats-refresh-attempt-required'
-  | 'game-stats-refresh-attempt-malformed';
+  | 'game-stats-refresh-attempt-malformed'
+  | 'game-stats-failed-begin-terminal-not-allowed'
+  | 'game-stats-failed-begin-handle-invalid';
 
 function durablyRecorded(result: ProviderStatusMutationResult): boolean {
   return result === 'persisted' || result === 'idempotent';
@@ -837,35 +852,65 @@ function validateGameStatsAttemptHandle(
 }
 
 /**
- * Whether `attempt` may own this record's ATTEMPT-chronology fields. A NORMAL
- * persisted begin is the latest only when BOTH its token AND its ordinal match the
- * stored latest (requirement 13) — a matching token with a mismatched ordinal, an
- * older ordinal, or an unknown future ordinal never wins. The ONE relaxation is the
- * failed-begin exception (requirement 10-12): a terminal whose own begin never
- * persisted (`persistence === 'failed'`, reachable ONLY through the explicit handle
- * `begin` returned) has no stored token to match, yet may still record its outcome
- * truthfully — but only when its ordinal is STRICTLY greater than the stored
- * ordinal, so a genuinely stale attempt never overwrites a newer one. A missing
- * handle NEVER owns (requirement 9); callers validate the handle first, so this is
- * a defensive backstop.
+ * Whether a NORMAL persisted begin owns this record's ATTEMPT-chronology fields:
+ * BOTH its token AND its ordinal match the stored durable latest (requirement 13).
+ * A matching token with a mismatched ordinal, an older ordinal, or an unknown
+ * future ordinal never wins. A handle that CLAIMS the failed-begin exception
+ * (`persistence: 'failed'`) NEVER owns normally — even after its exception has
+ * written the latest chronology — so its authority stays confined to the one-shot,
+ * provenance-gated failed-begin path (a second use after consumption writes
+ * nothing). This is the ONLY ownership durable state proves.
  */
-function isLatestGameStatsAttempt(
-  status: ProviderRefreshStatus,
-  attempt?: GameStatsRefreshAttempt
-): boolean {
-  if (!attempt) return false;
+function ownsNormally(status: ProviderRefreshStatus, attempt: GameStatsRefreshAttempt): boolean {
+  if (attempt.persistence === 'failed') return false;
   const storedOrdinal = validStoredOrdinal(status.lastAttemptOrdinal);
-  if (
+  return (
     status.lastAttemptId === attempt.attemptId &&
     storedOrdinal !== null &&
     storedOrdinal === attempt.ordinal
-  ) {
-    return true;
-  }
-  if (attempt.persistence === 'failed') {
-    return attempt.ordinal > (storedOrdinal ?? 0);
-  }
-  return false;
+  );
+}
+
+// === Runtime-opaque failed-begin provenance (PLATFORM-086H3B-FAILED-BEGIN-PROVENANCE) ===
+//
+// The failed-begin exception (a begin whose own durable write FAILED may still
+// record its bounded failure) is authorized ONLY by the EXACT handle object
+// `beginGameStatsRefreshAttempt` returned after that failure — never by structural
+// fields. A module-private WeakMap keyed by that exact object holds an immutable
+// snapshot; a copy/spread/serialize/reconstruct/proxy/field-mutation loses identity
+// or field agreement and has no authority. WeakMap keys are weakly held, so an
+// abandoned handle is GC'd (no process-lifetime growth), and the provenance is
+// intentionally PROCESS-LOCAL — a nonpersisted begin retains no authority across a
+// restart. The public handle type is unchanged; nothing exposes this registry.
+type FailedBeginProvenance = {
+  attemptId: string;
+  ordinal: number;
+  scopeKey: string;
+  startedAt: string;
+  persistence: 'failed';
+};
+let failedBeginProvenance = new WeakMap<GameStatsRefreshAttempt, FailedBeginProvenance>();
+
+/**
+ * Whether `attempt` is an AUTHENTIC failed-begin handle: the exact object is in the
+ * private registry AND its CURRENT fields still agree with the immutably-retained
+ * snapshot (a field mutation is rejected). Structural `persistence: 'failed'` alone
+ * proves nothing.
+ */
+function authenticFailedBegin(attempt: GameStatsRefreshAttempt): boolean {
+  const provenance = failedBeginProvenance.get(attempt);
+  return (
+    provenance !== undefined &&
+    provenance.attemptId === attempt.attemptId &&
+    provenance.ordinal === attempt.ordinal &&
+    provenance.scopeKey === attempt.scopeKey &&
+    provenance.startedAt === attempt.startedAt
+  );
+}
+
+/** Drop a failed-begin handle's provenance (one-shot consumption / stale / tamper). */
+function releaseFailedBeginProvenance(attempt: GameStatsRefreshAttempt): void {
+  failedBeginProvenance.delete(attempt);
 }
 
 /** Whether an equal-revision success carries the SAME committed metadata. */
@@ -920,7 +965,15 @@ export async function beginGameStatsRefreshAttempt(
       result: 'persisted',
     };
   });
-  return { attemptId, ordinal, startedAt, scopeKey, persistence };
+  const handle: GameStatsRefreshAttempt = { attemptId, ordinal, startedAt, scopeKey, persistence };
+  // Register runtime provenance ONLY for a genuine failed-begin handle (the begin's
+  // own durable write failed). This exact object — not its structural fields —
+  // carries the failed-begin exception; the snapshot is compared field-by-field at
+  // terminal validation so a copy or mutation loses authority.
+  if (persistence === 'failed') {
+    failedBeginProvenance.set(handle, { attemptId, ordinal, scopeKey, startedAt, persistence });
+  }
+  return handle;
 }
 
 export type GameStatsRefreshSuccess = {
@@ -969,6 +1022,12 @@ export async function recordGameStatsRefreshSuccess(
   // MANDATORY valid matching attempt handle — refuse before any lock/read/write.
   const handleRefusal = validateGameStatsAttemptHandle(result.attempt, scopeKey, 'success');
   if (handleRefusal) return handleRefusal;
+  // The failed-begin exception authorizes the FAILURE terminal ONLY: a handle that
+  // claims it (`persistence: 'failed'`) can never record success (nor advance
+  // committed evidence). Refuse before the transaction so nothing is written.
+  if (result.attempt.persistence === 'failed') {
+    return 'game-stats-failed-begin-terminal-not-allowed';
+  }
   // MANDATORY confirmed commit stamp — refuse before any lock/read/write, so a
   // stamp-free "success" can never clear an error or mark an attempt succeeded.
   const incoming = result.commitStamp;
@@ -987,7 +1046,7 @@ export async function recordGameStatsRefreshSuccess(
 
     if (committed === 'conflict') return 'conflict'; // durable state untouched
 
-    const owns = isLatestGameStatsAttempt(status, result.attempt);
+    const owns = ownsNormally(status, result.attempt);
     if (committed !== 'advance' && !owns) {
       return committed === 'idempotent' ? 'idempotent' : 'skipped-older';
     }
@@ -1047,8 +1106,12 @@ export async function recordGameStatsRefreshNoop(
   const scopeKey = providerRefreshScopeKey(GAME_STATS_DATASET, scope);
   const handleRefusal = validateGameStatsAttemptHandle(result.attempt, scopeKey, 'noop');
   if (handleRefusal) return handleRefusal;
+  // The failed-begin exception is FAILURE-only — a no-op can never consume it.
+  if (result.attempt.persistence === 'failed') {
+    return 'game-stats-failed-begin-terminal-not-allowed';
+  }
   return mutateGameStatsStatusTransactionally(scope, 'noop', (status) => {
-    if (!isLatestGameStatsAttempt(status, result.attempt)) return 'skipped-older';
+    if (!ownsNormally(status, result.attempt)) return 'skipped-older';
     return {
       write: {
         ...status,
@@ -1089,9 +1152,18 @@ export type GameStatsRefreshFailure = {
  * Record a game-stats failure. Requires a valid matching attempt handle (a
  * tokenless failure is refused, never treated as latest). Preserves the prior-good
  * committed stamp/source/rows (a failure never advances or erases committed
- * evidence) and sets the latest-attempt outcome `failed`. A stale attempt is
- * dropped; a failed-begin handle may record its bounded failure only when its
- * ordinal strictly exceeds the stored ordinal.
+ * evidence) and sets the latest-attempt outcome `failed`.
+ *
+ * Ownership: the durable-latest attempt (token AND ordinal) records normally. The
+ * FAILURE terminal is also the ONLY terminal that may consume the failed-begin
+ * exception — but ONLY through an AUTHENTIC runtime-issued handle
+ * (`authenticFailedBegin`), and only when its ordinal strictly exceeds the stored
+ * ordinal (no later attempt persisted). A fabricated/copied/mutated/post-restart
+ * handle claiming `persistence: 'failed'` → `game-stats-failed-begin-handle-invalid`;
+ * an authentic one superseded by a later attempt → `skipped-older`. Consumption is
+ * ONE-SHOT: provenance is released only after CONFIRMED persistence (a failed
+ * terminal write retains it for a bounded retry), and a superseded/tampered handle
+ * is released immediately.
  */
 export async function recordGameStatsRefreshFailure(
   scope: ProviderRefreshScope,
@@ -1099,40 +1171,87 @@ export async function recordGameStatsRefreshFailure(
 ): Promise<ProviderStatusMutationResult> {
   const resolvedAt = new Date().toISOString();
   const scopeKey = providerRefreshScopeKey(GAME_STATS_DATASET, scope);
-  const handleRefusal = validateGameStatsAttemptHandle(result.attempt, scopeKey, 'failure');
+  const attempt = result.attempt;
+  const handleRefusal = validateGameStatsAttemptHandle(attempt, scopeKey, 'failure');
   if (handleRefusal) return handleRefusal;
-  return mutateGameStatsStatusTransactionally(scope, 'failure', (status) => {
-    if (!isLatestGameStatsAttempt(status, result.attempt)) return 'skipped-older';
-    return {
-      write: {
-        ...status,
-        dataset: GAME_STATS_DATASET,
-        scope,
-        scopeKey,
-        lastAttemptAt: result.attempt.startedAt,
-        lastAttemptId: result.attempt.attemptId,
-        lastAttemptOrdinal: result.attempt.ordinal,
-        // Preserve the transactionally-current committed evidence.
-        lastSuccessAt: status.lastSuccessAt,
-        lastCommittedStamp: status.lastCommittedStamp,
-        source: status.source,
-        rowsCommitted: status.rowsCommitted,
-        lastError: {
-          message: result.error,
-          ...(result.code ? { code: result.code } : {}),
-          ...(typeof result.status === 'number' ? { status: result.status } : {}),
-        },
-        latestAttemptOutcome: 'failed',
-        latestAttemptResolvedAt: resolvedAt,
-        partialFailure: result.partialFailure ?? status.partialFailure ?? false,
-        failedPartitions:
-          result.failedPartitions && result.failedPartitions.length > 0
-            ? result.failedPartitions
-            : status.failedPartitions,
-        durationMs: result.durationMs ?? null,
-        usage: result.usage ?? status.usage,
-      },
-      result: 'persisted',
-    };
+
+  const buildWrite = (status: ProviderRefreshStatus): ProviderRefreshStatus => ({
+    ...status,
+    dataset: GAME_STATS_DATASET,
+    scope,
+    scopeKey,
+    lastAttemptAt: attempt.startedAt,
+    lastAttemptId: attempt.attemptId,
+    lastAttemptOrdinal: attempt.ordinal,
+    // Preserve the transactionally-current committed evidence.
+    lastSuccessAt: status.lastSuccessAt,
+    lastCommittedStamp: status.lastCommittedStamp,
+    source: status.source,
+    rowsCommitted: status.rowsCommitted,
+    lastError: {
+      message: result.error,
+      ...(result.code ? { code: result.code } : {}),
+      ...(typeof result.status === 'number' ? { status: result.status } : {}),
+    },
+    latestAttemptOutcome: 'failed',
+    latestAttemptResolvedAt: resolvedAt,
+    partialFailure: result.partialFailure ?? status.partialFailure ?? false,
+    failedPartitions:
+      result.failedPartitions && result.failedPartitions.length > 0
+        ? result.failedPartitions
+        : status.failedPartitions,
+    durationMs: result.durationMs ?? null,
+    usage: result.usage ?? status.usage,
   });
+
+  // How the failed-begin exception was used (so provenance is consumed one-shot,
+  // ONLY after a confirmed durable record, and retained for a bounded retry when
+  // the terminal write itself failed). A holder object so the closure's mutation is
+  // visible after the transaction (control-flow narrowing of a `let` would not be).
+  const usage: { kind: 'none' | 'recorded' | 'stale' | 'invalid' } = { kind: 'none' };
+  const outcome = await mutateGameStatsStatusTransactionally(scope, 'failure', (status) => {
+    if (ownsNormally(status, attempt)) {
+      return { write: buildWrite(status), result: 'persisted' };
+    }
+    // Not the durable latest. Does the handle CLAIM the failed-begin exception?
+    if (attempt.persistence === 'failed') {
+      if (!authenticFailedBegin(attempt)) {
+        // Fabricated / copied / serialized / reconstructed / proxied / mutated /
+        // post-restart — structural fields never grant authority.
+        usage.kind = 'invalid';
+        return 'game-stats-failed-begin-handle-invalid';
+      }
+      const storedOrdinal = validStoredOrdinal(status.lastAttemptOrdinal) ?? 0;
+      if (attempt.ordinal > storedOrdinal) {
+        usage.kind = 'recorded';
+        return { write: buildWrite(status), result: 'persisted' };
+      }
+      // A later attempt persisted at/above this ordinal — permanently stale; the
+      // authentic handle must never overwrite it merely because it still exists.
+      usage.kind = 'stale';
+      return 'skipped-older';
+    }
+    return 'skipped-older';
+  });
+
+  // Provenance lifecycle, AFTER the transaction settles.
+  if (usage.kind === 'recorded') {
+    // One-shot: consume ONLY after CONFIRMED persistence. A failed terminal write
+    // (no durable mutation) keeps the handle eligible for a bounded retry.
+    if (outcome === 'persisted') releaseFailedBeginProvenance(attempt);
+  } else if (usage.kind === 'stale' || usage.kind === 'invalid') {
+    // Superseded by a later attempt, or a tampered/mutated registered handle: no
+    // legitimate retry remains.
+    releaseFailedBeginProvenance(attempt);
+  }
+  return outcome;
+}
+
+/**
+ * Test-only: drop ALL runtime failed-begin provenance (simulate a process restart /
+ * reset process-local status state). A nonpersisted begin's handle retains NO
+ * authority afterward. Never called in production paths.
+ */
+export function __resetGameStatsProvenanceForTests(): void {
+  failedBeginProvenance = new WeakMap<GameStatsRefreshAttempt, FailedBeginProvenance>();
 }

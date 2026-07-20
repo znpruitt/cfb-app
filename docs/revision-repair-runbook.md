@@ -106,11 +106,20 @@ or repair history) mints lineage 1.
   token, does not win. **Tokenless terminals always refuse** — a missing handle is
   never treated as the latest attempt. Stale attempts return `skipped-older` and
   write nothing (outcome, error, timestamps, and committed evidence all preserved).
-- **The failed-begin exception requires its explicit returned handle.** Only a
-  handle whose own begin persistence failed (`persistence === 'failed'`) may record
-  its bounded outcome, and only when its ordinal strictly exceeds the stored
-  ordinal; it can never be recreated from a missing/tokenless argument and can never
-  overwrite a later successfully persisted attempt.
+- **The failed-begin exception is runtime-opaque and tied to the exact issued
+  handle** (PLATFORM-086H3B-FAILED-BEGIN-PROVENANCE). Only the EXACT handle object
+  `beginGameStatsRefreshAttempt` returned after its own durable write failed may
+  record its bounded outcome — authority lives in a module-private `WeakMap`
+  (object identity + field agreement), NOT in the structural `persistence: 'failed'`
+  field, so a fabricated, copied, serialized, reconstructed, proxied, field-mutated,
+  or prior-process handle has none (`game-stats-failed-begin-handle-invalid`). The
+  exception authorizes the FAILURE terminal ONLY (success/no-op →
+  `game-stats-failed-begin-terminal-not-allowed`, committed evidence never advances),
+  fires only when the ordinal strictly exceeds the stored ordinal, is one-shot
+  (consumed after confirmed persistence; a failed terminal write stays
+  retry-eligible), and is superseded by any later persisted attempt (`skipped-older`).
+  Provenance is process-local: a restart invalidates a nonpersisted handle, while
+  normally persisted handles stay durably authorized by token + ordinal.
 - **Ordinal `0` is malformed history, not absence.** A valid stored ordinal is a
   POSITIVE safe integer; `0`, negative, fractional, unsafe, or non-number values are
   `refresh-attempt-ordinal-malformed` (refused, the durable record preserved for

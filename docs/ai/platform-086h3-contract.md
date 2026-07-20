@@ -247,6 +247,21 @@ corrections (see §5 lineage and §17 activation-control fence).
   non-number is `refresh-attempt-ordinal-malformed` (refused, never reset to 1;
   absence alone begins at 1), and a valid ordinal at `Number.MAX_SAFE_INTEGER` is
   `refresh-attempt-ordinal-exhausted`.
+- Failed-begin authority is RUNTIME-OPAQUE (PLATFORM-086H3B-FAILED-BEGIN-PROVENANCE):
+  it is tied to the EXACT handle object `beginGameStatsRefreshAttempt` returned
+  after its own durable write failed — recorded in a module-private `WeakMap` and
+  re-verified by object identity + field agreement — NOT to the structural
+  `persistence: 'failed'` field. A fabricated, copied/spread, serialized,
+  reconstructed, proxied, field-mutated, or prior-process handle has NO authority
+  (`game-stats-failed-begin-handle-invalid`). The exception authorizes the FAILURE
+  terminal ONLY — a failed-begin handle on success/no-op refuses
+  `game-stats-failed-begin-terminal-not-allowed` and never advances committed
+  evidence. It is one-shot (consumed only after confirmed persistence; a failed
+  terminal write stays retry-eligible; a handle claiming `persistence: 'failed'`
+  never owns normally). A later persisted attempt always supersedes it
+  (`skipped-older`), and provenance is process-local — a process restart invalidates
+  a nonpersisted handle while normally persisted handles stay durably authorized by
+  token + ordinal. Both new refusals keep the composite `complete: false`.
 
 ## 8. Recovery claims, backoff, quota bounds
 
