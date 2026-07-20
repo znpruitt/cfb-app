@@ -65,6 +65,22 @@ architecture, not active behavior.
   hash over the COMPLETE inspected durable state, audit availability is explicit
   (`available`/`absent`/`unavailable`), and raw storage errors never reach a
   response. The public game-stats wire strips the internal commit stamp.
+- Repair presence + evidence + audit hardening (PLATFORM-086H3B-REPAIR-PRESENCE-H1-AUDIT):
+  every durable row repair inspects or hashes is read PRESENCE-AWARE (a
+  `DurableRead` built before `.value`), so a **present JSON-null row is never
+  collapsed into absence** — absent / present-null / present-valid / present-malformed
+  produce DIFFERENT CAS digests, a present-null partition is malformed (not absent),
+  a present-invalid ledger (incl. JSON-null) is an ambiguous marker that blocks
+  new-lineage init, and an absent↔present-null change is caught as
+  `revision-repair-state-changed`. Repair evidence is certified through the **actual
+  H1 durable contract** (`classifyGameStatsRow`) — not a second row contract — plus
+  canonical (round-tripping) `fetchedAt` and per-row partition-identity consistency;
+  anything H1 would withhold/reject/treat-as-malformed is `revision-repair-evidence-malformed`.
+  Every nested audit object (ledger, commit stamps, action, after-state,
+  surviving-high-water) is **rebuilt field-by-field against an exact allowlist** (no
+  raw stored object retained by reference); any unexpected or malformed nested field
+  makes the WHOLE audit dataset `unavailable` (never silently stripped), so arbitrary
+  stored content can never reach the route response.
 - Dormant-boundary guard (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION): the
   admin revision route is **scanned, not excluded** — its production capability
   surface is an explicit parser-backed allowlist (TypeScript compiler API), so

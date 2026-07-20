@@ -3,15 +3,18 @@ import test from 'node:test';
 
 import { getGameStatsKey } from '../cache.ts';
 import {
+  classifyRepairEvidence,
   inspectRevisionState,
   readRevisionAuditTrail,
   repairRevisionState,
+  validateAuditEntry,
   RECOVERY_DISPOSITION_SCOPE,
+  type DurableRead,
   type RevisionInspection,
   type RevisionRepairAction,
 } from '../revisionRepair.ts';
 import { GAME_STATS_REVISION_SCOPE, type RevisionLedgerRecord } from '../revisionAuthority.ts';
-import { parseV2GameObservation } from '../contract.ts';
+import { classifyGameStatsRow, parseV2GameObservation } from '../contract.ts';
 import { mergeGameStatsPartitionRevisioned } from '../durableMerge.ts';
 import { setActivationState } from '../activationControl.ts';
 import type { CommitStamp } from '../revisionStamp.ts';
@@ -43,11 +46,16 @@ const STATUS_KEY = providerRefreshScopeKey(
 );
 const ACTOR = 'clerk:admin-1';
 
+// A durable evidence row consistent with the ID partition (H1 legacy-compatible),
+// so certification exercises the intended path rather than a week/identity mismatch.
+function evidenceRow(overrides: Parameters<typeof wireGame>[0] = {}) {
+  return legacyRowFromWire(wireGame({ id: 1, ...overrides }), ID.week);
+}
 function partitionWith(stamp: CommitStamp | undefined): WeeklyGameStats {
   return {
     ...ID,
     fetchedAt: '2024-10-06T00:00:00.000Z',
-    games: [legacyRowFromWire(wireGame({ id: 1 }))],
+    games: [evidenceRow()],
     ...(stamp ? { commitStamp: stamp } : {}),
   };
 }
@@ -645,7 +653,7 @@ test('NON-REUSE: after an accepted repair, the next allocation is strictly above
 // Bounded evidence certification: malformed envelope / fetchedAt / game rows are a
 // HARD refusal for every action (dry-run and apply), writing nothing.
 test('malformed envelope / fetchedAt / game rows hard-refuse every action', async () => {
-  const good = legacyRowFromWire(wireGame({ id: 1 }));
+  const good = evidenceRow();
   const stamp = { lineage: 'L', revision: 3 };
   const bad: Array<[string, unknown]> = [
     ['invalid fetchedAt', { ...ID, fetchedAt: 'not-a-date', games: [good], commitStamp: stamp }],
@@ -844,4 +852,315 @@ test('applied repair refuses to append to a malformed audit history (never trust
   assert.equal(r.ok, false);
   if (!r.ok) assert.equal(r.code, 'revision-repair-audit-unavailable');
   assert.deepEqual((await getAppState(AUDIT_SCOPE, KEY))?.value, [{ auditRef: 'malformed' }]); // unchanged
+});
+
+// ===========================================================================
+// PLATFORM-086H3B-REPAIR-PRESENCE-H1-AUDIT
+// ===========================================================================
+
+const reset = async () => {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+};
+const inspect = async () => (await inspectRevisionState(ID)) as RevisionInspection;
+const present = (value: unknown): DurableRead => ({ present: true, value });
+
+// === (1) Durable row presence: absent vs present-null is never collapsed ===
+
+test('presence: absent vs present-null is distinct (digest + CAS) for every repair-state row', async () => {
+  const categories: Array<[string, string, string, boolean]> = [
+    ['partition', 'game-stats', KEY, true],
+    ['ledger', GAME_STATS_REVISION_SCOPE, KEY, false],
+    ['status', 'provider-refresh-status', STATUS_KEY, false],
+    ['activation', ACTIVATION_SCOPE, 'global', false],
+    ['witness', ACTIVATION_SCOPE, 'revisioned-evidence-witness', false],
+    ['recovery', RECOVERY_DISPOSITION_SCOPE, KEY, false],
+    ['audit', AUDIT_SCOPE, KEY, false],
+  ];
+  for (const [label, scope, key, isPartition] of categories) {
+    // ABSENT baseline (a valid partition present unless the partition IS the category).
+    await reset();
+    if (!isPartition)
+      await setAppState('game-stats', KEY, partitionWith({ lineage: 'L', revision: 3 }));
+    const absentDigest = (await inspect()).expectedStateDigest;
+    // PRESENT-NULL: the same state, but this one row present with a JSON-null value.
+    await setAppState(scope, key, null);
+    const presentNullDigest = (await inspect()).expectedStateDigest;
+    assert.notEqual(absentDigest, presentNullDigest, `${label}: absent vs present-null digest`);
+    // CAS: a repair authorized at the absent digest refuses once present-null exists.
+    const r = await repairRevisionState(
+      req({ kind: 'establish-new-lineage' }, absentDigest, {
+        dryRun: false,
+        acknowledgeEvidenceLoss: true,
+      })
+    );
+    assert.equal(r.ok, false, label);
+    if (!r.ok) assert.equal(r.code, 'revision-repair-state-changed', `${label}: CAS`);
+  }
+});
+
+test('presence: present-null PARTITION evidence is malformed, not absent', async () => {
+  await reset();
+  await setAppState('game-stats', KEY, null); // present row, JSON-null value
+  const insp = await inspect();
+  assert.equal(insp.state.partition.present, true, 'present-null partition is PRESENT');
+  const r = await repairRevisionState(
+    req({ kind: 'rebuild-ledger' }, insp.expectedStateDigest, { dryRun: false })
+  );
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.code, 'revision-repair-evidence-malformed');
+  // Classifier: present-null → malformed; genuinely absent → absent.
+  assert.equal(classifyRepairEvidence(present(null), ID), 'malformed');
+  assert.equal(classifyRepairEvidence({ present: false }, ID), 'absent');
+});
+
+test('presence: present-null LEDGER is an ambiguous marker, not "no ledger"', async () => {
+  await reset();
+  await setAppState('game-stats', KEY, partitionWith(undefined));
+  await setAppState(GAME_STATS_REVISION_SCOPE, KEY, null); // present-null ledger
+  const withNull = await inspect();
+  assert.equal(withNull.state.ledgerMarkerPresent, true, 'present-null ledger is a marker');
+  assert.equal(withNull.state.ledger, null);
+  // Genuinely absent ledger is NOT a marker (new-lineage init remains possible).
+  await reset();
+  await setAppState('game-stats', KEY, partitionWith(undefined));
+  const absent = await inspect();
+  assert.equal(absent.state.ledgerMarkerPresent, false);
+  // The present-null marker changes the digest vs absent.
+  assert.notEqual(withNull.expectedStateDigest, absent.expectedStateDigest);
+});
+
+test('presence: present-null AUDIT is unavailable, never an empty history', async () => {
+  await reset();
+  await setAppState('game-stats', KEY, partitionWith(undefined));
+  await setAppState(AUDIT_SCOPE, KEY, null); // present-null audit row
+  assert.deepEqual(await readRevisionAuditTrail(ID), { state: 'unavailable' });
+});
+
+// === (2) Evidence certified through the H1 durable contract ===
+
+test('evidence certification defers to the H1 contract (per-row parity)', async () => {
+  const env = (row: unknown, stamp?: CommitStamp): DurableRead =>
+    present({ ...ID, fetchedAt: T0, games: [row], ...(stamp ? { commitStamp: stamp } : {}) });
+  const H1_ACCEPTED = new Set(['legacy-compatible', 'legacy-statless', 'v2-complete', 'v2-sparse']);
+  const legacy = evidenceRow();
+  const samples: Array<[string, unknown]> = [
+    ['legacy-compatible (positive game id)', legacy],
+    ['zero provider game id', { ...legacy, providerGameId: 0 }],
+    ['negative provider game id', { ...legacy, providerGameId: -1 }],
+    ['fractional provider game id', { ...legacy, providerGameId: 1.5 }],
+    ['unsupported schema version', { ...legacy, schemaVersion: 3 }],
+    ['malformed schema version', { ...legacy, schemaVersion: 'nope' }],
+    ['blank home school', { ...legacy, home: { ...legacy.home, school: '' } }],
+    ['malformed nested statistics', { ...legacy, home: { ...legacy.home, raw: 'not-an-object' } }],
+  ];
+  for (const [label, row] of samples) {
+    const cls = classifyRepairEvidence(env(row), ID);
+    const repairAccepts = cls === 'recognized-legacy' || cls === 'valid-revision-era';
+    const h1State = classifyGameStatsRow(row).state;
+    const h1Accepts = H1_ACCEPTED.has(h1State);
+    assert.equal(repairAccepts, h1Accepts, `${label}: repair=${cls} h1=${h1State}`);
+  }
+  // Recognized legacy vs valid revision-era envelope (accepted, distinct classes).
+  assert.equal(classifyRepairEvidence(env(legacy), ID), 'recognized-legacy');
+  assert.equal(
+    classifyRepairEvidence(env(legacy, { lineage: 'L', revision: 3 }), ID),
+    'valid-revision-era'
+  );
+});
+
+test('evidence: strict canonical fetchedAt (round-trip), not merely Date.parse-finite', async () => {
+  const env = (fetchedAt: unknown): DurableRead =>
+    present({ ...ID, fetchedAt, games: [evidenceRow()] });
+  assert.equal(classifyRepairEvidence(env(T0), ID), 'recognized-legacy'); // canonical
+  for (const bad of [
+    '2024-13-45T00:00:00.000Z', // calendar-invalid (Date.parse handles, still rejected)
+    '2024-10-06', // noncanonical date-only
+    '2024-10-06T00:00:00.000+05:00', // noncanonical offset (not UTC round-trip)
+    '2024-10-06T00:00:00Z', // missing milliseconds
+    12345, // non-string
+    '', // empty
+  ]) {
+    assert.equal(classifyRepairEvidence(env(bad), ID), 'malformed', String(bad));
+  }
+});
+
+test('evidence: row week/season-type must not contradict the partition; mixed rows taint the envelope', async () => {
+  const good = evidenceRow();
+  const weekMismatch = { ...good, week: 99 };
+  const seasonMismatch = { ...good, seasonType: 'postseason' };
+  assert.equal(
+    classifyRepairEvidence(present({ ...ID, fetchedAt: T0, games: [weekMismatch] }), ID),
+    'malformed'
+  );
+  assert.equal(
+    classifyRepairEvidence(present({ ...ID, fetchedAt: T0, games: [seasonMismatch] }), ID),
+    'malformed'
+  );
+  // A single withheld/malformed row taints the whole envelope (no partial accept).
+  assert.equal(
+    classifyRepairEvidence(present({ ...ID, fetchedAt: T0, games: [good, {}] }), ID),
+    'malformed'
+  );
+});
+
+test('evidence: repair refuses everything H1 withholds/rejects (parity through the public API)', async () => {
+  // A v2-schema row with no persistable evidence is withheld by H1 → repair refuses.
+  await reset();
+  await setAppState('game-stats', KEY, {
+    ...ID,
+    fetchedAt: T0,
+    games: [{ ...evidenceRow(), schemaVersion: 3 }], // unsupported-version → withheld
+    commitStamp: { lineage: 'L', revision: 3 },
+  });
+  const d = await digest();
+  const r = await repairRevisionState(
+    req({ kind: 'adopt-lineage', lineage: 'L', floor: 3 }, d, {
+      dryRun: false,
+      acknowledgeLineageConflict: true,
+      acknowledgeEvidenceLoss: true,
+    })
+  );
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.code, 'revision-repair-evidence-malformed');
+});
+
+// === (3) Nested audit reconstruction through an exact allowlist ===
+
+const AUDIT_LEDGER = {
+  schemaVersion: 1 as const,
+  ...ID,
+  lineage: 'L',
+  revision: 3,
+  initializedFrom: 'repair' as const,
+  initializedAt: T0,
+  repairAuditRef: 'ref-1',
+};
+const auditEntry = (over: Record<string, unknown> = {}) => ({
+  schemaVersion: 1,
+  auditRef: 'a1',
+  actor: ACTOR,
+  at: T0,
+  reason: 'operator recovery',
+  beforeDigest: 'd-before',
+  action: { kind: 'adopt-lineage', lineage: 'L', floor: 3 },
+  afterState: {
+    ledger: AUDIT_LEDGER,
+    committedStamp: { lineage: 'L', revision: 3 },
+    partitionStamp: null,
+  },
+  ...over,
+});
+const afterStateWith = (over: Record<string, unknown>) => ({
+  afterState: {
+    ledger: AUDIT_LEDGER,
+    committedStamp: { lineage: 'L', revision: 3 },
+    partitionStamp: null,
+    ...over,
+  },
+});
+const seedAudit = async (dataset: unknown) => {
+  await reset();
+  await setAppState(AUDIT_SCOPE, KEY, dataset);
+  return readRevisionAuditTrail(ID);
+};
+
+test('nested audit: valid minimal and full entries are available; order preserved', async () => {
+  assert.equal(
+    (await seedAudit([auditEntry({ action: { kind: 'rebuild-ledger' } })])).state,
+    'available'
+  );
+  const full = await seedAudit([
+    auditEntry({
+      supersededLineage: 'old-lineage',
+      survivingHighWater: { lineage: 'L', highWater: 3, sources: ['ledger', 'status'] },
+    }),
+  ]);
+  assert.equal(full.state, 'available');
+  const ordered = await seedAudit([
+    auditEntry({ auditRef: 'first' }),
+    auditEntry({ auditRef: 'second' }),
+  ]);
+  assert.equal(ordered.state, 'available');
+  if (ordered.state === 'available') {
+    assert.deepEqual(
+      ordered.entries.map((e) => e.auditRef),
+      ['first', 'second']
+    );
+  }
+});
+
+test('nested audit: any unexpected or malformed nested field makes the WHOLE dataset unavailable', async () => {
+  const cases: Array<[string, unknown]> = [
+    [
+      'extra key under afterState.ledger',
+      [auditEntry(afterStateWith({ ledger: { ...AUDIT_LEDGER, secret: 'x' } }))],
+    ],
+    [
+      'extra key in commit stamp',
+      [auditEntry(afterStateWith({ committedStamp: { lineage: 'L', revision: 3, evil: 1 } }))],
+    ],
+    [
+      'malformed nested revision',
+      [auditEntry(afterStateWith({ ledger: { ...AUDIT_LEDGER, revision: 0 } }))],
+    ],
+    [
+      'malformed nested lineage',
+      [auditEntry(afterStateWith({ ledger: { ...AUDIT_LEDGER, lineage: '' } }))],
+    ],
+    [
+      'unsupported nested schema version',
+      [auditEntry(afterStateWith({ ledger: { ...AUDIT_LEDGER, schemaVersion: 2 } }))],
+    ],
+    ['unexpected top-level field', [auditEntry({ injectedSql: "'; DROP TABLE app_state; --" })]],
+    [
+      'extra key in afterState',
+      [auditEntry({ afterState: { ...auditEntry().afterState, extra: 1 } })],
+    ],
+    [
+      'extra key in survivingHighWater',
+      [auditEntry({ survivingHighWater: { lineage: 'L', highWater: 3, sources: [], leak: 1 } })],
+    ],
+    ['extra key in action', [auditEntry({ action: { kind: 'rebuild-ledger', extra: 1 } })]],
+    [
+      'one valid plus one nested-malformed',
+      [auditEntry(), auditEntry(afterStateWith({ ledger: { ...AUDIT_LEDGER, secret: 'x' } }))],
+    ],
+  ];
+  for (const [label, dataset] of cases) {
+    assert.equal((await seedAudit(dataset)).state, 'unavailable', label);
+  }
+});
+
+test('nested audit: recognizable secret text in a nested field never reaches the response', async () => {
+  const SECRET = 'postgres://user:SUPERSECRETPW@db.internal/prod';
+  const read = await seedAudit([
+    auditEntry(afterStateWith({ ledger: { ...AUDIT_LEDGER, connectionString: SECRET } })),
+  ]);
+  assert.equal(read.state, 'unavailable'); // corrupted history is never trusted
+  assert.ok(!JSON.stringify(read).includes('SUPERSECRETPW'), 'secret never surfaces in the read');
+});
+
+test('nested audit: rebuilt objects never share identity with the raw stored objects', async () => {
+  // Validated IN-MEMORY (no serialization round-trip), so a shared reference would survive.
+  const rawAfterState = {
+    ledger: { ...AUDIT_LEDGER },
+    committedStamp: { lineage: 'L', revision: 3 },
+    partitionStamp: null,
+  };
+  const rawAction = { kind: 'adopt-lineage', lineage: 'L', floor: 3 };
+  const raw = { ...auditEntry(), afterState: rawAfterState, action: rawAction };
+  const rebuilt = validateAuditEntry(raw);
+  assert.ok(rebuilt, 'entry validates');
+  if (rebuilt) {
+    assert.notEqual(rebuilt.afterState, rawAfterState, 'afterState rebuilt fresh');
+    assert.notEqual(rebuilt.afterState.ledger, rawAfterState.ledger, 'ledger rebuilt fresh');
+    assert.notEqual(
+      rebuilt.afterState.committedStamp,
+      rawAfterState.committedStamp,
+      'commit stamp rebuilt fresh'
+    );
+    assert.notEqual(rebuilt.action, rawAction, 'action rebuilt fresh');
+    assert.deepEqual(rebuilt.action, { kind: 'adopt-lineage', lineage: 'L', floor: 3 });
+  }
 });

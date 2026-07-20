@@ -210,14 +210,30 @@ commit-stamp **metadata** (rows untouched). Every applied repair appends an audi
 record (actor, time, reason, before digest, action, safe after state) and stamps
 the ledger with the audit reference.
 
-**Evidence certification (PLATFORM-086H3B-REPAIR-STRUCTURE-CAS-AUDIT).** Before any
-action, a bounded runtime classifier (aligned with the revision authority)
-certifies the full envelope: exact identity, a valid `fetchedAt`, a `games` array
-in which **every** row satisfies the bounded durable game-stat contract (game +
-participant identity, well-formed stat containers), and a valid `commitStamp` if
-present. A malformed timestamp or game row (or a mixed valid/invalid `games`
-array) is a hard `revision-repair-evidence-malformed` refusal that **no
-acknowledgement can override**.
+**Evidence certification through the H1 contract (PLATFORM-086H3B-REPAIR-PRESENCE-H1-AUDIT).**
+Before any action, repair certifies the full envelope against the **actual shipped
+H1 durable contract** — not a second, weaker row contract. Each `games` row is
+classified by H1's `classifyGameStatsRow`: repair accepts only rows H1 recognizes as
+valid durable evidence (`legacy-compatible`/`legacy-statless`/`v2-complete`/`v2-sparse`)
+and refuses anything H1 would **withhold** (`non-persistable-*`, `unsupported-version`,
+`legacy-normalized-mismatch`) or **reject/treat-as-malformed** (`unaddressable`,
+`unusable-identity`, `malformed-v2`, `legacy-malformed`). Envelope concerns H1 does
+not own are layered on: exact partition identity, a **canonical (round-tripping)**
+`fetchedAt` (`Date.parse`-finite is not enough), per-row `week`/`seasonType`
+consistency with the partition, and a valid `commitStamp` if present. Any withheld
+or malformed row, a mixed valid/invalid `games` array, or a **present JSON-null**
+partition is a hard `revision-repair-evidence-malformed` refusal that **no
+acknowledgement can override**. Repair never rewrites, normalizes, or fabricates
+evidence to make it pass.
+
+**Durable row presence (PLATFORM-086H3B-REPAIR-PRESENCE-H1-AUDIT).** Every durable
+row repair inspects or hashes is read PRESENCE-AWARE (a `DurableRead` built before
+`.value`), so a **present JSON-null row is never collapsed into absence**. Absent /
+present-null / present-valid / present-malformed produce DIFFERENT CAS digests; a
+present-null partition is malformed (not absent); a present-invalid ledger (incl.
+JSON-null) is an ambiguous marker that blocks new-lineage init; a present-null audit
+row is `unavailable`; and an absent↔present-null change between inspection and apply
+is caught as `revision-repair-state-changed`.
 
 Lock order is
 **`E(P) exclusive → activation-control EXCLUSIVE → S(P) exclusive → C(P) exclusive`**,
@@ -230,13 +246,19 @@ concurrent activation transition — nor any partition's first revisioned commit
 touching the global witness — can mutate those inputs inside the CAS window; a
 completed change is caught as `revision-repair-state-changed`.
 
-**Audit history is validated entry-by-entry.** `readRevisionAuditTrail` returns
-`available` only when the dataset is a valid array in which every entry passes
-validation (versioned, allowlisted fields only, order preserved); a non-array, any
-malformed entry, any unapproved/extra field, or a read failure is `unavailable`
-(never silently dropped, never exposing arbitrary stored content). A malformed
-audit history is **never trusted or appended to** — planning and apply refuse with
-`revision-repair-audit-unavailable`.
+**Audit history is validated + REBUILT entry-by-entry.** `readRevisionAuditTrail`
+returns `available` only when the dataset is a valid array in which every entry
+passes validation (versioned, allowlisted fields only, order preserved). Every
+NESTED object an entry carries — the revision ledger, both commit stamps, the
+action, the after-state, and the surviving-high-water — is **reconstructed
+field-by-field against an exact allowlist** (a raw stored object is never retained
+by reference; a returned commit stamp is exactly `{ lineage, revision }`). Any
+unexpected or malformed field — top-level OR nested — makes the WHOLE dataset
+`unavailable` (never silently stripped while treating corrupted history as
+authoritative), so a non-array, a malformed/extra field, a nested secret, or a read
+failure is `unavailable` and **arbitrary stored content can never reach the route
+response**. A malformed audit history is **never trusted or appended to** — planning
+and apply refuse with `revision-repair-audit-unavailable`.
 
 ## 5. Activation states & the fence
 

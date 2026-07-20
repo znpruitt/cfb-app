@@ -4,6 +4,7 @@ import type { CfbdSeasonType } from '../cfbd.ts';
 import { providerRefreshScopeKey, weekPartitionScope } from '../providerRefreshScope.ts';
 import { withAppStateKeyTransaction } from '../server/appStateStore.ts';
 import { getGameStatsKey } from './cache.ts';
+import { classifyGameStatsRow, type GameStatsRowClassificationState } from './contract.ts';
 import {
   classifyPartitionStamp,
   GAME_STATS_REVISION_SCOPE,
@@ -213,6 +214,33 @@ export type RevisionRepairResult =
     }
   | { ok: false; code: RevisionRepairRefusal; detail: string };
 
+// === Presence-aware durable reads (PLATFORM-086H3B-REPAIR-PRESENCE-H1-AUDIT) ===
+//
+// A durable row's PRESENCE is preserved SEPARATELY from its decoded value, so a
+// PRESENT row whose JSON value is `null` (or otherwise malformed) is NEVER
+// mistaken for an ABSENT row. Every repair-state read is built from the raw
+// transaction record (`{ value } | null`) BEFORE reading `.value` — never via
+// `row?.value ?? null`, which collapses present-null into absence and would hash
+// identically, mask malformed presence, and let a CAS miss an absent↔present-null
+// change.
+
+/** A durable read that keeps row presence separate from its (possibly-null) value. */
+export type DurableRead = { present: false } | { present: true; value: unknown };
+
+/** Build a `DurableRead` from a raw transaction/store record (never `?? null`). */
+function toDurableRead(row: { value: unknown } | null | undefined): DurableRead {
+  return row ? { present: true, value: row.value } : { present: false };
+}
+
+/** The decoded value when present, else `null` (for decoders that treat both alike). */
+function presentValue(read: DurableRead): unknown {
+  return read.present ? read.value : null;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 // === Versioned CAS digest over the COMPLETE inspected durable state ===
 
 /**
@@ -239,25 +267,32 @@ function canonicalize(value: unknown): unknown {
   return value;
 }
 
-/** The complete durable state the CAS digest binds (raw values, never exposed). */
+/**
+ * The complete durable state the CAS digest binds (raw values, never exposed).
+ * Every row is a PRESENCE-AWARE `DurableRead`, so `absent` (`{present:false}`),
+ * `present-null` (`{present:true,value:null}`), `present-valid`, and
+ * `present-malformed` all produce DIFFERENT digests — an absent↔present-null
+ * change between inspection and apply is caught as `revision-repair-state-changed`.
+ */
 type DigestInput = {
   identity: PartitionIdentity;
-  partition: unknown; // full weekly envelope + every game row + fetchedAt + commitStamp
-  ledger: unknown; // raw revision ledger row
-  status: unknown; // full committed status + attempt state
-  activation: unknown; // activation-control record
-  witness: unknown; // irreversible revision-history witness
-  recovery: unknown; // recovery-disposition (incl. active claim token/owner/expiry)
-  audit: unknown; // repair history used by the planner
+  partition: DurableRead; // full weekly envelope + every game row + fetchedAt + commitStamp
+  ledger: DurableRead; // raw revision ledger row
+  status: DurableRead; // full committed status + attempt state
+  activation: DurableRead; // activation-control record
+  witness: DurableRead; // irreversible revision-history witness
+  recovery: DurableRead; // recovery-disposition (incl. active claim token/owner/expiry)
+  audit: DurableRead; // repair history used by the planner
 };
 
 /**
  * A versioned, canonical, cryptographic digest of the COMPLETE inspected durable
  * state (PLATFORM-086H3B-REPAIR-SAFETY-DOCS). Every material change — a game
  * identifier/participant/statistic, `fetchedAt`, evidence metadata, the commit
- * stamp, the ledger, committed status, activation/witness state, or a
- * recovery-claim token/expiration — changes the digest; equivalent objects with
- * different key order do not. The evidence is HASHED, never embedded.
+ * stamp, the ledger, committed status, activation/witness state, a recovery-claim
+ * token/expiration, OR a row's mere PRESENCE (absent vs present-null) — changes the
+ * digest; equivalent objects with different key order do not. Evidence is HASHED,
+ * never embedded.
  */
 function computeStateDigest(input: DigestInput): string {
   const json = JSON.stringify(canonicalize({ v: STATE_DIGEST_VERSION, ...input }));
@@ -290,73 +325,115 @@ function recoveryClaimActive(value: unknown, nowMs: number): boolean {
   return Number.isFinite(ms) && ms > nowMs;
 }
 
-// === Bounded repair evidence classifier (PLATFORM-086H3B-REPAIR-STRUCTURE-CAS-AUDIT) ===
-
-/** A weekly envelope `fetchedAt` must be a non-empty parseable timestamp string. */
-function isValidEnvelopeFetchedAt(value: unknown): boolean {
-  return typeof value === 'string' && value.length > 0 && Number.isFinite(Date.parse(value));
-}
+// === Repair evidence certification via the actual H1 durable contract ===
+//
+// PLATFORM-086H3B-REPAIR-PRESENCE-H1-AUDIT: repair no longer maintains its own
+// (weaker, independently evolving) game-row contract. Per-row validity is decided
+// by H1's `classifyGameStatsRow` (the shipped durable classifier), so repair
+// accepts ONLY evidence H1 recognizes as a valid durable weekly partition and
+// refuses everything H1 would withhold, reject, or treat as malformed. Envelope
+// concerns H1 does not own (exact partition identity, canonical `fetchedAt`,
+// per-row partition consistency, the legacy/revision-era stamp) are layered on
+// top — never a second row contract. This aligns with the CURRENTLY SHIPPED H1
+// contract only (not C's future canonical evidence model).
 
 /**
- * A bounded structural check for ONE durable game-stat row — sufficient to prove
- * it is SAFE repair evidence (a valid game identity + participant identity +
- * well-formed stat containers). Deliberately structural (not the full C canonical
- * authority): it rejects rows the ordinary/future evidence authority could not
- * safely consume, without re-deriving analytics eligibility.
+ * H1 row states that are ACCEPTABLE durable evidence for repair: recognized legacy
+ * rows (compatible or legitimately statless) and persistable revision-era rows
+ * (complete or sparse). Any other H1 state is withheld/unsupported or malformed.
  */
-function isSafeRepairGameRow(row: unknown): boolean {
-  if (typeof row !== 'object' || row === null || Array.isArray(row)) return false;
-  const r = row as Record<string, unknown>;
-  // Game identity.
-  if (typeof r.providerGameId !== 'number' || !Number.isSafeInteger(r.providerGameId)) return false;
-  for (const side of ['home', 'away'] as const) {
-    const team = r[side];
-    if (typeof team !== 'object' || team === null || Array.isArray(team)) return false;
-    const t = team as Record<string, unknown>;
-    // Participant identity.
-    if (typeof t.school !== 'string' || t.school.length === 0) return false;
-    if (typeof t.schoolId !== 'number' || !Number.isFinite(t.schoolId)) return false;
-    // Statistics container (when present) must be a plain object.
-    if ('raw' in t && (typeof t.raw !== 'object' || t.raw === null || Array.isArray(t.raw))) {
-      return false;
-    }
+const H1_ACCEPTED_ROW_STATES: ReadonlySet<GameStatsRowClassificationState> = new Set([
+  'legacy-compatible',
+  'legacy-statless',
+  'v2-complete',
+  'v2-sparse',
+]);
+/** H1 states H1 would WITHHOLD (structurally recognizable but not valid durable evidence). */
+const H1_WITHHELD_ROW_STATES: ReadonlySet<GameStatsRowClassificationState> = new Set([
+  'non-persistable-empty',
+  'non-persistable-unknown-only',
+  'non-persistable-malformed-only',
+  'non-persistable-one-sided',
+  'unsupported-version',
+  'legacy-normalized-mismatch',
+]);
+
+/**
+ * A weekly envelope `fetchedAt` must be a CANONICAL timestamp — the exact form the
+ * durable writer emits (`new Date().toISOString()`). Round-trip equality rejects a
+ * non-string, a calendar-invalid value, and any noncanonical form (`Date.parse`
+ * finiteness alone would accept a date-only or offset form the contract excludes).
+ */
+function isCanonicalTimestamp(value: unknown): boolean {
+  if (typeof value !== 'string' || value.length === 0) return false;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+  return parsed.toISOString() === value;
+}
+
+type RepairRowClass = 'accepted' | 'withheld' | 'malformed';
+
+/** Classify ONE durable game row against H1 + this partition's identity. */
+function classifyDurableEvidenceRow(row: unknown, id: PartitionIdentity): RepairRowClass {
+  // Row partition identity must not contradict the containing partition (H1's row
+  // classifier is partition-agnostic; the durable writer stamps week/seasonType).
+  if (isPlainObject(row)) {
+    if ('week' in row && row.week !== id.week) return 'malformed';
+    if ('seasonType' in row && row.seasonType !== id.seasonType) return 'malformed';
   }
-  return true;
+  const state = classifyGameStatsRow(row).state;
+  if (H1_ACCEPTED_ROW_STATES.has(state)) return 'accepted';
+  if (H1_WITHHELD_ROW_STATES.has(state)) return 'withheld';
+  return 'malformed';
 }
 
 export type RepairEvidenceClass =
   | 'absent'
   | 'recognized-legacy'
   | 'valid-revision-era'
+  | 'withheld'
   | 'malformed';
 
 /**
- * The ONE bounded runtime evidence classifier for repair — behaviorally aligned
- * to the ordinary revision authority (it reuses `classifyPartitionStamp` for the
- * stamp/legacy/revision-era distinction) and adds full envelope certification.
- * Distinguishes `absent` / `recognized-legacy` / `valid-revision-era` /
- * `malformed`; only `malformed` is a hard refusal.
+ * The ONE repair evidence classifier, decided by the H1 durable contract. Only a
+ * genuinely ABSENT row is `absent`; a PRESENT row whose value is JSON `null`, a
+ * non-object, an array, or fails identity/`fetchedAt`/row/stamp validation is
+ * `malformed`; a present envelope whose every row H1 accepts is `recognized-legacy`
+ * or `valid-revision-era` by the shared stamp classifier; and evidence H1 would
+ * merely withhold (any row H1 will not persist) is `withheld`. `withheld` and
+ * `malformed` are BOTH hard repair refusals (`revision-repair-evidence-malformed`).
  */
-function classifyRepairEvidence(existingRaw: unknown, id: PartitionIdentity): RepairEvidenceClass {
-  if (existingRaw === null || existingRaw === undefined) return 'absent';
-  if (typeof existingRaw !== 'object' || Array.isArray(existingRaw)) return 'malformed';
-  const env = existingRaw as Record<string, unknown>;
+export function classifyRepairEvidence(
+  read: DurableRead,
+  id: PartitionIdentity
+): RepairEvidenceClass {
+  if (!read.present) return 'absent';
+  const value = read.value;
+  // Present JSON-null (or any non-object / array) evidence is MALFORMED, not absent.
+  if (!isPlainObject(value)) return 'malformed';
+  const env = value;
   // Exact partition identity.
   if (env.year !== id.year || env.week !== id.week || env.seasonType !== id.seasonType) {
     return 'malformed';
   }
-  // `fetchedAt` under the production envelope contract.
-  if (!isValidEnvelopeFetchedAt(env.fetchedAt)) return 'malformed';
-  // `games` array with every row structurally safe (a mixed valid/invalid array
-  // is malformed — no partial acceptance).
+  // `fetchedAt` under the canonical (round-tripping) production contract.
+  if (!isCanonicalTimestamp(env.fetchedAt)) return 'malformed';
+  // `games` must be an array; every row is classified by H1. A single withheld or
+  // malformed row taints the whole envelope (no partial acceptance).
   if (!Array.isArray(env.games)) return 'malformed';
-  if (!env.games.every(isSafeRepairGameRow)) return 'malformed';
+  let sawWithheld = false;
+  for (const row of env.games) {
+    const rowClass = classifyDurableEvidenceRow(row, id);
+    if (rowClass === 'malformed') return 'malformed';
+    if (rowClass === 'withheld') sawWithheld = true;
+  }
   // Present-but-invalid commit stamp is malformed.
   if (Object.prototype.hasOwnProperty.call(env, 'commitStamp') && !isCommitStamp(env.commitStamp)) {
     return 'malformed';
   }
+  if (sawWithheld) return 'withheld';
   // Stamp/legacy/revision-era classification (shared with the revision authority).
-  switch (classifyPartitionStamp(existingRaw as WeeklyGameStats).kind) {
+  switch (classifyPartitionStamp(env as WeeklyGameStats).kind) {
     case 'valid':
       return 'valid-revision-era';
     case 'legacy':
@@ -367,9 +444,14 @@ function classifyRepairEvidence(existingRaw: unknown, id: PartitionIdentity): Re
   }
 }
 
-/** Whether the durable evidence is safe for repair (only `malformed` refuses). */
-function certifyEvidence(existingRaw: unknown, id: PartitionIdentity): boolean {
-  return classifyRepairEvidence(existingRaw, id) !== 'malformed';
+/**
+ * Whether the durable evidence is safe for repair: `absent` (a genuinely new
+ * scope), `recognized-legacy`, or `valid-revision-era` certify; `withheld` and
+ * `malformed` are BOTH refused (`revision-repair-evidence-malformed`).
+ */
+function certifyEvidence(read: DurableRead, id: PartitionIdentity): boolean {
+  const cls = classifyRepairEvidence(read, id);
+  return cls !== 'malformed' && cls !== 'withheld';
 }
 
 // === Audit history validation + allowlist (PLATFORM-086H3B-REPAIR-STRUCTURE-CAS-AUDIT) ===
@@ -392,66 +474,135 @@ const AUDIT_ACTION_KEYS: Record<string, ReadonlySet<string>> = {
   'establish-new-lineage': new Set(['kind', 'floor']),
 };
 
+const LEDGER_ALLOWED_KEYS: ReadonlySet<string> = new Set([
+  'schemaVersion',
+  'year',
+  'week',
+  'seasonType',
+  'lineage',
+  'revision',
+  'initializedFrom',
+  'initializedAt',
+  'repairAuditRef',
+]);
+const STAMP_ALLOWED_KEYS: ReadonlySet<string> = new Set(['lineage', 'revision']);
+const AFTER_STATE_ALLOWED_KEYS: ReadonlySet<string> = new Set([
+  'ledger',
+  'committedStamp',
+  'partitionStamp',
+]);
+const HIGH_WATER_ALLOWED_KEYS: ReadonlySet<string> = new Set(['lineage', 'highWater', 'sources']);
+
 function onlyAllowedKeys(obj: Record<string, unknown>, allowed: ReadonlySet<string>): boolean {
   return Object.keys(obj).every((k) => allowed.has(k));
 }
-function isSafeStampOrNull(value: unknown): boolean {
-  return value === null || isCommitStamp(value);
+
+/**
+ * PLATFORM-086H3B-REPAIR-PRESENCE-H1-AUDIT: every nested object returned from a
+ * stored audit entry is REBUILT field-by-field from validated primitives against
+ * an EXACT allowlist — a raw stored object is NEVER retained by reference, and any
+ * unexpected nested key fails validation (whole dataset `unavailable`) rather than
+ * being silently stripped while the corrupted history is still treated as
+ * authoritative.
+ */
+
+/** Freshly reconstruct a commit stamp as EXACTLY `{ lineage, revision }`, or null. */
+function rebuildCommitStamp(value: unknown): CommitStamp | null {
+  if (!isPlainObject(value)) return null;
+  if (!onlyAllowedKeys(value, STAMP_ALLOWED_KEYS)) return null; // reject any extra field
+  if (!isCommitStamp(value)) return null;
+  return { lineage: value.lineage as string, revision: value.revision as number };
+}
+/** A nullable commit-stamp field: `{ok,value}` (null passes) or `{ok:false}` on malformed. */
+function rebuildStampOrNull(
+  value: unknown
+): { ok: true; value: CommitStamp | null } | { ok: false } {
+  if (value === null) return { ok: true, value: null };
+  const stamp = rebuildCommitStamp(value);
+  return stamp ? { ok: true, value: stamp } : { ok: false };
 }
 
-function isValidAuditAction(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const a = value as Record<string, unknown>;
-  const allowed = typeof a.kind === 'string' ? AUDIT_ACTION_KEYS[a.kind] : undefined;
-  if (!allowed || !onlyAllowedKeys(a, allowed)) return false;
-  if (a.kind === 'adopt-lineage') {
-    return (
-      typeof a.lineage === 'string' &&
-      a.lineage.length > 0 &&
-      typeof a.floor === 'number' &&
-      Number.isSafeInteger(a.floor)
-    );
+/** Freshly reconstruct the nested revision ledger against its exact allowlist. */
+function rebuildAuditLedger(value: unknown): RevisionLedgerRecord | null {
+  if (!isPlainObject(value)) return null;
+  if (!onlyAllowedKeys(value, LEDGER_ALLOWED_KEYS)) return null; // reject any unexpected key
+  const { year, week, seasonType } = value;
+  if (typeof year !== 'number' || !Number.isSafeInteger(year)) return null;
+  if (typeof week !== 'number' || !Number.isSafeInteger(week)) return null;
+  if (seasonType !== 'regular' && seasonType !== 'postseason') return null;
+  // `validateLedgerRecord` validates schemaVersion/revision/lineage/initializedFrom
+  // and REBUILDS a fresh record with only the durable ledger fields (no reference
+  // retention); the ledger's own identity serves as the self-identity here.
+  return validateLedgerRecord(value, { year, week, seasonType });
+}
+
+/** Freshly reconstruct the nested `afterState`, or null when any field is invalid. */
+function rebuildAuditAfterState(value: unknown): RevisionRepairAuditEntry['afterState'] | null {
+  if (!isPlainObject(value)) return null;
+  if (!onlyAllowedKeys(value, AFTER_STATE_ALLOWED_KEYS)) return null;
+  const ledger = rebuildAuditLedger(value.ledger);
+  if (!ledger) return null;
+  const committed = rebuildStampOrNull(value.committedStamp);
+  if (!committed.ok) return null;
+  const partition = rebuildStampOrNull(value.partitionStamp);
+  if (!partition.ok) return null;
+  return { ledger, committedStamp: committed.value, partitionStamp: partition.value };
+}
+
+/** Freshly reconstruct the audit action per kind, or null. */
+function rebuildAuditAction(value: unknown): RevisionRepairAction | null {
+  if (!isPlainObject(value)) return null;
+  const allowed = typeof value.kind === 'string' ? AUDIT_ACTION_KEYS[value.kind] : undefined;
+  if (!allowed || !onlyAllowedKeys(value, allowed)) return null;
+  if (value.kind === 'rebuild-ledger') return { kind: 'rebuild-ledger' };
+  if (value.kind === 'adopt-lineage') {
+    if (typeof value.lineage !== 'string' || value.lineage.length === 0) return null;
+    if (typeof value.floor !== 'number' || !Number.isSafeInteger(value.floor)) return null;
+    return { kind: 'adopt-lineage', lineage: value.lineage, floor: value.floor };
   }
-  if (a.kind === 'establish-new-lineage') {
-    return !('floor' in a) || (typeof a.floor === 'number' && Number.isSafeInteger(a.floor));
+  if (value.kind === 'establish-new-lineage') {
+    if ('floor' in value) {
+      if (typeof value.floor !== 'number' || !Number.isSafeInteger(value.floor)) return null;
+      return { kind: 'establish-new-lineage', floor: value.floor };
+    }
+    return { kind: 'establish-new-lineage' };
   }
-  return a.kind === 'rebuild-ledger';
+  return null;
 }
 
-function isValidAuditAfterState(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
-  const s = value as Record<string, unknown>;
-  if (!onlyAllowedKeys(s, new Set(['ledger', 'committedStamp', 'partitionStamp']))) return false;
-  const led = s.ledger;
-  if (typeof led !== 'object' || led === null || Array.isArray(led)) return false;
-  const l = led as Record<string, unknown>;
-  if (l.schemaVersion !== 1 || !isValidRevision(l.revision)) return false;
-  if (typeof l.lineage !== 'string' || l.lineage.length === 0) return false;
-  return isSafeStampOrNull(s.committedStamp) && isSafeStampOrNull(s.partitionStamp);
-}
-
-function isValidSurvivingHighWater(value: unknown): boolean {
-  if (value === null || value === undefined) return true;
-  if (typeof value !== 'object' || Array.isArray(value)) return false;
-  const h = value as Record<string, unknown>;
-  if (!onlyAllowedKeys(h, new Set(['lineage', 'highWater', 'sources']))) return false;
-  return (
-    typeof h.lineage === 'string' &&
-    typeof h.highWater === 'number' &&
-    Number.isSafeInteger(h.highWater) &&
-    Array.isArray(h.sources) &&
-    h.sources.every((x) => typeof x === 'string')
-  );
+/** A nullable surviving-high-water field: `{ok,value}` (null passes) or `{ok:false}`. */
+function rebuildSurvivingHighWater(
+  value: unknown
+): { ok: true; value: SurvivingHighWater | null } | { ok: false } {
+  if (value === null || value === undefined) return { ok: true, value: null };
+  if (!isPlainObject(value)) return { ok: false };
+  if (!onlyAllowedKeys(value, HIGH_WATER_ALLOWED_KEYS)) return { ok: false };
+  if (typeof value.lineage !== 'string') return { ok: false };
+  if (typeof value.highWater !== 'number' || !Number.isSafeInteger(value.highWater)) {
+    return { ok: false };
+  }
+  if (!Array.isArray(value.sources) || !value.sources.every((x) => typeof x === 'string')) {
+    return { ok: false };
+  }
+  return {
+    ok: true,
+    value: {
+      lineage: value.lineage,
+      highWater: value.highWater,
+      sources: value.sources.map((x) => String(x)),
+    },
+  };
 }
 
 /**
- * Validate ONE audit entry into a clean ALLOWLISTED entry, or `null` when
- * malformed — a missing/invalid field OR any unexpected extra field that could
- * expose stored content. Never casts arbitrary data to the entry type.
+ * Validate ONE audit entry into a clean ALLOWLISTED entry with every NESTED object
+ * freshly rebuilt, or `null` when malformed — a missing/invalid field, any
+ * unexpected extra field (top-level OR nested), or a nested object that cannot be
+ * reconstructed. Never retains a raw stored object by reference.
  */
-function validateAuditEntry(value: unknown): RevisionRepairAuditEntry | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  const e = value as Record<string, unknown>;
+export function validateAuditEntry(value: unknown): RevisionRepairAuditEntry | null {
+  if (!isPlainObject(value)) return null;
+  const e = value;
   if (!onlyAllowedKeys(e, AUDIT_ENTRY_ALLOWED_KEYS)) return null;
   if (e.schemaVersion !== 1) return null;
   if (typeof e.auditRef !== 'string' || !e.auditRef) return null;
@@ -459,30 +610,34 @@ function validateAuditEntry(value: unknown): RevisionRepairAuditEntry | null {
   if (typeof e.at !== 'string' || !Number.isFinite(Date.parse(e.at))) return null;
   if (typeof e.reason !== 'string') return null;
   if (typeof e.beforeDigest !== 'string' || !e.beforeDigest) return null;
-  if (!isValidAuditAction(e.action)) return null;
-  if (!isValidAuditAfterState(e.afterState)) return null;
-  if (
-    'supersededLineage' in e &&
-    e.supersededLineage !== null &&
-    typeof e.supersededLineage !== 'string'
-  ) {
-    return null;
+  const action = rebuildAuditAction(e.action);
+  if (!action) return null;
+  const afterState = rebuildAuditAfterState(e.afterState);
+  if (!afterState) return null;
+  let supersededLineage: string | null | undefined;
+  if ('supersededLineage' in e) {
+    if (e.supersededLineage !== null && typeof e.supersededLineage !== 'string') return null;
+    supersededLineage = e.supersededLineage as string | null;
   }
-  if ('survivingHighWater' in e && !isValidSurvivingHighWater(e.survivingHighWater)) return null;
-  // Rebuild a clean allowlisted entry — no arbitrary nested content propagates.
+  let survivingHighWater: SurvivingHighWater | null | undefined;
+  if ('survivingHighWater' in e) {
+    const rebuilt = rebuildSurvivingHighWater(e.survivingHighWater);
+    if (!rebuilt.ok) return null;
+    survivingHighWater = rebuilt.value;
+  }
+  // Assemble ONLY from validated primitives + freshly-rebuilt nested objects.
   const entry: RevisionRepairAuditEntry = {
     schemaVersion: 1,
     auditRef: e.auditRef,
     actor: e.actor,
     at: e.at,
     reason: e.reason,
-    action: e.action as RevisionRepairAction,
+    action,
     beforeDigest: e.beforeDigest,
-    afterState: e.afterState as RevisionRepairAuditEntry['afterState'],
+    afterState,
   };
-  if ('supersededLineage' in e) entry.supersededLineage = e.supersededLineage as string | null;
-  if ('survivingHighWater' in e)
-    entry.survivingHighWater = e.survivingHighWater as SurvivingHighWater | null;
+  if (supersededLineage !== undefined) entry.supersededLineage = supersededLineage;
+  if (survivingHighWater !== undefined) entry.survivingHighWater = survivingHighWater;
   return entry;
 }
 
@@ -516,54 +671,63 @@ async function loadState(
   statusKey: string,
   nowMs: number
 ): Promise<LoadedState> {
-  const existingRaw = (await txn.read<unknown>())?.value ?? null;
-  const existing = existingRaw as WeeklyGameStats | null;
+  // PRESENCE-AWARE reads: build a `DurableRead` from each raw record BEFORE
+  // reading `.value`, so a present-null row is never mistaken for absence.
+  const partitionRead = toDurableRead(await txn.read<unknown>());
+  // A present value that is not a well-formed envelope decodes to `null` for the
+  // stamp classifier (which treats null as absent); presence + evidence
+  // certification below distinguish present-null/malformed from genuine absence.
+  const existing =
+    partitionRead.present && isPlainObject(partitionRead.value)
+      ? (partitionRead.value as WeeklyGameStats)
+      : null;
   const partitionClass = classifyPartitionStamp(existing);
 
-  const ledgerRow = await txn.readKey<unknown>(GAME_STATS_REVISION_SCOPE, partitionKey);
-  const ledgerRaw = ledgerRow?.value ?? null;
-  const ledger = validateLedgerRecord(ledgerRaw, id);
-  const ledgerMarkerPresent = ledgerRow !== null && ledgerRaw !== null && ledger === null;
-
-  const statusRow = await txn.readKey<Record<string, unknown>>(
-    PROVIDER_REFRESH_STATUS_SCOPE,
-    statusKey
+  const ledgerRead = toDurableRead(
+    await txn.readKey<unknown>(GAME_STATS_REVISION_SCOPE, partitionKey)
   );
-  const statusValue = statusRow?.value ?? null;
+  const ledger = ledgerRead.present ? validateLedgerRecord(ledgerRead.value, id) : null;
+  // A PRESENT ledger row that does not validate — including a JSON-null value — is
+  // an ambiguous revision-era MARKER (never "no ledger", never new-lineage init).
+  const ledgerMarkerPresent = ledgerRead.present && ledger === null;
+
+  const statusRead = toDurableRead(
+    await txn.readKey<Record<string, unknown>>(PROVIDER_REFRESH_STATUS_SCOPE, statusKey)
+  );
+  const statusValue = statusRead.present ? statusRead.value : null;
   const statusHasStamp =
-    statusValue !== null &&
-    typeof statusValue === 'object' &&
+    isPlainObject(statusValue) &&
     Object.prototype.hasOwnProperty.call(statusValue, 'lastCommittedStamp');
   const committedStamp = statusHasStamp
     ? toCommitStamp((statusValue as Record<string, unknown>).lastCommittedStamp)
     : null;
   const committedStampMarkerPresent = statusHasStamp && committedStamp === null;
   const lastAttemptOrdinal =
-    statusValue && typeof statusValue === 'object'
-      ? typeof (statusValue as Record<string, unknown>).lastAttemptOrdinal === 'number'
-        ? ((statusValue as Record<string, unknown>).lastAttemptOrdinal as number)
-        : null
+    isPlainObject(statusValue) && typeof statusValue.lastAttemptOrdinal === 'number'
+      ? statusValue.lastAttemptOrdinal
       : null;
 
-  const recoveryRaw =
-    (await txn.readKey<unknown>(RECOVERY_DISPOSITION_SCOPE, partitionKey))?.value ?? null;
-  const activeClaim = recoveryClaimActive(recoveryRaw, nowMs);
+  const recoveryRead = toDurableRead(
+    await txn.readKey<unknown>(RECOVERY_DISPOSITION_SCOPE, partitionKey)
+  );
+  const activeClaim = recoveryClaimActive(presentValue(recoveryRead), nowMs);
 
   // Additional durable inputs the digest binds (read within E → S → C; the
   // activation/witness/audit keys are read, not separately locked — the CAS
   // recompute catches any change between inspection and apply).
-  const activationRaw =
-    (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY))?.value ?? null;
-  const witnessRaw =
-    (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, REVISIONED_EVIDENCE_WITNESS_KEY))
-      ?.value ?? null;
+  const activationRead = toDurableRead(
+    await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY)
+  );
+  const witnessRead = toDurableRead(
+    await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, REVISIONED_EVIDENCE_WITNESS_KEY)
+  );
   const auditRow = await txn.readKey<unknown>(REVISION_AUDIT_SCOPE, partitionKey);
-  const auditRaw = auditRow?.value ?? null;
   const auditRead = classifyAuditDataset(auditRow ?? null);
 
   const state: RevisionInspectionState = {
     partition: {
-      present: existing !== null,
+      // A present-null / malformed partition row is PRESENT (distinct from absent).
+      present: partitionRead.present,
       stampClass: partitionClass.kind,
       stamp: partitionClass.kind === 'valid' ? partitionClass.stamp : null,
       gameCount: existing && Array.isArray(existing.games) ? existing.games.length : null,
@@ -575,19 +739,19 @@ async function loadState(
   };
   const digest = computeStateDigest({
     identity: id,
-    partition: existingRaw,
-    ledger: ledgerRaw,
-    status: statusValue,
-    activation: activationRaw,
-    witness: witnessRaw,
-    recovery: recoveryRaw,
-    audit: auditRaw,
+    partition: partitionRead,
+    ledger: ledgerRead,
+    status: statusRead,
+    activation: activationRead,
+    witness: witnessRead,
+    recovery: recoveryRead,
+    audit: toDurableRead(auditRow),
   });
   return {
     existing,
     state,
     digest,
-    evidenceCertified: certifyEvidence(existingRaw, id),
+    evidenceCertified: certifyEvidence(partitionRead, id),
     auditRead,
   };
 }
@@ -1063,14 +1227,16 @@ export async function repairRevisionState(
         }
         if (plan.committedStamp) {
           // Establish the lineage transition on the status stamp (under S(P)).
-          const statusRow = await txn.readKey<Record<string, unknown>>(
-            PROVIDER_REFRESH_STATUS_SCOPE,
-            statusKey
+          // Presence-aware: a present-null / malformed status merges as `{}` (the
+          // stamp is set fresh) rather than collapsing present-null into absence.
+          const statusRead = toDurableRead(
+            await txn.readKey<Record<string, unknown>>(PROVIDER_REFRESH_STATUS_SCOPE, statusKey)
           );
-          const priorStatus =
-            statusRow?.value && typeof statusRow.value === 'object' ? statusRow.value : {};
+          const priorStatus = isPlainObject(presentValue(statusRead))
+            ? presentValue(statusRead)
+            : {};
           await txn.writeKey(PROVIDER_REFRESH_STATUS_SCOPE, statusKey, {
-            ...priorStatus,
+            ...(priorStatus as Record<string, unknown>),
             lastCommittedStamp: plan.committedStamp,
           });
         }

@@ -176,3 +176,42 @@ test('the route preserves typed audit availability (available / unavailable)', a
   body = (await (await GET(getReq())).json()) as { audit: { state: string } };
   assert.equal(body.audit.state, 'unavailable');
 });
+
+test('the route never serializes arbitrary nested audit content (secret redaction)', async () => {
+  // PLATFORM-086H3B-REPAIR-PRESENCE-H1-AUDIT: an audit entry carrying a secret in
+  // an UNEXPECTED nested field makes the whole dataset `unavailable` — the corrupted
+  // history is never trusted, and the secret text never reaches the route response.
+  await setAppState('game-stats', KEY, PARTITION);
+  const SECRET = 'postgres://user:SUPERSECRETPW@db.internal:5432/prod';
+  await setAppState('game-stats-revision-audit', KEY, [
+    {
+      schemaVersion: 1,
+      auditRef: 'a1',
+      actor: 'clerk:admin-1',
+      at: '2024-10-06T00:00:00.000Z',
+      reason: 'operator recovery',
+      beforeDigest: 'd1',
+      action: { kind: 'rebuild-ledger' },
+      afterState: {
+        ledger: {
+          schemaVersion: 1,
+          year: YEAR,
+          week: WEEK,
+          seasonType: 'regular',
+          lineage: 'L',
+          revision: 3,
+          initializedFrom: 'repair',
+          initializedAt: '2024-10-06T00:00:00.000Z',
+          connectionString: SECRET, // unexpected nested field
+        },
+        committedStamp: null,
+        partitionStamp: null,
+      },
+    },
+  ]);
+  const res = await GET(getReq());
+  const raw = await res.text();
+  assert.equal(raw.includes('SUPERSECRETPW'), false, 'secret never in the response body');
+  const body = JSON.parse(raw) as { audit: { state: string } };
+  assert.equal(body.audit.state, 'unavailable'); // corrupted history is not trusted
+});
