@@ -1,4 +1,5 @@
 import type { CfbdSeasonType } from '../cfbd.ts';
+import type { CommitStamp } from './revisionStamp.ts';
 
 // === Raw CFBD wire format from GET /games/teams ===
 
@@ -99,6 +100,17 @@ export type WeeklyGameStats = {
   seasonType: CfbdSeasonType;
   fetchedAt: string;
   games: GameStats[];
+  /**
+   * Lineage-aware durable commit stamp (PLATFORM-086H3B): `{ lineage, revision }`
+   * allocated transactionally with this partition's write by the revision
+   * authority, and co-committed with the revision ledger. INTERNAL bookkeeping
+   * only — absent on legacy (pre-revision) partitions, never emitted to the
+   * public wire (the projection allowlist owns that), and stamped ONLY by the
+   * dormant revisioned merge writer. Its presence/absence is itself evidence the
+   * revision state machine reads (a missing stamp alone never proves a scope is
+   * new; see `revisionAuthority.ts`).
+   */
+  commitStamp?: CommitStamp;
 };
 
 // === Owner aggregation ===

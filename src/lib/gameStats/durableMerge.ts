@@ -13,6 +13,13 @@ import {
   AppStateTxnFinalizeError,
   withAppStateKeyTransaction,
 } from '../server/appStateStore.ts';
+import { allocateGameStatsCommitStamp, GAME_STATS_REVISION_SCOPE } from './revisionAuthority.ts';
+import {
+  readActivationState,
+  revisionedWriteAllowed,
+  type ActivationState,
+} from './activationControl.ts';
+import type { CommitStamp } from './revisionStamp.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
 import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
 
@@ -118,7 +125,14 @@ export type DurableMergeUnavailableReason =
   | 'durable-write-failed'
   | 'merge-computation-failed'
   | 'transaction-cleanup-failed'
-  | 'transaction-finalize-failed';
+  | 'transaction-finalize-failed'
+  // Revisioned-writer-only (PLATFORM-086H3B): the activation fence disallowed a
+  // revisioned write, or the revision authority blocked allocation. All leave
+  // durable state untouched.
+  | 'activation-fenced'
+  | 'revision-lineage-conflict'
+  | 'revision-history-ambiguous'
+  | 'revision-evidence-loss-suspected';
 
 export type DurableMergeResult = {
   outcome: DurableMergeOutcome;
@@ -137,6 +151,14 @@ export type DurableMergeResult = {
   skippedNonPersistable: number;
   /** Set ONLY when `outcome` is `unavailable` (durable state untouched). */
   unavailableReason?: DurableMergeUnavailableReason;
+  /**
+   * Set ONLY by the revisioned writer on a confirmed durable change
+   * (`written`/`partially-merged`), captured IMMEDIATELY after the confirmed
+   * COMMIT (never before). `stamp` is the lineage-aware `{ lineage, revision }`
+   * co-committed with the evidence and revision ledger. INTERNAL bookkeeping —
+   * never emitted to the public wire.
+   */
+  commit?: { committedAt: string; stamp: CommitStamp };
   /**
    * Set ONLY when `outcome` is `indeterminate`: a write statement ran and the
    * transaction could not be confirmed committed OR cleanly rolled back
@@ -801,6 +823,136 @@ export async function mergeGameStatsPartitionDurable(
     }
     // Anything else is an unexpected programming/machinery defect — surface it
     // loudly rather than mislabeling it as an operational failure.
+    throw error;
+  }
+}
+
+// === Revisioned durable merge writer (PLATFORM-086H3B, DORMANT) ===
+
+/**
+ * Durably merge one validated batch AND allocate a lineage-aware commit stamp,
+ * co-committing the evidence partition and its revision-ledger row in ONE
+ * transaction (frozen contract §5/§6). This is the writer the activation fence
+ * gates: it persists ONLY while the fence is `armed`/`active`, and delegates all
+ * revision POLICY to `revisionAuthority.ts` (this module supplies only the
+ * merge + the co-commit).
+ *
+ * DORMANT: no B production path arms/activates the fence, so in production this
+ * always returns `unavailable('activation-fenced')` — the legacy writer stays
+ * authoritative. Tests arm/activate the fence to exercise the revisioned path.
+ *
+ * Semantics preserved from the legacy H2 writer: unchanged/stale/conflict are
+ * no-write outcomes (no revision is allocated for them); a block from the
+ * revision authority (lineage conflict / ambiguous history / suspected evidence
+ * loss) refuses the write with durable state untouched; a COMMIT/ROLLBACK
+ * uncertainty after a submitted write is `indeterminate`. The commit stamp is
+ * attached ONLY after the confirmed COMMIT.
+ */
+export async function mergeGameStatsPartitionRevisioned(
+  input: DurableMergeInput
+): Promise<DurableMergeResult> {
+  const key = getGameStatsKey(input.year, input.week, input.seasonType);
+  const partitionKey = `${GAME_STATS_SCOPE}/${key}`;
+  if (parseFenceMs(input.fetchStartedAt) === null) {
+    return unavailable('invalid-fetch-started-at', partitionKey);
+  }
+
+  // Activation fence (frozen contract §17). A plain read BEFORE the transaction
+  // keeps ordinary allocation at E(P)-only; the fence is monotonic (evidence
+  // existence never un-sets), so a lock is unnecessary here.
+  let activationState: ActivationState;
+  try {
+    activationState = await readActivationState();
+  } catch {
+    return unavailable('lock-unavailable', partitionKey);
+  }
+  if (!revisionedWriteAllowed(activationState)) {
+    return unavailable('activation-fenced', partitionKey);
+  }
+
+  const now = new Date().toISOString();
+  // The stamp co-committed with the evidence; consulted ONLY after COMMIT.
+  let committedStamp: CommitStamp | null = null;
+  try {
+    const result = await withAppStateKeyTransaction(GAME_STATS_SCOPE, key, async (txn) => {
+      let existing: WeeklyGameStats | null;
+      try {
+        existing = (await txn.read<WeeklyGameStats>())?.value ?? null;
+      } catch {
+        return unavailable('durable-read-failed', partitionKey);
+      }
+
+      let computation: WeeklyMergeComputation;
+      try {
+        computation = computeWeeklyGameStatsMerge(existing, input);
+      } catch {
+        throw new MergeComputationFailure(unavailable('merge-computation-failed', partitionKey));
+      }
+      if (!computation.changed) {
+        // No durable change → allocate no revision, touch no ledger.
+        return toResult(computation, noChangeOutcome(computation), partitionKey);
+      }
+
+      let allocation;
+      try {
+        allocation = await allocateGameStatsCommitStamp(
+          txn,
+          { year: input.year, week: input.week, seasonType: input.seasonType },
+          existing,
+          key,
+          now
+        );
+      } catch {
+        // A read/lock failure inside allocation (e.g. status-key lock or read).
+        return unavailable('durable-read-failed', partitionKey);
+      }
+      if (!allocation.ok) {
+        // Typed revision block: refuse the write, durable state untouched.
+        return unavailable(allocation.code, partitionKey);
+      }
+
+      computation.partition!.commitStamp = allocation.allocation.stamp;
+      try {
+        // Evidence and its ledger row co-commit in ONE transaction — rollback
+        // discards BOTH, and no allocator can observe or reuse this revision
+        // because every allocator holds this partition's advisory lock.
+        await txn.write(computation.partition!);
+        await txn.writeKey(GAME_STATS_REVISION_SCOPE, key, allocation.allocation.ledger);
+      } catch {
+        return unavailable('durable-write-failed', partitionKey);
+      }
+      committedStamp = allocation.allocation.stamp;
+
+      const clean = computation.stale.length === 0 && computation.conflicts.length === 0;
+      return toResult(computation, clean ? 'written' : 'partially-merged', partitionKey);
+    });
+
+    // Commit stamp attached ONLY after the confirmed COMMIT (the transaction
+    // resolves post-COMMIT) — never before, never on a no-write outcome.
+    if (
+      (result.outcome === 'written' || result.outcome === 'partially-merged') &&
+      committedStamp !== null
+    ) {
+      result.commit = { committedAt: new Date().toISOString(), stamp: committedStamp };
+    }
+    return result;
+  } catch (error) {
+    if (error instanceof MergeComputationFailure) {
+      return error.result;
+    }
+    if (error instanceof AppStateTxnFinalizeError) {
+      return error.writeAttempted
+        ? indeterminate('transaction-finalize-failed', partitionKey)
+        : unavailable('transaction-finalize-failed', partitionKey);
+    }
+    if (error instanceof AppStateTxnCleanupError) {
+      return error.writeAttempted
+        ? indeterminate('transaction-cleanup-failed', partitionKey)
+        : unavailable('transaction-cleanup-failed', partitionKey);
+    }
+    if (error instanceof AppStateKeyLockAcquireError) {
+      return unavailable('lock-unavailable', partitionKey);
+    }
     throw error;
   }
 }

@@ -42,13 +42,41 @@ function toPosix(p: string): string {
 }
 
 // The only permitted non-test homes of dormant names: the contract definition,
-// the optional dormant type declarations, and (PLATFORM-086H2) the dormant
-// durable merge service. Exact files only — never whole directories.
+// the optional dormant type declarations, the dormant durable merge service
+// (PLATFORM-086H2), and the PLATFORM-086H3B dormant revision/activation/repair
+// modules plus their ONE sanctioned production connection — the admin-only
+// revision-repair route (frozen contract §14/§15: a genuine internal-argument
+// domain API is intentionally allowed). Exact files only — never whole
+// directories. `revisionStamp.ts` is deliberately NOT excluded: it is a pure,
+// non-dormant primitive (no forbidden symbols, no dormant-module imports), so it
+// stays scanned to prove it never reaches into the dormant lifecycle.
 const EXCLUDED_FILES = new Set([
   'src/lib/gameStats/contract.ts',
   'src/lib/gameStats/types.ts',
   'src/lib/gameStats/durableMerge.ts',
+  'src/lib/gameStats/revisionAuthority.ts',
+  'src/lib/gameStats/activationControl.ts',
+  'src/lib/gameStats/revisionRepair.ts',
+  'src/app/api/admin/game-stats-revision/route.ts',
 ]);
+
+// The one non-excluded production file that DEFINES dormant game-stats
+// refresh-status chronology symbols (it also hosts the LIVE generic status
+// helpers used by unrelated datasets, so it stays module-scanned — only these
+// specific dormant symbols are exempt in this one file). Every OTHER production
+// file that references a chronology symbol is a dormancy violation.
+const CHRONOLOGY_SYMBOL_HOME = 'src/lib/server/providerRefreshStatus.ts';
+const DORMANT_CHRONOLOGY_SYMBOLS = [
+  'beginGameStatsRefreshAttempt',
+  'recordGameStatsRefreshSuccess',
+  'recordGameStatsRefreshNoop',
+  'recordGameStatsRefreshFailure',
+  'composeGameStatsStatusPublication',
+];
+const CHRONOLOGY_SYMBOL_PATTERN = new RegExp(
+  `\\b(${DORMANT_CHRONOLOGY_SYMBOLS.join('|')})\\b`,
+  'g'
+);
 const EXCLUDED_DIRS = new Set(['__tests__', '__fixtures__', 'fixtures']);
 const TEST_FILE_PATTERN = /\.(test|spec)\.tsx?$/;
 
@@ -89,6 +117,16 @@ const FORBIDDEN_SYMBOLS = [
   'fetchStartedAt',
   'computeWeeklyGameStatsMerge',
   'mergeGameStatsPartitionDurable',
+  // PLATFORM-086H3B dormant revision/activation/repair lifecycle APIs. Each is
+  // DEFINED only in an excluded home above; forbidding the names catches any
+  // stray production reference (revision allocation, activation transition, the
+  // fenced legacy writer, the revisioned writer, or the operator repair).
+  'mergeGameStatsPartitionRevisioned',
+  'allocateGameStatsCommitStamp',
+  'setActivationState',
+  'writeLegacyGameStatsPartition',
+  'repairRevisionState',
+  'inspectRevisionState',
 ];
 
 const SYMBOL_PATTERN = new RegExp(`\\b(${FORBIDDEN_SYMBOLS.join('|')})\\b`, 'g');
@@ -103,8 +141,17 @@ function specifierTargetsDormantModule(
   importerRepoRelativePath: string
 ): boolean {
   const normalized = specifier.replace(/\\/g, '/');
+  // The dormant game-stats modules: the H1 contract, the H2 durable merge, and
+  // the H3B revision authority / activation-control fence / operator repair.
+  const DORMANT_MODULE_NAMES = [
+    'contract',
+    'durableMerge',
+    'revisionAuthority',
+    'activationControl',
+    'revisionRepair',
+  ];
   // Alias/absolute forms (`@/lib/gameStats/contract`, deep relative paths).
-  if (normalized.includes('gameStats/contract') || normalized.includes('gameStats/durableMerge')) {
+  if (DORMANT_MODULE_NAMES.some((name) => normalized.includes(`gameStats/${name}`))) {
     return true;
   }
   // Relative forms resolve against the importing file so an unrelated module
@@ -115,9 +162,9 @@ function specifierTargetsDormantModule(
   );
   // TypeScript source commonly imports with .js/.mjs/.cjs specifiers (NodeNext
   // resolution) — every supported extension resolves to the same module.
-  return /^src\/lib\/gameStats\/(contract|durableMerge)(\.(?:js|mjs|cjs|ts|mts|cts|tsx))?$/.test(
-    resolved
-  );
+  return new RegExp(
+    `^src/lib/gameStats/(${DORMANT_MODULE_NAMES.join('|')})(\\.(?:js|mjs|cjs|ts|mts|cts|tsx))?$`
+  ).test(resolved);
 }
 
 type BoundaryViolation = { file: string; pattern: string; line: number };
@@ -135,6 +182,17 @@ function findBoundaryViolations(source: string, repoRelativePath: string): Bound
       pattern: `forbidden symbol "${match[1]}"`,
       line: lineOf(source, match.index),
     });
+  }
+  // The dormant game-stats chronology symbols are forbidden EVERYWHERE except
+  // their one definition home (which hosts the live generic status helpers).
+  if (repoRelativePath !== CHRONOLOGY_SYMBOL_HOME) {
+    for (const match of source.matchAll(CHRONOLOGY_SYMBOL_PATTERN)) {
+      violations.push({
+        file: repoRelativePath,
+        pattern: `dormant chronology symbol "${match[1]}"`,
+        line: lineOf(source, match.index),
+      });
+    }
   }
   for (const match of source.matchAll(SPECIFIER_PATTERN)) {
     if (specifierTargetsDormantModule(match[1]!, repoRelativePath)) {
@@ -179,12 +237,73 @@ test('scanner: detects dormant API references and v2 metadata names', () => {
     ['row.fetchStartedAt = now;', 'fetchStartedAt'],
     ['const r = await mergeGameStatsPartitionDurable(input);', 'mergeGameStatsPartitionDurable'],
     ['const c = computeWeeklyGameStatsMerge(existing, input);', 'computeWeeklyGameStatsMerge'],
+    // PLATFORM-086H3B lifecycle symbols.
+    [
+      'const r = await mergeGameStatsPartitionRevisioned(input);',
+      'mergeGameStatsPartitionRevisioned',
+    ],
+    [
+      'const a = await allocateGameStatsCommitStamp(txn, id, e, k, n);',
+      'allocateGameStatsCommitStamp',
+    ],
+    ["await setActivationState('active');", 'setActivationState'],
+    ['await writeLegacyGameStatsPartition(stats);', 'writeLegacyGameStatsPartition'],
+    ['const r = await repairRevisionState(req);', 'repairRevisionState'],
+    ['const i = await inspectRevisionState(id);', 'inspectRevisionState'],
   ];
   for (const [source, symbol] of cases) {
     const violations = findBoundaryViolations(source, 'src/lib/example.ts');
     assert.equal(violations.length, 1, source);
     assert.ok(violations[0]!.pattern.includes(symbol));
   }
+});
+
+test('scanner: game-stats chronology symbols are forbidden outside their home', () => {
+  const chronologyCalls: Array<[string, string]> = [
+    ['const a = await beginGameStatsRefreshAttempt(scope);', 'beginGameStatsRefreshAttempt'],
+    ['await recordGameStatsRefreshSuccess(scope, r);', 'recordGameStatsRefreshSuccess'],
+    ['await recordGameStatsRefreshNoop(scope);', 'recordGameStatsRefreshNoop'],
+    ['await recordGameStatsRefreshFailure(scope, r);', 'recordGameStatsRefreshFailure'],
+    ['const p = composeGameStatsStatusPublication(b, t);', 'composeGameStatsStatusPublication'],
+  ];
+  // Forbidden in any ordinary production file…
+  for (const [source, symbol] of chronologyCalls) {
+    const violations = findBoundaryViolations(source, 'src/app/api/cron/game-stats/route.ts');
+    assert.equal(violations.length, 1, source);
+    assert.ok(violations[0]!.pattern.includes(symbol), source);
+  }
+  // …but exempt in their one definition home (which also hosts live helpers).
+  for (const [source] of chronologyCalls) {
+    assert.deepEqual(findBoundaryViolations(source, CHRONOLOGY_SYMBOL_HOME), [], source);
+  }
+});
+
+test('scanner: detects H3B dormant-module imports in every form', () => {
+  const importer = 'src/app/api/game-stats/route.ts';
+  for (const mod of ['revisionAuthority', 'activationControl', 'revisionRepair']) {
+    const forms = [
+      `import { x } from '../../gameStats/${mod}';`,
+      `import { x } from '@/lib/gameStats/${mod}';`,
+      `const m = await import('@/lib/gameStats/${mod}');`,
+      `const m = require('../../gameStats/${mod}.ts');`,
+      `export * from '@/lib/gameStats/${mod}';`,
+    ];
+    for (const source of forms) {
+      const violations = findBoundaryViolations(source, importer);
+      assert.ok(
+        violations.some((v) => v.pattern.startsWith('dormant-module import')),
+        `${mod}: ${source}`
+      );
+    }
+  }
+  // The non-dormant primitive is NOT a dormant module.
+  assert.deepEqual(
+    findBoundaryViolations(
+      `import { CommitStamp } from '@/lib/gameStats/revisionStamp';`,
+      importer
+    ),
+    []
+  );
 });
 
 test('scanner: detects static, dynamic, require, and re-export contract imports', () => {
@@ -262,13 +381,23 @@ test('scanner: clean and unrelated sources produce no violations', () => {
 test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', () => {
   const files = listProductionSources();
   const set = new Set(files);
-  // The three intentional non-test homes of dormant names are excluded…
-  assert.ok(!set.has('src/lib/gameStats/contract.ts'));
-  assert.ok(!set.has('src/lib/gameStats/types.ts'));
-  assert.ok(!set.has('src/lib/gameStats/durableMerge.ts'));
+  // The intentional non-test homes of dormant names are excluded…
+  for (const home of [
+    'src/lib/gameStats/contract.ts',
+    'src/lib/gameStats/types.ts',
+    'src/lib/gameStats/durableMerge.ts',
+    // PLATFORM-086H3B dormant homes + the ONE sanctioned admin connection.
+    'src/lib/gameStats/revisionAuthority.ts',
+    'src/lib/gameStats/activationControl.ts',
+    'src/lib/gameStats/revisionRepair.ts',
+    'src/app/api/admin/game-stats-revision/route.ts',
+  ]) {
+    assert.ok(!set.has(home), `${home} must be an excluded dormant/sanctioned home`);
+  }
   // …tests and fixtures never appear…
   assert.ok(files.every((f) => !f.includes('__tests__/') && !TEST_FILE_PATTERN.test(f)));
-  // …while real production seams are all scanned.
+  // …while real production seams — and the NON-dormant primitive + the
+  // chronology home — are all scanned.
   for (const seam of [
     'src/app/api/cron/game-stats/route.ts',
     'src/app/api/game-stats/route.ts',
@@ -282,6 +411,11 @@ test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', (
     // Hosts the generic per-key lock primitive (PLATFORM-086H2) — a production
     // file, so it MUST stay scanned (it never references merge APIs itself).
     'src/lib/server/appStateStore.ts',
+    // The pure lineage-aware stamp primitive is NOT dormant — kept scanned.
+    'src/lib/gameStats/revisionStamp.ts',
+    // Hosts the LIVE generic status helpers + the dormant game-stats chronology
+    // symbols; stays scanned (only the chronology symbols are exempt here).
+    CHRONOLOGY_SYMBOL_HOME,
   ]) {
     assert.ok(set.has(seam), `${seam} must be scanned`);
   }
