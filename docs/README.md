@@ -31,6 +31,7 @@ This is the **source-of-truth map** for the project's documentation. Start here 
 | [`docs/operations/deployment.md`](operations/deployment.md) | High-level deploy/env/auth-secret/cron overview and operational checks (points at the runbook for step-by-step) | Current |
 | [`docs/operations/diagnostics.md`](operations/diagnostics.md) | Diagnostic endpoints, debug-surface auth, upstream-first debugging order | Current |
 | [`docs/deployment-runbook.md`](deployment-runbook.md) | Hosted deployment / operator checklist (detailed step-by-step; companion to `operations/deployment.md`) | Current |
+| [`docs/revision-repair-runbook.md`](revision-repair-runbook.md) | Game-stats revision repair + activation-control operating guide (PLATFORM-086H3B; dormant until E) | Current |
 | [`docs/vision.md`](vision.md) | Product vision + canonical production data policy | Current |
 | [`docs/CFB_APP_ARCHITECTURE.md`](CFB_APP_ARCHITECTURE.md) | Quick upstream→downstream pipeline sketch (reference; `AGENTS.md` is canonical for architecture) | Current (reference) |
 | [`docs/campaigns/`](campaigns/) | Per-campaign historical detail and shipped-behavior notes — intentionally retained historical campaign record (not archived) | Historical |

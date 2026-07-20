@@ -19,14 +19,18 @@ Supersedes: (none)
 > single-branch H3 activation attempt was frozen as a read-only salvage
 > reference after an architecture audit and is decomposed into prerequisite PRs
 > A–E (frozen design: `docs/ai/platform-086h3-contract.md`). Prerequisite **A**
-> (durable multi-key app-state transaction primitive) is **implemented, Codex
-> reviewed clean, `/verify` passed, and awaiting merge** — dormant, with
-> production HTTP behavior byte-identical to `main` (`src/lib/server/appStateStore.ts`
-> is the only production file changed). **Production activation has NOT
-> occurred**; B begins only after A merges, prerequisites B–D remain
-> unimplemented, and final activation remains E. 086H4 and the legacy-row
-> migration remain deferred. A milestone entry is added below only once a
-> prerequisite actually merges.
+> (durable multi-key app-state transaction primitive) **merged via PR #398** —
+> dormant, with production HTTP behavior byte-identical to `main`. Prerequisite
+> **B** (revision lineage/ledger authority + atomic status chronology + operator
+> repair + activation-control fence) is **implemented, review pending, and NOT
+> merged** (`platform/086h3b-revision-status-authority`, from `main` @ `2793a6f`;
+> full record: `docs/prompt-registry.md` → `PLATFORM-086H3B-REVISION-STATUS-AUTHORITY-v1`)
+> — all production-DORMANT, guarded by the extended dormant-boundary test, with the
+> legacy writer behavior-equivalent in `legacy` and no path arming/activating the
+> fence. **Production H3 activation has NOT occurred**; C begins only after B
+> merges, prerequisites C–D remain unimplemented, and final activation remains E.
+> 086H4 and the legacy-row migration remain deferred. A milestone entry is added
+> below only once a prerequisite actually merges.
 
 ### PLATFORM-086H2 — Durable Game-Stats Merge Service (Dormant) — Complete
 
