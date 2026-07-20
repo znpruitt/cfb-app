@@ -15,9 +15,11 @@ import {
 } from '../server/appStateStore.ts';
 import { allocateGameStatsCommitStamp, GAME_STATS_REVISION_SCOPE } from './revisionAuthority.ts';
 import {
+  ACTIVATION_CONTROL_KEY,
+  ACTIVATION_CONTROL_SCOPE,
+  classifyRevisionedWrite,
+  markRevisionedEvidenceCommitted,
   readActivationState,
-  revisionedWriteAllowed,
-  type ActivationState,
 } from './activationControl.ts';
 import type { CommitStamp } from './revisionStamp.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
@@ -832,14 +834,20 @@ export async function mergeGameStatsPartitionDurable(
 /**
  * Durably merge one validated batch AND allocate a lineage-aware commit stamp,
  * co-committing the evidence partition and its revision-ledger row in ONE
- * transaction (frozen contract §5/§6). This is the writer the activation fence
- * gates: it persists ONLY while the fence is `armed`/`active`, and delegates all
- * revision POLICY to `revisionAuthority.ts` (this module supplies only the
- * merge + the co-commit).
+ * transaction (frozen contract §5/§6). It delegates all revision POLICY to
+ * `revisionAuthority.ts` (this module supplies only the merge + the co-commit).
  *
- * DORMANT: no B production path arms/activates the fence, so in production this
- * always returns `unavailable('activation-fenced')` — the legacy writer stays
- * authoritative. Tests arm/activate the fence to exercise the revisioned path.
+ * Activation fence (PLATFORM-086H3B-ACTIVATION-DORMANCY-REMEDIATION): a revisioned
+ * evidence commit is authorized ONLY while the fence is exactly `active` —
+ * `armed` prepares deployment but does NOT authorize evidence commits. The fence
+ * is validated INSIDE the transaction, under the activation-control lock, and
+ * immediately before durable mutation (lock order `E → activation-control → S`);
+ * a pre-transaction read is an optimization only. On the first evidence commit it
+ * sets the durable global evidence witness ATOMICALLY with the write.
+ *
+ * DORMANT: no B production path transitions the fence to `active`, so in
+ * production this always refuses (`activation-fenced`) and the legacy writer stays
+ * authoritative. Tests arm→activate the fence to exercise the revisioned path.
  *
  * Semantics preserved from the legacy H2 writer: unchanged/stale/conflict are
  * no-write outcomes (no revision is allocated for them); a block from the
@@ -857,17 +865,15 @@ export async function mergeGameStatsPartitionRevisioned(
     return unavailable('invalid-fetch-started-at', partitionKey);
   }
 
-  // Activation fence (frozen contract §17). A plain read BEFORE the transaction
-  // keeps ordinary allocation at E(P)-only; the fence is monotonic (evidence
-  // existence never un-sets), so a lock is unnecessary here.
-  let activationState: ActivationState;
+  // Activation fence — OPTIMIZATION read only (never the commit authority). A
+  // clearly non-`active` state lets us bail before opening the transaction; a
+  // read failure falls through to the authoritative in-transaction check.
   try {
-    activationState = await readActivationState();
+    if ((await readActivationState()) !== 'active') {
+      return unavailable('activation-fenced', partitionKey);
+    }
   } catch {
-    return unavailable('lock-unavailable', partitionKey);
-  }
-  if (!revisionedWriteAllowed(activationState)) {
-    return unavailable('activation-fenced', partitionKey);
+    // fall through — the in-transaction check under the lock is authoritative.
   }
 
   const now = new Date().toISOString();
@@ -875,6 +881,28 @@ export async function mergeGameStatsPartitionRevisioned(
   let committedStamp: CommitStamp | null = null;
   try {
     const result = await withAppStateKeyTransaction(GAME_STATS_SCOPE, key, async (txn) => {
+      // Authoritative fence: acquire the activation-control lock (forward order
+      // E → activation-control) and re-read the record UNDER the lock, immediately
+      // before any durable mutation. Only a valid `active` record authorizes a
+      // revisioned evidence commit; a transition that completed first (armed /
+      // read-only-safe / absent / malformed) is observed here and refuses.
+      try {
+        await txn.lockKey(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY);
+      } catch {
+        return unavailable('lock-unavailable', partitionKey);
+      }
+      let activationRaw: unknown;
+      try {
+        activationRaw =
+          (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY))?.value ??
+          null;
+      } catch {
+        return unavailable('durable-read-failed', partitionKey);
+      }
+      if (!classifyRevisionedWrite(activationRaw).allow) {
+        return unavailable('activation-fenced', partitionKey);
+      }
+
       let existing: WeeklyGameStats | null;
       try {
         existing = (await txn.read<WeeklyGameStats>())?.value ?? null;
@@ -918,6 +946,12 @@ export async function mergeGameStatsPartitionRevisioned(
         // because every allocator holds this partition's advisory lock.
         await txn.write(computation.partition!);
         await txn.writeKey(GAME_STATS_REVISION_SCOPE, key, allocation.allocation.ledger);
+        // Set the durable global "revisioned evidence has existed" witness
+        // ATOMICALLY with the first evidence commit (under the activation-control
+        // lock already held). It never un-sets, so a later legacy write or a
+        // return to `legacy` is permanently fenced even if the activation record
+        // is lost.
+        await markRevisionedEvidenceCommitted(txn, now);
       } catch {
         return unavailable('durable-write-failed', partitionKey);
       }

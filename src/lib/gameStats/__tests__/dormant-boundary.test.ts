@@ -55,10 +55,18 @@ const EXCLUDED_FILES = new Set([
   'src/lib/gameStats/types.ts',
   'src/lib/gameStats/durableMerge.ts',
   'src/lib/gameStats/revisionAuthority.ts',
-  'src/lib/gameStats/activationControl.ts',
   'src/lib/gameStats/revisionRepair.ts',
   'src/app/api/admin/game-stats-revision/route.ts',
 ]);
+
+// PLATFORM-086H3B-ACTIVATION-DORMANCY-REMEDIATION: `activationControl.ts` is now
+// a LIVE fence primitive (the production legacy writer in `cache.ts` routes
+// through it), so it stays MODULE-scanned to prove it never imports a dormant
+// module. But it DEFINES the dormant activation operations (`setActivationState`,
+// `markRevisionedEvidenceCommitted`) and uses `schemaVersion` on its own record,
+// so it is exempt from the forbidden-SYMBOL scan (only the symbol references
+// elsewhere are violations). Module-scanned, symbol-exempt — never fully excluded.
+const FORBIDDEN_SYMBOL_HOMES = new Set(['src/lib/gameStats/activationControl.ts']);
 
 // The one non-excluded production file that DEFINES dormant game-stats
 // refresh-status chronology symbols (it also hosts the LIVE generic status
@@ -117,14 +125,16 @@ const FORBIDDEN_SYMBOLS = [
   'fetchStartedAt',
   'computeWeeklyGameStatsMerge',
   'mergeGameStatsPartitionDurable',
-  // PLATFORM-086H3B dormant revision/activation/repair lifecycle APIs. Each is
-  // DEFINED only in an excluded home above; forbidding the names catches any
-  // stray production reference (revision allocation, activation transition, the
-  // fenced legacy writer, the revisioned writer, or the operator repair).
+  // PLATFORM-086H3B dormant lifecycle APIs — DEFINED only in an excluded home or
+  // a symbol home; forbidding the names catches any stray production reference to
+  // revision allocation, the revisioned writer, the activation TRANSITION, the
+  // evidence-witness setter, or applied operator repair. NOTE: the fenced legacy
+  // writer (`writeLegacyGameStatsPartition`) is deliberately NOT here — the
+  // remediation made it the LIVE production writer (in `cache.ts`).
   'mergeGameStatsPartitionRevisioned',
   'allocateGameStatsCommitStamp',
   'setActivationState',
-  'writeLegacyGameStatsPartition',
+  'markRevisionedEvidenceCommitted',
   'repairRevisionState',
   'inspectRevisionState',
 ];
@@ -143,13 +153,9 @@ function specifierTargetsDormantModule(
   const normalized = specifier.replace(/\\/g, '/');
   // The dormant game-stats modules: the H1 contract, the H2 durable merge, and
   // the H3B revision authority / activation-control fence / operator repair.
-  const DORMANT_MODULE_NAMES = [
-    'contract',
-    'durableMerge',
-    'revisionAuthority',
-    'activationControl',
-    'revisionRepair',
-  ];
+  // `activationControl` is NOT here — it is a LIVE fence primitive the production
+  // cache writer imports (its dormant TRANSITION symbols are guarded instead).
+  const DORMANT_MODULE_NAMES = ['contract', 'durableMerge', 'revisionAuthority', 'revisionRepair'];
   // Alias/absolute forms (`@/lib/gameStats/contract`, deep relative paths).
   if (DORMANT_MODULE_NAMES.some((name) => normalized.includes(`gameStats/${name}`))) {
     return true;
@@ -176,12 +182,17 @@ function lineOf(source: string, index: number): number {
 /** Pure scan of one production source text for dormant-boundary violations. */
 function findBoundaryViolations(source: string, repoRelativePath: string): BoundaryViolation[] {
   const violations: BoundaryViolation[] = [];
-  for (const match of source.matchAll(SYMBOL_PATTERN)) {
-    violations.push({
-      file: repoRelativePath,
-      pattern: `forbidden symbol "${match[1]}"`,
-      line: lineOf(source, match.index),
-    });
+  // A forbidden-symbol home DEFINES the guarded symbols (and uses `schemaVersion`
+  // on its own records); it is exempt from the symbol scan but still scanned for
+  // dormant-module imports and chronology symbols below.
+  if (!FORBIDDEN_SYMBOL_HOMES.has(repoRelativePath)) {
+    for (const match of source.matchAll(SYMBOL_PATTERN)) {
+      violations.push({
+        file: repoRelativePath,
+        pattern: `forbidden symbol "${match[1]}"`,
+        line: lineOf(source, match.index),
+      });
+    }
   }
   // The dormant game-stats chronology symbols are forbidden EVERYWHERE except
   // their one definition home (which hosts the live generic status helpers).
@@ -247,7 +258,7 @@ test('scanner: detects dormant API references and v2 metadata names', () => {
       'allocateGameStatsCommitStamp',
     ],
     ["await setActivationState('active');", 'setActivationState'],
-    ['await writeLegacyGameStatsPartition(stats);', 'writeLegacyGameStatsPartition'],
+    ['await markRevisionedEvidenceCommitted(txn, now);', 'markRevisionedEvidenceCommitted'],
     ['const r = await repairRevisionState(req);', 'repairRevisionState'],
     ['const i = await inspectRevisionState(id);', 'inspectRevisionState'],
   ];
@@ -256,6 +267,11 @@ test('scanner: detects dormant API references and v2 metadata names', () => {
     assert.equal(violations.length, 1, source);
     assert.ok(violations[0]!.pattern.includes(symbol));
   }
+  // The LIVE fenced legacy writer is NOT forbidden — it is the production writer.
+  assert.deepEqual(
+    findBoundaryViolations('await writeLegacyGameStatsPartition(stats);', 'src/lib/example.ts'),
+    []
+  );
 });
 
 test('scanner: game-stats chronology symbols are forbidden outside their home', () => {
@@ -280,7 +296,7 @@ test('scanner: game-stats chronology symbols are forbidden outside their home', 
 
 test('scanner: detects H3B dormant-module imports in every form', () => {
   const importer = 'src/app/api/game-stats/route.ts';
-  for (const mod of ['revisionAuthority', 'activationControl', 'revisionRepair']) {
+  for (const mod of ['revisionAuthority', 'revisionRepair']) {
     const forms = [
       `import { x } from '../../gameStats/${mod}';`,
       `import { x } from '@/lib/gameStats/${mod}';`,
@@ -296,14 +312,15 @@ test('scanner: detects H3B dormant-module imports in every form', () => {
       );
     }
   }
-  // The non-dormant primitive is NOT a dormant module.
-  assert.deepEqual(
-    findBoundaryViolations(
-      `import { CommitStamp } from '@/lib/gameStats/revisionStamp';`,
-      importer
-    ),
-    []
-  );
+  // The non-dormant primitives are NOT dormant modules — the pure stamp helper
+  // AND the now-LIVE activation-control fence (the cache writer imports it).
+  for (const spec of [
+    `import { CommitStamp } from '@/lib/gameStats/revisionStamp';`,
+    `import { classifyLegacyWrite } from '@/lib/gameStats/activationControl';`,
+    `import { readActivationState } from '../../gameStats/activationControl';`,
+  ]) {
+    assert.deepEqual(findBoundaryViolations(spec, importer), [], spec);
+  }
 });
 
 test('scanner: detects static, dynamic, require, and re-export contract imports', () => {
@@ -388,12 +405,14 @@ test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', (
     'src/lib/gameStats/durableMerge.ts',
     // PLATFORM-086H3B dormant homes + the ONE sanctioned admin connection.
     'src/lib/gameStats/revisionAuthority.ts',
-    'src/lib/gameStats/activationControl.ts',
     'src/lib/gameStats/revisionRepair.ts',
     'src/app/api/admin/game-stats-revision/route.ts',
   ]) {
     assert.ok(!set.has(home), `${home} must be an excluded dormant/sanctioned home`);
   }
+  // The activation fence is a LIVE (module-scanned) symbol home — NOT excluded.
+  assert.ok(FORBIDDEN_SYMBOL_HOMES.has('src/lib/gameStats/activationControl.ts'));
+  assert.ok(set.has('src/lib/gameStats/activationControl.ts'), 'activationControl must be scanned');
   // …tests and fixtures never appear…
   assert.ok(files.every((f) => !f.includes('__tests__/') && !TEST_FILE_PATTERN.test(f)));
   // …while real production seams — and the NON-dormant primitive + the
@@ -413,12 +432,33 @@ test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', (
     'src/lib/server/appStateStore.ts',
     // The pure lineage-aware stamp primitive is NOT dormant — kept scanned.
     'src/lib/gameStats/revisionStamp.ts',
+    // The LIVE activation fence (symbol home) — module-scanned, symbol-exempt.
+    'src/lib/gameStats/activationControl.ts',
     // Hosts the LIVE generic status helpers + the dormant game-stats chronology
     // symbols; stays scanned (only the chronology symbols are exempt here).
     CHRONOLOGY_SYMBOL_HOME,
   ]) {
     assert.ok(set.has(seam), `${seam} must be scanned`);
   }
+});
+
+test('scanner: the activation-control symbol home is module-scanned but symbol-exempt', () => {
+  const home = 'src/lib/gameStats/activationControl.ts';
+  // Defining the dormant transition symbols + using schemaVersion is allowed here…
+  assert.deepEqual(
+    findBoundaryViolations(
+      `export async function setActivationState() {}\nconst r = { schemaVersion: 1 };\n` +
+        `export async function markRevisionedEvidenceCommitted() {}`,
+      home
+    ),
+    []
+  );
+  // …but importing a dormant MODULE from the fence is still a violation.
+  const violations = findBoundaryViolations(
+    `import { allocateGameStatsCommitStamp } from './revisionAuthority';`,
+    home
+  );
+  assert.ok(violations.some((v) => v.pattern.startsWith('dormant-module import')));
 });
 
 // === Behavioral writer assertions ===

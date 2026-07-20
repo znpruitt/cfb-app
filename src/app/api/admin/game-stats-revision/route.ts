@@ -130,14 +130,32 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ error: 'reason-required' }, { status: 400 });
   }
 
+  // APPLIED repair is production-DORMANT for prerequisite B
+  // (PLATFORM-086H3B-ACTIVATION-DORMANCY-REMEDIATION): the live route may not
+  // execute a repair plan while the blind legacy writer and raw public
+  // projection are still active. An apply request is refused with a stable typed
+  // code and writes NOTHING (no partition stamp, no ledger, no status stamp, no
+  // audit record). Inspection (GET) and dry-run planning (below) remain. A later
+  // prerequisite that strips public metadata and activates ownership enables it.
+  if (body.apply === true) {
+    return NextResponse.json(
+      {
+        error: 'revision-repair-application-not-active',
+        detail:
+          'Applied revision repair is not active in prerequisite B — inspection and dry-run only. No durable state was changed.',
+      },
+      { status: 409 }
+    );
+  }
+
   const request: RevisionRepairRequest = {
     identity,
     action,
     expectedStateDigest: body.expectedStateDigest,
     reason: body.reason,
     actor: await resolveActor(req),
-    // Default to dry-run: a real repair MUST pass `apply: true`.
-    dryRun: body.apply === true ? false : true,
+    // Dormant: the route ALWAYS plans (dry-run) — it never executes a repair.
+    dryRun: true,
     acknowledgeEvidenceLoss: body.acknowledgeEvidenceLoss === true,
     acknowledgeLineageConflict: body.acknowledgeLineageConflict === true,
   };

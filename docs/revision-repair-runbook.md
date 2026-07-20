@@ -8,13 +8,16 @@ fence, and admin-only revision repair. Binding architecture is
 `docs/ai/platform-086h3-contract.md` (frozen) and `AGENTS.md`; this runbook is
 operational guidance, not a design source of truth.
 
-> **Dormant today.** Everything below is BUILT and tested but production-dormant.
-> No production route/cron arms or activates the fence, calls the revisioned
-> writer, or allocates a revision. The legacy writer (`setCachedGameStats`)
-> remains the production game-stats writer while the fence is `legacy`. This
-> runbook is the operating manual E will hand to operators once the lifecycle is
-> activated; the repair surface itself is already reachable (admin-only) so a
-> blocked revision can be inspected and repaired even during staged rollout.
+> **Dormant lifecycle, LIVE fence (PLATFORM-086H3B-ACTIVATION-DORMANCY-REMEDIATION).**
+> The revisioned writer, revision allocation, the transition into `armed`/`active`,
+> and APPLIED repair are all production-dormant. What is now LIVE is the fence
+> itself: the real production legacy writer (`setCachedGameStats`) is routed
+> through it, so a legacy write commits only while the fence is validly `legacy`.
+> In production the fence is `legacy` (B arms/activates nothing), so the legacy
+> writer behaves exactly as before. The admin route offers inspection and dry-run
+> planning only — applied repair is refused (`revision-repair-application-not-active`)
+> until a later prerequisite strips internal metadata from the public wire and
+> activates ownership.
 
 ---
 
@@ -50,11 +53,11 @@ Inspection is read-only. It never writes and never contacts a provider.
 The revision authority BLOCKS rather than guess. Every block preserves all durable
 state and writes nothing:
 
-| Code                              | Meaning                                                                  |
-| --------------------------------- | ------------------------------------------------------------------------ |
-| `revision-lineage-conflict`       | Valid sources disagree on lineage.                                       |
-| `revision-history-ambiguous`      | Malformed/unexplained revision-era state, no usable source.              |
-| `revision-evidence-loss-suspected`| Ledger/status record committed evidence newer than the surviving partition, or evidence is absent while committed history survives. |
+| Code                               | Meaning                                                                                                                             |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `revision-lineage-conflict`        | Valid sources disagree on lineage.                                                                                                  |
+| `revision-history-ambiguous`       | Malformed/unexplained revision-era state, no usable source.                                                                         |
+| `revision-evidence-loss-suspected` | Ledger/status record committed evidence newer than the surviving partition, or evidence is absent while committed history survives. |
 
 A **missing revision field alone never** proves a scope is new — only a genuinely
 empty scope (no partition, ledger, committed-success lineage, revision-era marker,
@@ -67,18 +70,28 @@ or repair history) mints lineage 1.
 ```jsonc
 {
   "identity": { "year": 2025, "week": 3, "seasonType": "regular" },
-  "expectedStateDigest": "<from inspection>",   // CAS — refused if state changed
-  "reason": "restored week 3 from backup",       // required, audited
-  "apply": false,                                 // default is DRY-RUN (plan only)
+  "expectedStateDigest": "<from inspection>", // CAS — refused if state changed
+  "reason": "restored week 3 from backup", // required, audited
+  "apply": false, // DORMANT in B — apply is refused
   "action": { "kind": "rebuild-ledger" },
   "acknowledgeLineageConflict": false,
-  "acknowledgeEvidenceLoss": false
+  "acknowledgeEvidenceLoss": false,
 }
 ```
 
-**Preconditions (every repair):** platform-admin auth; exact partition; a matching
-`expectedStateDigest` (else `state-changed`); no unexpired recovery claim (else
-`active-recovery-claim`); default dry-run (`apply` must be `true` to write).
+> **Applied repair is DORMANT through the live route in prerequisite B.** An
+> `apply: true` request is refused with a stable `revision-repair-application-not-active`
+> (HTTP 409) and writes **nothing** — no partition stamp, no ledger, no status
+> stamp, no audit record. Inspection (GET) and dry-run PLANNING (POST without
+> `apply`) remain fully available. The repair-planning service still calculates
+> and returns the plan; the live route simply never executes it until a later
+> prerequisite strips internal metadata from the public wire and activates
+> ownership. The preconditions below describe the intended applied behavior E
+> will enable.
+
+**Preconditions (every applied repair, once enabled):** platform-admin auth;
+exact partition; a matching `expectedStateDigest` (else `state-changed`); no
+unexpired recovery claim (else `active-recovery-claim`); default dry-run.
 
 **Supported actions (the only ones):**
 
@@ -104,24 +117,41 @@ disposition), enforced by the transaction primitive.
 
 ## 5. Activation states & the fence
 
-| State            | Legacy writer | Revisioned writer | Notes                                    |
-| ---------------- | ------------- | ----------------- | ---------------------------------------- |
-| `legacy`         | ✅ allowed     | ❌ fenced          | Behavior-equivalent to current `main`.   |
-| `armed`          | ❌ fenced      | ✅ allowed          | Legacy writing fenced off; arming step.  |
-| `active`         | ❌ fenced      | ✅ allowed          | Revisioned evidence exists.              |
-| `read-only-safe` | ❌ fenced      | ❌ fenced          | Safe stop — reads only.                   |
+The fence GOVERNS both live writers — each validates it INSIDE its commit
+transaction, under the activation-control lock, immediately before any durable
+mutation, so a transition that completes first is always observed and honored.
 
-Invariants: `active` is reachable only from `armed` (never straight from
-`legacy`); **once revisioned evidence has existed, returning to `legacy` is
-permanently forbidden**; an absent record resolves to `legacy` (safe — reaching any
-non-legacy state requires an explicit write); a malformed record resolves to
-`read-only-safe`.
+| State            | Legacy writer | Revisioned writer | Notes                                            |
+| ---------------- | ------------- | ----------------- | ------------------------------------------------ |
+| `legacy`         | ✅ allowed    | ❌ fenced         | Behavior-equivalent to current `main`.           |
+| `armed`          | ❌ fenced     | ❌ fenced         | Deployment prep ONLY — evidence NOT authorized.  |
+| `active`         | ❌ fenced     | ✅ allowed        | The ONLY state that authorizes evidence commits. |
+| `read-only-safe` | ❌ fenced     | ❌ fenced         | Safe stop — reads only; excludes both writers.   |
+
+Invariants:
+
+- Revisioned evidence commits ONLY in `active` — `armed` prepares deployment but
+  does not authorize evidence. `read-only-safe` fences BOTH writers; a completed
+  `read-only-safe` transition excludes any later revisioned commit.
+- `active` is reachable only from `armed` (never straight from `legacy`). Permitted
+  forward transitions: `legacy→armed`, `armed→active`, `armed→read-only-safe`,
+  `active→read-only-safe`.
+- **Durable global witness:** the first revisioned evidence commit sets a
+  write-once, never-cleared `revisioned-evidence-witness`, ATOMICALLY with the
+  evidence. Once it exists, the legacy writer is fenced off and any automatic
+  return to `legacy` is permanently forbidden — even if the activation record
+  itself is lost.
+- An **absent** activation record resolves to `legacy` ONLY when no revision
+  history survives (no witness, no per-partition ledger/stamp); otherwise it
+  resolves to `read-only-safe`. A **malformed** record resolves to
+  `read-only-safe` and is never auto-normalized to `legacy`.
 
 ## 6. Deployment & rollback
 
-- Landing A→E incrementally is safe **because** the fence is durable: a stale or
-  rolled-back deploy cannot reintroduce a blind legacy writer alongside revisioned
-  evidence (the fence rejects the legacy writer once `armed`/`active`).
+- Landing A→E incrementally is safe **because** the fence is durable AND now
+  governs the real production writers: a stale or rolled-back deploy cannot
+  reintroduce a blind legacy writer alongside revisioned evidence — the durable
+  witness fences the legacy writer off once evidence has existed.
 - Reverting the eventual activation (E) alone de-activates the lifecycle without
   disturbing A–D; the durable fence prevents a competing-writer window.
 - No B deploy transitions production into `armed`/`active`. Arming/activation is an

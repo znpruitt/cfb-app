@@ -41,9 +41,9 @@ function input(fetchStartedAt: string, observations: ParsedV2Observation[]): Dur
   return { ...BASE, fetchStartedAt, observations };
 }
 
-async function arm(): Promise<void> {
-  const r = await setActivationState('armed');
-  assert.ok(r.ok);
+async function activate(): Promise<void> {
+  assert.ok((await setActivationState('armed')).ok);
+  assert.ok((await setActivationState('active')).ok);
 }
 
 async function readLedger(): Promise<RevisionLedgerRecord | null> {
@@ -51,6 +51,10 @@ async function readLedger(): Promise<RevisionLedgerRecord | null> {
 }
 async function readPartition(): Promise<WeeklyGameStats | null> {
   return (await getAppState<WeeklyGameStats>('game-stats', KEY))?.value ?? null;
+}
+async function witnessSet(): Promise<boolean> {
+  const w = await getAppState('game-stats-activation-control', 'revisioned-evidence-witness');
+  return Boolean(w?.value && (w.value as { everExisted?: unknown }).everExisted === true);
 }
 
 test('DORMANT: the revisioned writer refuses while the fence is legacy', async () => {
@@ -62,8 +66,22 @@ test('DORMANT: the revisioned writer refuses while the fence is legacy', async (
   assert.equal(await readLedger(), null);
 });
 
-test('armed: first change allocates lineage + revision 1; evidence & ledger co-commit', async () => {
-  await arm();
+test('revisioned writes are fenced OFF in armed and read-only-safe (only active)', async () => {
+  await setActivationState('armed');
+  const armed = await mergeGameStatsPartitionRevisioned(input(T1, [obs(1)]));
+  assert.equal(armed.unavailableReason, 'activation-fenced');
+  assert.equal(await readPartition(), null);
+  assert.equal(await witnessSet(), false);
+
+  await setActivationState('read-only-safe');
+  const safe = await mergeGameStatsPartitionRevisioned(input(T1, [obs(1)]));
+  assert.equal(safe.unavailableReason, 'activation-fenced');
+  assert.equal(await readPartition(), null);
+});
+
+test('active: first change allocates revision 1, co-commits ledger, and sets the witness', async () => {
+  await activate();
+  assert.equal(await witnessSet(), false); // reaching active does NOT set the witness
   const result = await mergeGameStatsPartitionRevisioned(input(T1, [obs(1)]));
   assert.equal(result.outcome, 'written');
   assert.ok(result.commit, 'commit stamp attached after COMMIT');
@@ -79,6 +97,21 @@ test('armed: first change allocates lineage + revision 1; evidence & ledger co-c
   // The partition was ABSENT pre-merge (first write), so this is a genuinely-new
   // scope, not a recognized-legacy one.
   assert.equal(ledger?.initializedFrom, 'new');
+  // The durable global witness is now set (atomically with the first commit).
+  assert.equal(await witnessSet(), true);
+});
+
+test('read-only-safe completing first excludes a later revisioned write', async () => {
+  await activate();
+  await mergeGameStatsPartitionRevisioned(input(T1, [obs(1)])); // revision 1
+  // The safe-stop transition completes…
+  assert.ok((await setActivationState('read-only-safe')).ok);
+  // …and no revisioned evidence commits after it (the in-txn fence refuses).
+  const after = await mergeGameStatsPartitionRevisioned(
+    input(T2, [obs(1, { home: { points: 41 } })])
+  );
+  assert.equal(after.unavailableReason, 'activation-fenced');
+  assert.equal((await readLedger())?.revision, 1); // unchanged
 });
 
 test('recognized pre-revision legacy partition initializes lineage from legacy', async () => {
@@ -89,7 +122,7 @@ test('recognized pre-revision legacy partition initializes lineage from legacy',
     games: [legacyRowFromWire(wireGame({ id: 1 }))],
   };
   await setAppState('game-stats', KEY, legacy);
-  await arm();
+  await activate();
   // A newer observation upgrades the legacy row → recognized-legacy bootstrap.
   const result = await mergeGameStatsPartitionRevisioned(
     input(T2, [obs(1, { home: { points: 41 } })])
@@ -100,7 +133,7 @@ test('recognized pre-revision legacy partition initializes lineage from legacy',
 });
 
 test('ordinary allocation advances revision on each subsequent change', async () => {
-  await arm();
+  await activate();
   const r1 = await mergeGameStatsPartitionRevisioned(input(T1, [obs(1)]));
   assert.equal(r1.commit!.stamp.revision, 1);
   // A strictly newer, content-changing observation → revision 2, same lineage.
@@ -112,7 +145,7 @@ test('ordinary allocation advances revision on each subsequent change', async ()
 });
 
 test('no-change merges allocate no revision (ledger untouched)', async () => {
-  await arm();
+  await activate();
   await mergeGameStatsPartitionRevisioned(input(T1, [obs(1)]));
   // Same fence, identical content → unchanged, no new revision.
   const again = await mergeGameStatsPartitionRevisioned(input(T1, [obs(1)]));
@@ -122,7 +155,7 @@ test('no-change merges allocate no revision (ledger untouched)', async () => {
 });
 
 test('process restart: the persisted ledger remains the sole allocator', async () => {
-  await arm();
+  await activate();
   await mergeGameStatsPartitionRevisioned(input(T1, [obs(1)]));
   await mergeGameStatsPartitionRevisioned(input(T2, [obs(1, { home: { points: 41 } })]));
   assert.equal((await readLedger())?.revision, 2);
@@ -135,7 +168,7 @@ test('process restart: the persisted ledger remains the sole allocator', async (
 });
 
 test('concurrent allocation on one partition serializes to distinct revisions', async () => {
-  await arm();
+  await activate();
   // Two concurrent inserts of DIFFERENT games at the same fence: both change, so
   // both allocate; the primitive serializes them on the partition lock.
   const [a, b] = await Promise.all([
@@ -152,7 +185,7 @@ test('concurrent allocation on one partition serializes to distinct revisions', 
 });
 
 test('atomic co-commit: a failed COMMIT persists NEITHER evidence nor ledger', async () => {
-  await arm();
+  await activate();
   __setAppStateFileCommitFailureForTests(new Error('commit boom'));
   const result = await mergeGameStatsPartitionRevisioned(input(T1, [obs(1)]));
   __setAppStateFileCommitFailureForTests(null);
@@ -181,7 +214,7 @@ test('revision block: a lineage conflict refuses the write, durable state untouc
     initializedFrom: 'new',
     initializedAt: '2024-10-06T00:00:00.000Z',
   });
-  await arm();
+  await activate();
   const result = await mergeGameStatsPartitionRevisioned(
     input(T2, [obs(1, { home: { points: 41 } })])
   );

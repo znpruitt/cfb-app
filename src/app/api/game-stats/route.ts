@@ -17,6 +17,29 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * The public game-stats wire envelope — an explicit allowlist that NEVER emits
+ * internal revision bookkeeping (PLATFORM-086H3B-ACTIVATION-DORMANCY-REMEDIATION:
+ * the durable `commitStamp` is internal-only and must never reach the public
+ * wire). Byte-compatible with legacy data (which carries no `commitStamp`). This
+ * is a minimal envelope-level strip, NOT prerequisite C's full projection layer.
+ */
+function publicGameStatsEnvelope(weekly: WeeklyGameStats): {
+  year: number;
+  week: number;
+  seasonType: CfbdSeasonType;
+  fetchedAt: string;
+  games: WeeklyGameStats['games'];
+} {
+  return {
+    year: weekly.year,
+    week: weekly.week,
+    seasonType: weekly.seasonType,
+    fetchedAt: weekly.fetchedAt,
+    games: weekly.games,
+  };
+}
+
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 const CFBD_RETRY_POLICY = {
@@ -105,7 +128,7 @@ export async function GET(req: Request) {
       const age = Date.now() - new Date(cached.fetchedAt).getTime();
       if (age < CACHE_TTL_MS) {
         return NextResponse.json({
-          ...cached,
+          ...publicGameStatsEnvelope(cached),
           meta: { cache: 'hit', source: 'cfbd' },
         });
       }
@@ -115,7 +138,7 @@ export async function GET(req: Request) {
     if (!isAdmin) {
       if (cached) {
         return NextResponse.json({
-          ...cached,
+          ...publicGameStatsEnvelope(cached),
           meta: { cache: 'hit', source: 'cfbd', stale: true },
         });
       }
@@ -213,7 +236,7 @@ export async function GET(req: Request) {
     });
 
     return NextResponse.json({
-      ...result,
+      ...publicGameStatsEnvelope(result),
       meta: { cache: 'miss', source: 'cfbd' },
     });
   } catch (error) {
