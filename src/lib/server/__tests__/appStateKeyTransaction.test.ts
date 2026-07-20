@@ -12,6 +12,7 @@ import {
   AppStateTxnCleanupError,
   AppStateTxnFinalizeError,
   AppStateTxnLockOrderError,
+  AppStateTxnLockUpgradeError,
   __appStateKeyLockChainCountForTests,
   __corruptAppStateFileForTests,
   __deleteAppStateFileForTests,
@@ -77,6 +78,7 @@ class FakeClient {
         this.staged = new Map();
         return { rows: [] };
       case 'lock': {
+        this.pool.lockSql.push(text);
         const lockKey = String(params?.[0]);
         const entry = this.pool.locks.get(lockKey);
         if (!entry) {
@@ -168,6 +170,8 @@ class FakePool {
   readonly releases: Array<{ index: number; destroyed: boolean }> = [];
   readonly committed = new Map<string, string>();
   readonly locks = new Map<string, LockEntry>();
+  /** Raw SQL text of every advisory-lock query, in order (mode-selection tests). */
+  readonly lockSql: string[] = [];
   /** Healthy released clients, available for reuse by later connects. */
   readonly idle: FakeClient[] = [];
   readonly destroyedIds = new Set<number>();
@@ -2058,4 +2062,235 @@ test('temporal (file): a held SECONDARY slot is also released before shaping', a
   }
   assert.equal(read(), 0, 'primary AND secondary slots released before shaping');
   assert.equal(await getAppState('tmp', 'a'), null, 'nothing committed');
+});
+
+// ===========================================================================
+// PLATFORM-086H3B-ACTIVATION-FENCE-CONCURRENCY — shared/exclusive secondary
+// locks. `lockKeyShared` admits concurrent shared holders; `lockKey` (and the
+// primary root) stay exclusive; a queued exclusive is never bypassed by later
+// shared arrivals; a shared→exclusive upgrade refuses and poisons; lock MODE
+// never affects tuple ordering. Concurrency is exercised on the file backend
+// (the in-process reader/writer lock); the PG branch selects the shared vs
+// exclusive advisory-lock SQL (PostgreSQL provides the semantics).
+// ===========================================================================
+
+// Flush the microtask/macrotask boundary so pending lock-queue acquisitions run.
+const flushLocks = async (): Promise<void> => {
+  for (let i = 0; i < 3; i += 1) await new Promise<void>((r) => setImmediate(r));
+};
+// A secondary FENCE identity that sorts ABOVE the 'root' primary scope (forward).
+const FENCE_SCOPE = 'zfence';
+const FENCE_KEY = 'g';
+
+test('mixed mode (file): two SHARED holders proceed concurrently', async () => {
+  const aHeld = deferred();
+  const releaseA = deferred();
+  let bCompletedWhileAHeld = false;
+  let aStillOpen = true;
+  const A = withAppStateKeyTransaction('root', 'a', async (txn) => {
+    await txn.lockKeyShared(FENCE_SCOPE, FENCE_KEY);
+    aHeld.resolve();
+    await releaseA.promise; // hold the shared fence open
+  }).then(() => {
+    aStillOpen = false;
+  });
+  await aHeld.promise;
+  const B = withAppStateKeyTransaction('root', 'b', async (txn) => {
+    await txn.lockKeyShared(FENCE_SCOPE, FENCE_KEY); // must NOT block on A's shared
+    bCompletedWhileAHeld = aStillOpen; // true iff A still holds the shared fence
+  });
+  await B;
+  assert.equal(bCompletedWhileAHeld, true, 'B acquired the shared fence while A held it');
+  releaseA.resolve();
+  await A;
+  assert.equal(__appStateKeyLockChainCountForTests(), 0, 'all RW locks released');
+});
+
+test('mixed mode (file): an EXCLUSIVE waiter waits for existing shared holders', async () => {
+  const aHeld = deferred();
+  const releaseA = deferred();
+  let exclusiveAcquired = false;
+  const A = withAppStateKeyTransaction('root', 'a', async (txn) => {
+    await txn.lockKeyShared(FENCE_SCOPE, FENCE_KEY);
+    aHeld.resolve();
+    await releaseA.promise;
+  });
+  await aHeld.promise;
+  const X = withAppStateKeyTransaction('root', 'x', async (txn) => {
+    await txn.lockKey(FENCE_SCOPE, FENCE_KEY); // exclusive — must wait for A's shared
+    exclusiveAcquired = true;
+  });
+  await flushLocks();
+  assert.equal(exclusiveAcquired, false, 'exclusive did NOT bypass the live shared holder');
+  releaseA.resolve();
+  await Promise.all([A, X]);
+  assert.equal(exclusiveAcquired, true, 'exclusive granted after the shared holder released');
+  assert.equal(__appStateKeyLockChainCountForTests(), 0);
+});
+
+test('mixed mode (file): a later SHARED request cannot bypass a queued EXCLUSIVE (no starvation)', async () => {
+  const aHeld = deferred();
+  const releaseA = deferred();
+  const grantOrder: string[] = [];
+  const A = withAppStateKeyTransaction('root', 'a', async (txn) => {
+    await txn.lockKeyShared(FENCE_SCOPE, FENCE_KEY);
+    aHeld.resolve();
+    await releaseA.promise;
+  });
+  await aHeld.promise;
+  // X (exclusive) queues behind A's shared.
+  const X = withAppStateKeyTransaction('root', 'x', async (txn) => {
+    await txn.lockKey(FENCE_SCOPE, FENCE_KEY);
+    grantOrder.push('X');
+  });
+  await flushLocks(); // ensure X is enqueued before B
+  // B (shared) arrives AFTER X is queued — it must NOT jump ahead of X.
+  const B = withAppStateKeyTransaction('root', 'b', async (txn) => {
+    await txn.lockKeyShared(FENCE_SCOPE, FENCE_KEY);
+    grantOrder.push('B');
+  });
+  await flushLocks();
+  assert.deepEqual(grantOrder, [], 'neither X nor B ran while A held the shared fence');
+  releaseA.resolve();
+  await Promise.all([A, X, B]);
+  assert.deepEqual(grantOrder, ['X', 'B'], 'exclusive X granted BEFORE the later shared B');
+  assert.equal(__appStateKeyLockChainCountForTests(), 0);
+});
+
+test('mixed mode (file): an EXCLUSIVE holder excludes another exclusive holder', async () => {
+  const aHeld = deferred();
+  const releaseA = deferred();
+  let secondExclusive = false;
+  const A = withAppStateKeyTransaction('root', 'a', async (txn) => {
+    await txn.lockKey(FENCE_SCOPE, FENCE_KEY);
+    aHeld.resolve();
+    await releaseA.promise;
+  });
+  await aHeld.promise;
+  const D = withAppStateKeyTransaction('root', 'd', async (txn) => {
+    await txn.lockKey(FENCE_SCOPE, FENCE_KEY);
+    secondExclusive = true;
+  });
+  await flushLocks();
+  assert.equal(secondExclusive, false, 'second exclusive blocked by the first');
+  releaseA.resolve();
+  await Promise.all([A, D]);
+  assert.equal(secondExclusive, true);
+  assert.equal(__appStateKeyLockChainCountForTests(), 0);
+});
+
+test('mixed mode: SHARED reacquisition and EXCLUSIVE-then-shared reacquisition are idempotent no-ops', async () => {
+  // shared → shared (idempotent) and exclusive → shared (downgrade, idempotent).
+  await withAppStateKeyTransaction('root', 'a', async (txn) => {
+    await txn.lockKeyShared(FENCE_SCOPE, FENCE_KEY);
+    await txn.lockKeyShared(FENCE_SCOPE, FENCE_KEY); // shared→shared: no error
+    await txn.write({ ok: 1 });
+  });
+  assert.deepEqual((await getAppState('root', 'a'))?.value, { ok: 1 });
+  await withAppStateKeyTransaction('root', 'b', async (txn) => {
+    await txn.lockKey(FENCE_SCOPE, FENCE_KEY);
+    await txn.lockKeyShared(FENCE_SCOPE, FENCE_KEY); // exclusive already held satisfies shared
+    await txn.write({ ok: 2 });
+  });
+  assert.deepEqual((await getAppState('root', 'b'))?.value, { ok: 2 });
+  assert.equal(__appStateKeyLockChainCountForTests(), 0);
+});
+
+test('mixed mode: a SHARED→EXCLUSIVE upgrade refuses (typed) and POISONS the transaction', async () => {
+  // Awaited upgrade rejection propagates and nothing commits.
+  await assert.rejects(
+    withAppStateKeyTransaction('root', 'a', async (txn) => {
+      await txn.lockKeyShared(FENCE_SCOPE, FENCE_KEY);
+      await txn.write({ staged: true }); // staged primary write
+      await txn.lockKey(FENCE_SCOPE, FENCE_KEY); // shared→exclusive upgrade → refuse
+    }),
+    (err: unknown) => {
+      assert.ok(err instanceof AppStateTxnLockUpgradeError, String(err));
+      assert.equal(err.identity, JSON.stringify([FENCE_SCOPE, FENCE_KEY]));
+      return true;
+    }
+  );
+  assert.equal(await getAppState('root', 'a'), null, 'poisoned transaction committed nothing');
+
+  // Even when the caller DISCARDS the rejection, the transaction stays poisoned.
+  await assert.rejects(
+    withAppStateKeyTransaction('root', 'b', async (txn) => {
+      await txn.lockKeyShared(FENCE_SCOPE, FENCE_KEY);
+      await txn.write({ staged: true });
+      void txn.lockKey(FENCE_SCOPE, FENCE_KEY); // un-awaited upgrade still poisons
+    }),
+    (err: unknown) => err instanceof AppStateTxnLockUpgradeError
+  );
+  assert.equal(
+    await getAppState('root', 'b'),
+    null,
+    'un-awaited upgrade still poisoned the commit'
+  );
+  assert.equal(__appStateKeyLockChainCountForTests(), 0);
+});
+
+test('mixed mode: the upgrade error is DISTINCT from the lock-order error and its kinds', async () => {
+  const upgrade = new AppStateTxnLockUpgradeError(JSON.stringify([FENCE_SCOPE, FENCE_KEY]));
+  assert.ok(!(upgrade instanceof AppStateTxnLockOrderError));
+  assert.ok(!(upgrade instanceof AppStateKeyLockAcquireError));
+  assert.equal(upgrade.name, 'AppStateTxnLockUpgradeError');
+});
+
+test('mixed mode: lock ORDER is enforced regardless of mode (a backward SHARED refuses)', async () => {
+  await assert.rejects(
+    withAppStateKeyTransaction('lk', 'b', async (txn) => {
+      await txn.lockKeyShared('lk', 'a'); // lk::a < lk::b → backward, even shared
+    }),
+    (err: unknown) => err instanceof AppStateTxnLockOrderError
+  );
+  // A forward shared then a forward exclusive on a higher identity is accepted;
+  // mode never reorders the tuple comparison.
+  await withAppStateKeyTransaction('lk', 'a', async (txn) => {
+    await txn.lockKeyShared('lk', 'b'); // forward shared
+    await txn.lockKey('lk', 'c'); // forward exclusive (c > b)
+    await txn.write({ ok: true });
+  });
+  assert.deepEqual((await getAppState('lk', 'a'))?.value, { ok: true });
+});
+
+test('mixed mode (file): a callback failure releases ALL shared/exclusive slots (no wedge)', async () => {
+  await assert.rejects(
+    withAppStateKeyTransaction('root', 'a', async (txn) => {
+      await txn.lockKeyShared(FENCE_SCOPE, FENCE_KEY);
+      throw new Error('callback boom');
+    }),
+    /callback boom/
+  );
+  assert.equal(
+    __appStateKeyLockChainCountForTests(),
+    0,
+    'shared slot + primary released, map GC’d'
+  );
+  // The fence is NOT wedged: a later EXCLUSIVE acquisition succeeds immediately.
+  await withAppStateKeyTransaction('root', 'b', async (txn) => {
+    await txn.lockKey(FENCE_SCOPE, FENCE_KEY);
+    await txn.write({ recovered: true });
+  });
+  assert.deepEqual((await getAppState('root', 'b'))?.value, { recovered: true });
+  assert.equal(__appStateKeyLockChainCountForTests(), 0);
+});
+
+test('mixed mode (pg): lockKeyShared selects pg_advisory_xact_lock_shared; exclusive stays exclusive', async () => {
+  await withFakePg(async (pool) => {
+    await withAppStateKeyTransaction('primary', 'p', async (txn) => {
+      await txn.lockKeyShared('zfence', 'p'); // SHARED secondary
+      await txn.lockKey('zzz', 'p'); // EXCLUSIVE secondary (sorts above zfence)
+      await txn.write({ n: 1 });
+    });
+    const shared = pool.lockSql.filter((s) => s.includes('pg_advisory_xact_lock_shared'));
+    const exclusive = pool.lockSql.filter(
+      (s) => s.includes('pg_advisory_xact_lock(') && !s.includes('_shared')
+    );
+    assert.equal(shared.length, 1, 'exactly the shared secondary used the shared advisory lock');
+    assert.equal(
+      exclusive.length,
+      2,
+      'primary root + exclusive secondary used the exclusive advisory lock'
+    );
+  });
 });

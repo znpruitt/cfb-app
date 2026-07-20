@@ -25,16 +25,27 @@ architecture, not active behavior.
   `recovery-disposition`):
 
   ```text
-  ordinary allocation:          E(P) → S(P)          (status is a witness, below)
-  legacy writer (fenced):       E(P) → activation-control
-  revisioned writer/bootstrap:  E(P) → activation-control → S(P)
-  operator repair validation:   E(P) → activation-control → S(P) → C(P)
-  activation transition:        activation-control
+  ordinary allocation:          E(P) exclusive → S(P) exclusive   (status is a witness, below)
+  legacy writer (fenced):       E(P) exclusive → activation-control SHARED
+  revisioned writer/bootstrap:  E(P) exclusive → activation-control SHARED → S(P) exclusive
+  operator repair validation:   E(P) exclusive → activation-control EXCLUSIVE → S(P) exclusive → C(P) exclusive
+  activation transition:        activation-control EXCLUSIVE
   ```
 
   §6 originally said ordinary allocation is E(P)-only; the implementation refined
   this so committed refresh status is consulted on EVERY allocation under `S(P)`
   as a restoration/high-water **witness** (never the allocator).
+
+  Lock MODE (PLATFORM-086H3B-ACTIVATION-FENCE-CONCURRENCY): the primary root and
+  every `S(P)`/`C(P)` are EXCLUSIVE. The activation-control fence is held SHARED by
+  ordinary writers (`lockKeyShared`), so legacy/revisioned writers for UNRELATED
+  partitions commit concurrently, and EXCLUSIVE by activation transitions and repair
+  CAS (`lockKey`), which therefore drain and exclude all in-flight writers. Mode
+  never changes lock identity or the `(scope, key)` ordering; a shared→exclusive
+  upgrade within one transaction is refused (`AppStateTxnLockUpgradeError`) and
+  poisons it. The revision-history witness value is deterministic
+  (`{ everExisted: true }`), so concurrent first commits under the shared fence
+  cannot produce conflicting witness content.
 
 - The durable recovery scope is **`recovery-disposition`** (single ownership
   contract). Prerequisite D MUST adopt this exact scope and MUST NOT create a
@@ -170,6 +181,23 @@ corrections (see §5 lineage and §17 activation-control fence).
   accepted forward order while the reverse is rejected — so opposite-root
   transactions can never invert and deadlock. (Prerequisite A ships and enforces
   this generic comparator; B supplies the partition/status callers.)
+- **Shared vs exclusive secondary locks** (PLATFORM-086H3B-ACTIVATION-FENCE-
+  CONCURRENCY, a BOUNDED extension of A's primitive): `lockKeyShared` acquires a
+  SHARED secondary lock and `lockKey` an EXCLUSIVE one; the primary root is always
+  EXCLUSIVE. On PostgreSQL, shared uses `pg_advisory_xact_lock_shared` and
+  exclusive `pg_advisory_xact_lock` on the SAME canonical advisory key; on the file
+  fallback, a fair in-process reader/writer lock (FIFO with reader coalescing)
+  admits concurrent shared holders, excludes on an exclusive holder, and — for
+  fairness — never lets a later shared arrival bypass a queued exclusive. Mode NEVER
+  affects tuple ordering, lock identity, persisted identity, or the deadlock
+  comparator; the strongest held mode per identity is tracked so a shared→exclusive
+  UPGRADE within one transaction is refused fail-fast (`AppStateTxnLockUpgradeError`)
+  and POISONS the transaction under the same required-lock contract (a
+  same/weaker-mode reacquisition is an idempotent no-op). The activation-control
+  fence uses this: ordinary writers hold it SHARED (unrelated partitions concurrent),
+  transitions and repair CAS hold it EXCLUSIVE (draining and excluding writers). All
+  previously stated poisoning, cleanup-before-shaping, uncertain-COMMIT, and
+  accessor-lifetime guarantees hold identically for both modes.
 
 ## 7. Refresh-status attempt vs evidence chronology
 

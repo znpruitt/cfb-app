@@ -208,12 +208,16 @@ present. A malformed timestamp or game row (or a mixed valid/invalid `games`
 array) is a hard `revision-repair-evidence-malformed` refusal that **no
 acknowledgement can override**.
 
-Lock order is **`E(P) → activation-control → S(P) → C(P)`**, enforced by the
-transaction primitive. The activation-control lock is acquired **before** reading
-the activation record and irreversible witness (both bound by the CAS digest), so
-a concurrent activation transition — or another partition's first revisioned
-commit touching the global witness — cannot mutate those inputs inside the CAS
-window; a completed change is caught as `revision-repair-state-changed`.
+Lock order is
+**`E(P) exclusive → activation-control EXCLUSIVE → S(P) exclusive → C(P) exclusive`**,
+enforced by the transaction primitive. Repair takes the activation-control fence
+**EXCLUSIVE** (`lockKey`) — unlike ordinary legacy/revisioned writers, which hold it
+SHARED (`lockKeyShared`) so unrelated partitions commit concurrently. The exclusive
+fence is acquired **before** reading the activation record and irreversible witness
+(both bound by the CAS digest) and DRAINS every in-flight shared writer, so no
+concurrent activation transition — nor any partition's first revisioned commit
+touching the global witness — can mutate those inputs inside the CAS window; a
+completed change is caught as `revision-repair-state-changed`.
 
 **Audit history is validated entry-by-entry.** `readRevisionAuditTrail` returns
 `available` only when the dataset is a valid array in which every entry passes
@@ -226,8 +230,15 @@ audit history is **never trusted or appended to** — planning and apply refuse 
 ## 5. Activation states & the fence
 
 The fence GOVERNS both live writers — each validates it INSIDE its commit
-transaction, under the activation-control lock, immediately before any durable
-mutation, so a transition that completes first is always observed and honored.
+transaction, under the activation-control fence held **SHARED** (`lockKeyShared`),
+immediately before any durable mutation, so a transition that completes first is
+always observed and honored. The shared fence lets writers for UNRELATED partitions
+commit concurrently; an activation TRANSITION (and operator repair CAS) takes the
+fence **EXCLUSIVE**, so it drains in-flight shared writers and blocks new ones — a
+queued exclusive is never bypassed by later shared arrivals. Concurrent first
+revisioned commits are safe: the durable revision-history witness value is
+deterministic (`{ everExisted: true }`), so no two shared-fence writers can produce
+conflicting witness content.
 
 | State            | Legacy writer | Revisioned writer | Notes                                            |
 | ---------------- | ------------- | ----------------- | ------------------------------------------------ |

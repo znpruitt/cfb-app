@@ -66,14 +66,17 @@ export class GameStatsFenceError extends Error {
 /**
  * Persist a legacy (pre-revision) weekly partition through the DURABLE activation
  * fence. The whole check-and-write runs in ONE transaction: it roots at the
- * evidence partition E(P), acquires the activation-control lock (forward order —
- * `game-stats` sorts below `game-stats-activation-control`), re-reads the
- * activation record + the durable global witness + this partition's revision
- * ledger under both locks, and writes ONLY when the fence resolves to `legacy`
- * with no surviving revision history. A transition that changed the state first
- * causes this write to observe the new state (read under the just-acquired lock)
- * and refuse; a write that validates the fence first commits before the
- * transition can acquire the lock.
+ * evidence partition E(P) EXCLUSIVE, acquires the activation-control fence SHARED
+ * (`lockKeyShared` — forward order, `game-stats` sorts below
+ * `game-stats-activation-control`), re-reads the activation record + the durable
+ * global witness + this partition's revision ledger under both locks, and writes
+ * ONLY when the fence resolves to `legacy` with no surviving revision history. The
+ * SHARED fence lets legacy writes for UNRELATED partitions proceed concurrently
+ * while still excluding an activation TRANSITION (which takes the fence
+ * EXCLUSIVE). A transition that changed the state first causes this write to
+ * observe the new state (read under the shared fence, which the exclusive
+ * transition has already released) and refuse; a write already holding the shared
+ * fence commits before the transition can acquire it exclusively.
  *
  * Behavior-equivalent to the pre-remediation blind write while the fence is
  * validly `legacy`: the stored partition bytes are identical (only extra reads
@@ -85,7 +88,7 @@ export async function writeLegacyGameStatsPartition(
   const key = getGameStatsKey(stats.year, stats.week, stats.seasonType);
   try {
     return await withAppStateKeyTransaction<LegacyWriteResult>(SCOPE, key, async (txn) => {
-      await txn.lockKey(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY);
+      await txn.lockKeyShared(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY);
       // PRESENCE-AWARE reads: a present-null / malformed control row is NEVER
       // treated as absence (PLATFORM-086H3B-ACTIVATION-STATE-CORRUPTION-REMEDIATION).
       const activation = toControlRead(

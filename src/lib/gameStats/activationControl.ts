@@ -68,8 +68,15 @@ export type ActivationControlRecord = {
   reason?: string;
 };
 
-/** The write-once durable global witness value. */
-export type RevisionedEvidenceWitness = { everExisted: true; firstAt: string };
+/**
+ * The write-once durable global witness value. The CORRECTNESS-bearing content is
+ * the canonical deterministic `{ everExisted: true }` (its mere PRESENCE forbids
+ * legacy ownership). `firstAt` is an OPTIONAL diagnostic that is NOT written by the
+ * concurrent revisioned-writer path (so concurrent first commits under the SHARED
+ * activation fence can never produce conflicting witness content — PLATFORM-086H3B
+ * -ACTIVATION-FENCE-CONCURRENCY); it may still appear on older/seeded records.
+ */
+export type RevisionedEvidenceWitness = { everExisted: true; firstAt?: string };
 
 /** Whether a raw witness value proves revisioned evidence has ever existed. */
 export function witnessPresent(value: unknown): boolean {
@@ -381,19 +388,28 @@ export async function setActivationState(
 }
 
 /**
- * Set the durable global "revisioned evidence has existed" witness (write-once)
- * and sync the activation record's flag, co-committed with the first revisioned
- * evidence write. MUST be called from inside the revisioned writer's transaction
- * while it holds the activation-control lock, so the witness persists atomically
- * with the evidence (or neither persists). Idempotent thereafter.
+ * Set the durable global "revisioned evidence has existed" witness (write-once),
+ * co-committed with the first revisioned evidence write. MUST be called from inside
+ * the revisioned writer's transaction while it holds the activation-control fence
+ * SHARED, so the witness persists atomically with the evidence (or neither
+ * persists). Idempotent thereafter.
+ *
+ * The witness value is the CANONICAL DETERMINISTIC `{ everExisted: true }` (no
+ * per-writer / time-varying field), so two concurrent first commits under the
+ * SHARED fence — for DIFFERENT partitions — can never write conflicting witness
+ * content (PLATFORM-086H3B-ACTIVATION-FENCE-CONCURRENCY): whichever backend write
+ * wins produces byte-identical content. The activation RECORD is NOT written here
+ * — mutating the shared-locked record from a concurrent writer would be a
+ * write-under-shared-lock; the record's `revisionedEvidenceEverExisted` mirror is
+ * a NON-authoritative optimization that activation TRANSITIONS (exclusive)
+ * re-sync from the witness. The witness ROW's presence is the authoritative
+ * durable proof that history existed, and every read fails safe on it.
  */
-export async function markRevisionedEvidenceCommitted(
-  txn: AppStateKeyTxn,
-  now: string
-): Promise<void> {
+export async function markRevisionedEvidenceCommitted(txn: AppStateKeyTxn): Promise<void> {
   // Write the witness ONLY when its row is genuinely ABSENT — a present row
   // (valid write-once witness OR a malformed value) is left byte-identical
-  // (never cleared, never normalized).
+  // (never cleared, never normalized). The written value is deterministic so
+  // concurrent absent-then-write races produce identical content.
   const witnessRow = await txn.readKey<unknown>(
     ACTIVATION_CONTROL_SCOPE,
     REVISIONED_EVIDENCE_WITNESS_KEY
@@ -402,17 +418,7 @@ export async function markRevisionedEvidenceCommitted(
     await txn.writeKey<RevisionedEvidenceWitness>(
       ACTIVATION_CONTROL_SCOPE,
       REVISIONED_EVIDENCE_WITNESS_KEY,
-      { everExisted: true, firstAt: now }
+      { everExisted: true }
     );
-  }
-  const record = validateActivationRecord(
-    (await txn.readKey<unknown>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY))?.value
-  );
-  if (record && !record.revisionedEvidenceEverExisted) {
-    await txn.writeKey<ActivationControlRecord>(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY, {
-      ...record,
-      revisionedEvidenceEverExisted: true,
-      updatedAt: now,
-    });
   }
 }

@@ -51,6 +51,12 @@ import type { WeeklyGameStats } from './types.ts';
  * refresh-status stamp, then the recovery disposition. Monotonic under A's
  * comparator: `game-stats` < `game-stats-activation-control` <
  * `provider-refresh-status` < `recovery-disposition`; the reverse is rejected.
+ *
+ * Fence MODE (PLATFORM-086H3B-ACTIVATION-FENCE-CONCURRENCY): repair holds
+ * activation-control **EXCLUSIVE** (`lockKey`) — unlike ordinary legacy/revisioned
+ * writers, which hold it SHARED. The exclusive fence DRAINS every in-flight shared
+ * writer and blocks new ones, so the activation record + irreversible witness the
+ * CAS digest binds cannot change inside the validate→apply window.
  */
 
 const GAME_STATS_SCOPE = 'game-stats';

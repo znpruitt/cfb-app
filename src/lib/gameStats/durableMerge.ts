@@ -842,10 +842,14 @@ export async function mergeGameStatsPartitionDurable(
  * Activation fence (PLATFORM-086H3B-ACTIVATION-DORMANCY-REMEDIATION): a revisioned
  * evidence commit is authorized ONLY while the fence is exactly `active` —
  * `armed` prepares deployment but does NOT authorize evidence commits. The fence
- * is validated INSIDE the transaction, under the activation-control lock, and
- * immediately before durable mutation (lock order `E → activation-control → S`);
- * a pre-transaction read is an optimization only. On the first evidence commit it
- * sets the durable global evidence witness ATOMICALLY with the write.
+ * is validated INSIDE the transaction, under the activation-control lock held
+ * SHARED, and immediately before durable mutation (lock order
+ * `E(P) exclusive → activation-control shared → S(P) exclusive`); a pre-transaction
+ * read is an optimization only. The SHARED fence lets revisioned writers for
+ * UNRELATED partitions commit concurrently while still excluding an activation
+ * TRANSITION and repair CAS (both EXCLUSIVE on the fence). On the first evidence
+ * commit it sets the durable global evidence witness (a deterministic, idempotent
+ * value) ATOMICALLY with the write, so concurrent first commits cannot conflict.
  *
  * DORMANT: no B production path transitions the fence to `active`, so in
  * production this always refuses (`activation-fenced`) and the legacy writer stays
@@ -883,13 +887,16 @@ export async function mergeGameStatsPartitionRevisioned(
   let committedStamp: CommitStamp | null = null;
   try {
     const result = await withAppStateKeyTransaction(GAME_STATS_SCOPE, key, async (txn) => {
-      // Authoritative fence: acquire the activation-control lock (forward order
-      // E → activation-control) and re-read the record UNDER the lock, immediately
-      // before any durable mutation. Only a valid `active` record authorizes a
-      // revisioned evidence commit; a transition that completed first (armed /
-      // read-only-safe / absent / malformed) is observed here and refuses.
+      // Authoritative fence: acquire the activation-control lock SHARED (forward
+      // order E → activation-control) and re-read the record UNDER the lock,
+      // immediately before any durable mutation. Only a valid `active` record
+      // authorizes a revisioned evidence commit; a transition that completed first
+      // (armed / read-only-safe / absent / malformed) is observed here and
+      // refuses. SHARED so unrelated partitions' revisioned writers commit
+      // concurrently; a transition/repair takes the fence EXCLUSIVE and cannot run
+      // while this shared holder is committing.
       try {
-        await txn.lockKey(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY);
+        await txn.lockKeyShared(ACTIVATION_CONTROL_SCOPE, ACTIVATION_CONTROL_KEY);
       } catch {
         return unavailable('lock-unavailable', partitionKey);
       }
@@ -951,11 +958,12 @@ export async function mergeGameStatsPartitionRevisioned(
         await txn.write(computation.partition!);
         await txn.writeKey(GAME_STATS_REVISION_SCOPE, key, allocation.allocation.ledger);
         // Set the durable global "revisioned evidence has existed" witness
-        // ATOMICALLY with the first evidence commit (under the activation-control
-        // lock already held). It never un-sets, so a later legacy write or a
-        // return to `legacy` is permanently fenced even if the activation record
-        // is lost.
-        await markRevisionedEvidenceCommitted(txn, now);
+        // ATOMICALLY with the first evidence commit (under the shared
+        // activation-control fence already held). The witness value is
+        // deterministic, so concurrent first commits cannot conflict; it never
+        // un-sets, so a later legacy write or a return to `legacy` is permanently
+        // fenced even if the activation record is lost.
+        await markRevisionedEvidenceCommitted(txn);
       } catch {
         return unavailable('durable-write-failed', partitionKey);
       }

@@ -463,8 +463,36 @@ export class AppStateTxnLockOrderError extends Error {
   }
 }
 
+/**
+ * A `lockKey` (EXCLUSIVE) acquisition was requested for a `(scope, key)` this
+ * transaction already holds SHARED (via `lockKeyShared`) — a shared→exclusive
+ * UPGRADE. Upgrades are forbidden (PLATFORM-086H3B-ACTIVATION-FENCE-CONCURRENCY):
+ * two transactions that each hold the identity shared and then try to upgrade
+ * would deadlock, so the request is rejected FAIL-FAST (before any wait/query),
+ * exactly like `AppStateTxnLockOrderError`. It is a REQUIRED-lock failure: the
+ * enclosing transaction is POISONED and can never commit, whether or not the
+ * caller awaited/caught the rejection. Lock IDENTITY and monotonic ordering are
+ * unchanged by mode — only the acquired MODE differs (exclusive vs shared). A
+ * same-mode reacquisition (shared→shared, exclusive→exclusive) and a downgrade
+ * reacquisition (exclusive→shared) are idempotent no-ops, never upgrades.
+ */
+export class AppStateTxnLockUpgradeError extends Error {
+  /** Canonical serialized identity held SHARED that an EXCLUSIVE lock was requested on. */
+  readonly identity: string;
+  constructor(identity: string) {
+    super(
+      `app-state lock-mode upgrade forbidden: ${identity} is held SHARED and cannot be ` +
+        're-acquired EXCLUSIVE within one transaction'
+    );
+    this.name = 'AppStateTxnLockUpgradeError';
+    this.identity = identity;
+  }
+}
+
 type LockTuple = { scope: string; key: string };
-type LockAcquisitionOrder = 'forward' | 'held' | 'backward';
+/** Acquisition mode: `shared` (many concurrent) vs `exclusive` (sole holder). */
+type RwLockMode = 'shared' | 'exclusive';
+type LockAcquisitionOrder = 'forward' | 'held' | 'backward' | 'upgrade';
 
 /**
  * The FIRST failed `lockKey` acquisition retained for a transaction. A failed
@@ -478,7 +506,7 @@ export type RetainedLockFailure = {
   error: unknown;
   scope: string;
   key: string;
-  kind: 'ordering' | 'acquisition';
+  kind: 'ordering' | 'upgrade' | 'acquisition';
 };
 
 function retainedLockFailure(scope: string, key: string, error: unknown): RetainedLockFailure {
@@ -486,7 +514,12 @@ function retainedLockFailure(scope: string, key: string, error: unknown): Retain
     error,
     scope,
     key,
-    kind: error instanceof AppStateTxnLockOrderError ? 'ordering' : 'acquisition',
+    kind:
+      error instanceof AppStateTxnLockOrderError
+        ? 'ordering'
+        : error instanceof AppStateTxnLockUpgradeError
+          ? 'upgrade'
+          : 'acquisition',
   };
 }
 
@@ -581,20 +614,117 @@ function compareLockTuples(a: LockTuple, b: LockTuple): number {
 }
 
 /**
- * Monotonic-acquisition decision for one `lockKey` request: a lock already held
- * (by injective identity) is idempotent (`held`); a candidate tuple sorting
- * strictly ABOVE the highest successfully-held tuple is a legal `forward`
- * acquisition; anything else is `backward` and must be rejected fail-fast.
- * Deterministic and timing-independent.
+ * Monotonic-acquisition decision for one `lockKey`/`lockKeyShared` request. A lock
+ * already held (by injective identity) is idempotent (`held`) when the requested
+ * MODE is already satisfied — a held EXCLUSIVE satisfies any request, and a held
+ * SHARED satisfies a shared request — but a shared→EXCLUSIVE upgrade is `upgrade`
+ * (refused). An UNHELD candidate tuple sorting strictly ABOVE the highest
+ * successfully-held tuple is a legal `forward` acquisition (in the requested
+ * mode); anything else is `backward`. Mode NEVER affects tuple ordering or
+ * identity — only whether an already-held identity is satisfied. Deterministic
+ * and timing-independent.
  */
 function classifyLockAcquisition(
   candidate: LockTuple,
   candidateId: string,
+  mode: RwLockMode,
   highestAcquired: LockTuple,
-  heldLocks: ReadonlySet<string>
+  heldLocks: ReadonlyMap<string, RwLockMode>
 ): LockAcquisitionOrder {
-  if (heldLocks.has(candidateId)) return 'held';
+  const heldMode = heldLocks.get(candidateId);
+  if (heldMode !== undefined) {
+    if (heldMode === 'exclusive') return 'held'; // exclusive satisfies shared OR exclusive
+    if (mode === 'shared') return 'held'; // shared→shared idempotent
+    return 'upgrade'; // shared→exclusive forbidden
+  }
   return compareLockTuples(candidate, highestAcquired) > 0 ? 'forward' : 'backward';
+}
+
+// ---------------------------------------------------------------------------
+// Fair in-process reader/writer lock (file fallback only)
+// ---------------------------------------------------------------------------
+//
+// One RW lock per canonical lock identity. It replaces the file fallback's
+// exclusive promise chain so that SHARED holders may proceed concurrently while
+// EXCLUSIVE holders (the primary transaction root, `lockKey`, activation
+// transitions, repair CAS) remain sole owners. Fairness is FIFO by enqueue order
+// with reader COALESCING at the head:
+//   - multiple shared holders proceed concurrently;
+//   - one exclusive holder excludes all others;
+//   - a queued exclusive blocks LATER shared arrivals (no writer starvation);
+//   - consecutive shared already AHEAD of a queued exclusive are granted together.
+// A lock's map entry is removed once it becomes fully idle (no holders, no
+// waiters), so no records leak. PostgreSQL uses `pg_advisory_xact_lock` /
+// `pg_advisory_xact_lock_shared` instead — this structure is dev/test only.
+type RwWaiter = { mode: RwLockMode; grant: () => void };
+type RwLockState = { shared: number; exclusive: boolean; queue: RwWaiter[] };
+const fileRwLocks = new Map<string, RwLockState>();
+
+/** Grant as many head waiters as the current holders allow, then GC if idle. */
+function rwPump(lockId: string, state: RwLockState): void {
+  while (state.queue.length > 0) {
+    const head = state.queue[0];
+    if (head.mode === 'shared') {
+      if (state.exclusive) break; // an exclusive holds — shared must wait
+      state.queue.shift();
+      state.shared += 1;
+      head.grant();
+    } else {
+      if (state.exclusive || state.shared > 0) break; // exclusive needs sole ownership
+      state.queue.shift();
+      state.exclusive = true;
+      head.grant();
+    }
+  }
+  if (state.shared === 0 && !state.exclusive && state.queue.length === 0) {
+    if (fileRwLocks.get(lockId) === state) fileRwLocks.delete(lockId);
+  }
+}
+
+/**
+ * Enqueue a reader/writer acquisition. Returns `granted` (resolves when the lock
+ * is genuinely held in `mode`) and a synchronous, idempotent `release`. `release`
+ * is safe before OR after grant: before grant it cancels the queued waiter; after
+ * grant it drops the hold. Either way it re-pumps so successors proceed and idle
+ * entries are cleaned up. The waiter is enqueued SYNCHRONOUSLY, so call order (the
+ * per-transaction lock queue guarantees it) is the fair FIFO order.
+ */
+function rwAcquire(
+  lockId: string,
+  mode: RwLockMode
+): { granted: Promise<void>; release: () => void } {
+  let state = fileRwLocks.get(lockId);
+  if (!state) {
+    state = { shared: 0, exclusive: false, queue: [] };
+    fileRwLocks.set(lockId, state);
+  }
+  const lockState = state;
+  let granted = false;
+  let released = false;
+  let resolveGranted!: () => void;
+  const grantedPromise = new Promise<void>((resolve) => (resolveGranted = resolve));
+  const waiter: RwWaiter = {
+    mode,
+    grant: () => {
+      granted = true;
+      resolveGranted();
+    },
+  };
+  const release = (): void => {
+    if (released) return;
+    released = true;
+    if (granted) {
+      if (mode === 'shared') lockState.shared -= 1;
+      else lockState.exclusive = false;
+    } else {
+      const idx = lockState.queue.indexOf(waiter);
+      if (idx >= 0) lockState.queue.splice(idx, 1);
+    }
+    rwPump(lockId, lockState);
+  };
+  lockState.queue.push(waiter);
+  rwPump(lockId, lockState);
+  return { granted: grantedPromise, release };
 }
 
 /**
@@ -604,25 +734,30 @@ function classifyLockAcquisition(
  *
  * `read`/`write` operate on the primary key. `readKey`/`writeKey` reach a
  * secondary key WITHOUT taking any additional lock (the caller guarantees that
- * key's writers already serialize on the primary lock). `lockKey` is the
- * EXPLICIT secondary lock for a key with independent writers. The
- * automatically-acquired PRIMARY lock counts as the transaction's first
- * acquired lock, and every `lockKey` is ENFORCED to be monotonic: a request
- * that does not sort strictly above the highest already-held canonical
+ * key's writers already serialize on the primary lock). `lockKey` (EXCLUSIVE) and
+ * `lockKeyShared` (SHARED) are the EXPLICIT secondary locks for a key with
+ * independent writers — shared holders across transactions proceed concurrently,
+ * an exclusive holder is the sole owner, and a shared→exclusive UPGRADE within one
+ * transaction is refused (`AppStateTxnLockUpgradeError`). The
+ * automatically-acquired PRIMARY lock is EXCLUSIVE and counts as the transaction's
+ * first acquired lock, and every secondary lock is ENFORCED to be monotonic: a
+ * request that does not sort strictly above the highest already-held canonical
  * `(scope, key)` identity is rejected fail-fast with `AppStateTxnLockOrderError`
- * (a reacquisition of an already-held lock is an idempotent no-op) — so
- * ordering is a guarantee of the primitive, not caller discipline. Every method
- * rejects once the transaction callback has settled.
+ * (a reacquisition of an already-held lock in a satisfied mode is an idempotent
+ * no-op) — so ordering is a guarantee of the primitive, not caller discipline.
+ * Lock MODE never affects tuple ordering, advisory-lock identity, or persisted
+ * app-state identity. Every method rejects once the transaction callback settles.
  */
 export type AppStateKeyTxn = {
   read<T>(): Promise<AppStateRecord<T> | null>;
   write<T>(value: T): Promise<void>;
   readKey<T>(scope: string, key: string): Promise<AppStateRecord<T> | null>;
   writeKey<T>(scope: string, key: string, value: T): Promise<void>;
+  /** Acquire an EXCLUSIVE secondary lock (sole owner across transactions). */
   lockKey(scope: string, key: string): Promise<void>;
+  /** Acquire a SHARED secondary lock (concurrent with other shared holders). */
+  lockKeyShared(scope: string, key: string): Promise<void>;
 };
-
-const keyLockChains = new Map<string, Promise<unknown>>();
 
 export async function withAppStateKeyTransaction<T>(
   scope: string,
@@ -656,9 +791,12 @@ export async function withAppStateKeyTransaction<T>(
     // The ACTUAL first statement failure — never replaced by a placeholder.
     let firstStatementFailure: unknown = null;
     // Lock-order tracking: the auto-acquired PRIMARY lock is the first held
-    // identity; every `lockKey` must sort strictly above the highest SUCCESSFULLY
-    // held tuple. `heldLocks` stores injective serialized identities.
-    const heldLocks = new Set<string>([appStateLockIdentity(scope, key)]);
+    // identity (always EXCLUSIVE); every secondary lock must sort strictly above
+    // the highest SUCCESSFULLY held tuple. `heldLocks` maps injective serialized
+    // identity → strongest held MODE (so a shared→exclusive upgrade is detected).
+    const heldLocks = new Map<string, RwLockMode>([
+      [appStateLockIdentity(scope, key), 'exclusive'],
+    ]);
     let highestAcquired: LockTuple = { scope, key };
     // `lockKey` requests are SERIALIZED per transaction: each classifies and
     // acquires (or rejects) fully before the next runs, so overlapping calls
@@ -712,16 +850,21 @@ export async function withAppStateKeyTransaction<T>(
         throw error;
       }
     };
-    const acquireLock = async (rowScope: string, rowKey: string): Promise<void> => {
+    const acquireLock = async (
+      rowScope: string,
+      rowKey: string,
+      mode: RwLockMode
+    ): Promise<void> => {
       if (finished) throw new Error('app-state key transaction already finished');
       const candidateId = appStateLockIdentity(rowScope, rowKey);
       const order = classifyLockAcquisition(
         { scope: rowScope, key: rowKey },
         candidateId,
+        mode,
         highestAcquired,
         heldLocks
       );
-      // Idempotent reacquisition: already held, never re-query.
+      // Idempotent reacquisition (same or weaker mode already held): never re-query.
       if (order === 'held') return;
       // Backward acquisition: reject FAIL-FAST — before mutating lock state or
       // issuing the advisory-lock query — so this client never enters a wait
@@ -733,13 +876,26 @@ export async function withAppStateKeyTransaction<T>(
           appStateLockIdentity(highestAcquired.scope, highestAcquired.key)
         );
       }
+      // Shared→exclusive upgrade: reject FAIL-FAST (same poisoning contract) —
+      // never issue the exclusive query while already holding the identity shared.
+      if (order === 'upgrade') {
+        throw new AppStateTxnLockUpgradeError(candidateId);
+      }
       try {
         // The SAME transaction-scoped advisory lock a transaction ROOTED at
-        // (rowScope, rowKey) would take, on this client — released at
-        // COMMIT/ROLLBACK. Hash input is the INJECTIVE identity.
-        await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [candidateId]);
+        // (rowScope, rowKey) would take, on this client — EXCLUSIVE or SHARED per
+        // mode, both on the INJECTIVE identity, released at COMMIT/ROLLBACK.
+        if (mode === 'shared') {
+          await client.query('select pg_advisory_xact_lock_shared(hashtextextended($1, 0))', [
+            candidateId,
+          ]);
+        } else {
+          await client.query('select pg_advisory_xact_lock(hashtextextended($1, 0))', [
+            candidateId,
+          ]);
+        }
         // State advances ONLY after the lock is genuinely acquired.
-        heldLocks.add(candidateId);
+        heldLocks.set(candidateId, mode);
         highestAcquired = { scope: rowScope, key: rowKey };
       } catch (error) {
         txnFailed = true;
@@ -754,8 +910,8 @@ export async function withAppStateKeyTransaction<T>(
     // the first failure so finalization can poison the transaction — observing
     // the rejection here does NOT erase it from finalization, and the returned
     // promise still rejects with the original typed error for the caller.
-    const lockRow = (rowScope: string, rowKey: string): Promise<void> => {
-      const run = lockQueue.then(() => acquireLock(rowScope, rowKey));
+    const enqueueLock = (rowScope: string, rowKey: string, mode: RwLockMode): Promise<void> => {
+      const run = lockQueue.then(() => acquireLock(rowScope, rowKey, mode));
       lockQueue = run.then(
         () => undefined,
         (error) => {
@@ -770,7 +926,8 @@ export async function withAppStateKeyTransaction<T>(
       write: <V>(value: V) => writeRow(scope, key, value),
       readKey: readRow,
       writeKey: writeRow,
-      lockKey: lockRow,
+      lockKey: (lockScope, lockKey) => enqueueLock(lockScope, lockKey, 'exclusive'),
+      lockKeyShared: (lockScope, lockKey) => enqueueLock(lockScope, lockKey, 'shared'),
     };
 
     // Client containment: a client whose transaction state is uncertain —
@@ -934,9 +1091,10 @@ export async function withAppStateKeyTransaction<T>(
   let snapshot: Record<string, StoredEntry> | null = null;
   const staged = new Map<string, StoredEntry>();
   // Lock-order tracking mirrors the Postgres branch: the primary slot is the
-  // first held identity; `lockKey` must sort strictly above the highest
-  // SUCCESSFULLY held tuple. `heldSlots` stores injective serialized identities.
-  const heldSlots = new Set<string>([primaryLockId]);
+  // first held identity (EXCLUSIVE); every secondary lock must sort strictly above
+  // the highest SUCCESSFULLY held tuple. `heldSlots` maps injective serialized
+  // identity → strongest held MODE (so a shared→exclusive upgrade is detected).
+  const heldSlots = new Map<string, RwLockMode>([[primaryLockId, 'exclusive']]);
   let highestAcquired: LockTuple = { scope, key };
   const heldSlotReleases: Array<() => void> = [];
   // `lockKey` requests are SERIALIZED in invocation order (see the Postgres
@@ -982,53 +1140,44 @@ export async function withAppStateKeyTransaction<T>(
       updatedAt: new Date().toISOString(),
     });
   };
-  const acquireKeySlot = async (rowScope: string, rowKey: string): Promise<void> => {
+  const acquireKeySlot = async (
+    rowScope: string,
+    rowKey: string,
+    mode: RwLockMode
+  ): Promise<void> => {
     if (fileFinished) throw new Error('app-state key transaction already finished');
     const lockId = appStateLockIdentity(rowScope, rowKey);
     const order = classifyLockAcquisition(
       { scope: rowScope, key: rowKey },
       lockId,
+      mode,
       highestAcquired,
       heldSlots
     );
-    // Idempotent reacquisition of an already-held slot.
+    // Idempotent reacquisition (same or weaker mode already held).
     if (order === 'held') return;
-    // Backward acquisition: reject FAIL-FAST — before enqueueing on the key's
-    // chain or mutating lock state — so this transaction never awaits a slot
-    // that could wedge the chain against an opposite-root transaction. Nothing
-    // is staged or persisted.
+    // Backward acquisition: reject FAIL-FAST — before enqueueing on the RW lock
+    // or mutating lock state — so this transaction never awaits a slot that could
+    // wedge against an opposite-root transaction. Nothing is staged or persisted.
     if (order === 'backward') {
       throw new AppStateTxnLockOrderError(
         lockId,
         appStateLockIdentity(highestAcquired.scope, highestAcquired.key)
       );
     }
-    // Reserve the chain slot synchronously (invocation order), release it even
-    // if we never actually take it, but DO NOT mark it held / advance the
-    // highest tuple until the slot is genuinely acquired.
-    const prevTail = keyLockChains.get(lockId) ?? Promise.resolve();
-    let release!: () => void;
-    const held = new Promise<void>((resolve) => (release = resolve));
-    const slotTail = prevTail
-      .then(
-        () => held,
-        () => held
-      )
-      .then(
-        () => undefined,
-        () => undefined
-      );
-    keyLockChains.set(lockId, slotTail);
-    void slotTail.then(() => {
-      if (keyLockChains.get(lockId) === slotTail) keyLockChains.delete(lockId);
-    });
+    // Shared→exclusive upgrade: reject FAIL-FAST (same poisoning contract).
+    if (order === 'upgrade') {
+      throw new AppStateTxnLockUpgradeError(lockId);
+    }
+    // Acquire the reader/writer lock in the requested mode. The `release` is
+    // registered SYNCHRONOUSLY (before the await) so cleanup always frees the
+    // slot even if the transaction fails while the grant is still pending; the RW
+    // queue enqueues in invocation order (the lock queue serializes these calls).
+    const { granted, release } = rwAcquire(lockId, mode);
     heldSlotReleases.push(release);
-    await prevTail.then(
-      () => undefined,
-      () => undefined
-    );
+    await granted;
     // The slot is now ours — advance lock-order state ONLY after acquisition.
-    heldSlots.add(lockId);
+    heldSlots.set(lockId, mode);
     highestAcquired = { scope: rowScope, key: rowKey };
     // Refresh this key's snapshot entry (ROW identity) from the live file so the
     // now-serialized read observes the latest committed value.
@@ -1041,8 +1190,8 @@ export async function withAppStateKeyTransaction<T>(
   // Serialize acquisition in invocation order (see the Postgres branch); the
   // scheduling tail never rejects but retains the first failure to poison
   // finalization, while the returned promise still rejects for the caller.
-  const lockKeySlot = (rowScope: string, rowKey: string): Promise<void> => {
-    const run = lockQueue.then(() => acquireKeySlot(rowScope, rowKey));
+  const enqueueLock = (rowScope: string, rowKey: string, mode: RwLockMode): Promise<void> => {
+    const run = lockQueue.then(() => acquireKeySlot(rowScope, rowKey, mode));
     lockQueue = run.then(
       () => undefined,
       (error) => {
@@ -1057,7 +1206,8 @@ export async function withAppStateKeyTransaction<T>(
     write: <V>(value: V) => writeStaged(scope, key, value),
     readKey: readStaged,
     writeKey: writeStaged,
-    lockKey: lockKeySlot,
+    lockKey: (lockScope, lockKey) => enqueueLock(lockScope, lockKey, 'exclusive'),
+    lockKeyShared: (lockScope, lockKey) => enqueueLock(lockScope, lockKey, 'shared'),
   };
   const invoke = async (): Promise<T> => {
     try {
@@ -1107,29 +1257,28 @@ export async function withAppStateKeyTransaction<T>(
       for (const release of heldSlotReleases) release();
     }
   };
-  const prev = keyLockChains.get(primaryLockId) ?? Promise.resolve();
-  const run = prev.then(invoke, invoke);
-  const tail = run.then(
-    () => undefined,
-    () => undefined
-  );
-  keyLockChains.set(primaryLockId, tail);
-  // Chain cleanup: drop the settled entry when no successor queued behind it.
-  // Awaited on the deferred-failure path so the dual error is shaped only after
-  // the primary slot is fully released and its chain entry removed.
-  const primarySlotReleased = tail.then(() => {
-    if (keyLockChains.get(primaryLockId) === tail) keyLockChains.delete(primaryLockId);
-  });
-  return run.then(
-    (value) => value,
-    async (error) => {
-      if (error instanceof DeferredFileDualFailure) {
-        await primarySlotReleased; // primary + secondary slots released, entry removed
-        throw combineCallbackAndLockFailure(error.callbackError, error.lockFailure);
-      }
-      throw error;
-    }
-  );
+  // Primary lock: EXCLUSIVE, via the same reader/writer lock the secondary locks
+  // use, so a transaction ROOTED at an identity and another transaction taking it
+  // as a SHARED/EXCLUSIVE secondary contend correctly. Acquire before running the
+  // staged transaction; release once it settles. The dual-failure error is shaped
+  // ONLY after the primary release (and `invoke`'s finally released the secondary
+  // slots), preserving the cleanup-before-shaping contract.
+  const primary = rwAcquire(primaryLockId, 'exclusive');
+  await primary.granted;
+  let outcome: { ok: true; value: T } | { ok: false; error: unknown };
+  try {
+    outcome = { ok: true, value: await invoke() };
+  } catch (error) {
+    outcome = { ok: false, error };
+  } finally {
+    primary.release();
+  }
+  if (outcome.ok) return outcome.value;
+  if (outcome.error instanceof DeferredFileDualFailure) {
+    // Primary + every secondary slot released → safe to shape the dual error.
+    throw combineCallbackAndLockFailure(outcome.error.callbackError, outcome.error.lockFailure);
+  }
+  throw outcome.error;
 }
 
 export async function getAppState<T>(
@@ -1346,7 +1495,7 @@ export function __resetAppStateForTests(): void {
   __onDualErrorConstructForTests = null;
   __keyLockFailureForTests = null;
   __keyLockFailureScopeForTests = null;
-  keyLockChains.clear();
+  fileRwLocks.clear();
   if (pool) {
     void pool.end().catch(() => undefined);
   }
@@ -1441,10 +1590,10 @@ export function __setAppStatePoolForTests(fake: Pool | null): void {
 }
 
 /**
- * Test-only: number of retained per-key file-fallback lock chains. Lets tests
- * prove settled chains for historical keys are released rather than retained
- * for the process lifetime.
+ * Test-only: number of retained per-key file-fallback reader/writer locks. Lets
+ * tests prove idle locks for historical keys are released (fully-idle entries are
+ * GC'd by `rwPump`) rather than retained for the process lifetime.
  */
 export function __appStateKeyLockChainCountForTests(): number {
-  return keyLockChains.size;
+  return fileRwLocks.size;
 }
