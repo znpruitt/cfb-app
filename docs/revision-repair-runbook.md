@@ -143,6 +143,17 @@ or repair history) mints lineage 1.
 > prerequisite strips internal metadata from the public wire and activates
 > ownership. The preconditions below describe the intended applied behavior E
 > will enable.
+>
+> **Guarded capability surface (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION).**
+> The admin route is **scanned by the dormant-boundary guard, not excluded by
+> filename**. It reaches its revision capabilities ONLY through a narrow inspection
+> facade (`src/lib/gameStats/revisionRepairInspection.ts`) that exposes inspection,
+> typed audit retrieval, and DRY-RUN-only planning (`planRevisionRepair`, which
+> forces `dryRun: true`) — never the applied-repair function, activation, revisioned
+> writes, status/chronology publication, recovery, or generic app-state mutation.
+> A parser-backed allowlist (TypeScript compiler API) resolves aliases, re-exports,
+> and multi-hop/mixed barrels and fails closed, so no lifecycle-mutation capability
+> can reach the route by any import form.
 
 **Preconditions (every repair — enforced during planning AND, once enabled,
 transactional apply):**

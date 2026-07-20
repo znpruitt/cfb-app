@@ -65,6 +65,18 @@ architecture, not active behavior.
   hash over the COMPLETE inspected durable state, audit availability is explicit
   (`available`/`absent`/`unavailable`), and raw storage errors never reach a
   response. The public game-stats wire strips the internal commit stamp.
+- Dormant-boundary guard (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION): the
+  admin revision route is **scanned, not excluded** — its production capability
+  surface is an explicit parser-backed allowlist (TypeScript compiler API), so
+  **inspection and dry-run planning are the ONLY sanctioned B-stage operations** it
+  can reach. The route imports its revision capabilities exclusively through a
+  narrow inspection facade (`revisionRepairInspection.ts`) that exposes inspect /
+  typed audit / dry-run-only planning and NEVER the applied-repair function; the
+  guard resolves re-export and multi-hop/mixed barrel chains and fails closed, so
+  applied repair, revisioned writes, activation transitions, status/chronology
+  publication, recovery, and generic app-state mutation cannot reach the route by
+  alias, namespace, `require`, dynamic import, or a barrel. Applied repair and every
+  lifecycle mutation remain dormant.
 
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any
 conflict; this file is the domain design freeze the staged PRs implement. The

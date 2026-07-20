@@ -5,11 +5,11 @@ import { requireAdminAuth } from '@/lib/server/adminAuth';
 import {
   inspectRevisionState,
   isCfbdSeasonType,
+  planRevisionRepair,
   readRevisionAuditTrail,
-  repairRevisionState,
   type RevisionRepairAction,
-  type RevisionRepairRequest,
-} from '@/lib/gameStats/revisionRepair';
+  type RevisionRepairDryRunRequest,
+} from '@/lib/gameStats/revisionRepairInspection';
 import type { PartitionIdentity } from '@/lib/gameStats/revisionAuthority';
 
 export const dynamic = 'force-dynamic';
@@ -148,19 +148,20 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  const request: RevisionRepairRequest = {
+  // Dormant: the route builds a DRY-RUN request (the flag is not even part of the
+  // facade's request type) and plans through the inspection facade — it has no
+  // reachable applied-repair capability. `planRevisionRepair` forces `dryRun`.
+  const request: RevisionRepairDryRunRequest = {
     identity,
     action,
     expectedStateDigest: body.expectedStateDigest,
     reason: body.reason,
     actor: await resolveActor(req),
-    // Dormant: the route ALWAYS plans (dry-run) — it never executes a repair.
-    dryRun: true,
     acknowledgeEvidenceLoss: body.acknowledgeEvidenceLoss === true,
     acknowledgeLineageConflict: body.acknowledgeLineageConflict === true,
   };
 
-  const result = await repairRevisionState(request);
+  const result = await planRevisionRepair(request);
   if (!result.ok) {
     // `detail` is an authored SAFE string for every typed refusal (never a raw
     // storage error); a store failure is 503, every other typed refusal is 409.
