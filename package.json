@@ -17,6 +17,7 @@
     "format:check": "npm run lint:all:format",
     "fetch:teams": "tsx scripts/fetch-cfbd-teams.ts --year 2025",
     "cleanup:legacy-aliases": "tsx scripts/cleanup-legacy-league-aliases.ts",
+    "init:writer-control": "tsx scripts/init-game-stats-writer-control.ts",
     "lint:all:eslint": "eslint --cache --cache-strategy content --concurrency auto src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
     "lint:all:format": "prettier --check --cache --cache-strategy content src scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts",
     "lint:fix:eslint": "eslint --cache --cache-strategy content --concurrency auto src/app src/components src/lib src/types scripts eslint.config.mjs next.config.ts postcss.config.mjs tailwind.config.ts --ignore-pattern 'src/**/__tests__/**' --ignore-pattern 'src/data/**' --fix",

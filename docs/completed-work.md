@@ -1495,6 +1495,26 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086H3B Replacement — Fenced Legacy Game-Stats Writer — Complete (branch)
+
+**Status:** Implemented on `platform/086h3b-replacement-legacy-writer-fence` (from `main@2793a6f`). Not merged; no PR; `/verify` not run. Supersedes the frozen `platform/086h3b-revision-status-authority` branch.
+**PROMPT_IDs:** PLATFORM-086H3B-VALUE-AND-SCOPE-AUDIT-v1, PLATFORM-086H3B-SPLIT-EXTRACTION-PLAN-v1 (read-only audits), PLATFORM-086H3B-REPLACEMENT-LEGACY-WRITER-FENCE-v1 (implementation)
+
+**Goals completed:**
+
+- Two independent architectural audits concluded PLATFORM-086H3B (revision lineage/ledger, permanent revisions, restoration high-water, irreversible witness, failed-begin provenance, operator repair, dormant-boundary/capability-graph guard) must NOT be built — game stats are reconstructible provider projections, no consumer reads a revision, and nothing outside the database remembers one after a restore. That branch is frozen as a read-only reference; no further revision/repair/parser work.
+- Added a durable **writer-control record** (`src/lib/gameStats/writerFence.ts`, scope `game-stats-writer-control`, key `state`, `{ recordVersion, state: legacy|armed|active|read-only-safe }`) with strict validation and presence-aware classification — absent/malformed is never treated as `legacy`. No transitions/repair/lineage/HTTP surface.
+- Fenced the live legacy writer (`src/lib/gameStats/cache.ts`): `setCachedGameStats` now serializes on its weekly partition and revalidates the control record IN THE SAME transaction (partition `E(P)` exclusive → writer-control exclusive via `lockKey`), committing only on exactly valid `legacy`. Absent/malformed/`armed`/`active`/`read-only-safe` — or any store/lock/commit failure — refuses without mutation and never reports success. Reuses prerequisite A; adds no revision/lineage/commit-stamp/activation metadata and no `fetchedAt` stale guard.
+- Added a create-if-absent initializer (`scripts/init-game-stats-writer-control.ts`, `npm run init:writer-control`): dry-run default, PostgreSQL-only apply, idempotent on valid `legacy`, refuses malformed/non-legacy, never arms/activates/repairs/deletes.
+
+**Key outcomes:**
+
+- Same-partition legacy writes serialize across PostgreSQL instances; a future rollout can stop the legacy writer by flipping the control record with no code change. While `legacy`, stored partition bytes are identical to the prior blind write.
+- **Operational dependency (not concealed):** the writer-control row MUST be initialized before the fenced writer deploys, else all legacy game-stat writes refuse. Rollout sequence + revised lineage-free C/D/E in `docs/ai/game-stats-writer-fence.md`.
+- Validation: full `npm test` 1841 pass / 0 fail (writer-fence suite 24; existing game-stats write-path tests seed the control row); tsc, lint:all, git diff --check clean. No PR; `/verify` not run; `preview` not updated.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:

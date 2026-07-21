@@ -9,6 +9,7 @@ import {
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
 import { setCachedGameStats } from '../../../../../lib/gameStats/cache.ts';
+import { seedLegacyWriterControl } from '../../../../../lib/gameStats/__tests__/writerControlSeed.ts';
 import {
   setDatasetAutoRefreshEnabled,
   setGlobalPause,
@@ -64,6 +65,7 @@ async function seedCompletedWeek(week: number, seasonType: 'regular' | 'postseas
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  await seedLegacyWriterControl();
   MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
 });
 

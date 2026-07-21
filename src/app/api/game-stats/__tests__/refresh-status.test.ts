@@ -7,6 +7,7 @@ import {
   __resetAppStateForTests,
 } from '../../../../lib/server/appStateStore.ts';
 import { getCachedGameStats } from '../../../../lib/gameStats/cache.ts';
+import { seedLegacyWriterControl } from '../../../../lib/gameStats/__tests__/writerControlSeed.ts';
 import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
 import { weekPartitionScope } from '../../../../lib/providerRefreshScope.ts';
 
@@ -37,6 +38,7 @@ function stubJson(body: unknown) {
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  await seedLegacyWriterControl();
   MUTABLE_ENV.NODE_ENV = 'development';
   MUTABLE_ENV.ADMIN_API_TOKEN = ADMIN_TOKEN;
   globalThis.fetch = ORIGINAL_FETCH;

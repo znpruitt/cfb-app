@@ -1,10 +1,24 @@
 # PLATFORM-086H3 — Game-Stats Lifecycle Architecture Contract (FROZEN)
 
-Status: **Frozen target architecture.** This is the design of record for the
-staged PLATFORM-086H3 decomposition (prerequisites A–E). It describes the
-INTENDED end state, **not** behavior currently active on `main`. On `main`
-today the game-stats writers still use the legacy path; the durable merge
-authority (H2) is a merged but dormant foundation. Nothing in this contract is
+> **SUPERSEDED IN PART (2026-07 audit).** Two independent architectural audits
+> concluded that **prerequisite B as designed (the revision/status authority —
+> lineage, permanent revisions, revision ledger, restoration high-water,
+> irreversible witness, failed-begin provenance, operator repair, and the
+> dormant-boundary/capability-graph guard) must NOT be built.** The
+> `platform/086h3b-revision-status-authority` branch is **superseded, unmerged, and
+> frozen as a read-only reference**; no further work occurs on its revision, repair,
+> parser, or capability-graph design. It is replaced by a small **fenced legacy
+> writer** prerequisite — see **[`game-stats-writer-fence.md`](game-stats-writer-fence.md)**,
+> which also carries the revised, lineage-free C/D/E definitions and the required
+> pre-deployment initialization sequence. The A–E material BELOW is retained only for
+> historical context; where it assumes lineage/revision/repair it is no longer the
+> plan.
+
+Status: **Frozen target architecture (B superseded — see banner above).** This was
+the design of record for the staged PLATFORM-086H3 decomposition (prerequisites
+A–E). It describes the INTENDED end state, **not** behavior currently active on
+`main`. On `main` today the game-stats writers still use the legacy path; the durable
+merge authority (H2) is a merged but dormant foundation. Nothing in this contract is
 active until the final activation prerequisite (E) merges.
 
 Prerequisite progress: **A** (the durable multi-key app-state transaction
