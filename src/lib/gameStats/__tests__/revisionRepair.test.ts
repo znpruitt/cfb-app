@@ -1164,3 +1164,137 @@ test('nested audit: rebuilt objects never share identity with the raw stored obj
     assert.deepEqual(rebuilt.action, { kind: 'adopt-lineage', lineage: 'L', floor: 3 });
   }
 });
+
+// ===========================================================================
+// PLATFORM-086H3B-DURABLE-STATE-CLASSIFICATION — malformed control/status/witness/
+// disposition/ledger rows block repair planning AND application (no ack waiver);
+// an unchanged CAS digest never certifies malformed durable state.
+// ===========================================================================
+
+const WITNESS_KEY = 'revisioned-evidence-witness';
+
+// Seed a VALID revision-era base (partition + ledger on lineage L at revision 3),
+// then optionally overlay one control row with a specific value.
+async function seedBaseWithControl(control?: {
+  scope: string;
+  key: string;
+  value: unknown;
+}): Promise<void> {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  await setAppState('game-stats', KEY, partitionWith({ lineage: 'L', revision: 3 }));
+  await setAppState(GAME_STATS_REVISION_SCOPE, KEY, ledger('L', 3));
+  if (control) await setAppState(control.scope, control.key, control.value);
+}
+
+test('malformed control/status/witness/recovery rows block planning + application (no ack waiver, no mutation)', async () => {
+  const rows: Array<[string, string, string, unknown]> = [
+    ['activation present-null', ACTIVATION_SCOPE, 'global', null],
+    ['activation malformed', ACTIVATION_SCOPE, 'global', { schemaVersion: 9 }],
+    ['witness present-null', ACTIVATION_SCOPE, WITNESS_KEY, null],
+    ['witness malformed', ACTIVATION_SCOPE, WITNESS_KEY, { random: 1 }],
+    ['status present-null', 'provider-refresh-status', STATUS_KEY, null],
+    ['status malformed', 'provider-refresh-status', STATUS_KEY, [1, 2]],
+    ['recovery present-null', RECOVERY_DISPOSITION_SCOPE, KEY, null],
+    ['recovery malformed', RECOVERY_DISPOSITION_SCOPE, KEY, 42],
+  ];
+  const action: RevisionRepairAction = { kind: 'adopt-lineage', lineage: 'L', floor: 3 };
+  for (const [label, scope, key, value] of rows) {
+    await seedBaseWithControl({ scope, key, value });
+    const d = await digest();
+    const ledgerBefore = await getAppState(GAME_STATS_REVISION_SCOPE, KEY);
+    const controlBefore = await getAppState(scope, key);
+    // Planning (dry-run) AND application (apply) refuse — even WITH acknowledgements.
+    for (const dryRun of [true, false]) {
+      const r = await repairRevisionState(
+        req(action, d, {
+          dryRun,
+          apply: !dryRun,
+          acknowledgeLineageConflict: true,
+          acknowledgeEvidenceLoss: true,
+        })
+      );
+      assert.equal(r.ok, false, `${label}/${dryRun ? 'plan' : 'apply'}`);
+      if (!r.ok) {
+        assert.equal(r.code, 'revision-repair-durable-state-malformed', `${label}/${dryRun}`);
+      }
+    }
+    // No durable mutation — ledger and the control row are byte-for-byte unchanged.
+    assert.deepEqual(
+      await getAppState(GAME_STATS_REVISION_SCOPE, KEY),
+      ledgerBefore,
+      `${label} ledger`
+    );
+    assert.deepEqual(await getAppState(scope, key), controlBefore, `${label} control`);
+  }
+});
+
+test('absence vs present-null control rows produce distinct digests and classifications', async () => {
+  const rows: Array<[string, string, string]> = [
+    ['activation', ACTIVATION_SCOPE, 'global'],
+    ['witness', ACTIVATION_SCOPE, WITNESS_KEY],
+    ['status', 'provider-refresh-status', STATUS_KEY],
+    ['recovery', RECOVERY_DISPOSITION_SCOPE, KEY],
+  ];
+  for (const [label, scope, key] of rows) {
+    await seedBaseWithControl(); // control row ABSENT
+    const absentDigest = await digest();
+    await setAppState(scope, key, null); // now PRESENT with JSON null
+    const presentNullDigest = await digest();
+    assert.notEqual(absentDigest, presentNullDigest, `${label}: absent vs present-null digest`);
+    // CAS: a repair authorized at the absent digest refuses once present-null exists.
+    const r = await repairRevisionState(
+      req({ kind: 'adopt-lineage', lineage: 'L', floor: 3 }, absentDigest, { dryRun: false })
+    );
+    assert.equal(r.ok, false, label);
+    if (!r.ok) assert.equal(r.code, 'revision-repair-state-changed', `${label} CAS`);
+  }
+});
+
+test('an unchanged CAS digest does NOT authorize malformed control state', async () => {
+  // Seed a malformed activation row, inspect (digest binds it), then repair at the
+  // EXACT same digest — CAS passes (state unchanged) but the malformed row still refuses.
+  await seedBaseWithControl({
+    scope: ACTIVATION_SCOPE,
+    key: 'global',
+    value: { schemaVersion: 9 },
+  });
+  const d = await digest();
+  const r = await repairRevisionState(
+    req({ kind: 'adopt-lineage', lineage: 'L', floor: 3 }, d, {
+      dryRun: false,
+      acknowledgeLineageConflict: true,
+    })
+  );
+  assert.equal(r.ok, false);
+  if (!r.ok) assert.equal(r.code, 'revision-repair-durable-state-malformed'); // NOT state-changed
+  assert.deepEqual((await getAppState(ACTIVATION_SCOPE, 'global'))?.value, { schemaVersion: 9 }); // unchanged
+});
+
+test('audit ledger with an object-valued initializedAt is UNAVAILABLE, not a normalized ledger', async () => {
+  await reset();
+  await setAppState(AUDIT_SCOPE, KEY, [
+    {
+      schemaVersion: 1,
+      auditRef: 'a1',
+      actor: ACTOR,
+      at: T0,
+      reason: 'r',
+      beforeDigest: 'd1',
+      action: { kind: 'rebuild-ledger' },
+      afterState: {
+        ledger: {
+          schemaVersion: 1,
+          ...ID,
+          lineage: 'L',
+          revision: 3,
+          initializedFrom: 'repair',
+          initializedAt: {}, // object-valued — never normalized to ''
+        },
+        committedStamp: null,
+        partitionStamp: null,
+      },
+    },
+  ]);
+  assert.deepEqual(await readRevisionAuditTrail(ID), { state: 'unavailable' });
+});

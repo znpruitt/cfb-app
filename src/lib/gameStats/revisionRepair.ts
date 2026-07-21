@@ -171,7 +171,18 @@ export async function repairRevisionState(
           };
         }
 
-        const plan = planRepair(request, loaded.state, loaded.evidenceCertified, now, auditRef);
+        // Applied repair INDEPENDENTLY reclassifies the locked reread (via
+        // `shapeLoadedState` in `loadStateTxn`) and refuses if any required
+        // control/status/witness/disposition/ledger row is malformed — an unchanged
+        // digest never certifies malformed durable state as repairable.
+        const plan = planRepair(
+          request,
+          loaded.state,
+          loaded.evidenceCertified,
+          loaded.classifications,
+          now,
+          auditRef
+        );
         if (!plan.ok) return plan;
 
         const afterState: RevisionRepairAuditEntry['afterState'] = {

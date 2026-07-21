@@ -255,6 +255,26 @@ JSON-null) is an ambiguous marker that blocks new-lineage init; a present-null a
 row is `unavailable`; and an absent↔present-null change between inspection and apply
 is caught as `revision-repair-state-changed`.
 
+**Durable-state classification & malformed-control refusal
+(PLATFORM-086H3B-DURABLE-STATE-CLASSIFICATION).** Presence is preserved in POLICY,
+not only in the digest. A single SHARED presence-aware refresh-status classifier
+(`classifyRevisionStatus`: absent / recognized-legacy / valid-revisioned / malformed)
+is used by BOTH the ordinary allocator (`allocateGameStatsCommitStamp`) and repair
+planning — so a present JSON-null / primitive / array / unrecognized-object /
+malformed-stamp / malformed-chronology status is a MALFORMED marker: the live
+allocator refuses `revision-history-ambiguous` (mints no lineage, allocates no
+revision 1, writes nothing) instead of restarting history. `validateLedgerRecord` is
+EXACT — a noncanonical/non-string `initializedAt` (never normalized to `""`), a
+malformed `repairAuditRef`, or any extra key makes the ledger a malformed marker
+(refused, never normalized); `rebuildAuditLedger` inherits it (`initializedAt: {}` →
+audit `unavailable`). Repair `LoadedState` retains a typed classification for every
+control/status/witness/disposition/ledger row; **planning AND application refuse
+`revision-repair-durable-state-malformed` when any is malformed, checked BEFORE
+acknowledgements** — no acknowledgement (evidence loss / lineage abandonment /
+high-water) can waive corrupted control state, and an unchanged CAS digest never
+certifies malformed durable state as repairable (applied repair independently
+reclassifies the locked reread).
+
 Lock order is
 **`E(P) exclusive → activation-control EXCLUSIVE → S(P) exclusive → C(P) exclusive`**,
 enforced by the transaction primitive. Repair takes the activation-control fence

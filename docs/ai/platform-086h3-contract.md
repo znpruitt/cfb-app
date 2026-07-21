@@ -81,6 +81,24 @@ architecture, not active behavior.
   raw stored object retained by reference); any unexpected or malformed nested field
   makes the WHOLE audit dataset `unavailable` (never silently stripped), so arbitrary
   stored content can never reach the route response.
+- Durable-state classification (PLATFORM-086H3B-DURABLE-STATE-CLASSIFICATION): a
+  present JSON-null row **never equals absence** in POLICY, not just in the digest.
+  One SHARED presence-aware refresh-status classifier (`classifyRevisionStatus`:
+  absent / recognized-legacy / valid-revisioned / malformed) is consumed by BOTH
+  ordinary allocation and repair planning, so a present JSON-null / primitive /
+  array / unrecognized-object / malformed-stamp / malformed-chronology status is a
+  MALFORMED revision-era marker — the live allocator refuses `revision-history-ambiguous`
+  (mints no lineage, allocates no revision 1, writes nothing) instead of restarting
+  history. `validateLedgerRecord` is EXACT — a noncanonical/non-string `initializedAt`
+  (never normalized to `""`), a malformed `repairAuditRef`, or any extra key is a
+  malformed marker (refused, never normalized), and `rebuildAuditLedger` inherits it
+  (`initializedAt: {}` → audit `unavailable`, not `initializedAt: ""`). Repair
+  `LoadedState` retains a typed classification for every control/status/witness/
+  disposition/ledger row; planning AND application refuse
+  `revision-repair-durable-state-malformed` when ANY is malformed, checked BEFORE
+  acknowledgements (no ack for evidence loss / lineage abandonment / high-water can
+  waive corrupted control state), and an unchanged CAS digest never certifies
+  malformed durable state as repairable.
 - Dormant-boundary guard (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION +
   PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION): the admin revision route
   is **scanned, not excluded** — its production capability surface is an explicit

@@ -4,22 +4,36 @@ import type { CfbdSeasonType } from '../cfbd.ts';
 import { providerRefreshScopeKey, weekPartitionScope } from '../providerRefreshScope.ts';
 import { getAppState } from '../server/appStateStore.ts';
 import { getGameStatsKey } from './cache.ts';
+import { validateActivationRecord, witnessPresent } from './activationControl.ts';
 import { classifyGameStatsRow, type GameStatsRowClassificationState } from './contract.ts';
 import {
+  isCanonicalTimestamp,
+  isPlainObject,
+  presentValue,
+  toDurableRead,
+  type DurableRead,
+} from './durableState.ts';
+import {
   classifyPartitionStamp,
+  classifyRevisionStatus,
   GAME_STATS_REVISION_SCOPE,
   validateLedgerRecord,
   type PartitionIdentity,
   type PartitionStampClass,
   type RevisionLedgerRecord,
+  type RevisionStatusState,
 } from './revisionAuthority.ts';
 import {
   isCommitStamp,
   isValidRevision,
   generateLineage,
-  toCommitStamp,
   type CommitStamp,
 } from './revisionStamp.ts';
+
+// Re-export the shared durable-read primitives (existing consumers import these
+// from the planner / repair service).
+export { toDurableRead, presentValue, isPlainObject };
+export type { DurableRead };
 import type { WeeklyGameStats } from './types.ts';
 
 /**
@@ -93,6 +107,11 @@ export type RevisionRepairRefusal =
   // PLATFORM-086H3B-REPAIR-STRUCTURE-CAS-AUDIT: the durable audit history is
   // malformed/unavailable — a repair refuses rather than trust or append to it.
   | 'revision-repair-audit-unavailable'
+  // PLATFORM-086H3B-DURABLE-STATE-CLASSIFICATION: a present-but-MALFORMED durable
+  // control/status/witness/disposition/ledger row (incl. present JSON-null) — a
+  // HARD refusal for EVERY action, checked BEFORE acknowledgements, that no
+  // acknowledgement can waive. Digest equality does not certify malformed state.
+  | 'revision-repair-durable-state-malformed'
   // The durable store read/transaction failed — a REDACTED, typed refusal (the
   // raw storage error is logged server-side only, never returned).
   | 'revision-repair-planning-unavailable';
@@ -198,32 +217,11 @@ export type RevisionRepairResult =
     }
   | { ok: false; code: RevisionRepairRefusal; detail: string };
 
-// === Presence-aware durable reads (PLATFORM-086H3B-REPAIR-PRESENCE-H1-AUDIT) ===
-//
-// A durable row's PRESENCE is preserved SEPARATELY from its decoded value, so a
-// PRESENT row whose JSON value is `null` (or otherwise malformed) is NEVER
-// mistaken for an ABSENT row. Every repair-state read is built from the raw
-// transaction record (`{ value } | null`) BEFORE reading `.value` — never via
-// `row?.value ?? null`, which collapses present-null into absence and would hash
-// identically, mask malformed presence, and let a CAS miss an absent↔present-null
-// change.
-
-/** A durable read that keeps row presence separate from its (possibly-null) value. */
-export type DurableRead = { present: false } | { present: true; value: unknown };
-
-/** Build a `DurableRead` from a raw transaction/store record (never `?? null`). */
-export function toDurableRead(row: { value: unknown } | null | undefined): DurableRead {
-  return row ? { present: true, value: row.value } : { present: false };
-}
-
-/** The decoded value when present, else `null` (for decoders that treat both alike). */
-export function presentValue(read: DurableRead): unknown {
-  return read.present ? read.value : null;
-}
-
-export function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
+// Presence-aware durable reads (PLATFORM-086H3B-REPAIR-PRESENCE-H1-AUDIT) — a
+// row's PRESENCE is preserved SEPARATELY from its value, so a present JSON-null (or
+// otherwise malformed) row is NEVER mistaken for an absent one. The primitives now
+// live in the SHARED `durableState.ts` (imported/re-exported above) so ordinary
+// allocation and repair planning interpret one contract.
 
 // === Versioned CAS digest over the COMPLETE inspected durable state ===
 
@@ -289,6 +287,24 @@ export const ACTIVATION_CONTROL_SCOPE = 'game-stats-activation-control';
 export const ACTIVATION_CONTROL_KEY = 'global';
 export const REVISIONED_EVIDENCE_WITNESS_KEY = 'revisioned-evidence-witness';
 
+/** A three-way durable row classification (a present JSON-null is malformed). */
+export type DurableRowClass = 'absent' | 'valid' | 'malformed';
+
+/**
+ * PLATFORM-086H3B-DURABLE-STATE-CLASSIFICATION: each durable CONTROL/status row
+ * retains a typed classification alongside its normalized value, so repair policy
+ * consumes the malformed/absent/valid distinction rather than reducing a malformed
+ * row to "no claim / no stamp / no state". A present JSON-null classifies as
+ * `malformed` for every row (no control row's contract permits null).
+ */
+export type DurableClassifications = {
+  activation: DurableRowClass;
+  witness: DurableRowClass;
+  status: RevisionStatusState['kind'];
+  recovery: DurableRowClass;
+  ledger: DurableRowClass;
+};
+
 export type LoadedState = {
   existing: WeeklyGameStats | null;
   state: RevisionInspectionState;
@@ -297,7 +313,46 @@ export type LoadedState = {
   evidenceCertified: boolean;
   /** Validated audit availability — `unavailable` blocks a repair (never trusted). */
   auditRead: RevisionAuditRead;
+  /** Presence-aware typed classification of every control/status row. */
+  classifications: DurableClassifications;
 };
+
+/** Classify the activation-control row: absent / valid record / malformed presence. */
+function classifyActivationRow(read: DurableRead): DurableRowClass {
+  if (!read.present) return 'absent';
+  return validateActivationRecord(read.value) ? 'valid' : 'malformed';
+}
+/** Classify the irreversible witness row: absent / valid witness / malformed presence. */
+function classifyWitnessRow(read: DurableRead): DurableRowClass {
+  if (!read.present) return 'absent';
+  return witnessPresent(read.value) ? 'valid' : 'malformed';
+}
+/** Classify the recovery-disposition row: a present JSON-null / non-object is malformed. */
+function classifyRecoveryRow(read: DurableRead): DurableRowClass {
+  if (!read.present) return 'absent';
+  return isPlainObject(read.value) ? 'valid' : 'malformed';
+}
+/** Classify the revision ledger row: absent / valid ledger / present-invalid marker. */
+function classifyLedgerRow(read: DurableRead, id: PartitionIdentity): DurableRowClass {
+  if (!read.present) return 'absent';
+  return validateLedgerRecord(read.value, id) ? 'valid' : 'malformed';
+}
+
+/**
+ * Whether any durable CONTROL/status/witness/disposition/ledger row is MALFORMED —
+ * a hard block for repair planning AND application that NO acknowledgement can
+ * waive (an ack is for evidence loss / lineage abandonment / high-water, never for
+ * corrupted control state). Audit history is handled separately (`auditRead`).
+ */
+export function controlStateMalformed(c: DurableClassifications): boolean {
+  return (
+    c.activation === 'malformed' ||
+    c.witness === 'malformed' ||
+    c.status === 'malformed' ||
+    c.recovery === 'malformed' ||
+    c.ledger === 'malformed'
+  );
+}
 
 function recoveryClaimActive(value: unknown, nowMs: number): boolean {
   if (typeof value !== 'object' || value === null) return false;
@@ -341,19 +396,6 @@ const H1_WITHHELD_ROW_STATES: ReadonlySet<GameStatsRowClassificationState> = new
   'unsupported-version',
   'legacy-normalized-mismatch',
 ]);
-
-/**
- * A weekly envelope `fetchedAt` must be a CANONICAL timestamp — the exact form the
- * durable writer emits (`new Date().toISOString()`). Round-trip equality rejects a
- * non-string, a calendar-invalid value, and any noncanonical form (`Date.parse`
- * finiteness alone would accept a date-only or offset form the contract excludes).
- */
-function isCanonicalTimestamp(value: unknown): boolean {
-  if (typeof value !== 'string' || value.length === 0) return false;
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return false;
-  return parsed.toISOString() === value;
-}
 
 type RepairRowClass = 'accepted' | 'withheld' | 'malformed';
 
@@ -681,22 +723,26 @@ export function shapeLoadedState(
   // an ambiguous revision-era MARKER (never "no ledger", never new-lineage init).
   const ledgerMarkerPresent = ledgerRead.present && ledger === null;
 
-  const statusRead = reads.status;
-  const statusValue = statusRead.present ? statusRead.value : null;
-  const statusHasStamp =
-    isPlainObject(statusValue) &&
-    Object.prototype.hasOwnProperty.call(statusValue, 'lastCommittedStamp');
-  const committedStamp = statusHasStamp
-    ? toCommitStamp((statusValue as Record<string, unknown>).lastCommittedStamp)
-    : null;
-  const committedStampMarkerPresent = statusHasStamp && committedStamp === null;
+  // SHARED presence-aware status classification — a present JSON-null / primitive /
+  // array / unrecognized object / malformed committed stamp / malformed chronology
+  // is `malformed` (never collapsed to "no stamp"). Identical to the allocator.
+  const statusState = classifyRevisionStatus(reads.status);
+  const committedStamp =
+    statusState.kind === 'valid-revisioned' ? statusState.value.committedStamp : null;
+  const committedStampMarkerPresent = statusState.kind === 'malformed';
   const lastAttemptOrdinal =
-    isPlainObject(statusValue) && typeof statusValue.lastAttemptOrdinal === 'number'
-      ? statusValue.lastAttemptOrdinal
-      : null;
+    statusState.kind === 'valid-revisioned' ? statusState.value.lastAttemptOrdinal : null;
 
   const activeClaim = recoveryClaimActive(presentValue(reads.recovery), nowMs);
   const auditRead = classifyAuditDataset(reads.audit.present ? { value: reads.audit.value } : null);
+
+  const classifications: DurableClassifications = {
+    activation: classifyActivationRow(reads.activation),
+    witness: classifyWitnessRow(reads.witness),
+    status: statusState.kind,
+    recovery: classifyRecoveryRow(reads.recovery),
+    ledger: classifyLedgerRow(reads.ledger, id),
+  };
 
   const state: RevisionInspectionState = {
     partition: {
@@ -727,6 +773,7 @@ export function shapeLoadedState(
     digest,
     evidenceCertified: certifyEvidence(partitionRead, id),
     auditRead,
+    classifications,
   };
 }
 
@@ -924,6 +971,7 @@ export function planRepair(
   request: RevisionRepairRequest,
   state: RevisionInspectionState,
   evidenceCertified: boolean,
+  classifications: DurableClassifications,
   now: string,
   auditRef: string
 ): RepairPlan {
@@ -937,6 +985,19 @@ export function planRepair(
       code: 'revision-repair-evidence-malformed',
       detail:
         'the durable revision evidence is structurally invalid (malformed envelope, identity, commit stamp, or revision-era shape); repair refused',
+    };
+  }
+  // HARD refusal for a PRESENT-but-MALFORMED durable control/status/witness/
+  // disposition/ledger row (incl. present JSON-null) — checked BEFORE any
+  // acknowledgement, so an ack (evidence loss / lineage abandonment / high-water)
+  // can never waive corrupted control state, and an unchanged CAS digest can never
+  // certify malformed state as repairable.
+  if (controlStateMalformed(classifications)) {
+    return {
+      ok: false,
+      code: 'revision-repair-durable-state-malformed',
+      detail:
+        'a durable control/status/witness/disposition/ledger row is present but malformed (including present JSON-null); resolve the corrupted state before repairing — no acknowledgement can waive it',
     };
   }
   const base = (
@@ -1169,7 +1230,14 @@ export async function planRevisionRepair(
         detail: 'an unexpired recovery claim exists for this partition; retry after it expires',
       };
     }
-    const plan = planRepair(request, loaded.state, loaded.evidenceCertified, now, auditRef);
+    const plan = planRepair(
+      request,
+      loaded.state,
+      loaded.evidenceCertified,
+      loaded.classifications,
+      now,
+      auditRef
+    );
     if (!plan.ok) return plan;
     return {
       ok: true,

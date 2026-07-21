@@ -2,6 +2,12 @@ import type { CfbdSeasonType } from '../cfbd.ts';
 import { providerRefreshScopeKey, weekPartitionScope } from '../providerRefreshScope.ts';
 import type { AppStateKeyTxn } from '../server/appStateStore.ts';
 import {
+  isCanonicalTimestamp,
+  isPlainObject,
+  toDurableRead,
+  type DurableRead,
+} from './durableState.ts';
+import {
   generateLineage,
   isOpaqueLineage,
   isValidRevision,
@@ -99,18 +105,37 @@ const INIT_MODES: ReadonlySet<string> = new Set<RevisionInitMode>([
   'repair',
 ]);
 
+/** The EXACT set of keys a durable ledger row may carry (no extra fields). */
+const LEDGER_ALLOWED_KEYS: ReadonlySet<string> = new Set<keyof RevisionLedgerRecord>([
+  'schemaVersion',
+  'year',
+  'week',
+  'seasonType',
+  'lineage',
+  'revision',
+  'initializedFrom',
+  'initializedAt',
+  'repairAuditRef',
+]);
+
 /**
- * Validate a stored ledger value against the partition identity it was read
- * under. A row that does not validate (wrong schema, bad revision/lineage,
- * mislabeled identity) is NOT a ledger — it is a revision-era MARKER the
- * bootstrap treats as ambiguous, never as "no ledger".
+ * Validate a stored ledger value against the partition identity it was read under,
+ * with EXACT strictness (PLATFORM-086H3B-DURABLE-STATE-CLASSIFICATION): a row that
+ * does not validate — wrong schema, bad revision/lineage, mislabeled identity, a
+ * NONCANONICAL / non-string `initializedAt` (never normalized to `""`), a malformed
+ * `repairAuditRef`, or ANY unexpected extra key — is NOT a ledger. It is a
+ * revision-era MARKER the bootstrap treats as ambiguous, never as "no ledger" and
+ * never silently normalized. Every returned field is a fresh validated primitive
+ * (no stored object retained by reference).
  */
 export function validateLedgerRecord(
   value: unknown,
   id: PartitionIdentity
 ): RevisionLedgerRecord | null {
-  if (typeof value !== 'object' || value === null) return null;
-  const record = value as Record<string, unknown>;
+  if (!isPlainObject(value)) return null;
+  const record = value;
+  // Exact allowlist — an unexpected extra key is malformed, never ignored.
+  if (Object.keys(record).some((k) => !LEDGER_ALLOWED_KEYS.has(k))) return null;
   if (record.schemaVersion !== 1) return null;
   if (!isValidRevision(record.revision)) return null;
   if (!isOpaqueLineage(record.lineage)) return null;
@@ -120,6 +145,14 @@ export function validateLedgerRecord(
   if (record.year !== id.year || record.week !== id.week || record.seasonType !== id.seasonType) {
     return null;
   }
+  // `initializedAt` MUST be the exact canonical timestamp form — never an object,
+  // an empty-string fallback, or any noncanonical value.
+  if (!isCanonicalTimestamp(record.initializedAt)) return null;
+  // `repairAuditRef`, when present, MUST be a non-empty string (exact shape).
+  if ('repairAuditRef' in record) {
+    if (typeof record.repairAuditRef !== 'string' || record.repairAuditRef.length === 0)
+      return null;
+  }
   const ledger: RevisionLedgerRecord = {
     schemaVersion: 1,
     year: id.year,
@@ -128,10 +161,79 @@ export function validateLedgerRecord(
     lineage: record.lineage,
     revision: record.revision,
     initializedFrom: record.initializedFrom as RevisionInitMode,
-    initializedAt: typeof record.initializedAt === 'string' ? record.initializedAt : '',
+    initializedAt: record.initializedAt as string,
   };
-  if (typeof record.repairAuditRef === 'string') ledger.repairAuditRef = record.repairAuditRef;
+  if ('repairAuditRef' in record) ledger.repairAuditRef = record.repairAuditRef as string;
   return ledger;
+}
+
+// === Shared refresh-status classifier (PLATFORM-086H3B-DURABLE-STATE-CLASSIFICATION) ===
+
+/** The revision-relevant projection of a validated committed refresh-status row. */
+export type ValidatedRevisionStatus = {
+  /** The valid committed stamp, or null for a recognized legacy (pre-revision) row. */
+  committedStamp: CommitStamp | null;
+  /** The validated per-scope attempt ordinal (null when absent). */
+  lastAttemptOrdinal: number | null;
+};
+
+/**
+ * Presence-aware classification of a committed refresh-status row, shared by
+ * ordinary allocation AND repair planning so both interpret the SAME durable
+ * contract identically. Row PRESENCE is preserved separately from its value:
+ *   - `absent`            — no row.
+ *   - `recognized-legacy` — a self-describing provider-status record with NO
+ *                           revision-era committed stamp (the frozen contract's
+ *                           legacy shape — never broadened).
+ *   - `valid-revisioned`  — a valid committed stamp (+ well-formed chronology).
+ *   - `malformed`         — a PRESENT row that is JSON `null`, a primitive, an
+ *                           array, an unrecognized object, a malformed committed
+ *                           stamp, or malformed attempt chronology.
+ */
+export type RevisionStatusState =
+  | { kind: 'absent' }
+  | { kind: 'recognized-legacy'; value: unknown }
+  | { kind: 'valid-revisioned'; value: ValidatedRevisionStatus }
+  | { kind: 'malformed'; value: unknown };
+
+/** A self-describing provider-refresh-status record carries string identity fields. */
+function isRecognizedProviderStatus(record: Record<string, unknown>): boolean {
+  return typeof record.dataset === 'string' && typeof record.scopeKey === 'string';
+}
+
+/** The attempt ordinal, when present, must be a POSITIVE safe integer. */
+function validatedAttemptOrdinal(record: Record<string, unknown>): {
+  ok: boolean;
+  value: number | null;
+} {
+  if (!Object.prototype.hasOwnProperty.call(record, 'lastAttemptOrdinal'))
+    return { ok: true, value: null };
+  const ord = record.lastAttemptOrdinal;
+  if (typeof ord === 'number' && Number.isSafeInteger(ord) && ord >= 1)
+    return { ok: true, value: ord };
+  return { ok: false, value: null };
+}
+
+export function classifyRevisionStatus(read: DurableRead): RevisionStatusState {
+  if (!read.present) return { kind: 'absent' };
+  const value = read.value;
+  // A PRESENT JSON-null / primitive / array is malformed (never absence).
+  if (!isPlainObject(value)) return { kind: 'malformed', value };
+  const record = value;
+  const ordinal = validatedAttemptOrdinal(record);
+  if (!ordinal.ok) return { kind: 'malformed', value }; // malformed attempt chronology
+  if (Object.prototype.hasOwnProperty.call(record, 'lastCommittedStamp')) {
+    const stamp = toCommitStamp(record.lastCommittedStamp);
+    if (!stamp) return { kind: 'malformed', value }; // present-but-invalid committed stamp
+    return {
+      kind: 'valid-revisioned',
+      value: { committedStamp: stamp, lastAttemptOrdinal: ordinal.value },
+    };
+  }
+  // No committed stamp: a recognized legacy provider-status record is fine; any
+  // other object is an unexplained revision-era marker → malformed.
+  if (isRecognizedProviderStatus(record)) return { kind: 'recognized-legacy', value };
+  return { kind: 'malformed', value };
 }
 
 // === Partition-carried commit-stamp classification ===
@@ -438,15 +540,15 @@ export async function allocateGameStatsCommitStamp(
     PROVIDER_REFRESH_STATUS_SCOPE,
     statusKey
   );
-  const statusValue = statusRow?.value ?? null;
-  const statusHasStamp =
-    statusValue !== null &&
-    typeof statusValue === 'object' &&
-    Object.prototype.hasOwnProperty.call(statusValue, 'lastCommittedStamp');
-  const statusStamp = statusHasStamp
-    ? toCommitStamp((statusValue as Record<string, unknown>).lastCommittedStamp)
-    : null;
-  const statusMarkerPresent = statusHasStamp && statusStamp === null;
+  // PRESENCE-AWARE classification via the SHARED classifier — a present JSON-null,
+  // primitive, array, unrecognized object, malformed committed stamp, or malformed
+  // attempt chronology is a MALFORMED revision-era marker (never absence, never a
+  // silent restart). A valid committed stamp is a high-water witness; a recognized
+  // legacy record never blocks.
+  const statusClass = classifyRevisionStatus(toDurableRead(statusRow));
+  const statusStamp =
+    statusClass.kind === 'valid-revisioned' ? statusClass.value.committedStamp : null;
+  const statusMarkerPresent = statusClass.kind === 'malformed';
 
   return classifyRevisionAllocation(
     {

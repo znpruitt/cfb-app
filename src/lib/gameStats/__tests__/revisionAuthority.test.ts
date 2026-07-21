@@ -439,3 +439,172 @@ test('validateLedgerRecord: rejects wrong schema, bad revision/lineage, mislabel
   // Mislabeled identity (wrong week) → not a ledger (a revision-era marker).
   assert.equal(validateLedgerRecord({ ...good, week: 7 }, ID), null);
 });
+
+// ===========================================================================
+// PLATFORM-086H3B-DURABLE-STATE-CLASSIFICATION — shared status classifier,
+// strict ledger validation, and the presence-aware live allocator.
+// ===========================================================================
+
+import {
+  allocateGameStatsCommitStamp,
+  classifyRevisionStatus,
+  GAME_STATS_REVISION_SCOPE,
+} from '../revisionAuthority.ts';
+import { getGameStatsKey } from '../cache.ts';
+import { toDurableRead } from '../durableState.ts';
+import { providerRefreshScopeKey, weekPartitionScope } from '../../providerRefreshScope.ts';
+import {
+  getAppState,
+  setAppState,
+  withAppStateKeyTransaction,
+  __deleteAppStateFileForTests,
+  __resetAppStateForTests,
+} from '../../server/appStateStore.ts';
+
+const present = (value: unknown) => toDurableRead({ value });
+const PARTITION_KEY = getGameStatsKey(ID.year, ID.week, ID.seasonType);
+const STATUS_KEY = providerRefreshScopeKey(
+  'game-stats',
+  weekPartitionScope(ID.year, ID.week, ID.seasonType)
+);
+
+test('classifyRevisionStatus: presence-aware states (absent / legacy / valid / malformed)', () => {
+  assert.equal(classifyRevisionStatus({ present: false }).kind, 'absent');
+  // Present JSON-null / primitive / array / unrecognized object → malformed.
+  assert.equal(classifyRevisionStatus(present(null)).kind, 'malformed');
+  assert.equal(classifyRevisionStatus(present(42)).kind, 'malformed');
+  assert.equal(classifyRevisionStatus(present([])).kind, 'malformed');
+  assert.equal(classifyRevisionStatus(present({ random: 1 })).kind, 'malformed');
+  // Malformed committed stamp / malformed attempt chronology → malformed.
+  assert.equal(
+    classifyRevisionStatus(present({ lastCommittedStamp: { lineage: '', revision: 0 } })).kind,
+    'malformed'
+  );
+  assert.equal(
+    classifyRevisionStatus(
+      present({ dataset: 'game-stats', scopeKey: STATUS_KEY, lastAttemptOrdinal: 0 })
+    ).kind,
+    'malformed'
+  );
+  // Valid committed stamp → valid-revisioned; recognized legacy record → legacy.
+  const valid = classifyRevisionStatus(
+    present({ lastCommittedStamp: { lineage: 'L', revision: 3 } })
+  );
+  assert.equal(valid.kind, 'valid-revisioned');
+  if (valid.kind === 'valid-revisioned')
+    assert.deepEqual(valid.value.committedStamp, { lineage: 'L', revision: 3 });
+  assert.equal(
+    classifyRevisionStatus(
+      present({
+        dataset: 'game-stats',
+        scope: {},
+        scopeKey: STATUS_KEY,
+        latestAttemptOutcome: 'in-progress',
+      })
+    ).kind,
+    'recognized-legacy'
+  );
+});
+
+test('validateLedgerRecord: strict fields, no silent normalization', () => {
+  const good = ledger('L', 3, 'repair');
+  assert.ok(validateLedgerRecord({ ...good, initializedAt: NOW }, ID));
+  const bad: Array<[string, unknown]> = [
+    ['object initializedAt', { ...good, initializedAt: {} }],
+    ['empty initializedAt', { ...good, initializedAt: '' }],
+    ['noncanonical initializedAt', { ...good, initializedAt: '2024-10-06' }],
+    ['malformed lineage', { ...good, lineage: '' }],
+    ['zero revision', { ...good, revision: 0 }],
+    ['fractional revision', { ...good, revision: 1.5 }],
+    ['negative revision', { ...good, revision: -1 }],
+    ['unsafe revision', { ...good, revision: Number.MAX_SAFE_INTEGER + 1 }],
+    ['malformed repairAuditRef', { ...good, repairAuditRef: 5 }],
+    ['empty repairAuditRef', { ...good, repairAuditRef: '' }],
+    ['unexpected extra field', { ...good, injected: 'x' }],
+    ['present JSON-null', null],
+  ];
+  for (const [label, value] of bad) {
+    assert.equal(validateLedgerRecord(value, ID), null, label);
+  }
+  // A valid ledger with a valid repairAuditRef round-trips (fresh object).
+  const withRef = validateLedgerRecord({ ...good, repairAuditRef: 'ref-1' }, ID);
+  assert.equal(withRef?.repairAuditRef, 'ref-1');
+  assert.equal(withRef?.initializedAt, NOW); // never normalized to ''
+});
+
+// === Live allocator: present-null / malformed status + ledger block before mutation ===
+
+async function allocateWith(opts: {
+  partition?: WeeklyGameStats | null;
+  status?: unknown;
+  ledger?: unknown;
+}): Promise<ReturnType<typeof classifyRevisionAllocation>> {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  if (opts.partition) await setAppState('game-stats', PARTITION_KEY, opts.partition);
+  if ('status' in opts) await setAppState('provider-refresh-status', STATUS_KEY, opts.status);
+  if ('ledger' in opts) await setAppState(GAME_STATS_REVISION_SCOPE, PARTITION_KEY, opts.ledger);
+  return withAppStateKeyTransaction('game-stats', PARTITION_KEY, (txn) =>
+    allocateGameStatsCommitStamp(txn, ID, opts.partition ?? null, PARTITION_KEY, NOW)
+  );
+}
+
+test('live allocator: present-null / primitive / array / unrecognized status blocks as ambiguous (no mutation)', async () => {
+  for (const status of [null, 42, [], { random: 1 }]) {
+    const result = await allocateWith({ partition: null, status }); // absent partition, absent ledger
+    expectBlock(result, 'revision-history-ambiguous');
+    // No durable mutation: the allocator only reads (no ledger written).
+    assert.equal(
+      await getAppState(GAME_STATS_REVISION_SCOPE, PARTITION_KEY),
+      null,
+      JSON.stringify(status)
+    );
+    // The status row is untouched.
+    assert.deepEqual((await getAppState('provider-refresh-status', STATUS_KEY))?.value, status);
+  }
+});
+
+test('live allocator: a genuinely absent status allows a first allocation (unchanged)', async () => {
+  const result = await allocateWith({ partition: null }); // no status row at all
+  assert.ok(result.ok, JSON.stringify(result));
+  if (result.ok) assert.equal(result.allocation.stamp.revision, 1);
+});
+
+test('live allocator: a malformed live ledger blocks before mutation (revision-history-ambiguous)', async () => {
+  for (const badLedger of [
+    null, // present JSON-null
+    {
+      schemaVersion: 1,
+      ...ID,
+      lineage: 'L',
+      revision: 3,
+      initializedFrom: 'new',
+      initializedAt: {},
+    },
+    {
+      schemaVersion: 1,
+      ...ID,
+      lineage: 'L',
+      revision: 0,
+      initializedFrom: 'new',
+      initializedAt: NOW,
+    },
+    {
+      schemaVersion: 1,
+      ...ID,
+      lineage: 'L',
+      revision: 3,
+      initializedFrom: 'new',
+      initializedAt: NOW,
+      injected: 'x',
+    },
+  ]) {
+    const result = await allocateWith({ partition: null, ledger: badLedger });
+    expectBlock(result, 'revision-history-ambiguous');
+    // Ledger row byte-for-byte unchanged (never normalized).
+    assert.deepEqual(
+      (await getAppState(GAME_STATS_REVISION_SCOPE, PARTITION_KEY))?.value,
+      badLedger
+    );
+  }
+});
