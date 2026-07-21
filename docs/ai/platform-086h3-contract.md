@@ -101,7 +101,8 @@ architecture, not active behavior.
   malformed durable state as repairable.
 - Dormant-boundary guard (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION +
   PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION +
-  PLATFORM-086H3B-DORMANT-PARSER-COMPUTED-LAUNDERING-REMEDIATION): the admin revision
+  PLATFORM-086H3B-DORMANT-PARSER-COMPUTED-LAUNDERING-REMEDIATION +
+  PLATFORM-086H3B-DORMANT-PARSER-LEXICAL-SCOPE-REMEDIATION): the admin revision
   route is **scanned, not excluded** — its production capability surface is an explicit
   parser-backed allowlist (TypeScript compiler API), so **inspection and dry-run
   planning are the ONLY sanctioned B-stage operations** it can reach. **Dry-run
@@ -119,10 +120,17 @@ architecture, not active behavior.
   (`const { member: x } = ns`), and **literal computed member access**
   (`ns['member']`, ns[`member`]) — including bindings laundered inside a function
   scope) to the runtime capabilities they use, so an **approved export NAME can never
-  conceal a forbidden terminal**. **Unresolved computed access to a local guarded
+  conceal a forbidden terminal**. Runtime binding analysis is **LEXICAL** (function/
+  block/catch/loop scopes, nearest-declaration resolution) rather than a flat
+  function-wide map, so **sibling and nested shadows cannot erase capability
+  provenance** (a safe inner/sibling binding hides a forbidden one only within its own
+  scope; leaving the scope restores the outer binding), and **every destructuring
+  DEFAULT initializer** (`const { x = fallback } = obj`, incl. nested/array/parameter
+  patterns) **is analyzed as executable runtime code** even when the destructured
+  source is safe. **Unresolved computed access to a local guarded
   namespace** (`ns[op]`, `ns[fn()]`, ns[`p${x}`]) **fails closed**, while ordinary
-  computed/destructured access on non-namespace values (and external namespaces)
-  stays permitted. Applied repair, revisioned writes, activation transitions,
+  computed/destructured access on non-namespace values (and external namespaces) and
+  ordinary legal shadowing stay permitted. Applied repair, revisioned writes, activation transitions,
   status/chronology publication, recovery, and generic app-state mutation cannot
   reach the route by any form. Applied repair and every lifecycle mutation remain
   dormant.

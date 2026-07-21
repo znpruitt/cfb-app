@@ -971,6 +971,181 @@ test('parser guard: safe unrelated destructuring / computed access remains allow
   }
 });
 
+// ===========================================================================
+// PLATFORM-086H3B-DORMANT-PARSER-LEXICAL-SCOPE-REMEDIATION — the parser now resolves
+// runtime bindings LEXICALLY (function/block/catch/loop scopes, nearest-declaration
+// resolution) rather than with a flat function-wide map, so sibling and nested
+// shadowing cannot erase capability provenance; and it analyzes every destructuring
+// DEFAULT initializer (`const { x = fallback } = obj`) as executable runtime code.
+// ===========================================================================
+
+test('parser guard: the exact sibling-shadow lexical-scope regression fails', () => {
+  // A later sibling block re-binding the same name to a safe value must NOT erase the
+  // earlier block's forbidden binding (the flat map did — this is the false negative).
+  const v = facade(
+    `import * as rr from './revisionRepair.ts';\n` +
+      `function safe() {}\n` +
+      `export const planRevisionRepair = request => {\n` +
+      `  {\n` +
+      `    const { repairRevisionState: apply } = rr;\n` +
+      `    apply(request);\n` +
+      `  }\n` +
+      `  {\n` +
+      `    const apply = safe;\n` +
+      `    void apply;\n` +
+      `  }\n` +
+      `};`
+  );
+  assert.ok(
+    v.length > 0,
+    'a sibling safe binding must not erase an earlier block’s forbidden provenance'
+  );
+});
+
+test('parser guard: the exact destructuring-default regression fails', () => {
+  // The destructured source (`table`) is a benign object, but the `= fallback` default
+  // is conditionally executable runtime code reaching applied repair.
+  const v = facade(
+    `import { repairRevisionState as fallback } from './revisionRepair.ts';\n` +
+      `const table = {};\n` +
+      `export const planRevisionRepair = request => {\n` +
+      `  const { missing = fallback } = table;\n` +
+      `  return missing(request);\n` +
+      `};`
+  );
+  assert.ok(v.length > 0, 'a destructuring default reaching applied repair must fail');
+});
+
+test('parser guard: lexical shadowing cannot launder a forbidden capability', () => {
+  const NS = `import * as rr from './revisionRepair.ts';\nfunction safe() {}\n`;
+  const forms: Array<[string, string]> = [
+    [
+      'dangerous then safe siblings',
+      `export const planRevisionRepair = r => { { const { repairRevisionState: apply } = rr; apply(r); } { const apply = safe; void apply; } };`,
+    ],
+    [
+      'safe then dangerous siblings',
+      `export const planRevisionRepair = r => { { const apply = safe; void apply; } { const { repairRevisionState: apply } = rr; apply(r); } };`,
+    ],
+    [
+      'safe inner shadow over a forbidden outer binding (outer use flags)',
+      `export const planRevisionRepair = r => { const { repairRevisionState: apply } = rr; { const apply = safe; void apply; } return apply(r); };`,
+    ],
+    [
+      'forbidden inner shadow over a safe outer binding (inner use flags)',
+      `export const planRevisionRepair = r => { const apply = safe; { const { repairRevisionState: apply } = rr; apply(r); } void apply; };`,
+    ],
+    [
+      'nested block exit restores outer provenance',
+      `export const planRevisionRepair = r => { const { repairRevisionState: apply } = rr; { const apply = safe; apply(); } return apply(r); };`,
+    ],
+    [
+      'helper-local forbidden binding',
+      `export const planRevisionRepair = r => { function run(){ const { repairRevisionState: apply } = rr; return apply(r); } const apply = safe; void apply; return run(); };`,
+    ],
+    [
+      'catch-binding shadow restores outer provenance',
+      `export const planRevisionRepair = r => { const { repairRevisionState: apply } = rr; try { throw 0; } catch (apply) { void apply; } return apply(r); };`,
+    ],
+    [
+      'same-name bindings across separate nested functions',
+      `export const planRevisionRepair = r => { const dangerous = () => { const { repairRevisionState: apply } = rr; return apply(r); }; const harmless = () => { const apply = safe; return apply; }; harmless(); return dangerous(); };`,
+    ],
+  ];
+  for (const [label, body] of forms) {
+    assert.ok(facade(NS + body).length > 0, `must fail: ${label}`);
+  }
+});
+
+test('parser guard: every destructuring default is analyzed as runtime code', () => {
+  const IMP = `import { repairRevisionState as fallback } from './revisionRepair.ts';\n`;
+  const forms: Array<[string, string]> = [
+    [
+      'local-object fallback',
+      `const table = {};\nexport const planRevisionRepair = r => { const { missing = fallback } = table; return missing(r); };`,
+    ],
+    [
+      'external-namespace fallback',
+      `import * as path from 'node:path';\nexport const planRevisionRepair = r => { const { missing = fallback } = path; return missing(r); };`,
+    ],
+    [
+      'nested object-pattern fallback',
+      `const table = {};\nexport const planRevisionRepair = r => { const { nested: { missing = fallback } = {} } = table; void missing; return r; };`,
+    ],
+    [
+      'array-pattern fallback',
+      `const values = [];\nexport const planRevisionRepair = r => { const [missing = fallback] = values; void missing; return r; };`,
+    ],
+    [
+      'function-parameter fallback',
+      `export function planRevisionRepair({ missing = fallback }) { return missing(); }`,
+    ],
+    [
+      'arrow-parameter fallback',
+      `export const planRevisionRepair = ({ missing = fallback }) => missing();`,
+    ],
+    [
+      'chained alias after fallback',
+      `const table = {};\nexport const planRevisionRepair = r => { const { missing = fallback } = table; const chained = missing; return chained(r); };`,
+    ],
+    [
+      'helper invocation after fallback',
+      `const table = {};\nexport const planRevisionRepair = r => { const { missing = fallback } = table; function run(f){ return f(r); } return run(missing); };`,
+    ],
+  ];
+  for (const [label, body] of forms) {
+    assert.ok(facade(IMP + body).length > 0, `must fail: ${label}`);
+  }
+});
+
+test('parser guard: benign shadowing + safe defaults remain allowed', () => {
+  const SAFE =
+    `import { planRevisionRepair as base, inspectRevisionState, readRevisionAuditTrail, isCfbdSeasonType } from './revisionRepairPlanning.ts';\n` +
+    `export { inspectRevisionState, readRevisionAuditTrail, isCfbdSeasonType };\n`;
+  const forms: Array<[string, string]> = [
+    [
+      'parameter shadows a namespace import',
+      `import * as rr from './revisionRepair.ts';\n` +
+        SAFE +
+        `export const planRevisionRepair = (rr) => { void rr.repairRevisionState; return base(rr); };`,
+    ],
+    [
+      'benign numeric default',
+      SAFE +
+        `const opts = {};\nexport const planRevisionRepair = r => { const { limit = 10 } = opts; void limit; return base(r); };`,
+    ],
+    [
+      'unused safe fallback',
+      SAFE +
+        `function fallbackFn(){}\nconst opts = {};\nexport const planRevisionRepair = r => { const { missing = fallbackFn } = opts; void missing; return base(r); };`,
+    ],
+    [
+      'ordinary local object destructuring',
+      SAFE +
+        `const opts = { a: 1 };\nexport const planRevisionRepair = r => { const { a } = opts; void a; return base(r); };`,
+    ],
+    [
+      'ordinary external namespace destructuring',
+      `import * as path from 'node:path';\n` +
+        SAFE +
+        `export const planRevisionRepair = r => { const { join } = path; void join; return base(r); };`,
+    ],
+    [
+      'same-name safe bindings in separate functions',
+      SAFE +
+        `function safe(){}\nexport const planRevisionRepair = r => { const one = () => { const x = safe; return x; }; const two = () => { const x = safe; return x; }; one(); two(); return base(r); };`,
+    ],
+    [
+      'safe same-name bindings across sibling blocks',
+      SAFE +
+        `function safe(){}\nexport const planRevisionRepair = r => { { const x = safe; void x; } { const x = safe; void x; } return base(r); };`,
+    ],
+  ];
+  for (const [label, body] of forms) {
+    assert.deepEqual(facade(body), [], `must stay clean: ${label}`);
+  }
+});
+
 // Whether `src` NAMED-imports `symbol` (an `import { ... symbol ... } from '...'`
 // statement) — distinct from a mere docstring mention of the same word.
 const namedImports = (src: string, symbol: string): boolean =>

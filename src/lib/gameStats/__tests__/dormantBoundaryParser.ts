@@ -746,20 +746,40 @@ function analyzeInitializer(
   return analyzeImplementation(module, init, virtual, seen);
 }
 
-/** A namespace value laundered into a local binding within a single function scope. */
+/**
+ * A namespace value laundered into a local binding. `null` (elsewhere) marks a PLAIN
+ * declaration (parameter, catch var, local function/class, an ordinary-object /
+ * array / non-identifier destructure, or any non-namespace initializer) — it carries
+ * no capability and SHADOWS any outer provenance of the same name.
+ */
 type LocalBinding =
   | { kind: 'alias'; target: string } // `const x = y`
   | { kind: 'member'; nsName: string; prop: string | null }; // `const {p:x}=ns` / `ns.p` / `ns['p']`
 
 /**
- * Trace a function/expression body for forbidden capabilities, resolving namespace
+ * A lexical scope: the bindings declared DIRECTLY in it (a `Map` value of `null` is a
+ * plain declaration — see `LocalBinding`). Resolution walks the parent chain to the
+ * NEAREST declaration, so sibling/nested block shadowing cannot erase or leak
+ * capability provenance, and leaving an inner scope restores the outer binding.
+ */
+interface LexScope {
+  parent: LexScope | null;
+  isFunction: boolean;
+  names: Map<string, LocalBinding | null>;
+}
+
+/**
+ * Trace a function/expression body for forbidden capabilities with LEXICAL binding
+ * resolution: function/block/catch/loop scopes each own their declarations, and a
+ * reference resolves against the nearest applicable declaration. Resolves namespace
  * member access (`ns.member`, `ns['member']`), namespace aliases (`const s = ns`),
- * and namespace destructuring (`const { member: x } = ns`) — INCLUDING bindings
- * laundered inside this function scope. Literal computed access resolves to the
- * underlying export; unresolved computed access to a LOCAL namespace fails closed.
- * Bounded: only this body's local bindings + the module-level graph are considered
- * (no whole-program call graph); a namespace-derived name shadowed across nested
- * scopes conservatively resolves to the capability (fail-safe).
+ * namespace destructuring (`const { member: x } = ns`), and — as executable runtime
+ * code — every `BindingElement` DEFAULT initializer (`const { x = fallback } = obj`),
+ * recursively through nested/array/parameter patterns. Literal computed access
+ * resolves to the underlying export; unresolved computed access to a LOCAL namespace
+ * fails closed. Bounded: only this body's lexical bindings + the module-level graph
+ * are considered (no whole-program control-flow analysis); a namespace-derived name
+ * shadowed across nested scopes conservatively resolves to the capability (fail-safe).
  */
 function analyzeImplementation(
   module: string,
@@ -768,80 +788,212 @@ function analyzeImplementation(
   seen: Set<string>
 ): CapabilityViolation[] {
   const out: CapabilityViolation[] = [];
-  const body =
-    ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)
-      ? (node.body ?? node)
-      : node;
 
-  // 1. Collect local bindings that launder a namespace member / alias out of this
-  //    body, so a later reference resolves to the underlying capability even when the
-  //    binding was created inside the function scope (not at module level).
-  const locals = new Map<string, LocalBinding>();
-  const collect = (n: ts.Node): void => {
-    if (ts.isVariableDeclaration(n) && n.initializer) {
-      const init = n.initializer;
-      if (ts.isIdentifier(n.name)) {
-        if (ts.isIdentifier(init)) {
-          locals.set(n.name.text, { kind: 'alias', target: init.text });
-        } else if (ts.isPropertyAccessExpression(init) && ts.isIdentifier(init.expression)) {
-          locals.set(n.name.text, {
-            kind: 'member',
-            nsName: init.expression.text,
-            prop: init.name.text,
-          });
-        } else if (ts.isElementAccessExpression(init) && ts.isIdentifier(init.expression)) {
-          locals.set(n.name.text, {
-            kind: 'member',
-            nsName: init.expression.text,
-            prop: staticPropertyName(init.argumentExpression),
-          });
-        }
-      } else if (ts.isObjectBindingPattern(n.name) && ts.isIdentifier(init)) {
-        for (const el of n.name.elements) {
-          if (!ts.isIdentifier(el.name)) continue;
-          const prop =
-            el.propertyName && ts.isIdentifier(el.propertyName)
-              ? el.propertyName.text
-              : el.name.text;
-          locals.set(el.name.text, { kind: 'member', nsName: init.text, prop });
-        }
-      }
+  // Nearest declaration of `name` up the lexical chain: `found` distinguishes a plain
+  // local shadow (found, binding null) from an unbound name (module-level fallback).
+  const lookup = (
+    scope: LexScope,
+    name: string
+  ): { found: boolean; binding: LocalBinding | null } => {
+    for (let s: LexScope | null = scope; s; s = s.parent) {
+      if (s.names.has(name)) return { found: true, binding: s.names.get(name) ?? null };
     }
-    ts.forEachChild(n, collect);
+    return { found: false, binding: null };
   };
-  collect(body);
+  const nearestFunctionScope = (scope: LexScope): LexScope => {
+    let s: LexScope = scope;
+    while (!s.isFunction && s.parent) s = s.parent;
+    return s;
+  };
 
-  // 2. Resolve an identifier used as a NAMESPACE value, through local aliases then
-  //    module level. A member binding is a value (not a namespace) → null.
-  const localNsOrigin = (name: string, seen2: Set<string> = new Set()): NamespaceOrigin | null => {
+  // Resolve an identifier used as a NAMESPACE value: a nearer plain/member binding
+  // shadows the namespace (→ null); an alias chains; else the module-level graph.
+  const resolveNs = (
+    scope: LexScope,
+    name: string,
+    seen2: Set<string> = new Set()
+  ): NamespaceOrigin | null => {
     if (seen2.has(name)) return null;
     seen2.add(name);
-    const b = locals.get(name);
-    if (b?.kind === 'alias') return localNsOrigin(b.target, seen2);
-    if (b?.kind === 'member') return null;
+    const { found, binding } = lookup(scope, name);
+    if (found) {
+      if (binding && binding.kind === 'alias') return resolveNs(scope, binding.target, seen2);
+      return null; // plain or member binding shadows any outer namespace
+    }
     return moduleNamespaceOrigin(module, name, virtual);
   };
 
-  // 3. Resolve an identifier used as a VALUE: a laundered namespace member (check it),
-  //    a bare namespace alias (safe — member access decides), else module-level.
-  const checkValueRef = (name: string, seen2: Set<string> = new Set()): CapabilityViolation[] => {
+  // Resolve an identifier used as a VALUE: a laundered namespace member (check it), a
+  // bare namespace alias (safe — member access decides), a plain local (safe shadow),
+  // else the module-level graph.
+  const checkValueRef = (
+    scope: LexScope,
+    name: string,
+    seen2: Set<string> = new Set()
+  ): CapabilityViolation[] => {
     if (seen2.has(name)) return [];
     seen2.add(name);
-    const b = locals.get(name);
-    if (b?.kind === 'member') {
-      return checkNamespaceMember(module, b.nsName, localNsOrigin(b.nsName), b.prop, virtual, seen);
-    }
-    if (b?.kind === 'alias') {
-      if (localNsOrigin(b.target)) return []; // bare namespace alias — no capability by itself
-      return checkValueRef(b.target, seen2);
+    const { found, binding } = lookup(scope, name);
+    if (found) {
+      if (binding === null) return []; // plain local / parameter — safe, shadows outer
+      if (binding.kind === 'member') {
+        return checkNamespaceMember(
+          module,
+          binding.nsName,
+          resolveNs(scope, binding.nsName),
+          binding.prop,
+          virtual,
+          seen
+        );
+      }
+      if (resolveNs(scope, binding.target)) return []; // bare namespace alias — no capability
+      return checkValueRef(scope, binding.target, seen2);
     }
     return collectForbiddenCapabilities(module, name, virtual, seen);
   };
 
-  const visit = (n: ts.Node): void => {
-    // Binding names are not value references — trace only the initializer.
-    if (ts.isVariableDeclaration(n)) {
-      if (n.initializer) visit(n.initializer);
+  // Classify a simple `NAME = INIT` (identifier target) into a binding, or `null` for
+  // a plain (non-namespace) initializer / no initializer.
+  const classifyInit = (init: ts.Expression | undefined): LocalBinding | null => {
+    if (!init) return null;
+    if (ts.isIdentifier(init)) return { kind: 'alias', target: init.text };
+    if (ts.isPropertyAccessExpression(init) && ts.isIdentifier(init.expression)) {
+      return { kind: 'member', nsName: init.expression.text, prop: init.name.text };
+    }
+    if (ts.isElementAccessExpression(init) && ts.isIdentifier(init.expression)) {
+      return {
+        kind: 'member',
+        nsName: init.expression.text,
+        prop: staticPropertyName(init.argumentExpression),
+      };
+    }
+    return null;
+  };
+
+  // Declare a binding NAME (identifier or destructuring pattern) into `scope`. Object
+  // elements destructured from an identifier namespace source become `member`
+  // bindings; array elements, nested patterns, and non-namespace sources are plain.
+  const declareBinding = (
+    scope: LexScope,
+    name: ts.BindingName,
+    init: ts.Expression | undefined
+  ): void => {
+    if (ts.isIdentifier(name)) {
+      scope.names.set(name.text, classifyInit(init));
+      return;
+    }
+    const source = init && ts.isIdentifier(init) ? init.text : null;
+    const declarePattern = (pattern: ts.BindingPattern, src: string | null): void => {
+      const isObj = ts.isObjectBindingPattern(pattern);
+      for (const el of pattern.elements) {
+        if (!ts.isBindingElement(el)) continue; // OmittedExpression (array holes)
+        if (ts.isIdentifier(el.name)) {
+          const prop =
+            isObj && el.propertyName && ts.isIdentifier(el.propertyName)
+              ? el.propertyName.text
+              : isObj && !el.propertyName
+                ? el.name.text
+                : null;
+          scope.names.set(
+            el.name.text,
+            src && isObj && prop ? { kind: 'member', nsName: src, prop } : null
+          );
+        } else {
+          declarePattern(el.name, null); // nested pattern — inner names are plain
+        }
+      }
+    };
+    declarePattern(name, source);
+  };
+
+  // Predeclare the direct declarations of a scope (block/function body) BEFORE
+  // analyzing references, so resolution does not depend on traversal order. `var`
+  // hoists to the nearest function scope; `const`/`let`/`function`/`class` are local.
+  const predeclare = (scope: LexScope, statements: readonly ts.Statement[]): void => {
+    for (const stmt of statements) {
+      if (ts.isVariableStatement(stmt)) {
+        const isBlockScoped =
+          (stmt.declarationList.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) !== 0;
+        const target = isBlockScoped ? scope : nearestFunctionScope(scope);
+        for (const decl of stmt.declarationList.declarations)
+          declareBinding(target, decl.name, decl.initializer);
+      } else if ((ts.isFunctionDeclaration(stmt) || ts.isClassDeclaration(stmt)) && stmt.name) {
+        scope.names.set(stmt.name.text, null);
+      }
+    }
+  };
+
+  // Analyze every destructuring DEFAULT initializer as runtime code, recursively.
+  const analyzeBindingDefaults = (name: ts.BindingName, scope: LexScope): void => {
+    if (ts.isIdentifier(name)) return;
+    for (const el of name.elements) {
+      if (!ts.isBindingElement(el)) continue;
+      if (el.initializer) walk(el.initializer, scope); // the `= default` expression
+      if (!ts.isIdentifier(el.name)) analyzeBindingDefaults(el.name, scope);
+    }
+  };
+
+  function walk(n: ts.Node, scope: LexScope): void {
+    // Function-like: a new function scope holds the parameters (and their defaults);
+    // the body (block statements or an expression) is analyzed within it.
+    if (ts.isFunctionDeclaration(n) || ts.isFunctionExpression(n) || ts.isArrowFunction(n)) {
+      const fscope: LexScope = { parent: scope, isFunction: true, names: new Map() };
+      for (const p of n.parameters) declareBinding(fscope, p.name, undefined);
+      for (const p of n.parameters) {
+        if (p.initializer) walk(p.initializer, fscope);
+        analyzeBindingDefaults(p.name, fscope);
+      }
+      const fnBody = n.body;
+      if (fnBody && ts.isBlock(fnBody)) {
+        predeclare(fscope, fnBody.statements);
+        for (const s of fnBody.statements) walk(s, fscope);
+      } else if (fnBody) {
+        walk(fnBody, fscope);
+      }
+      return;
+    }
+    // A standalone block introduces its own scope (sibling blocks never share one).
+    if (ts.isBlock(n)) {
+      const bscope: LexScope = { parent: scope, isFunction: false, names: new Map() };
+      predeclare(bscope, n.statements);
+      for (const s of n.statements) walk(s, bscope);
+      return;
+    }
+    if (ts.isCatchClause(n)) {
+      const cscope: LexScope = { parent: scope, isFunction: false, names: new Map() };
+      if (n.variableDeclaration) declareBinding(cscope, n.variableDeclaration.name, undefined);
+      predeclare(cscope, n.block.statements);
+      for (const s of n.block.statements) walk(s, cscope);
+      return;
+    }
+    if (ts.isForStatement(n) || ts.isForInStatement(n) || ts.isForOfStatement(n)) {
+      const lscope: LexScope = { parent: scope, isFunction: false, names: new Map() };
+      const init = n.initializer;
+      if (init && ts.isVariableDeclarationList(init)) {
+        for (const decl of init.declarations) {
+          declareBinding(lscope, decl.name, decl.initializer);
+          if (decl.initializer) walk(decl.initializer, lscope);
+          analyzeBindingDefaults(decl.name, lscope);
+        }
+      } else if (init) {
+        walk(init, lscope);
+      }
+      if (ts.isForStatement(n)) {
+        if (n.condition) walk(n.condition, lscope);
+        if (n.incrementor) walk(n.incrementor, lscope);
+      } else {
+        walk(n.expression, lscope);
+      }
+      walk(n.statement, lscope);
+      return;
+    }
+    // Variable statement: names were predeclared at scope entry; analyze each
+    // initializer AND every destructuring default as runtime references.
+    if (ts.isVariableStatement(n)) {
+      for (const decl of n.declarationList.declarations) {
+        if (decl.initializer) walk(decl.initializer, scope);
+        analyzeBindingDefaults(decl.name, scope);
+      }
       return;
     }
     // `obj.member` / `obj['member']` / `obj[expr]` — resolve when `obj` is a namespace.
@@ -849,27 +1001,28 @@ function analyzeImplementation(
       (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) &&
       ts.isIdentifier(n.expression)
     ) {
-      const origin = localNsOrigin(n.expression.text);
+      const origin = resolveNs(scope, n.expression.text);
       if (origin) {
         const prop = ts.isPropertyAccessExpression(n)
           ? n.name.text
           : staticPropertyName(n.argumentExpression);
         out.push(...checkNamespaceMember(module, n.expression.text, origin, prop, virtual, seen));
         // trace the computed argument (e.g. `ns[getName()]`), not the namespace object.
-        if (ts.isElementAccessExpression(n)) ts.forEachChild(n.argumentExpression, visit);
+        if (ts.isElementAccessExpression(n)) walk(n.argumentExpression, scope);
         return;
       }
-      // ordinary object/array access → visit all children (incl. the object identifier).
-      ts.forEachChild(n, visit);
+      ts.forEachChild(n, (c) => walk(c, scope));
       return;
     }
     if (ts.isIdentifier(n)) {
-      out.push(...checkValueRef(n.text));
+      out.push(...checkValueRef(scope, n.text));
       return;
     }
-    ts.forEachChild(n, visit);
-  };
-  visit(body);
+    ts.forEachChild(n, (c) => walk(c, scope));
+  }
+
+  const root: LexScope = { parent: null, isFunction: true, names: new Map() };
+  walk(node, root);
   return out;
 }
 

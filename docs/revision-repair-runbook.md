@@ -155,7 +155,8 @@ or repair history) mints lineage 1.
 >
 > **Guarded capability surface (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION +
 > PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION +
-> PLATFORM-086H3B-DORMANT-PARSER-COMPUTED-LAUNDERING-REMEDIATION).** The admin route is
+> PLATFORM-086H3B-DORMANT-PARSER-COMPUTED-LAUNDERING-REMEDIATION +
+> PLATFORM-086H3B-DORMANT-PARSER-LEXICAL-SCOPE-REMEDIATION).** The admin route is
 > **scanned by the dormant-boundary guard, not excluded by filename**. It reaches its
 > revision capabilities ONLY through a narrow inspection facade
 > (`src/lib/gameStats/revisionRepairInspection.ts`) that exposes inspection, typed
@@ -175,11 +176,17 @@ or repair history) mints lineage 1.
 > (`const { member: x } = ns`), and **literal computed member access**
 > (`ns['member']`, ns[`member`]) — including bindings laundered inside a function
 > scope) to the runtime capabilities they use — so an **approved export NAME cannot
-> conceal a forbidden terminal**. **Unresolved computed access to a local guarded
+> conceal a forbidden terminal**. Binding analysis is **LEXICAL** (function/block/
+> catch/loop scopes, nearest-declaration resolution), so **sibling and nested shadows
+> cannot erase capability provenance** (a safe inner/sibling binding hides a forbidden
+> one only within its own scope; leaving the scope restores the outer binding), and
+> **every destructuring DEFAULT initializer** (`const { x = fallback } = obj`, incl.
+> nested/array/parameter patterns) **is analyzed as executable runtime code** even when
+> the destructured source is safe. **Unresolved computed access to a local guarded
 > namespace** (`ns[op]`, `ns[fn()]`, ns[`p${x}`]) **fails closed**; ordinary
-> computed/destructured access on non-namespace values and external namespaces stays
-> permitted. No lifecycle-mutation capability can reach the route by any import,
-> destructuring, or computed-access form.
+> computed/destructured access on non-namespace values and external namespaces, and
+> ordinary legal shadowing, stay permitted. No lifecycle-mutation capability can reach
+> the route by any import, destructuring, computed-access, or shadowing form.
 
 **Preconditions (every repair — enforced during planning AND, once enabled,
 transactional apply):**
