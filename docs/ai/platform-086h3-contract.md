@@ -27,10 +27,9 @@ Prerequisite progress (corrected): **A** (the durable multi-key app-state transa
 primitive that §6 relies on) is **merged into `main`** (PR #398, dormant — production
 behavior unchanged). **B as designed (revision lineage/ledger + status chronology +
 operator repair + activation fence) is SUPERSEDED and will not be built** — it is
-replaced by the fenced-legacy-writer prerequisite (implemented on
-`platform/086h3b-replacement-legacy-writer-fence`, review-remediation in progress, not
-merged). **C/D/E are redefined WITHOUT lineage/revision/repair** (see the replacement
-doc); the lineage/revision/high-water/repair material below is no longer the plan.
+replaced by the fenced-legacy-writer prerequisite (**merged to `main`, PR #399**).
+**C/D/E are redefined WITHOUT lineage/revision/repair** (see the replacement doc); the
+lineage/revision/high-water/repair material below is no longer the plan.
 
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any
 conflict; this file is a **historical design reference** (the current architecture is

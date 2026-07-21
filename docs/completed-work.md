@@ -27,11 +27,11 @@ Supersedes: (none)
 > guard — designed in `docs/ai/platform-086h3-contract.md`, now a **historical
 > reference**) is **SUPERSEDED** after two architectural audits and will not be
 > built; the `platform/086h3b-revision-status-authority` branch is frozen, unmerged.
-> It is replaced by a small **fenced legacy writer** prerequisite (implemented on
-> `platform/086h3b-replacement-legacy-writer-fence`, review-remediation in progress,
-> not merged), and **C/D/E are redefined WITHOUT lineage/revision/repair** — see
-> **`docs/ai/game-stats-writer-fence.md`**. **Production activation has NOT
-> occurred**; C/D remain unimplemented and final activation remains E. 086H4 and the
+> It is replaced by a small **fenced legacy writer** prerequisite (**merged to `main`
+> via PR #399, 2026-07-21**; entry below), and **C/D/E are redefined WITHOUT
+> lineage/revision/repair** — see **`docs/ai/game-stats-writer-fence.md`**.
+> **Production activation has NOT occurred**; C/D remain unimplemented and final
+> activation remains E. 086H4 and the
 > legacy-row migration remain deferred. A milestone entry is added below only once a
 > prerequisite actually merges.
 
@@ -1502,9 +1502,9 @@ Key architectural decisions across Phase 5:
 
 ---
 
-### PLATFORM-086H3B Replacement — Fenced Legacy Game-Stats Writer — Implemented (review-remediation in progress; not merged)
+### PLATFORM-086H3B Replacement — Fenced Legacy Game-Stats Writer — Complete
 
-**Status:** Implemented on `platform/086h3b-replacement-legacy-writer-fence` (from `main@2793a6f`); **review-remediation in progress, NOT merged** (one Codex review pass returned bounded findings, remediated in a follow-up commit). No PR; `/verify` not run. Supersedes the frozen `platform/086h3b-revision-status-authority` branch. NOT a closure entry — retained here as the shipped-milestone record once merged.
+**Status:** Complete. Merged to `main` via **PR #399** (merge commit `69d3770`, 2026-07-21; from `main@2793a6f`). Two folded review-remediation passes (indeterminate-commit truthfulness, atomic initializer, env-load + storage-mode reporting, error redaction, loud lock-order re-throw, clear dry-run refusal, truthful docs). `/verify` passed — the read/validation HTTP surface is byte-identical to `main` (the game-stats route is unchanged); the write fence is test-covered (can't be driven over HTTP without a live provider). Full `npm test` 1844/1844 at merge. Supersedes the frozen `platform/086h3b-revision-status-authority` branch (never merged).
 **PROMPT_IDs:** PLATFORM-086H3B-VALUE-AND-SCOPE-AUDIT-v1, PLATFORM-086H3B-SPLIT-EXTRACTION-PLAN-v1 (read-only audits), PLATFORM-086H3B-REPLACEMENT-LEGACY-WRITER-FENCE-v1 (implementation)
 
 **Goals completed:**

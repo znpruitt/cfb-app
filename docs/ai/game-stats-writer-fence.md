@@ -1,9 +1,8 @@
 # Game-Stats Writer Fence — replacement reliability prerequisite
 
 Status: **Current architecture.** Supersedes the PLATFORM-086H3B revision/status-authority
-branch. The fenced-writer prerequisite (§2) is **implemented on
-`platform/086h3b-replacement-legacy-writer-fence`, review-remediation in progress, not
-merged**; C/D/E (§4) are unwritten.
+branch. The fenced-writer prerequisite (§2) is **merged to `main` (PR #399, 2026-07-21)**;
+C/D/E (§4) are unwritten.
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any conflict.
 
 This document records (a) the disposition of PLATFORM-086H3B and (b) the small
