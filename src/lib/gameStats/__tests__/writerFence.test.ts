@@ -8,6 +8,7 @@ import {
   AppStateKeyLockAcquireError,
   AppStateTxnCleanupError,
   AppStateTxnFinalizeError,
+  AppStateTxnLockOrderError,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateFileCommitFailureForTests,
@@ -21,6 +22,7 @@ import {
   GameStatsFenceError,
   classifyWriteFailure,
   getCachedGameStats,
+  isFenceProgrammingError,
   setCachedGameStats,
   writeLegacyGameStatsPartition,
 } from '../cache.ts';
@@ -279,6 +281,21 @@ test('cache: classifyWriteFailure separates indeterminate commits from known-unc
     'store-unavailable'
   );
   assert.equal(classifyWriteFailure(new Error('generic')), 'store-unavailable');
+});
+
+test('cache: a lock-order programming error is surfaced loudly, not masked as a store failure', () => {
+  // The fence re-throws `AppStateTxnLockOrderError` (a canonical-order regression)
+  // instead of collapsing it into a retryable-looking `store-unavailable`.
+  assert.equal(
+    isFenceProgrammingError(new AppStateTxnLockOrderError('["a","b"]', '["c","d"]')),
+    true
+  );
+  assert.equal(
+    isFenceProgrammingError(new AppStateTxnFinalizeError(new Error('x'), true, false)),
+    false
+  );
+  assert.equal(isFenceProgrammingError(new AppStateKeyLockAcquireError(new Error('x'))), false);
+  assert.equal(isFenceProgrammingError(new Error('generic')), false);
 });
 
 // === Initializer (create-if-absent only) ===

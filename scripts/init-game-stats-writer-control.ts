@@ -132,6 +132,14 @@ async function main(): Promise<void> {
   // inspected (a dry run against `file-fallback` is not inspecting the target DB).
   console.log(`storage mode: ${mode}`);
 
+  // A misconfigured production store (production runtime, no `DATABASE_URL`) cannot be
+  // inspected at all — give a clear message for BOTH dry-run and `--apply` instead of
+  // letting the transaction throw `production-misconfigured` into the redacted catch.
+  if (mode === 'production-misconfigured') {
+    console.error('REFUSED: no PostgreSQL store is configured (set DATABASE_URL). Aborting.');
+    process.exit(3);
+  }
+
   if (apply) {
     // `--apply` only against a writable PostgreSQL store — never a dev/file or
     // read-only connection.

@@ -80,12 +80,23 @@ are E's concern).
 root EXCLUSIVE on the partition `E(P)` → take the writer-control key EXCLUSIVE
 (`lockKey`, canonical forward order — `game-stats` sorts below
 `game-stats-writer-control`) → re-read the control record under both locks →
-require exactly valid `legacy` → write. Any absent / malformed / `armed` / `active` /
-`read-only-safe` record — or a store/lock/commit failure — refuses, writes nothing,
-preserves the existing partition byte-for-byte, and is never reported as a successful
-write. While the record is `legacy`, the stored partition bytes are identical to the
-prior blind write (no revision/lineage/commit-stamp/activation metadata is added).
-Provider fetch/normalization/classification happen BEFORE the transaction opens.
+require exactly valid `legacy` → write. A write is **never reported as a successful
+persistence** unless it commits. The failure kinds differ in what they claim about
+durability, and callers must respect the distinction:
+
+- A fence refusal (absent / malformed / `armed` / `active` / `read-only-safe`) and a
+  `store-unavailable` failure (lock-acquisition, callback, or a transaction that
+  provably persisted nothing) are **KNOWN-UNCHANGED** — nothing was written and the
+  existing partition is preserved byte-for-byte.
+- A `store-indeterminate` failure (mutation SQL was submitted but the COMMIT
+  acknowledgement was lost — prerequisite A's `writeAttempted: true`) is **UNCERTAIN**:
+  the new partition **MAY** be durable. It must be retried / re-read on the next poll
+  **without assuming** either the old or the new version is the durable one.
+
+While the record is `legacy`, a committed partition's bytes are identical to the prior
+blind write (no revision/lineage/commit-stamp/activation metadata is added). A
+lock-order violation is a programming error and is re-thrown, not masked as a store
+failure. Provider fetch/normalization/classification happen BEFORE the transaction opens.
 
 Same-partition legacy writes therefore serialize across PostgreSQL-backed instances
 (the partition key's advisory lock), and a future rollout can stop this writer by

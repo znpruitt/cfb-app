@@ -2,6 +2,7 @@ import type { CfbdSeasonType } from '../cfbd.ts';
 import {
   AppStateTxnCleanupError,
   AppStateTxnFinalizeError,
+  AppStateTxnLockOrderError,
   getAppState,
   getAppStateEntries,
   listAppStateKeys,
@@ -70,6 +71,16 @@ export function classifyWriteFailure(error: unknown): 'store-unavailable' | 'sto
   return 'store-unavailable';
 }
 
+/**
+ * Whether a thrown transaction error indicates a PROGRAMMING bug rather than a store
+ * condition. A violated canonical lock order (`AppStateTxnLockOrderError`) is only
+ * reachable if the fence's fixed lock order is changed incorrectly — it must surface
+ * loudly, never be masked as a transient `store-unavailable` that looks retryable.
+ */
+export function isFenceProgrammingError(error: unknown): boolean {
+  return error instanceof AppStateTxnLockOrderError;
+}
+
 /** Thrown by `setCachedGameStats` when the writer-control fence refuses the write. */
 export class GameStatsFenceError extends Error {
   readonly result: Exclude<LegacyWriteResult, { ok: true }>;
@@ -125,11 +136,14 @@ export async function writeLegacyGameStatsPartition(
       return { ok: true };
     });
   } catch (error) {
-    // Never report success. A lock-acquisition / callback / provably-nothing-submitted
-    // failure is `store-unavailable` (prior partition intact); a lost-COMMIT
-    // acknowledgement after mutation SQL was submitted is `store-indeterminate` (the
-    // new partition MAY be durable). Either way the caller records a refresh failure
-    // and retries on the next poll.
+    // A lock-order violation is a PROGRAMMING error (the canonical order is fixed and
+    // statically correct) — re-throw it loudly instead of masking it as a transient
+    // store failure. Every genuine store failure is classified and never reported as
+    // success: a lock-acquisition / callback / provably-nothing-submitted failure is
+    // `store-unavailable` (prior partition intact); a lost-COMMIT acknowledgement after
+    // mutation SQL was submitted is `store-indeterminate` (the new partition MAY be
+    // durable). The caller records a refresh failure and retries on the next poll.
+    if (isFenceProgrammingError(error)) throw error;
     return { ok: false, reason: classifyWriteFailure(error) };
   }
 }

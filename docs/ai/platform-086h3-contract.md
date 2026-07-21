@@ -33,8 +33,10 @@ merged). **C/D/E are redefined WITHOUT lineage/revision/repair** (see the replac
 doc); the lineage/revision/high-water/repair material below is no longer the plan.
 
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any
-conflict; this file is the domain design freeze the staged PRs implement. The
-oversized single-branch implementation
+conflict; this file is a **historical design reference** (the current architecture is
+the fenced-writer + lineage-free C/D/E in
+[`game-stats-writer-fence.md`](game-stats-writer-fence.md)), not an active design
+freeze. The oversized single-branch implementation
 (`platform/086h3-atomic-game-stats-contract-activation`, HEAD `e1a9593`) is
 frozen as a **read-only salvage reference** and is never merged.
 
