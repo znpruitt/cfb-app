@@ -68,3 +68,7 @@ markdownlint-errors*.txt
 data/*.json
 !data/teams-*.json
 !data/aliases-*.json
+
+# Vercel plugin / env files the explicit list above misses (e.g. `.env.vercel`)
+.env*
+!.env.example
