@@ -18,14 +18,21 @@ Supersedes: (none)
 > **PLATFORM-086H3 status (not a completion — decomposition in progress):** the
 > single-branch H3 activation attempt was frozen as a read-only salvage
 > reference after an architecture audit and is decomposed into prerequisite PRs
-> A–E (frozen design: `docs/ai/platform-086h3-contract.md`). Prerequisite **A**
-> (durable multi-key app-state transaction primitive) is **implemented, Codex
-> reviewed clean, `/verify` passed, and awaiting merge** — dormant, with
-> production HTTP behavior byte-identical to `main` (`src/lib/server/appStateStore.ts`
-> is the only production file changed). **Production activation has NOT
-> occurred**; B begins only after A merges, prerequisites B–D remain
-> unimplemented, and final activation remains E. 086H4 and the legacy-row
-> migration remain deferred. A milestone entry is added below only once a
+> A–E. Prerequisite **A** (durable multi-key app-state transaction primitive) is
+> **MERGED into `main` (PR #398)** — dormant, with production HTTP behavior
+> byte-identical to `main` (`src/lib/server/appStateStore.ts` was the only
+> production file changed). The **original prerequisite B architecture**
+> (revision lineage/ledger, permanent revisions, restoration high-water,
+> irreversible witness, operator repair, and the dormant-boundary/capability-graph
+> guard — designed in `docs/ai/platform-086h3-contract.md`, now a **historical
+> reference**) is **SUPERSEDED** after two architectural audits and will not be
+> built; the `platform/086h3b-revision-status-authority` branch is frozen, unmerged.
+> It is replaced by a small **fenced legacy writer** prerequisite (implemented on
+> `platform/086h3b-replacement-legacy-writer-fence`, review-remediation in progress,
+> not merged), and **C/D/E are redefined WITHOUT lineage/revision/repair** — see
+> **`docs/ai/game-stats-writer-fence.md`**. **Production activation has NOT
+> occurred**; C/D remain unimplemented and final activation remains E. 086H4 and the
+> legacy-row migration remain deferred. A milestone entry is added below only once a
 > prerequisite actually merges.
 
 ### PLATFORM-086H2 — Durable Game-Stats Merge Service (Dormant) — Complete
