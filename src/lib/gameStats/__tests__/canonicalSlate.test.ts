@@ -177,6 +177,32 @@ test('canonical slate: arbitrary provider labels never gain identity authority',
   assert.equal(slate.resolveStoredParticipantKey(42), null);
 });
 
+test('canonical slate: a label on an EXCLUDED schedule row gains no identity authority', () => {
+  const slate = build([
+    // Included FBS-vs-FBS game: its participants ARE settled canonical identities.
+    scheduleItem({ id: '9101', week: 3, home: 'Alpha State', away: 'Beta Tech', status: 'final' }),
+    // Non-catalog FCS-vs-FCS row: dropped by buildScheduleFromApi (both non-FBS),
+    // so its raw labels are never settled participants and must not seed the
+    // resolver. Non-catalog labels can only resolve THROUGH such seeding.
+    scheduleItem({
+      id: '9102',
+      week: 3,
+      home: 'Ghost Aggies',
+      away: 'Phantom Normal',
+      homeConf: 'Big Sky',
+      awayConf: 'Missouri Valley',
+      status: 'final',
+    }),
+  ]);
+  // The excluded game is not in the canonical slate at all.
+  assert.equal(bySlateId(slate.games, 9102), undefined);
+  // Its labels resolve to nothing — no identity authority from an excluded row.
+  assert.equal(slate.resolveStoredParticipantKey('Ghost Aggies'), null);
+  assert.equal(slate.resolveStoredParticipantKey('Phantom Normal'), null);
+  // The included game's participants still resolve.
+  assert.equal(slate.resolveStoredParticipantKey('Alpha State'), IDENTITY_KEYS['Alpha State']);
+});
+
 test('loadCanonicalGameStatsSlate: aggregate and partition-only layouts produce identical expectations', async () => {
   const items = [
     scheduleItem({ id: '4101', week: 5, home: 'Alpha State', away: 'Beta Tech', status: 'final' }),

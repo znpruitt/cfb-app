@@ -95,8 +95,14 @@ function groupRowsById(record: WeeklyGameStats | null): Map<number, GameStats[]>
 function partitionState(games: GameCoverage[]): PartitionCoverageState {
   if (games.length === 0) return 'not-applicable';
   const satisfied = games.filter((g) => g.decision.state === 'satisfied').length;
+  // `complete` is reserved for all-satisfied coverage.
   if (satisfied === games.length) return 'complete';
-  if (satisfied > 0) return 'partial';
+  // Sparse (incomplete) games still publish a visibly-incomplete public row, so a
+  // partition that carries any satisfied OR incomplete evidence is `partial` — it
+  // must never report `absent` while `projectPublicFromCoverage` publishes rows.
+  const incomplete = games.filter((g) => g.decision.state === 'incomplete').length;
+  if (satisfied > 0 || incomplete > 0) return 'partial';
+  // Zero published coverage: distinguish the remaining gap kinds.
   if (games.some((g) => g.decision.state === 'blocked-unsupported-schema')) return 'blocked';
   if (games.some((g) => g.decision.state === 'manual-only')) return 'manual-only';
   return 'absent';

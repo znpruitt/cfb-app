@@ -11,7 +11,6 @@ import {
   type TeamIdentityResolver,
 } from '../teamIdentity.ts';
 import type { AliasMap } from '../teamNames.ts';
-import { isLikelyInvalidTeamLabel } from '../teamNormalization.ts';
 import { isValidProviderGameId } from './contract.ts';
 
 /**
@@ -120,28 +119,29 @@ function toProviderGameId(raw: string | null): number | null {
 
 /**
  * Build the resolver used to validate participants. Observed names are seeded
- * from the canonical schedule participants ONLY (plus catalog + aliases), which
- * is exactly what `buildScheduleFromApi` seeds internally — so the same cached
- * registry is reused and identity resolution is identical on both sides.
+ * from the SETTLED team participants of the games that survived
+ * `buildScheduleFromApi` — the catalog, aliases, and canonical schedule
+ * participants ONLY. A raw label on a schedule row the builder EXCLUDED (e.g. an
+ * unknown-vs-unknown non-FBS matchup) is never a settled participant, so it
+ * gains no identity authority and a stored row carrying it stays unresolved.
  */
 function createGameStatsResolver(input: {
-  scheduleItems: ScheduleWireItem[];
+  games: AppGame[];
   teams: TeamCatalogItem[];
   aliasMap: AliasMap;
 }): TeamIdentityResolver {
-  const observedNames = Array.from(
-    new Set(
-      input.scheduleItems
-        .flatMap((item) => [item.homeTeam, item.awayTeam])
-        .filter(
-          (name): name is string => typeof name === 'string' && !isLikelyInvalidTeamLabel(name)
-        )
-    )
-  );
+  const observedNames = new Set<string>();
+  for (const game of input.games) {
+    for (const slot of [game.participants.home, game.participants.away]) {
+      if (slot.kind === 'team' && slot.canonicalName.trim().length > 0) {
+        observedNames.add(slot.canonicalName);
+      }
+    }
+  }
   return createTeamIdentityResolver({
     teams: input.teams,
     aliasMap: input.aliasMap,
-    observedNames,
+    observedNames: [...observedNames],
   });
 }
 
@@ -208,8 +208,10 @@ export function buildCanonicalGameStatsSlate(input: {
   now: Date;
 }): CanonicalSlate {
   const { year, scheduleItems, teams, aliasMap, now } = input;
-  const resolver = createGameStatsResolver({ scheduleItems, teams, aliasMap });
+  // Build the canonical games FIRST so the attachment resolver can be seeded from
+  // their settled participants (never from raw labels of excluded schedule rows).
   const { games } = buildScheduleFromApi({ scheduleItems, teams, aliasMap, season: year });
+  const resolver = createGameStatsResolver({ games, teams, aliasMap });
 
   const itemsById = new Map<string, ScheduleWireItem>();
   for (const item of scheduleItems) {

@@ -234,6 +234,32 @@ test('freshness: equal-fence equivalent v2 collapse to one winner', () => {
   assert.deepEqual(d.shadowed, []);
 });
 
+test('freshness: equivalent equal-fence contenders pick a stable representative regardless of order', () => {
+  // Same instant + identical publishable content, but different fetchStartedAt
+  // encoding (excluded from equivalence) — candidate order must not change the
+  // selected row.
+  const zulu = v2Row({
+    id: 100,
+    home: HOME,
+    away: AWAY,
+    week: 3,
+    fetchStartedAt: '2025-09-08T00:00:00Z',
+  });
+  const offset = v2Row({
+    id: 100,
+    home: HOME,
+    away: AWAY,
+    week: 3,
+    fetchStartedAt: '2025-09-08T00:00:00+00:00',
+  });
+  const forward = decide(GAME, [zulu, offset]);
+  const backward = decide(GAME, [offset, zulu]);
+  assert.equal(forward.state, 'satisfied');
+  assert.equal(backward.state, 'satisfied');
+  assert.ok(forward.selected?.fetchStartedAt);
+  assert.equal(forward.selected?.fetchStartedAt, backward.selected?.fetchStartedAt);
+});
+
 test('freshness: equal-fence divergent v2 conflict', () => {
   const a = v2Row({
     id: 100,

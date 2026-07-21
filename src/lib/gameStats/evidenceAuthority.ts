@@ -350,7 +350,14 @@ function decide(
   // Older-fence same-class v2 candidates are shadowed by the fresher evidence.
   const olderSameClass = isV2Class ? top.filter((c) => !contenders.includes(c)) : [];
 
-  const winner = contenders[0]!;
+  // Choose a DETERMINISTIC representative among the surviving contenders. Equal-
+  // fence, publishable-equivalent rows can still differ in excluded metadata (a
+  // `Z` vs `+00:00` fetchStartedAt encoding, unrecognized raw categories), so
+  // taking `contenders[0]` would let candidate order change the selected row.
+  // The canonical (key-sorted) serialization is a stable total order.
+  const winner = contenders
+    .map((candidate) => ({ candidate, key: canonicalJson(candidate.orientedRow) }))
+    .reduce((best, entry) => (entry.key < best.key ? entry : best)).candidate;
   const allEquivalent = contenders.every((c) =>
     evidenceEquivalent(c.orientedRow, winner.orientedRow)
   );

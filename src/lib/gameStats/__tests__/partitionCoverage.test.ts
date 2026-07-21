@@ -56,6 +56,20 @@ test('coverage: no rows → absent', () => {
   assert.equal(coverageOf([G1, G2], []).state, 'absent');
 });
 
+test('coverage: a sparse-only partition is partial (published-but-incomplete), never absent', () => {
+  const sparse = v2Row({
+    id: 100,
+    home: { school: 'Alpha State', schoolId: 101, points: null },
+    away: { school: 'Beta Tech', schoolId: 202 },
+    week: 3,
+  });
+  const coverage = coverageOf([G1], [sparse]);
+  assert.equal(gameState(coverage, 100), 'incomplete');
+  // Sparse rows publish (visibly incomplete), so the partition must not read as
+  // `absent` while a public row exists — it is `partial`.
+  assert.equal(coverage.state, 'partial');
+});
+
 test('coverage: no expected games → not-applicable', () => {
   const pending = canonicalGame({
     providerGameId: 300,

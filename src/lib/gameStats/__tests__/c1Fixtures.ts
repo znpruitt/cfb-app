@@ -60,6 +60,8 @@ export function scheduleItem(params: {
   week: number;
   home: string;
   away: string;
+  homeConf?: string;
+  awayConf?: string;
   startDate?: string | null;
   status?: string;
   neutral?: boolean;
@@ -77,8 +79,8 @@ export function scheduleItem(params: {
     conferenceGame: false,
     homeTeam: params.home,
     awayTeam: params.away,
-    homeConference: CONFERENCE_OF[params.home] ?? 'Sun Belt',
-    awayConference: CONFERENCE_OF[params.away] ?? 'ACC',
+    homeConference: params.homeConf ?? CONFERENCE_OF[params.home] ?? 'Sun Belt',
+    awayConference: params.awayConf ?? CONFERENCE_OF[params.away] ?? 'ACC',
     status: params.status ?? 'scheduled',
     seasonType: params.seasonType ?? 'regular',
     ...(params.gamePhase ? { gamePhase: params.gamePhase } : {}),
