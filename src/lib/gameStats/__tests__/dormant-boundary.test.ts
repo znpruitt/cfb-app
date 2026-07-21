@@ -808,6 +808,169 @@ test('parser guard: a barrel cannot conceal the applied-repair service behind an
   assert.ok(v.length > 0, 'a barrel-concealed applied-repair alias must fail');
 });
 
+// ===========================================================================
+// PLATFORM-086H3B-DORMANT-PARSER-COMPUTED-LAUNDERING-REMEDIATION — the parser now
+// resolves namespace DESTRUCTURING (`const { member: x } = rr`) and literal
+// computed member access (`rr['member']`, rr[`member`]), including bindings
+// laundered inside a function scope, and FAILS CLOSED on unresolved computed access
+// to a local guarded namespace (`rr[op]`, `rr[fn()]`, rr[`p${x}`]). An approved
+// export NAME cannot conceal any of these forms behind a namespace import.
+// ===========================================================================
+
+test('parser guard: the exact namespace-destructuring regression fails', () => {
+  // The exact fixture from the finding: renamed destructuring of a namespace import,
+  // invoked through the alias inside the approved `planRevisionRepair` export.
+  const v = facade(
+    `import * as rr from './revisionRepair.ts';\n` +
+      `export const planRevisionRepair = (request) => {\n` +
+      `  const { repairRevisionState: apply } = rr;\n` +
+      `  return apply(request);\n` +
+      `};`
+  );
+  assert.ok(v.length > 0, 'renamed namespace destructuring of applied repair must fail');
+});
+
+test('parser guard: the exact literal computed-access regression fails', () => {
+  // The exact fixture from the finding: literal string element access on a namespace.
+  const v = facade(
+    `import * as rr from './revisionRepair.ts';\n` +
+      `export const planRevisionRepair =\n` +
+      `  request => rr['repairRevisionState'](request);`
+  );
+  assert.ok(v.length > 0, 'literal computed access to applied repair must fail');
+});
+
+test('parser guard: every namespace destructuring + literal computed-member form fails', () => {
+  const forms: Array<[string, string]> = [
+    // --- namespace destructuring (traced through the bound local) ---
+    [
+      'direct namespace destructuring',
+      `import * as rr from './revisionRepair.ts';\n` +
+        `export const planRevisionRepair = (r) => { const { repairRevisionState } = rr; return repairRevisionState(r); };`,
+    ],
+    [
+      'renamed namespace destructuring',
+      `import * as rr from './revisionRepair.ts';\n` +
+        `export const planRevisionRepair = (r) => { const { repairRevisionState: apply } = rr; return apply(r); };`,
+    ],
+    [
+      'destructuring with an initializer/default',
+      `import * as rr from './revisionRepair.ts';\n` +
+        `export const planRevisionRepair = (r) => { const { repairRevisionState = fallback } = rr; return repairRevisionState(r); };`,
+    ],
+    [
+      'chained alias after destructuring',
+      `import * as rr from './revisionRepair.ts';\n` +
+        `export const planRevisionRepair = (r) => { const { repairRevisionState: apply } = rr; const alias = apply; return alias(r); };`,
+    ],
+    [
+      'helper indirection after destructuring',
+      `import * as rr from './revisionRepair.ts';\n` +
+        `export const planRevisionRepair = (r) => run(r);\n` +
+        `function run(r){ const { repairRevisionState: apply } = rr; return apply(r); }`,
+    ],
+    // --- literal computed member access + aliases ---
+    [
+      'literal string element access',
+      `import * as rr from './revisionRepair.ts';\n` +
+        `export const planRevisionRepair = (r) => rr['repairRevisionState'](r);`,
+    ],
+    [
+      'no-substitution template element access',
+      `import * as rr from './revisionRepair.ts';\n` +
+        'export const planRevisionRepair = (r) => rr[`repairRevisionState`](r);',
+    ],
+    [
+      'alias of literal element access',
+      `import * as rr from './revisionRepair.ts';\n` +
+        `export const planRevisionRepair = (r) => { const apply = rr['repairRevisionState']; return apply(r); };`,
+    ],
+    [
+      'namespace alias plus element access',
+      `import * as rr from './revisionRepair.ts';\n` +
+        `const service = rr;\n` +
+        `export const planRevisionRepair = (r) => service['repairRevisionState'](r);`,
+    ],
+    [
+      'chained namespace alias plus element access',
+      `import * as rr from './revisionRepair.ts';\n` +
+        `const s1 = rr;\nconst s2 = s1;\n` +
+        `export const planRevisionRepair = (r) => s2['repairRevisionState'](r);`,
+    ],
+  ];
+  for (const [label, src] of forms) {
+    assert.ok(facade(src).length > 0, `must fail: ${label}`);
+  }
+});
+
+test('parser guard: unresolved computed access to a guarded namespace fails closed', () => {
+  const forms: Array<[string, string]> = [
+    [
+      'unresolved identifier index',
+      `import * as rr from './revisionRepair.ts';\n` +
+        `export const planRevisionRepair = (r, operation) => rr[operation](r);`,
+    ],
+    [
+      'unresolved call-expression index',
+      `import * as rr from './revisionRepair.ts';\n` +
+        `export const planRevisionRepair = (r) => rr[getOperationName()](r);\nfunction getOperationName(){ return 'x'; }`,
+    ],
+    [
+      'unresolved template-expression index',
+      `import * as rr from './revisionRepair.ts';\n` +
+        'export const planRevisionRepair = (r, suffix) => rr[`repair${suffix}`](r);',
+    ],
+  ];
+  for (const [label, src] of forms) {
+    const v = facade(src);
+    assert.ok(
+      v.some((x) => x.reason.includes('unresolved computed access')),
+      `must fail closed: ${label}`
+    );
+  }
+});
+
+test('parser guard: an approved export NAME cannot conceal a namespace-laundered capability', () => {
+  // Each form hides applied repair behind the approved `planRevisionRepair` export.
+  const concealed = [
+    `import * as rr from './revisionRepair.ts';\n` +
+      `export const planRevisionRepair = (r) => { const { repairRevisionState: apply } = rr; return apply(r); };`,
+    `import * as rr from './revisionRepair.ts';\n` +
+      `export const planRevisionRepair = (r) => rr['repairRevisionState'](r);`,
+    `import * as rr from './revisionRepair.ts';\n` +
+      `const service = rr;\nexport const planRevisionRepair = (r) => service['repairRevisionState'](r);`,
+  ];
+  for (const src of concealed) {
+    assert.ok(facade(src).length > 0, `approved name must not conceal: ${src.split('\n')[0]}`);
+  }
+});
+
+test('parser guard: safe unrelated destructuring / computed access remains allowed', () => {
+  // Build on the proven-safe wrapper over the mutation-free planner, adding ordinary
+  // (non-capability) destructuring + computed access on local + external values, and
+  // a valid type-only namespace import. None of these introduce a capability.
+  const base =
+    `import { planRevisionRepair as base, inspectRevisionState, readRevisionAuditTrail, isCfbdSeasonType } from './revisionRepairPlanning.ts';\n` +
+    `import type * as RA from './revisionRepair.ts';\n` +
+    `import * as path from 'node:path';\n` +
+    `export { inspectRevisionState, readRevisionAuditTrail, isCfbdSeasonType };\n`;
+  const safeBodies = [
+    // ordinary property destructuring on a LOCAL object (not a namespace)
+    `const table = { repairRevisionState: 1 };\n` +
+      `export const planRevisionRepair = (r) => { const { repairRevisionState } = table; void repairRevisionState; return base(r); };`,
+    // computed access on local non-capability data
+    `const table = { a: 1 };\n` +
+      `export const planRevisionRepair = (r) => { const k = 'a'; const x = table[k]; void x; return base(r); };`,
+    // literal + computed access on an EXTERNAL namespace (outside analysis)
+    `export const planRevisionRepair = (r) => { const j = path['join']('a', 'b'); void j; return base(r); };`,
+  ];
+  for (const body of safeBodies) {
+    // The `import type * as RA` in `base` is a valid type-only namespace import — it
+    // resolves to no runtime capability and must not be treated as a live namespace.
+    assert.deepEqual(facade(base + body), [], `must stay clean: ${body.split('\n')[0]}`);
+  }
+});
+
 // Whether `src` NAMED-imports `symbol` (an `import { ... symbol ... } from '...'`
 // statement) — distinct from a mere docstring mention of the same word.
 const namedImports = (src: string, symbol: string): boolean =>

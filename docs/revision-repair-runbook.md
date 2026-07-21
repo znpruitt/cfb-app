@@ -154,7 +154,8 @@ or repair history) mints lineage 1.
 > will enable.
 >
 > **Guarded capability surface (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION +
-> PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION).** The admin route is
+> PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION +
+> PLATFORM-086H3B-DORMANT-PARSER-COMPUTED-LAUNDERING-REMEDIATION).** The admin route is
 > **scanned by the dormant-boundary guard, not excluded by filename**. It reaches its
 > revision capabilities ONLY through a narrow inspection facade
 > (`src/lib/gameStats/revisionRepairInspection.ts`) that exposes inspection, typed
@@ -170,10 +171,15 @@ or repair history) mints lineage 1.
 > aliases, re-exports, and multi-hop/mixed barrels, **REJECTS local side-effect
 > imports (`import './x'`) and import-equals**, and **TRACES local aliases and
 > wrapper functions** (declarations/arrows, chained/destructured aliases, local
-> helper hops, namespace member access) to the runtime capabilities they use — so an
-> **approved export NAME cannot conceal a forbidden terminal**. It fails closed on
-> unresolved/computed access; no lifecycle-mutation capability can reach the route by
-> any import form.
+> helper hops, namespace member access, **namespace destructuring**
+> (`const { member: x } = ns`), and **literal computed member access**
+> (`ns['member']`, ns[`member`]) — including bindings laundered inside a function
+> scope) to the runtime capabilities they use — so an **approved export NAME cannot
+> conceal a forbidden terminal**. **Unresolved computed access to a local guarded
+> namespace** (`ns[op]`, `ns[fn()]`, ns[`p${x}`]) **fails closed**; ordinary
+> computed/destructured access on non-namespace values and external namespaces stays
+> permitted. No lifecycle-mutation capability can reach the route by any import,
+> destructuring, or computed-access form.
 
 **Preconditions (every repair — enforced during planning AND, once enabled,
 transactional apply):**

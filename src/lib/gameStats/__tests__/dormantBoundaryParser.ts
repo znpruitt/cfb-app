@@ -542,10 +542,120 @@ function collectForbiddenCapabilities(
         if (ts.isIdentifier(decl.name) && decl.name.text === name && decl.initializer) {
           return analyzeInitializer(module, decl.initializer, virtual, seen);
         }
+        // Top-level namespace destructuring: `const { orig: name } = ns`. A binding
+        // laundered out of a namespace import (or a namespace alias) resolves to the
+        // underlying member — an approved export name on the LHS cannot hide it.
+        if (
+          ts.isObjectBindingPattern(decl.name) &&
+          decl.initializer &&
+          ts.isIdentifier(decl.initializer)
+        ) {
+          for (const el of decl.name.elements) {
+            if (!ts.isIdentifier(el.name) || el.name.text !== name) continue;
+            const prop =
+              el.propertyName && ts.isIdentifier(el.propertyName)
+                ? el.propertyName.text
+                : el.name.text;
+            const origin = moduleNamespaceOrigin(module, decl.initializer.text, virtual);
+            if (origin) {
+              return checkNamespaceMember(
+                module,
+                decl.initializer.text,
+                origin,
+                prop,
+                virtual,
+                seen
+              );
+            }
+          }
+        }
       }
     }
   }
   return []; // not a module-level binding (a parameter / local variable) — no capability
+}
+
+/** A statically-known property name from a computed-access argument, else null. */
+function staticPropertyName(arg: ts.Expression): string | null {
+  if (ts.isStringLiteral(arg)) return arg.text;
+  if (ts.isNoSubstitutionTemplateLiteral(arg)) return arg.text;
+  return null;
+}
+
+/**
+ * The origin of a namespace value: a LOCAL guarded-graph module (member access +
+ * computed access are analyzable / must fail closed), or an EXTERNAL package
+ * (outside analysis). `null` means the value is not a namespace import at all.
+ */
+type NamespaceOrigin = { kind: 'local'; module: string } | { kind: 'external' };
+
+/**
+ * Resolve a MODULE-LEVEL identifier to a namespace origin, following module-level
+ * `const alias = ns` alias chains. Returns null when the identifier is not a
+ * namespace import (a named/default import, a local value, or absent).
+ */
+function moduleNamespaceOrigin(
+  module: string,
+  name: string,
+  virtual: Map<string, string>,
+  seen2: Set<string> = new Set()
+): NamespaceOrigin | null {
+  const cyc = `${module}#ns#${name}`;
+  if (seen2.has(cyc)) return null;
+  seen2.add(cyc);
+  const text = readModule(module, virtual);
+  if (text === null) return null;
+  const sf = parse(module, text);
+  const imp = findImportBinding(sf, name);
+  if (imp) {
+    if (!imp.isNamespace || imp.typeOnly) return null; // named/default/type-only ≠ namespace value
+    const resolved = resolveSpecifier(module, imp.specifier, virtual);
+    return resolved === null ? { kind: 'external' } : { kind: 'local', module: resolved };
+  }
+  for (const stmt of sf.statements) {
+    if (!ts.isVariableStatement(stmt)) continue;
+    for (const decl of stmt.declarationList.declarations) {
+      if (
+        ts.isIdentifier(decl.name) &&
+        decl.name.text === name &&
+        decl.initializer &&
+        ts.isIdentifier(decl.initializer)
+      ) {
+        return moduleNamespaceOrigin(module, decl.initializer.text, virtual, seen2);
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve a member of a namespace origin and check it. A member of a LOCAL guarded
+ * namespace resolves to its terminal (a forbidden export → violation). A non-static
+ * (`prop === null`) computed access on a LOCAL namespace FAILS CLOSED — an unknown
+ * property could be any export, so it cannot be assumed safe. External namespaces are
+ * outside analysis; a `null` origin is ordinary (non-namespace) access — safe.
+ */
+function checkNamespaceMember(
+  module: string,
+  nsLabel: string,
+  origin: NamespaceOrigin | null,
+  prop: string | null,
+  virtual: Map<string, string>,
+  seen: Set<string>
+): CapabilityViolation[] {
+  if (origin === null) return []; // not a namespace — ordinary property/element access
+  if (origin.kind === 'external') return []; // external package — outside analysis
+  if (prop === null) {
+    return [
+      {
+        file: module,
+        reason: 'unresolved computed access to a local capability namespace (fail closed)',
+        detail: `${nsLabel}[…]`,
+      },
+    ];
+  }
+  const terminal = resolveExport(origin.module, prop, virtual);
+  return checkResolvedTerminal(module, `${nsLabel}.${prop}`, terminal, virtual, seen);
 }
 
 /** A resolved terminal: forbidden → violation; guarded local → recurse; else name check. */
@@ -587,7 +697,7 @@ function checkResolvedTerminal(
   return []; // a non-guarded, non-forbidden terminal (e.g. a read helper / pure fn)
 }
 
-/** Analyze a const initializer (alias / wrapper / call) for reached capabilities. */
+/** Analyze a const initializer (alias / wrapper / member / computed) for capabilities. */
 function analyzeInitializer(
   module: string,
   init: ts.Expression,
@@ -598,20 +708,59 @@ function analyzeInitializer(
   if (ts.isIdentifier(init)) {
     return collectForbiddenCapabilities(module, init.text, virtual, seen);
   }
-  // `const x = ns.member` — a namespace member alias.
+  // `const x = ns.member` — a namespace (or namespace-alias) member.
   if (ts.isPropertyAccessExpression(init) && ts.isIdentifier(init.expression)) {
-    return resolveNamespaceMember(module, init.expression.text, init.name.text, virtual, seen);
+    const origin = moduleNamespaceOrigin(module, init.expression.text, virtual);
+    if (origin) {
+      return checkNamespaceMember(
+        module,
+        init.expression.text,
+        origin,
+        init.name.text,
+        virtual,
+        seen
+      );
+    }
+  }
+  // `const x = ns['member']` — literal computed member access on a namespace; a
+  // non-static index on a local namespace fails closed (checkNamespaceMember).
+  if (ts.isElementAccessExpression(init) && ts.isIdentifier(init.expression)) {
+    const origin = moduleNamespaceOrigin(module, init.expression.text, virtual);
+    if (origin) {
+      return checkNamespaceMember(
+        module,
+        init.expression.text,
+        origin,
+        staticPropertyName(init.argumentExpression),
+        virtual,
+        seen
+      );
+    }
   }
   // `const x = req => ...` / `const x = function(){...}` — a wrapper.
   if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
     return analyzeImplementation(module, init, virtual, seen);
   }
-  // Any other initializer (a call, object, etc.): trace referenced identifiers so a
-  // `const x = helper(forbidden)` or computed form is caught / fails closed.
+  // Any other initializer (a call, object, ordinary member/computed access, etc.):
+  // trace referenced identifiers so a `const x = helper(forbidden)` is caught.
   return analyzeImplementation(module, init, virtual, seen);
 }
 
-/** Trace a function/expression body for identifiers + namespace member accesses. */
+/** A namespace value laundered into a local binding within a single function scope. */
+type LocalBinding =
+  | { kind: 'alias'; target: string } // `const x = y`
+  | { kind: 'member'; nsName: string; prop: string | null }; // `const {p:x}=ns` / `ns.p` / `ns['p']`
+
+/**
+ * Trace a function/expression body for forbidden capabilities, resolving namespace
+ * member access (`ns.member`, `ns['member']`), namespace aliases (`const s = ns`),
+ * and namespace destructuring (`const { member: x } = ns`) — INCLUDING bindings
+ * laundered inside this function scope. Literal computed access resolves to the
+ * underlying export; unresolved computed access to a LOCAL namespace fails closed.
+ * Bounded: only this body's local bindings + the module-level graph are considered
+ * (no whole-program call graph); a namespace-derived name shadowed across nested
+ * scopes conservatively resolves to the capability (fail-safe).
+ */
 function analyzeImplementation(
   module: string,
   node: ts.Node,
@@ -623,41 +772,105 @@ function analyzeImplementation(
     ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)
       ? (node.body ?? node)
       : node;
+
+  // 1. Collect local bindings that launder a namespace member / alias out of this
+  //    body, so a later reference resolves to the underlying capability even when the
+  //    binding was created inside the function scope (not at module level).
+  const locals = new Map<string, LocalBinding>();
+  const collect = (n: ts.Node): void => {
+    if (ts.isVariableDeclaration(n) && n.initializer) {
+      const init = n.initializer;
+      if (ts.isIdentifier(n.name)) {
+        if (ts.isIdentifier(init)) {
+          locals.set(n.name.text, { kind: 'alias', target: init.text });
+        } else if (ts.isPropertyAccessExpression(init) && ts.isIdentifier(init.expression)) {
+          locals.set(n.name.text, {
+            kind: 'member',
+            nsName: init.expression.text,
+            prop: init.name.text,
+          });
+        } else if (ts.isElementAccessExpression(init) && ts.isIdentifier(init.expression)) {
+          locals.set(n.name.text, {
+            kind: 'member',
+            nsName: init.expression.text,
+            prop: staticPropertyName(init.argumentExpression),
+          });
+        }
+      } else if (ts.isObjectBindingPattern(n.name) && ts.isIdentifier(init)) {
+        for (const el of n.name.elements) {
+          if (!ts.isIdentifier(el.name)) continue;
+          const prop =
+            el.propertyName && ts.isIdentifier(el.propertyName)
+              ? el.propertyName.text
+              : el.name.text;
+          locals.set(el.name.text, { kind: 'member', nsName: init.text, prop });
+        }
+      }
+    }
+    ts.forEachChild(n, collect);
+  };
+  collect(body);
+
+  // 2. Resolve an identifier used as a NAMESPACE value, through local aliases then
+  //    module level. A member binding is a value (not a namespace) → null.
+  const localNsOrigin = (name: string, seen2: Set<string> = new Set()): NamespaceOrigin | null => {
+    if (seen2.has(name)) return null;
+    seen2.add(name);
+    const b = locals.get(name);
+    if (b?.kind === 'alias') return localNsOrigin(b.target, seen2);
+    if (b?.kind === 'member') return null;
+    return moduleNamespaceOrigin(module, name, virtual);
+  };
+
+  // 3. Resolve an identifier used as a VALUE: a laundered namespace member (check it),
+  //    a bare namespace alias (safe — member access decides), else module-level.
+  const checkValueRef = (name: string, seen2: Set<string> = new Set()): CapabilityViolation[] => {
+    if (seen2.has(name)) return [];
+    seen2.add(name);
+    const b = locals.get(name);
+    if (b?.kind === 'member') {
+      return checkNamespaceMember(module, b.nsName, localNsOrigin(b.nsName), b.prop, virtual, seen);
+    }
+    if (b?.kind === 'alias') {
+      if (localNsOrigin(b.target)) return []; // bare namespace alias — no capability by itself
+      return checkValueRef(b.target, seen2);
+    }
+    return collectForbiddenCapabilities(module, name, virtual, seen);
+  };
+
   const visit = (n: ts.Node): void => {
-    // `ns.member` — resolve the member in the namespace's module.
-    if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression)) {
-      out.push(...resolveNamespaceMember(module, n.expression.text, n.name.text, virtual, seen));
-      // still visit children (e.g. arguments) but skip re-treating `n.name`.
-      ts.forEachChild(n.expression, visit);
+    // Binding names are not value references — trace only the initializer.
+    if (ts.isVariableDeclaration(n)) {
+      if (n.initializer) visit(n.initializer);
+      return;
+    }
+    // `obj.member` / `obj['member']` / `obj[expr]` — resolve when `obj` is a namespace.
+    if (
+      (ts.isPropertyAccessExpression(n) || ts.isElementAccessExpression(n)) &&
+      ts.isIdentifier(n.expression)
+    ) {
+      const origin = localNsOrigin(n.expression.text);
+      if (origin) {
+        const prop = ts.isPropertyAccessExpression(n)
+          ? n.name.text
+          : staticPropertyName(n.argumentExpression);
+        out.push(...checkNamespaceMember(module, n.expression.text, origin, prop, virtual, seen));
+        // trace the computed argument (e.g. `ns[getName()]`), not the namespace object.
+        if (ts.isElementAccessExpression(n)) ts.forEachChild(n.argumentExpression, visit);
+        return;
+      }
+      // ordinary object/array access → visit all children (incl. the object identifier).
+      ts.forEachChild(n, visit);
       return;
     }
     if (ts.isIdentifier(n)) {
-      out.push(...collectForbiddenCapabilities(module, n.text, virtual, seen));
+      out.push(...checkValueRef(n.text));
       return;
     }
     ts.forEachChild(n, visit);
   };
   visit(body);
   return out;
-}
-
-/** Resolve `ns.member` where `ns` is a namespace import in `module`. */
-function resolveNamespaceMember(
-  module: string,
-  ns: string,
-  member: string,
-  virtual: Map<string, string>,
-  seen: Set<string>
-): CapabilityViolation[] {
-  const text = readModule(module, virtual);
-  if (text === null) return [];
-  const sf = parse(module, text);
-  const imp = findImportBinding(sf, ns);
-  if (!imp || !imp.isNamespace || imp.typeOnly) return [];
-  const resolved = resolveSpecifier(module, imp.specifier, virtual);
-  if (resolved === null) return []; // external namespace — outside analysis
-  const terminal = resolveExport(resolved, member, virtual);
-  return checkResolvedTerminal(module, `${ns}.${member}`, terminal, virtual, seen);
 }
 
 /**

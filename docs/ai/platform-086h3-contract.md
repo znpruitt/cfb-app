@@ -100,8 +100,9 @@ architecture, not active behavior.
   waive corrupted control state), and an unchanged CAS digest never certifies
   malformed durable state as repairable.
 - Dormant-boundary guard (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION +
-  PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION): the admin revision route
-  is **scanned, not excluded** — its production capability surface is an explicit
+  PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION +
+  PLATFORM-086H3B-DORMANT-PARSER-COMPUTED-LAUNDERING-REMEDIATION): the admin revision
+  route is **scanned, not excluded** — its production capability surface is an explicit
   parser-backed allowlist (TypeScript compiler API), so **inspection and dry-run
   planning are the ONLY sanctioned B-stage operations** it can reach. **Dry-run
   planning is implemented in a MUTATION-FREE owner** (`revisionRepairPlanning.ts`,
@@ -114,12 +115,17 @@ architecture, not active behavior.
   parser resolves re-export/multi-hop/mixed-barrel chains, REJECTS local
   side-effect imports (`import './x'`) and import-equals, and TRACES local aliases
   and wrapper functions (declarations/arrows, chained/destructured aliases, local
-  helper hops, namespace member access) to the runtime capabilities they use, so an
-  **approved export NAME can never conceal a forbidden terminal**. It fails closed on
-  unresolved/computed access. Applied repair, revisioned writes, activation
-  transitions, status/chronology publication, recovery, and generic app-state
-  mutation cannot reach the route by any form. Applied repair and every lifecycle
-  mutation remain dormant.
+  helper hops, namespace member access, **namespace destructuring**
+  (`const { member: x } = ns`), and **literal computed member access**
+  (`ns['member']`, ns[`member`]) — including bindings laundered inside a function
+  scope) to the runtime capabilities they use, so an **approved export NAME can never
+  conceal a forbidden terminal**. **Unresolved computed access to a local guarded
+  namespace** (`ns[op]`, `ns[fn()]`, ns[`p${x}`]) **fails closed**, while ordinary
+  computed/destructured access on non-namespace values (and external namespaces)
+  stays permitted. Applied repair, revisioned writes, activation transitions,
+  status/chronology publication, recovery, and generic app-state mutation cannot
+  reach the route by any form. Applied repair and every lifecycle mutation remain
+  dormant.
 
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any
 conflict; this file is the domain design freeze the staged PRs implement. The
