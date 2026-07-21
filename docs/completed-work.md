@@ -18,14 +18,21 @@ Supersedes: (none)
 > **PLATFORM-086H3 status (not a completion — decomposition in progress):** the
 > single-branch H3 activation attempt was frozen as a read-only salvage
 > reference after an architecture audit and is decomposed into prerequisite PRs
-> A–E (frozen design: `docs/ai/platform-086h3-contract.md`). Prerequisite **A**
-> (durable multi-key app-state transaction primitive) is **implemented, Codex
-> reviewed clean, `/verify` passed, and awaiting merge** — dormant, with
-> production HTTP behavior byte-identical to `main` (`src/lib/server/appStateStore.ts`
-> is the only production file changed). **Production activation has NOT
-> occurred**; B begins only after A merges, prerequisites B–D remain
-> unimplemented, and final activation remains E. 086H4 and the legacy-row
-> migration remain deferred. A milestone entry is added below only once a
+> A–E. Prerequisite **A** (durable multi-key app-state transaction primitive) is
+> **MERGED into `main` (PR #398)** — dormant, with production HTTP behavior
+> byte-identical to `main` (`src/lib/server/appStateStore.ts` was the only
+> production file changed). The **original prerequisite B architecture**
+> (revision lineage/ledger, permanent revisions, restoration high-water,
+> irreversible witness, operator repair, and the dormant-boundary/capability-graph
+> guard — designed in `docs/ai/platform-086h3-contract.md`, now a **historical
+> reference**) is **SUPERSEDED** after two architectural audits and will not be
+> built; the `platform/086h3b-revision-status-authority` branch is frozen, unmerged.
+> It is replaced by a small **fenced legacy writer** prerequisite (implemented on
+> `platform/086h3b-replacement-legacy-writer-fence`, review-remediation in progress,
+> not merged), and **C/D/E are redefined WITHOUT lineage/revision/repair** — see
+> **`docs/ai/game-stats-writer-fence.md`**. **Production activation has NOT
+> occurred**; C/D remain unimplemented and final activation remains E. 086H4 and the
+> legacy-row migration remain deferred. A milestone entry is added below only once a
 > prerequisite actually merges.
 
 ### PLATFORM-086H2 — Durable Game-Stats Merge Service (Dormant) — Complete
@@ -1492,6 +1499,26 @@ Key architectural decisions across Phase 5:
 - `commenceTime` is attachment metadata only — never added to `DurableOddsSnapshot`, `CombinedOdds`, or public `/api/odds` output
 - Older cached entries lacking `commenceTime` remain valid (treated as undated) and never force a migration refetch; PLATFORM-020 quota/cache guards untouched
 - Validation: `npm test` 983 pass / 0 fail / 0 skipped; tsc, lint:all, build all clean
+
+---
+
+### PLATFORM-086H3B Replacement — Fenced Legacy Game-Stats Writer — Implemented (review-remediation in progress; not merged)
+
+**Status:** Implemented on `platform/086h3b-replacement-legacy-writer-fence` (from `main@2793a6f`); **review-remediation in progress, NOT merged** (one Codex review pass returned bounded findings, remediated in a follow-up commit). No PR; `/verify` not run. Supersedes the frozen `platform/086h3b-revision-status-authority` branch. NOT a closure entry — retained here as the shipped-milestone record once merged.
+**PROMPT_IDs:** PLATFORM-086H3B-VALUE-AND-SCOPE-AUDIT-v1, PLATFORM-086H3B-SPLIT-EXTRACTION-PLAN-v1 (read-only audits), PLATFORM-086H3B-REPLACEMENT-LEGACY-WRITER-FENCE-v1 (implementation)
+
+**Goals completed:**
+
+- Two independent architectural audits concluded PLATFORM-086H3B (revision lineage/ledger, permanent revisions, restoration high-water, irreversible witness, failed-begin provenance, operator repair, dormant-boundary/capability-graph guard) must NOT be built — game stats are reconstructible provider projections, no consumer reads a revision, and nothing outside the database remembers one after a restore. That branch is frozen as a read-only reference; no further revision/repair/parser work.
+- Added a durable **writer-control record** (`src/lib/gameStats/writerFence.ts`, scope `game-stats-writer-control`, key `state`, `{ recordVersion, state: legacy|armed|active|read-only-safe }`) with strict validation and presence-aware classification — absent/malformed is never treated as `legacy`. No transitions/repair/lineage/HTTP surface.
+- Fenced the live legacy writer (`src/lib/gameStats/cache.ts`): `setCachedGameStats` now serializes on its weekly partition and revalidates the control record IN THE SAME transaction (partition `E(P)` exclusive → writer-control exclusive via `lockKey`), committing only on exactly valid `legacy`, and never reporting success unless it commits. Fence refusals (absent/malformed/`armed`/`active`/`read-only-safe`) and `store-unavailable` failures are known-unchanged (nothing written, prior partition intact); a `store-indeterminate` failure (lost COMMIT ack after mutation SQL, `writeAttempted`) MAY have committed and must be retried/re-read without assuming either version is durable; a lock-order programming error is re-thrown, not masked. Reuses prerequisite A; adds no revision/lineage/commit-stamp/activation metadata and no `fetchedAt` stale guard.
+- Added a create-if-absent initializer (`scripts/init-game-stats-writer-control.ts`, `npm run init:writer-control`): dry-run default, PostgreSQL-only apply, idempotent on valid `legacy`, refuses malformed/non-legacy, never arms/activates/repairs/deletes.
+
+**Key outcomes:**
+
+- Same-partition legacy writes serialize across PostgreSQL instances; a future rollout can stop the legacy writer by flipping the control record with no code change. While `legacy`, stored partition bytes are identical to the prior blind write.
+- **Operational dependency (not concealed):** the writer-control row MUST be initialized before the fenced writer deploys, else all legacy game-stat writes refuse. Rollout sequence + revised lineage-free C/D/E in `docs/ai/game-stats-writer-fence.md`.
+- Validation: full `npm test` 1841 pass / 0 fail (writer-fence suite 24; existing game-stats write-path tests seed the control row); tsc, lint:all, git diff --check clean. No PR; `/verify` not run; `preview` not updated.
 
 ---
 

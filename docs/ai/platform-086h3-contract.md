@@ -1,21 +1,42 @@
 # PLATFORM-086H3 — Game-Stats Lifecycle Architecture Contract (FROZEN)
 
-Status: **Frozen target architecture.** This is the design of record for the
-staged PLATFORM-086H3 decomposition (prerequisites A–E). It describes the
-INTENDED end state, **not** behavior currently active on `main`. On `main`
-today the game-stats writers still use the legacy path; the durable merge
-authority (H2) is a merged but dormant foundation. Nothing in this contract is
-active until the final activation prerequisite (E) merges.
+> **SUPERSEDED IN PART (2026-07 audit).** Two independent architectural audits
+> concluded that **prerequisite B as designed (the revision/status authority —
+> lineage, permanent revisions, revision ledger, restoration high-water,
+> irreversible witness, failed-begin provenance, operator repair, and the
+> dormant-boundary/capability-graph guard) must NOT be built.** The
+> `platform/086h3b-revision-status-authority` branch is **superseded, unmerged, and
+> frozen as a read-only reference**; no further work occurs on its revision, repair,
+> parser, or capability-graph design. It is replaced by a small **fenced legacy
+> writer** prerequisite — see **[`game-stats-writer-fence.md`](game-stats-writer-fence.md)**,
+> which also carries the revised, lineage-free C/D/E definitions and the required
+> pre-deployment initialization sequence. The A–E material BELOW is retained only for
+> historical context; where it assumes lineage/revision/repair it is no longer the
+> plan.
 
-Prerequisite progress: **A** (the durable multi-key app-state transaction
-primitive that §6 relies on) is implemented, Codex reviewed clean, `/verify`
-passed, and awaiting merge — dormant, with production behavior unchanged.
-**B–D remain unimplemented and E (final activation) has not occurred**; the
-rest of this contract is future-state architecture, not active behavior.
+Status: **Historical — the lineage/revision A–E design is NOT the current
+architecture (see the SUPERSEDED banner above).** This WAS the design of record for
+the staged PLATFORM-086H3 decomposition; the current, reduced architecture (the
+fenced legacy writer + lineage-free C/D/E) lives in
+**[`game-stats-writer-fence.md`](game-stats-writer-fence.md)**. The material below is
+retained only for historical context. On `main` today the game-stats writers still
+use the legacy path and the durable merge authority (H2) is a merged but dormant
+foundation.
+
+Prerequisite progress (corrected): **A** (the durable multi-key app-state transaction
+primitive that §6 relies on) is **merged into `main`** (PR #398, dormant — production
+behavior unchanged). **B as designed (revision lineage/ledger + status chronology +
+operator repair + activation fence) is SUPERSEDED and will not be built** — it is
+replaced by the fenced-legacy-writer prerequisite (implemented on
+`platform/086h3b-replacement-legacy-writer-fence`, review-remediation in progress, not
+merged). **C/D/E are redefined WITHOUT lineage/revision/repair** (see the replacement
+doc); the lineage/revision/high-water/repair material below is no longer the plan.
 
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any
-conflict; this file is the domain design freeze the staged PRs implement. The
-oversized single-branch implementation
+conflict; this file is a **historical design reference** (the current architecture is
+the fenced-writer + lineage-free C/D/E in
+[`game-stats-writer-fence.md`](game-stats-writer-fence.md)), not an active design
+freeze. The oversized single-branch implementation
 (`platform/086h3-atomic-game-stats-contract-activation`, HEAD `e1a9593`) is
 frozen as a **read-only salvage reference** and is never merged.
 

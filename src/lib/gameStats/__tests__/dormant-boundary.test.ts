@@ -5,6 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { getCachedGameStats, setCachedGameStats } from '../cache.ts';
+import { seedLegacyWriterControl } from './writerControlSeed.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -305,6 +306,7 @@ test('the production cache-writer path persists legacy rows without v2 metadata'
   // durable boundary may inject dormant metadata or reshape the row.
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  await seedLegacyWriterControl();
   const row = legacyRowFromWire(wireGame({ id: 42 }));
   await setCachedGameStats({
     year: 2024,

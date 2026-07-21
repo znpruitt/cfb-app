@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { loadOwnerSeasonStats } from '../insights/context.ts';
 import { setCachedGameStats } from '../gameStats/cache.ts';
+import { seedLegacyWriterControl } from '../gameStats/__tests__/writerControlSeed.ts';
 import type { TeamGameStats } from '../gameStats/types.ts';
 import {
   __deleteAppStateFileForTests,
@@ -13,6 +14,7 @@ import {
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  await seedLegacyWriterControl();
 });
 
 function makeTeam(school: string, points: number, homeAway: 'home' | 'away'): TeamGameStats {

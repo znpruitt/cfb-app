@@ -13,6 +13,7 @@ import {
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
 import { getCachedGameStats, setCachedGameStats } from '../../../../../lib/gameStats/cache.ts';
+import { seedLegacyWriterControl } from '../../../../../lib/gameStats/__tests__/writerControlSeed.ts';
 import type { GameStats } from '../../../../../lib/gameStats/types.ts';
 import {
   beginProviderRefreshAttempt,
@@ -139,6 +140,7 @@ function stubThrow(message: string) {
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  await seedLegacyWriterControl();
   MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
   globalThis.fetch = ORIGINAL_FETCH;
 });
