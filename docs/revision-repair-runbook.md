@@ -156,7 +156,8 @@ or repair history) mints lineage 1.
 > **Guarded capability surface (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION +
 > PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION +
 > PLATFORM-086H3B-DORMANT-PARSER-COMPUTED-LAUNDERING-REMEDIATION +
-> PLATFORM-086H3B-DORMANT-PARSER-LEXICAL-SCOPE-REMEDIATION).** The admin route is
+> PLATFORM-086H3B-DORMANT-PARSER-LEXICAL-SCOPE-REMEDIATION +
+> PLATFORM-086H3B-DORMANT-PARSER-VAR-SCOPE-REMEDIATION).** The admin route is
 > **scanned by the dormant-boundary guard, not excluded by filename**. It reaches its
 > revision capabilities ONLY through a narrow inspection facade
 > (`src/lib/gameStats/revisionRepairInspection.ts`) that exposes inspection, typed
@@ -182,7 +183,11 @@ or repair history) mints lineage 1.
 > one only within its own scope; leaving the scope restores the outer binding), and
 > **every destructuring DEFAULT initializer** (`const { x = fallback } = obj`, incl.
 > nested/array/parameter patterns) **is analyzed as executable runtime code** even when
-> the destructured source is safe. **Unresolved computed access to a local guarded
+> the destructured source is safe. Function-scoped **`var`** is precollected into the
+> nearest function scope through loop headers and nested/unbraced statements (blocks,
+> if/else, while, do-while, switch, try/catch/finally, for/for-in/for-of), EXCLUDING
+> nested functions, so a `var` from a guarded namespace keeps provenance wherever it is
+> visible; `let`/`const` stay block/loop-scoped. **Unresolved computed access to a local guarded
 > namespace** (`ns[op]`, `ns[fn()]`, ns[`p${x}`]) **fails closed**; ordinary
 > computed/destructured access on non-namespace values and external namespaces, and
 > ordinary legal shadowing, stay permitted. No lifecycle-mutation capability can reach

@@ -800,11 +800,6 @@ function analyzeImplementation(
     }
     return { found: false, binding: null };
   };
-  const nearestFunctionScope = (scope: LexScope): LexScope => {
-    let s: LexScope = scope;
-    while (!s.isFunction && s.parent) s = s.parent;
-    return s;
-  };
 
   // Resolve an identifier used as a NAMESPACE value: a nearer plain/member binding
   // shadows the namespace (→ null); an alias chains; else the module-level graph.
@@ -906,21 +901,59 @@ function analyzeImplementation(
     declarePattern(name, source);
   };
 
-  // Predeclare the direct declarations of a scope (block/function body) BEFORE
-  // analyzing references, so resolution does not depend on traversal order. `var`
-  // hoists to the nearest function scope; `const`/`let`/`function`/`class` are local.
+  // Predeclare the BLOCK-scoped direct declarations of a scope (block/function body)
+  // BEFORE analyzing references, so resolution does not depend on traversal order.
+  // `const`/`let`/`function`/`class` are local; `var` is function-scoped and is
+  // collected separately by `hoistVars` (so it is registered at function scope even
+  // when it appears in a nested/unbraced statement or a loop header).
   const predeclare = (scope: LexScope, statements: readonly ts.Statement[]): void => {
     for (const stmt of statements) {
       if (ts.isVariableStatement(stmt)) {
         const isBlockScoped =
           (stmt.declarationList.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) !== 0;
-        const target = isBlockScoped ? scope : nearestFunctionScope(scope);
+        if (!isBlockScoped) continue; // `var` handled by hoistVars at function scope
         for (const decl of stmt.declarationList.declarations)
-          declareBinding(target, decl.name, decl.initializer);
+          declareBinding(scope, decl.name, decl.initializer);
       } else if ((ts.isFunctionDeclaration(stmt) || ts.isClassDeclaration(stmt)) && stmt.name) {
         scope.names.set(stmt.name.text, null);
       }
     }
+  };
+
+  // Precollect the function-scoped `var` bindings of a function body BEFORE resolving
+  // references. Recurse through EVERY nested statement form (blocks, if/else and other
+  // unbraced bodies, for / for-in / for-of headers, while / do-while bodies, switch
+  // clauses, try/catch/finally, labeled statements) so a `var` binds at function scope
+  // wherever it syntactically appears — but STOP at nested function/accessor
+  // boundaries (their `var`s belong to their own scope). Provenance follows the
+  // declaration initializer: an initialized `var` (re)binds; a bare re-declaration
+  // never clears an existing (e.g. parameter or earlier initialized) binding.
+  const hoistVars = (fscope: LexScope, body: ts.Node): void => {
+    const collect = (n: ts.Node): void => {
+      if (
+        ts.isFunctionDeclaration(n) ||
+        ts.isFunctionExpression(n) ||
+        ts.isArrowFunction(n) ||
+        ts.isMethodDeclaration(n) ||
+        ts.isGetAccessorDeclaration(n) ||
+        ts.isSetAccessorDeclaration(n) ||
+        ts.isConstructorDeclaration(n)
+      ) {
+        return; // a nested function/accessor owns its own `var` bindings
+      }
+      if (
+        ts.isVariableDeclarationList(n) &&
+        (n.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) === 0
+      ) {
+        for (const decl of n.declarations) {
+          const bareRedeclare =
+            !decl.initializer && ts.isIdentifier(decl.name) && fscope.names.has(decl.name.text);
+          if (!bareRedeclare) declareBinding(fscope, decl.name, decl.initializer);
+        }
+      }
+      ts.forEachChild(n, collect);
+    };
+    collect(body);
   };
 
   // Analyze every destructuring DEFAULT initializer as runtime code, recursively.
@@ -945,6 +978,7 @@ function analyzeImplementation(
       }
       const fnBody = n.body;
       if (fnBody && ts.isBlock(fnBody)) {
+        hoistVars(fscope, fnBody); // function-scoped `var`s, through nested/unbraced forms
         predeclare(fscope, fnBody.statements);
         for (const s of fnBody.statements) walk(s, fscope);
       } else if (fnBody) {
@@ -970,8 +1004,11 @@ function analyzeImplementation(
       const lscope: LexScope = { parent: scope, isFunction: false, names: new Map() };
       const init = n.initializer;
       if (init && ts.isVariableDeclarationList(init)) {
+        // `let`/`const` loop bindings are loop-scoped; a `var` header binding is
+        // function-scoped (already hoisted) and must NOT be registered here.
+        const isBlockScoped = (init.flags & (ts.NodeFlags.Let | ts.NodeFlags.Const)) !== 0;
         for (const decl of init.declarations) {
-          declareBinding(lscope, decl.name, decl.initializer);
+          if (isBlockScoped) declareBinding(lscope, decl.name, decl.initializer);
           if (decl.initializer) walk(decl.initializer, lscope);
           analyzeBindingDefaults(decl.name, lscope);
         }

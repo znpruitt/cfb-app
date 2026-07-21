@@ -1146,6 +1146,138 @@ test('parser guard: benign shadowing + safe defaults remain allowed', () => {
   }
 });
 
+// ===========================================================================
+// PLATFORM-086H3B-DORMANT-PARSER-VAR-SCOPE-REMEDIATION — function-scoped `var` is
+// precollected through loop headers and nested/unbraced statements (blocks, if/else,
+// while, do-while, switch, try/catch/finally, for/for-in/for-of) into the nearest
+// function scope, EXCLUDING nested functions — so a `var` initialized from a guarded
+// namespace retains its provenance wherever it is visible. `let`/`const` stay block/
+// loop-scoped.
+// ===========================================================================
+
+test('parser guard: the exact loop-header var regression fails', () => {
+  // `var` in a `for` initializer is function-scoped — visible (and forbidden) after
+  // the loop; the lexical rewrite briefly scoped it to the loop and lost provenance.
+  const v = facade(
+    `import * as rr from './revisionRepair.ts';\n` +
+      `export const planRevisionRepair = request => {\n` +
+      `  for (var service = rr; false; ) {}\n` +
+      `  return service['repairRevisionState'](request);\n` +
+      `};`
+  );
+  assert.ok(v.length > 0, 'a function-scoped for-header var reaching applied repair must fail');
+});
+
+test('parser guard: the exact unbraced-conditional var regression fails', () => {
+  // `var` in an UNBRACED `if` body is function-scoped and outlives the conditional.
+  const v = facade(
+    `import * as rr from './revisionRepair.ts';\n` +
+      `export const planRevisionRepair = (request, enabled) => {\n` +
+      `  if (enabled) var service = rr;\n` +
+      `  return service['repairRevisionState'](request);\n` +
+      `};`
+  );
+  assert.ok(
+    v.length > 0,
+    'a function-scoped unbraced-conditional var reaching applied repair must fail'
+  );
+});
+
+test('parser guard: function-scoped var retains provenance through every statement form', () => {
+  const NS = `import * as rr from './revisionRepair.ts';\n`;
+  const use = `return service['repairRevisionState'](request);`;
+  const forms: Array<[string, string]> = [
+    [
+      'while unbraced body',
+      `export const planRevisionRepair = (request, enabled) => { while (enabled) var service = rr; ${use} };`,
+    ],
+    [
+      'do-while body',
+      `export const planRevisionRepair = request => { do var service = rr; while (false); ${use} };`,
+    ],
+    [
+      'switch case clause',
+      `export const planRevisionRepair = (request, mode) => { switch (mode) { case 'x': var service = rr; } ${use} };`,
+    ],
+    [
+      'try block',
+      `export const planRevisionRepair = request => { try { var service = rr; } finally {} ${use} };`,
+    ],
+    [
+      'catch block',
+      `export const planRevisionRepair = request => { try { throw 0; } catch (e) { var service = rr; } ${use} };`,
+    ],
+    [
+      'for-in loop body var',
+      `export const planRevisionRepair = (request, table) => { for (var key in table) var service = rr; ${use} };`,
+    ],
+    [
+      'for-of loop body var',
+      `export const planRevisionRepair = (request, values) => { for (var item of values) var service = rr; ${use} };`,
+    ],
+    [
+      'nested block var',
+      `export const planRevisionRepair = request => { { var service = rr; } ${use} };`,
+    ],
+    [
+      'labeled statement var',
+      `export const planRevisionRepair = request => { outer: { var service = rr; } ${use} };`,
+    ],
+    [
+      'C-style for destructuring var',
+      `export const planRevisionRepair = request => { for (var { repairRevisionState: service } = rr; false; ) {} return service(request); };`,
+    ],
+    [
+      'ordinary destructured var statement',
+      `export const planRevisionRepair = request => { { var { repairRevisionState: service } = rr; } return service(request); };`,
+    ],
+  ];
+  for (const [label, body] of forms) {
+    assert.ok(facade(NS + body).length > 0, `must fail: ${label}`);
+  }
+});
+
+test('parser guard: let/const stay block/loop-scoped and safe var forms remain allowed', () => {
+  const SAFE =
+    `import { planRevisionRepair as base, inspectRevisionState, readRevisionAuditTrail, isCfbdSeasonType } from './revisionRepairPlanning.ts';\n` +
+    `export { inspectRevisionState, readRevisionAuditTrail, isCfbdSeasonType };\n`;
+  const NS = `import * as rr from './revisionRepair.ts';\n`;
+  const forms: Array<[string, string]> = [
+    [
+      'let loop-header does not leak past the loop',
+      NS +
+        SAFE +
+        `export const planRevisionRepair = request => { for (let service = rr; false; ) {} return base(request); };`,
+    ],
+    [
+      'const block binding does not leak past the block',
+      NS +
+        SAFE +
+        `export const planRevisionRepair = request => { { const service = rr; void service; } return base(request); };`,
+    ],
+    [
+      'benign function-scoped var is not flagged by name',
+      SAFE +
+        `export const planRevisionRepair = r => { var repairRevisionState = 10; void repairRevisionState; return base(r); };`,
+    ],
+    [
+      'a nearer block binding shadows a function-scoped var',
+      NS +
+        SAFE +
+        `export const planRevisionRepair = r => { var service = rr; { const service = base; return service(r); } };`,
+    ],
+    [
+      'a nested function var does not leak into the outer scope',
+      NS +
+        SAFE +
+        `export const planRevisionRepair = r => { function inner(){ var service = rr; void service; } inner(); void service['repairRevisionState']; return base(r); };`,
+    ],
+  ];
+  for (const [label, body] of forms) {
+    assert.deepEqual(facade(body), [], `must stay clean: ${label}`);
+  }
+});
+
 // Whether `src` NAMED-imports `symbol` (an `import { ... symbol ... } from '...'`
 // statement) — distinct from a mere docstring mention of the same word.
 const namedImports = (src: string, symbol: string): boolean =>

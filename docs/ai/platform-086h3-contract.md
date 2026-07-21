@@ -102,7 +102,8 @@ architecture, not active behavior.
 - Dormant-boundary guard (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION +
   PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION +
   PLATFORM-086H3B-DORMANT-PARSER-COMPUTED-LAUNDERING-REMEDIATION +
-  PLATFORM-086H3B-DORMANT-PARSER-LEXICAL-SCOPE-REMEDIATION): the admin revision
+  PLATFORM-086H3B-DORMANT-PARSER-LEXICAL-SCOPE-REMEDIATION +
+  PLATFORM-086H3B-DORMANT-PARSER-VAR-SCOPE-REMEDIATION): the admin revision
   route is **scanned, not excluded** — its production capability surface is an explicit
   parser-backed allowlist (TypeScript compiler API), so **inspection and dry-run
   planning are the ONLY sanctioned B-stage operations** it can reach. **Dry-run
@@ -127,7 +128,11 @@ architecture, not active behavior.
   scope; leaving the scope restores the outer binding), and **every destructuring
   DEFAULT initializer** (`const { x = fallback } = obj`, incl. nested/array/parameter
   patterns) **is analyzed as executable runtime code** even when the destructured
-  source is safe. **Unresolved computed access to a local guarded
+  source is safe. Function-scoped **`var`** is precollected into the nearest function
+  scope through loop headers and nested/unbraced statements (blocks, if/else, while,
+  do-while, switch, try/catch/finally, for/for-in/for-of), EXCLUDING nested functions,
+  so a `var` initialized from a guarded namespace keeps its provenance wherever it is
+  visible; `let`/`const` stay block/loop-scoped. **Unresolved computed access to a local guarded
   namespace** (`ns[op]`, `ns[fn()]`, ns[`p${x}`]) **fails closed**, while ordinary
   computed/destructured access on non-namespace values (and external namespaces) and
   ordinary legal shadowing stay permitted. Applied repair, revisioned writes, activation transitions,
