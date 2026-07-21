@@ -198,6 +198,46 @@ test('canonical slate: a half-set postseason shell (one team + one TBD) is EXPEC
   assert.equal(partition.deferredPlaceholders.length, 0);
 });
 
+test('buildCanonicalGameStatsSlate: an empty team catalog throws (catalog authority required)', () => {
+  // The pure builder must enforce the same catalog-authority precondition as the
+  // async loader — a direct caller cannot bypass it with an empty catalog and
+  // have identities seeded from schedule labels alone.
+  assert.throws(() =>
+    buildCanonicalGameStatsSlate({
+      year: 2025,
+      scheduleItems: [
+        scheduleItem({
+          id: '5001',
+          week: 3,
+          home: 'Alpha State',
+          away: 'Beta Tech',
+          status: 'final',
+        }),
+      ],
+      teams: [],
+      aliasMap: {},
+      now: NOW,
+    })
+  );
+  // A non-empty catalog builds normally.
+  const ok = buildCanonicalGameStatsSlate({
+    year: 2025,
+    scheduleItems: [
+      scheduleItem({
+        id: '5001',
+        week: 3,
+        home: 'Alpha State',
+        away: 'Beta Tech',
+        status: 'final',
+      }),
+    ],
+    teams: C1_TEAMS,
+    aliasMap: {},
+    now: NOW,
+  });
+  assert.ok(bySlateId(ok.games, 5001));
+});
+
 test('canonical slate: malformed non-decimal schedule ids are not addressable', () => {
   const slate = build([
     scheduleItem({ id: '5001', week: 3, home: 'Alpha State', away: 'Beta Tech', status: 'final' }),

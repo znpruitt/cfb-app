@@ -181,6 +181,36 @@ test('coverage: unscheduled stored rows are reported unmatched, never coverage',
   assert.deepEqual(coverage.unmatchedStoredIds, [999]);
 });
 
+test('coverage: a partition-disagreeing row for a NON-expected scheduled game is reported unassociated', () => {
+  // A pending (non-expected) scheduled game in this partition.
+  const pending = canonicalGame({
+    providerGameId: 300,
+    home: 'Gamma A&M',
+    away: 'Delta University',
+    week: 3,
+    applicability: 'pending',
+  });
+  // Its stored row's OWN partition week disagrees (week 9, not the requested 3).
+  const strayPartition = v2Row({
+    id: 300,
+    home: { school: 'Gamma A&M', schoolId: 303 },
+    away: { school: 'Delta University', schoolId: 404 },
+    week: 9,
+  });
+  const coverage = coverageOf([G1, pending], [G1_COMPLETE, strayPartition]);
+  // The pending game is never a coverage gap…
+  assert.equal(
+    coverage.games.some((g) => g.game.providerGameId === 300),
+    false
+  );
+  // …and its id is scheduled, so the row is NOT "unmatched"…
+  assert.equal(coverage.unmatchedStoredIds.includes(300), false);
+  // …but the partition disagreement is still surfaced (no longer vanishes).
+  assert.ok(
+    coverage.unassociated.some((u) => u.providerGameId === 300 && u.reason === 'partition-mismatch')
+  );
+});
+
 test('coverage: a shadowed lower-precedence candidate is reported separately', () => {
   const legacy = legacyRow({
     id: 100,

@@ -210,6 +210,15 @@ export function buildCanonicalGameStatsSlate(input: {
   now: Date;
 }): CanonicalSlate {
   const { year, scheduleItems, teams, aliasMap, now } = input;
+  // The team catalog is REQUIRED identity authority. Enforce the non-empty
+  // precondition on THIS exported entry point too (not only the async loader):
+  // an empty catalog would let `buildScheduleFromApi` seed identities from
+  // schedule labels alone, marking stored rows verified without catalog
+  // authority. A direct caller violating this fails loudly; the async wrapper
+  // maps an empty catalog to `catalog-load-failed` before ever calling here.
+  if (teams.length === 0) {
+    throw new Error('buildCanonicalGameStatsSlate requires a non-empty team catalog');
+  }
   // Build the canonical games FIRST so the attachment resolver can be seeded from
   // their settled participants (never from raw labels of excluded schedule rows).
   const { games } = buildScheduleFromApi({ scheduleItems, teams, aliasMap, season: year });

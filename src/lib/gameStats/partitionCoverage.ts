@@ -145,6 +145,7 @@ export function evaluatePartitionCoverage(
   }
 
   const games: GameCoverage[] = [];
+  const expectedIds = new Set(partition.expected.map((g) => g.providerGameId));
   const quarantined: QuarantinedCandidate[] = [];
   const unassociated: RejectedCandidate[] = [];
   const integrityWarnings: { providerGameId: number; integrity: EvidenceIntegrity }[] = [];
@@ -172,6 +173,21 @@ export function evaluatePartitionCoverage(
       });
     }
     if (decision.state === 'duplicate-conflict') duplicateConflicts.push(game.providerGameId);
+  }
+
+  // Coverage STATES derive from expected games only, but a partition-disagreeing
+  // row for a scheduled-but-NOT-expected game (pending / disrupted / deferred)
+  // would otherwise vanish from every report: its id is scheduled (so it is not
+  // "unmatched") and no evidence pass runs for it. Collect that association
+  // diagnostic across all scheduled non-expected ids so `unassociated` keeps its
+  // contract.
+  for (const [id, rows] of rowsById) {
+    if (expectedIds.has(id) || !scheduledIds.has(id)) continue;
+    for (const row of rows) {
+      if (row.week !== week || row.seasonType !== seasonType) {
+        unassociated.push({ providerGameId: id, reason: 'partition-mismatch' });
+      }
+    }
   }
 
   const unmatchedStoredIds = [...rowsById.keys()].filter((id) => !scheduledIds.has(id));
