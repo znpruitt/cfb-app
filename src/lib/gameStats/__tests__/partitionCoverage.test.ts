@@ -99,12 +99,24 @@ test('coverage: no expected games → not-applicable', () => {
   );
 });
 
-test('coverage: wrong-participant evidence → identity-mismatch gap; row never counts as coverage', () => {
-  const wrong = completeFor(G1, ['Gamma A&M', 303], ['Beta Tech', 202]); // stale home team
+test('coverage: contradicted-participant evidence → identity-mismatch gap; quarantined, never coverage', () => {
+  const wrong = completeFor(G1, ['Gamma A&M', 303], ['Beta Tech', 202]); // fully-resolved wrong pair
   const coverage = coverageOf([G1], [wrong]);
   assert.equal(gameState(coverage, 100), 'identity-mismatch');
   assert.equal(coverage.state, 'absent'); // 0 satisfied
-  assert.ok(coverage.participantMismatches.some((m) => m.providerGameId === 100));
+  assert.ok(coverage.quarantined.some((m) => m.providerGameId === 100));
+});
+
+test('coverage: an unresolved-participant row still satisfies (id authority), flagged unverified', () => {
+  const unverified = completeFor(G1, ['Totally Unknown', 501], ['Beta Tech', 202]);
+  const coverage = coverageOf([G1], [unverified]);
+  assert.equal(gameState(coverage, 100), 'satisfied');
+  assert.equal(coverage.state, 'complete');
+  assert.deepEqual(
+    coverage.integrityWarnings.map((w) => [w.providerGameId, w.integrity]),
+    [[100, 'unverified']]
+  );
+  assert.deepEqual(coverage.quarantined, []);
 });
 
 test('coverage: a canonical participant change invalidates a previously-satisfying stored row', () => {

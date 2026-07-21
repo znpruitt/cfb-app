@@ -46,7 +46,15 @@ test('attachment: alias-resolved participant attaches through the resolver', () 
   assert.equal(d.state, 'satisfied');
 });
 
-test('attachment: correct id with wrong participants does NOT attach → identity-mismatch', () => {
+test('association: matching id + fully-resolved matching participants → verified', () => {
+  const row = v2Row({ id: 100, home: HOME, away: AWAY, week: 3 });
+  const d = decide(GAME, [row]);
+  assert.equal(d.state, 'satisfied');
+  assert.equal(d.integrity, 'verified');
+  assert.equal(d.orientation, 'direct');
+});
+
+test('association: correct id with fully-resolved WRONG participants → quarantined contradiction', () => {
   const row = v2Row({
     id: 100,
     home: { school: 'Gamma A&M', schoolId: 303 },
@@ -54,12 +62,14 @@ test('attachment: correct id with wrong participants does NOT attach → identit
     week: 3,
   });
   const d = decide(GAME, [row]);
+  // A known contradiction is quarantined and produces an identity-mismatch gap.
   assert.equal(d.state, 'identity-mismatch');
   assert.equal(d.selected, null);
-  assert.equal(d.rejected[0]?.reason, 'participant-mismatch');
+  assert.equal(d.quarantined[0]?.reason, 'participant-contradiction');
+  assert.deepEqual(d.rejected, []);
 });
 
-test('attachment: unresolved participant does NOT attach', () => {
+test('association: an UNRESOLVED participant stays attached, marked unverified (id authority)', () => {
   const row = v2Row({
     id: 100,
     home: { school: 'Not In Catalog', schoolId: 999 },
@@ -67,33 +77,55 @@ test('attachment: unresolved participant does NOT attach', () => {
     week: 3,
   });
   const d = decide(GAME, [row]);
-  assert.equal(d.state, 'identity-mismatch');
-  assert.equal(d.rejected[0]?.reason, 'participant-unresolved');
+  // The id associates the row even though one label doesn't resolve.
+  assert.equal(d.state, 'satisfied');
+  assert.equal(d.integrity, 'unverified');
+  assert.deepEqual(d.quarantined, []);
 });
 
-test('attachment: row-level partition mismatch is not identity-mismatch, just absent', () => {
+test('association: a game with an UNRESOLVED canonical participant still attaches rows unverified', () => {
+  const canonicalUnresolved = canonicalGame({
+    providerGameId: 100,
+    home: 'Not In Catalog',
+    away: 'Beta Tech',
+  });
+  const row = v2Row({ id: 100, home: { school: 'Anything', schoolId: 501 }, away: AWAY, week: 3 });
+  const d = decide(canonicalUnresolved, [row]);
+  assert.equal(d.state, 'satisfied');
+  assert.equal(d.integrity, 'unverified');
+});
+
+test('association: row-level partition disagreement never associates → unassociated, absent', () => {
   const row = v2Row({ id: 100, home: HOME, away: AWAY, week: 9 }); // wrong week
   const d = decide(GAME, [row]);
   assert.equal(d.state, 'absent');
   assert.equal(d.rejected[0]?.reason, 'partition-mismatch');
+  assert.deepEqual(d.quarantined, []);
 });
 
-test('attachment: no candidate rows at all → absent', () => {
+test('association: no candidate rows at all → absent', () => {
   assert.equal(decide(GAME, []).state, 'absent');
 });
 
-test('orientation: reversed observation on a NON-neutral game is rejected', () => {
+test('orientation: reversed observation on a NON-neutral game is reoriented WITH a warning', () => {
   const reversed = v2Row({ id: 100, home: AWAY, away: HOME, week: 3 });
   const d = decide(GAME, [reversed]);
-  assert.equal(d.state, 'identity-mismatch');
-  assert.equal(d.rejected[0]?.reason, 'reversed-non-neutral');
+  assert.equal(d.state, 'satisfied');
+  assert.equal(d.orientation, 'reversed');
+  assert.equal(d.integrity, 'reversed-warning');
+  // Reoriented to canonical: Alpha State is home.
+  assert.equal(d.selected?.home.school, 'Alpha State');
+  assert.equal(d.selected?.home.homeAway, 'home');
+  assert.equal(d.selected?.away.school, 'Beta Tech');
+  assert.equal(d.selected?.away.homeAway, 'away');
 });
 
-test('orientation: reversed neutral observation attaches only after reorientation', () => {
+test('orientation: reversed observation on a NEUTRAL game is reoriented, verified (no warning)', () => {
   const reversed = v2Row({ id: 200, home: AWAY, away: HOME, week: 3 });
   const d = decide(NEUTRAL_GAME, [reversed]);
   assert.equal(d.state, 'satisfied');
-  // Selected row is canonically oriented: canonical home is Alpha State.
+  assert.equal(d.orientation, 'reversed');
+  assert.equal(d.integrity, 'verified');
   assert.equal(d.selected?.home.school, 'Alpha State');
   assert.equal(d.selected?.home.homeAway, 'home');
   assert.equal(d.selected?.away.school, 'Beta Tech');
@@ -350,9 +382,9 @@ test('a difference in an analytics-ignored public field is NOT hidden by analyti
   assert.equal(decide(GAME, [base, firstDownsDiff]).state, 'duplicate-conflict');
 });
 
-// === Unsupported / malformed schema blocking ===
+// === Unsupported / malformed schema blocking (by id, no participant resolution) ===
 
-test('unsupported schema: a participant-matching unsupported row blocks a valid supported sibling', () => {
+test('unsupported schema: a same-id unsupported row blocks a valid supported sibling', () => {
   const valid = v2Row({ id: 100, home: HOME, away: AWAY, week: 3 });
   const unsupported = {
     ...v2Row({ id: 100, home: HOME, away: AWAY, week: 3 }),
@@ -364,26 +396,38 @@ test('unsupported schema: a participant-matching unsupported row blocks a valid 
   assert.equal(d.selected, null); // never falls back to the valid sibling
 });
 
-test('unsupported schema: same id with mismatched participants does NOT block', () => {
+test('unsupported schema: blocks by id alone — mismatched participants still block', () => {
   const valid = v2Row({ id: 100, home: HOME, away: AWAY, week: 3 });
   const unsupportedWrong = {
     ...v2Row({ id: 100, home: { school: 'Gamma A&M', schoolId: 303 }, away: AWAY, week: 3 }),
     schemaVersion: 5,
   } as unknown as GameStats;
   const d = decide(GAME, [valid, unsupportedWrong]);
-  assert.equal(d.state, 'satisfied'); // valid sibling wins; unsupported did not attach
-  assert.equal(d.rejected[0]?.reason, 'participant-mismatch');
+  assert.equal(d.state, 'blocked-unsupported-schema');
+  assert.deepEqual(d.blockers, ['unsupported-schema-version']);
 });
 
-test('unsupported schema: unresolved participants keep an unsupported row quarantined (no block)', () => {
+test('unsupported schema: blocks by id alone — UNRESOLVED participants still block', () => {
   const valid = v2Row({ id: 100, home: HOME, away: AWAY, week: 3 });
   const unsupportedUnresolved = {
     ...v2Row({ id: 100, home: { school: 'Ghost Team', schoolId: 777 }, away: AWAY, week: 3 }),
     schemaVersion: 5,
   } as unknown as GameStats;
   const d = decide(GAME, [valid, unsupportedUnresolved]);
+  assert.equal(d.state, 'blocked-unsupported-schema');
+  assert.deepEqual(d.blockers, ['unsupported-schema-version']);
+});
+
+test('unsupported schema: an unsupported row in the WRONG partition does not block', () => {
+  const valid = v2Row({ id: 100, home: HOME, away: AWAY, week: 3 });
+  const unsupportedOtherPartition = {
+    ...v2Row({ id: 100, home: HOME, away: AWAY, week: 9 }),
+    schemaVersion: 5,
+  } as unknown as GameStats;
+  const d = decide(GAME, [valid, unsupportedOtherPartition]);
+  // Association requires partition agreement; the mis-partitioned row never blocks.
   assert.equal(d.state, 'satisfied');
-  assert.equal(d.rejected[0]?.reason, 'participant-unresolved');
+  assert.equal(d.rejected[0]?.reason, 'partition-mismatch');
 });
 
 test('defective-only evidence: recoverable (absent) for current season, manual-only for historical', () => {

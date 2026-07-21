@@ -54,10 +54,7 @@ export type CanonicalParticipant = {
 
 export type CanonicalGameApplicability = 'expected' | 'pending' | 'not-expected';
 
-export type CanonicalGameNotExpectedReason =
-  | 'placeholder'
-  | 'disrupted'
-  | 'unresolved-participants';
+export type CanonicalGameNotExpectedReason = 'placeholder' | 'disrupted';
 
 export type CanonicalGame = {
   /** Positive CFBD provider game id — the only addressable form. */
@@ -171,8 +168,6 @@ function resolveCanonicalParticipant(
 
 function classifyApplicability(input: {
   game: AppGame;
-  home: CanonicalParticipant | null;
-  away: CanonicalParticipant | null;
   kickoff: string | null;
   rawStatus: string | null;
   nowMs: number;
@@ -180,27 +175,18 @@ function classifyApplicability(input: {
   applicability: CanonicalGameApplicability;
   notExpectedReason: CanonicalGameNotExpectedReason | null;
 } {
-  const { game, home, away, kickoff, rawStatus, nowMs } = input;
+  const { game, kickoff, rawStatus, nowMs } = input;
+  // Only a FULL placeholder shell (no known team on either side) defers. Under
+  // the CFBD-id authority model, participant settledness governs a stored row's
+  // orientation/integrity, not whether the game is expected — a half-set matchup
+  // (one known team + one TBD/derived slot) or an unresolved-but-present pair is
+  // still an addressable scheduled game whose rows attach as `unverified`.
   if (game.isPlaceholder) {
-    return { applicability: 'not-expected', notExpectedReason: 'placeholder' };
-  }
-  // A non-team participant slot (a TBD placeholder or a winner/loser-derived
-  // slot) means the matchup is not fully set, even when the OTHER side is a
-  // known team — `buildScheduleFromApi` leaves `isPlaceholder` false for such a
-  // half-set postseason shell. Defer it as a placeholder so it is reported in
-  // `deferredPlaceholders` rather than vanishing from every partition report.
-  if (game.participants.home.kind !== 'team' || game.participants.away.kind !== 'team') {
     return { applicability: 'not-expected', notExpectedReason: 'placeholder' };
   }
   // Disrupted (canceled/postponed/suspended/delayed) games never produce stats.
   if (isDisruptedStatusLabel(rawStatus)) {
     return { applicability: 'not-expected', notExpectedReason: 'disrupted' };
-  }
-  // Both sides are team slots, but at least one does not resolve to a distinct
-  // canonical identity, so the game's evidence cannot be validated — a distinct
-  // not-expected reason from a deferred placeholder.
-  if (!home || !away || home.identityKey === away.identityKey) {
-    return { applicability: 'not-expected', notExpectedReason: 'unresolved-participants' };
   }
   const kickoffMs = typeof kickoff === 'string' ? Date.parse(kickoff) : Number.NaN;
   // Unknown/unparseable kickoff can never be proven ≥6h old → pending, never a gap.
@@ -243,12 +229,13 @@ export function buildCanonicalGameStatsSlate(input: {
     const item = game.providerGameId ? itemsById.get(game.providerGameId) : undefined;
     const kickoff = item?.startDate ?? game.date ?? null;
     const rawStatus = item?.status ?? null;
+    // Canonical participants are resolved for the evidence authority's
+    // orientation/integrity check; an unsettled side is simply null (unverified),
+    // and no longer gates whether the game is expected.
     const home = resolveCanonicalParticipant(resolver, game, 'home');
     const away = resolveCanonicalParticipant(resolver, game, 'away');
     const { applicability, notExpectedReason } = classifyApplicability({
       game,
-      home,
-      away,
       kickoff,
       rawStatus,
       nowMs,

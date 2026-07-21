@@ -1,5 +1,31 @@
 # PLATFORM-086H3C1 — Canonical Game-Stats Evidence Read Model
 
+> **REVISED — CFBD-ID ATTACHMENT AUTHORITY (PLATFORM-086H3C1-CFBD-ID-AUTHORITY-REVISION-v1).**
+> A **unique canonical CFBD game ID** establishes which scheduled game a durable
+> row belongs to (association). **Participant data determines orientation and
+> integrity; it is not a coequal attachment authority.** The consequences, which
+> supersede the participant-as-coequal wording throughout the sections below:
+>
+> - Association is by the game's own CFBD id + partition agreement — not by
+>   participant resolution.
+> - A supported row whose participants cannot be **fully** resolved stays
+>   attached and can satisfy/publish, marked `unverified` (id authority).
+> - Only a **known** contradiction — BOTH canonical and BOTH row participants
+>   fully resolved and matching neither the direct nor reversed pair — is
+>   **quarantined** (`contradicted`): it can never satisfy coverage, publish, or
+>   shadow/replace prior-good evidence, and yields an `identity-mismatch` gap.
+> - An **exact reversed pair** is safely reoriented for **neutral OR non-neutral**
+>   games; non-neutral reversal keeps a retained `reversed-warning` integrity flag.
+> - A same-id unsupported / malformed / bad-fence schema **blocks weaker siblings
+>   from its id alone**, with no participant resolution required.
+> - The evidence decision distinguishes three axes: **association** (by id),
+>   **orientation** (direct/reversed), and **usability/integrity** (verified /
+>   unverified / reversed-warning / contradicted).
+> - Applicability no longer defers a game merely because a canonical participant
+>   slot is unsettled: only a **full placeholder shell** (no known team on either
+>   side) defers; a half-set matchup or unresolved-but-present pair is an
+>   addressable expected game whose rows attach `unverified`.
+
 ## Final objective
 
 Implement a dormant, schedule-authoritative game-stats evidence read model. The canonical schedule must define which games are expected, which participants belong to each game, and their canonical orientation. One shared evidence authority must then select durable rows for coverage, public projection, and analytics projection without deleting, rewriting, or activating production data.
@@ -44,7 +70,7 @@ All C1 capabilities must remain production-disconnected.
 - Evaluate coverage from the supplied committed durable weekly record, not from a provider response or unconfirmed write result.
 - Each expected game must resolve to exactly one typed state: `satisfied`, `absent`, `incomplete`, `identity-mismatch`, `duplicate-conflict`, `blocked-unsupported-schema`, or `manual-only` where historical compatibility policy requires it.
 - Partition states are `not-applicable`, `complete`, `partial`, `absent`, `blocked`, or `manual-only`.
-- Report pending games, deferred placeholders, unmatched stored IDs, participant mismatches, shadowed lower-precedence evidence, and duplicate conflicts separately.
+- Report pending games, deferred placeholders (full shells only), unmatched stored IDs, quarantined participant contradictions, unassociated (partition-disagreeing) rows, integrity warnings (unverified / reversed-warning winners), shadowed lower-precedence evidence, and duplicate conflicts separately.
 - Complete v2 and compatible legacy evidence may satisfy coverage. Sparse v2 evidence is incomplete.
 - Public projection may publish complete v2, compatible legacy, and structurally valid sparse v2 rows, but sparse rows must remain visibly incomplete in availability.
 - Analytics projection accepts only complete v2 or compatible legacy evidence and must strictly reparse required raw evidence and points.
@@ -92,32 +118,33 @@ This remains one cohesive PR because canonical expectation, evidence selection, 
 
 ## Key invariants
 
-- Provider game ID alone never authorizes persistence, coverage, blocking, or publication.
-- Canonical schedule membership and resolved participant agreement are required before a row can affect an expected game.
+- Association is by the unique canonical CFBD game ID plus partition agreement. Provider game ID alone still never authorizes _persistence_, and a row must carry _usable, non-contradicted_ evidence to satisfy coverage or publish — but a matching id (not participant agreement) is what associates a row with a scheduled game, and a matching-id unsupported/malformed schema blocks by id alone.
+- Canonical schedule membership associates a row; participant agreement governs its orientation and integrity, and only a **known contradiction** (fully-resolved wrong pair) bars it from affecting the game.
 - All team matching goes through `teamIdentity.ts`.
 - Postseason provider week and canonical week remain distinct; C1 must not bypass the established canonical-week calculation.
-- Participant validation happens before schema sufficiency or duplicate selection.
+- Schema blocking is evaluated from id + schema without participant resolution; participant validation (orientation/integrity/contradiction) is assessed for supported, non-blocking rows before duplicate selection.
 - Evidence selection is row-level; read-time field composition is forbidden.
-- Coverage, public projection, and analytics projection consume the same evidence decision.
+- Coverage, public projection, and analytics projection consume the same evidence decision, including its association/orientation/integrity axes.
 - Projection-specific field eligibility may differ, but evidence winner and conflict classification may not.
 - Every coverage-satisfied game must produce a public row.
 - Compatible legacy rows remain valid evidence and do not trigger automatic migration.
 - Sparse v2 evidence cannot displace complete valid evidence.
 - Unsupported or malformed authoritative schema is never silently laundered through a weaker sibling.
-- Unscheduled or participant-mismatched stored rows are retained as unmatched evidence but never count as coverage.
-- Public output never exposes schema, fence, transaction, recovery, or other internal persistence metadata.
+- Unscheduled stored rows (unmatched id), quarantined participant contradictions, and rows whose own partition disagrees are retained as separate reports and never count as coverage.
+- A row whose participants cannot be fully verified stays attached as `unverified` (it may satisfy/publish with the caveat surfaced); a fully-resolved participant contradiction is quarantined and never satisfies, publishes, or shadows prior-good evidence.
+- Public output never exposes schema, fence, transaction, recovery, or other internal persistence metadata; integrity/quarantine are surfaced only as availability counts, never as per-row internal metadata.
 - C1 remains dormant until a later activation change explicitly connects production consumers.
 
 ## Evidence precedence and freshness
 
 ### Selection order
 
-For each expected canonical game:
+For each expected canonical game (candidates are the rows sharing the game's CFBD id):
 
-1. Extract and validate candidate partition identity, provider ID, and participants.
-2. Canonically orient attachable candidates.
-3. Apply matching unsupported/malformed-schema blockers.
-4. Rank interpretable candidates by evidence sufficiency:
+1. Associate by the game's id + partition agreement (a row whose own partition disagrees is unassociated).
+2. Apply matching unsupported/malformed/bad-fence schema blockers **from id + schema alone** — no participant resolution.
+3. For supported, non-blocking rows, orient and assess integrity (verified / unverified / reversed-warning); quarantine known contradictions.
+4. Rank usable (non-quarantined) candidates by evidence sufficiency:
    1. complete v2;
    2. compatible legacy;
    3. sparse v2;
@@ -160,39 +187,34 @@ This conservative comparison prevents analytics equivalence from hiding a disagr
 
 ## Unsupported-schema rules
 
-An unsupported or malformed stamped schema blocks supported evidence only when the row can first attach to the same canonical game without interpreting its statistical fields.
+An unsupported or malformed stamped schema blocks supported siblings from the **canonical CFBD game id alone** — the row associates by id and its statistical fields are never interpreted, so blocking does **not** require participant resolution.
 
-Blocking requires all of:
+Blocking requires:
 
-- agreement with the requested weekly partition;
-- a positive provider ID matching an expected canonical game;
-- safely extractable and resolved participants; and
-- participant agreement in an allowed orientation.
+- agreement with the requested weekly partition; and
+- a positive provider ID matching the expected canonical game (unsupported-version / malformed-v2 / a schema-2 row whose observation fence is missing or invalid).
 
-When all conditions hold:
+When these hold:
 
 - classify the game as `blocked-unsupported-schema`;
 - do not fall back to a legacy or supported-v2 sibling; and
 - do not classify the game as automatically recoverable.
 
-The row remains unmatched or quarantined, and does not block valid evidence, when:
+The unsupported row does **not** block, and is treated as unassociated, only when:
 
-- its provider ID is unscheduled;
-- its participants mismatch the scheduled pair;
-- either participant is absent, malformed, unresolved, or a placeholder;
-- its row-level partition fields contradict the requested partition; or
-- it otherwise cannot attach confidently.
+- its provider ID is unscheduled (matches no expected canonical game); or
+- its row-level partition fields contradict the requested partition.
 
-Provider ID alone never grants blocking authority. If schedule or identity context is unavailable, report coverage as unavailable rather than treating the row as unmatched. A schema-2 row with an invalid or missing observation fence is also blocked; other supported but incomplete rows remain recoverable.
+Participant absence, malformedness, or non-resolution does **not** exempt an unsupported row from blocking — the id is sufficient. If schedule or identity context is unavailable, report coverage as unavailable rather than treating the row as unmatched. Other supported-but-incomplete rows (sparse v2 with a valid fence) remain recoverable.
 
 ## Neutral-site rules
 
 ### Attachment decision
 
-- Prefer direct orientation when both resolved sides match the canonical home and away participants.
-- Reject reversed orientation for non-neutral games.
-- For a neutral game, accept reversal only when direct orientation fails and the reversed resolved pair matches exactly.
-- Reject missing, unresolved, same-identity, or otherwise ambiguous pairs rather than guessing.
+- Prefer direct orientation when both fully-resolved sides match the canonical home and away participants (integrity `verified`).
+- An exact reversed pair (both sides fully resolved, matching the reversed canonical pair) is reoriented for **neutral or non-neutral** games; neutral reversal is `verified`, non-neutral reversal retains a `reversed-warning` integrity flag.
+- When a canonical or row participant does not fully resolve, the id still associates the row: it attaches in its stored orientation, marked `unverified`, and no reorientation is guessed from partial information.
+- A **fully-resolved** pair matching neither the direct nor the reversed canonical pair (including a same-identity row pair) is a known contradiction: quarantine it (`contradicted`); it never satisfies, publishes, or shadows prior-good evidence.
 
 ### Reorientation behavior
 
@@ -233,16 +255,15 @@ Incoming observations must be oriented before duplicate comparison. Existing rev
 - Schedule, catalog, alias, and canonical-build failures remain unavailable rather than absence.
 - Arbitrary provider labels cannot create identity authority.
 
-### Participant attachment and orientation
+### Association, orientation, and integrity
 
-- Matching provider ID and canonical participants attach.
+- Matching provider ID with fully-resolved matching participants attaches, `verified`.
 - Alias-resolved participants attach through `teamIdentity.ts`.
-- Unscheduled IDs do not attach.
-- Correct provider ID with wrong participants does not attach.
-- Unresolved provider or canonical participants do not attach.
-- Reversed non-neutral observations are rejected.
-- Reversed neutral observations are accepted only after complete canonical reorientation.
-- Every listed team-side field moves with its team and every game-level field remains unchanged.
+- Unscheduled IDs do not associate; a row whose own partition disagrees is unassociated.
+- Correct provider ID with a fully-resolved WRONG pair is quarantined (`contradicted`) → identity-mismatch, never coverage.
+- An unresolved row or canonical participant stays attached, marked `unverified`, and may satisfy/publish with the caveat surfaced.
+- Reversed non-neutral observations are reoriented with a `reversed-warning`; reversed neutral observations are reoriented, `verified`.
+- Reorientation happens only for an exact reversed pair; every listed team-side field moves with its team and every game-level field remains unchanged.
 - Existing reversed legacy rows can be oriented without durable mutation.
 
 ### Evidence authority
@@ -260,26 +281,26 @@ Incoming observations must be oriented before duplicate comparison. Existing rev
 
 ### Unsupported schema
 
-- A participant-matching unsupported row blocks a valid supported sibling.
-- The same provider ID with mismatched participants does not block.
-- Unscheduled unsupported rows remain unmatched.
-- Unsupported rows with unresolved participants remain quarantined.
+- A same-id unsupported row blocks a valid supported sibling.
+- The same provider ID blocks regardless of participant resolution — mismatched OR unresolved participants still block (id authority).
+- An unsupported row in the wrong partition (or with an unscheduled id) does not block and is unassociated.
 - Identity-context failure makes coverage unavailable.
-- Provider ID alone never grants blocking authority.
+- A schema-2 row with a missing/invalid observation fence blocks.
 
 ### Coverage and projection
 
 - Missing expected games are absent.
 - Mixed satisfied and missing games produce partial coverage.
-- Wrong-participant evidence produces an identity-mismatch gap.
+- A fully-resolved participant contradiction produces an identity-mismatch gap and is quarantined.
+- An unresolved-participant row still satisfies (id authority) and is flagged `unverified` in the coverage/availability report.
 - Divergent authoritative duplicates produce a duplicate-conflict gap.
 - Matching unsupported schema produces a blocked gap.
 - Pending games do not produce gaps.
 - Unmatched stored rows never count as coverage.
-- A canonical participant change invalidates stale stored coverage.
+- A canonical participant change to a fully-resolved conflicting pair invalidates stale stored coverage (quarantined).
 - Every coverage-satisfied game appears in the public projection.
 - Sparse public rows remain marked incomplete and are excluded from analytics.
-- Public projection removes internal metadata and unrecognized raw categories.
+- Public projection removes internal metadata and unrecognized raw categories; integrity/quarantine surface only as availability counts.
 - Malformed envelopes, read failures, partition mismatches, and genuine absence remain distinct.
 
 ### Dormancy and verification

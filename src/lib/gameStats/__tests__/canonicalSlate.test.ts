@@ -165,16 +165,19 @@ test('canonical slate: placeholder postseason game is deferred, never expected',
   assert.equal(partition.expected.length, 0);
 });
 
-test('canonical slate: a half-set postseason shell (one team + one TBD) is a deferred placeholder', () => {
+test('canonical slate: a half-set postseason shell (one team + one TBD) is EXPECTED, away unresolved', () => {
   const slate = build([
-    // One known team, one TBD slot → buildScheduleFromApi leaves isPlaceholder
-    // false, but the matchup is not fully set, so it must defer (not vanish).
+    // One known team + one TBD slot → buildScheduleFromApi leaves isPlaceholder
+    // false. Under the CFBD-id authority model, participant settledness governs a
+    // stored row's integrity, NOT whether the game is expected — so the
+    // addressable game is expected with an unresolved (null) away participant, and
+    // a durable row attaches as `unverified` (see evidenceAuthority tests).
     scheduleItem({
       id: '8100',
       week: 1,
       home: 'Alpha State',
       away: 'TBD Opponent',
-      status: 'scheduled',
+      status: 'final',
       seasonType: 'postseason',
       gamePhase: 'postseason',
       postseasonSubtype: 'bowl',
@@ -183,16 +186,16 @@ test('canonical slate: a half-set postseason shell (one team + one TBD) is a def
   ]);
   const game = bySlateId(slate.games, 8100);
   assert.ok(game);
-  assert.equal(game!.applicability, 'not-expected');
-  assert.equal(game!.notExpectedReason, 'placeholder');
-  // It is reported as a deferred placeholder — present in exactly one report.
+  assert.equal(game!.applicability, 'expected');
+  assert.equal(game!.notExpectedReason, null);
+  assert.equal(game!.home?.identityKey, IDENTITY_KEYS['Alpha State']);
+  assert.equal(game!.away, null); // TBD slot → unresolved canonical participant
   const partition = selectCanonicalPartition(slate, 1, 'postseason');
-  assert.equal(partition.expected.length, 0);
-  assert.equal(partition.pending.length, 0);
   assert.deepEqual(
-    partition.deferredPlaceholders.map((g) => g.providerGameId),
+    partition.expected.map((g) => g.providerGameId),
     [8100]
   );
+  assert.equal(partition.deferredPlaceholders.length, 0);
 });
 
 test('canonical slate: malformed non-decimal schedule ids are not addressable', () => {

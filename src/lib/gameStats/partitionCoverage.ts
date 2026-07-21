@@ -9,6 +9,8 @@ import {
 import {
   selectGameEvidence,
   type EvidenceDecision,
+  type EvidenceIntegrity,
+  type QuarantinedCandidate,
   type RejectedCandidate,
   type ShadowedCandidate,
 } from './evidenceAuthority.ts';
@@ -21,10 +23,11 @@ import type { GameStats, WeeklyGameStats } from './types.ts';
  * Evaluates coverage for one provider partition from the SUPPLIED committed
  * durable weekly record (never a provider response or an unconfirmed write
  * result) against the canonical slate. Every expected game resolves to exactly
- * one typed state via the shared evidence authority; unscheduled and
- * participant-mismatched rows are retained as separate reports and never count
- * as coverage. When the schedule/identity context is unavailable, coverage is
- * unavailable rather than fabricated absence.
+ * one typed state via the shared evidence authority. Rows associate by the
+ * canonical CFBD game id; unscheduled ids, quarantined participant
+ * contradictions, and rows whose own partition disagrees are retained as
+ * separate reports and never count as coverage. When the schedule/identity
+ * context is unavailable, coverage is unavailable rather than fabricated absence.
  */
 
 export type PartitionCoverageState =
@@ -53,9 +56,13 @@ export type PartitionCoverage = {
   deferredPlaceholders: CanonicalGame[];
   /** Stored provider ids not present anywhere in this partition's schedule. */
   unmatchedStoredIds: number[];
-  /** Candidate rows for expected games that failed to attach. */
-  participantMismatches: RejectedCandidate[];
-  /** Lower-precedence attached candidates the winners shadowed. */
+  /** Associated rows quarantined for a known participant contradiction. */
+  quarantined: QuarantinedCandidate[];
+  /** Associated candidate rows whose OWN partition fields disagree. */
+  unassociated: RejectedCandidate[];
+  /** Satisfied/incomplete games whose winner's participants were not fully verified. */
+  integrityWarnings: { providerGameId: number; integrity: EvidenceIntegrity }[];
+  /** Lower-precedence usable candidates the winners shadowed. */
   shadowed: ShadowedCandidate[];
   /** Expected games whose top evidence class diverged irreconcilably. */
   duplicateConflicts: number[];
@@ -71,6 +78,12 @@ function sortedUnique(ids: number[]): number[] {
 
 function sortRejected(rejected: RejectedCandidate[]): RejectedCandidate[] {
   return [...rejected].sort(
+    (a, b) => a.providerGameId - b.providerGameId || a.reason.localeCompare(b.reason)
+  );
+}
+
+function sortQuarantined(quarantined: QuarantinedCandidate[]): QuarantinedCandidate[] {
+  return [...quarantined].sort(
     (a, b) => a.providerGameId - b.providerGameId || a.reason.localeCompare(b.reason)
   );
 }
@@ -132,7 +145,9 @@ export function evaluatePartitionCoverage(
   }
 
   const games: GameCoverage[] = [];
-  const participantMismatches: RejectedCandidate[] = [];
+  const quarantined: QuarantinedCandidate[] = [];
+  const unassociated: RejectedCandidate[] = [];
+  const integrityWarnings: { providerGameId: number; integrity: EvidenceIntegrity }[] = [];
   const shadowed: ShadowedCandidate[] = [];
   const duplicateConflicts: number[] = [];
 
@@ -145,8 +160,17 @@ export function evaluatePartitionCoverage(
       seasonRelation
     );
     games.push({ game, decision });
-    participantMismatches.push(...decision.rejected);
+    quarantined.push(...decision.quarantined);
+    unassociated.push(...decision.rejected);
     shadowed.push(...decision.shadowed);
+    // A published (satisfied/incomplete) winner whose participants were not fully
+    // verified is surfaced so consumers can see the usability caveat.
+    if (decision.selected && decision.integrity && decision.integrity !== 'verified') {
+      integrityWarnings.push({
+        providerGameId: game.providerGameId,
+        integrity: decision.integrity,
+      });
+    }
     if (decision.state === 'duplicate-conflict') duplicateConflicts.push(game.providerGameId);
   }
 
@@ -161,7 +185,9 @@ export function evaluatePartitionCoverage(
     pending: partition.pending,
     deferredPlaceholders: partition.deferredPlaceholders,
     unmatchedStoredIds: sortedUnique(unmatchedStoredIds),
-    participantMismatches: sortRejected(participantMismatches),
+    quarantined: sortQuarantined(quarantined),
+    unassociated: sortRejected(unassociated),
+    integrityWarnings: integrityWarnings.sort((a, b) => a.providerGameId - b.providerGameId),
     shadowed,
     duplicateConflicts: sortedUnique(duplicateConflicts),
   };

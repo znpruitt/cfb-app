@@ -84,6 +84,12 @@ export type PublicAvailability = {
   blocked: number;
   manualOnly: number;
   pending: number;
+  /** Published games whose winner's participants were not fully verified. */
+  unverified: number;
+  /** Published games whose winner is a reoriented non-neutral reversal. */
+  reversedWarning: number;
+  /** Associated rows quarantined for a known participant contradiction. */
+  quarantined: number;
   /** Games published on the wire (satisfied + incomplete). */
   published: number;
 };
@@ -181,6 +187,10 @@ function buildAvailability(coverage: PartitionCoverage, published: number): Publ
     blocked: count('blocked-unsupported-schema'),
     manualOnly: count('manual-only'),
     pending: coverage.pending.length,
+    unverified: coverage.integrityWarnings.filter((w) => w.integrity === 'unverified').length,
+    reversedWarning: coverage.integrityWarnings.filter((w) => w.integrity === 'reversed-warning')
+      .length,
+    quarantined: coverage.quarantined.length,
     published,
   };
 }

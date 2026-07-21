@@ -12,18 +12,34 @@ import type { GameStats, TeamGameStats } from './types.ts';
  * PLATFORM-086H3C1 — the single, schedule-aware, row-level evidence authority
  * (DORMANT).
  *
- * For one expected canonical game plus its candidate durable rows, this decides
- * exactly ONE outcome: the selected canonically oriented row and its provenance,
- * or a typed conflict / blocker, plus any shadowed lower-precedence candidates
- * and the rows that failed to attach. Committed coverage, public projection, and
- * analytics projection all consume THIS decision — there is no second read-side
- * duplicate authority (the former `selectAnalyticsRows` was removed).
+ * Authority model (PLATFORM-086H3C1-CFBD-ID-AUTHORITY-REVISION-v1): a UNIQUE
+ * canonical CFBD game id establishes WHICH scheduled game a row belongs to
+ * (association). Participant data determines ORIENTATION and INTEGRITY; it is
+ * NOT a coequal attachment authority. Concretely, for one expected canonical
+ * game and its candidate durable rows (all sharing the game's provider id):
+ *   - a same-partition unsupported / malformed / bad-fence schema BLOCKS weaker
+ *     siblings from its id alone — no participant resolution required;
+ *   - a supported row whose participants cannot be fully verified stays attached
+ *     but is marked `unverified` (the id still associates it);
+ *   - a supported row whose fully-resolved participants provably disagree with
+ *     the canonical pair is QUARANTINED (`contradicted`): it can never satisfy
+ *     coverage, publish, or shadow/replace prior-good evidence;
+ *   - an EXACT reversed pair is safely reoriented for neutral OR non-neutral
+ *     games, with a retained integrity warning on non-neutral reversal.
+ * The decision therefore distinguishes three axes — association (by id),
+ * orientation (direct/reversed), and usability/integrity (verified / unverified
+ * / reversed-warning / contradicted).
  *
- * Selection order (per the C1 handoff doc):
- *   1. validate candidate partition identity, provider id, and participants;
- *   2. canonically orient attachable candidates (reversal only for neutral games);
- *   3. apply matching unsupported/malformed-schema (and bad-v2-fence) blockers;
- *   4. rank interpretable candidates by sufficiency
+ * Committed coverage, public projection, and analytics projection all consume
+ * THIS decision — there is no second read-side duplicate authority (the former
+ * `selectAnalyticsRows` was removed).
+ *
+ * Selection order:
+ *   1. confirm partition agreement (association is the game's own id + partition);
+ *   2. apply unsupported/malformed/bad-fence schema blockers by id (no participants);
+ *   3. orient supported rows and assess integrity (verified/unverified/
+ *      reversed-warning/contradicted); quarantine contradictions;
+ *   4. rank usable candidates by sufficiency
  *      (complete v2 > compatible legacy > sparse v2 > defective);
  *   5. apply freshness ONLY among v2 candidates in the same sufficiency class.
  *
@@ -39,17 +55,19 @@ export type EvidenceSufficiency = 'v2-complete' | 'legacy-compatible' | 'v2-spar
 /** Provenance of a SELECTED row (defective classes never win). */
 export type EvidenceProvenance = 'v2-complete' | 'legacy-compatible' | 'v2-sparse';
 
+/** How thoroughly a USABLE (non-quarantined) row's participants were validated. */
+export type EvidenceIntegrity = 'verified' | 'unverified' | 'reversed-warning';
+
+/** The orientation a usable row was attached in. */
+export type EvidenceOrientation = 'direct' | 'reversed';
+
 export type EvidenceBlockReason =
   | 'unsupported-schema-version'
   | 'malformed-schema-version'
   | 'v2-fence-missing-or-invalid';
 
-export type EvidenceCandidateRejection =
-  | 'partition-mismatch'
-  | 'participant-unresolved'
-  | 'participant-mismatch'
-  | 'reversed-non-neutral'
-  | 'ambiguous-identity';
+/** A row that never ASSOCIATED with the game (its own partition disagrees). */
+export type EvidenceCandidateRejection = 'partition-mismatch';
 
 /**
  * Per-game evidence state. These names are exactly the per-game coverage states,
@@ -70,6 +88,12 @@ export type ShadowedCandidate = {
   fence: string | null;
 };
 
+/** An associated row whose fully-resolved participants contradict the canonical pair. */
+export type QuarantinedCandidate = {
+  providerGameId: number;
+  reason: 'participant-contradiction';
+};
+
 export type RejectedCandidate = {
   providerGameId: number;
   reason: EvidenceCandidateRejection;
@@ -82,11 +106,17 @@ export type EvidenceDecision = {
   provenance: EvidenceProvenance | null;
   /** Canonically oriented winner; set only for satisfied / incomplete. */
   selected: GameStats | null;
+  /** Participant-validation integrity of the winner; null when there is none. */
+  integrity: EvidenceIntegrity | null;
+  /** Orientation of the winner; null when there is none. */
+  orientation: EvidenceOrientation | null;
   /** Set only for `blocked-unsupported-schema`; sorted + deduplicated. */
   blockers: EvidenceBlockReason[];
-  /** Lower-precedence attached candidates the winner shadowed. */
+  /** Lower-precedence usable candidates the winner shadowed. */
   shadowed: ShadowedCandidate[];
-  /** Rows for this provider id that did not attach. */
+  /** Associated rows quarantined for a known participant contradiction. */
+  quarantined: QuarantinedCandidate[];
+  /** Rows for this provider id that never associated (partition disagreement). */
   rejected: RejectedCandidate[];
 };
 
@@ -214,11 +244,11 @@ export function evidenceEquivalent(a: GameStats, b: GameStats): boolean {
   return canonicalJson(publishableFingerprint(a)) === canonicalJson(publishableFingerprint(b));
 }
 
-// === Candidate classification ===
+// === Schema classification (participant-independent) ===
 
-type CandidateKind =
+type SchemaKind =
   | { kind: 'blocker'; reason: EvidenceBlockReason }
-  | { kind: 'attached'; sufficiency: EvidenceSufficiency; fenceMs: number | null };
+  | { kind: 'supported'; sufficiency: EvidenceSufficiency; fenceMs: number | null };
 
 function schemaVersionIs2(row: GameStats): boolean {
   const record = row as unknown as Record<string, unknown>;
@@ -227,63 +257,121 @@ function schemaVersionIs2(row: GameStats): boolean {
   );
 }
 
-function classifyCandidateKind(orientedRow: GameStats): CandidateKind {
-  const state = classifyGameStatsRow(orientedRow).state;
+/**
+ * Classify a row by SCHEMA alone — orientation-independent (`classifyGameStatsRow`
+ * is symmetric across sides) and participant-independent, so a blocker is decided
+ * from the game's id + schema without resolving any participant.
+ */
+function schemaKind(row: GameStats): SchemaKind {
+  const state = classifyGameStatsRow(row).state;
   if (state === 'unsupported-version')
     return { kind: 'blocker', reason: 'unsupported-schema-version' };
   if (state === 'malformed-v2') return { kind: 'blocker', reason: 'malformed-schema-version' };
 
-  if (schemaVersionIs2(orientedRow)) {
+  if (schemaVersionIs2(row)) {
     // A schema-2 row that cannot be ordered by a valid fence is blocked — it
     // cannot be safely ranked against or overwritten by a sibling.
     const fenceMs = parseObservationFenceMs(
-      (orientedRow as unknown as Record<string, unknown>).fetchStartedAt
+      (row as unknown as Record<string, unknown>).fetchStartedAt
     );
     if (fenceMs === null) return { kind: 'blocker', reason: 'v2-fence-missing-or-invalid' };
     const sufficiency: EvidenceSufficiency =
       state === 'v2-complete' ? 'v2-complete' : state === 'v2-sparse' ? 'v2-sparse' : 'defective';
-    return { kind: 'attached', sufficiency, fenceMs };
+    return { kind: 'supported', sufficiency, fenceMs };
   }
 
   // Legacy row (no schema version): no row-level freshness.
   const sufficiency: EvidenceSufficiency =
     state === 'legacy-compatible' ? 'legacy-compatible' : 'defective';
-  return { kind: 'attached', sufficiency, fenceMs: null };
+  return { kind: 'supported', sufficiency, fenceMs: null };
 }
 
-// === Attachment (participant validation + orientation) ===
+// === Orientation + integrity (participants govern these, not attachment) ===
 
-type AttachOutcome =
-  | { ok: true; orientedRow: GameStats }
-  | { ok: false; reason: EvidenceCandidateRejection };
+type OrientationOutcome = {
+  orientedRow: GameStats;
+  orientation: EvidenceOrientation;
+  integrity: EvidenceIntegrity | 'contradicted';
+};
 
-function attachCandidate(
+/**
+ * Orient a supported, id-associated row and assess its participant integrity.
+ *
+ * A CONTRADICTION requires positive proof — BOTH canonical participants and BOTH
+ * row participants fully resolved, and the resolved pair matches neither the
+ * direct nor the reversed canonical pair. Anything less (a canonical or row
+ * participant that does not resolve) cannot prove a contradiction, so the row
+ * stays attached as `unverified` in its stored orientation. An exact reversed
+ * pair is reoriented for neutral or non-neutral games; non-neutral reversal keeps
+ * an integrity warning.
+ */
+function orientAndAssess(
   row: GameStats,
   game: CanonicalGame,
   resolveKey: ResolveParticipantKey
-): AttachOutcome {
-  // Row-level partition fields must agree with the requested partition.
-  if (row.week !== game.providerWeek || row.seasonType !== game.seasonType) {
-    return { ok: false, reason: 'partition-mismatch' };
-  }
+): OrientationOutcome {
   const homeKey = resolveKey(asRecord(row.home)?.school);
   const awayKey = resolveKey(asRecord(row.away)?.school);
-  if (homeKey === null || awayKey === null) return { ok: false, reason: 'participant-unresolved' };
-  if (homeKey === awayKey) return { ok: false, reason: 'ambiguous-identity' };
+  const canonicalHome = game.home?.identityKey ?? null;
+  const canonicalAway = game.away?.identityKey ?? null;
 
-  const canonicalHome = game.home!.identityKey;
-  const canonicalAway = game.away!.identityKey;
-  const direct = homeKey === canonicalHome && awayKey === canonicalAway;
-  if (direct) return { ok: true, orientedRow: row };
-
-  const reversed = homeKey === canonicalAway && awayKey === canonicalHome;
-  if (reversed) {
-    // Reversal is accepted ONLY for neutral games, and only after full
-    // canonical reorientation.
-    if (!game.neutral) return { ok: false, reason: 'reversed-non-neutral' };
-    return { ok: true, orientedRow: reorientRow(row) };
+  const fullyResolved =
+    canonicalHome !== null && canonicalAway !== null && homeKey !== null && awayKey !== null;
+  if (fullyResolved) {
+    if (homeKey === canonicalHome && awayKey === canonicalAway) {
+      return { orientedRow: row, orientation: 'direct', integrity: 'verified' };
+    }
+    if (homeKey === canonicalAway && awayKey === canonicalHome) {
+      return {
+        orientedRow: reorientRow(row),
+        orientation: 'reversed',
+        integrity: game.neutral ? 'verified' : 'reversed-warning',
+      };
+    }
+    // Both pairs fully known and neither orientation matches → known contradiction.
+    return { orientedRow: row, orientation: 'direct', integrity: 'contradicted' };
   }
-  return { ok: false, reason: 'participant-mismatch' };
+  // Not enough resolved to prove agreement OR contradiction: the id still
+  // associates the row; validation is simply unverified.
+  return { orientedRow: row, orientation: 'direct', integrity: 'unverified' };
+}
+
+// === Per-candidate assessment (association → block / usable / quarantine) ===
+
+type CandidateAssessment =
+  | { kind: 'unassociated'; reason: EvidenceCandidateRejection }
+  | { kind: 'blocker'; reason: EvidenceBlockReason }
+  | { kind: 'contradicted' }
+  | { kind: 'usable'; candidate: UsableCandidate };
+
+function assessCandidate(
+  row: GameStats,
+  game: CanonicalGame,
+  resolveKey: ResolveParticipantKey
+): CandidateAssessment {
+  // Association is the game's own id (already matched by the caller) PLUS
+  // partition agreement — a row whose own partition fields disagree belongs to a
+  // different scheduled context and never associates here.
+  if (row.week !== game.providerWeek || row.seasonType !== game.seasonType) {
+    return { kind: 'unassociated', reason: 'partition-mismatch' };
+  }
+
+  // Blocking is by id + schema, WITHOUT participant resolution.
+  const schema = schemaKind(row);
+  if (schema.kind === 'blocker') return { kind: 'blocker', reason: schema.reason };
+
+  const oriented = orientAndAssess(row, game, resolveKey);
+  if (oriented.integrity === 'contradicted') return { kind: 'contradicted' };
+  return {
+    kind: 'usable',
+    candidate: {
+      orientedRow: oriented.orientedRow,
+      orientation: oriented.orientation,
+      integrity: oriented.integrity,
+      sufficiency: schema.sufficiency,
+      fenceMs: schema.fenceMs,
+    },
+  };
 }
 
 // === Winner selection ===
@@ -295,13 +383,15 @@ const SUFFICIENCY_RANK: Record<EvidenceSufficiency, number> = {
   defective: 3,
 };
 
-type AttachedCandidate = {
+type UsableCandidate = {
   orientedRow: GameStats;
+  orientation: EvidenceOrientation;
+  integrity: EvidenceIntegrity;
   sufficiency: EvidenceSufficiency;
   fenceMs: number | null;
 };
 
-function shadow(providerGameId: number, candidate: AttachedCandidate): ShadowedCandidate {
+function shadow(providerGameId: number, candidate: UsableCandidate): ShadowedCandidate {
   return {
     providerGameId,
     source: candidate.sufficiency,
@@ -311,7 +401,8 @@ function shadow(providerGameId: number, candidate: AttachedCandidate): ShadowedC
 
 function decide(
   providerGameId: number,
-  attached: AttachedCandidate[],
+  usable: UsableCandidate[],
+  quarantined: QuarantinedCandidate[],
   rejected: RejectedCandidate[],
   seasonRelation: SeasonRelation
 ): EvidenceDecision {
@@ -319,42 +410,44 @@ function decide(
     providerGameId,
     provenance: null,
     selected: null,
+    integrity: null,
+    orientation: null,
     blockers: [],
     shadowed: [],
+    quarantined,
     rejected,
   };
 
-  if (attached.length === 0) {
-    // A row that failed to attach on IDENTITY (not merely partition) means
-    // evidence exists for this game id but its participants disagree.
-    const identityIssue = rejected.some((r) => r.reason !== 'partition-mismatch');
-    return { ...base, state: identityIssue ? 'identity-mismatch' : 'absent' };
+  if (usable.length === 0) {
+    // No usable evidence. An associated row that was QUARANTINED (a known
+    // participant contradiction) means evidence exists for this game id but its
+    // participants provably disagree → identity-mismatch; otherwise absent.
+    return { ...base, state: quarantined.length > 0 ? 'identity-mismatch' : 'absent' };
   }
 
-  const topRank = Math.min(...attached.map((c) => SUFFICIENCY_RANK[c.sufficiency]));
-  const topClass = attached.find((c) => SUFFICIENCY_RANK[c.sufficiency] === topRank)!.sufficiency;
-  const lower = attached.filter((c) => c.sufficiency !== topClass);
+  const topRank = Math.min(...usable.map((c) => SUFFICIENCY_RANK[c.sufficiency]));
+  const topClass = usable.find((c) => SUFFICIENCY_RANK[c.sufficiency] === topRank)!.sufficiency;
+  const lower = usable.filter((c) => c.sufficiency !== topClass);
 
   if (topClass === 'defective') {
-    // Attached but only defective/ineligible evidence. Season relation decides
-    // the disposition (mirroring `evaluateGameStatsRow`): a CURRENT-season
-    // defective row is recoverable — a refetch fills the gap — so it reads as a
-    // plain `absent` gap; a HISTORICAL defective row cannot be auto-recovered and
-    // is the terminal `manual-only` state that compatibility policy reserves.
+    // Usable-but-defective evidence only. Season relation decides the disposition
+    // (mirroring `evaluateGameStatsRow`): a CURRENT-season defective row is
+    // recoverable — a refetch fills the gap — so it reads as a plain `absent`
+    // gap; a HISTORICAL defective row cannot be auto-recovered and is the terminal
+    // `manual-only` state that compatibility policy reserves.
     return {
       ...base,
       state: seasonRelation === 'current' ? 'absent' : 'manual-only',
     };
   }
 
-  const top = attached.filter((c) => c.sufficiency === topClass);
+  const top = usable.filter((c) => c.sufficiency === topClass);
   const provenance = topClass as EvidenceProvenance;
   const isV2Class = topClass === 'v2-complete' || topClass === 'v2-sparse';
 
   // Freshness applies ONLY among v2 candidates in the same sufficiency class.
-  const contenders = isV2Class
-    ? top.filter((c) => c.fenceMs === Math.max(...top.map((t) => t.fenceMs ?? -Infinity)))
-    : top;
+  const newestFenceMs = isV2Class ? Math.max(...top.map((c) => c.fenceMs ?? -Infinity)) : -Infinity;
+  const contenders = isV2Class ? top.filter((c) => c.fenceMs === newestFenceMs) : top;
   // Older-fence same-class v2 candidates are shadowed by the fresher evidence.
   const olderSameClass = isV2Class ? top.filter((c) => !contenders.includes(c)) : [];
 
@@ -380,6 +473,8 @@ function decide(
     state: topClass === 'v2-sparse' ? 'incomplete' : 'satisfied',
     provenance,
     selected: winner.orientedRow,
+    integrity: winner.integrity,
+    orientation: winner.orientation,
     shadowed,
   };
 }
@@ -397,7 +492,8 @@ export function selectGameEvidence(
 ): EvidenceDecision {
   const providerGameId = game.providerGameId;
   const blockers: EvidenceBlockReason[] = [];
-  const attached: AttachedCandidate[] = [];
+  const usable: UsableCandidate[] = [];
+  const quarantined: QuarantinedCandidate[] = [];
   const rejected: RejectedCandidate[] = [];
 
   for (const row of candidateRows) {
@@ -405,34 +501,34 @@ export function selectGameEvidence(
     if (!record || !isValidProviderGameId(record.providerGameId)) continue;
     if (record.providerGameId !== providerGameId) continue;
 
-    const outcome = attachCandidate(row, game, resolveKey);
-    if (!outcome.ok) {
-      rejected.push({ providerGameId, reason: outcome.reason });
-      continue;
+    const assessment = assessCandidate(row, game, resolveKey);
+    if (assessment.kind === 'unassociated') {
+      rejected.push({ providerGameId, reason: assessment.reason });
+    } else if (assessment.kind === 'blocker') {
+      blockers.push(assessment.reason);
+    } else if (assessment.kind === 'contradicted') {
+      quarantined.push({ providerGameId, reason: 'participant-contradiction' });
+    } else {
+      usable.push(assessment.candidate);
     }
-    const kind = classifyCandidateKind(outcome.orientedRow);
-    if (kind.kind === 'blocker') blockers.push(kind.reason);
-    else
-      attached.push({
-        orientedRow: outcome.orientedRow,
-        sufficiency: kind.sufficiency,
-        fenceMs: kind.fenceMs,
-      });
   }
 
-  // A matching, attachable unsupported/malformed/bad-fence row blocks the game
-  // and never falls back to a legacy or supported-v2 sibling.
+  // A matching same-id unsupported/malformed/bad-fence row blocks the game — by
+  // id alone, no participant resolution — and never falls back to a sibling.
   if (blockers.length > 0) {
     return {
       providerGameId,
       state: 'blocked-unsupported-schema',
       provenance: null,
       selected: null,
+      integrity: null,
+      orientation: null,
       blockers: Array.from(new Set(blockers)).sort(),
       shadowed: [],
+      quarantined,
       rejected,
     };
   }
 
-  return decide(providerGameId, attached, rejected, seasonRelation);
+  return decide(providerGameId, usable, quarantined, rejected, seasonRelation);
 }
