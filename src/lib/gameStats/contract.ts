@@ -836,76 +836,14 @@ export function toAnalyticsGameStats(row: unknown): AnalyticsGameStats | null {
   };
 }
 
-function analyticsTeamsEqual(a: AnalyticsTeamStats, b: AnalyticsTeamStats): boolean {
-  return (
-    a.school === b.school &&
-    a.points === b.points &&
-    a.totalYards === b.totalYards &&
-    a.rushingYards === b.rushingYards &&
-    a.passingYards === b.passingYards &&
-    a.turnovers === b.turnovers &&
-    a.thirdDownConversions === b.thirdDownConversions &&
-    a.thirdDownAttempts === b.thirdDownAttempts &&
-    a.possessionSeconds === b.possessionSeconds
-  );
-}
-
-function analyticsProjectionsEqual(a: AnalyticsGameStats, b: AnalyticsGameStats): boolean {
-  return analyticsTeamsEqual(a.home, b.home) && analyticsTeamsEqual(a.away, b.away);
-}
-
-export type AnalyticsRowConflict = {
-  providerGameId: number;
-  reason: 'conflicting-projections';
-  candidateCount: number;
-};
-
-export type AnalyticsRowSelection = {
-  selected: AnalyticsGameStats[];
-  conflicts: AnalyticsRowConflict[];
-};
-
-/**
- * Deterministic duplicate-game selection over an aggregation scope: at most one
- * eligible projection per provider game id.
- *
- * Precedence: eligible v2 > eligible legacy > no eligible row. Within the
- * preferred class, structurally identical projections count once; conflicting
- * projections EXCLUDE the game (reported as a conflict) — array order never
- * decides, and a conflicted preferred class never falls back to the weaker one
- * (the conflict is evidence the data cannot be trusted either way). The
- * 2021–2025 inventory found zero duplicate game ids; this is defensive rollout
- * protection, not a live repair path.
- */
-export function selectAnalyticsRows(rows: readonly unknown[]): AnalyticsRowSelection {
-  const byGame = new Map<number, AnalyticsGameStats[]>();
-  const order: number[] = [];
-  for (const row of rows) {
-    const projection = toAnalyticsGameStats(row);
-    if (!projection) continue;
-    const existing = byGame.get(projection.providerGameId);
-    if (existing) existing.push(projection);
-    else {
-      byGame.set(projection.providerGameId, [projection]);
-      order.push(projection.providerGameId);
-    }
-  }
-
-  const selected: AnalyticsGameStats[] = [];
-  const conflicts: AnalyticsRowConflict[] = [];
-  for (const providerGameId of order) {
-    const candidates = byGame.get(providerGameId)!;
-    const v2Candidates = candidates.filter((c) => c.source === 'v2');
-    const preferred = v2Candidates.length > 0 ? v2Candidates : candidates;
-    const allIdentical = preferred.every((c) => analyticsProjectionsEqual(c, preferred[0]!));
-    if (allIdentical) selected.push(preferred[0]!);
-    else {
-      conflicts.push({
-        providerGameId,
-        reason: 'conflicting-projections',
-        candidateCount: preferred.length,
-      });
-    }
-  }
-  return { selected, conflicts };
-}
+// Duplicate-game winner selection and conflict detection are NO LONGER owned
+// here (PLATFORM-086H3C1). A context-free `selectAnalyticsRows` over a bag of
+// rows was a SECOND read-side duplicate authority; it is removed so exactly one
+// schedule-aware evidence authority (`evidenceAuthority.ts`) decides the winner
+// and conflicts for every read-side consumer. Analytics is now projection-only:
+// it consumes the authority's already-selected, canonically oriented row through
+// `toAnalyticsGameStats` (see `publicProjection.ts`), and never re-selects
+// duplicates. Analytics equivalence deliberately does NOT gate the authority's
+// winner selection — a difference in any explicit public field must not be
+// hidden by analytics-only equivalence, so the authority compares the broader
+// publishable row content instead.

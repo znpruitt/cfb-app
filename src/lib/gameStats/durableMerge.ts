@@ -7,6 +7,7 @@ import {
   type ParsedV2TeamObservation,
 } from './contract.ts';
 import { getGameStatsKey } from './cache.ts';
+import { canonicalObservationFence, parseObservationFenceMs } from './observationFence.ts';
 import {
   AppStateKeyLockAcquireError,
   AppStateTxnCleanupError,
@@ -179,36 +180,11 @@ function structurallyEqual(a: unknown, b: unknown): boolean {
 
 // === Strict RFC 3339 observation fences ===
 
-// Full date + time + seconds (optional fraction) + explicit Z or numeric
-// offset. Date-only strings, locale formats, month names, bare numbers, and
-// zone-less timestamps are all rejected structurally; calendar and offset
-// components are validated EXPLICITLY because `Date.parse` leniently rolls
-// over impossible days-of-month (e.g. Feb 30 → Mar 1) instead of failing.
-const RFC3339_DATE_TIME =
-  /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?([Zz]|[+-]\d{2}:\d{2})$/;
-
-function parseFenceMs(value: unknown): number | null {
-  if (typeof value !== 'string') return null;
-  const match = RFC3339_DATE_TIME.exec(value);
-  if (!match) return null;
-  const [, year, month, day, hour, minute, second, offset] = match;
-  const monthNum = Number(month);
-  if (monthNum < 1 || monthNum > 12) return null;
-  const daysInMonth = new Date(Date.UTC(Number(year), monthNum, 0)).getUTCDate();
-  if (Number(day) < 1 || Number(day) > daysInMonth) return null;
-  if (Number(hour) > 23 || Number(minute) > 59 || Number(second) > 59) return null;
-  if (offset !== 'Z' && offset !== 'z') {
-    const [offsetHours, offsetMinutes] = offset!.slice(1).split(':');
-    if (Number(offsetHours) > 23 || Number(offsetMinutes) > 59) return null;
-  }
-  const ms = Date.parse(value);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-/** Canonical UTC ISO form used for all persisted fences. */
-function canonicalFence(ms: number): string {
-  return new Date(ms).toISOString();
-}
+// The single strict RFC 3339 fence parser lives in `observationFence.ts` and is
+// shared with the C1 evidence authority (there is exactly one freshness parser).
+// These thin aliases keep the merge decision-table code below unchanged.
+const parseFenceMs = parseObservationFenceMs;
+const canonicalFence = canonicalObservationFence;
 
 // === Pure per-game merge ===
 

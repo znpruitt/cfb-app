@@ -16,7 +16,6 @@ import {
   isValidPointsValue,
   parseCategoryValue,
   parseV2GameObservation,
-  selectAnalyticsRows,
   toAnalyticsGameStats,
 } from '../contract.ts';
 import {
@@ -646,62 +645,9 @@ test('toAnalyticsGameStats: strict evidence in, null for everything ineligible',
   }
 });
 
-// === Deterministic duplicate selection ===
-
-test('selectAnalyticsRows: v2 over legacy, identical once, conflicts excluded, order-free', () => {
-  const id = 401_000_050;
-  const legacy = completeLegacyRow(id);
-  const legacyTwin = completeLegacyRow(id);
-  const legacyConflict = legacyRowVariant(id);
-  const v2 = v2RowLike({ id });
-
-  // Eligible v2 beats an eligible legacy duplicate — counted once, from v2.
-  const preferV2 = selectAnalyticsRows([legacy, v2]);
-  assert.equal(preferV2.selected.length, 1);
-  assert.equal(preferV2.selected[0]!.source, 'v2');
-  assert.deepEqual(preferV2.conflicts, []);
-
-  // Identical same-class duplicates count once.
-  const identical = selectAnalyticsRows([legacy, legacyTwin]);
-  assert.equal(identical.selected.length, 1);
-  assert.deepEqual(identical.conflicts, []);
-
-  // Conflicting projections exclude the game and surface a conflict record.
-  const conflicted = selectAnalyticsRows([legacy, legacyConflict]);
-  assert.equal(conflicted.selected.length, 0);
-  assert.deepEqual(conflicted.conflicts, [
-    { providerGameId: id, reason: 'conflicting-projections', candidateCount: 2 },
-  ]);
-
-  // A conflicted PREFERRED class never falls back to the weaker class.
-  const v2Conflict = v2RowLike({ id, homeOverrides: { points: 14 } });
-  const v2ClassConflict = selectAnalyticsRows([legacy, v2, v2Conflict]);
-  assert.equal(v2ClassConflict.selected.length, 0);
-  assert.equal(v2ClassConflict.conflicts.length, 1);
-
-  // Array order never decides the outcome.
-  const forward = selectAnalyticsRows([legacy, v2, completeLegacyRow(999_001)]);
-  const backward = selectAnalyticsRows([completeLegacyRow(999_001), v2, legacy]);
-  assert.deepEqual(
-    forward.selected.map((g) => [g.providerGameId, g.source]).sort(),
-    backward.selected.map((g) => [g.providerGameId, g.source]).sort()
-  );
-
-  // Ineligible rows never participate in selection.
-  const withNoise = selectAnalyticsRows([legacy, statlessLegacyRow(id)]);
-  assert.equal(withNoise.selected.length, 1);
-  assert.equal(withNoise.selected[0]!.source, 'legacy');
-});
-
-/** Same game id, different eligible stat line — a conflicting duplicate. */
-function legacyRowVariant(id: number) {
-  const row = completeLegacyRow(id);
-  return {
-    ...row,
-    home: {
-      ...row.home,
-      totalYards: 500,
-      raw: { ...row.home.raw, totalYards: '500' },
-    },
-  };
-}
+// Deterministic duplicate-game selection moved to the schedule-aware evidence
+// authority (PLATFORM-086H3C1). The former context-free `selectAnalyticsRows`
+// was removed as a second read-side duplicate authority; its winner-selection
+// and conflict behavior is now covered by `evidenceAuthority.test.ts`. The
+// projection-only `toAnalyticsGameStats` above remains the single analytics view
+// of one already-selected row.
