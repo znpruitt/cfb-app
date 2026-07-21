@@ -165,6 +165,57 @@ test('canonical slate: placeholder postseason game is deferred, never expected',
   assert.equal(partition.expected.length, 0);
 });
 
+test('canonical slate: a half-set postseason shell (one team + one TBD) is a deferred placeholder', () => {
+  const slate = build([
+    // One known team, one TBD slot → buildScheduleFromApi leaves isPlaceholder
+    // false, but the matchup is not fully set, so it must defer (not vanish).
+    scheduleItem({
+      id: '8100',
+      week: 1,
+      home: 'Alpha State',
+      away: 'TBD Opponent',
+      status: 'scheduled',
+      seasonType: 'postseason',
+      gamePhase: 'postseason',
+      postseasonSubtype: 'bowl',
+      eventKey: 'kappa-bowl',
+    }),
+  ]);
+  const game = bySlateId(slate.games, 8100);
+  assert.ok(game);
+  assert.equal(game!.applicability, 'not-expected');
+  assert.equal(game!.notExpectedReason, 'placeholder');
+  // It is reported as a deferred placeholder — present in exactly one report.
+  const partition = selectCanonicalPartition(slate, 1, 'postseason');
+  assert.equal(partition.expected.length, 0);
+  assert.equal(partition.pending.length, 0);
+  assert.deepEqual(
+    partition.deferredPlaceholders.map((g) => g.providerGameId),
+    [8100]
+  );
+});
+
+test('canonical slate: malformed non-decimal schedule ids are not addressable', () => {
+  const slate = build([
+    scheduleItem({ id: '5001', week: 3, home: 'Alpha State', away: 'Beta Tech', status: 'final' }),
+    // `Number('1e3')` would coerce to 1000; a digits-only grammar rejects it so it
+    // can never attach a durable row for an unrelated numeric game.
+    scheduleItem({
+      id: '1e3',
+      week: 3,
+      home: 'Gamma A&M',
+      away: 'Delta University',
+      status: 'final',
+    }),
+  ]);
+  assert.ok(bySlateId(slate.games, 5001));
+  assert.equal(bySlateId(slate.games, 1000), undefined);
+  assert.equal(
+    slate.games.some((g) => g.providerGameId === 1000),
+    false
+  );
+});
+
 test('canonical slate: arbitrary provider labels never gain identity authority', () => {
   const slate = build([
     scheduleItem({ id: '9001', week: 3, home: 'Alpha State', away: 'Beta Tech', status: 'final' }),
@@ -257,6 +308,38 @@ test('loadCanonicalGameStatsSlate: aggregate and partition-only layouts produce 
   assert.ok(summarize(aggregate.slate.games).some((g) => g.id === 4101));
 
   // Leave the shared stores clean for any non-isolated runner.
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  __resetTeamDatabaseStoreForTests();
+  await __deleteTeamDatabaseStoreFileForTests();
+});
+
+test('loadCanonicalGameStatsSlate: an empty team catalog is unavailable context, not valid absence', async () => {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  __resetTeamDatabaseStoreForTests();
+  await __deleteTeamDatabaseStoreFileForTests();
+
+  await setAppState('schedule', '2025-all-all', {
+    items: [
+      scheduleItem({
+        id: '4201',
+        week: 3,
+        home: 'Alpha State',
+        away: 'Beta Tech',
+        status: 'final',
+      }),
+    ],
+  });
+  // Durable catalog present but EMPTY — getTeamDatabaseItems() returns [] without
+  // throwing, so an available slate would authorize attachment with no catalog
+  // authority. The loader must reject it as catalog-load-failed.
+  await setTeamDatabaseFile({ items: [] } as never);
+
+  const result = await loadCanonicalGameStatsSlate({ year: 2025, now: NOW });
+  assert.equal(result.status, 'unavailable');
+  if (result.status === 'unavailable') assert.equal(result.reason, 'catalog-load-failed');
+
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
   __resetTeamDatabaseStoreForTests();

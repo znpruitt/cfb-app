@@ -47,7 +47,7 @@ const G2_SPARSE = v2Row({
 });
 
 function project(read: Parameters<typeof projectPublicPartition>[3]): PublicProjectionResult {
-  return projectPublicPartition(SLATE, 3, 'regular', read);
+  return projectPublicPartition(SLATE, 3, 'regular', read, 'current');
 }
 
 // === Envelope validation (distinct outcomes) ===
@@ -98,7 +98,8 @@ test('envelope: an unavailable slate context is distinct from every envelope out
     { status: 'unavailable', reason: 'schedule-load-failed' },
     3,
     'regular',
-    { status: 'ok', value: weeklyRecord(3, 'regular', []) }
+    { status: 'ok', value: weeklyRecord(3, 'regular', []) },
+    'current'
   );
   assert.equal(result.status, 'context-unavailable');
 });
@@ -157,7 +158,8 @@ test('analytics projection: only complete/legacy satisfied rows; sparse excluded
     slateOf([G1, G2]),
     3,
     'regular',
-    weeklyRecord(3, 'regular', [G1_COMPLETE, G2_SPARSE])
+    weeklyRecord(3, 'regular', [G1_COMPLETE, G2_SPARSE]),
+    'current'
   );
   const analytics = projectAnalyticsPartition(coverage);
   assert.equal(analytics.length, 1);
@@ -172,7 +174,8 @@ test('analytics projection: an absent-coverage partition projects nothing', () =
     slateOf([G1, G2]),
     3,
     'regular',
-    weeklyRecord(3, 'regular', [])
+    weeklyRecord(3, 'regular', []),
+    'current'
   );
   assert.deepEqual(projectAnalyticsPartition(coverage), []);
 });

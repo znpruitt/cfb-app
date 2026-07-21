@@ -2,6 +2,7 @@ import {
   RECOGNIZED_GAME_STAT_CATEGORIES,
   classifyGameStatsRow,
   isValidProviderGameId,
+  type SeasonRelation,
 } from './contract.ts';
 import { canonicalObservationFence, parseObservationFenceMs } from './observationFence.ts';
 import type { CanonicalGame } from './canonicalSlate.ts';
@@ -311,7 +312,8 @@ function shadow(providerGameId: number, candidate: AttachedCandidate): ShadowedC
 function decide(
   providerGameId: number,
   attached: AttachedCandidate[],
-  rejected: RejectedCandidate[]
+  rejected: RejectedCandidate[],
+  seasonRelation: SeasonRelation
 ): EvidenceDecision {
   const base = {
     providerGameId,
@@ -334,9 +336,15 @@ function decide(
   const lower = attached.filter((c) => c.sufficiency !== topClass);
 
   if (topClass === 'defective') {
-    // Attached but only defective/ineligible evidence — never satisfies, never a
-    // clean gap; historical-compatibility policy resolves it out of band.
-    return { ...base, state: 'manual-only' };
+    // Attached but only defective/ineligible evidence. Season relation decides
+    // the disposition (mirroring `evaluateGameStatsRow`): a CURRENT-season
+    // defective row is recoverable — a refetch fills the gap — so it reads as a
+    // plain `absent` gap; a HISTORICAL defective row cannot be auto-recovered and
+    // is the terminal `manual-only` state that compatibility policy reserves.
+    return {
+      ...base,
+      state: seasonRelation === 'current' ? 'absent' : 'manual-only',
+    };
   }
 
   const top = attached.filter((c) => c.sufficiency === topClass);
@@ -384,7 +392,8 @@ function decide(
 export function selectGameEvidence(
   game: CanonicalGame,
   candidateRows: readonly GameStats[],
-  resolveKey: ResolveParticipantKey
+  resolveKey: ResolveParticipantKey,
+  seasonRelation: SeasonRelation
 ): EvidenceDecision {
   const providerGameId = game.providerGameId;
   const blockers: EvidenceBlockReason[] = [];
@@ -425,5 +434,5 @@ export function selectGameEvidence(
     };
   }
 
-  return decide(providerGameId, attached, rejected);
+  return decide(providerGameId, attached, rejected, seasonRelation);
 }

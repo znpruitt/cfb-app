@@ -3,6 +3,7 @@ import {
   RECOGNIZED_GAME_STAT_CATEGORIES,
   toAnalyticsGameStats,
   type AnalyticsGameStats,
+  type SeasonRelation,
 } from './contract.ts';
 import { parseObservationFenceMs } from './observationFence.ts';
 import type { CanonicalSlateResult, CanonicalSlateUnavailableReason } from './canonicalSlate.ts';
@@ -254,7 +255,8 @@ export function projectPublicPartition(
   slateResult: CanonicalSlateResult,
   week: number,
   seasonType: CfbdSeasonType,
-  read: DurableReadOutcome
+  read: DurableReadOutcome,
+  seasonRelation: SeasonRelation
 ): PublicProjectionResult {
   if (slateResult.status === 'unavailable') {
     return { status: 'context-unavailable', reason: slateResult.reason };
@@ -268,7 +270,8 @@ export function projectPublicPartition(
     slateResult.slate,
     week,
     seasonType,
-    validation.record
+    validation.record,
+    seasonRelation
   );
   return {
     status: 'available',

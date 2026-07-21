@@ -8,6 +8,7 @@ import {
 } from '../partitionCoverage.ts';
 import { canonicalGame, legacyRow, slateOf, v2Row, weeklyRecord } from './c1Fixtures.ts';
 import { legacyRowFromWire, wireGame } from './fixtures.ts';
+import type { SeasonRelation } from '../contract.ts';
 import type { GameStats } from '../types.ts';
 
 const G1 = canonicalGame({ providerGameId: 100, home: 'Alpha State', away: 'Beta Tech', week: 3 });
@@ -30,8 +31,18 @@ function completeFor(game: typeof G1, home: [string, number], away: [string, num
 const G1_COMPLETE = completeFor(G1, ['Alpha State', 101], ['Beta Tech', 202]);
 const G2_COMPLETE = completeFor(G2, ['Gamma A&M', 303], ['Delta University', 404]);
 
-function coverageOf(games: (typeof G1)[], rows: GameStats[]) {
-  return evaluatePartitionCoverage(slateOf(games), 3, 'regular', weeklyRecord(3, 'regular', rows));
+function coverageOf(
+  games: (typeof G1)[],
+  rows: GameStats[],
+  seasonRelation: SeasonRelation = 'current'
+) {
+  return evaluatePartitionCoverage(
+    slateOf(games),
+    3,
+    'regular',
+    weeklyRecord(3, 'regular', rows),
+    seasonRelation
+  );
 }
 
 function gameState(coverage: { games: GameCoverage[] }, id: number): string | undefined {
@@ -132,14 +143,19 @@ test('coverage: participant-matching unsupported schema → blocked gap → part
   assert.equal(coverage.state, 'blocked');
 });
 
-test('coverage: only defective evidence → manual-only gap → partition manual-only', () => {
+test('coverage: only defective evidence → season-relative (historical manual-only, current absent)', () => {
   const defective = legacyRowFromWire(
     wireGame({ id: 100, home: { statOverrides: { totalYards: 'xx' } } }),
     3
   );
-  const coverage = coverageOf([G1], [defective]);
-  assert.equal(gameState(coverage, 100), 'manual-only');
-  assert.equal(coverage.state, 'manual-only');
+  // Historical: terminal manual-only gap → partition manual-only.
+  const historical = coverageOf([G1], [defective], 'historical');
+  assert.equal(gameState(historical, 100), 'manual-only');
+  assert.equal(historical.state, 'manual-only');
+  // Current: recoverable → plain absent gap → partition absent.
+  const current = coverageOf([G1], [defective], 'current');
+  assert.equal(gameState(current, 100), 'absent');
+  assert.equal(current.state, 'absent');
 });
 
 test('coverage: unscheduled stored rows are reported unmatched, never coverage', () => {
@@ -190,14 +206,15 @@ test('coverage: unavailable slate context → coverage unavailable (never fabric
     { status: 'unavailable', reason: 'catalog-load-failed' },
     3,
     'regular',
-    weeklyRecord(3, 'regular', [])
+    weeklyRecord(3, 'regular', []),
+    'current'
   );
   assert.equal(result.status, 'unavailable');
   if (result.status === 'unavailable') assert.equal(result.reason, 'catalog-load-failed');
 });
 
 test('coverage: a null durable record leaves every expected game absent', () => {
-  const coverage = evaluatePartitionCoverage(slateOf([G1, G2]), 3, 'regular', null);
+  const coverage = evaluatePartitionCoverage(slateOf([G1, G2]), 3, 'regular', null, 'current');
   assert.equal(coverage.state, 'absent');
   assert.equal(coverage.games.length, 2);
 });

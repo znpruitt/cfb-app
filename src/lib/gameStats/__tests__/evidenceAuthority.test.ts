@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { toAnalyticsGameStats } from '../contract.ts';
+import { toAnalyticsGameStats, type SeasonRelation } from '../contract.ts';
 import { evidenceEquivalent, reorientRow, selectGameEvidence } from '../evidenceAuthority.ts';
 import type { GameStats } from '../types.ts';
 import { IDENTITY_KEYS, canonicalGame, legacyRow, mapResolveKey, v2Row } from './c1Fixtures.ts';
@@ -25,8 +25,8 @@ function legacyBase(id = 100): GameStats {
   return legacyRowFromWire(wireGame({ id }), 3);
 }
 
-function decide(game: typeof GAME, rows: GameStats[]) {
-  return selectGameEvidence(game, rows, RESOLVE);
+function decide(game: typeof GAME, rows: GameStats[], seasonRelation: SeasonRelation = 'current') {
+  return selectGameEvidence(game, rows, RESOLVE, seasonRelation);
 }
 
 // === Attachment + orientation ===
@@ -386,13 +386,18 @@ test('unsupported schema: unresolved participants keep an unsupported row quaran
   assert.equal(d.rejected[0]?.reason, 'participant-unresolved');
 });
 
-test('manual-only: attached but only defective evidence (no complete/legacy/sparse, no blocker)', () => {
+test('defective-only evidence: recoverable (absent) for current season, manual-only for historical', () => {
   // A legacy row whose required category is malformed → legacy-malformed → defective.
   const defective = legacyRowFromWire(
     wireGame({ id: 100, home: { statOverrides: { totalYards: 'not-a-number' } } }),
     3
   );
-  const d = decide(GAME, [defective]);
-  assert.equal(d.state, 'manual-only');
-  assert.equal(d.selected, null);
+  // Current season: a refetch can still fill the gap → recoverable `absent`.
+  const current = decide(GAME, [defective], 'current');
+  assert.equal(current.state, 'absent');
+  assert.equal(current.selected, null);
+  // Historical season: not auto-recoverable → terminal `manual-only`.
+  const historical = decide(GAME, [defective], 'historical');
+  assert.equal(historical.state, 'manual-only');
+  assert.equal(historical.selected, null);
 });

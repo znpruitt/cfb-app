@@ -12,7 +12,7 @@ import {
   type RejectedCandidate,
   type ShadowedCandidate,
 } from './evidenceAuthority.ts';
-import { isValidProviderGameId } from './contract.ts';
+import { isValidProviderGameId, type SeasonRelation } from './contract.ts';
 import type { GameStats, WeeklyGameStats } from './types.ts';
 
 /**
@@ -116,7 +116,8 @@ export function evaluatePartitionCoverage(
   slate: CanonicalSlate,
   week: number,
   seasonType: CfbdSeasonType,
-  record: WeeklyGameStats | null
+  record: WeeklyGameStats | null,
+  seasonRelation: SeasonRelation
 ): PartitionCoverage {
   const partition = selectCanonicalPartition(slate, week, seasonType);
   const rowsById = groupRowsById(record);
@@ -137,7 +138,12 @@ export function evaluatePartitionCoverage(
 
   for (const game of partition.expected) {
     const candidates = rowsById.get(game.providerGameId) ?? [];
-    const decision = selectGameEvidence(game, candidates, slate.resolveStoredParticipantKey);
+    const decision = selectGameEvidence(
+      game,
+      candidates,
+      slate.resolveStoredParticipantKey,
+      seasonRelation
+    );
     games.push({ game, decision });
     participantMismatches.push(...decision.rejected);
     shadowed.push(...decision.shadowed);
@@ -169,13 +175,20 @@ export function evaluatePartitionCoverageFromResult(
   slateResult: CanonicalSlateResult,
   week: number,
   seasonType: CfbdSeasonType,
-  record: WeeklyGameStats | null
+  record: WeeklyGameStats | null,
+  seasonRelation: SeasonRelation
 ): PartitionCoverageResult {
   if (slateResult.status === 'unavailable') {
     return { status: 'unavailable', reason: slateResult.reason };
   }
   return {
     status: 'available',
-    coverage: evaluatePartitionCoverage(slateResult.slate, week, seasonType, record),
+    coverage: evaluatePartitionCoverage(
+      slateResult.slate,
+      week,
+      seasonType,
+      record,
+      seasonRelation
+    ),
   };
 }

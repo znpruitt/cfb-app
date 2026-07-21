@@ -111,9 +111,17 @@ function scheduleSeasonType(item: ScheduleWireItem | undefined): CfbdSeasonType 
   return item?.seasonType === 'postseason' ? 'postseason' : 'regular';
 }
 
+// CFBD schedule ids are plain decimal-digit strings. A digits-only grammar
+// (applied to the trimmed value) rejects JavaScript numeric forms `Number`
+// would otherwise coerce — `"1e3"`, `"0x10"`, `"+16"`, `"12.0"` — so a malformed
+// cached id can never masquerade as an unrelated numeric provider game id.
+const DECIMAL_PROVIDER_ID = /^\d+$/;
+
 function toProviderGameId(raw: string | null): number | null {
   if (typeof raw !== 'string') return null;
-  const parsed = Number(raw);
+  const trimmed = raw.trim();
+  if (!DECIMAL_PROVIDER_ID.test(trimmed)) return null;
+  const parsed = Number(trimmed);
   return isValidProviderGameId(parsed) ? parsed : null;
 }
 
@@ -176,13 +184,21 @@ function classifyApplicability(input: {
   if (game.isPlaceholder) {
     return { applicability: 'not-expected', notExpectedReason: 'placeholder' };
   }
+  // A non-team participant slot (a TBD placeholder or a winner/loser-derived
+  // slot) means the matchup is not fully set, even when the OTHER side is a
+  // known team — `buildScheduleFromApi` leaves `isPlaceholder` false for such a
+  // half-set postseason shell. Defer it as a placeholder so it is reported in
+  // `deferredPlaceholders` rather than vanishing from every partition report.
+  if (game.participants.home.kind !== 'team' || game.participants.away.kind !== 'team') {
+    return { applicability: 'not-expected', notExpectedReason: 'placeholder' };
+  }
   // Disrupted (canceled/postponed/suspended/delayed) games never produce stats.
   if (isDisruptedStatusLabel(rawStatus)) {
     return { applicability: 'not-expected', notExpectedReason: 'disrupted' };
   }
-  // A game whose canonical participants cannot both be resolved (or collapse to
-  // one identity) cannot have its evidence validated, so it is not an expected
-  // gap; it is surfaced as a distinct not-expected reason instead.
+  // Both sides are team slots, but at least one does not resolve to a distinct
+  // canonical identity, so the game's evidence cannot be validated — a distinct
+  // not-expected reason from a deferred placeholder.
   if (!home || !away || home.identityKey === away.identityKey) {
     return { applicability: 'not-expected', notExpectedReason: 'unresolved-participants' };
   }
@@ -285,6 +301,15 @@ export async function loadCanonicalGameStatsSlate(input: {
   try {
     teams = await getTeamDatabaseItems();
   } catch {
+    return { status: 'unavailable', reason: 'catalog-load-failed' };
+  }
+  // The team catalog is a REQUIRED identity authority. `getTeamDatabaseItems`
+  // returns an empty array (rather than throwing) when the durable record holds
+  // `items: []` or the bundled fallback cannot be read/parsed — an empty catalog
+  // would let `buildScheduleFromApi` seed identity from schedule labels and
+  // conference inference alone, authorizing attachment without catalog authority.
+  // Treat it as unavailable context, never valid absence.
+  if (teams.length === 0) {
     return { status: 'unavailable', reason: 'catalog-load-failed' };
   }
 
