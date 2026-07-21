@@ -1,71 +1,46 @@
-// Only the applied-repair function is used in this module's BODY (to build the
-// dry-run-only wrapper). The safe read/validation APIs are re-exported below
-// without being referenced here.
-import {
-  repairRevisionState,
-  type RevisionRepairRequest,
-  type RevisionRepairResult,
-} from './revisionRepair.ts';
-
 /**
  * PLATFORM-086H3B — narrow administrator INSPECTION facade
- * (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION).
+ * (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION /
+ * PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION).
  *
  * The admin revision route is the one sanctioned production connection to the
- * dormant revision authority. It must reach ONLY the approved B-stage
- * capabilities — authenticated inspection, typed audit retrieval, and DRY-RUN
- * repair planning — and must NEVER acquire an applied-repair or any other
- * lifecycle-mutation capability. The route imports its revision capabilities
- * EXCLUSIVELY through this facade (never `revisionRepair` directly), so the
- * applied-repair function (`repairRevisionState`) is not a route-reachable
- * binding at all.
+ * dormant revision authority. It reaches ONLY the approved B-stage capabilities —
+ * authenticated inspection, typed audit retrieval, and DRY-RUN repair planning —
+ * and must NEVER acquire an applied-repair or any other lifecycle-mutation
+ * capability. The route imports its revision capabilities EXCLUSIVELY through this
+ * facade.
+ *
+ * This facade has NO runtime dependency on the applied-repair service. It imports
+ * EVERYTHING from the MUTATION-FREE planner (`revisionRepairPlanning.ts`), which
+ * never writes app state, never opens an app-state transaction, and has no import
+ * path to `repairRevisionState`. So `planRevisionRepair`/`inspectRevisionState`/
+ * `readRevisionAuditTrail` cannot transitively reach a mutation capability — there
+ * is no local alias, wrapper, or side-effect import that could conceal one (the
+ * parser-backed guard resolves aliases/wrappers and rejects side-effect imports).
  *
  * Export surface (verified by the dormant-boundary guard — no more, no less):
- *   - `inspectRevisionState`   — read-only inspection (re-exported).
+ *   - `inspectRevisionState`   — read-only inspection (re-exported from the planner).
  *   - `readRevisionAuditTrail` — typed audit availability (re-exported).
  *   - `isCfbdSeasonType`       — request validation predicate (re-exported).
- *   - `planRevisionRepair`     — DRY-RUN-ONLY repair planning (defined here).
+ *   - `planRevisionRepair`     — DRY-RUN-only planning (re-exported; mutation-free).
  *   - approved request/result/inspection/audit TYPES (type-only).
- *
- * This facade DOES import the applied-repair function internally to build the
- * dry-run plan, but it does NOT re-export it — `planRevisionRepair` forces
- * `dryRun: true`, so no caller of this facade can execute an applied repair.
- * The guard enforces that this export surface never silently expands to a
- * mutation capability (directly, via alias, or through a barrel/re-export).
  */
 
-// Read-only inspection + typed audit + request validation — safe to expose.
+// Read-only inspection + typed audit + request validation + DRY-RUN-only planning —
+// all mutation-free, from the planner. NONE reaches the applied-repair service.
 export {
   inspectRevisionState,
   isCfbdSeasonType,
+  planRevisionRepair,
   readRevisionAuditTrail,
-} from './revisionRepair.ts';
+} from './revisionRepairPlanning.ts';
 
 // Approved types for request/response shaping. Types carry no runtime capability.
 export type {
   RevisionRepairAction,
+  RevisionRepairDryRunRequest,
   RevisionInspection,
   RevisionInspectionUnavailable,
   RevisionAuditRead,
   RevisionRepairResult,
-} from './revisionRepair.ts';
-
-/**
- * A repair-planning request WITHOUT the `dryRun` flag: the facade always plans
- * (dry-run) and can never be asked to apply, so the flag is not part of the
- * admin-route surface.
- */
-export type RevisionRepairDryRunRequest = Omit<RevisionRepairRequest, 'dryRun'>;
-
-/**
- * Build a DRY-RUN repair plan (validate + CAS + shape a plan) WITHOUT ever
- * executing an applied repair. `dryRun: true` is forced here — it cannot be
- * overridden by the caller (the request type omits the flag, and the explicit
- * `true` wins over any spread), so this facade exposes zero applied-repair
- * capability. Returns the same typed result as an inspection-time plan.
- */
-export async function planRevisionRepair(
-  request: RevisionRepairDryRunRequest
-): Promise<RevisionRepairResult> {
-  return repairRevisionState({ ...request, dryRun: true });
-}
+} from './revisionRepairPlanning.ts';

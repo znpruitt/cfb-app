@@ -13,6 +13,7 @@ import { legacyRowFromWire, wireGame } from './fixtures.ts';
 import {
   ADMIN_ROUTE_PATH,
   INSPECTION_FACADE_PATH,
+  INSPECTION_PLANNER_PATH,
   analyzeAdminRouteCapabilities,
   analyzeInspectionFacadeSurface,
 } from './dormantBoundaryParser.ts';
@@ -67,14 +68,23 @@ const EXCLUDED_FILES = new Set([
   'src/lib/gameStats/durableMerge.ts',
   'src/lib/gameStats/revisionAuthority.ts',
   'src/lib/gameStats/revisionRepair.ts',
+  // PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION: the mutation-free
+  // dry-run planner is a dormant home (imports the H1 contract, defines lifecycle
+  // symbols). It is regex-exempt but STILL analyzed by the parser-backed facade
+  // graph (which reads it directly) to prove it is mutation-free and reaches no
+  // applied-repair capability.
+  'src/lib/gameStats/revisionRepairPlanning.ts',
 ]);
 
 // The sanctioned admin inspection surface: the ONE production connection to the
 // dormant revision authority (the admin route) and its narrow facade. These are
 // SCANNED (walked, and enforced by the parser-backed capability guard below), but
 // exempt from the coarse regex symbol/module scan because they legitimately name
-// approved inspection APIs and (for the facade) import the applied-repair function
-// internally to build a dry-run-only wrapper it never re-exports.
+// approved inspection APIs. PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION:
+// the facade now imports its dry-run planning EXCLUSIVELY from the mutation-free
+// planner (`revisionRepairPlanning.ts`, an excluded dormant home the parser reads
+// directly) — it has NO applied-repair dependency, and the parser traces its
+// wrappers/aliases + rejects side-effect imports.
 const SANCTIONED_ADMIN_SURFACE = new Set([ADMIN_ROUTE_PATH, INSPECTION_FACADE_PATH]);
 
 // PLATFORM-086H3B-ACTIVATION-DORMANCY-REMEDIATION: `activationControl.ts` is now
@@ -429,9 +439,10 @@ test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', (
     'src/lib/gameStats/contract.ts',
     'src/lib/gameStats/types.ts',
     'src/lib/gameStats/durableMerge.ts',
-    // PLATFORM-086H3B dormant homes.
+    // PLATFORM-086H3B dormant homes (incl. the mutation-free dry-run planner).
     'src/lib/gameStats/revisionAuthority.ts',
     'src/lib/gameStats/revisionRepair.ts',
+    'src/lib/gameStats/revisionRepairPlanning.ts',
   ]) {
     assert.ok(!set.has(home), `${home} must be an excluded dormant home`);
   }
@@ -669,6 +680,163 @@ test('parser guard: chronology-mutation and activation-transition APIs cannot en
     `import { setAppState } from '@/lib/server/appStateStore';`
   );
   assert.ok(appState.length > 0, 'generic app-state mutation must be rejected');
+});
+
+// ===========================================================================
+// PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION — side-effect imports
+// + local alias/wrapper resolution. The parser now traces guarded-facade function
+// bodies to the runtime capabilities they use, so an approved export NAME cannot
+// conceal a forbidden terminal behind an alias, wrapper, helper hop, namespace
+// member, side-effect import, or import-equals form.
+// ===========================================================================
+
+// A facade fixture reaching the applied-repair service (or another mutation owner).
+const facade = (src: string) => analyzeInspectionFacadeSurface(src, INSPECTION_FACADE_PATH);
+
+test('parser guard: the exact Codex ALIAS regression fails (planRevisionRepair = repairRevisionState)', () => {
+  const v = facade(
+    `import { repairRevisionState } from './revisionRepair.ts';\n` +
+      `export const planRevisionRepair = repairRevisionState;`
+  );
+  assert.ok(v.length > 0, 'a direct alias of applied repair must be a violation');
+});
+
+test('parser guard: the exact side-effect import regression fails (import ./revisionRepair)', () => {
+  const v = facade(`import './revisionRepair.ts';\nexport function planRevisionRepair() {}`);
+  assert.ok(
+    v.some((x) => x.reason.includes('side-effect')),
+    'a local side-effect import must be a violation'
+  );
+});
+
+test('parser guard: every local alias / wrapper / indirection form reaching a forbidden capability fails', () => {
+  const forms: Array<[string, string]> = [
+    [
+      'import-equals',
+      `import repair = require('./revisionRepair.ts');\nexport const planRevisionRepair = (r) => repair.repairRevisionState(r);`,
+    ],
+    [
+      'direct alias',
+      `import { repairRevisionState } from './revisionRepair.ts';\nexport const planRevisionRepair = repairRevisionState;`,
+    ],
+    [
+      'chained alias',
+      `import { repairRevisionState } from './revisionRepair.ts';\nconst a = repairRevisionState;\nconst b = a;\nexport { b as planRevisionRepair };`,
+    ],
+    [
+      'destructured alias',
+      `import { repairRevisionState as apply } from './revisionRepair.ts';\nexport const planRevisionRepair = (r) => apply(r);`,
+    ],
+    [
+      'direct wrapper function',
+      `import { repairRevisionState } from './revisionRepair.ts';\nexport function planRevisionRepair(r){ return repairRevisionState(r); }`,
+    ],
+    [
+      'arrow wrapper',
+      `import { repairRevisionState } from './revisionRepair.ts';\nexport const planRevisionRepair = (r) => repairRevisionState(r);`,
+    ],
+    [
+      'helper indirection',
+      `import { repairRevisionState } from './revisionRepair.ts';\nexport const planRevisionRepair = (r) => helper(r);\nfunction helper(r){ return repairRevisionState(r); }`,
+    ],
+    [
+      'multi-helper indirection',
+      `import { repairRevisionState } from './revisionRepair.ts';\nexport const planRevisionRepair = (r) => h1(r);\nfunction h1(r){ return h2(r); }\nfunction h2(r){ return repairRevisionState(r); }`,
+    ],
+    [
+      'namespace member wrapper',
+      `import * as rr from './revisionRepair.ts';\nexport const planRevisionRepair = (r) => rr.repairRevisionState(r);`,
+    ],
+    [
+      'transaction wrapper',
+      `import { withAppStateKeyTransaction } from '../server/appStateStore.ts';\nexport const planRevisionRepair = () => withAppStateKeyTransaction('a','b', async () => {});`,
+    ],
+    [
+      'app-state mutation',
+      `import { setAppState } from '../server/appStateStore.ts';\nexport const planRevisionRepair = () => setAppState('a','b',1);`,
+    ],
+  ];
+  for (const [label, src] of forms) {
+    assert.ok(facade(src).length > 0, `must fail: ${label}`);
+  }
+});
+
+test('parser guard: unresolved / computed capability access fails closed', () => {
+  // A local module import that cannot be resolved (fail closed).
+  const v = facade(
+    `import { planRevisionRepair as base } from './does-not-exist.ts';\nexport { base as planRevisionRepair };`
+  );
+  assert.ok(v.length > 0, 'an unresolved local capability must fail closed');
+});
+
+test('parser guard: an approved export NAME does not make a forbidden terminal safe', () => {
+  // `repairRevisionState` re-exported UNDER the approved name `planRevisionRepair`.
+  const v = facade(
+    `export { repairRevisionState as planRevisionRepair } from './revisionRepair.ts';`
+  );
+  assert.ok(v.length > 0, 'an approved-named re-export of applied repair must fail');
+});
+
+test('parser guard: a safe wrapper around the mutation-free planner is ALLOWED', () => {
+  const v = facade(
+    `import { planRevisionRepair as base, inspectRevisionState, readRevisionAuditTrail, isCfbdSeasonType } from './revisionRepairPlanning.ts';\n` +
+      `export const planRevisionRepair = (r) => base(r);\n` +
+      `export { inspectRevisionState, readRevisionAuditTrail, isCfbdSeasonType };`
+  );
+  assert.deepEqual(v, [], 'a wrapper over the mutation-free planner has no forbidden capability');
+});
+
+test('parser guard: a wrapper combining the safe planner with a forbidden side effect fails', () => {
+  const v = facade(
+    `import { planRevisionRepair as base } from './revisionRepairPlanning.ts';\n` +
+      `import { setAppState } from '../server/appStateStore.ts';\n` +
+      `export const planRevisionRepair = (r) => { setAppState('a','b',1); return base(r); };`
+  );
+  assert.ok(v.length > 0, 'a safe planner combined with a mutation must fail');
+});
+
+test('parser guard: a barrel cannot conceal the applied-repair service behind an approved local alias', () => {
+  const virtual = new Map<string, string>([
+    ['src/lib/gameStats/repairBarrel.ts', `export * from './revisionRepair.ts';`],
+  ]);
+  const v = analyzeInspectionFacadeSurface(
+    `import { repairRevisionState as planRevisionRepair } from './repairBarrel.ts';\n` +
+      `export { planRevisionRepair };`,
+    INSPECTION_FACADE_PATH,
+    virtual
+  );
+  assert.ok(v.length > 0, 'a barrel-concealed applied-repair alias must fail');
+});
+
+// Whether `src` NAMED-imports `symbol` (an `import { ... symbol ... } from '...'`
+// statement) — distinct from a mere docstring mention of the same word.
+const namedImports = (src: string, symbol: string): boolean =>
+  new RegExp(String.raw`import\s*(type\s*)?\{[^}]*\b${symbol}\b[^}]*\}\s*from`).test(src);
+
+test('parser guard: the REAL inspection facade has NO transitive applied-repair or app-state-mutation dependency', () => {
+  const facadeSrc = readFileSync(path.join(REPO_ROOT, INSPECTION_FACADE_PATH), 'utf8');
+  // Deep-trace (authoritative): every export resolves + its implementation is
+  // mutation-free — no applied-repair / transaction / mutation capability reached.
+  assert.deepEqual(analyzeInspectionFacadeSurface(facadeSrc), []);
+  // Source-level: the facade imports ONLY from the mutation-free planner (never the
+  // applied-repair service or an app-state mutation primitive).
+  assert.equal(
+    /from\s+['"][^'"]*\/revisionRepair\.ts['"]/.test(facadeSrc),
+    false,
+    'no applied-service import'
+  );
+  assert.equal(namedImports(facadeSrc, 'repairRevisionState'), false);
+  assert.equal(namedImports(facadeSrc, 'withAppStateKeyTransaction'), false);
+  assert.equal(namedImports(facadeSrc, 'setAppState'), false);
+});
+
+test('parser guard: the REAL planner exposes no mutation capability and imports no mutation owner', () => {
+  const planSrc = readFileSync(path.join(REPO_ROOT, INSPECTION_PLANNER_PATH), 'utf8');
+  // No mutation primitive is imported (only read-only getAppState + pure logic).
+  assert.equal(namedImports(planSrc, 'withAppStateKeyTransaction'), false, 'no transaction import');
+  assert.equal(namedImports(planSrc, 'setAppState'), false, 'no app-state write import');
+  assert.equal(namedImports(planSrc, 'repairRevisionState'), false, 'no applied-service import');
+  assert.ok(namedImports(planSrc, 'getAppState'), 'planner reads via read-only getAppState');
 });
 
 // === Behavioral writer assertions ===

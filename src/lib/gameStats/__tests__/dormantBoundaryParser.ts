@@ -17,6 +17,15 @@ import ts from 'typescript';
  * unresolved local import, a namespace/default/require/dynamic form, or a terminal
  * that is not on the explicit allowlist is a violation.
  *
+ * PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION: it additionally REJECTS
+ * local side-effect imports (`import './x'`) and import-equals
+ * (`import x = require('./y')`), and TRACES the guarded facade graph's exported
+ * function IMPLEMENTATIONS — local aliases (direct/chained/destructured), wrappers
+ * (declarations/arrows/expressions), one-or-more local helper hops, and namespace
+ * member access — to the runtime capabilities they use. An approved export NAME can
+ * no longer conceal a forbidden terminal (e.g. `repairRevisionState`,
+ * `withAppStateKeyTransaction`, `setAppState`) behind a wrapper.
+ *
  * Analysis is over source TEXT + a virtual file map, so fixtures can build
  * arbitrary module graphs without writing files; real modules fall back to disk.
  */
@@ -65,6 +74,33 @@ const FACADE_APPROVED_EXPORT_TERMINALS = new Set([
   'readRevisionAuditTrail',
   'isCfbdSeasonType',
   'planRevisionRepair',
+]);
+
+export const INSPECTION_PLANNER_PATH = 'src/lib/gameStats/revisionRepairPlanning.ts';
+
+// The GUARDED FACADE GRAPH: local modules whose exported-function IMPLEMENTATIONS
+// the parser traces (bounded — not whole-program) for concealed forbidden
+// capabilities. The facade + its mutation-free planner.
+const GUARDED_FACADE_MODULES = new Set([INSPECTION_FACADE_PATH, INSPECTION_PLANNER_PATH]);
+
+// Runtime capabilities the admin surface must NEVER reach — the app-state MUTATION
+// owners. Read-only helpers (e.g. `getAppState`) are intentionally NOT here; the
+// mutation-free planner legitimately READS. An approved export NAME never overrides
+// membership here — a forbidden terminal stays forbidden however it is reached.
+const FORBIDDEN_CAPABILITY_NAMES = new Set([
+  'repairRevisionState', // applied repair service
+  'withAppStateKeyTransaction', // app-state transaction (can mutate)
+  'setAppState', // app-state write
+  'mergeGameStatsPartitionRevisioned', // revisioned evidence write
+  'allocateGameStatsCommitStamp', // revision allocation
+  'setActivationState', // activation transition
+  'markRevisionedEvidenceCommitted', // evidence witness write
+  'setCachedGameStats', // legacy evidence write
+  'writeLegacyGameStatsPartition', // legacy evidence write
+  'beginGameStatsRefreshAttempt', // status chronology mutation
+  'recordGameStatsRefreshSuccess',
+  'recordGameStatsRefreshNoop',
+  'recordGameStatsRefreshFailure',
 ]);
 
 export type CapabilityViolation = { file: string; reason: string; detail: string };
@@ -360,6 +396,270 @@ function describeTerminal(t: Terminal): string {
   return t.detail;
 }
 
+// ---------------------------------------------------------------------------
+// Side-effect + import-equals import detection (local modules only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Local side-effect imports (`import './x'`) and TypeScript import-equals
+ * (`import x = require('./y')`) are runtime capability paths that bypass named
+ * analysis — reject them for any LOCAL specifier. External package side-effect
+ * imports are outside lifecycle analysis (the route/facade import no locals this way).
+ */
+function detectSideEffectAndEqualsImports(
+  sf: ts.SourceFile,
+  module: string,
+  virtual: Map<string, string>
+): CapabilityViolation[] {
+  const v: CapabilityViolation[] = [];
+  for (const stmt of sf.statements) {
+    // `import './x';` — an ImportDeclaration with NO import clause.
+    if (
+      ts.isImportDeclaration(stmt) &&
+      !stmt.importClause &&
+      ts.isStringLiteral(stmt.moduleSpecifier) &&
+      resolveSpecifier(module, stmt.moduleSpecifier.text, virtual) !== null
+    ) {
+      v.push({
+        file: module,
+        reason: 'local side-effect import',
+        detail: stmt.moduleSpecifier.text,
+      });
+    }
+    // `import x = require('./y');` — an ImportEqualsDeclaration with a require ref.
+    if (ts.isImportEqualsDeclaration(stmt)) {
+      const ref = stmt.moduleReference;
+      if (ts.isExternalModuleReference(ref) && ts.isStringLiteral(ref.expression)) {
+        if (resolveSpecifier(module, ref.expression.text, virtual) !== null) {
+          v.push({
+            file: module,
+            reason: 'import-equals of a local module',
+            detail: `${stmt.name.text} = require(${ref.expression.text})`,
+          });
+        }
+      } else {
+        // `import x = A.B` (entity-name) — a local capability alias; fail closed.
+        v.push({ file: module, reason: 'import-equals alias', detail: stmt.name.text });
+      }
+    }
+  }
+  return v;
+}
+
+// ---------------------------------------------------------------------------
+// Capability tracing: resolve local aliases + wrappers to runtime capabilities
+// ---------------------------------------------------------------------------
+
+/** A local runtime binding of `name` in `module`: an import, a local decl, or none. */
+type LocalImport = { specifier: string; original: string; isNamespace: boolean; typeOnly: boolean };
+function findImportBinding(sf: ts.SourceFile, localName: string): LocalImport | null {
+  for (const stmt of sf.statements) {
+    if (!ts.isImportDeclaration(stmt) || !stmt.importClause) continue;
+    if (!ts.isStringLiteral(stmt.moduleSpecifier)) continue;
+    const spec = stmt.moduleSpecifier.text;
+    const clause = stmt.importClause;
+    if (clause.name && clause.name.text === localName) {
+      return {
+        specifier: spec,
+        original: 'default',
+        isNamespace: false,
+        typeOnly: clause.isTypeOnly,
+      };
+    }
+    const nb = clause.namedBindings;
+    if (nb && ts.isNamespaceImport(nb) && nb.name.text === localName) {
+      return { specifier: spec, original: '*', isNamespace: true, typeOnly: clause.isTypeOnly };
+    }
+    if (nb && ts.isNamedImports(nb)) {
+      for (const el of nb.elements) {
+        if (el.name.text === localName) {
+          return {
+            specifier: spec,
+            original: el.propertyName?.text ?? el.name.text,
+            isNamespace: false,
+            typeOnly: clause.isTypeOnly || el.isTypeOnly,
+          };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+/** Whether a terminal is a forbidden runtime capability (by its de-aliased name). */
+function terminalForbidden(t: Terminal): boolean {
+  return (t.kind === 'value' || t.kind === 'default') && FORBIDDEN_CAPABILITY_NAMES.has(t.name);
+}
+
+/**
+ * Trace the runtime capabilities a NAME in a guarded module reaches — following
+ * local aliases (direct/chained/destructured), and wrapper functions (declarations,
+ * arrows, function expressions) through their bodies (direct/returned calls,
+ * namespace member access, one or more local helper hops). Resolves imported
+ * bindings to their terminal (a forbidden terminal is a violation); recurses into
+ * local functions/aliases within the guarded graph; fails closed on an unresolved
+ * local binding. Bounded: only guarded-module bodies are traced; non-guarded
+ * terminals are checked by name only.
+ */
+function collectForbiddenCapabilities(
+  module: string,
+  name: string,
+  virtual: Map<string, string>,
+  seen: Set<string> = new Set()
+): CapabilityViolation[] {
+  const key = `${module}#${name}`;
+  if (seen.has(key)) return [];
+  seen.add(key);
+  const text = readModule(module, virtual);
+  if (text === null) {
+    return [
+      { file: module, reason: 'unresolved binding (fail closed)', detail: `${name} in ${module}` },
+    ];
+  }
+  const sf = parse(module, text);
+
+  // 1. Imported binding → resolve to terminal.
+  const imp = findImportBinding(sf, name);
+  if (imp) {
+    if (imp.typeOnly) return []; // type-only carries no runtime capability
+    if (imp.isNamespace) return []; // namespace: capability decided at member-access sites
+    const resolved = resolveSpecifier(module, imp.specifier, virtual);
+    if (resolved === null) return []; // external package — outside analysis
+    const terminal = resolveExport(resolved, imp.original, virtual);
+    return checkResolvedTerminal(module, name, terminal, virtual, seen);
+  }
+
+  // 2. Local declaration.
+  for (const stmt of sf.statements) {
+    if (
+      (ts.isFunctionDeclaration(stmt) || ts.isClassDeclaration(stmt)) &&
+      stmt.name?.text === name
+    ) {
+      return analyzeImplementation(module, stmt, virtual, seen);
+    }
+    if (ts.isVariableStatement(stmt)) {
+      for (const decl of stmt.declarationList.declarations) {
+        if (ts.isIdentifier(decl.name) && decl.name.text === name && decl.initializer) {
+          return analyzeInitializer(module, decl.initializer, virtual, seen);
+        }
+      }
+    }
+  }
+  return []; // not a module-level binding (a parameter / local variable) — no capability
+}
+
+/** A resolved terminal: forbidden → violation; guarded local → recurse; else name check. */
+function checkResolvedTerminal(
+  module: string,
+  name: string,
+  terminal: Terminal,
+  virtual: Map<string, string>,
+  seen: Set<string>
+): CapabilityViolation[] {
+  if (terminal.kind === 'type') return [];
+  if (terminal.kind === 'unresolved') {
+    return [
+      {
+        file: module,
+        reason: 'unresolved capability (fail closed)',
+        detail: `${name}: ${terminal.detail}`,
+      },
+    ];
+  }
+  if (terminalForbidden(terminal)) {
+    return [
+      {
+        file: module,
+        reason: 'reaches a forbidden runtime capability',
+        detail: `${name} → ${describeTerminal(terminal)}`,
+      },
+    ];
+  }
+  if (terminal.kind === 'namespace') {
+    // A namespace of a local module — member access decides; conservatively OK here
+    // (a forbidden member would be flagged where accessed inside a guarded body).
+    return [];
+  }
+  // A safe value terminal inside the guarded graph → recurse into its implementation.
+  if (terminal.kind === 'value' && GUARDED_FACADE_MODULES.has(terminal.module)) {
+    return collectForbiddenCapabilities(terminal.module, terminal.name, virtual, seen);
+  }
+  return []; // a non-guarded, non-forbidden terminal (e.g. a read helper / pure fn)
+}
+
+/** Analyze a const initializer (alias / wrapper / call) for reached capabilities. */
+function analyzeInitializer(
+  module: string,
+  init: ts.Expression,
+  virtual: Map<string, string>,
+  seen: Set<string>
+): CapabilityViolation[] {
+  // `const x = someIdentifier` — a direct/chained alias.
+  if (ts.isIdentifier(init)) {
+    return collectForbiddenCapabilities(module, init.text, virtual, seen);
+  }
+  // `const x = ns.member` — a namespace member alias.
+  if (ts.isPropertyAccessExpression(init) && ts.isIdentifier(init.expression)) {
+    return resolveNamespaceMember(module, init.expression.text, init.name.text, virtual, seen);
+  }
+  // `const x = req => ...` / `const x = function(){...}` — a wrapper.
+  if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
+    return analyzeImplementation(module, init, virtual, seen);
+  }
+  // Any other initializer (a call, object, etc.): trace referenced identifiers so a
+  // `const x = helper(forbidden)` or computed form is caught / fails closed.
+  return analyzeImplementation(module, init, virtual, seen);
+}
+
+/** Trace a function/expression body for identifiers + namespace member accesses. */
+function analyzeImplementation(
+  module: string,
+  node: ts.Node,
+  virtual: Map<string, string>,
+  seen: Set<string>
+): CapabilityViolation[] {
+  const out: CapabilityViolation[] = [];
+  const body =
+    ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) || ts.isArrowFunction(node)
+      ? (node.body ?? node)
+      : node;
+  const visit = (n: ts.Node): void => {
+    // `ns.member` — resolve the member in the namespace's module.
+    if (ts.isPropertyAccessExpression(n) && ts.isIdentifier(n.expression)) {
+      out.push(...resolveNamespaceMember(module, n.expression.text, n.name.text, virtual, seen));
+      // still visit children (e.g. arguments) but skip re-treating `n.name`.
+      ts.forEachChild(n.expression, visit);
+      return;
+    }
+    if (ts.isIdentifier(n)) {
+      out.push(...collectForbiddenCapabilities(module, n.text, virtual, seen));
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(body);
+  return out;
+}
+
+/** Resolve `ns.member` where `ns` is a namespace import in `module`. */
+function resolveNamespaceMember(
+  module: string,
+  ns: string,
+  member: string,
+  virtual: Map<string, string>,
+  seen: Set<string>
+): CapabilityViolation[] {
+  const text = readModule(module, virtual);
+  if (text === null) return [];
+  const sf = parse(module, text);
+  const imp = findImportBinding(sf, ns);
+  if (!imp || !imp.isNamespace || imp.typeOnly) return [];
+  const resolved = resolveSpecifier(module, imp.specifier, virtual);
+  if (resolved === null) return []; // external namespace — outside analysis
+  const terminal = resolveExport(resolved, member, virtual);
+  return checkResolvedTerminal(module, `${ns}.${member}`, terminal, virtual, seen);
+}
+
 /**
  * Analyze the admin route's imports against the capability allowlist. Fail-closed:
  * only approved local modules + approved runtime named imports resolving to
@@ -378,6 +678,7 @@ export function analyzeAdminRouteCapabilities(
   for (const spec of findDynamicLocalSpecifiers(sf, routePath, files)) {
     v.push({ file: routePath, reason: 'dynamic/require local import', detail: spec });
   }
+  v.push(...detectSideEffectAndEqualsImports(sf, routePath, files));
 
   for (const stmt of sf.statements) {
     // Re-exports from the route (an API route should not re-export lifecycle code).
@@ -459,6 +760,11 @@ export function analyzeAdminRouteCapabilities(
           reason: 'route reaches a non-approved capability',
           detail: `${original} → ${describeTerminal(terminal)}`,
         });
+      } else if (GUARDED_FACADE_MODULES.has(terminal.module)) {
+        // Defense in depth: trace the approved terminal's implementation so a
+        // facade alias/wrapper concealing a forbidden capability behind an approved
+        // name is caught from the route too.
+        v.push(...collectForbiddenCapabilities(terminal.module, terminal.name, files));
       }
     }
   }
@@ -478,6 +784,10 @@ export function analyzeInspectionFacadeSurface(
   const v: CapabilityViolation[] = [];
   const files = new Map(virtual);
   files.set(facadePath, source);
+  const sf = parse(facadePath, source);
+  // Local side-effect / import-equals imports are rejected in the facade too.
+  v.push(...detectSideEffectAndEqualsImports(sf, facadePath, files));
+
   for (const { name, isType } of collectExportedNames(facadePath, files)) {
     if (isType) continue; // type exports carry no runtime capability
     const terminal = resolveExport(facadePath, name, files);
@@ -494,6 +804,15 @@ export function analyzeInspectionFacadeSurface(
         reason: 'facade export reaches a non-approved capability',
         detail: `${name} → ${describeTerminal(terminal)}`,
       });
+    }
+    // Deep-trace the export's ACTUAL IMPLEMENTATION (aliases / wrappers / local
+    // helpers, in whichever guarded module defines it) for any concealed forbidden
+    // runtime capability — an approved export NAME never makes a forbidden terminal
+    // safe. The facade-local name is traced first (catches a facade-local wrapper);
+    // if the export resolves to a guarded terminal elsewhere, that body is traced too.
+    v.push(...collectForbiddenCapabilities(facadePath, name, files));
+    if (terminal.kind === 'value' && GUARDED_FACADE_MODULES.has(terminal.module)) {
+      v.push(...collectForbiddenCapabilities(terminal.module, terminal.name, files));
     }
   }
   return v;

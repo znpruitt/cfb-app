@@ -153,16 +153,27 @@ or repair history) mints lineage 1.
 > ownership. The preconditions below describe the intended applied behavior E
 > will enable.
 >
-> **Guarded capability surface (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION).**
-> The admin route is **scanned by the dormant-boundary guard, not excluded by
-> filename**. It reaches its revision capabilities ONLY through a narrow inspection
-> facade (`src/lib/gameStats/revisionRepairInspection.ts`) that exposes inspection,
-> typed audit retrieval, and DRY-RUN-only planning (`planRevisionRepair`, which
-> forces `dryRun: true`) — never the applied-repair function, activation, revisioned
-> writes, status/chronology publication, recovery, or generic app-state mutation.
-> A parser-backed allowlist (TypeScript compiler API) resolves aliases, re-exports,
-> and multi-hop/mixed barrels and fails closed, so no lifecycle-mutation capability
-> can reach the route by any import form.
+> **Guarded capability surface (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION +
+> PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION).** The admin route is
+> **scanned by the dormant-boundary guard, not excluded by filename**. It reaches its
+> revision capabilities ONLY through a narrow inspection facade
+> (`src/lib/gameStats/revisionRepairInspection.ts`) that exposes inspection, typed
+> audit retrieval, and DRY-RUN planning — never the applied-repair function,
+> activation, revisioned writes, status/chronology publication, recovery, or generic
+> app-state mutation. **Dry-run planning lives in a MUTATION-FREE owner**
+> (`src/lib/gameStats/revisionRepairPlanning.ts`): it reads via read-only
+> `getAppState`, opens no app-state transaction, and has no import path to the
+> applied-repair service — the applied service (`repairRevisionState`, in
+> `revisionRepair.ts`) CONSUMES the planner. So the facade has **no direct or
+> transitive runtime dependency on `repairRevisionState`, `withAppStateKeyTransaction`,
+> or `setAppState`**. A parser-backed allowlist (TypeScript compiler API) resolves
+> aliases, re-exports, and multi-hop/mixed barrels, **REJECTS local side-effect
+> imports (`import './x'`) and import-equals**, and **TRACES local aliases and
+> wrapper functions** (declarations/arrows, chained/destructured aliases, local
+> helper hops, namespace member access) to the runtime capabilities they use — so an
+> **approved export NAME cannot conceal a forbidden terminal**. It fails closed on
+> unresolved/computed access; no lifecycle-mutation capability can reach the route by
+> any import form.
 
 **Preconditions (every repair — enforced during planning AND, once enabled,
 transactional apply):**

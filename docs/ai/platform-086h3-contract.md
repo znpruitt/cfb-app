@@ -81,18 +81,27 @@ architecture, not active behavior.
   raw stored object retained by reference); any unexpected or malformed nested field
   makes the WHOLE audit dataset `unavailable` (never silently stripped), so arbitrary
   stored content can never reach the route response.
-- Dormant-boundary guard (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION): the
-  admin revision route is **scanned, not excluded** — its production capability
-  surface is an explicit parser-backed allowlist (TypeScript compiler API), so
-  **inspection and dry-run planning are the ONLY sanctioned B-stage operations** it
-  can reach. The route imports its revision capabilities exclusively through a
-  narrow inspection facade (`revisionRepairInspection.ts`) that exposes inspect /
-  typed audit / dry-run-only planning and NEVER the applied-repair function; the
-  guard resolves re-export and multi-hop/mixed barrel chains and fails closed, so
-  applied repair, revisioned writes, activation transitions, status/chronology
-  publication, recovery, and generic app-state mutation cannot reach the route by
-  alias, namespace, `require`, dynamic import, or a barrel. Applied repair and every
-  lifecycle mutation remain dormant.
+- Dormant-boundary guard (PLATFORM-086H3B-DORMANT-BOUNDARY-GUARD-REMEDIATION +
+  PLATFORM-086H3B-DORMANT-BOUNDARY-LAUNDERING-REMEDIATION): the admin revision route
+  is **scanned, not excluded** — its production capability surface is an explicit
+  parser-backed allowlist (TypeScript compiler API), so **inspection and dry-run
+  planning are the ONLY sanctioned B-stage operations** it can reach. **Dry-run
+  planning is implemented in a MUTATION-FREE owner** (`revisionRepairPlanning.ts`,
+  read-only `getAppState`, no transaction, no import path to applied repair); the
+  applied service (`repairRevisionState`, in `revisionRepair.ts`) CONSUMES that
+  planner. The route imports its revision capabilities exclusively through the
+  inspection facade (`revisionRepairInspection.ts`), which imports ONLY from the
+  planner — so the facade has **no direct or transitive runtime dependency on the
+  applied-repair service or on `withAppStateKeyTransaction`/`setAppState`**. The
+  parser resolves re-export/multi-hop/mixed-barrel chains, REJECTS local
+  side-effect imports (`import './x'`) and import-equals, and TRACES local aliases
+  and wrapper functions (declarations/arrows, chained/destructured aliases, local
+  helper hops, namespace member access) to the runtime capabilities they use, so an
+  **approved export NAME can never conceal a forbidden terminal**. It fails closed on
+  unresolved/computed access. Applied repair, revisioned writes, activation
+  transitions, status/chronology publication, recovery, and generic app-state
+  mutation cannot reach the route by any form. Applied repair and every lifecycle
+  mutation remain dormant.
 
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any
 conflict; this file is the domain design freeze the staged PRs implement. The
