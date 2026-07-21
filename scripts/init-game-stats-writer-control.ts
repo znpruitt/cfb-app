@@ -24,13 +24,15 @@
 //             3 = store unavailable / not a writable PostgreSQL store;
 //             1 = unexpected error.
 
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
+import dotenv from 'dotenv';
+
 import {
-  getAppState,
-  getAppStateStorageStatus,
   assertAppStateWritable,
-  setAppState,
+  getAppStateStorageStatus,
+  withAppStateKeyTransaction,
 } from '../src/lib/server/appStateStore.ts';
 import {
   WRITER_CONTROL_KEY,
@@ -50,28 +52,36 @@ export type WriterControlInitOutcome =
 
 /**
  * Core initializer logic against the configured app-state store. CREATE-IF-ABSENT
- * only: it writes the initial `legacy` record solely when the row is durably absent
- * and `apply` is set. A malformed or non-`legacy` present record is refused and left
- * untouched — this function never overwrites, resets, arms, activates, or deletes a
- * record. Store-agnostic so it can be tested against the isolated file store; the CLI
- * enforces PostgreSQL for `--apply`.
+ * only, ATOMICALLY: the presence-aware reread and the initial-`legacy` write run in ONE
+ * `withAppStateKeyTransaction` rooted (and advisory-locked) on the writer-control key,
+ * so absence is required at the instant the record is written — a concurrent
+ * initializer or future transition cannot be overwritten, and a racing second
+ * initializer observes the committed record and returns the truthful outcome. A
+ * malformed or non-`legacy` present record is refused and left untouched — this
+ * function never overwrites, resets, arms, activates, or deletes a record.
+ * Store-agnostic so it can be tested against the isolated file store; the CLI enforces
+ * PostgreSQL for `--apply`.
  */
 export async function initializeWriterControl(opts: {
   apply: boolean;
 }): Promise<WriterControlInitOutcome> {
-  const read = toWriterControlRead(
-    await getAppState<unknown>(WRITER_CONTROL_SCOPE, WRITER_CONTROL_KEY)
+  return await withAppStateKeyTransaction<WriterControlInitOutcome>(
+    WRITER_CONTROL_SCOPE,
+    WRITER_CONTROL_KEY,
+    async (txn) => {
+      const read = toWriterControlRead(await txn.read<unknown>());
+      if (!read.present) {
+        if (!opts.apply) return { action: 'would-create' };
+        await txn.write(initialLegacyWriterControl());
+        return { action: 'created' };
+      }
+      if (read.record === null) return { action: 'refused-malformed' };
+      if (read.record.state !== 'legacy') {
+        return { action: 'refused-not-legacy', state: read.record.state };
+      }
+      return { action: 'noop-valid-legacy' };
+    }
   );
-  if (!read.present) {
-    if (!opts.apply) return { action: 'would-create' };
-    await setAppState(WRITER_CONTROL_SCOPE, WRITER_CONTROL_KEY, initialLegacyWriterControl());
-    return { action: 'created' };
-  }
-  if (read.record === null) return { action: 'refused-malformed' };
-  if (read.record.state !== 'legacy') {
-    return { action: 'refused-not-legacy', state: read.record.state };
-  }
-  return { action: 'noop-valid-legacy' };
 }
 
 /** Map an outcome to a sanitized human line + process exit code. */
@@ -110,11 +120,22 @@ export function describeOutcome(
 }
 
 async function main(): Promise<void> {
+  // Load the TARGET environment before inspecting storage, so a `DATABASE_URL` that
+  // lives only in `.env.local` selects PostgreSQL (not the dev/file fallback) for both
+  // the dry run and `--apply`. `.env.local` wins; `.env` fills any gaps.
+  dotenv.config({ path: path.join(process.cwd(), '.env.local') });
+  dotenv.config();
+
   const apply = process.argv.includes('--apply');
+  const mode = getAppStateStorageStatus().mode;
+  // Report the resolved storage mode so the operator can see WHICH store the dry run
+  // inspected (a dry run against `file-fallback` is not inspecting the target DB).
+  console.log(`storage mode: ${mode}`);
+
   if (apply) {
     // `--apply` only against a writable PostgreSQL store — never a dev/file or
     // read-only connection.
-    if (getAppStateStorageStatus().mode !== 'postgres') {
+    if (mode !== 'postgres') {
       console.error('REFUSED: --apply requires a PostgreSQL store (set DATABASE_URL). Aborting.');
       process.exit(3);
     }
@@ -136,7 +157,15 @@ async function main(): Promise<void> {
     }
     process.exit(code);
   } catch (err) {
-    console.error(`unexpected error: ${err instanceof Error ? err.message : 'unknown error'}`);
+    // Redacted by default — raw store/driver errors can leak paths, hosts, or SQL into
+    // operator/CI logs. Detail is available only through an explicitly enabled channel.
+    const detail =
+      process.env.INIT_WRITER_CONTROL_DEBUG === '1' && err instanceof Error
+        ? `: ${err.message}`
+        : '';
+    console.error(
+      `unexpected error [writer-control-init-failed] (set INIT_WRITER_CONTROL_DEBUG=1 for detail)${detail}`
+    );
     process.exit(1);
   }
 }

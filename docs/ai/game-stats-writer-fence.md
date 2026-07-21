@@ -1,6 +1,9 @@
 # Game-Stats Writer Fence — replacement reliability prerequisite
 
-Status: **Current.** Supersedes the PLATFORM-086H3B revision/status-authority branch.
+Status: **Current architecture.** Supersedes the PLATFORM-086H3B revision/status-authority
+branch. The fenced-writer prerequisite (§2) is **implemented on
+`platform/086h3b-replacement-legacy-writer-fence`, review-remediation in progress, not
+merged**; C/D/E (§4) are unwritten.
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any conflict.
 
 This document records (a) the disposition of PLATFORM-086H3B and (b) the small
@@ -19,7 +22,7 @@ occur on its revision, repair, dormant-boundary parser, or capability-graph desi
 
 Why: game statistics are **reconstructible provider projections** — every stored
 field derives from a CFBD re-fetch keyed by the canonical schedule, and the weekly
-cron already self-heals any week lacking usable coverage. No product feature reads a
+cron re-fetches a week that has **no** usable coverage. No product feature reads a
 revision/lineage/commit-stamp; none of that data ever leaves the database; and after
 a point-in-time restore **nothing outside the same database remembers a revision**,
 so permanent lineage and revision-reuse prevention defend a scenario that cannot
@@ -27,6 +30,14 @@ occur at this product's (hobby-scale, commissioner-operated) stage. The proporti
 protection is atomic + serialized writes, keep-last-good, malformed-response refusal,
 stale-attempt ordering, and retry-on-next-poll — most of which already ship
 (prerequisite A + PLATFORM-086A + the payload classifier).
+
+**Recovery is NOT complete today (deferred to C/D).** The current cron selection skips
+a week that already has _some_ usable coverage (`hasUsableGameStats` — ≥1 usable
+game), so a **partial** partition (some games present, others missing) is **not**
+re-fetched and its gaps can remain **stranded** until the C/D coverage + recovery work
+lands. Only a week with zero usable coverage is re-fetched. This fenced-writer
+prerequisite does not change that — it does not add participant-validated coverage,
+gap detection, or recovery claims (those are explicitly C and D).
 
 Removed from the active plan: **lineage, permanent revision numbers, the revision
 ledger, restoration high-water witnesses, the irreversible revision witness,

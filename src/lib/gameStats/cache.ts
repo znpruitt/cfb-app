@@ -1,5 +1,7 @@
 import type { CfbdSeasonType } from '../cfbd.ts';
 import {
+  AppStateTxnCleanupError,
+  AppStateTxnFinalizeError,
   getAppState,
   getAppStateEntries,
   listAppStateKeys,
@@ -31,10 +33,15 @@ export async function getCachedGameStats(
 }
 
 /**
- * Typed outcome of the fenced legacy write. Every non-`ok` result WROTE NOTHING and
- * preserves the existing partition byte-for-byte; none is a successful persistence.
- * `store-unavailable` also covers any lock-acquisition / commit / indeterminate-commit
- * failure — surfaced as a refusal, never as success.
+ * Typed outcome of the fenced legacy write. No result is a successful persistence
+ * except `ok: true`, but the failure kinds differ in what they claim about durability:
+ * - `writer-control-*` and `store-unavailable` are KNOWN-UNCHANGED — the fence refused
+ *   before staging, or the transaction provably persisted nothing, so the existing
+ *   partition is preserved byte-for-byte.
+ * - `store-indeterminate` is UNCERTAIN — mutation SQL was submitted but the COMMIT
+ *   acknowledgement was lost (prerequisite A's `writeAttempted: true`), so the new
+ *   partition MAY be durable. The write is never reported as successful, but callers
+ *   and operators must NOT assume the prior partition is intact.
  */
 export type LegacyWriteResult =
   | { ok: true }
@@ -43,7 +50,25 @@ export type LegacyWriteResult =
       reason: 'writer-control-absent' | 'writer-control-malformed';
     }
   | { ok: false; reason: 'writer-control-not-legacy'; state: WriterControlState }
-  | { ok: false; reason: 'store-unavailable' };
+  | { ok: false; reason: 'store-unavailable' }
+  | { ok: false; reason: 'store-indeterminate' };
+
+/**
+ * Classify a thrown transaction error into a refusal reason. A finalize/cleanup
+ * failure that SUBMITTED mutation SQL (`writeAttempted`) is `store-indeterminate` (the
+ * commit may have persisted); every other failure — a lock-acquisition failure, a
+ * callback failure, or a finalize that proves nothing was submitted — is
+ * `store-unavailable` (known-unchanged).
+ */
+export function classifyWriteFailure(error: unknown): 'store-unavailable' | 'store-indeterminate' {
+  if (
+    (error instanceof AppStateTxnFinalizeError || error instanceof AppStateTxnCleanupError) &&
+    error.writeAttempted
+  ) {
+    return 'store-indeterminate';
+  }
+  return 'store-unavailable';
+}
 
 /** Thrown by `setCachedGameStats` when the writer-control fence refuses the write. */
 export class GameStatsFenceError extends Error {
@@ -99,11 +124,13 @@ export async function writeLegacyGameStatsPartition(
       await txn.write(stats);
       return { ok: true };
     });
-  } catch {
-    // Store-unavailable, lock-acquisition, commit, or indeterminate-commit failure:
-    // never report success. Prior partition state is preserved (nothing confirmed
-    // durable); the caller records a refresh failure and retries on the next poll.
-    return { ok: false, reason: 'store-unavailable' };
+  } catch (error) {
+    // Never report success. A lock-acquisition / callback / provably-nothing-submitted
+    // failure is `store-unavailable` (prior partition intact); a lost-COMMIT
+    // acknowledgement after mutation SQL was submitted is `store-indeterminate` (the
+    // new partition MAY be durable). Either way the caller records a refresh failure
+    // and retries on the next poll.
+    return { ok: false, reason: classifyWriteFailure(error) };
   }
 }
 
@@ -112,10 +139,10 @@ export async function writeLegacyGameStatsPartition(
  * writer-control fence (no longer a blind partition overwrite). Preserves the prior
  * `Promise<void>` contract and the exact stored weekly envelope shape while the fence
  * is validly `legacy`; throws `GameStatsFenceError` when the fence refuses (absent /
- * malformed / non-`legacy` control, or an unavailable store), so a rollout that has
- * armed the control — or a store failure — can never be mistaken for a successful
- * write. In production the control is `legacy` (nothing arms it before E), so this
- * behaves exactly as before.
+ * malformed / non-`legacy` control, or a store failure — `store-unavailable` or
+ * `store-indeterminate`), so a rollout that has armed the control — or a store
+ * failure — can never be mistaken for a successful write. In production the control is
+ * `legacy` (nothing arms it before E), so this behaves exactly as before.
  */
 export async function setCachedGameStats(stats: WeeklyGameStats): Promise<void> {
   const result = await writeLegacyGameStatsPartition(stats);

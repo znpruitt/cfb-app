@@ -5,6 +5,9 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
+  AppStateKeyLockAcquireError,
+  AppStateTxnCleanupError,
+  AppStateTxnFinalizeError,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateFileCommitFailureForTests,
@@ -16,6 +19,7 @@ import {
 import { initializeWriterControl } from '../../../../scripts/init-game-stats-writer-control.ts';
 import {
   GameStatsFenceError,
+  classifyWriteFailure,
   getCachedGameStats,
   setCachedGameStats,
   writeLegacyGameStatsPartition,
@@ -240,16 +244,41 @@ test('fenced writer: a callback (read) failure rolls back to store-unavailable w
   assert.deepEqual(await getCachedGameStats(BASE.year, BASE.week, BASE.seasonType), prior);
 });
 
-test('fenced writer: a commit failure is store-unavailable and never confirms success', async () => {
+test('fenced writer: a proven-nothing-durable commit failure is store-unavailable', async () => {
   await seedLegacy();
   const prior = partition('2024-10-01T00:00:00.000Z');
   await setCachedGameStats(prior);
   __setAppStateFileCommitFailureForTests(new Error('commit down'));
   const result = await writeLegacyGameStatsPartition(partition(T2));
   __setAppStateFileCommitFailureForTests(null);
+  // The file-fallback atomic rename proves NOTHING staged became durable
+  // (`writeAttempted: false`), so this is known-unchanged — prior partition intact.
   assert.deepEqual(result, { ok: false, reason: 'store-unavailable' });
-  // The atomic rename proves nothing staged became durable — prior partition intact.
   assert.deepEqual(await getCachedGameStats(BASE.year, BASE.week, BASE.seasonType), prior);
+});
+
+test('cache: classifyWriteFailure separates indeterminate commits from known-unchanged failures', () => {
+  // A finalize/cleanup failure that SUBMITTED mutation SQL is indeterminate (the
+  // commit may be durable) — never claim byte preservation for it.
+  assert.equal(
+    classifyWriteFailure(new AppStateTxnFinalizeError(new Error('lost ack'), true, false)),
+    'store-indeterminate'
+  );
+  assert.equal(
+    classifyWriteFailure(new AppStateTxnCleanupError(new Error('c'), new Error('r'), true, false)),
+    'store-indeterminate'
+  );
+  // A finalize proving nothing was submitted, a lock-acquisition failure, and any
+  // other error are known-unchanged.
+  assert.equal(
+    classifyWriteFailure(new AppStateTxnFinalizeError(new Error('none'), false, false)),
+    'store-unavailable'
+  );
+  assert.equal(
+    classifyWriteFailure(new AppStateKeyLockAcquireError(new Error('lock'))),
+    'store-unavailable'
+  );
+  assert.equal(classifyWriteFailure(new Error('generic')), 'store-unavailable');
 });
 
 // === Initializer (create-if-absent only) ===
@@ -287,6 +316,18 @@ test('initializer: refuses a non-legacy record and never transitions it', async 
   const outcome = await initializeWriterControl({ apply: true });
   assert.deepEqual(outcome, { action: 'refused-not-legacy', state: 'armed' });
   assert.deepEqual(await controlRaw(), armed);
+});
+
+test('initializer: concurrent applies are atomic — exactly one creates, the other is a truthful no-op', async () => {
+  // Both run the read-and-create inside one transaction rooted on the control key, so
+  // they serialize: the first creates `legacy`, the second rereads and no-ops. A
+  // second unconditional write can never overwrite the first-established record.
+  const [a, b] = await Promise.all([
+    initializeWriterControl({ apply: true }),
+    initializeWriterControl({ apply: true }),
+  ]);
+  assert.deepEqual([a.action, b.action].sort(), ['created', 'noop-valid-legacy']);
+  assert.deepEqual(await controlRaw(), initialLegacyWriterControl());
 });
 
 // === Boundaries: live-path ownership + H1/H2 dormancy (source-level) ===

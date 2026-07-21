@@ -1495,9 +1495,9 @@ Key architectural decisions across Phase 5:
 
 ---
 
-### PLATFORM-086H3B Replacement — Fenced Legacy Game-Stats Writer — Complete (branch)
+### PLATFORM-086H3B Replacement — Fenced Legacy Game-Stats Writer — Implemented (review-remediation in progress; not merged)
 
-**Status:** Implemented on `platform/086h3b-replacement-legacy-writer-fence` (from `main@2793a6f`). Not merged; no PR; `/verify` not run. Supersedes the frozen `platform/086h3b-revision-status-authority` branch.
+**Status:** Implemented on `platform/086h3b-replacement-legacy-writer-fence` (from `main@2793a6f`); **review-remediation in progress, NOT merged** (one Codex review pass returned bounded findings, remediated in a follow-up commit). No PR; `/verify` not run. Supersedes the frozen `platform/086h3b-revision-status-authority` branch. NOT a closure entry — retained here as the shipped-milestone record once merged.
 **PROMPT_IDs:** PLATFORM-086H3B-VALUE-AND-SCOPE-AUDIT-v1, PLATFORM-086H3B-SPLIT-EXTRACTION-PLAN-v1 (read-only audits), PLATFORM-086H3B-REPLACEMENT-LEGACY-WRITER-FENCE-v1 (implementation)
 
 **Goals completed:**

@@ -14,18 +14,23 @@
 > historical context; where it assumes lineage/revision/repair it is no longer the
 > plan.
 
-Status: **Frozen target architecture (B superseded — see banner above).** This was
-the design of record for the staged PLATFORM-086H3 decomposition (prerequisites
-A–E). It describes the INTENDED end state, **not** behavior currently active on
-`main`. On `main` today the game-stats writers still use the legacy path; the durable
-merge authority (H2) is a merged but dormant foundation. Nothing in this contract is
-active until the final activation prerequisite (E) merges.
+Status: **Historical — the lineage/revision A–E design is NOT the current
+architecture (see the SUPERSEDED banner above).** This WAS the design of record for
+the staged PLATFORM-086H3 decomposition; the current, reduced architecture (the
+fenced legacy writer + lineage-free C/D/E) lives in
+**[`game-stats-writer-fence.md`](game-stats-writer-fence.md)**. The material below is
+retained only for historical context. On `main` today the game-stats writers still
+use the legacy path and the durable merge authority (H2) is a merged but dormant
+foundation.
 
-Prerequisite progress: **A** (the durable multi-key app-state transaction
-primitive that §6 relies on) is implemented, Codex reviewed clean, `/verify`
-passed, and awaiting merge — dormant, with production behavior unchanged.
-**B–D remain unimplemented and E (final activation) has not occurred**; the
-rest of this contract is future-state architecture, not active behavior.
+Prerequisite progress (corrected): **A** (the durable multi-key app-state transaction
+primitive that §6 relies on) is **merged into `main`** (PR #398, dormant — production
+behavior unchanged). **B as designed (revision lineage/ledger + status chronology +
+operator repair + activation fence) is SUPERSEDED and will not be built** — it is
+replaced by the fenced-legacy-writer prerequisite (implemented on
+`platform/086h3b-replacement-legacy-writer-fence`, review-remediation in progress, not
+merged). **C/D/E are redefined WITHOUT lineage/revision/repair** (see the replacement
+doc); the lineage/revision/high-water/repair material below is no longer the plan.
 
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any
 conflict; this file is the domain design freeze the staged PRs implement. The
