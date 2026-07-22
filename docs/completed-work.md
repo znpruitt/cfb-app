@@ -1568,6 +1568,28 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086H3C3 — Dormant Analytics Finality Gate — Complete
+
+**Status:** Complete. Merged to `main` via **PR #402** (merge commit `c41121b`, 2026-07-22; from `main@a0c2cd2`). Two Codex reviews: the first flagged one P2 (score lookup keyed by `eventId` instead of the disambiguated `AppGame.key`), remediated in `c920d26`; the re-review returned a **clean pass — no new issues**. `/verify` on the game-stats HTTP surface passed unchanged from `main` (validation 400s, admin-gate 401 before any fetch, `seasonType` coercion, cache-hit 200, corrupt store → 500 with immediate restore-recovery) — the modules are dormant/unwired, so HTTP does not exercise the gate; the surface is byte-identical and the gate is covered by its unit suite + the recursive dormant-boundary guard. `tsc`, `lint:all`, `git diff --check` clean; publicProjection 21/21; coverage 13, dormancy 7, status-classification 6, evidence 19, slate 12; full `npm test` 1924/1924.
+**PROMPT_ID(s):** PLATFORM-086H3C3-DORMANT-ANALYTICS-FINALITY-GATE-v1
+
+**Goals completed:**
+
+- Made C1's dormant analytics projection require canonical FINAL-score evidence IN ADDITION to complete game-stat evidence. `projectAnalyticsPartition(coverage, scoresByKey)` (`src/lib/gameStats/publicProjection.ts`) gains a REQUIRED `scoresByKey` map keyed by the canonical `AppGame.key` (the attachment key). Per canonical game, in order: (1) read `scoresByKey[game.key]`; (2) require `classifyScorePackStatus(score) === 'final'` (shared status classifier — separator/case variants bucket consistently; a missing key classifies as `scheduled`, so absence excludes without a special case); (3) then the existing C1 requirements — decision `satisfied`, a selected row, `toAnalyticsGameStats` acceptance. Excluded when the score is missing / scheduled / in-progress / disrupted / ambiguous / unavailable, or when game-stat evidence is sparse / conflicting / blocked; no raw schedule status (including the canonical game's own `rawStatus`) substitutes for a final score. The map stays required — no optional/default/empty map, no complete-only path, no raw-status matching.
+- Attachment-key remediation: `CanonicalGame` now carries `key` (`AppGame.key`, populated in `buildCanonicalGameStatsSlate`; `eventId` retained for reporting only), so the gate keys by the disambiguated attachment key rather than a base `eventId` two disambiguated games can share.
+
+**Key outcomes:**
+
+- **Fully dormant:** no production source imports or invokes the projection; the recursive dormant-boundary guard already forbids `projectAnalyticsPartition` and passes unchanged (no guard edit). Public game-stats projection, public response/availability types, coverage/completeness rules, durable ingestion/merge, and existing live analytics consumers are unchanged. No production wiring or behavior change. Score reconciliation, attachment, fetching, normalization, caching, and provider access all remain outside this task.
+
+**Optional follow-up debt (non-blocking):**
+
+- **Required E follow-ups (recorded, not implemented):** (1) Insights / owner / season / history / career analytics must consume this final-gated projection instead of raw cached game-stat partitions; (2) `/api/game-stats` must become operator/admin-only before H2 v2 rows can be exposed.
+- **Temporary operational constraint until E lands:** avoid authorized manual game-stat refreshes while games are in progress when those cached rows could affect Insights.
+- D and the final atomic activation (E) remain unwritten; production H3 activation has **not** occurred.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
