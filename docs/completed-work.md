@@ -1522,6 +1522,30 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086H3C1 — Canonical Game-Stats Evidence Read Model (Dormant) — Complete
+
+**Status:** Complete. Merged to `main` via **PR #400** (merge commit `cf8c584`, 2026-07-22; from `main@220cbe7`). Ten impl commits folded in — three Codex review rounds, a CFBD-id attachment-authority revision, a CFBD numeric-id validation revision (v2), a proportionate simplification to id+partition association (net −575 lines), and two duplicate-id hardening fixes; the final background Codex review returned a **clean pass — no actionable findings**. `/verify` on the game-stats HTTP surface passed (bad `week`/`year` → 400; `bypassCache=1` without admin → 401 before any fetch; `seasonType=banana` coerced to `regular`; seeded fresh partition → 200 `meta.cache=hit`; corrupt durable store → 500 with immediate restore-recovery) — the C1 modules are dormant/unwired, so the read model itself is covered by its unit suites + the recursive dormant-boundary guard, not by HTTP. `tsc`, `lint:all`, `git diff --check` clean; `canonicalSlate` suite 12/12; full `npm test` green across the branch.
+**PROMPT_ID(s):** PLATFORM-086H3C1-CANONICAL-EVIDENCE-READ-MODEL-v1 (implementation; folds revisions SIMPLIFICATION-v1, CFBD-ID-AUTHORITY-REVISION-v1/-v2)
+
+**Goals completed:**
+
+- Shipped the dormant, schedule-authoritative canonical game-stats evidence **READ** model — the first meaningful slice of the lineage-free **C** in `docs/ai/game-stats-writer-fence.md` — as four modules under `src/lib/gameStats/`: `canonicalSlate.ts` (schedule-authoritative expectation via `buildScheduleFromApi`; addressable-game slate; duplicate CFBD-id rejection by parsed numeric id), `evidenceAuthority.ts` (per-game evidence selection: schema-blocking, sufficiency classes, deterministic fence freshness + order-invariant representative tie-break), `partitionCoverage.ts` (typed coverage states satisfied/incomplete/absent/blocked/duplicate-conflict/manual-only with season-relative disposition), `publicProjection.ts` (public + analytics projections with deterministic diagnostics).
+- Extracted a shared RFC 3339 fence parser (`observationFence.ts`), now reused by `durableMerge.ts` so there is exactly one freshness parser; refactored `contract.ts` to drop the duplicate `selectAnalyticsRows` authority (`toAnalyticsGameStats` is projection-only).
+- Established the association model: unique CFBD game id + partition agreement is the whole association authority; CFBD `homeAway` is trusted (no reorientation); duplicate ids fail the canonical build. Extended `dormant-boundary.test.ts` to guard the new modules; added `canonicalSlate` / `evidenceAuthority` / `partitionCoverage` / `publicProjection` suites + shared `c1Fixtures.ts`.
+
+**Key outcomes:**
+
+- **Fully dormant:** no route/cron/insights consumer, no writes; the recursive dormant-boundary guard rejects every import form. Production HTTP behavior is unaffected (C1 is unwired).
+- Supersedes the participant-validation / integrity / quarantine wording of the frozen `docs/ai/platform-086h3-contract.md`; binding plan is `docs/ai/platform-086h3c1-implementation-handoff.md`.
+
+**Optional follow-up debt (non-blocking):**
+
+- **Numeric participant validation** is a separate pre-activation prerequisite (validate stored `schoolId`s against schedule numeric `homeId`/`awayId`; restores the `identity-mismatch` state) — gated on the schedule cache-write path first persisting those ids. Recorded in `docs/next-tasks.md` → "Unresolved decisions & known deferrals".
+- A synthetic-only empty-usable-catalog case (`[{ school: '' }]` bypassing the pure builder's `teams.length === 0` catalog-authority guard) is accepted as not production-reachable (`getTeamDatabaseItems()` sanitizes empty-`school` entries to `[]` → `catalog-load-failed`); the builder stays exported for unit tests. Same deferral section.
+- Remaining C slices + D/E unimplemented; production H3 activation has **not** occurred.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
