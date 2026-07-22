@@ -43,12 +43,19 @@ function toPosix(p: string): string {
 }
 
 // The only permitted non-test homes of dormant names: the contract definition,
-// the optional dormant type declarations, and (PLATFORM-086H2) the dormant
-// durable merge service. Exact files only — never whole directories.
+// the optional dormant type declarations, (PLATFORM-086H2) the dormant durable
+// merge service, and (PLATFORM-086H3C1) the four dormant canonical evidence
+// read-model modules. Exact files only — never whole directories. The shared
+// RFC 3339 fence parser (`observationFence.ts`) is a benign, schema-free
+// primitive with no dormant capability, so it stays SCANNED (not excluded).
 const EXCLUDED_FILES = new Set([
   'src/lib/gameStats/contract.ts',
   'src/lib/gameStats/types.ts',
   'src/lib/gameStats/durableMerge.ts',
+  'src/lib/gameStats/canonicalSlate.ts',
+  'src/lib/gameStats/evidenceAuthority.ts',
+  'src/lib/gameStats/partitionCoverage.ts',
+  'src/lib/gameStats/publicProjection.ts',
 ]);
 const EXCLUDED_DIRS = new Set(['__tests__', '__fixtures__', 'fixtures']);
 const TEST_FILE_PATTERN = /\.(test|spec)\.tsx?$/;
@@ -81,7 +88,6 @@ const FORBIDDEN_SYMBOLS = [
   'isAnalyticsEligible',
   'evaluateGameStatsRow',
   'toAnalyticsGameStats',
-  'selectAnalyticsRows',
   'parseV2GameObservation',
   'buildV2GameStats',
   'schemaVersion',
@@ -90,6 +96,18 @@ const FORBIDDEN_SYMBOLS = [
   'fetchStartedAt',
   'computeWeeklyGameStatsMerge',
   'mergeGameStatsPartitionDurable',
+  // PLATFORM-086H3C1 dormant canonical evidence read-model entry points. A live
+  // consumer must not import or re-export these until activation wires them.
+  'buildCanonicalGameStatsSlate',
+  'loadCanonicalGameStatsSlate',
+  'selectCanonicalPartition',
+  'selectGameEvidence',
+  'evidenceEquivalent',
+  'evaluatePartitionCoverage',
+  'evaluatePartitionCoverageFromResult',
+  'projectPublicPartition',
+  'projectPublicFromCoverage',
+  'projectAnalyticsPartition',
 ];
 
 const SYMBOL_PATTERN = new RegExp(`\\b(${FORBIDDEN_SYMBOLS.join('|')})\\b`, 'g');
@@ -98,6 +116,20 @@ const SYMBOL_PATTERN = new RegExp(`\\b(${FORBIDDEN_SYMBOLS.join('|')})\\b`, 'g')
 const SPECIFIER_PATTERN =
   /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"]([^'"]+)['"]/g;
 
+// Every dormant game-stats module, by basename. Importing ANY of these from a
+// live production file is a boundary violation.
+const DORMANT_MODULE_BASENAMES = [
+  'contract',
+  'durableMerge',
+  'canonicalSlate',
+  'evidenceAuthority',
+  'partitionCoverage',
+  'publicProjection',
+];
+const DORMANT_MODULE_RESOLVED = new RegExp(
+  `^src/lib/gameStats/(${DORMANT_MODULE_BASENAMES.join('|')})(\\.(?:js|mjs|cjs|ts|mts|cts|tsx))?$`
+);
+
 /** Whether a module specifier resolves to a dormant game-stats module. */
 function specifierTargetsDormantModule(
   specifier: string,
@@ -105,7 +137,7 @@ function specifierTargetsDormantModule(
 ): boolean {
   const normalized = specifier.replace(/\\/g, '/');
   // Alias/absolute forms (`@/lib/gameStats/contract`, deep relative paths).
-  if (normalized.includes('gameStats/contract') || normalized.includes('gameStats/durableMerge')) {
+  if (DORMANT_MODULE_BASENAMES.some((base) => normalized.includes(`gameStats/${base}`))) {
     return true;
   }
   // Relative forms resolve against the importing file so an unrelated module
@@ -116,9 +148,7 @@ function specifierTargetsDormantModule(
   );
   // TypeScript source commonly imports with .js/.mjs/.cjs specifiers (NodeNext
   // resolution) — every supported extension resolves to the same module.
-  return /^src\/lib\/gameStats\/(contract|durableMerge)(\.(?:js|mjs|cjs|ts|mts|cts|tsx))?$/.test(
-    resolved
-  );
+  return DORMANT_MODULE_RESOLVED.test(resolved);
 }
 
 type BoundaryViolation = { file: string; pattern: string; line: number };
@@ -180,6 +210,11 @@ test('scanner: detects dormant API references and v2 metadata names', () => {
     ['row.fetchStartedAt = now;', 'fetchStartedAt'],
     ['const r = await mergeGameStatsPartitionDurable(input);', 'mergeGameStatsPartitionDurable'],
     ['const c = computeWeeklyGameStatsMerge(existing, input);', 'computeWeeklyGameStatsMerge'],
+    // PLATFORM-086H3C1 canonical evidence read-model entry points.
+    ['const s = await loadCanonicalGameStatsSlate({ year, now });', 'loadCanonicalGameStatsSlate'],
+    ['const d = selectGameEvidence(game, rows, resolveKey);', 'selectGameEvidence'],
+    ['const c = evaluatePartitionCoverage(slate, w, st, rec);', 'evaluatePartitionCoverage'],
+    ['const w = projectPublicPartition(slate, w, st, read);', 'projectPublicPartition'],
   ];
   for (const [source, symbol] of cases) {
     const violations = findBoundaryViolations(source, 'src/lib/example.ts');
@@ -225,6 +260,41 @@ test('scanner: detects static, dynamic, require, and re-export contract imports'
     findBoundaryViolations(`export * from './durableMerge';`, 'src/lib/gameStats/index.ts').length,
     1
   );
+  // The four PLATFORM-086H3C1 read-model modules are guarded the same way.
+  const c1Flagged = [
+    `import { buildCanonicalGameStatsSlate } from '../gameStats/canonicalSlate';`,
+    `const m = await import('@/lib/gameStats/evidenceAuthority');`,
+    `const m = require('../gameStats/partitionCoverage.ts');`,
+    `export * from '../gameStats/publicProjection';`,
+  ];
+  for (const source of c1Flagged) {
+    const violations = findBoundaryViolations(source, importer);
+    assert.ok(
+      violations.some((v) => v.pattern.startsWith('dormant-module import')),
+      source
+    );
+  }
+  for (const base of [
+    'canonicalSlate',
+    'evidenceAuthority',
+    'partitionCoverage',
+    'publicProjection',
+  ]) {
+    assert.equal(
+      findBoundaryViolations(`export * from './${base}';`, 'src/lib/gameStats/index.ts').length,
+      1,
+      base
+    );
+  }
+  // The shared fence parser is a benign primitive — importing it is NOT a
+  // boundary violation.
+  assert.deepEqual(
+    findBoundaryViolations(
+      `import { parseObservationFenceMs } from './observationFence';`,
+      importer
+    ),
+    []
+  );
   // Relative specifiers with JavaScript-resolution extensions (NodeNext style)
   // resolve to the same dormant modules and must be rejected identically.
   const extensionFlagged: Array<[string, string]> = [
@@ -263,10 +333,19 @@ test('scanner: clean and unrelated sources produce no violations', () => {
 test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', () => {
   const files = listProductionSources();
   const set = new Set(files);
-  // The three intentional non-test homes of dormant names are excluded…
-  assert.ok(!set.has('src/lib/gameStats/contract.ts'));
-  assert.ok(!set.has('src/lib/gameStats/types.ts'));
-  assert.ok(!set.has('src/lib/gameStats/durableMerge.ts'));
+  // The intentional non-test homes of dormant names are excluded…
+  for (const excluded of [
+    'src/lib/gameStats/contract.ts',
+    'src/lib/gameStats/types.ts',
+    'src/lib/gameStats/durableMerge.ts',
+    // PLATFORM-086H3C1 read-model modules.
+    'src/lib/gameStats/canonicalSlate.ts',
+    'src/lib/gameStats/evidenceAuthority.ts',
+    'src/lib/gameStats/partitionCoverage.ts',
+    'src/lib/gameStats/publicProjection.ts',
+  ]) {
+    assert.ok(!set.has(excluded), `${excluded} must be excluded`);
+  }
   // …tests and fixtures never appear…
   assert.ok(files.every((f) => !f.includes('__tests__/') && !TEST_FILE_PATTERN.test(f)));
   // …while real production seams are all scanned.
@@ -277,6 +356,9 @@ test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', (
     'src/lib/gameStats/cache.ts',
     'src/lib/gameStats/coverage.ts',
     'src/lib/gameStats/normalizers.ts',
+    // The shared RFC 3339 fence parser is a benign primitive, NOT a dormant home,
+    // so it MUST stay scanned (it never references a dormant capability itself).
+    'src/lib/gameStats/observationFence.ts',
     'src/lib/insights/context.ts',
     'src/lib/selectors/historySelectors.ts',
     'src/lib/server/providerDataDiagnostics.ts',
