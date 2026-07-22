@@ -226,9 +226,19 @@ export function buildCanonicalGameStatsSlate(input: {
   const { games } = buildScheduleFromApi({ scheduleItems, teams, aliasMap, season: year });
   const resolver = createGameStatsResolver({ games, teams, aliasMap });
 
+  // Index raw schedule rows by their CFBD id (first-wins), and track ids that
+  // appear on MORE THAN ONE raw row. A surviving game reads its source-item
+  // metadata (season type, status, kickoff) by id, so a reused raw id makes that
+  // lookup ambiguous — first-wins could attach a discarded/excluded row's
+  // metadata (e.g. a canceled postseason row's) to the surviving game and
+  // misclassify its partition/applicability. The CFBD id is the association
+  // authority, so a duplicate raw id is a canonical-build failure.
   const itemsById = new Map<string, ScheduleWireItem>();
+  const duplicateRawScheduleIds = new Set<string>();
   for (const item of scheduleItems) {
-    if (typeof item.id === 'string' && !itemsById.has(item.id)) itemsById.set(item.id, item);
+    if (typeof item.id !== 'string') continue;
+    if (itemsById.has(item.id)) duplicateRawScheduleIds.add(item.id);
+    else itemsById.set(item.id, item);
   }
 
   const nowMs = now.getTime();
@@ -238,10 +248,17 @@ export function buildCanonicalGameStatsSlate(input: {
     const providerGameId = toProviderGameId(game.providerGameId);
     if (providerGameId === null) continue; // unaddressable (placeholder/synthetic id)
 
-    // The CFBD game id is the association authority — it must be unique across the
-    // slate. Two surviving games sharing one id would let a single durable row
-    // count as evidence for both; that is a canonical-build failure, never an
-    // ambiguous slate.
+    // Reject an addressable game whose raw CFBD id was reused on the schedule —
+    // its source-item metadata is ambiguous — BEFORE that metadata is read. This
+    // catches the case a surviving game's id collides with a DISCARDED row even
+    // when only one game survives (which the numeric `seenIds` check below would
+    // miss).
+    if (game.providerGameId && duplicateRawScheduleIds.has(game.providerGameId)) {
+      throw new Error(`ambiguous duplicate CFBD schedule id: ${game.providerGameId}`);
+    }
+    // The numeric game id is the association authority — it must also be unique
+    // across the surviving slate (guards distinct raw id strings that coerce to
+    // the same number).
     if (seenIds.has(providerGameId)) {
       throw new Error(`duplicate canonical CFBD game id in slate: ${providerGameId}`);
     }

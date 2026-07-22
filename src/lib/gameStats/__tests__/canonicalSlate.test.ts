@@ -168,10 +168,8 @@ test('canonical slate: placeholder postseason game is deferred, never expected',
 test('canonical slate: a half-set postseason shell (one team + one TBD) is EXPECTED, away unresolved', () => {
   const slate = build([
     // One known team + one TBD slot → buildScheduleFromApi leaves isPlaceholder
-    // false. Under the CFBD-id authority model, participant settledness governs a
-    // stored row's integrity, NOT whether the game is expected — so the
-    // addressable game is expected with an unresolved (null) away participant, and
-    // a durable row attaches as `unverified` (see evidenceAuthority tests).
+    // false. Only a FULL placeholder shell defers, so this addressable game is
+    // expected with an unresolved (null) away participant.
     scheduleItem({
       id: '8100',
       week: 1,
@@ -255,6 +253,34 @@ test('canonical slate: duplicate CFBD game ids are rejected as a canonical-build
         week: 3,
         home: 'Gamma A&M',
         away: 'Delta University',
+        status: 'final',
+      }),
+    ])
+  );
+});
+
+test('canonical slate: a reused raw id is rejected even when the other row is EXCLUDED', () => {
+  // The excluded row (FCS-vs-FCS, dropped by buildScheduleFromApi) shares the id
+  // of a surviving FBS game. Only one game survives, so a numeric duplicate check
+  // would miss it — but the first-wins metadata lookup would otherwise attach the
+  // excluded canceled row's status/season to the survivor and misclassify it.
+  assert.throws(() =>
+    build([
+      // Excluded (FCS-vs-FCS), preceding the survivor, canceled + postseason.
+      scheduleItem({
+        id: '5001',
+        week: 3,
+        home: 'Epsilon College',
+        away: 'Zeta State',
+        status: 'STATUS_CANCELED',
+        seasonType: 'postseason',
+      }),
+      // Surviving FBS regular game with the SAME raw id.
+      scheduleItem({
+        id: '5001',
+        week: 3,
+        home: 'Alpha State',
+        away: 'Beta Tech',
         status: 'final',
       }),
     ])
