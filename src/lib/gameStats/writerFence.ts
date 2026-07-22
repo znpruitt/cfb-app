@@ -14,8 +14,10 @@
  * identity, strict validation, presence-aware classification, and the initial
  * `legacy` constructor. It performs NO transition orchestration, repair, lineage,
  * revision allocation, restoration witness, evidence/status/recovery mutation, or
- * any HTTP/admin operation — those are future (C/D/E) concerns and are intentionally
- * absent so this record can never become a repair or activation surface.
+ * any HTTP/admin operation — the strict transition authority lives in
+ * `writerControlTransition.ts` (PLATFORM-086H3D, dormant, operator-CLI-only), and
+ * everything else is intentionally absent so this record can never become a
+ * repair surface.
  */
 
 /** The durable app-state scope + key that hold the single writer-control record. */
@@ -32,7 +34,8 @@ export const WRITER_CONTROL_RECORD_VERSION = 1 as const;
 /**
  * The writer-control states required for eventual rollout. `legacy` is the ONLY
  * state under which the live legacy writer may persist a partition; every other
- * state refuses. (Transitions between states are NOT defined here — see E.)
+ * state refuses. (Transitions between states are NOT defined here — the strict
+ * transition graph lives in `writerControlTransition.ts`.)
  */
 export const WRITER_CONTROL_STATES = ['legacy', 'armed', 'active', 'read-only-safe'] as const;
 export type WriterControlState = (typeof WRITER_CONTROL_STATES)[number];

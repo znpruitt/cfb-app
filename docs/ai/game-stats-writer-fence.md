@@ -2,7 +2,9 @@
 
 Status: **Current architecture.** Supersedes the PLATFORM-086H3B revision/status-authority
 branch. The fenced-writer prerequisite (§2) is **merged to `main` (PR #399, 2026-07-21)**;
-C/D/E (§4) are unwritten.
+the C evidence slices (C1–C3) are merged (PRs #400–#402); the rollout-safety
+capability D (§5, PLATFORM-086H3D) is implemented dormant; the activation execution (E)
+is unwritten — production remains in `legacy` and no transition has ever been executed.
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any conflict.
 
 This document records (a) the disposition of PLATFORM-086H3B and (b) the small
@@ -70,8 +72,8 @@ Strictly validated (exact key allowlist; rejects JSON null, primitives, arrays,
 unknown versions, missing/unsupported state, and extra fields). An absent or
 malformed record is **never** interpreted as `legacy`. The module owns only the
 record's identity, validation, presence-aware classification, and the initial
-`legacy` constructor — **no transitions, repair, lineage, or HTTP surface** (those
-are E's concern).
+`legacy` constructor — **no transitions, repair, lineage, or HTTP surface**
+(transitions live in the D transition authority, §5; execution is E's concern).
 
 ### Fenced writer
 
@@ -131,13 +133,117 @@ store.
 - **C — canonical evidence authority:** provider contract, participant validation,
   component merge policy, coverage, public projection. (Duplicate authority keys on
   provider id + resolved participant pair + schema class — no lineage identity.)
-- **D — bounded recovery:** claims, leases, backoff, quota discipline, post-claim
-  revalidation. Introduces the `recovery-disposition` scope here. No high-water, no
-  revision numbers.
-- **E — activation:** writer rollout fence transitions, activation choreography,
-  H2 live-path switch (retire the blind writer / this fence's `legacy` state),
-  consumer activation, final diagnostics, and any final transactional status
-  requirement. A plain `legacy → active` transition on this control record replaces
-  the irreversible witness; no lineage.
+  **Landed dormant in slices C1–C3** (read model, ingestion coordination, analytics
+  finality gate — see `docs/prompt-registry.md`).
+- **D — rollout safety (PLATFORM-086H3D, §5):** the strict writer-control transition
+  authority, the operator transition CLI, and H2's in-transaction active-only
+  permission check — the complete dormant capability E later executes. Bounded
+  recovery (claims, leases, backoff, quota discipline, post-claim revalidation)
+  is **deferred future work and is NOT part of D**.
+- **E — activation:** executes the runbook in §6 — production transition execution,
+  ingestion/route/cron/reader wiring, consumer activation, reader smoke tests,
+  controlled refreshes, final diagnostics, and any final transactional status
+  requirement. The `legacy → armed → active` sequence on this control record
+  replaces the irreversible witness; no lineage.
 
-C, D, and E are unwritten, so this is a plan change, not a code rewrite.
+E is unwritten; deploying C and D changes no production behavior.
+
+## 5. Rollout-safety capability (PLATFORM-086H3D — dormant)
+
+Three pieces complete the fence into a full rollout mechanism. All are dormant:
+no route, cron, reader, or production caller invokes any of them (the recursive
+dormant-boundary guard enforces this), live game-stat writers remain on the
+fenced legacy setter, and **deploying D performs no transition — production
+stays `legacy`.**
+
+### Strict transition authority
+
+`src/lib/gameStats/writerControlTransition.ts` — ONE atomic operation over the
+existing control record. Every request states the expected current state and the
+requested next state; the reread, expected-state check, edge validation, and
+conditional write run in one transaction rooted (advisory-locked) on the control
+key, persisting only the exact `{recordVersion, state}` shape. The graph is
+closed and directional:
+
+```text
+legacy ⇄ armed → active ⇄ read-only-safe
+```
+
+Everything else refuses without writing: absent or malformed control,
+expected-state mismatch (reports the actual state), same-state requests, every
+unlisted edge, and — by construction — every return to `legacy` after
+activation. Outcomes are typed: `transitioned` (confirmed commit only),
+`would-transition` (dry run), the four refusals, `store-unavailable` (no durable
+transition), and `store-indeterminate` (mutation SQL submitted, commit
+unconfirmed — EITHER state may be durable; the operator must reread, never
+retry, repair, or infer which state won).
+
+### Operator CLI
+
+`npm run transition:writer-control -- --from <state> --to <state> [--apply]`
+(`scripts/transition-game-stats-writer-control.ts`). Explicit `--from`/`--to`
+are required; the default execution is a READ-ONLY dry run that validates the
+record, expected state, and edge without writing. A dry run is not a
+reservation — `--apply` repeats the whole atomic check, runs only against a
+writable PostgreSQL store, and reports the resolved storage mode. Exit codes are
+stable: 0 success/valid dry run, 2 refused, 3 store unavailable, 4 indeterminate
+durability, 1 unexpected (redacted by default). The one-shot initializer is
+unchanged and remains create-if-absent `legacy` only — it can never transition.
+
+### H2 active-only permission
+
+Inside `mergeGameStatsPartitionDurable`'s existing partition transaction, every
+invocation takes the control key EXCLUSIVE under the partition lock (canonical
+order below), rereads and strictly parses the record under BOTH locks, and
+merges ONLY when the state is exactly `active`. Absent, malformed, non-`active`,
+unlockable, and unreadable control all refuse BEFORE the partition read, merge
+computation, or any write — including for batches that would have been
+unchanged, stale, conflicting, or entirely non-persistable — with typed
+known-unchanged `unavailable` reasons (`control-lock-unavailable` /
+`control-read-failed` / `control-absent` / `control-malformed` /
+`control-not-active`).
+
+### Serialization barriers
+
+Because every writer revalidates the control INSIDE its partition transaction
+while holding the control lock, a committed transition is a barrier:
+
+- a legacy write holding control completes before `legacy → armed` commits, and
+  a writer arriving after the transition rereads `armed` and refuses;
+- an H2 write holding control completes before `active → read-only-safe`
+  commits, and an H2 write arriving after the stop rereads `read-only-safe` and
+  refuses — an earlier out-of-transaction observation of `active` grants
+  nothing.
+
+The canonical lock order is unchanged and shared by both writers:
+
+```text
+game-stats partition (primary)
+  → game-stats-writer-control/state (lockKey)
+```
+
+## 6. Activation runbook (executed during E — never before)
+
+Documented now; **no step below has been executed.** Production transition
+execution, reader smoke tests, and controlled refreshes are E responsibilities.
+
+```text
+ 1. confirm the target control record is exactly a valid `legacy`
+      npm run init:writer-control              # dry run: expect already-legacy no-op
+ 2. confirm the merged fenced legacy writer is deployed on EVERY instance
+ 3. deploy D — this performs no transition; production remains `legacy`
+ 4. dry-run the arming edge
+      npm run transition:writer-control -- --from legacy --to armed
+ 5. during E: apply `legacy → armed` and drain old requests
+      npm run transition:writer-control -- --from legacy --to armed --apply
+    (in-flight legacy writes holding the control lock complete first; every
+    writer arriving afterwards rereads `armed` and refuses)
+ 6. deploy and verify E while BOTH writers refuse in `armed`
+ 7. if activation must be abandoned BEFORE it succeeds: roll back E, then
+      npm run transition:writer-control -- --from armed --to legacy --apply
+ 8. after successful verification: apply `armed → active`
+      npm run transition:writer-control -- --from armed --to active --apply
+ 9. NEVER return to `legacy` after activation (the graph forbids it)
+10. for a post-activation stop: apply `active → read-only-safe`; resume only
+    through `read-only-safe → active`
+```

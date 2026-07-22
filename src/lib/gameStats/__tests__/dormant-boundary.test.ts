@@ -45,11 +45,13 @@ function toPosix(p: string): string {
 // The only permitted non-test homes of dormant names: the contract definition,
 // the optional dormant type declarations, (PLATFORM-086H2) the dormant durable
 // merge service, (PLATFORM-086H3C1) the four dormant canonical evidence
-// read-model modules, and (PLATFORM-086H3C2) the dormant ingestion coordinator
-// that adapts one provider response into H1 parsing + H2 merging. Exact files
-// only — never whole directories. The shared RFC 3339 fence parser
-// (`observationFence.ts`) is a benign, schema-free primitive with no dormant
-// capability, so it stays SCANNED (not excluded).
+// read-model modules, (PLATFORM-086H3C2) the dormant ingestion coordinator
+// that adapts one provider response into H1 parsing + H2 merging, and
+// (PLATFORM-086H3D) the dormant writer-control transition authority whose only
+// caller is the operator CLI in `scripts/` (outside this production scan).
+// Exact files only — never whole directories. The shared RFC 3339 fence parser
+// (`observationFence.ts`) and the LIVE writer fence (`writerFence.ts`,
+// `cache.ts`) are not dormant homes, so they stay SCANNED (not excluded).
 const EXCLUDED_FILES = new Set([
   'src/lib/gameStats/contract.ts',
   'src/lib/gameStats/types.ts',
@@ -59,6 +61,7 @@ const EXCLUDED_FILES = new Set([
   'src/lib/gameStats/partitionCoverage.ts',
   'src/lib/gameStats/publicProjection.ts',
   'src/lib/gameStats/ingestionCoordinator.ts',
+  'src/lib/gameStats/writerControlTransition.ts',
 ]);
 const EXCLUDED_DIRS = new Set(['__tests__', '__fixtures__', 'fixtures']);
 const TEST_FILE_PATTERN = /\.(test|spec)\.tsx?$/;
@@ -114,6 +117,11 @@ const FORBIDDEN_SYMBOLS = [
   // PLATFORM-086H3C2 dormant ingestion-coordinator entry point. A live consumer
   // must not import or reference it until activation (E) wires ingestion.
   'ingestGameStatsPartitionResponse',
+  // PLATFORM-086H3D dormant writer-control transition authority. Only the
+  // operator CLI (scripts/, unscanned) may invoke it; a live consumer must not
+  // import or reference it — production transitions are E's manual runbook.
+  'transitionWriterControl',
+  'isAllowedWriterControlTransition',
 ];
 
 const SYMBOL_PATTERN = new RegExp(`\\b(${FORBIDDEN_SYMBOLS.join('|')})\\b`, 'g');
@@ -132,6 +140,7 @@ const DORMANT_MODULE_BASENAMES = [
   'partitionCoverage',
   'publicProjection',
   'ingestionCoordinator',
+  'writerControlTransition',
 ];
 const DORMANT_MODULE_RESOLVED = new RegExp(
   `^src/lib/gameStats/(${DORMANT_MODULE_BASENAMES.join('|')})(\\.(?:js|mjs|cjs|ts|mts|cts|tsx))?$`
@@ -227,6 +236,12 @@ test('scanner: detects dormant API references and v2 metadata names', () => {
       'const r = await ingestGameStatsPartitionResponse(input);',
       'ingestGameStatsPartitionResponse',
     ],
+    // PLATFORM-086H3D writer-control transition authority entry points.
+    [
+      'const t = await transitionWriterControl({ expected, to, apply });',
+      'transitionWriterControl',
+    ],
+    ['if (isAllowedWriterControlTransition(a, b)) {}', 'isAllowedWriterControlTransition'],
   ];
   for (const [source, symbol] of cases) {
     const violations = findBoundaryViolations(source, 'src/lib/example.ts');
@@ -318,6 +333,28 @@ test('scanner: detects static, dynamic, require, and re-export contract imports'
       .length,
     1
   );
+  // The PLATFORM-086H3D transition authority is guarded the same way in every
+  // import form.
+  const transitionFlagged = [
+    `import { transitionWriterControl } from '../gameStats/writerControlTransition';`,
+    `const m = await import('@/lib/gameStats/writerControlTransition');`,
+    `const m = require('../gameStats/writerControlTransition.ts');`,
+    `export * from '../gameStats/writerControlTransition';`,
+  ];
+  for (const source of transitionFlagged) {
+    const violations = findBoundaryViolations(source, importer);
+    assert.ok(
+      violations.some((v) => v.pattern.startsWith('dormant-module import')),
+      source
+    );
+  }
+  assert.equal(
+    findBoundaryViolations(
+      `export * from './writerControlTransition';`,
+      'src/lib/gameStats/index.ts'
+    ).length,
+    1
+  );
   // The shared fence parser is a benign primitive — importing it is NOT a
   // boundary violation.
   assert.deepEqual(
@@ -377,6 +414,8 @@ test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', (
     'src/lib/gameStats/publicProjection.ts',
     // PLATFORM-086H3C2 ingestion coordinator.
     'src/lib/gameStats/ingestionCoordinator.ts',
+    // PLATFORM-086H3D writer-control transition authority.
+    'src/lib/gameStats/writerControlTransition.ts',
   ]) {
     assert.ok(!set.has(excluded), `${excluded} must be excluded`);
   }
@@ -390,6 +429,9 @@ test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', (
     'src/lib/gameStats/cache.ts',
     'src/lib/gameStats/coverage.ts',
     'src/lib/gameStats/normalizers.ts',
+    // The LIVE writer fence must stay scanned — only the transition authority
+    // (writerControlTransition.ts) is a dormant home, never the fence itself.
+    'src/lib/gameStats/writerFence.ts',
     // The shared RFC 3339 fence parser is a benign primitive, NOT a dormant home,
     // so it MUST stay scanned (it never references a dormant capability itself).
     'src/lib/gameStats/observationFence.ts',
