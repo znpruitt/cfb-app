@@ -1,4 +1,6 @@
 import type { CfbdSeasonType } from '../cfbd.ts';
+import { classifyScorePackStatus } from '../gameStatus.ts';
+import type { ScorePack } from '../scores.ts';
 import {
   RECOGNIZED_GAME_STAT_CATEGORIES,
   toAnalyticsGameStats,
@@ -280,15 +282,37 @@ export function projectPublicPartition(
 // === Analytics projection (projection-only, behind the shared authority) ===
 
 /**
- * Analytics view of a partition. Accepts ONLY complete v2 or compatible legacy
- * evidence (coverage state `satisfied`) and strictly reparses raw evidence and
- * points through `toAnalyticsGameStats`. Sparse (incomplete) rows are excluded.
- * There is no duplicate selection here — the shared authority already chose the
- * winner.
+ * Analytics view of a partition. A canonical game contributes ONLY when it has
+ * BOTH:
+ *   1. FINAL canonical score evidence —
+ *      `classifyScorePackStatus(scoresByKey[game.eventId]) === 'final'`; AND
+ *   2. complete game-stat evidence — coverage state `satisfied`, a selected row,
+ *      and `toAnalyticsGameStats` acceptance (strict reparse of raw evidence +
+ *      points; never stored fallbacks).
+ *
+ * The game is EXCLUDED when its score evidence is missing, scheduled, in
+ * progress, disrupted, ambiguous, or unavailable (a missing key classifies as
+ * `scheduled`, so absence is excluded without a special case), OR when its
+ * game-stat evidence is sparse (incomplete), conflicting, or blocked. Sparse rows
+ * are never analytics evidence, and no raw schedule status ever substitutes for a
+ * final score — finality comes solely from the attached score map.
+ *
+ * `scoresByKey` is a REQUIRED input: an already-reconciled, already-attached
+ * canonical score map keyed by `AppGame.eventId`. Score reconciliation,
+ * attachment, fetching, normalization, caching, and provider access all remain
+ * outside this projection (they belong to the caller). There is no duplicate
+ * selection here — the shared authority already chose the winner.
  */
-export function projectAnalyticsPartition(coverage: PartitionCoverage): AnalyticsGameStats[] {
+export function projectAnalyticsPartition(
+  coverage: PartitionCoverage,
+  scoresByKey: Readonly<Record<string, ScorePack>>
+): AnalyticsGameStats[] {
   const projected: AnalyticsGameStats[] = [];
-  for (const { decision } of coverage.games) {
+  for (const { game, decision } of coverage.games) {
+    // 1. Canonical FINAL score evidence is required first — a missing/scheduled/
+    //    in-progress/disrupted/ambiguous score never yields analytics.
+    if (classifyScorePackStatus(scoresByKey[game.eventId]) !== 'final') continue;
+    // 2. Then the existing C1 completeness requirements.
     if (decision.state !== 'satisfied' || !decision.selected) continue;
     const analytics = toAnalyticsGameStats(decision.selected);
     if (analytics) projected.push(analytics);
