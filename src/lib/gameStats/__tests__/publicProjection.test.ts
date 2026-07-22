@@ -9,7 +9,7 @@ import {
 } from '../publicProjection.ts';
 import { canonicalGame, slateOf, v2Row, weeklyRecord } from './c1Fixtures.ts';
 import type { CanonicalSlateResult } from '../canonicalSlate.ts';
-import type { GameStats } from '../types.ts';
+import type { GameStats, WeeklyGameStats } from '../types.ts';
 import type { CanonicalGame } from '../canonicalSlate.ts';
 import type { ScorePack } from '../../scores.ts';
 
@@ -240,6 +240,56 @@ test('analytics projection: a mismatched committed envelope fails closed', () =>
   assert.deepEqual(projectAnalyticsPartition(input, 3, 'regular', wrongType, 'current'), []);
   assert.deepEqual(projectAnalyticsPartition(input, 3, 'regular', wrongYear, 'current'), []);
   // Sanity: the agreeing envelope DOES project.
+  assert.equal(
+    projectAnalyticsPartition(
+      input,
+      3,
+      'regular',
+      weeklyRecord(3, 'regular', [G1_COMPLETE]),
+      'current'
+    ).length,
+    1
+  );
+});
+
+test('analytics projection: a MATCHING but malformed envelope fails closed — never throws, never publishes', () => {
+  // The durable store never validates stored values, so a record whose
+  // year/week/seasonType AGREE can still be corrupt. The projection runs the
+  // full `validateEnvelope` authority (the same one the public path uses) and
+  // fails closed on every malformed shape — including ones that would otherwise
+  // throw (non-iterable `games`) or silently pass (string `games`).
+  const input = { slate: slateOf([G1]), scoresByKey: FINAL_100 };
+  const base = { year: 2025, week: 3, seasonType: 'regular' as const };
+  const malformed: unknown[] = [
+    // Matching identity, invalid fetchedAt.
+    { ...base, fetchedAt: 'not-a-time', games: [G1_COMPLETE] },
+    // Matching identity, missing fetchedAt entirely.
+    { ...base, games: [G1_COMPLETE] },
+    // Matching identity, non-array games (string — iterable, would have
+    // silently yielded characters).
+    { ...base, fetchedAt: '2025-09-08T00:00:00.000Z', games: 'nope' },
+    // Matching identity, non-iterable games (would have thrown in grouping).
+    { ...base, fetchedAt: '2025-09-08T00:00:00.000Z', games: 42 },
+    // Matching identity, games missing entirely.
+    { ...base, fetchedAt: '2025-09-08T00:00:00.000Z' },
+    // Malformed envelope fields.
+    { ...base, year: '2025', fetchedAt: '2025-09-08T00:00:00.000Z', games: [G1_COMPLETE] },
+    { ...base, seasonType: 'spring', fetchedAt: '2025-09-08T00:00:00.000Z', games: [] },
+    // Not a record at all.
+    [G1_COMPLETE],
+    42,
+  ];
+  for (const record of malformed) {
+    let out: unknown;
+    assert.doesNotThrow(
+      () => {
+        out = projectAnalyticsPartition(input, 3, 'regular', record as WeeklyGameStats, 'current');
+      },
+      JSON.stringify(record)?.slice(0, 60)
+    );
+    assert.deepEqual(out, [], JSON.stringify(record)?.slice(0, 60));
+  }
+  // Sanity: the equivalent VALID matching record still projects unchanged.
   assert.equal(
     projectAnalyticsPartition(
       input,
@@ -538,8 +588,10 @@ test('the paired input and committed record are mandatory; the old coverage sign
   const coverage = coverageFor([G1], [G1_COMPLETE]);
   // @ts-expect-error the old (PartitionCoverage, scoresByKey) signature must not typecheck.
   assert.throws(() => projectAnalyticsPartition(coverage, FINAL_100));
-  // @ts-expect-error omitting the committed record (and season relation) must not typecheck.
-  assert.throws(() => projectAnalyticsPartition({ slate: slateOf([G1]), scoresByKey: FINAL_100 }));
+  // Omitting the committed record must not typecheck; at runtime the envelope
+  // validation fails closed (an undefined record is not a valid envelope).
+  // @ts-expect-error the committed record (and season relation) are REQUIRED parameters.
+  assert.deepEqual(projectAnalyticsPartition({ slate: slateOf([G1]), scoresByKey: FINAL_100 }), []);
 });
 
 // Sanity: the sparse fixture really is sparse (guards the tests above).

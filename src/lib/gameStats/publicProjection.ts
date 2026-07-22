@@ -341,18 +341,22 @@ export type CanonicalAnalyticsReadInput = {
  *     `input.slate.year` + `week` + `seasonType`. `null` means the caller
  *     successfully established the partition is ABSENT — a durable read failure
  *     must be handled by the caller and never converted to `null`.
- *   - A non-null committed envelope that disagrees with the requested
- *     year/week/season type fails CLOSED: no analytics evidence.
+ *   - A non-null committed record is validated through the SAME
+ *     `validateEnvelope` authority the public projection uses (the durable
+ *     store itself never validates stored values): a malformed envelope, a
+ *     partition mismatch, an invalid `fetchedAt`, or a non-array `games`
+ *     payload fails CLOSED to no analytics evidence — it never throws and
+ *     never publishes from a corrupt envelope.
  *   - Pure: inspects only the supplied slate, attached scores, partition
  *     identity, committed record, and season relation. It never calls
  *     cache/store readers, fetches a provider, loads a schedule or archive, or
  *     mutates state. Assembling live and archived inputs and performing durable
  *     reads is the caller's (E's) responsibility.
  *   - Association, evidence selection, duplicate authority, and the strict
- *     analytics projection are all REUSED from C1 (`groupRowsById`,
- *     `selectGameEvidence`, `toAnalyticsGameStats`) — there is no second
- *     selection or completeness policy, and no recovery-filtered
- *     `PartitionCoverage` input.
+ *     analytics projection are all REUSED from C1 (`validateEnvelope`,
+ *     `groupRowsById`, `selectGameEvidence`, `toAnalyticsGameStats`) — there is
+ *     no second envelope/selection/completeness policy, and no
+ *     recovery-filtered `PartitionCoverage` input.
  */
 export function projectAnalyticsPartition(
   input: CanonicalAnalyticsReadInput,
@@ -361,22 +365,24 @@ export function projectAnalyticsPartition(
   committedRecord: WeeklyGameStats | null,
   seasonRelation: SeasonRelation
 ): AnalyticsGameStats[] {
-  // Fail closed: a committed envelope for the wrong partition yields NO
-  // analytics evidence (its rows belong to some other partition's story).
-  if (
-    committedRecord !== null &&
-    (committedRecord.year !== input.slate.year ||
-      committedRecord.week !== week ||
-      committedRecord.seasonType !== seasonType)
-  ) {
-    return [];
+  // Validate the COMPLETE committed envelope through the module's single
+  // validation authority before touching its rows. Durable app-state is
+  // untyped at rest, so identity agreement alone is not proof of shape: a
+  // matching-but-malformed envelope (bad `fetchedAt`, non-array `games`,
+  // malformed fields) and a partition mismatch all fail CLOSED to no analytics
+  // evidence — never a throw, never analytics from a corrupt envelope.
+  let validated: WeeklyGameStats | null = null;
+  if (committedRecord !== null) {
+    const validation = validateEnvelope(committedRecord, input.slate.year, week, seasonType);
+    if (validation.status !== 'ok') return [];
+    validated = validation.record;
   }
 
   // Addressable, stat-producing games of this partition: `expected` AND
   // `pending` (the six-hour threshold has no analytics authority); placeholders
   // and disrupted games are excluded by the partition selection itself.
   const partition = selectCanonicalPartition(input.slate, week, seasonType);
-  const rowsById = groupRowsById(committedRecord);
+  const rowsById = groupRowsById(validated);
 
   const projected: AnalyticsGameStats[] = [];
   for (const game of [...partition.expected, ...partition.pending]) {
