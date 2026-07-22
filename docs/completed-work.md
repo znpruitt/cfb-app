@@ -1546,6 +1546,28 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086H3C2 — Dormant Safe Ingestion Coordination (Adapter) — Complete
+
+**Status:** Complete. Merged to `main` via **PR #401** (merge commit `61fe69c`, 2026-07-22; from `main@8a95222`). One implementation commit; the background Codex review returned a **clean pass — no actionable regressions**. `/verify` on the game-stats HTTP surface passed unchanged from `main` (validation 400s, admin-gate 401 before any fetch, `seasonType` coercion, cache-hit 200, corrupt store → 500 with immediate restore-recovery) — the adapter is dormant/unwired, so HTTP does not exercise it; the surface is byte-identical and the adapter itself is covered by its unit suite + the recursive dormant-boundary guard. `tsc`, `lint:all`, `git diff --check` clean; ingestion-coordinator suite 16/16; dormancy + H1 + H2 51/51; full `npm test` 1913/1913.
+**PROMPT_ID(s):** PLATFORM-086H3C2-DORMANT-SAFE-INGESTION-COORDINATION-v1
+
+**Goals completed:**
+
+- Shipped `src/lib/gameStats/ingestionCoordinator.ts` — one export `ingestGameStatsPartitionResponse({ year, week, seasonType, fetchStartedAt, payload })` connecting ONE already-fetched CFBD `/games/teams` response to H1 parsing (`contract.ts`) and H2 durable merge (`durableMerge.ts`). It owns ONLY batch coordination and duplicates no parse / merge / conflict / stale-data / completeness / persistence-filter / duplicate-selection policy.
+- Discriminated result: `no-op`/`empty-response` (exact `[]`; H2 not called, no write/delete); `rejected`/`invalid-payload` (non-array top level); `rejected`/`no-persistable-observations` (nonempty array, no parsed observation passes H1's persistence predicate; H2 not called, prior durable data untouched); `merge-result` (H2's complete `DurableMergeResult` VERBATIM plus batch diagnostics: raw/parsed/persistable/non-persistable counts, parse-failure counts grouped by H1's reason, `clean`|`mixed` acceptance). Every successfully parsed observation — not just the persistable subset — is passed to H2, which filters non-persistable rows and reports `skippedNonPersistable`; `fetchStartedAt` is forwarded verbatim; unexpected H2 errors propagate.
+- Extended the recursive dormant-boundary guard (adapter in `EXCLUDED_FILES`, `ingestionCoordinator` in `DORMANT_MODULE_BASENAMES`, `ingestGameStatsPartitionResponse` in `FORBIDDEN_SYMBOLS`, + 3 self-tests); not exported from any barrel. Added a 16-test focused suite.
+
+**Key outcomes:**
+
+- **Fully dormant:** no route/cron/reader/writer-control consumer, no CFBD fetch, no writes; the recursive dormant-boundary guard rejects every import form. Production HTTP behavior is unchanged (the legacy route and cron writer are byte-identical to `main`).
+
+**Optional follow-up debt (non-blocking):**
+
+- The locked launch policy (scores/status ≈3-min + game-stats 15-min polling; no live game-stat UI at launch; analytics eligibility = final score/status + complete game-stat evidence; a 1,000-call/mo CFBD reserve; never waiting for the whole weekly slate) is binding for later PRs but NOT implemented here — polling, scheduler, route, reader, and production activation belong to **E**.
+- D and the final atomic activation (E) remain unwritten; production H3 activation has **not** occurred.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
