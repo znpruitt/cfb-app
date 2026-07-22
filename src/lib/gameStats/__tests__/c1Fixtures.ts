@@ -100,12 +100,16 @@ export function canonicalGame(params: {
   seasonType?: CfbdSeasonType;
   applicability?: CanonicalGameApplicability;
   notExpectedReason?: CanonicalGameNotExpectedReason;
+  /** Canonical attachment key; defaults distinct from `eventId` to exercise divergence. */
+  key?: string;
+  eventId?: string;
 }): CanonicalGame {
   const homeKey = IDENTITY_KEYS[params.home] ?? params.home;
   const awayKey = IDENTITY_KEYS[params.away] ?? params.away;
   return {
     providerGameId: params.providerGameId,
-    eventId: `evt-${params.providerGameId}`,
+    key: params.key ?? `key-${params.providerGameId}`,
+    eventId: params.eventId ?? `evt-${params.providerGameId}`,
     providerWeek: params.week ?? 3,
     seasonType: params.seasonType ?? 'regular',
     neutral: params.neutral ?? false,

@@ -59,7 +59,15 @@ export type CanonicalGameNotExpectedReason = 'placeholder' | 'disrupted';
 export type CanonicalGame = {
   /** Positive CFBD provider game id — the only addressable form. */
   providerGameId: number;
-  /** Canonical `AppGame` key/eventId, retained for reporting only. */
+  /**
+   * Canonical `AppGame.key` — the ATTACHMENT key. Score/odds attachment
+   * (`attachScoresToSchedule`) keys by this disambiguated key, which key
+   * disambiguation can intentionally diverge from `eventId` when two games share
+   * a base identity. Consumers that read an attached-by-key map (e.g. the
+   * analytics finality gate) MUST use this key, never `eventId`.
+   */
+  key: string;
+  /** Canonical `AppGame.eventId`, retained for reporting only — NOT an attachment key. */
   eventId: string;
   /** Provider partition week (`AppGame.providerWeek`). */
   providerWeek: number;
@@ -289,6 +297,7 @@ export function buildCanonicalGameStatsSlate(input: {
 
     canonicalGames.push({
       providerGameId,
+      key: game.key,
       eventId: game.eventId,
       providerWeek: game.providerWeek,
       seasonType: scheduleSeasonType(item),

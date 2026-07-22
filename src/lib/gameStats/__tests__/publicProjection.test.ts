@@ -81,11 +81,12 @@ const G2_COMPLETE = v2Row({
   week: 3,
 });
 
-// Score maps are keyed by canonical `AppGame.eventId` (the fixture uses `evt-<id>`).
-const FINAL_100: Record<string, ScorePack> = { 'evt-100': scorePack('final') };
+// Score maps are keyed by the canonical ATTACHMENT key `AppGame.key` (the fixture
+// uses `key-<id>`, deliberately distinct from `eventId` `evt-<id>`).
+const FINAL_100: Record<string, ScorePack> = { 'key-100': scorePack('final') };
 const BOTH_FINAL: Record<string, ScorePack> = {
-  'evt-100': scorePack('final'),
-  'evt-200': scorePack('final'),
+  'key-100': scorePack('final'),
+  'key-200': scorePack('final'),
 };
 
 function project(read: Parameters<typeof projectPublicPartition>[3]): PublicProjectionResult {
@@ -222,20 +223,20 @@ test('matrix: FINAL score + COMPLETE evidence → included', () => {
 
 test('matrix: FINAL score + INCOMPLETE (sparse) evidence → excluded', () => {
   const coverage = coverageFor([G2], [G2_SPARSE]);
-  assert.deepEqual(projectAnalyticsPartition(coverage, { 'evt-200': scorePack('final') }), []);
+  assert.deepEqual(projectAnalyticsPartition(coverage, { 'key-200': scorePack('final') }), []);
 });
 
 test('matrix: IN-PROGRESS score + COMPLETE evidence → excluded', () => {
   const coverage = coverageFor([G1], [G1_COMPLETE]);
   assert.deepEqual(
-    projectAnalyticsPartition(coverage, { 'evt-100': scorePack('in_progress') }),
+    projectAnalyticsPartition(coverage, { 'key-100': scorePack('in_progress') }),
     []
   );
 });
 
 test('matrix: SCHEDULED score + COMPLETE evidence → excluded', () => {
   const coverage = coverageFor([G1], [G1_COMPLETE]);
-  assert.deepEqual(projectAnalyticsPartition(coverage, { 'evt-100': scorePack('scheduled') }), []);
+  assert.deepEqual(projectAnalyticsPartition(coverage, { 'key-100': scorePack('scheduled') }), []);
 });
 
 test('matrix: MISSING score + COMPLETE evidence → excluded', () => {
@@ -260,9 +261,49 @@ test('matrix: only one FINAL among several complete games → only the final gam
     true
   );
   const out = projectAnalyticsPartition(coverage, {
-    'evt-100': scorePack('final'),
-    'evt-200': scorePack('scheduled'),
+    'key-100': scorePack('final'),
+    'key-200': scorePack('scheduled'),
   });
+  assert.deepEqual(
+    out.map((a) => a.providerGameId),
+    [100]
+  );
+});
+
+test('key disambiguation: two games sharing an eventId are gated by their DISTINCT attachment keys', () => {
+  // Supported path (buildAuthoritativeGameCollection): key disambiguation rewrites
+  // AppGame.key while leaving eventId shared, and attachScoresToSchedule stores
+  // each score under the disambiguated key. The gate must read game.key, never
+  // game.eventId — otherwise both games would resolve to the same (or a missing)
+  // score, admitting a non-final game or dropping a final one.
+  const A = canonicalGame({
+    providerGameId: 100,
+    home: 'Alpha State',
+    away: 'Beta Tech',
+    week: 3,
+    key: 'dup-a',
+    eventId: 'shared-evt',
+  });
+  const B = canonicalGame({
+    providerGameId: 200,
+    home: 'Gamma A&M',
+    away: 'Delta University',
+    week: 3,
+    key: 'dup-b',
+    eventId: 'shared-evt',
+  });
+  const coverage = coverageFor([A, B], [G1_COMPLETE, G2_COMPLETE]);
+  assert.equal(
+    coverage.games.every((g) => g.decision.state === 'satisfied'),
+    true
+  );
+  // Scores attached under the DISAMBIGUATED keys: A final, B scheduled.
+  const out = projectAnalyticsPartition(coverage, {
+    'dup-a': scorePack('final'),
+    'dup-b': scorePack('scheduled'),
+  });
+  // Only A is final → only A included. Keying by the shared eventId would have
+  // missed both scores (→ []) and dropped the genuinely-final game.
   assert.deepEqual(
     out.map((a) => a.providerGameId),
     [100]
@@ -275,7 +316,7 @@ test('separator/case variants of a final status all gate to included; live/disru
   const coverage = coverageFor([G1], [G1_COMPLETE]);
   for (const finalLabel of ['final', 'FINAL', 'Final', 'STATUS_FINAL', 'status final']) {
     assert.deepEqual(
-      projectAnalyticsPartition(coverage, { 'evt-100': scorePack(finalLabel) }).map(
+      projectAnalyticsPartition(coverage, { 'key-100': scorePack(finalLabel) }).map(
         (a) => a.providerGameId
       ),
       [100],
@@ -290,7 +331,7 @@ test('separator/case variants of a final status all gate to included; live/disru
     '',
   ]) {
     assert.deepEqual(
-      projectAnalyticsPartition(coverage, { 'evt-100': scorePack(nonFinal) }),
+      projectAnalyticsPartition(coverage, { 'key-100': scorePack(nonFinal) }),
       [],
       nonFinal
     );
@@ -306,7 +347,7 @@ test('no raw schedule status can make a game eligible without an attached final 
   assert.deepEqual(projectAnalyticsPartition(coverage, {}), []);
   // An attached non-final score overrides the schedule's 'final' rawStatus.
   assert.deepEqual(
-    projectAnalyticsPartition(coverage, { 'evt-100': scorePack('in_progress') }),
+    projectAnalyticsPartition(coverage, { 'key-100': scorePack('in_progress') }),
     []
   );
 });

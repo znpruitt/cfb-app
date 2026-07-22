@@ -298,10 +298,12 @@ export function projectPublicPartition(
  * final score — finality comes solely from the attached score map.
  *
  * `scoresByKey` is a REQUIRED input: an already-reconciled, already-attached
- * canonical score map keyed by `AppGame.eventId`. Score reconciliation,
- * attachment, fetching, normalization, caching, and provider access all remain
- * outside this projection (they belong to the caller). There is no duplicate
- * selection here — the shared authority already chose the winner.
+ * canonical score map keyed by the canonical `AppGame.key` (the ATTACHMENT key
+ * `attachScoresToSchedule` uses — NOT `eventId`, which key disambiguation can
+ * intentionally diverge from). Score reconciliation, attachment, fetching,
+ * normalization, caching, and provider access all remain outside this projection
+ * (they belong to the caller). There is no duplicate selection here — the shared
+ * authority already chose the winner.
  */
 export function projectAnalyticsPartition(
   coverage: PartitionCoverage,
@@ -310,8 +312,10 @@ export function projectAnalyticsPartition(
   const projected: AnalyticsGameStats[] = [];
   for (const { game, decision } of coverage.games) {
     // 1. Canonical FINAL score evidence is required first — a missing/scheduled/
-    //    in-progress/disrupted/ambiguous score never yields analytics.
-    if (classifyScorePackStatus(scoresByKey[game.eventId]) !== 'final') continue;
+    //    in-progress/disrupted/ambiguous score never yields analytics. The lookup
+    //    uses the canonical attachment key (`game.key`), the key scores are
+    //    attached under; `eventId` can be shared across disambiguated games.
+    if (classifyScorePackStatus(scoresByKey[game.key]) !== 'final') continue;
     // 2. Then the existing C1 completeness requirements.
     if (decision.state !== 'satisfied' || !decision.selected) continue;
     const analytics = toAnalyticsGameStats(decision.selected);
