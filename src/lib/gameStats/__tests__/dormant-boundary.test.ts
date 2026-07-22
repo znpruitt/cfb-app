@@ -44,10 +44,12 @@ function toPosix(p: string): string {
 
 // The only permitted non-test homes of dormant names: the contract definition,
 // the optional dormant type declarations, (PLATFORM-086H2) the dormant durable
-// merge service, and (PLATFORM-086H3C1) the four dormant canonical evidence
-// read-model modules. Exact files only — never whole directories. The shared
-// RFC 3339 fence parser (`observationFence.ts`) is a benign, schema-free
-// primitive with no dormant capability, so it stays SCANNED (not excluded).
+// merge service, (PLATFORM-086H3C1) the four dormant canonical evidence
+// read-model modules, and (PLATFORM-086H3C2) the dormant ingestion coordinator
+// that adapts one provider response into H1 parsing + H2 merging. Exact files
+// only — never whole directories. The shared RFC 3339 fence parser
+// (`observationFence.ts`) is a benign, schema-free primitive with no dormant
+// capability, so it stays SCANNED (not excluded).
 const EXCLUDED_FILES = new Set([
   'src/lib/gameStats/contract.ts',
   'src/lib/gameStats/types.ts',
@@ -56,6 +58,7 @@ const EXCLUDED_FILES = new Set([
   'src/lib/gameStats/evidenceAuthority.ts',
   'src/lib/gameStats/partitionCoverage.ts',
   'src/lib/gameStats/publicProjection.ts',
+  'src/lib/gameStats/ingestionCoordinator.ts',
 ]);
 const EXCLUDED_DIRS = new Set(['__tests__', '__fixtures__', 'fixtures']);
 const TEST_FILE_PATTERN = /\.(test|spec)\.tsx?$/;
@@ -108,6 +111,9 @@ const FORBIDDEN_SYMBOLS = [
   'projectPublicPartition',
   'projectPublicFromCoverage',
   'projectAnalyticsPartition',
+  // PLATFORM-086H3C2 dormant ingestion-coordinator entry point. A live consumer
+  // must not import or reference it until activation (E) wires ingestion.
+  'ingestGameStatsPartitionResponse',
 ];
 
 const SYMBOL_PATTERN = new RegExp(`\\b(${FORBIDDEN_SYMBOLS.join('|')})\\b`, 'g');
@@ -125,6 +131,7 @@ const DORMANT_MODULE_BASENAMES = [
   'evidenceAuthority',
   'partitionCoverage',
   'publicProjection',
+  'ingestionCoordinator',
 ];
 const DORMANT_MODULE_RESOLVED = new RegExp(
   `^src/lib/gameStats/(${DORMANT_MODULE_BASENAMES.join('|')})(\\.(?:js|mjs|cjs|ts|mts|cts|tsx))?$`
@@ -215,6 +222,11 @@ test('scanner: detects dormant API references and v2 metadata names', () => {
     ['const d = selectGameEvidence(game, rows, resolveKey);', 'selectGameEvidence'],
     ['const c = evaluatePartitionCoverage(slate, w, st, rec);', 'evaluatePartitionCoverage'],
     ['const w = projectPublicPartition(slate, w, st, read);', 'projectPublicPartition'],
+    // PLATFORM-086H3C2 ingestion-coordinator entry point.
+    [
+      'const r = await ingestGameStatsPartitionResponse(input);',
+      'ingestGameStatsPartitionResponse',
+    ],
   ];
   for (const [source, symbol] of cases) {
     const violations = findBoundaryViolations(source, 'src/lib/example.ts');
@@ -286,6 +298,26 @@ test('scanner: detects static, dynamic, require, and re-export contract imports'
       base
     );
   }
+  // The PLATFORM-086H3C2 ingestion coordinator is guarded the same way in every
+  // import form.
+  const c2Flagged = [
+    `import { ingestGameStatsPartitionResponse } from '../gameStats/ingestionCoordinator';`,
+    `const m = await import('@/lib/gameStats/ingestionCoordinator');`,
+    `const m = require('../gameStats/ingestionCoordinator.ts');`,
+    `export * from '../gameStats/ingestionCoordinator';`,
+  ];
+  for (const source of c2Flagged) {
+    const violations = findBoundaryViolations(source, importer);
+    assert.ok(
+      violations.some((v) => v.pattern.startsWith('dormant-module import')),
+      source
+    );
+  }
+  assert.equal(
+    findBoundaryViolations(`export * from './ingestionCoordinator';`, 'src/lib/gameStats/index.ts')
+      .length,
+    1
+  );
   // The shared fence parser is a benign primitive — importing it is NOT a
   // boundary violation.
   assert.deepEqual(
@@ -343,6 +375,8 @@ test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', (
     'src/lib/gameStats/evidenceAuthority.ts',
     'src/lib/gameStats/partitionCoverage.ts',
     'src/lib/gameStats/publicProjection.ts',
+    // PLATFORM-086H3C2 ingestion coordinator.
+    'src/lib/gameStats/ingestionCoordinator.ts',
   ]) {
     assert.ok(!set.has(excluded), `${excluded} must be excluded`);
   }
