@@ -1590,6 +1590,32 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086H3D — Dormant Writer-Control Rollout Safety — Complete
+
+**Status:** Complete. Merged to `main` via **PR #403** (merge commit `ddc356e`, 2026-07-22; from `main@b3a043c`; impl `8008af4` + docs closeout `881325b`). Background Codex review returned a **clean pass — no actionable findings** ("the transition authority, operator CLI, and active-only merge authorization consistently enforce the documented state graph and transactional serialization barriers without affecting current production behavior"). `/verify` on the game-stats HTTP surface passed **byte-identical to `main`** — the same fixture-built seed on both servers and a `diff -r` of every probe body + status matched exactly (validation 400s, admin-gate 401 before any fetch, `seasonType` coercion, cache-hit 200, cache-miss 503, corrupt store → 500 with immediate restore-recovery). `tsc`, `lint:all`, `git diff --check` clean; focused writer-control / transition / H2 / C2 / transaction / barrier / dormancy suites green; full `npm test` 1962/1962 (+38).
+**PROMPT_ID(s):** PLATFORM-086H3D-DORMANT-WRITER-CONTROL-ROLLOUT-SAFETY-v1
+
+**Goals completed:**
+
+- **Strict transition authority** (`src/lib/gameStats/writerControlTransition.ts`): ONE atomic operation over the existing `game-stats-writer-control/state` record — presence-aware reread, strict parse, expected-state check, edge validation, and conditional write of only the exact `{recordVersion, state}` shape, all in one transaction rooted (advisory-locked) on the control key. The graph is closed and directional (`legacy ⇄ armed → active ⇄ read-only-safe`); absent/malformed control, expected-state mismatch (reports the actual state), same-state requests, every unlisted edge, and every return to `legacy` after activation refuse without writing. Typed outcomes: `transitioned` (confirmed COMMIT only), `would-transition` (dry run — not a reservation), the four refusals, `store-unavailable` (known-unchanged), and `store-indeterminate` (mutation submitted, commit unconfirmed — either state may be durable; reread, never retry/repair/infer).
+- **Operator CLI** (`npm run transition:writer-control`, `scripts/transition-game-stats-writer-control.ts`): explicit `--from`/`--to` required; READ-ONLY dry run by default; `--apply` only against a writable PostgreSQL store; resolved storage mode reported; redacted unexpected errors; stable exits (0 success / 2 refused / 3 store unavailable / 4 indeterminate durability / 1 unexpected). The one-shot initializer is untouched and remains create-if-absent `legacy` only (tests prove it still cannot transition).
+- **H2 active-only permission** (`durableMerge.ts`): every `mergeGameStatsPartitionDurable` invocation — including batches that would be unchanged, stale, conflicting, or entirely non-persistable — takes the control key EXCLUSIVE via `lockKey` under the partition primary lock (canonical partition → control order), rereads and strictly parses the record UNDER both locks, and merges ONLY when exactly `active`; otherwise it refuses BEFORE the partition read, merge computation, or any write with typed known-unchanged reasons (`control-lock-unavailable` / `control-read-failed` / `control-absent` / `control-malformed` / `control-not-active` + `controlState`). All pre-existing H2 outcomes are preserved after authorization; lock-order violations still throw loudly.
+- **Deterministic serialization-barrier proofs** on BOTH backends: gated fake-pg with the REAL writers parked at their write statements (a legacy write holding control completes before `legacy → armed`; an H2 write holding control completes before `active → read-only-safe`; the next writer rereads the new state and refuses), file-fallback held critical sections reproducing the writers' exact lock shape, the completed-stop-defeats-stale-`active`-observation proof, and reverse lock-order rejection.
+- **Activation runbook documented, NOT executed** (`docs/ai/game-stats-writer-fence.md` §6): confirm valid `legacy` → confirm the fenced writer deployed → deploy D with no transition → dry-run then apply `legacy → armed` during E and drain → deploy/verify E in `armed` → rollback `armed → legacy` ONLY before activation succeeds → `armed → active` → never back to `legacy` → stop/resume via `active ⇄ read-only-safe`.
+
+**Key outcomes:**
+
+- **Fully dormant:** no route, cron, reader, or production caller invokes H2 or the transition operation; live game-stat writers remain on the fenced legacy setter; **deploying D performed no transition — production remains in `legacy`, no transition has ever been executed, and E retains sole ownership of activation** (production transition execution, ingestion/route/cron/reader wiring, consumer activation, reader smoke tests, controlled refreshes). The recursive dormant-boundary guard was EXTENDED, not weakened (`writerControlTransition.ts` is an authorized dormant home; `writerFence.ts` stays scanned).
+- D was re-scoped by the approved read-only audit from "recovery/orchestration" to **rollout safety** — bounded recovery (claims/leases/backoff/quota/post-claim revalidation) is deferred future work and is NOT part of D.
+
+**Optional follow-up debt (non-blocking):**
+
+- H2 merges of DIFFERENT partitions now serialize briefly on the single control lock (held to COMMIT) — the same brief global serialization the fenced legacy writer already accepts; immaterial at current cadence.
+- The C3 E follow-ups and the temporary in-progress-refresh operational constraint remain in force until E lands.
+- The final atomic activation (E) remains unwritten; production H3 activation has **not** occurred.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
