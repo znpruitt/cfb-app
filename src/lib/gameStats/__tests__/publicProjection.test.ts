@@ -194,11 +194,29 @@ test('public wire: a coverage-satisfied game always yields a public row', () => 
   assert.ok(result.wire.games.some((g) => g.providerGameId === 100));
 });
 
-// === Analytics projection (finality-gated: PLATFORM-086H3C3) ===
+// === Analytics projection (finality-gated C3, readiness-corrected C4) ===
+
+/**
+ * Project analytics for the fixed week-3 regular partition through the C4
+ * paired-input signature. `rows === null` models a caller-established ABSENT
+ * partition (never a read failure).
+ */
+function analyticsFor(
+  games: CanonicalGame[],
+  rows: GameStats[] | null,
+  scoresByKey: Record<string, ScorePack>
+) {
+  return projectAnalyticsPartition(
+    { slate: slateOf(games), scoresByKey },
+    3,
+    'regular',
+    rows === null ? null : weeklyRecord(3, 'regular', rows),
+    'current'
+  );
+}
 
 test('analytics projection: only complete satisfied rows WITH a final score; sparse excluded', () => {
-  const coverage = coverageFor([G1, G2], [G1_COMPLETE, G2_SPARSE]);
-  const analytics = projectAnalyticsPartition(coverage, BOTH_FINAL);
+  const analytics = analyticsFor([G1, G2], [G1_COMPLETE, G2_SPARSE], BOTH_FINAL);
   assert.equal(analytics.length, 1);
   assert.equal(analytics[0]?.providerGameId, 100);
   assert.equal(analytics[0]?.source, 'v2');
@@ -206,61 +224,95 @@ test('analytics projection: only complete satisfied rows WITH a final score; spa
   assert.equal(analytics[0]?.home.totalYards, 412);
 });
 
-test('analytics projection: an absent-coverage partition projects nothing (even with final scores)', () => {
-  const coverage = coverageFor([G1, G2], []);
-  assert.deepEqual(projectAnalyticsPartition(coverage, BOTH_FINAL), []);
+test('analytics projection: committedRecord null (absent partition) projects nothing, even with final scores', () => {
+  assert.deepEqual(analyticsFor([G1, G2], null, BOTH_FINAL), []);
+  // An empty committed record is equally evidence-free.
+  assert.deepEqual(analyticsFor([G1, G2], [], BOTH_FINAL), []);
 });
 
-// --- Approved finality × completeness matrix ---
+test('analytics projection: a mismatched committed envelope fails closed', () => {
+  const input = { slate: slateOf([G1]), scoresByKey: FINAL_100 };
+  // Right rows, wrong envelope identity — every disagreement yields NO evidence.
+  const wrongWeek = weeklyRecord(9, 'regular', [G1_COMPLETE]);
+  const wrongType = weeklyRecord(3, 'postseason', [G1_COMPLETE]);
+  const wrongYear = weeklyRecord(3, 'regular', [G1_COMPLETE], 2024);
+  assert.deepEqual(projectAnalyticsPartition(input, 3, 'regular', wrongWeek, 'current'), []);
+  assert.deepEqual(projectAnalyticsPartition(input, 3, 'regular', wrongType, 'current'), []);
+  assert.deepEqual(projectAnalyticsPartition(input, 3, 'regular', wrongYear, 'current'), []);
+  // Sanity: the agreeing envelope DOES project.
+  assert.equal(
+    projectAnalyticsPartition(
+      input,
+      3,
+      'regular',
+      weeklyRecord(3, 'regular', [G1_COMPLETE]),
+      'current'
+    ).length,
+    1
+  );
+});
+
+// --- Approved finality × completeness matrix (retained from C3) ---
 
 test('matrix: FINAL score + COMPLETE evidence → included', () => {
-  const coverage = coverageFor([G1], [G1_COMPLETE]);
   assert.deepEqual(
-    projectAnalyticsPartition(coverage, FINAL_100).map((a) => a.providerGameId),
+    analyticsFor([G1], [G1_COMPLETE], FINAL_100).map((a) => a.providerGameId),
     [100]
   );
 });
 
 test('matrix: FINAL score + INCOMPLETE (sparse) evidence → excluded', () => {
-  const coverage = coverageFor([G2], [G2_SPARSE]);
-  assert.deepEqual(projectAnalyticsPartition(coverage, { 'key-200': scorePack('final') }), []);
+  assert.deepEqual(analyticsFor([G2], [G2_SPARSE], { 'key-200': scorePack('final') }), []);
 });
 
 test('matrix: IN-PROGRESS score + COMPLETE evidence → excluded', () => {
-  const coverage = coverageFor([G1], [G1_COMPLETE]);
-  assert.deepEqual(
-    projectAnalyticsPartition(coverage, { 'key-100': scorePack('in_progress') }),
-    []
-  );
+  assert.deepEqual(analyticsFor([G1], [G1_COMPLETE], { 'key-100': scorePack('in_progress') }), []);
 });
 
-test('matrix: SCHEDULED score + COMPLETE evidence → excluded', () => {
-  const coverage = coverageFor([G1], [G1_COMPLETE]);
-  assert.deepEqual(projectAnalyticsPartition(coverage, { 'key-100': scorePack('scheduled') }), []);
-});
-
-test('matrix: MISSING score + COMPLETE evidence → excluded', () => {
-  const coverage = coverageFor([G1], [G1_COMPLETE]);
-  // No key for evt-100: classifyScorePackStatus(undefined) === 'scheduled' → excluded.
-  assert.deepEqual(projectAnalyticsPartition(coverage, {}), []);
+test('matrix: SCHEDULED or MISSING score + COMPLETE evidence → excluded, including after six hours', () => {
+  // G1 is applicability `expected` — its kickoff is more than six hours old — so
+  // this proves the six-hour threshold never substitutes for score finality.
+  assert.equal(G1.applicability, 'expected');
+  assert.deepEqual(analyticsFor([G1], [G1_COMPLETE], { 'key-100': scorePack('scheduled') }), []);
+  // No key for key-100: classifyScorePackStatus(undefined) === 'scheduled' → excluded.
+  assert.deepEqual(analyticsFor([G1], [G1_COMPLETE], {}), []);
 });
 
 test('matrix: FINAL score + BLOCKED (unsupported schema) evidence → excluded', () => {
   const blocked = { ...G1_COMPLETE, schemaVersion: 5 } as unknown as GameStats;
+  // Sanity via the UNCHANGED coverage authority: genuinely blocked, not sparse.
   const coverage = coverageFor([G1], [blocked]);
-  // Sanity: the game is genuinely non-satisfied (blocked), not merely sparse.
   assert.equal(coverage.games[0]?.decision.state, 'blocked-unsupported-schema');
-  assert.deepEqual(projectAnalyticsPartition(coverage, FINAL_100), []);
+  assert.deepEqual(analyticsFor([G1], [blocked], FINAL_100), []);
+});
+
+test('matrix: FINAL score + CONFLICTING (divergent duplicate) evidence → excluded', () => {
+  // Two same-id, same-fence rows with divergent content: the shared evidence
+  // authority classifies a duplicate conflict, which is never analytics evidence.
+  const divergentTwin = v2Row({
+    id: 100,
+    home: {
+      school: 'Alpha State',
+      schoolId: 101,
+      raw: {
+        totalYards: '999',
+        rushingYards: '187',
+        netPassingYards: '225',
+        turnovers: '1',
+        thirdDownEff: '6-14',
+        possessionTime: '31:24',
+      },
+    },
+    away: { school: 'Beta Tech', schoolId: 202 },
+    week: 3,
+  });
+  const coverage = coverageFor([G1], [G1_COMPLETE, divergentTwin]);
+  assert.equal(coverage.games[0]?.decision.state, 'duplicate-conflict');
+  assert.deepEqual(analyticsFor([G1], [G1_COMPLETE, divergentTwin], FINAL_100), []);
 });
 
 test('matrix: only one FINAL among several complete games → only the final game included', () => {
-  const coverage = coverageFor([G1, G2], [G1_COMPLETE, G2_COMPLETE]);
-  // Both satisfied; only G1 has a final score.
-  assert.equal(
-    coverage.games.every((g) => g.decision.state === 'satisfied'),
-    true
-  );
-  const out = projectAnalyticsPartition(coverage, {
+  const out = analyticsFor([G1, G2], [G1_COMPLETE, G2_COMPLETE], {
     'key-100': scorePack('final'),
     'key-200': scorePack('scheduled'),
   });
@@ -268,6 +320,144 @@ test('matrix: only one FINAL among several complete games → only the final gam
     out.map((a) => a.providerGameId),
     [100]
   );
+});
+
+// --- PLATFORM-086H3C4: readiness is independent of the six-hour threshold ---
+
+/** G1 as a PENDING game — kickoff less than six hours old for C1's classifier. */
+const G1_PENDING = canonicalGame({
+  providerGameId: 100,
+  home: 'Alpha State',
+  away: 'Beta Tech',
+  week: 3,
+  applicability: 'pending',
+});
+
+test('readiness: FINAL + COMPLETE less than six hours after kickoff is included', () => {
+  assert.deepEqual(
+    analyticsFor([G1_PENDING], [G1_COMPLETE], FINAL_100).map((a) => a.providerGameId),
+    [100]
+  );
+});
+
+test('readiness: the same pending game remains PENDING for C1 coverage/recovery (unchanged)', () => {
+  // The identical slate + record that just projected analytics: coverage still
+  // classifies the game `pending` — never an evaluated/expected gap — so the
+  // six-hour missing-data/recovery semantics are untouched by C4.
+  const coverage = coverageFor([G1_PENDING], [G1_COMPLETE]);
+  assert.deepEqual(coverage.games, []);
+  assert.deepEqual(
+    coverage.pending.map((g) => g.providerGameId),
+    [100]
+  );
+  assert.equal(coverage.state, 'not-applicable');
+});
+
+test('readiness: IN-PROGRESS + COMPLETE is excluded without altering its committed evidence', () => {
+  const record = weeklyRecord(3, 'regular', [G1_COMPLETE]);
+  const before = structuredClone(record);
+  const input = {
+    slate: slateOf([G1_PENDING]),
+    scoresByKey: { 'key-100': scorePack('in_progress') },
+  };
+  assert.deepEqual(projectAnalyticsPartition(input, 3, 'regular', record, 'current'), []);
+  // The committed evidence is untouched (never discarded or rewritten)…
+  assert.deepEqual(record, before);
+  // …and the SAME record projects the moment the score turns final.
+  const final = { slate: slateOf([G1_PENDING]), scoresByKey: FINAL_100 };
+  assert.equal(projectAnalyticsPartition(final, 3, 'regular', record, 'current').length, 1);
+});
+
+test('readiness: one final-and-complete game is included while later slate games are scheduled or in progress', () => {
+  const g2Pending = canonicalGame({
+    providerGameId: 200,
+    home: 'Gamma A&M',
+    away: 'Delta University',
+    week: 3,
+    applicability: 'pending',
+  });
+  const g3Pending = canonicalGame({
+    providerGameId: 300,
+    home: 'Epsilon College',
+    away: 'Zeta State',
+    week: 3,
+    applicability: 'pending',
+  });
+  // G1 finished early (final + complete); G2 has not kicked off (no score, no
+  // rows); G3 is mid-game with complete-so-far stats.
+  const out = analyticsFor([G1_PENDING, g2Pending, g3Pending], [G1_COMPLETE, G2_COMPLETE], {
+    'key-100': scorePack('final'),
+    'key-300': scorePack('in_progress'),
+  });
+  assert.deepEqual(
+    out.map((a) => a.providerGameId),
+    [100]
+  );
+});
+
+test('readiness: placeholders and disrupted games remain excluded even with a final score', () => {
+  const placeholder = canonicalGame({
+    providerGameId: 400,
+    home: 'Alpha State',
+    away: 'Beta Tech',
+    week: 3,
+    applicability: 'not-expected',
+    notExpectedReason: 'placeholder',
+    key: 'key-400',
+  });
+  const disrupted = canonicalGame({
+    providerGameId: 500,
+    home: 'Gamma A&M',
+    away: 'Delta University',
+    week: 3,
+    applicability: 'not-expected',
+    notExpectedReason: 'disrupted',
+    key: 'key-500',
+  });
+  const rows = [
+    v2Row({
+      id: 400,
+      home: { school: 'Alpha State', schoolId: 101 },
+      away: { school: 'Beta Tech', schoolId: 202 },
+      week: 3,
+    }),
+  ];
+  const out = analyticsFor([placeholder, disrupted], rows, {
+    'key-400': scorePack('final'),
+    'key-500': scorePack('final'),
+  });
+  assert.deepEqual(out, []);
+});
+
+// --- Paired-input contract: live-shaped and archive-shaped inputs behave identically ---
+
+test('paired input: live-shaped and archive-shaped key namespaces obey the same contract', () => {
+  // The SAME canonical content under two key namespaces — a live canonical build
+  // (`key-*`) and an archived snapshot's preserved keys (`arch-*`). Each slate is
+  // paired with ITS OWN score map; both project identically.
+  const liveGame = canonicalGame({
+    providerGameId: 100,
+    home: 'Alpha State',
+    away: 'Beta Tech',
+    week: 3,
+    key: 'key-100',
+  });
+  const archiveGame = canonicalGame({
+    providerGameId: 100,
+    home: 'Alpha State',
+    away: 'Beta Tech',
+    week: 3,
+    key: 'arch-100',
+  });
+  const live = analyticsFor([liveGame], [G1_COMPLETE], { 'key-100': scorePack('final') });
+  const archived = analyticsFor([archiveGame], [G1_COMPLETE], { 'arch-100': scorePack('final') });
+  assert.deepEqual(live, archived);
+  assert.equal(live.length, 1);
+
+  // MIXING the namespaces (a slate paired with the OTHER build's map) finds no
+  // score under `game.key` and fails closed — keys must come from the same
+  // canonical build or persisted snapshot.
+  assert.deepEqual(analyticsFor([liveGame], [G1_COMPLETE], { 'arch-100': scorePack('final') }), []);
 });
 
 test('key disambiguation: two games sharing an eventId are gated by their DISTINCT attachment keys', () => {
@@ -292,13 +482,8 @@ test('key disambiguation: two games sharing an eventId are gated by their DISTIN
     key: 'dup-b',
     eventId: 'shared-evt',
   });
-  const coverage = coverageFor([A, B], [G1_COMPLETE, G2_COMPLETE]);
-  assert.equal(
-    coverage.games.every((g) => g.decision.state === 'satisfied'),
-    true
-  );
   // Scores attached under the DISAMBIGUATED keys: A final, B scheduled.
-  const out = projectAnalyticsPartition(coverage, {
+  const out = analyticsFor([A, B], [G1_COMPLETE, G2_COMPLETE], {
     'dup-a': scorePack('final'),
     'dup-b': scorePack('scheduled'),
   });
@@ -313,10 +498,9 @@ test('key disambiguation: two games sharing an eventId are gated by their DISTIN
 // --- Shared status-classifier consistency ---
 
 test('separator/case variants of a final status all gate to included; live/disrupted do not', () => {
-  const coverage = coverageFor([G1], [G1_COMPLETE]);
   for (const finalLabel of ['final', 'FINAL', 'Final', 'STATUS_FINAL', 'status final']) {
     assert.deepEqual(
-      projectAnalyticsPartition(coverage, { 'key-100': scorePack(finalLabel) }).map(
+      analyticsFor([G1], [G1_COMPLETE], { 'key-100': scorePack(finalLabel) }).map(
         (a) => a.providerGameId
       ),
       [100],
@@ -331,7 +515,7 @@ test('separator/case variants of a final status all gate to included; live/disru
     '',
   ]) {
     assert.deepEqual(
-      projectAnalyticsPartition(coverage, { 'key-100': scorePack(nonFinal) }),
+      analyticsFor([G1], [G1_COMPLETE], { 'key-100': scorePack(nonFinal) }),
       [],
       nonFinal
     );
@@ -342,20 +526,20 @@ test('no raw schedule status can make a game eligible without an attached final 
   // The canonical game itself reports rawStatus 'final' (schedule authority), but
   // finality for analytics comes ONLY from the attached score map.
   assert.equal(G1.rawStatus, 'final');
-  const coverage = coverageFor([G1], [G1_COMPLETE]);
   // No attached score → excluded despite the schedule saying 'final'.
-  assert.deepEqual(projectAnalyticsPartition(coverage, {}), []);
+  assert.deepEqual(analyticsFor([G1], [G1_COMPLETE], {}), []);
   // An attached non-final score overrides the schedule's 'final' rawStatus.
-  assert.deepEqual(
-    projectAnalyticsPartition(coverage, { 'key-100': scorePack('in_progress') }),
-    []
-  );
+  assert.deepEqual(analyticsFor([G1], [G1_COMPLETE], { 'key-100': scorePack('in_progress') }), []);
 });
 
-test('the score-map argument is mandatory (compile-time required, runtime-guarded)', () => {
+// --- Signature contract (compile-time required) ---
+
+test('the paired input and committed record are mandatory; the old coverage signature is gone', () => {
   const coverage = coverageFor([G1], [G1_COMPLETE]);
-  // @ts-expect-error scoresByKey is a REQUIRED parameter — omitting it must not typecheck.
-  assert.throws(() => projectAnalyticsPartition(coverage));
+  // @ts-expect-error the old (PartitionCoverage, scoresByKey) signature must not typecheck.
+  assert.throws(() => projectAnalyticsPartition(coverage, FINAL_100));
+  // @ts-expect-error omitting the committed record (and season relation) must not typecheck.
+  assert.throws(() => projectAnalyticsPartition({ slate: slateOf([G1]), scoresByKey: FINAL_100 }));
 });
 
 // Sanity: the sparse fixture really is sparse (guards the tests above).

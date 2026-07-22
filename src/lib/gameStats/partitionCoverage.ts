@@ -70,9 +70,11 @@ function sortedUnique(ids: number[]): number[] {
 /**
  * Group the record's rows by provider game id. Rows without a valid positive
  * provider id are never addressable and are dropped here (they can satisfy or
- * block nothing).
+ * block nothing). Shared association authority: coverage AND the C4 analytics
+ * projection (`projectAnalyticsPartition`) both associate rows through THIS one
+ * helper, so there is exactly one id-parsing/grouping policy.
  */
-function groupRowsById(record: WeeklyGameStats | null): Map<number, GameStats[]> {
+export function groupRowsById(record: WeeklyGameStats | null): Map<number, GameStats[]> {
   const byId = new Map<number, GameStats[]>();
   for (const row of record?.games ?? []) {
     const id = (row as { providerGameId?: unknown })?.providerGameId;
