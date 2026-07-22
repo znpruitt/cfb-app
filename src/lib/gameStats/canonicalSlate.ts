@@ -226,19 +226,25 @@ export function buildCanonicalGameStatsSlate(input: {
   const { games } = buildScheduleFromApi({ scheduleItems, teams, aliasMap, season: year });
   const resolver = createGameStatsResolver({ games, teams, aliasMap });
 
-  // Index raw schedule rows by their CFBD id (first-wins), and track ids that
-  // appear on MORE THAN ONE raw row. A surviving game reads its source-item
-  // metadata (season type, status, kickoff) by id, so a reused raw id makes that
-  // lookup ambiguous — first-wins could attach a discarded/excluded row's
-  // metadata (e.g. a canceled postseason row's) to the surviving game and
-  // misclassify its partition/applicability. The CFBD id is the association
-  // authority, so a duplicate raw id is a canonical-build failure.
-  const itemsById = new Map<string, ScheduleWireItem>();
-  const duplicateRawScheduleIds = new Set<string>();
+  // Index raw schedule rows by their PARSED numeric CFBD provider id (first-wins),
+  // and track ids that appear on MORE THAN ONE raw row. A surviving game reads its
+  // source-item metadata (season type, status, kickoff) by id, so a reused id
+  // makes that lookup ambiguous — first-wins could attach a discarded/excluded
+  // row's metadata (e.g. a canceled postseason row's) to the surviving game and
+  // misclassify its partition/applicability. Detection operates on the PARSED
+  // numeric id (not the raw string) so alternate decimal spellings that
+  // `toProviderGameId` collapses to the same provider game id — `"05001"` vs
+  // `"5001"` — cannot slip past a raw-string comparison. Non-numeric ids
+  // (synthetic placeholder-shell fallback rows) associate no durable row, so they
+  // are ignored here. The CFBD id is the association authority, so a duplicate is
+  // a canonical-build failure.
+  const itemsByProviderId = new Map<number, ScheduleWireItem>();
+  const duplicateProviderScheduleIds = new Set<number>();
   for (const item of scheduleItems) {
-    if (typeof item.id !== 'string') continue;
-    if (itemsById.has(item.id)) duplicateRawScheduleIds.add(item.id);
-    else itemsById.set(item.id, item);
+    const providerId = toProviderGameId(item.id);
+    if (providerId === null) continue;
+    if (itemsByProviderId.has(providerId)) duplicateProviderScheduleIds.add(providerId);
+    else itemsByProviderId.set(providerId, item);
   }
 
   const nowMs = now.getTime();
@@ -248,23 +254,25 @@ export function buildCanonicalGameStatsSlate(input: {
     const providerGameId = toProviderGameId(game.providerGameId);
     if (providerGameId === null) continue; // unaddressable (placeholder/synthetic id)
 
-    // Reject an addressable game whose raw CFBD id was reused on the schedule —
-    // its source-item metadata is ambiguous — BEFORE that metadata is read. This
+    // Reject an addressable game whose numeric CFBD id was reused on the schedule
+    // — its source-item metadata is ambiguous — BEFORE that metadata is read. This
     // catches the case a surviving game's id collides with a DISCARDED row even
-    // when only one game survives (which the numeric `seenIds` check below would
-    // miss).
-    if (game.providerGameId && duplicateRawScheduleIds.has(game.providerGameId)) {
-      throw new Error(`ambiguous duplicate CFBD schedule id: ${game.providerGameId}`);
+    // when only one game survives, INCLUDING an alternate raw spelling of the same
+    // number (`"05001"`/`"5001"`) that a raw-string check would miss.
+    if (duplicateProviderScheduleIds.has(providerGameId)) {
+      throw new Error(`ambiguous duplicate CFBD schedule id: ${providerGameId}`);
     }
-    // The numeric game id is the association authority — it must also be unique
-    // across the surviving slate (guards distinct raw id strings that coerce to
-    // the same number).
+    // Redundant defensive invariant: the numeric association id must be unique
+    // across the surviving slate. The duplicate-id detection above already rejects
+    // any reused number (two survivors sharing a number both trace to raw rows), so
+    // this is a belt-and-suspenders guard against a future builder that could
+    // synthesize a providerGameId absent from the raw schedule rows.
     if (seenIds.has(providerGameId)) {
       throw new Error(`duplicate canonical CFBD game id in slate: ${providerGameId}`);
     }
     seenIds.add(providerGameId);
 
-    const item = game.providerGameId ? itemsById.get(game.providerGameId) : undefined;
+    const item = itemsByProviderId.get(providerGameId);
     const kickoff = item?.startDate ?? game.date ?? null;
     const rawStatus = item?.status ?? null;
     // Name-resolved participants: the schedule-authoritative expectation of who

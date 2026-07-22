@@ -287,6 +287,35 @@ test('canonical slate: a reused raw id is rejected even when the other row is EX
   );
 });
 
+test('canonical slate: an alternate-spelling raw id is rejected even when the other row is EXCLUDED', () => {
+  // The excluded row (FCS-vs-FCS, dropped by buildScheduleFromApi) carries an
+  // alternate decimal spelling ('05001') of the surviving FBS game's id ('5001').
+  // Both `toProviderGameId`-parse to 5001, so provider game 5001 is denoted by two
+  // schedule rows — ambiguous association. A raw-STRING duplicate check misses it
+  // ('05001' !== '5001'), and the excluded row never reaches the surviving-slate
+  // numeric check; only detecting duplicates on the PARSED numeric id catches it.
+  assert.throws(() =>
+    build([
+      // Excluded (FCS-vs-FCS), preceding the survivor, with a leading-zero id.
+      scheduleItem({
+        id: '05001',
+        week: 3,
+        home: 'Epsilon College',
+        away: 'Zeta State',
+        status: 'final',
+      }),
+      // Surviving FBS regular game whose canonical id ('5001') is the same number.
+      scheduleItem({
+        id: '5001',
+        week: 3,
+        home: 'Alpha State',
+        away: 'Beta Tech',
+        status: 'final',
+      }),
+    ])
+  );
+});
+
 test('canonical slate: malformed non-decimal schedule ids are not addressable', () => {
   const slate = build([
     scheduleItem({ id: '5001', week: 3, home: 'Alpha State', away: 'Beta Tech', status: 'final' }),
