@@ -8,9 +8,16 @@ import {
   type SeasonRelation,
 } from './contract.ts';
 import { parseObservationFenceMs } from './observationFence.ts';
-import type { CanonicalSlateResult, CanonicalSlateUnavailableReason } from './canonicalSlate.ts';
+import {
+  selectCanonicalPartition,
+  type CanonicalSlate,
+  type CanonicalSlateResult,
+  type CanonicalSlateUnavailableReason,
+} from './canonicalSlate.ts';
+import { selectGameEvidence } from './evidenceAuthority.ts';
 import {
   evaluatePartitionCoverage,
+  groupRowsById,
   type PartitionCoverage,
   type PartitionCoverageState,
 } from './partitionCoverage.ts';
@@ -282,41 +289,114 @@ export function projectPublicPartition(
 // === Analytics projection (projection-only, behind the shared authority) ===
 
 /**
- * Analytics view of a partition. A canonical game contributes ONLY when it has
- * BOTH:
+ * PLATFORM-086H3C4 — the required paired analytics input. The slate's canonical
+ * game keys and the score-map keys MUST come from the SAME canonical game build
+ * or persisted snapshot:
+ *   - a live season supplies the exact canonical game keys used when attaching
+ *     reconciled live scores;
+ *   - an archived season supplies the keys preserved from `archive.games`
+ *     alongside that archive's own `scoresByKey`.
+ * `game.key` is the ONLY score lookup key — never `eventId` (which key
+ * disambiguation can intentionally diverge from), never a provider id, raw
+ * label, or an independently rebuilt key.
+ */
+export type CanonicalAnalyticsReadInput = {
+  slate: CanonicalSlate;
+  scoresByKey: Readonly<Record<string, ScorePack>>;
+};
+
+/**
+ * Analytics view of one partition (PLATFORM-086H3C4 readiness correction). A
+ * canonical game contributes ONLY when it has BOTH:
  *   1. FINAL canonical score evidence —
- *      `classifyScorePackStatus(scoresByKey[game.eventId]) === 'final'`; AND
- *   2. complete game-stat evidence — coverage state `satisfied`, a selected row,
- *      and `toAnalyticsGameStats` acceptance (strict reparse of raw evidence +
+ *      `classifyScorePackStatus(input.scoresByKey[game.key]) === 'final'`; AND
+ *   2. complete game-stat evidence — a `satisfied` decision from the shared
+ *      evidence authority (`selectGameEvidence`) with a selected row that passes
+ *      the strict `toAnalyticsGameStats` projection (reparse of raw evidence +
  *      points; never stored fallbacks).
+ *
+ * Analytics eligibility is INDEPENDENT of C1's six-hour missing-data threshold:
+ * every addressable, stat-producing canonical game in the partition is
+ * considered — whether C1 currently labels it `expected` or `pending` — so a
+ * game that finishes within six hours of kickoff becomes analytics-eligible the
+ * moment its score is final and its stats are complete. It does not wait six
+ * hours or for the rest of the weekly slate. The six-hour threshold, coverage
+ * evaluation, recovery gap states, and diagnostics are UNCHANGED — they keep
+ * deciding when missing stats become a coverage/recovery gap, never when
+ * final-and-complete evidence becomes eligible. Placeholders and
+ * disrupted/non-stat-producing games remain excluded.
  *
  * The game is EXCLUDED when its score evidence is missing, scheduled, in
  * progress, disrupted, ambiguous, or unavailable (a missing key classifies as
  * `scheduled`, so absence is excluded without a special case), OR when its
- * game-stat evidence is sparse (incomplete), conflicting, or blocked. Sparse rows
- * are never analytics evidence, and no raw schedule status ever substitutes for a
- * final score — finality comes solely from the attached score map.
+ * game-stat evidence is sparse (incomplete), absent, conflicting, unsupported
+ * (blocked), or manual-only. An in-progress game with complete stats remains
+ * durable evidence — stored, merged, and selectable — but is excluded from
+ * launch analytics until its score is final; finality is an ANALYTICS
+ * eligibility rule only, never an ingestion, persistence, merge, or general
+ * evidence-selection requirement.
  *
- * `scoresByKey` is a REQUIRED input: an already-reconciled, already-attached
- * canonical score map keyed by the canonical `AppGame.key` (the ATTACHMENT key
- * `attachScoresToSchedule` uses — NOT `eventId`, which key disambiguation can
- * intentionally diverge from). Score reconciliation, attachment, fetching,
- * normalization, caching, and provider access all remain outside this projection
- * (they belong to the caller). There is no duplicate selection here — the shared
- * authority already chose the winner.
+ * Contract:
+ *   - `committedRecord` is the already-read durable record for exactly
+ *     `input.slate.year` + `week` + `seasonType`. `null` means the caller
+ *     successfully established the partition is ABSENT — a durable read failure
+ *     must be handled by the caller and never converted to `null`.
+ *   - A non-null committed record is validated through the SAME
+ *     `validateEnvelope` authority the public projection uses (the durable
+ *     store itself never validates stored values): a malformed envelope, a
+ *     partition mismatch, an invalid `fetchedAt`, or a non-array `games`
+ *     payload fails CLOSED to no analytics evidence — it never throws and
+ *     never publishes from a corrupt envelope.
+ *   - Pure: inspects only the supplied slate, attached scores, partition
+ *     identity, committed record, and season relation. It never calls
+ *     cache/store readers, fetches a provider, loads a schedule or archive, or
+ *     mutates state. Assembling live and archived inputs and performing durable
+ *     reads is the caller's (E's) responsibility.
+ *   - Association, evidence selection, duplicate authority, and the strict
+ *     analytics projection are all REUSED from C1 (`validateEnvelope`,
+ *     `groupRowsById`, `selectGameEvidence`, `toAnalyticsGameStats`) — there is
+ *     no second envelope/selection/completeness policy, and no
+ *     recovery-filtered `PartitionCoverage` input.
  */
 export function projectAnalyticsPartition(
-  coverage: PartitionCoverage,
-  scoresByKey: Readonly<Record<string, ScorePack>>
+  input: CanonicalAnalyticsReadInput,
+  week: number,
+  seasonType: CfbdSeasonType,
+  committedRecord: WeeklyGameStats | null,
+  seasonRelation: SeasonRelation
 ): AnalyticsGameStats[] {
+  // Validate the COMPLETE committed envelope through the module's single
+  // validation authority before touching its rows. Durable app-state is
+  // untyped at rest, so identity agreement alone is not proof of shape: a
+  // matching-but-malformed envelope (bad `fetchedAt`, non-array `games`,
+  // malformed fields) and a partition mismatch all fail CLOSED to no analytics
+  // evidence — never a throw, never analytics from a corrupt envelope.
+  let validated: WeeklyGameStats | null = null;
+  if (committedRecord !== null) {
+    const validation = validateEnvelope(committedRecord, input.slate.year, week, seasonType);
+    if (validation.status !== 'ok') return [];
+    validated = validation.record;
+  }
+
+  // Addressable, stat-producing games of this partition: `expected` AND
+  // `pending` (the six-hour threshold has no analytics authority); placeholders
+  // and disrupted games are excluded by the partition selection itself.
+  const partition = selectCanonicalPartition(input.slate, week, seasonType);
+  const rowsById = groupRowsById(validated);
+
   const projected: AnalyticsGameStats[] = [];
-  for (const { game, decision } of coverage.games) {
+  for (const game of [...partition.expected, ...partition.pending]) {
     // 1. Canonical FINAL score evidence is required first — a missing/scheduled/
     //    in-progress/disrupted/ambiguous score never yields analytics. The lookup
     //    uses the canonical attachment key (`game.key`), the key scores are
     //    attached under; `eventId` can be shared across disambiguated games.
-    if (classifyScorePackStatus(scoresByKey[game.key]) !== 'final') continue;
-    // 2. Then the existing C1 completeness requirements.
+    if (classifyScorePackStatus(input.scoresByKey[game.key]) !== 'final') continue;
+    // 2. Then the shared evidence authority + strict completeness requirements.
+    const decision = selectGameEvidence(
+      game,
+      rowsById.get(game.providerGameId) ?? [],
+      seasonRelation
+    );
     if (decision.state !== 'satisfied' || !decision.selected) continue;
     const analytics = toAnalyticsGameStats(decision.selected);
     if (analytics) projected.push(analytics);
