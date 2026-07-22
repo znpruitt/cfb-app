@@ -1,30 +1,36 @@
 # PLATFORM-086H3C1 — Canonical Game-Stats Evidence Read Model
 
-> **REVISED — CFBD-ID ATTACHMENT AUTHORITY (PLATFORM-086H3C1-CFBD-ID-AUTHORITY-REVISION-v1).**
+> **REVISED — CFBD-ID ATTACHMENT AUTHORITY (PLATFORM-086H3C1-CFBD-ID-AUTHORITY-REVISION-v2).**
 > A **unique canonical CFBD game ID** establishes which scheduled game a durable
-> row belongs to (association). **Participant data determines orientation and
-> integrity; it is not a coequal attachment authority.** The consequences, which
-> supersede the participant-as-coequal wording throughout the sections below:
+> row belongs to (association). **CFBD `homeAway` establishes side orientation and
+> is trusted — sides are never swapped at read time.** Participant identity is
+> validated **only with numeric CFBD ids** (game-stat `schoolId`, from CFBD
+> `teamId`, against the schedule's optional numeric `homeId`/`awayId`);
+> names/aliases inform display or diagnostics but never verify or contradict
+> identity. The consequences, which supersede the reorientation / neutral-site /
+> name-authority / `reversed-warning` wording throughout the sections below:
 >
 > - Association is by the game's own CFBD id + partition agreement — not by
->   participant resolution.
-> - A supported row whose participants cannot be **fully** resolved stays
->   attached and can satisfy/publish, marked `unverified` (id authority).
-> - Only a **known** contradiction — BOTH canonical and BOTH row participants
->   fully resolved and matching neither the direct nor reversed pair — is
->   **quarantined** (`contradicted`): it can never satisfy coverage, publish, or
->   shadow/replace prior-good evidence, and yields an `identity-mismatch` gap.
-> - An **exact reversed pair** is safely reoriented for **neutral OR non-neutral**
->   games; non-neutral reversal keeps a retained `reversed-warning` integrity flag.
+>   participant identity.
+> - When all four numeric ids are valid: direct home/away agreement is
+>   `verified`; an exact reversal, or any other disagreement, is **quarantined**
+>   (`contradicted`) — no side objects are ever swapped.
+> - When the schedule ids or the row's `schoolId`s are unavailable, the
+>   id-associated row stays attached and `unverified` (it may satisfy/publish
+>   with the caveat surfaced). Name/alias agreement without numeric ids stays
+>   `unverified`; name disagreement without numeric ids cannot quarantine.
+> - A quarantined contradiction can never satisfy coverage, publish, enter
+>   analytics, or shadow/replace prior-good evidence, and yields an
+>   `identity-mismatch` gap.
+> - **Neutral-site status has no effect** on participant validation.
 > - A same-id unsupported / malformed / bad-fence schema **blocks weaker siblings
->   from its id alone**, with no participant resolution required.
-> - The evidence decision distinguishes three axes: **association** (by id),
->   **orientation** (direct/reversed), and **usability/integrity** (verified /
->   unverified / reversed-warning / contradicted).
-> - Applicability no longer defers a game merely because a canonical participant
->   slot is unsettled: only a **full placeholder shell** (no known team on either
->   side) defers; a half-set matchup or unresolved-but-present pair is an
->   addressable expected game whose rows attach `unverified`.
+>   from its id alone**, before participant validation.
+> - The evidence decision distinguishes **association** (by id) and
+>   **usability/integrity** (verified / unverified / contradicted). There is **no
+>   orientation/reversal concept, no `reorientRow`, and no `reversed-warning`**.
+> - Applicability defers only a **full placeholder shell** (no known team on
+>   either side); a half-set matchup or unresolved-name pair is an addressable
+>   expected game whose rows attach `unverified` when numeric ids are absent.
 
 ## Final objective
 
@@ -70,7 +76,7 @@ All C1 capabilities must remain production-disconnected.
 - Evaluate coverage from the supplied committed durable weekly record, not from a provider response or unconfirmed write result.
 - Each expected game must resolve to exactly one typed state: `satisfied`, `absent`, `incomplete`, `identity-mismatch`, `duplicate-conflict`, `blocked-unsupported-schema`, or `manual-only` where historical compatibility policy requires it.
 - Partition states are `not-applicable`, `complete`, `partial`, `absent`, `blocked`, or `manual-only`.
-- Report pending games, deferred placeholders (full shells only), unmatched stored IDs, quarantined participant contradictions, unassociated (partition-disagreeing) rows, integrity warnings (unverified / reversed-warning winners), shadowed lower-precedence evidence, and duplicate conflicts separately.
+- Report pending games, deferred placeholders (full shells only), unmatched stored IDs, quarantined participant contradictions, unassociated (partition-disagreeing) rows, integrity warnings (unverified winners), shadowed lower-precedence evidence, and duplicate conflicts separately.
 - Complete v2 and compatible legacy evidence may satisfy coverage. Sparse v2 evidence is incomplete.
 - Public projection may publish complete v2, compatible legacy, and structurally valid sparse v2 rows, but sparse rows must remain visibly incomplete in availability.
 - Analytics projection accepts only complete v2 or compatible legacy evidence and must strictly reparse required raw evidence and points.
@@ -86,7 +92,7 @@ All C1 capabilities must remain production-disconnected.
 - Adapt H1 analytics projection to consume an already-selected row rather than selecting duplicates.
 - Extract a shared strict observation-fence parser if required.
 - Extend the recursive dormant-boundary tests so only the named dormant modules may use C1/H1 capabilities and no live production consumer can import them.
-- Add focused unit tests for canonical expectations, attachment, orientation, evidence selection, coverage, projection, and dormancy.
+- Add focused unit tests for canonical expectations, association, numeric participant validation, evidence selection, coverage, projection, and dormancy.
 - Keep each new library module below approximately 500 lines; do not append substantial new logic to the existing large `contract.ts`.
 - Keep all reads cache-only and provider-free.
 
@@ -119,19 +125,19 @@ This remains one cohesive PR because canonical expectation, evidence selection, 
 ## Key invariants
 
 - Association is by the unique canonical CFBD game ID plus partition agreement. Provider game ID alone still never authorizes _persistence_, and a row must carry _usable, non-contradicted_ evidence to satisfy coverage or publish — but a matching id (not participant agreement) is what associates a row with a scheduled game, and a matching-id unsupported/malformed schema blocks by id alone.
-- Canonical schedule membership associates a row; participant agreement governs its orientation and integrity, and only a **known contradiction** (fully-resolved wrong pair) bars it from affecting the game.
+- Canonical schedule membership + game id associate a row; numeric participant ids govern its integrity, and only a **known numeric contradiction** (all four ids valid, not a direct match) bars it from affecting the game.
 - All team matching goes through `teamIdentity.ts`.
 - Postseason provider week and canonical week remain distinct; C1 must not bypass the established canonical-week calculation.
-- Schema blocking is evaluated from id + schema without participant resolution; participant validation (orientation/integrity/contradiction) is assessed for supported, non-blocking rows before duplicate selection.
+- Schema blocking is evaluated from id + schema without participant validation; numeric participant validation (verified / unverified / contradiction) is assessed for supported, non-blocking rows before duplicate selection.
 - Evidence selection is row-level; read-time field composition is forbidden.
-- Coverage, public projection, and analytics projection consume the same evidence decision, including its association/orientation/integrity axes.
+- Coverage, public projection, and analytics projection consume the same evidence decision, including its association and integrity axes.
 - Projection-specific field eligibility may differ, but evidence winner and conflict classification may not.
 - Every coverage-satisfied game must produce a public row.
 - Compatible legacy rows remain valid evidence and do not trigger automatic migration.
 - Sparse v2 evidence cannot displace complete valid evidence.
 - Unsupported or malformed authoritative schema is never silently laundered through a weaker sibling.
 - Unscheduled stored rows (unmatched id), quarantined participant contradictions, and rows whose own partition disagrees are retained as separate reports and never count as coverage.
-- A row whose participants cannot be fully verified stays attached as `unverified` (it may satisfy/publish with the caveat surfaced); a fully-resolved participant contradiction is quarantined and never satisfies, publishes, or shadows prior-good evidence.
+- A row whose participants cannot be numerically verified stays attached as `unverified` (it may satisfy/publish with the caveat surfaced); a fully-known numeric participant contradiction is quarantined and never satisfies, publishes, or shadows prior-good evidence.
 - Public output never exposes schema, fence, transaction, recovery, or other internal persistence metadata; integrity/quarantine are surfaced only as availability counts, never as per-row internal metadata.
 - C1 remains dormant until a later activation change explicitly connects production consumers.
 
@@ -143,7 +149,7 @@ For each expected canonical game (candidates are the rows sharing the game's CFB
 
 1. Associate by the game's id + partition agreement (a row whose own partition disagrees is unassociated).
 2. Apply matching unsupported/malformed/bad-fence schema blockers **from id + schema alone** — no participant resolution.
-3. For supported, non-blocking rows, orient and assess integrity (verified / unverified / reversed-warning); quarantine known contradictions.
+3. For supported, non-blocking rows, validate participants by numeric CFBD id (verified / unverified); quarantine numeric contradictions. Sides are never swapped.
 4. Rank usable (non-quarantined) candidates by evidence sufficiency:
    1. complete v2;
    2. compatible legacy;
@@ -165,12 +171,12 @@ For each expected canonical game (candidates are the rows sharing the game's CFB
 
 ### Evidence equivalence
 
-Compare canonically oriented, explicitly publishable row content while excluding only observation-order and internal metadata.
+Compare the as-stored, explicitly publishable row content (sides are never swapped) while excluding only observation-order and internal metadata.
 
 The comparison includes:
 
 - provider game ID;
-- canonical participant orientation;
+- each side's `homeAway` designation as stored;
 - provider participant labels and school IDs;
 - public conference fields;
 - points and points-evidence state;
@@ -207,42 +213,30 @@ The unsupported row does **not** block, and is treated as unassociated, only whe
 
 Participant absence, malformedness, or non-resolution does **not** exempt an unsupported row from blocking — the id is sufficient. If schedule or identity context is unavailable, report coverage as unavailable rather than treating the row as unmatched. Other supported-but-incomplete rows (sparse v2 with a valid fence) remain recoverable.
 
-## Neutral-site rules
+## Participant validation (numeric CFBD ids only)
 
-### Attachment decision
+CFBD `homeAway` establishes side orientation and is trusted; sides are **never**
+swapped at read time and there is **no reorientation and no `reversed-warning`**.
+Neutral-site status has **no effect** on validation. Identity is validated only
+with numeric CFBD ids: the game-stat `schoolId` (from CFBD `teamId`) against the
+schedule's optional numeric `homeId`/`awayId`.
 
-- Prefer direct orientation when both fully-resolved sides match the canonical home and away participants (integrity `verified`).
-- An exact reversed pair (both sides fully resolved, matching the reversed canonical pair) is reoriented for **neutral or non-neutral** games; neutral reversal is `verified`, non-neutral reversal retains a `reversed-warning` integrity flag.
-- When a canonical or row participant does not fully resolve, the id still associates the row: it attaches in its stored orientation, marked `unverified`, and no reorientation is guessed from partial information.
-- A **fully-resolved** pair matching neither the direct nor the reversed canonical pair (including a same-identity row pair) is a known contradiction: quarantine it (`contradicted`); it never satisfies, publishes, or shadows prior-good evidence.
+### Validation decision
 
-### Reorientation behavior
+- When all four numeric ids are valid positive ids:
+  - `row.home.schoolId === schedule.homeId` AND `row.away.schoolId === schedule.awayId` → `verified`;
+  - an exact reversal, OR any other disagreement → **quarantine** (`contradicted`).
+- When the schedule ids or either row `schoolId` are unavailable → `unverified` (the id still associates the row; it may satisfy/publish with the caveat surfaced).
+- Numeric ids take precedence over names: matching names with a disagreeing numeric id quarantine; disagreeing names without numeric ids stay `unverified` (names/aliases never verify or contradict).
+- A quarantined contradiction never satisfies, publishes, enters analytics, or shadows/replaces prior-good evidence. Do not swap, negate, invert, or recompute any statistics; do not overwrite provider school, school id, or conference values.
 
-Move each complete team-side object atomically. The following fields travel with their team:
+### Schedule-id dependency
 
-- `school`, `schoolId`, `conference`;
-- `points`, `pointsProvided`;
-- `totalYards`, `rushingYards`, `passingYards`;
-- `rushingAttempts`, `passingAttempts`, `passingCompletions`;
-- `rushingTDs`, `passingTDs`, `firstDowns`;
-- `turnovers`, `fumblesLost`, `interceptionsThrown`;
-- `passesIntercepted`, `fumblesRecovered`;
-- `thirdDownAttempts`, `thirdDownConversions`, `thirdDownPct`;
-- `fourthDownAttempts`, `fourthDownConversions`;
-- `penaltyCount`, `penaltyYards`, `possessionSeconds`;
-- `interceptionReturnYards`, `interceptionReturnTDs`;
-- `kickReturnYards`, `kickReturnTDs`;
-- `puntReturnYards`, `puntReturnTDs`; and
-- the complete `raw` category map.
-
-After swapping, rewrite only the orientation marker:
-
-- canonical home receives `homeAway: 'home'`;
-- canonical away receives `homeAway: 'away'`.
-
-Do not change game-level `providerGameId`, `week`, `seasonType`, `schemaVersion`, or `fetchStartedAt`. Do not overwrite provider school, school ID, or conference values with schedule values. Do not negate, invert, or recompute statistics during orientation.
-
-Incoming observations must be oriented before duplicate comparison. Existing reversed legacy rows receive a non-mutating oriented read view; C1 must not eagerly rewrite durable bytes.
+The current schedule cache-write path does not persist numeric `homeId`/`awayId`.
+C1 consumes them from the `ScheduleWireItem` when present in a supplied/cached
+record; ID-less records leave validation `unverified`, never rejected. Adding
+numeric participant ids to schedule persistence is a separate activation
+prerequisite and is out of scope here.
 
 ## Acceptance criteria
 
@@ -255,16 +249,17 @@ Incoming observations must be oriented before duplicate comparison. Existing rev
 - Schedule, catalog, alias, and canonical-build failures remain unavailable rather than absence.
 - Arbitrary provider labels cannot create identity authority.
 
-### Association, orientation, and integrity
+### Association and numeric participant validation
 
-- Matching provider ID with fully-resolved matching participants attaches, `verified`.
-- Alias-resolved participants attach through `teamIdentity.ts`.
+- A matching game ID with direct numeric home/away participant ids is selected as `verified`, and the row is used as-stored (no swap).
+- An exact reversed numeric pair is quarantined for both neutral and non-neutral games; no side objects are swapped.
+- Any other fully-known numeric participant mismatch is quarantined.
+- A quarantined row cannot publish, satisfy coverage, enter analytics, shadow a valid sibling, or replace prior-good evidence; with no usable sibling it produces the identity-mismatch gap state.
+- Missing schedule ids, missing legacy `schoolId`, or otherwise incomplete numeric identity leaves the row attached and `unverified`.
+- Matching names/aliases without numeric schedule ids remain `unverified`; name disagreement cannot quarantine when numeric validation is unavailable. Numeric ids take precedence over agreeing or disagreeing names.
+- Neutral-site true and false produce identical participant-validation outcomes.
+- No C1 result exposes `reversed`, `reversed-warning`, or `reversedWarning`, and no reorientation helper remains callable.
 - Unscheduled IDs do not associate; a row whose own partition disagrees is unassociated.
-- Correct provider ID with a fully-resolved WRONG pair is quarantined (`contradicted`) → identity-mismatch, never coverage.
-- An unresolved row or canonical participant stays attached, marked `unverified`, and may satisfy/publish with the caveat surfaced.
-- Reversed non-neutral observations are reoriented with a `reversed-warning`; reversed neutral observations are reoriented, `verified`.
-- Reorientation happens only for an exact reversed pair; every listed team-side field moves with its team and every game-level field remains unchanged.
-- Existing reversed legacy rows can be oriented without durable mutation.
 
 ### Evidence authority
 
@@ -282,7 +277,7 @@ Incoming observations must be oriented before duplicate comparison. Existing rev
 ### Unsupported schema
 
 - A same-id unsupported row blocks a valid supported sibling.
-- The same provider ID blocks regardless of participant resolution — mismatched OR unresolved participants still block (id authority).
+- The same provider ID blocks regardless of participant validation — mismatched OR ID-less participants still block (id authority).
 - An unsupported row in the wrong partition (or with an unscheduled id) does not block and is unassociated.
 - Identity-context failure makes coverage unavailable.
 - A schema-2 row with a missing/invalid observation fence blocks.
@@ -291,13 +286,13 @@ Incoming observations must be oriented before duplicate comparison. Existing rev
 
 - Missing expected games are absent.
 - Mixed satisfied and missing games produce partial coverage.
-- A fully-resolved participant contradiction produces an identity-mismatch gap and is quarantined.
-- An unresolved-participant row still satisfies (id authority) and is flagged `unverified` in the coverage/availability report.
+- A fully-known numeric participant contradiction produces an identity-mismatch gap and is quarantined.
+- A row lacking numeric participant ids still satisfies (id authority) and is flagged `unverified` in the coverage/availability report.
 - Divergent authoritative duplicates produce a duplicate-conflict gap.
 - Matching unsupported schema produces a blocked gap.
 - Pending games do not produce gaps.
 - Unmatched stored rows never count as coverage.
-- A canonical participant change to a fully-resolved conflicting pair invalidates stale stored coverage (quarantined).
+- A canonical numeric-id change to a conflicting pair invalidates stale stored coverage (quarantined).
 - Every coverage-satisfied game appears in the public projection.
 - Sparse public rows remain marked incomplete and are excluded from analytics.
 - Public projection removes internal metadata and unrecognized raw categories; integrity/quarantine surface only as availability counts.

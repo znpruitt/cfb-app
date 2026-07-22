@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { toAnalyticsGameStats, type SeasonRelation } from '../contract.ts';
-import { evidenceEquivalent, reorientRow, selectGameEvidence } from '../evidenceAuthority.ts';
+import { evidenceEquivalent, selectGameEvidence } from '../evidenceAuthority.ts';
 import type { GameStats } from '../types.ts';
-import { IDENTITY_KEYS, canonicalGame, legacyRow, mapResolveKey, v2Row } from './c1Fixtures.ts';
+import { canonicalGame, legacyRow, v2Row } from './c1Fixtures.ts';
 import { legacyRowFromWire, wireGame } from './fixtures.ts';
 
-const RESOLVE = mapResolveKey({ ...IDENTITY_KEYS, 'Alpha St': IDENTITY_KEYS['Alpha State']! });
-
+// GAME: schedule numeric ids Alpha=101 (home), Beta=202 (away). NEUTRAL_GAME is
+// identical but neutral — validation is numeric-id-only, so neutral must not
+// change any participant-validation outcome.
 const GAME = canonicalGame({ providerGameId: 100, home: 'Alpha State', away: 'Beta Tech' });
 const NEUTRAL_GAME = canonicalGame({
   providerGameId: 200,
@@ -26,73 +27,120 @@ function legacyBase(id = 100): GameStats {
 }
 
 function decide(game: typeof GAME, rows: GameStats[], seasonRelation: SeasonRelation = 'current') {
-  return selectGameEvidence(game, rows, RESOLVE, seasonRelation);
+  return selectGameEvidence(game, rows, seasonRelation);
 }
 
-// === Attachment + orientation ===
+// === Association + numeric participant validation ===
 
-test('attachment: matching id + canonical participants attach (direct)', () => {
+test('validation: matching id + direct numeric home/away ids → verified, selected as-stored', () => {
   const row = v2Row({ id: 100, home: HOME, away: AWAY, week: 3 });
   const d = decide(GAME, [row]);
   assert.equal(d.state, 'satisfied');
   assert.equal(d.provenance, 'v2-complete');
-  assert.equal(d.selected?.home.school, 'Alpha State');
+  assert.equal(d.integrity, 'verified');
+  assert.equal(d.selected?.home.schoolId, 101); // never swapped
+  assert.equal(d.selected?.away.schoolId, 202);
   assert.deepEqual(d.rejected, []);
 });
 
-test('attachment: alias-resolved participant attaches through the resolver', () => {
-  const row = v2Row({ id: 100, home: { school: 'Alpha St', schoolId: 101 }, away: AWAY, week: 3 });
-  const d = decide(GAME, [row]);
-  assert.equal(d.state, 'satisfied');
+test('validation: an exact reversed numeric pair is quarantined (no swap), non-neutral', () => {
+  const reversed = v2Row({ id: 100, home: AWAY, away: HOME, week: 3 }); // home=202, away=101
+  const d = decide(GAME, [reversed]);
+  assert.equal(d.state, 'identity-mismatch');
+  assert.equal(d.selected, null);
+  assert.equal(d.quarantined[0]?.reason, 'participant-contradiction');
 });
 
-test('association: matching id + fully-resolved matching participants → verified', () => {
-  const row = v2Row({ id: 100, home: HOME, away: AWAY, week: 3 });
-  const d = decide(GAME, [row]);
-  assert.equal(d.state, 'satisfied');
-  assert.equal(d.integrity, 'verified');
-  assert.equal(d.orientation, 'direct');
+test('validation: an exact reversed numeric pair is quarantined for a NEUTRAL game too', () => {
+  const reversed = v2Row({ id: 200, home: AWAY, away: HOME, week: 3 });
+  const d = decide(NEUTRAL_GAME, [reversed]);
+  assert.equal(d.state, 'identity-mismatch');
+  assert.equal(d.selected, null);
+  assert.equal(d.quarantined[0]?.reason, 'participant-contradiction');
 });
 
-test('association: correct id with fully-resolved WRONG participants → quarantined contradiction', () => {
-  const row = v2Row({
+test('validation: any other fully-known numeric mismatch is quarantined', () => {
+  const wrong = v2Row({
     id: 100,
     home: { school: 'Gamma A&M', schoolId: 303 },
     away: AWAY,
     week: 3,
   });
-  const d = decide(GAME, [row]);
-  // A known contradiction is quarantined and produces an identity-mismatch gap.
+  const d = decide(GAME, [wrong]);
   assert.equal(d.state, 'identity-mismatch');
-  assert.equal(d.selected, null);
   assert.equal(d.quarantined[0]?.reason, 'participant-contradiction');
   assert.deepEqual(d.rejected, []);
 });
 
-test('association: an UNRESOLVED participant stays attached, marked unverified (id authority)', () => {
-  const row = v2Row({
-    id: 100,
-    home: { school: 'Not In Catalog', schoolId: 999 },
-    away: AWAY,
-    week: 3,
+test('validation: neutral-site true vs false produce identical participant-validation outcomes', () => {
+  const direct = v2Row({ id: 100, home: HOME, away: AWAY, week: 3 });
+  const neutralDirect = v2Row({ id: 200, home: HOME, away: AWAY, week: 3 });
+  assert.equal(decide(GAME, [direct]).integrity, 'verified');
+  assert.equal(decide(NEUTRAL_GAME, [neutralDirect]).integrity, 'verified');
+});
+
+test('validation: missing SCHEDULE ids leave the row attached, unverified', () => {
+  const idless = canonicalGame({
+    providerGameId: 100,
+    home: 'Alpha State',
+    away: 'Beta Tech',
+    homeId: null,
+    awayId: null,
   });
-  const d = decide(GAME, [row]);
-  // The id associates the row even though one label doesn't resolve.
+  const row = v2Row({ id: 100, home: HOME, away: AWAY, week: 3 });
+  const d = decide(idless, [row]);
   assert.equal(d.state, 'satisfied');
   assert.equal(d.integrity, 'unverified');
   assert.deepEqual(d.quarantined, []);
 });
 
-test('association: a game with an UNRESOLVED canonical participant still attaches rows unverified', () => {
-  const canonicalUnresolved = canonicalGame({
-    providerGameId: 100,
-    home: 'Not In Catalog',
-    away: 'Beta Tech',
+test('validation: a legacy row missing schoolId stays attached, unverified', () => {
+  // Legacy identity is bounded to a nonblank school NAME (schoolId not required),
+  // so a legacy-compatible row with schoolId 0 is usable but numerically unverifiable.
+  const row = legacyRow({
+    id: 100,
+    home: { school: 'Alpha State', teamId: 0 },
+    away: { school: 'Beta Tech', teamId: 202 },
+    week: 3,
   });
-  const row = v2Row({ id: 100, home: { school: 'Anything', schoolId: 501 }, away: AWAY, week: 3 });
-  const d = decide(canonicalUnresolved, [row]);
+  const d = decide(GAME, [row]);
+  assert.equal(d.state, 'satisfied');
+  assert.equal(d.provenance, 'legacy-compatible');
+  assert.equal(d.integrity, 'unverified');
+});
+
+test('validation: numeric ids take precedence over names — matching names but wrong id → quarantined', () => {
+  // Same school NAMES as canonical, but the home numeric id disagrees.
+  const row = v2Row({
+    id: 100,
+    home: { school: 'Alpha State', schoolId: 999 },
+    away: AWAY,
+    week: 3,
+  });
+  const d = decide(GAME, [row]);
+  assert.equal(d.state, 'identity-mismatch');
+  assert.equal(d.quarantined[0]?.reason, 'participant-contradiction');
+});
+
+test('validation: name disagreement cannot quarantine when numeric ids are unavailable', () => {
+  const idless = canonicalGame({
+    providerGameId: 100,
+    home: 'Alpha State',
+    away: 'Beta Tech',
+    homeId: null,
+    awayId: null,
+  });
+  // Row names disagree entirely, but with no numeric authority it stays unverified.
+  const row = v2Row({
+    id: 100,
+    home: { school: 'Totally Different', schoolId: 700 },
+    away: { school: 'Also Different', schoolId: 800 },
+    week: 3,
+  });
+  const d = decide(idless, [row]);
   assert.equal(d.state, 'satisfied');
   assert.equal(d.integrity, 'unverified');
+  assert.deepEqual(d.quarantined, []);
 });
 
 test('association: row-level partition disagreement never associates → unassociated, absent', () => {
@@ -107,63 +155,9 @@ test('association: no candidate rows at all → absent', () => {
   assert.equal(decide(GAME, []).state, 'absent');
 });
 
-test('orientation: reversed observation on a NON-neutral game is reoriented WITH a warning', () => {
-  const reversed = v2Row({ id: 100, home: AWAY, away: HOME, week: 3 });
-  const d = decide(GAME, [reversed]);
-  assert.equal(d.state, 'satisfied');
-  assert.equal(d.orientation, 'reversed');
-  assert.equal(d.integrity, 'reversed-warning');
-  // Reoriented to canonical: Alpha State is home.
-  assert.equal(d.selected?.home.school, 'Alpha State');
-  assert.equal(d.selected?.home.homeAway, 'home');
-  assert.equal(d.selected?.away.school, 'Beta Tech');
-  assert.equal(d.selected?.away.homeAway, 'away');
-});
-
-test('orientation: reversed observation on a NEUTRAL game is reoriented, verified (no warning)', () => {
-  const reversed = v2Row({ id: 200, home: AWAY, away: HOME, week: 3 });
-  const d = decide(NEUTRAL_GAME, [reversed]);
-  assert.equal(d.state, 'satisfied');
-  assert.equal(d.orientation, 'reversed');
-  assert.equal(d.integrity, 'verified');
-  assert.equal(d.selected?.home.school, 'Alpha State');
-  assert.equal(d.selected?.home.homeAway, 'home');
-  assert.equal(d.selected?.away.school, 'Beta Tech');
-  assert.equal(d.selected?.away.homeAway, 'away');
-});
-
-test('reorientRow: every team-side field travels; every game-level field is unchanged; input not mutated', () => {
-  const row = v2Row({ id: 100, home: HOME, away: AWAY, week: 4, seasonType: 'regular' });
-  const snapshot = JSON.parse(JSON.stringify(row));
-  const oriented = reorientRow(row);
-
-  // Whole team-side objects moved atomically (only the marker rewritten).
-  assert.deepEqual(oriented.home, { ...snapshot.away, homeAway: 'home' });
-  assert.deepEqual(oriented.away, { ...snapshot.home, homeAway: 'away' });
-  // Game-level fields unchanged.
-  assert.equal(oriented.providerGameId, row.providerGameId);
-  assert.equal(oriented.week, row.week);
-  assert.equal(oriented.seasonType, row.seasonType);
-  assert.equal(oriented.schemaVersion, row.schemaVersion);
-  assert.equal(oriented.fetchStartedAt, row.fetchStartedAt);
-  // Input row is never mutated.
-  assert.deepEqual(row, snapshot);
-});
-
-test('reorientRow: an existing reversed legacy row gets a non-mutating oriented read view', () => {
-  const reversed = legacyRowFromWire(
-    wireGame({
-      id: 100,
-      home: { school: 'Beta Tech', teamId: 202 },
-      away: { school: 'Alpha State', teamId: 101 },
-    }),
-    3
-  );
-  const snapshot = JSON.parse(JSON.stringify(reversed));
-  const oriented = reorientRow(reversed);
-  assert.equal(oriented.home.school, 'Alpha State');
-  assert.equal(oriented.away.school, 'Beta Tech');
-  assert.deepEqual(reversed, snapshot); // durable bytes untouched
+test('no reorientation helper is exported', async () => {
+  const mod = (await import('../evidenceAuthority.ts')) as Record<string, unknown>;
+  assert.equal('reorientRow' in mod, false);
 });
 
 // === Evidence precedence + freshness ===

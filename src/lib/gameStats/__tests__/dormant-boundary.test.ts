@@ -102,7 +102,6 @@ const FORBIDDEN_SYMBOLS = [
   'loadCanonicalGameStatsSlate',
   'selectCanonicalPartition',
   'selectGameEvidence',
-  'reorientRow',
   'evidenceEquivalent',
   'evaluatePartitionCoverage',
   'evaluatePartitionCoverageFromResult',

@@ -107,9 +107,18 @@ test('coverage: contradicted-participant evidence → identity-mismatch gap; qua
   assert.ok(coverage.quarantined.some((m) => m.providerGameId === 100));
 });
 
-test('coverage: an unresolved-participant row still satisfies (id authority), flagged unverified', () => {
-  const unverified = completeFor(G1, ['Totally Unknown', 501], ['Beta Tech', 202]);
-  const coverage = coverageOf([G1], [unverified]);
+test('coverage: a row with no numeric schedule ids still satisfies (id authority), flagged unverified', () => {
+  // Schedule carries no numeric homeId/awayId → participant validation is
+  // unverifiable, but the CFBD game id still associates and the row satisfies.
+  const idlessGame = canonicalGame({
+    providerGameId: 100,
+    home: 'Alpha State',
+    away: 'Beta Tech',
+    week: 3,
+    homeId: null,
+    awayId: null,
+  });
+  const coverage = coverageOf([idlessGame], [G1_COMPLETE]);
   assert.equal(gameState(coverage, 100), 'satisfied');
   assert.equal(coverage.state, 'complete');
   assert.deepEqual(

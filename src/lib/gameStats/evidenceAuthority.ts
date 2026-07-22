@@ -12,23 +12,27 @@ import type { GameStats, TeamGameStats } from './types.ts';
  * PLATFORM-086H3C1 — the single, schedule-aware, row-level evidence authority
  * (DORMANT).
  *
- * Authority model (PLATFORM-086H3C1-CFBD-ID-AUTHORITY-REVISION-v1): a UNIQUE
+ * Authority model (PLATFORM-086H3C1-CFBD-ID-AUTHORITY-REVISION-v2): a UNIQUE
  * canonical CFBD game id establishes WHICH scheduled game a row belongs to
- * (association). Participant data determines ORIENTATION and INTEGRITY; it is
- * NOT a coequal attachment authority. Concretely, for one expected canonical
- * game and its candidate durable rows (all sharing the game's provider id):
+ * (association). CFBD `homeAway` establishes side orientation and is TRUSTED —
+ * sides are NEVER swapped at read time. Participant identity is validated ONLY
+ * with numeric CFBD ids (game-stat `schoolId`, from CFBD `teamId`, against the
+ * schedule's optional numeric `homeId`/`awayId`); names/aliases inform display or
+ * diagnostics but never verify or contradict identity. Concretely, for one
+ * expected canonical game and its candidate durable rows (all sharing the game's
+ * provider id):
  *   - a same-partition unsupported / malformed / bad-fence schema BLOCKS weaker
- *     siblings from its id alone — no participant resolution required;
- *   - a supported row whose participants cannot be fully verified stays attached
- *     but is marked `unverified` (the id still associates it);
- *   - a supported row whose fully-resolved participants provably disagree with
- *     the canonical pair is QUARANTINED (`contradicted`): it can never satisfy
- *     coverage, publish, or shadow/replace prior-good evidence;
- *   - an EXACT reversed pair is safely reoriented for neutral OR non-neutral
- *     games, with a retained integrity warning on non-neutral reversal.
- * The decision therefore distinguishes three axes — association (by id),
- * orientation (direct/reversed), and usability/integrity (verified / unverified
- * / reversed-warning / contradicted).
+ *     siblings from its id alone — before participant validation;
+ *   - when all four numeric ids are valid, direct home/away agreement is
+ *     `verified`; an exact reversal, or any other disagreement, is QUARANTINED
+ *     (`contradicted`) — no side objects are swapped;
+ *   - when either the schedule ids or the row's `schoolId`s are unavailable, the
+ *     id-associated row stays attached and `unverified`;
+ *   - a quarantined contradiction can never satisfy coverage, publish, enter
+ *     analytics, or shadow/replace prior-good evidence.
+ * Neutral-site status has NO effect on validation. The decision distinguishes
+ * association (by id) and usability/integrity (verified / unverified /
+ * contradicted); there is no orientation/reversal concept.
  *
  * Committed coverage, public projection, and analytics projection all consume
  * THIS decision — there is no second read-side duplicate authority (the former
@@ -37,8 +41,8 @@ import type { GameStats, TeamGameStats } from './types.ts';
  * Selection order:
  *   1. confirm partition agreement (association is the game's own id + partition);
  *   2. apply unsupported/malformed/bad-fence schema blockers by id (no participants);
- *   3. orient supported rows and assess integrity (verified/unverified/
- *      reversed-warning/contradicted); quarantine contradictions;
+ *   3. validate supported rows by numeric participant id (verified/unverified);
+ *      quarantine numeric contradictions;
  *   4. rank usable candidates by sufficiency
  *      (complete v2 > compatible legacy > sparse v2 > defective);
  *   5. apply freshness ONLY among v2 candidates in the same sufficiency class.
@@ -55,11 +59,12 @@ export type EvidenceSufficiency = 'v2-complete' | 'legacy-compatible' | 'v2-spar
 /** Provenance of a SELECTED row (defective classes never win). */
 export type EvidenceProvenance = 'v2-complete' | 'legacy-compatible' | 'v2-sparse';
 
-/** How thoroughly a USABLE (non-quarantined) row's participants were validated. */
-export type EvidenceIntegrity = 'verified' | 'unverified' | 'reversed-warning';
-
-/** The orientation a usable row was attached in. */
-export type EvidenceOrientation = 'direct' | 'reversed';
+/**
+ * How thoroughly a USABLE (non-quarantined) row's participants were validated by
+ * numeric CFBD id: `verified` when all four numeric ids agree directly,
+ * `unverified` when the schedule ids or the row's `schoolId`s are unavailable.
+ */
+export type EvidenceIntegrity = 'verified' | 'unverified';
 
 export type EvidenceBlockReason =
   | 'unsupported-schema-version'
@@ -88,7 +93,7 @@ export type ShadowedCandidate = {
   fence: string | null;
 };
 
-/** An associated row whose fully-resolved participants contradict the canonical pair. */
+/** An associated row whose numeric participant ids contradict the scheduled pair. */
 export type QuarantinedCandidate = {
   providerGameId: number;
   reason: 'participant-contradiction';
@@ -104,12 +109,10 @@ export type EvidenceDecision = {
   state: EvidenceState;
   /** Set for satisfied / incomplete / duplicate-conflict; null otherwise. */
   provenance: EvidenceProvenance | null;
-  /** Canonically oriented winner; set only for satisfied / incomplete. */
+  /** The selected winner as stored (never reoriented); set for satisfied / incomplete. */
   selected: GameStats | null;
-  /** Participant-validation integrity of the winner; null when there is none. */
+  /** Numeric-id participant-validation integrity of the winner; null when there is none. */
   integrity: EvidenceIntegrity | null;
-  /** Orientation of the winner; null when there is none. */
-  orientation: EvidenceOrientation | null;
   /** Set only for `blocked-unsupported-schema`; sorted + deduplicated. */
   blockers: EvidenceBlockReason[];
   /** Lower-precedence usable candidates the winner shadowed. */
@@ -119,26 +122,6 @@ export type EvidenceDecision = {
   /** Rows for this provider id that never associated (partition disagreement). */
   rejected: RejectedCandidate[];
 };
-
-/** Resolve a stored row's raw school label to a canonical identity key. */
-export type ResolveParticipantKey = (school: unknown) => string | null;
-
-// === Canonical reorientation (non-mutating) ===
-
-/**
- * Move each complete team-side object atomically and rewrite only the
- * orientation marker. Every team-side field travels with its team; every
- * game-level field (`providerGameId`, `week`, `seasonType`, `schemaVersion`,
- * `fetchStartedAt`) is preserved. Statistics are never negated, inverted, or
- * recomputed, and the input row is never mutated.
- */
-export function reorientRow(row: GameStats): GameStats {
-  return {
-    ...row,
-    home: { ...row.away, homeAway: 'home' },
-    away: { ...row.home, homeAway: 'away' },
-  };
-}
 
 // === Publishable-content equivalence ===
 
@@ -286,54 +269,45 @@ function schemaKind(row: GameStats): SchemaKind {
   return { kind: 'supported', sufficiency, fenceMs: null };
 }
 
-// === Orientation + integrity (participants govern these, not attachment) ===
+// === Numeric participant-identity validation (names never verify/contradict) ===
 
-type OrientationOutcome = {
-  orientedRow: GameStats;
-  orientation: EvidenceOrientation;
-  integrity: EvidenceIntegrity | 'contradicted';
-};
+/** A stored row's numeric CFBD team id for a side, or null when unusable. */
+function rowSchoolId(side: unknown): number | null {
+  const id = asRecord(side)?.schoolId;
+  return isValidProviderGameId(id) ? id : null;
+}
 
 /**
- * Orient a supported, id-associated row and assess its participant integrity.
- *
- * A CONTRADICTION requires positive proof — BOTH canonical participants and BOTH
- * row participants fully resolved, and the resolved pair matches neither the
- * direct nor the reversed canonical pair. Anything less (a canonical or row
- * participant that does not resolve) cannot prove a contradiction, so the row
- * stays attached as `unverified` in its stored orientation. An exact reversed
- * pair is reoriented for neutral or non-neutral games; non-neutral reversal keeps
- * an integrity warning.
+ * Validate a supported, id-associated row's participants using ONLY numeric CFBD
+ * ids: the game-stat `schoolId`s (from CFBD `teamId`) against the schedule's
+ * numeric `homeId`/`awayId`. CFBD `homeAway` is trusted, so no side is ever
+ * swapped and neutral-site status is irrelevant:
+ *   - all four ids valid + direct agreement → `verified`;
+ *   - all four ids valid + an exact reversal OR any other disagreement →
+ *     `contradicted` (quarantine);
+ *   - any of the four ids unavailable → `unverified` (the id still associates it).
+ * Names/aliases are never consulted here.
  */
-function orientAndAssess(
+function assessParticipantIntegrity(
   row: GameStats,
-  game: CanonicalGame,
-  resolveKey: ResolveParticipantKey
-): OrientationOutcome {
-  const homeKey = resolveKey(asRecord(row.home)?.school);
-  const awayKey = resolveKey(asRecord(row.away)?.school);
-  const canonicalHome = game.home?.identityKey ?? null;
-  const canonicalAway = game.away?.identityKey ?? null;
+  game: CanonicalGame
+): EvidenceIntegrity | 'contradicted' {
+  const scheduleHomeId = game.homeId;
+  const scheduleAwayId = game.awayId;
+  const rowHomeId = rowSchoolId(row.home);
+  const rowAwayId = rowSchoolId(row.away);
 
-  const fullyResolved =
-    canonicalHome !== null && canonicalAway !== null && homeKey !== null && awayKey !== null;
-  if (fullyResolved) {
-    if (homeKey === canonicalHome && awayKey === canonicalAway) {
-      return { orientedRow: row, orientation: 'direct', integrity: 'verified' };
-    }
-    if (homeKey === canonicalAway && awayKey === canonicalHome) {
-      return {
-        orientedRow: reorientRow(row),
-        orientation: 'reversed',
-        integrity: game.neutral ? 'verified' : 'reversed-warning',
-      };
-    }
-    // Both pairs fully known and neither orientation matches → known contradiction.
-    return { orientedRow: row, orientation: 'direct', integrity: 'contradicted' };
+  if (
+    scheduleHomeId === null ||
+    scheduleAwayId === null ||
+    rowHomeId === null ||
+    rowAwayId === null
+  ) {
+    return 'unverified';
   }
-  // Not enough resolved to prove agreement OR contradiction: the id still
-  // associates the row; validation is simply unverified.
-  return { orientedRow: row, orientation: 'direct', integrity: 'unverified' };
+  if (rowHomeId === scheduleHomeId && rowAwayId === scheduleAwayId) return 'verified';
+  // Exact reversal or any other fully-known numeric disagreement → contradiction.
+  return 'contradicted';
 }
 
 // === Per-candidate assessment (association → block / usable / quarantine) ===
@@ -344,11 +318,7 @@ type CandidateAssessment =
   | { kind: 'contradicted' }
   | { kind: 'usable'; candidate: UsableCandidate };
 
-function assessCandidate(
-  row: GameStats,
-  game: CanonicalGame,
-  resolveKey: ResolveParticipantKey
-): CandidateAssessment {
+function assessCandidate(row: GameStats, game: CanonicalGame): CandidateAssessment {
   // Association is the game's own id (already matched by the caller) PLUS
   // partition agreement — a row whose own partition fields disagree belongs to a
   // different scheduled context and never associates here.
@@ -356,18 +326,18 @@ function assessCandidate(
     return { kind: 'unassociated', reason: 'partition-mismatch' };
   }
 
-  // Blocking is by id + schema, WITHOUT participant resolution.
+  // Blocking is by id + schema, BEFORE any participant validation.
   const schema = schemaKind(row);
   if (schema.kind === 'blocker') return { kind: 'blocker', reason: schema.reason };
 
-  const oriented = orientAndAssess(row, game, resolveKey);
-  if (oriented.integrity === 'contradicted') return { kind: 'contradicted' };
+  const integrity = assessParticipantIntegrity(row, game);
+  if (integrity === 'contradicted') return { kind: 'contradicted' };
+  // The stored row is used as-is; CFBD `homeAway` is trusted and never swapped.
   return {
     kind: 'usable',
     candidate: {
-      orientedRow: oriented.orientedRow,
-      orientation: oriented.orientation,
-      integrity: oriented.integrity,
+      row,
+      integrity,
       sufficiency: schema.sufficiency,
       fenceMs: schema.fenceMs,
     },
@@ -384,8 +354,8 @@ const SUFFICIENCY_RANK: Record<EvidenceSufficiency, number> = {
 };
 
 type UsableCandidate = {
-  orientedRow: GameStats;
-  orientation: EvidenceOrientation;
+  /** The stored row, used as-is (CFBD `homeAway` is trusted; never reoriented). */
+  row: GameStats;
   integrity: EvidenceIntegrity;
   sufficiency: EvidenceSufficiency;
   fenceMs: number | null;
@@ -411,7 +381,6 @@ function decide(
     provenance: null,
     selected: null,
     integrity: null,
-    orientation: null,
     blockers: [],
     shadowed: [],
     quarantined,
@@ -457,11 +426,9 @@ function decide(
   // taking `contenders[0]` would let candidate order change the selected row.
   // The canonical (key-sorted) serialization is a stable total order.
   const winner = contenders
-    .map((candidate) => ({ candidate, key: canonicalJson(candidate.orientedRow) }))
+    .map((candidate) => ({ candidate, key: canonicalJson(candidate.row) }))
     .reduce((best, entry) => (entry.key < best.key ? entry : best)).candidate;
-  const allEquivalent = contenders.every((c) =>
-    evidenceEquivalent(c.orientedRow, winner.orientedRow)
-  );
+  const allEquivalent = contenders.every((c) => evidenceEquivalent(c.row, winner.row));
   if (!allEquivalent) {
     // Equal-fence divergent v2, or divergent legacy duplicates → conflict.
     return { ...base, state: 'duplicate-conflict', provenance };
@@ -472,9 +439,8 @@ function decide(
     ...base,
     state: topClass === 'v2-sparse' ? 'incomplete' : 'satisfied',
     provenance,
-    selected: winner.orientedRow,
+    selected: winner.row,
     integrity: winner.integrity,
-    orientation: winner.orientation,
     shadowed,
   };
 }
@@ -487,7 +453,6 @@ function decide(
 export function selectGameEvidence(
   game: CanonicalGame,
   candidateRows: readonly GameStats[],
-  resolveKey: ResolveParticipantKey,
   seasonRelation: SeasonRelation
 ): EvidenceDecision {
   const providerGameId = game.providerGameId;
@@ -501,7 +466,7 @@ export function selectGameEvidence(
     if (!record || !isValidProviderGameId(record.providerGameId)) continue;
     if (record.providerGameId !== providerGameId) continue;
 
-    const assessment = assessCandidate(row, game, resolveKey);
+    const assessment = assessCandidate(row, game);
     if (assessment.kind === 'unassociated') {
       rejected.push({ providerGameId, reason: assessment.reason });
     } else if (assessment.kind === 'blocker') {
@@ -522,7 +487,6 @@ export function selectGameEvidence(
       provenance: null,
       selected: null,
       integrity: null,
-      orientation: null,
       blockers: Array.from(new Set(blockers)).sort(),
       shadowed: [],
       quarantined,

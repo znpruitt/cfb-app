@@ -82,6 +82,15 @@ export type ScheduleWireItem = {
   conferenceGame: boolean;
   homeTeam: string;
   awayTeam: string;
+  /**
+   * Optional CFBD numeric team ids for the home/away sides. The current schedule
+   * cache-write path does NOT persist these; they are declared so downstream
+   * consumers (PLATFORM-086H3C1 numeric participant validation) may read them
+   * when a supplied/cached schedule record carries them. ID-less records leave
+   * validation `unverified`, never rejected.
+   */
+  homeId?: number | null;
+  awayId?: number | null;
   homeConference: string;
   awayConference: string;
   status: string;

@@ -154,12 +154,7 @@ export function evaluatePartitionCoverage(
 
   for (const game of partition.expected) {
     const candidates = rowsById.get(game.providerGameId) ?? [];
-    const decision = selectGameEvidence(
-      game,
-      candidates,
-      slate.resolveStoredParticipantKey,
-      seasonRelation
-    );
+    const decision = selectGameEvidence(game, candidates, seasonRelation);
     games.push({ game, decision });
     quarantined.push(...decision.quarantined);
     unassociated.push(...decision.rejected);

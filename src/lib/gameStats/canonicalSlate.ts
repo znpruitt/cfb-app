@@ -69,9 +69,20 @@ export type CanonicalGame = {
   applicability: CanonicalGameApplicability;
   /** Set only when `applicability === 'not-expected'`. */
   notExpectedReason: CanonicalGameNotExpectedReason | null;
-  /** Resolved canonical home participant, or null when unresolvable. */
+  /**
+   * Name-resolved canonical participants — retained for DISPLAY / DIAGNOSTICS
+   * only. They no longer verify or contradict numeric participant identity.
+   */
   home: CanonicalParticipant | null;
   away: CanonicalParticipant | null;
+  /**
+   * Numeric CFBD team ids for the scheduled home/away sides (from the schedule
+   * item's optional `homeId`/`awayId`), the SOLE participant-validation
+   * authority. Null when the schedule record carries no numeric id, which leaves
+   * a stored row's participant validation `unverified`.
+   */
+  homeId: number | null;
+  awayId: number | null;
   /** Original schedule kickoff (ISO) used for applicability. */
   kickoff: string | null;
   /** Original raw provider status label used for applicability. */
@@ -113,6 +124,11 @@ function scheduleSeasonType(item: ScheduleWireItem | undefined): CfbdSeasonType 
 // would otherwise coerce — `"1e3"`, `"0x10"`, `"+16"`, `"12.0"` — so a malformed
 // cached id can never masquerade as an unrelated numeric provider game id.
 const DECIMAL_PROVIDER_ID = /^\d+$/;
+
+/** A schedule's optional numeric CFBD team id, validated as a positive id. */
+function toScheduleParticipantId(raw: number | null | undefined): number | null {
+  return isValidProviderGameId(raw) ? raw : null;
+}
 
 function toProviderGameId(raw: string | null): number | null {
   if (typeof raw !== 'string') return null;
@@ -177,10 +193,11 @@ function classifyApplicability(input: {
 } {
   const { game, kickoff, rawStatus, nowMs } = input;
   // Only a FULL placeholder shell (no known team on either side) defers. Under
-  // the CFBD-id authority model, participant settledness governs a stored row's
-  // orientation/integrity, not whether the game is expected — a half-set matchup
-  // (one known team + one TBD/derived slot) or an unresolved-but-present pair is
-  // still an addressable scheduled game whose rows attach as `unverified`.
+  // the CFBD-id authority model, numeric participant identity governs a stored
+  // row's integrity, not whether the game is expected — a half-set matchup (one
+  // known team + one TBD/derived slot) or an unresolved-name pair is still an
+  // addressable scheduled game whose rows attach as `unverified` when numeric
+  // schedule ids are absent.
   if (game.isPlaceholder) {
     return { applicability: 'not-expected', notExpectedReason: 'placeholder' };
   }
@@ -238,9 +255,8 @@ export function buildCanonicalGameStatsSlate(input: {
     const item = game.providerGameId ? itemsById.get(game.providerGameId) : undefined;
     const kickoff = item?.startDate ?? game.date ?? null;
     const rawStatus = item?.status ?? null;
-    // Canonical participants are resolved for the evidence authority's
-    // orientation/integrity check; an unsettled side is simply null (unverified),
-    // and no longer gates whether the game is expected.
+    // Name-resolved participants are retained for display/diagnostics only; they
+    // no longer gate applicability or validate participant identity.
     const home = resolveCanonicalParticipant(resolver, game, 'home');
     const away = resolveCanonicalParticipant(resolver, game, 'away');
     const { applicability, notExpectedReason } = classifyApplicability({
@@ -260,6 +276,10 @@ export function buildCanonicalGameStatsSlate(input: {
       notExpectedReason,
       home,
       away,
+      // Numeric schedule participant ids (the validation authority); absent →
+      // null → the row stays `unverified`.
+      homeId: toScheduleParticipantId(item?.homeId),
+      awayId: toScheduleParticipantId(item?.awayId),
       kickoff,
       rawStatus,
     });

@@ -238,6 +238,35 @@ test('buildCanonicalGameStatsSlate: an empty team catalog throws (catalog author
   assert.ok(bySlateId(ok.games, 5001));
 });
 
+test('canonical slate: numeric schedule homeId/awayId flow into the canonical game (else null)', () => {
+  const slate = build([
+    // Schedule record carrying optional numeric CFBD team ids.
+    scheduleItem({
+      id: '5001',
+      week: 3,
+      home: 'Alpha State',
+      away: 'Beta Tech',
+      status: 'final',
+      homeId: 101,
+      awayId: 202,
+    }),
+    // ID-less (legacy) schedule record → numeric validation unavailable.
+    scheduleItem({
+      id: '5002',
+      week: 3,
+      home: 'Gamma A&M',
+      away: 'Delta University',
+      status: 'final',
+    }),
+  ]);
+  const withIds = bySlateId(slate.games, 5001);
+  assert.equal(withIds?.homeId, 101);
+  assert.equal(withIds?.awayId, 202);
+  const idless = bySlateId(slate.games, 5002);
+  assert.equal(idless?.homeId, null);
+  assert.equal(idless?.awayId, null);
+});
+
 test('canonical slate: malformed non-decimal schedule ids are not addressable', () => {
   const slate = build([
     scheduleItem({ id: '5001', week: 3, home: 'Alpha State', away: 'Beta Tech', status: 'final' }),
