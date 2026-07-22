@@ -99,46 +99,15 @@ test('coverage: no expected games → not-applicable', () => {
   );
 });
 
-test('coverage: contradicted-participant evidence → identity-mismatch gap; quarantined, never coverage', () => {
-  const wrong = completeFor(G1, ['Gamma A&M', 303], ['Beta Tech', 202]); // fully-resolved wrong pair
-  const coverage = coverageOf([G1], [wrong]);
-  assert.equal(gameState(coverage, 100), 'identity-mismatch');
-  assert.equal(coverage.state, 'absent'); // 0 satisfied
-  assert.ok(coverage.quarantined.some((m) => m.providerGameId === 100));
-});
-
-test('coverage: a row with no numeric schedule ids still satisfies (id authority), flagged unverified', () => {
-  // Schedule carries no numeric homeId/awayId → participant validation is
-  // unverifiable, but the CFBD game id still associates and the row satisfies.
-  const idlessGame = canonicalGame({
-    providerGameId: 100,
-    home: 'Alpha State',
-    away: 'Beta Tech',
-    week: 3,
-    homeId: null,
-    awayId: null,
-  });
-  const coverage = coverageOf([idlessGame], [G1_COMPLETE]);
+test('coverage: an id-associated usable row satisfies (participant validation deferred)', () => {
+  // Under PLATFORM-086H3C1-SIMPLIFICATION-v1 the CFBD game id + partition
+  // associate a row; participant identity is NOT validated in C1 (deferred to a
+  // pre-activation prerequisite), so a schema-usable row for the expected game id
+  // satisfies regardless of stored participant labels.
+  const usable = completeFor(G1, ['Gamma A&M', 303], ['Beta Tech', 202]);
+  const coverage = coverageOf([G1], [usable]);
   assert.equal(gameState(coverage, 100), 'satisfied');
   assert.equal(coverage.state, 'complete');
-  assert.deepEqual(
-    coverage.integrityWarnings.map((w) => [w.providerGameId, w.integrity]),
-    [[100, 'unverified']]
-  );
-  assert.deepEqual(coverage.quarantined, []);
-});
-
-test('coverage: a canonical participant change invalidates a previously-satisfying stored row', () => {
-  // The stored row satisfied the OLD pair (Alpha vs Beta); the schedule now pairs
-  // Alpha vs Gamma, so the same bytes no longer match → identity-mismatch.
-  const rescheduled = canonicalGame({
-    providerGameId: 100,
-    home: 'Alpha State',
-    away: 'Gamma A&M',
-    week: 3,
-  });
-  const coverage = coverageOf([rescheduled], [G1_COMPLETE]);
-  assert.equal(gameState(coverage, 100), 'identity-mismatch');
 });
 
 test('coverage: divergent authoritative duplicates → duplicate-conflict gap', () => {
@@ -188,51 +157,6 @@ test('coverage: unscheduled stored rows are reported unmatched, never coverage',
   const coverage = coverageOf([G1], [G1_COMPLETE, stray]);
   assert.equal(coverage.state, 'complete'); // the one expected game is satisfied
   assert.deepEqual(coverage.unmatchedStoredIds, [999]);
-});
-
-test('coverage: a partition-disagreeing row for a NON-expected scheduled game is reported unassociated', () => {
-  // A pending (non-expected) scheduled game in this partition.
-  const pending = canonicalGame({
-    providerGameId: 300,
-    home: 'Gamma A&M',
-    away: 'Delta University',
-    week: 3,
-    applicability: 'pending',
-  });
-  // Its stored row's OWN partition week disagrees (week 9, not the requested 3).
-  const strayPartition = v2Row({
-    id: 300,
-    home: { school: 'Gamma A&M', schoolId: 303 },
-    away: { school: 'Delta University', schoolId: 404 },
-    week: 9,
-  });
-  const coverage = coverageOf([G1, pending], [G1_COMPLETE, strayPartition]);
-  // The pending game is never a coverage gap…
-  assert.equal(
-    coverage.games.some((g) => g.game.providerGameId === 300),
-    false
-  );
-  // …and its id is scheduled, so the row is NOT "unmatched"…
-  assert.equal(coverage.unmatchedStoredIds.includes(300), false);
-  // …but the partition disagreement is still surfaced (no longer vanishes).
-  assert.ok(
-    coverage.unassociated.some((u) => u.providerGameId === 300 && u.reason === 'partition-mismatch')
-  );
-});
-
-test('coverage: a shadowed lower-precedence candidate is reported separately', () => {
-  const legacy = legacyRow({
-    id: 100,
-    home: { school: 'Alpha State', teamId: 101 },
-    away: { school: 'Beta Tech', teamId: 202 },
-    week: 3,
-  });
-  const coverage = coverageOf([G1], [legacy, G1_COMPLETE]);
-  assert.equal(gameState(coverage, 100), 'satisfied');
-  assert.deepEqual(
-    coverage.shadowed.map((s) => s.source),
-    ['legacy-compatible']
-  );
 });
 
 test('coverage: placeholder games are reported deferred, never expected', () => {

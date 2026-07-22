@@ -70,19 +70,15 @@ export type CanonicalGame = {
   /** Set only when `applicability === 'not-expected'`. */
   notExpectedReason: CanonicalGameNotExpectedReason | null;
   /**
-   * Name-resolved canonical participants — retained for DISPLAY / DIAGNOSTICS
-   * only. They no longer verify or contradict numeric participant identity.
+   * Name-resolved canonical participants — the schedule-authoritative
+   * expectation of who is playing, retained for display/diagnostics and future
+   * consumers. C1's evidence path associates rows by game id + partition and
+   * does not validate against these (numeric participant validation is a
+   * separate pre-activation prerequisite, deferred until schedule persistence
+   * captures numeric `homeId`/`awayId`).
    */
   home: CanonicalParticipant | null;
   away: CanonicalParticipant | null;
-  /**
-   * Numeric CFBD team ids for the scheduled home/away sides (from the schedule
-   * item's optional `homeId`/`awayId`), the SOLE participant-validation
-   * authority. Null when the schedule record carries no numeric id, which leaves
-   * a stored row's participant validation `unverified`.
-   */
-  homeId: number | null;
-  awayId: number | null;
   /** Original schedule kickoff (ISO) used for applicability. */
   kickoff: string | null;
   /** Original raw provider status label used for applicability. */
@@ -93,16 +89,10 @@ export type CanonicalSlate = {
   year: number;
   /**
    * Every ADDRESSABLE canonical game (positive numeric provider id). Placeholder
-   * / synthetic-id games and schedule-excluded games are absent by construction.
+   * / synthetic-id games and schedule-excluded games are absent by construction;
+   * duplicate provider game ids are rejected as a canonical-build failure.
    */
   games: CanonicalGame[];
-  /**
-   * Resolve a stored row's raw school label to a canonical identity key through
-   * the SAME `teamIdentity.ts` resolver (catalog + aliases + schedule
-   * participants). Returns null for any label that does not resolve — arbitrary
-   * provider labels never gain identity authority.
-   */
-  resolveStoredParticipantKey: (school: unknown) => string | null;
 };
 
 export type CanonicalSlateUnavailableReason =
@@ -124,11 +114,6 @@ function scheduleSeasonType(item: ScheduleWireItem | undefined): CfbdSeasonType 
 // would otherwise coerce — `"1e3"`, `"0x10"`, `"+16"`, `"12.0"` — so a malformed
 // cached id can never masquerade as an unrelated numeric provider game id.
 const DECIMAL_PROVIDER_ID = /^\d+$/;
-
-/** A schedule's optional numeric CFBD team id, validated as a positive id. */
-function toScheduleParticipantId(raw: number | null | undefined): number | null {
-  return isValidProviderGameId(raw) ? raw : null;
-}
 
 function toProviderGameId(raw: string | null): number | null {
   if (typeof raw !== 'string') return null;
@@ -248,15 +233,26 @@ export function buildCanonicalGameStatsSlate(input: {
 
   const nowMs = now.getTime();
   const canonicalGames: CanonicalGame[] = [];
+  const seenIds = new Set<number>();
   for (const game of games) {
     const providerGameId = toProviderGameId(game.providerGameId);
     if (providerGameId === null) continue; // unaddressable (placeholder/synthetic id)
 
+    // The CFBD game id is the association authority — it must be unique across the
+    // slate. Two surviving games sharing one id would let a single durable row
+    // count as evidence for both; that is a canonical-build failure, never an
+    // ambiguous slate.
+    if (seenIds.has(providerGameId)) {
+      throw new Error(`duplicate canonical CFBD game id in slate: ${providerGameId}`);
+    }
+    seenIds.add(providerGameId);
+
     const item = game.providerGameId ? itemsById.get(game.providerGameId) : undefined;
     const kickoff = item?.startDate ?? game.date ?? null;
     const rawStatus = item?.status ?? null;
-    // Name-resolved participants are retained for display/diagnostics only; they
-    // no longer gate applicability or validate participant identity.
+    // Name-resolved participants: the schedule-authoritative expectation of who
+    // is playing (display/diagnostics). C1's evidence path does not validate
+    // against them.
     const home = resolveCanonicalParticipant(resolver, game, 'home');
     const away = resolveCanonicalParticipant(resolver, game, 'away');
     const { applicability, notExpectedReason } = classifyApplicability({
@@ -276,22 +272,12 @@ export function buildCanonicalGameStatsSlate(input: {
       notExpectedReason,
       home,
       away,
-      // Numeric schedule participant ids (the validation authority); absent →
-      // null → the row stays `unverified`.
-      homeId: toScheduleParticipantId(item?.homeId),
-      awayId: toScheduleParticipantId(item?.awayId),
       kickoff,
       rawStatus,
     });
   }
 
-  const resolveStoredParticipantKey = (school: unknown): string | null => {
-    if (typeof school !== 'string' || school.trim().length === 0) return null;
-    const resolved = resolver.resolveName(school);
-    return resolved.status === 'resolved' && resolved.identityKey ? resolved.identityKey : null;
-  };
-
-  return { year, games: canonicalGames, resolveStoredParticipantKey };
+  return { year, games: canonicalGames };
 }
 
 /**

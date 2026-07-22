@@ -1,36 +1,39 @@
 # PLATFORM-086H3C1 — Canonical Game-Stats Evidence Read Model
 
-> **REVISED — CFBD-ID ATTACHMENT AUTHORITY (PLATFORM-086H3C1-CFBD-ID-AUTHORITY-REVISION-v2).**
-> A **unique canonical CFBD game ID** establishes which scheduled game a durable
-> row belongs to (association). **CFBD `homeAway` establishes side orientation and
-> is trusted — sides are never swapped at read time.** Participant identity is
-> validated **only with numeric CFBD ids** (game-stat `schoolId`, from CFBD
-> `teamId`, against the schedule's optional numeric `homeId`/`awayId`);
-> names/aliases inform display or diagnostics but never verify or contradict
-> identity. The consequences, which supersede the reorientation / neutral-site /
-> name-authority / `reversed-warning` wording throughout the sections below:
+> **SIMPLIFIED — PLATFORM-086H3C1-SIMPLIFICATION-v1.** C1 is scoped to the
+> evidence authority that is meaningful with today's persisted data. The **unique
+> canonical CFBD game ID + partition agreement is the whole association
+> authority**. **Numeric participant validation was removed** — schedule records
+> do not yet persist the numeric participant ids (`homeId`/`awayId`) that would
+> make it operational, so it is deferred as a **separate pre-activation
+> prerequisite** (after schedule persistence captures those ids). This supersedes
+> the participant-validation / integrity / quarantine / `reversed-warning` /
+> numeric-id wording throughout the sections below:
 >
-> - Association is by the game's own CFBD id + partition agreement — not by
->   participant identity.
-> - When all four numeric ids are valid: direct home/away agreement is
->   `verified`; an exact reversal, or any other disagreement, is **quarantined**
->   (`contradicted`) — no side objects are ever swapped.
-> - When the schedule ids or the row's `schoolId`s are unavailable, the
->   id-associated row stays attached and `unverified` (it may satisfy/publish
->   with the caveat surfaced). Name/alias agreement without numeric ids stays
->   `unverified`; name disagreement without numeric ids cannot quarantine.
-> - A quarantined contradiction can never satisfy coverage, publish, enter
->   analytics, or shadow/replace prior-good evidence, and yields an
->   `identity-mismatch` gap.
-> - **Neutral-site status has no effect** on participant validation.
+> - Association is the game's own CFBD id + partition agreement. **Duplicate
+>   canonical game ids are rejected as a canonical-build failure** (never an
+>   ambiguous slate that reuses one row for two games).
 > - A same-id unsupported / malformed / bad-fence schema **blocks weaker siblings
->   from its id alone**, before participant validation.
-> - The evidence decision distinguishes **association** (by id) and
->   **usability/integrity** (verified / unverified / contradicted). There is **no
->   orientation/reversal concept, no `reorientRow`, and no `reversed-warning`**.
-> - Applicability defers only a **full placeholder shell** (no known team on
->   either side); a half-set matchup or unresolved-name pair is an addressable
->   expected game whose rows attach `unverified` when numeric ids are absent.
+>   from its id alone**.
+> - Every other schema-supported row is a usable candidate; the winner is chosen
+>   by sufficiency (complete v2 > compatible legacy > sparse v2 > defective) and
+>   fence freshness, deterministically. **CFBD `homeAway` is trusted — sides are
+>   never swapped, and there is no `reorientRow`.** Two rows for the same id that
+>   disagree on a side's stored `homeAway` are a `duplicate-conflict`.
+> - There is **no participant validation, no `verified`/`unverified`/`contradicted`
+>   integrity, no quarantine, no `identity-mismatch` state, and no reorientation**
+>   in C1. Coverage states are `satisfied` / `incomplete` / `absent` / `blocked`
+>   / `duplicate-conflict` / `manual-only` (historical defective).
+> - Only diagnostics with a concrete consumer are surfaced and all are
+>   deterministic: `pending`, `deferredPlaceholders`, `unmatchedStoredIds`,
+>   `duplicateConflicts`. (`shadowed`, `unassociated`, `quarantined`, and
+>   `integrityWarnings` were removed.)
+> - Applicability defers only a **full placeholder shell**; a half-set matchup or
+>   unresolved-name pair is an addressable expected game.
+> - `identity-mismatch` and participant validation RETURN as a later
+>   pre-activation prerequisite, once schedule persistence captures numeric
+>   participant ids. C1's name-resolved `home`/`away` remain as the display
+>   expectation, not validation authority.
 
 ## Final objective
 
@@ -65,7 +68,7 @@ All C1 capabilities must remain production-disconnected.
 ### One evidence authority
 
 - Add one schedule-aware, row-level evidence authority shared by committed coverage, public projection, and analytics projection.
-- The authority must return the selected canonically oriented row, its provenance, typed conflicts or blockers, and any shadowed candidates.
+- The authority must return the selected row (as stored — sides are never swapped), its provenance, and typed conflicts or blockers.
 - Coverage and projections must not compose fields from multiple rows.
 - Component-level evidence composition remains exclusively owned by the existing durable merge service; C1 does not activate or call that service.
 - Refactor the existing analytics duplicate selector so analytics becomes projection-only behind the shared authority. Do not retain a second callable duplicate authority.
@@ -74,9 +77,9 @@ All C1 capabilities must remain production-disconnected.
 ### Coverage and projections
 
 - Evaluate coverage from the supplied committed durable weekly record, not from a provider response or unconfirmed write result.
-- Each expected game must resolve to exactly one typed state: `satisfied`, `absent`, `incomplete`, `identity-mismatch`, `duplicate-conflict`, `blocked-unsupported-schema`, or `manual-only` where historical compatibility policy requires it.
+- Each expected game must resolve to exactly one typed state: `satisfied`, `absent`, `incomplete`, `duplicate-conflict`, `blocked-unsupported-schema`, or `manual-only` where historical compatibility policy requires it. (`identity-mismatch` returns with participant validation, a later pre-activation prerequisite.)
 - Partition states are `not-applicable`, `complete`, `partial`, `absent`, `blocked`, or `manual-only`.
-- Report pending games, deferred placeholders (full shells only), unmatched stored IDs, quarantined participant contradictions, unassociated (partition-disagreeing) rows, integrity warnings (unverified winners), shadowed lower-precedence evidence, and duplicate conflicts separately.
+- Report only diagnostics with a concrete consumer, all deterministic: pending games, deferred placeholders (full shells only), unmatched stored IDs, and duplicate conflicts.
 - Complete v2 and compatible legacy evidence may satisfy coverage. Sparse v2 evidence is incomplete.
 - Public projection may publish complete v2, compatible legacy, and structurally valid sparse v2 rows, but sparse rows must remain visibly incomplete in availability.
 - Analytics projection accepts only complete v2 or compatible legacy evidence and must strictly reparse required raw evidence and points.
@@ -92,7 +95,7 @@ All C1 capabilities must remain production-disconnected.
 - Adapt H1 analytics projection to consume an already-selected row rather than selecting duplicates.
 - Extract a shared strict observation-fence parser if required.
 - Extend the recursive dormant-boundary tests so only the named dormant modules may use C1/H1 capabilities and no live production consumer can import them.
-- Add focused unit tests for canonical expectations, association, numeric participant validation, evidence selection, coverage, projection, and dormancy.
+- Add focused unit tests for canonical expectations, association (id + partition, duplicate-id rejection), evidence selection, coverage, projection, and dormancy.
 - Keep each new library module below approximately 500 lines; do not append substantial new logic to the existing large `contract.ts`.
 - Keep all reads cache-only and provider-free.
 
@@ -124,21 +127,21 @@ This remains one cohesive PR because canonical expectation, evidence selection, 
 
 ## Key invariants
 
-- Association is by the unique canonical CFBD game ID plus partition agreement. Provider game ID alone still never authorizes _persistence_, and a row must carry _usable, non-contradicted_ evidence to satisfy coverage or publish — but a matching id (not participant agreement) is what associates a row with a scheduled game, and a matching-id unsupported/malformed schema blocks by id alone.
-- Canonical schedule membership + game id associate a row; numeric participant ids govern its integrity, and only a **known numeric contradiction** (all four ids valid, not a direct match) bars it from affecting the game.
-- All team matching goes through `teamIdentity.ts`.
+- Association is the unique canonical CFBD game ID plus partition agreement — a matching id (not participant identity) is what associates a row with a scheduled game, and a matching-id unsupported/malformed schema blocks by id alone. Provider game ID alone still never authorizes _persistence_.
+- Duplicate canonical game ids are rejected as a canonical-build failure — never an ambiguous slate that reuses one durable row for two games.
+- All team matching (for the schedule-authoritative expectation) goes through `teamIdentity.ts`.
 - Postseason provider week and canonical week remain distinct; C1 must not bypass the established canonical-week calculation.
-- Schema blocking is evaluated from id + schema without participant validation; numeric participant validation (verified / unverified / contradiction) is assessed for supported, non-blocking rows before duplicate selection.
+- Schema blocking is evaluated from id + schema. C1 performs NO participant validation; every schema-supported, partition-agreeing row is a usable candidate.
 - Evidence selection is row-level; read-time field composition is forbidden.
-- Coverage, public projection, and analytics projection consume the same evidence decision, including its association and integrity axes.
+- CFBD `homeAway` is trusted — sides are never swapped — and two same-id rows disagreeing on a stored `homeAway` designation are a `duplicate-conflict`.
+- Coverage, public projection, and analytics projection consume the same evidence decision.
 - Projection-specific field eligibility may differ, but evidence winner and conflict classification may not.
 - Every coverage-satisfied game must produce a public row.
 - Compatible legacy rows remain valid evidence and do not trigger automatic migration.
 - Sparse v2 evidence cannot displace complete valid evidence.
 - Unsupported or malformed authoritative schema is never silently laundered through a weaker sibling.
-- Unscheduled stored rows (unmatched id), quarantined participant contradictions, and rows whose own partition disagrees are retained as separate reports and never count as coverage.
-- A row whose participants cannot be numerically verified stays attached as `unverified` (it may satisfy/publish with the caveat surfaced); a fully-known numeric participant contradiction is quarantined and never satisfies, publishes, or shadows prior-good evidence.
-- Public output never exposes schema, fence, transaction, recovery, or other internal persistence metadata; integrity/quarantine are surfaced only as availability counts, never as per-row internal metadata.
+- Stored rows whose id matches no scheduled game are reported as unmatched and never count as coverage.
+- Public output never exposes schema, fence, transaction, recovery, or other internal persistence metadata.
 - C1 remains dormant until a later activation change explicitly connects production consumers.
 
 ## Evidence precedence and freshness
@@ -147,10 +150,10 @@ This remains one cohesive PR because canonical expectation, evidence selection, 
 
 For each expected canonical game (candidates are the rows sharing the game's CFBD id):
 
-1. Associate by the game's id + partition agreement (a row whose own partition disagrees is unassociated).
-2. Apply matching unsupported/malformed/bad-fence schema blockers **from id + schema alone** — no participant resolution.
-3. For supported, non-blocking rows, validate participants by numeric CFBD id (verified / unverified); quarantine numeric contradictions. Sides are never swapped.
-4. Rank usable (non-quarantined) candidates by evidence sufficiency:
+1. Associate by the game's id + partition agreement (a row whose own partition disagrees is not evidence for this game).
+2. Apply matching unsupported/malformed/bad-fence schema blockers **from id + schema alone**.
+3. Every other schema-supported row is a usable candidate (no participant validation; sides are never swapped).
+4. Rank usable candidates by evidence sufficiency:
    1. complete v2;
    2. compatible legacy;
    3. sparse v2;
@@ -206,37 +209,27 @@ When these hold:
 - do not fall back to a legacy or supported-v2 sibling; and
 - do not classify the game as automatically recoverable.
 
-The unsupported row does **not** block, and is treated as unassociated, only when:
+The unsupported row does **not** block only when:
 
 - its provider ID is unscheduled (matches no expected canonical game); or
 - its row-level partition fields contradict the requested partition.
 
-Participant absence, malformedness, or non-resolution does **not** exempt an unsupported row from blocking — the id is sufficient. If schedule or identity context is unavailable, report coverage as unavailable rather than treating the row as unmatched. Other supported-but-incomplete rows (sparse v2 with a valid fence) remain recoverable.
+The id is sufficient for blocking — participant identity is not consulted. If schedule or identity context is unavailable, report coverage as unavailable rather than treating the row as unmatched. Other supported-but-incomplete rows (sparse v2 with a valid fence) remain recoverable.
 
-## Participant validation (numeric CFBD ids only)
+## Participant validation (DEFERRED)
 
-CFBD `homeAway` establishes side orientation and is trusted; sides are **never**
-swapped at read time and there is **no reorientation and no `reversed-warning`**.
-Neutral-site status has **no effect** on validation. Identity is validated only
-with numeric CFBD ids: the game-stat `schoolId` (from CFBD `teamId`) against the
-schedule's optional numeric `homeId`/`awayId`.
+C1 performs **no participant validation**. CFBD `homeAway` is trusted — sides are
+never swapped, there is no reorientation, and neutral-site status is irrelevant.
+A schema-supported, partition-agreeing row for an expected game id is a usable
+candidate regardless of its stored participant labels.
 
-### Validation decision
-
-- When all four numeric ids are valid positive ids:
-  - `row.home.schoolId === schedule.homeId` AND `row.away.schoolId === schedule.awayId` → `verified`;
-  - an exact reversal, OR any other disagreement → **quarantine** (`contradicted`).
-- When the schedule ids or either row `schoolId` are unavailable → `unverified` (the id still associates the row; it may satisfy/publish with the caveat surfaced).
-- Numeric ids take precedence over names: matching names with a disagreeing numeric id quarantine; disagreeing names without numeric ids stay `unverified` (names/aliases never verify or contradict).
-- A quarantined contradiction never satisfies, publishes, enters analytics, or shadows/replaces prior-good evidence. Do not swap, negate, invert, or recompute any statistics; do not overwrite provider school, school id, or conference values.
-
-### Schedule-id dependency
-
-The current schedule cache-write path does not persist numeric `homeId`/`awayId`.
-C1 consumes them from the `ScheduleWireItem` when present in a supplied/cached
-record; ID-less records leave validation `unverified`, never rejected. Adding
-numeric participant ids to schedule persistence is a separate activation
-prerequisite and is out of scope here.
+Numeric participant validation (validating a stored row's `schoolId`s against the
+schedule's numeric `homeId`/`awayId`, and the `identity-mismatch` gap it produces)
+is a **separate pre-activation prerequisite**, gated on schedule persistence first
+capturing numeric participant ids — the current schedule cache-write path does not
+persist them. Adding that persistence, and re-introducing validation, is out of
+scope for C1. C1's name-resolved `home`/`away` participants remain only as the
+schedule-authoritative display expectation, not a validation authority.
 
 ## Acceptance criteria
 
@@ -249,17 +242,14 @@ prerequisite and is out of scope here.
 - Schedule, catalog, alias, and canonical-build failures remain unavailable rather than absence.
 - Arbitrary provider labels cannot create identity authority.
 
-### Association and numeric participant validation
+### Association (id + partition)
 
-- A matching game ID with direct numeric home/away participant ids is selected as `verified`, and the row is used as-stored (no swap).
-- An exact reversed numeric pair is quarantined for both neutral and non-neutral games; no side objects are swapped.
-- Any other fully-known numeric participant mismatch is quarantined.
-- A quarantined row cannot publish, satisfy coverage, enter analytics, shadow a valid sibling, or replace prior-good evidence; with no usable sibling it produces the identity-mismatch gap state.
-- Missing schedule ids, missing legacy `schoolId`, or otherwise incomplete numeric identity leaves the row attached and `unverified`.
-- Matching names/aliases without numeric schedule ids remain `unverified`; name disagreement cannot quarantine when numeric validation is unavailable. Numeric ids take precedence over agreeing or disagreeing names.
-- Neutral-site true and false produce identical participant-validation outcomes.
-- No C1 result exposes `reversed`, `reversed-warning`, or `reversedWarning`, and no reorientation helper remains callable.
-- Unscheduled IDs do not associate; a row whose own partition disagrees is unassociated.
+- A matching game ID + partition selects a schema-usable row as-stored (no swap, no participant validation).
+- Duplicate canonical game ids are rejected as a canonical-build failure (the pure builder throws; the loader reports `canonical-build-failed`).
+- A row whose own partition fields disagree is not evidence for the game.
+- Unscheduled stored ids are reported as unmatched, never coverage.
+- Two same-id rows disagreeing on a stored `homeAway` designation produce `duplicate-conflict`.
+- No C1 result exposes `reversed`, `reversed-warning`, `reversedWarning`, `integrity`, `quarantined`, `unassociated`, or `shadowed`, and no reorientation helper remains callable.
 
 ### Evidence authority
 
@@ -276,9 +266,8 @@ prerequisite and is out of scope here.
 
 ### Unsupported schema
 
-- A same-id unsupported row blocks a valid supported sibling.
-- The same provider ID blocks regardless of participant validation — mismatched OR ID-less participants still block (id authority).
-- An unsupported row in the wrong partition (or with an unscheduled id) does not block and is unassociated.
+- A same-id, same-partition unsupported row blocks a valid supported sibling — by id alone.
+- An unsupported row in the wrong partition (or with an unscheduled id) does not block.
 - Identity-context failure makes coverage unavailable.
 - A schema-2 row with a missing/invalid observation fence blocks.
 
@@ -286,16 +275,14 @@ prerequisite and is out of scope here.
 
 - Missing expected games are absent.
 - Mixed satisfied and missing games produce partial coverage.
-- A fully-known numeric participant contradiction produces an identity-mismatch gap and is quarantined.
-- A row lacking numeric participant ids still satisfies (id authority) and is flagged `unverified` in the coverage/availability report.
+- A schema-usable row for an expected game id satisfies (participant validation deferred).
 - Divergent authoritative duplicates produce a duplicate-conflict gap.
 - Matching unsupported schema produces a blocked gap.
 - Pending games do not produce gaps.
 - Unmatched stored rows never count as coverage.
-- A canonical numeric-id change to a conflicting pair invalidates stale stored coverage (quarantined).
 - Every coverage-satisfied game appears in the public projection.
 - Sparse public rows remain marked incomplete and are excluded from analytics.
-- Public projection removes internal metadata and unrecognized raw categories; integrity/quarantine surface only as availability counts.
+- Public projection removes internal metadata and unrecognized raw categories.
 - Malformed envelopes, read failures, partition mismatches, and genuine absence remain distinct.
 
 ### Dormancy and verification

@@ -55,20 +55,6 @@ const CONFERENCE_OF: Record<string, string> = {
   'Zeta State': 'Missouri Valley',
 };
 
-/**
- * Numeric CFBD team ids per fixture school — the sole participant-validation
- * authority under PLATFORM-086H3C1-CFBD-ID-AUTHORITY-REVISION-v2. These match the
- * `schoolId`/`teamId` the durable-row fixtures (`v2Row`, `legacyRow`) stamp.
- */
-export const PROVIDER_IDS: Record<string, number> = {
-  'Alpha State': 101,
-  'Beta Tech': 202,
-  'Gamma A&M': 303,
-  'Delta University': 404,
-  'Epsilon College': 505,
-  'Zeta State': 606,
-};
-
 export function scheduleItem(params: {
   id: string;
   week: number;
@@ -76,9 +62,6 @@ export function scheduleItem(params: {
   away: string;
   homeConf?: string;
   awayConf?: string;
-  /** Optional numeric CFBD team ids; omit to model an ID-less (legacy) record. */
-  homeId?: number | null;
-  awayId?: number | null;
   startDate?: string | null;
   status?: string;
   neutral?: boolean;
@@ -96,8 +79,6 @@ export function scheduleItem(params: {
     conferenceGame: false,
     homeTeam: params.home,
     awayTeam: params.away,
-    ...(params.homeId !== undefined ? { homeId: params.homeId } : {}),
-    ...(params.awayId !== undefined ? { awayId: params.awayId } : {}),
     homeConference: params.homeConf ?? CONFERENCE_OF[params.home] ?? 'Sun Belt',
     awayConference: params.awayConf ?? CONFERENCE_OF[params.away] ?? 'ACC',
     status: params.status ?? 'scheduled',
@@ -109,28 +90,11 @@ export function scheduleItem(params: {
   };
 }
 
-/** A resolver stub mapping known schools to identity keys, everything else null. */
-export function mapResolveKey(
-  overrides: Record<string, string> = IDENTITY_KEYS
-): (school: unknown) => string | null {
-  return (school) =>
-    typeof school === 'string' && Object.prototype.hasOwnProperty.call(overrides, school)
-      ? overrides[school]!
-      : null;
-}
-
-/**
- * A canonical game, built directly (no slate) for evidence/coverage tests.
- * `homeId`/`awayId` are the numeric validation authority — they default to the
- * fixture team's `PROVIDER_IDS`; pass `null` to model an ID-less schedule record
- * (→ `unverified`) or a specific number to force a numeric mismatch.
- */
+/** A canonical game, built directly (no slate) for evidence/coverage tests. */
 export function canonicalGame(params: {
   providerGameId: number;
   home: string;
   away: string;
-  homeId?: number | null;
-  awayId?: number | null;
   neutral?: boolean;
   week?: number;
   seasonType?: CfbdSeasonType;
@@ -149,16 +113,14 @@ export function canonicalGame(params: {
     notExpectedReason: params.notExpectedReason ?? null,
     home: { identityKey: homeKey, canonicalName: params.home },
     away: { identityKey: awayKey, canonicalName: params.away },
-    homeId: params.homeId !== undefined ? params.homeId : (PROVIDER_IDS[params.home] ?? null),
-    awayId: params.awayId !== undefined ? params.awayId : (PROVIDER_IDS[params.away] ?? null),
     kickoff: '2025-09-06T16:00:00Z',
     rawStatus: 'final',
   };
 }
 
-/** Assemble a slate (data + resolver) directly from canonical games. */
+/** Assemble a slate directly from canonical games. */
 export function slateOf(games: CanonicalGame[], year = 2025): CanonicalSlate {
-  return { year, games, resolveStoredParticipantKey: mapResolveKey() };
+  return { year, games };
 }
 
 /** A committed weekly durable record envelope for the given partition. */

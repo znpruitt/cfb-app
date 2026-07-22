@@ -79,15 +79,10 @@ export type PublicAvailability = {
   satisfied: number;
   incomplete: number;
   absent: number;
-  identityMismatch: number;
   duplicateConflict: number;
   blocked: number;
   manualOnly: number;
   pending: number;
-  /** Published games whose winner's participants were not numerically verified. */
-  unverified: number;
-  /** Associated rows quarantined for a known participant contradiction. */
-  quarantined: number;
   /** Games published on the wire (satisfied + incomplete). */
   published: number;
 };
@@ -180,13 +175,10 @@ function buildAvailability(coverage: PartitionCoverage, published: number): Publ
     satisfied: count('satisfied'),
     incomplete: count('incomplete'),
     absent: count('absent'),
-    identityMismatch: count('identity-mismatch'),
     duplicateConflict: count('duplicate-conflict'),
     blocked: count('blocked-unsupported-schema'),
     manualOnly: count('manual-only'),
     pending: coverage.pending.length,
-    unverified: coverage.integrityWarnings.filter((w) => w.integrity === 'unverified').length,
-    quarantined: coverage.quarantined.length,
     published,
   };
 }

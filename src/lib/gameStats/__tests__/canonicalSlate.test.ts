@@ -238,33 +238,27 @@ test('buildCanonicalGameStatsSlate: an empty team catalog throws (catalog author
   assert.ok(bySlateId(ok.games, 5001));
 });
 
-test('canonical slate: numeric schedule homeId/awayId flow into the canonical game (else null)', () => {
-  const slate = build([
-    // Schedule record carrying optional numeric CFBD team ids.
-    scheduleItem({
-      id: '5001',
-      week: 3,
-      home: 'Alpha State',
-      away: 'Beta Tech',
-      status: 'final',
-      homeId: 101,
-      awayId: 202,
-    }),
-    // ID-less (legacy) schedule record → numeric validation unavailable.
-    scheduleItem({
-      id: '5002',
-      week: 3,
-      home: 'Gamma A&M',
-      away: 'Delta University',
-      status: 'final',
-    }),
-  ]);
-  const withIds = bySlateId(slate.games, 5001);
-  assert.equal(withIds?.homeId, 101);
-  assert.equal(withIds?.awayId, 202);
-  const idless = bySlateId(slate.games, 5002);
-  assert.equal(idless?.homeId, null);
-  assert.equal(idless?.awayId, null);
+test('canonical slate: duplicate CFBD game ids are rejected as a canonical-build failure', () => {
+  // Two surviving games sharing one numeric id (different teams → different game
+  // keys) would let one durable row count for both → ambiguous association.
+  assert.throws(() =>
+    build([
+      scheduleItem({
+        id: '5001',
+        week: 3,
+        home: 'Alpha State',
+        away: 'Beta Tech',
+        status: 'final',
+      }),
+      scheduleItem({
+        id: '5001',
+        week: 3,
+        home: 'Gamma A&M',
+        away: 'Delta University',
+        status: 'final',
+      }),
+    ])
+  );
 });
 
 test('canonical slate: malformed non-decimal schedule ids are not addressable', () => {
@@ -286,44 +280,6 @@ test('canonical slate: malformed non-decimal schedule ids are not addressable', 
     slate.games.some((g) => g.providerGameId === 1000),
     false
   );
-});
-
-test('canonical slate: arbitrary provider labels never gain identity authority', () => {
-  const slate = build([
-    scheduleItem({ id: '9001', week: 3, home: 'Alpha State', away: 'Beta Tech', status: 'final' }),
-  ]);
-  // Catalog + alias + schedule participants resolve…
-  assert.equal(slate.resolveStoredParticipantKey('Alpha State'), IDENTITY_KEYS['Alpha State']);
-  // …an arbitrary label does not.
-  assert.equal(slate.resolveStoredParticipantKey('Totally Fake University'), null);
-  assert.equal(slate.resolveStoredParticipantKey(''), null);
-  assert.equal(slate.resolveStoredParticipantKey(42), null);
-});
-
-test('canonical slate: a label on an EXCLUDED schedule row gains no identity authority', () => {
-  const slate = build([
-    // Included FBS-vs-FBS game: its participants ARE settled canonical identities.
-    scheduleItem({ id: '9101', week: 3, home: 'Alpha State', away: 'Beta Tech', status: 'final' }),
-    // Non-catalog FCS-vs-FCS row: dropped by buildScheduleFromApi (both non-FBS),
-    // so its raw labels are never settled participants and must not seed the
-    // resolver. Non-catalog labels can only resolve THROUGH such seeding.
-    scheduleItem({
-      id: '9102',
-      week: 3,
-      home: 'Ghost Aggies',
-      away: 'Phantom Normal',
-      homeConf: 'Big Sky',
-      awayConf: 'Missouri Valley',
-      status: 'final',
-    }),
-  ]);
-  // The excluded game is not in the canonical slate at all.
-  assert.equal(bySlateId(slate.games, 9102), undefined);
-  // Its labels resolve to nothing — no identity authority from an excluded row.
-  assert.equal(slate.resolveStoredParticipantKey('Ghost Aggies'), null);
-  assert.equal(slate.resolveStoredParticipantKey('Phantom Normal'), null);
-  // The included game's participants still resolve.
-  assert.equal(slate.resolveStoredParticipantKey('Alpha State'), IDENTITY_KEYS['Alpha State']);
 });
 
 test('loadCanonicalGameStatsSlate: aggregate and partition-only layouts produce identical expectations', async () => {
