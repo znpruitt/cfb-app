@@ -1616,6 +1616,30 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086H3C4 — Dormant Analytics Readiness Correction — Complete
+
+**Status:** Complete. Merged to `main` via **PR #404** (merge commit `aa91391`, 2026-07-22; from `main@7ffca8d`; impl `3b79aac` + P2 remediation `efc1449` + docs closeout `b5bd112`). First Codex review flagged one P2 (the new direct durable-record parameter bypassed the module's envelope validation, so a matching-identity-but-malformed committed record could publish analytics from a corrupt envelope or throw in row grouping); remediated in `efc1449`; the re-review returned a **clean pass — no actionable regressions**. `/verify` on the game-stats HTTP surface passed **byte-identical to `main`** (same fixture seed on both servers, `diff -r` of every probe body + status matched) — the modules are dormant/unwired, so the projection is covered by its unit suite + the recursive dormant-boundary guard, not by HTTP. `tsc`, `lint:all`, `git diff --check` clean; focused C1–C4 + contract + dormancy suites 97/97; full `npm test` 1970/1970.
+**PROMPT_ID(s):** PLATFORM-086H3C4-DORMANT-ANALYTICS-READINESS-CORRECTION-v1
+
+**Goals completed:**
+
+- **Decoupled final-and-complete analytics eligibility from C1's six-hour missing-data/recovery threshold.** `projectAnalyticsPartition` (`src/lib/gameStats/publicProjection.ts`) now takes the required paired input `CanonicalAnalyticsReadInput = { slate, scoresByKey }` plus `(week, seasonType, committedRecord, seasonRelation)` — the old `(PartitionCoverage, scoresByKey)` signature was removed with no overload — and considers every addressable, stat-producing canonical game in the partition (`expected` AND `pending`), so a game that finishes within six hours of kickoff becomes analytics-eligible the moment its score is final (`scoresByKey[game.key]` — the only lookup key, never `eventId`) and its stats are complete (`selectGameEvidence` → `satisfied` → strict `toAnalyticsGameStats`). It never waits six hours or for the rest of the weekly slate; placeholders and disrupted games remain excluded.
+- **Fail-closed committed-envelope validation** (Codex P2 remediation): every non-null committed record runs through the module's single `validateEnvelope` authority — malformed fields, partition mismatch, invalid/missing `fetchedAt`, and non-array/missing `games` all yield `[]` before row grouping or evidence selection; `null` strictly means caller-established absence (a read failure is never converted to `null`); no second envelope/selection/completeness policy exists (`groupRowsById` exported from `partitionCoverage.ts` as the one shared association helper).
+- **Preserved in-progress durable evidence** for a future provisional live-stat path: in-progress complete rows remain stored, merged, and selectable — excluded from launch analytics only; finality is an analytics eligibility rule, never an ingestion/persistence/merge/evidence-selection requirement.
+- Focused regressions: the retained C3 matrix under the new signature; sub-six-hour final+complete inclusion; the same game staying `pending` for C1 coverage; in-progress exclusion without mutating committed evidence; final+sparse/absent/conflicting/blocked exclusions; live-shaped vs archive-shaped key namespaces behaving identically with cross-pairing failing closed; shared-`eventId` distinct-key disambiguation; null-record and malformed-envelope fail-closed matrices; compile-time rejection of the old signature.
+
+**Key outcomes:**
+
+- **Fully dormant:** no production consumer, route, cron, or reader touched; `EXPECTED_KICKOFF_MIN_AGE_MS`, applicability classification, `evaluatePartitionCoverage`, recovery gap states, diagnostics, and the public projection are all unchanged; the recursive dormant-boundary guard passes unchanged (no guard edit needed). Production behavior is unchanged.
+
+**Optional follow-up debt (non-blocking):**
+
+- **Required E follow-up (recorded, not implemented):** live and archived callers must supply key-aligned slate and score inputs from the SAME provenance — live: the canonical build's game keys with the reconciled scores attached under those keys; archive: `archive.games` with that archive's own `scoresByKey`. A mixed pairing fails closed to empty analytics by design, so E's assembly code must prevent it.
+- The earlier C3 E follow-ups (final-gated projection as the analytics source; operator/admin-only `/api/game-stats` reads) and the temporary in-progress-refresh operational constraint remain in force until E lands.
+- The final atomic activation (E) remains unwritten; production H3 activation has **not** occurred.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
