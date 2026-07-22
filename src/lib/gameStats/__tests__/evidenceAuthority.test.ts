@@ -307,6 +307,38 @@ test('freshness: equal-fence divergent v2 conflict', () => {
   assert.equal(d.selected, null);
 });
 
+test('equivalence: duplicates disagreeing only on a side’s stored homeAway conflict', () => {
+  // Same fence, same numeric identity + content, but one row's home side is
+  // mislabeled `away` — a trusted-orientation disagreement, never a collapse.
+  const base = v2Row({
+    id: 100,
+    home: HOME,
+    away: AWAY,
+    week: 3,
+    fetchStartedAt: '2025-09-08T00:00:00Z',
+  });
+  const flippedDesignation: GameStats = {
+    ...base,
+    home: { ...base.home, homeAway: 'away' },
+  };
+  const d = decide(GAME, [base, flippedDesignation]);
+  assert.equal(d.state, 'duplicate-conflict');
+  assert.equal(d.provenance, 'v2-complete');
+  assert.equal(d.selected, null);
+
+  // Sanity: two rows that AGREE on homeAway still collapse to one satisfied winner.
+  const twin = v2Row({
+    id: 100,
+    home: HOME,
+    away: AWAY,
+    week: 3,
+    fetchStartedAt: '2025-09-08T00:00:00Z',
+  });
+  const collapsed = decide(GAME, [base, twin]);
+  assert.equal(collapsed.state, 'satisfied');
+  assert.deepEqual(collapsed.shadowed, []);
+});
+
 test('freshness: a missing or malformed v2 fence blocks', () => {
   const noFence = v2Row({ id: 100, home: HOME, away: AWAY, week: 3, fetchStartedAt: null });
   assert.equal(decide(GAME, [noFence]).state, 'blocked-unsupported-schema');

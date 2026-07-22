@@ -184,6 +184,10 @@ function publishableTeam(team: unknown): unknown {
   const numeric: Record<string, unknown> = {};
   for (const field of PUBLISHABLE_TEAM_NUMERIC_FIELDS) numeric[field] = record[field];
   return {
+    // `homeAway` is trusted orientation evidence (sides are never swapped), so two
+    // rows that disagree on a side's stored designation are NOT equivalent and
+    // must conflict rather than silently collapse.
+    homeAway: record.homeAway,
     school: record.school,
     schoolId: record.schoolId,
     conference: record.conference,
