@@ -13,11 +13,15 @@ import {
   __setAppStateWriteFailureForTests,
 } from '../../server/appStateStore.ts';
 import type { GameStats } from '../types.ts';
+import { seedActiveWriterControl, seedWriterControlState } from './writerControlSeed.ts';
 import { fullWireStats, wireGame } from './fixtures.ts';
 
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  // PLATFORM-086H3D: H2 merges only under `active` control; the adapter's tests
+  // intentionally exercise merging, so they run in the post-activation world.
+  await seedActiveWriterControl();
 });
 
 const BASE = { year: 2024, week: 6, seasonType: 'regular' as const };
@@ -88,20 +92,36 @@ const REQUIRED_SIX: WireStat[] = [
 
 /**
  * Minimal fake pg client/pool (PLATFORM-086H3C2): enough to drive ONE merge
- * transaction (begin → lock → read-empty → write → commit) to a LOST COMMIT with
- * a submitted write, so the finalize error carries `writeAttempted: true` — the
- * only path that yields H2 `indeterminate`. The file store's atomic-rename commit
- * failure is `writeAttempted: false` → `unavailable`, so PG mode is required to
- * exercise this shape. No concurrency/capacity is modeled (one sequential call).
+ * transaction (begin → locks → control-read → read-empty → write → commit) to a
+ * LOST COMMIT with a submitted write, so the finalize error carries
+ * `writeAttempted: true` — the only path that yields H2 `indeterminate`. The
+ * file store's atomic-rename commit failure is `writeAttempted: false` →
+ * `unavailable`, so PG mode is required to exercise this shape. The
+ * writer-control read (PLATFORM-086H3D) is served an exactly-valid `active`
+ * record so authorization passes and the merge reaches its commit. No
+ * concurrency/capacity is modeled (one sequential call).
  */
 class LostCommitClient {
   released = false;
-  async query(text: string): Promise<{ rows: unknown[] }> {
+  async query(text: string, params?: unknown[]): Promise<{ rows: unknown[] }> {
     const sql = text.toLowerCase().trim();
     if (sql.includes('to_regclass')) return { rows: [{ present: true }] };
-    if (sql.includes('select value')) return { rows: [] }; // empty existing partition
+    if (sql.includes('select value')) {
+      if (params?.[0] === 'game-stats-writer-control') {
+        return {
+          rows: [
+            {
+              value: { recordVersion: 1, state: 'active' },
+              updated_at: '2024-01-01T00:00:00.000Z',
+            },
+          ],
+        };
+      }
+      return { rows: [] }; // empty existing partition
+    }
     if (sql === 'commit') throw new Error('commit acknowledgement lost');
-    // begin / pg_advisory_xact_lock / insert (write submitted) / rollback / ddl.
+    // begin / pg_advisory_xact_lock (primary + control) / insert (write
+    // submitted) / rollback / ddl.
     return { rows: [] };
   }
   release(): void {
@@ -351,6 +371,23 @@ test('H2 unavailable is returned unchanged and never collapsed to a write', asyn
   // Diagnostics still describe the batch; durable state was not created.
   assert.equal(result.diagnostics.rowAcceptance, 'clean');
   assert.equal(await readPartition(), null);
+});
+
+test('a non-active writer control surfaces as H2 control-not-active, unchanged (PLATFORM-086H3D)', async () => {
+  // The adapter itself performs NO permission check — H2 owns authorization and
+  // the adapter returns its typed refusal verbatim, with durable state untouched.
+  await ingest([wireGame({ id: 108 })], T1);
+  const before = await readPartition();
+  for (const state of ['legacy', 'armed', 'read-only-safe'] as const) {
+    await seedWriterControlState(state);
+    const result = await ingest([wireGame({ id: 109 })], T2);
+    assert.equal(result.kind, 'merge-result');
+    if (result.kind !== 'merge-result') return;
+    assert.equal(result.merge.outcome, 'unavailable');
+    assert.equal(result.merge.unavailableReason, 'control-not-active');
+    assert.equal(result.merge.controlState, state);
+  }
+  assert.deepEqual(await readPartition(), before);
 });
 
 test('a durable write failure surfaces as H2 unavailable, unchanged', async () => {

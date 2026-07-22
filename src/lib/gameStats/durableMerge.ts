@@ -10,10 +10,18 @@ import { getGameStatsKey } from './cache.ts';
 import { canonicalObservationFence, parseObservationFenceMs } from './observationFence.ts';
 import {
   AppStateKeyLockAcquireError,
+  AppStateTxnCallbackLockError,
   AppStateTxnCleanupError,
   AppStateTxnFinalizeError,
+  AppStateTxnLockOrderError,
   withAppStateKeyTransaction,
 } from '../server/appStateStore.ts';
+import {
+  WRITER_CONTROL_KEY,
+  WRITER_CONTROL_SCOPE,
+  toWriterControlRead,
+  type WriterControlState,
+} from './writerFence.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
 import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
 
@@ -32,6 +40,12 @@ import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
  * writer bypasses the serialization entirely.
  *
  * Core guarantees:
+ *   - Active-only authorization (PLATFORM-086H3D): every invocation takes the
+ *     writer-control key EXCLUSIVE under the partition lock, rereads the
+ *     control record inside the transaction, and proceeds ONLY when it is
+ *     exactly a valid `active` — absent, malformed, `legacy`, `armed`, and
+ *     `read-only-safe` all refuse with typed known-unchanged reasons BEFORE
+ *     the partition read, merge computation, or any write.
  *   - Durable storage is the source of truth: the read→merge→write sequence
  *     runs INSIDE one advisory-locked database transaction on one dedicated
  *     client (`withAppStateKeyTransaction`) — the read, the merge input, and
@@ -115,6 +129,14 @@ export type DurableMergeOutcome =
 export type DurableMergeUnavailableReason =
   | 'invalid-fetch-started-at'
   | 'lock-unavailable'
+  // PLATFORM-086H3D writer-control authorization refusals. Every `control-*`
+  // reason is KNOWN-UNCHANGED: the merge refused BEFORE the partition read,
+  // merge computation, or any write, so the durable partition is untouched.
+  | 'control-lock-unavailable'
+  | 'control-read-failed'
+  | 'control-absent'
+  | 'control-malformed'
+  | 'control-not-active'
   | 'durable-read-failed'
   | 'durable-write-failed'
   | 'merge-computation-failed'
@@ -138,6 +160,11 @@ export type DurableMergeResult = {
   skippedNonPersistable: number;
   /** Set ONLY when `outcome` is `unavailable` (durable state untouched). */
   unavailableReason?: DurableMergeUnavailableReason;
+  /**
+   * Set ONLY with `unavailableReason: 'control-not-active'`: the exact valid
+   * writer-control state the merge reread UNDER both locks before refusing.
+   */
+  controlState?: WriterControlState;
   /**
    * Set ONLY when `outcome` is `indeterminate`: a write statement ran and the
    * transaction could not be confirmed committed OR cleanly rolled back
@@ -692,6 +719,18 @@ class MergeComputationFailure {
   constructor(readonly result: DurableMergeResult) {}
 }
 
+/**
+ * Internal control-flow sentinel for a failed SECONDARY writer-control lock
+ * acquisition (PLATFORM-086H3D). A failed `lockKey` is a REQUIRED-lock failure
+ * that poisons the enclosing transaction, so the typed result cannot be
+ * returned from inside the callback — the sentinel is thrown instead and
+ * unwrapped after the primitive rolls back (possibly inside the combined
+ * `AppStateTxnCallbackLockError`). Never escapes `mergeGameStatsPartitionDurable`.
+ */
+class ControlLockFailure {
+  constructor(readonly result: DurableMergeResult) {}
+}
+
 // Mirrors the private scope constant in `cache.ts` — the lock must cover the
 // exact durable key the game-stats cache reads and writes.
 const GAME_STATS_SCOPE = 'game-stats';
@@ -709,6 +748,23 @@ const GAME_STATS_SCOPE = 'game-stats';
  * results with durable state untouched; a COMMIT failure with a pending write
  * returns a typed `indeterminate` result (durability unknown) — stale,
  * conflict, unchanged, unavailable, and indeterminate are never collapsed.
+ *
+ * PLATFORM-086H3D active-only permission: EVERY invocation is authorized
+ * against the durable writer-control record INSIDE the partition transaction.
+ * The partition stays the primary lock; the control key is taken EXCLUSIVE via
+ * `lockKey` (canonical forward order — `game-stats` sorts below
+ * `game-stats-writer-control`, the same order the fenced legacy writer uses);
+ * the record is reread and strictly parsed UNDER both locks; and the merge
+ * proceeds ONLY when the state is exactly `active`. Otherwise it refuses
+ * BEFORE the partition read, merge computation, or any write — including for
+ * batches that would have been unchanged, stale, conflicting, or entirely
+ * non-persistable — with a typed known-unchanged `unavailable` reason
+ * (`control-lock-unavailable` / `control-read-failed` / `control-absent` /
+ * `control-malformed` / `control-not-active`). Because the check holds the
+ * control lock, an H2 write serializes against a control transition: a write
+ * holding the lock commits before `active → read-only-safe` can commit, and a
+ * write arriving after the transition rereads the new state and refuses — an
+ * earlier out-of-transaction observation of `active` grants nothing.
  */
 export async function mergeGameStatsPartitionDurable(
   input: DurableMergeInput
@@ -721,6 +777,37 @@ export async function mergeGameStatsPartitionDurable(
 
   try {
     return await withAppStateKeyTransaction(GAME_STATS_SCOPE, key, async (txn) => {
+      // === PLATFORM-086H3D: active-only writer-control authorization ===
+      try {
+        await txn.lockKey(WRITER_CONTROL_SCOPE, WRITER_CONTROL_KEY);
+      } catch (error) {
+        // A violated canonical lock order is a PROGRAMMING error (the fixed
+        // partition-before-control order is statically correct) — loud, never
+        // an operational outcome.
+        if (error instanceof AppStateTxnLockOrderError) throw error;
+        // A genuine acquisition failure poisons the transaction (required
+        // lock), so the typed result must travel out via the sentinel.
+        throw new ControlLockFailure(unavailable('control-lock-unavailable', partitionKey));
+      }
+      let control: ReturnType<typeof toWriterControlRead>;
+      try {
+        control = toWriterControlRead(
+          await txn.readKey<unknown>(WRITER_CONTROL_SCOPE, WRITER_CONTROL_KEY)
+        );
+      } catch {
+        return unavailable('control-read-failed', partitionKey);
+      }
+      // Presence-aware, fail-closed: absent, malformed, and every non-`active`
+      // state refuse before the partition is even read.
+      if (!control.present) return unavailable('control-absent', partitionKey);
+      if (control.record === null) return unavailable('control-malformed', partitionKey);
+      if (control.record.state !== 'active') {
+        return {
+          ...unavailable('control-not-active', partitionKey),
+          controlState: control.record.state,
+        };
+      }
+
       let existing: WeeklyGameStats | null;
       try {
         existing = (await txn.read<WeeklyGameStats>())?.value ?? null;
@@ -754,6 +841,18 @@ export async function mergeGameStatsPartitionDurable(
     if (error instanceof MergeComputationFailure) {
       // The primitive confirmed rollback before rethrowing the sentinel.
       return error.result;
+    }
+    if (error instanceof ControlLockFailure) {
+      return error.result;
+    }
+    if (
+      error instanceof AppStateTxnCallbackLockError &&
+      error.cause instanceof ControlLockFailure
+    ) {
+      // The callback threw the sentinel AND the required control lock failed:
+      // the primitive rolled back, then combined both — the typed
+      // known-unchanged result is the sentinel's.
+      return error.cause.result;
     }
     if (error instanceof AppStateTxnFinalizeError) {
       // COMMIT failed: if mutation SQL was SUBMITTED, durability is genuinely

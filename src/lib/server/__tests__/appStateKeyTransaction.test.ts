@@ -5,7 +5,9 @@ import type { Pool } from 'pg';
 
 import { mergeGameStatsPartitionDurable } from '../../gameStats/durableMerge.ts';
 import { parseV2GameObservation } from '../../gameStats/contract.ts';
-import { wireGame } from '../../gameStats/__tests__/fixtures.ts';
+import { writeLegacyGameStatsPartition } from '../../gameStats/cache.ts';
+import { transitionWriterControl } from '../../gameStats/writerControlTransition.ts';
+import { legacyRowFromWire, wireGame } from '../../gameStats/__tests__/fixtures.ts';
 import {
   AppStateKeyLockAcquireError,
   AppStateTxnCallbackLockError,
@@ -254,11 +256,30 @@ function clientLog(pool: FakePool, index: number): string[] {
 
 const MERGE_BASE = { year: 2024, week: 6, seasonType: 'regular' as const };
 const MERGE_KEY = 'game-stats::2024:6:regular';
+const CONTROL_KEY = 'game-stats-writer-control::state';
 
 function mergeObservation(id: number) {
   const parsed = parseV2GameObservation(wireGame({ id }));
   assert.ok(parsed.ok);
   return parsed.ok ? parsed.observation : (null as never);
+}
+
+/**
+ * Seed the fake pool's committed writer-control record. H2 merges only under an
+ * exactly-valid `active` control (PLATFORM-086H3D); the fenced legacy writer
+ * only under `legacy`.
+ */
+function seedFakePoolControl(pool: FakePool, state: string): void {
+  pool.committed.set(CONTROL_KEY, JSON.stringify({ recordVersion: 1, state }));
+}
+
+/** Deterministically wait until the pool log records `entry` (bounded). */
+async function waitForLogEntry(pool: FakePool, entry: string): Promise<void> {
+  for (let i = 0; i < 1000; i += 1) {
+    if (pool.log.includes(entry)) return;
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+  assert.fail(`log entry ${entry} never appeared`);
 }
 
 test.beforeEach(async () => {
@@ -661,6 +682,7 @@ test('small-pool starvation scenario: the owner completes with only its own clie
 
 test('service: overlapping same-partition writers preserve disjoint updates', async () => {
   await withFakePg(async (pool) => {
+    seedFakePoolControl(pool, 'active');
     const gate = deferred();
     // Writer A parks on its WRITE statement while holding the advisory lock.
     pool.gates['client1:write'] = gate.promise;
@@ -701,8 +723,9 @@ test('service: overlapping same-partition writers preserve disjoint updates', as
   });
 });
 
-test('service: unrelated partitions proceed while a lock is held', async () => {
+test('service: unrelated partitions serialize briefly on the control lock; both commit', async () => {
   await withFakePg(async (pool) => {
+    seedFakePoolControl(pool, 'active');
     const gate = deferred();
     pool.gates['client1:write'] = gate.promise;
     const held = mergeGameStatsPartitionDurable({
@@ -710,20 +733,30 @@ test('service: unrelated partitions proceed while a lock is held', async () => {
       fetchStartedAt: '2024-10-07T00:00:00.000Z',
       observations: [mergeObservation(1)],
     });
-    const other = await mergeGameStatsPartitionDurable({
+    // PLATFORM-086H3D: a different partition key no longer proceeds fully
+    // concurrently — every H2 merge takes the ONE writer-control key EXCLUSIVE
+    // for authorization, so the week-7 merge parks at the CONTROL lock while the
+    // week-6 transaction is open (its own partition lock was uncontended). The
+    // same brief global serialization the fenced legacy writer already accepts.
+    const other = mergeGameStatsPartitionDurable({
       ...MERGE_BASE,
       week: 7,
       fetchStartedAt: '2024-10-07T00:00:00.000Z',
       observations: [mergeObservation(9)],
     });
-    assert.equal(other.outcome, 'written', 'different partition key is not serialized');
+    await new Promise((resolve) => setImmediate(resolve));
+    const client2Locks = clientLog(pool, 2).filter((entry) => entry === 'client2:lock');
+    assert.equal(client2Locks.length, 2, 'week 7 acquired its partition lock, parked on control');
+    assert.ok(!pool.committed.has('game-stats::2024:7:regular'), 'week 7 has not committed');
     gate.resolve();
     assert.equal((await held).outcome, 'written');
+    assert.equal((await other).outcome, 'written', 'the waiter completes after the holder');
   });
 });
 
 test('service: commit failure is indeterminate; retry afterwards is safe', async () => {
   await withFakePg(async (pool) => {
+    seedFakePoolControl(pool, 'active');
     pool.perClientFailures['client1:commit'] = new Error('commit lost');
     const input = {
       ...MERGE_BASE,
@@ -750,6 +783,7 @@ test('service: rejected write + failed rollback is INDETERMINATE (mutation SQL w
     // The write statement was SUBMITTED and rejected, and the rollback also
     // failed: the mutation may still have executed server-side, so durability
     // is unknown — never "certainly untouched".
+    seedFakePoolControl(pool, 'active');
     pool.perClientFailures['client1:write'] = new Error('write down');
     pool.perClientFailures['client1:rollback'] = new Error('rollback down');
     const result = await mergeGameStatsPartitionDurable({
@@ -770,6 +804,10 @@ test('service: rejected write + failed rollback is INDETERMINATE (mutation SQL w
 
 test('service: no-write cleanup failure stays a bounded unavailable (no mutation SQL submitted)', async () => {
   await withFakePg(async (pool) => {
+    seedFakePoolControl(pool, 'active');
+    // The FIRST read of the transaction is now the writer-control read
+    // (PLATFORM-086H3D): the injected failure fires there, and the typed
+    // no-write cleanup mapping is unchanged.
     pool.perClientFailures['client1:read'] = new Error('read down');
     pool.perClientFailures['client1:rollback'] = new Error('rollback down');
     const result = await mergeGameStatsPartitionDurable({
@@ -786,6 +824,7 @@ test('service: no-write cleanup failure stays a bounded unavailable (no mutation
 
 test('service: merge-computation failure rolls back and is not labeled a lock failure', async () => {
   await withFakePg(async (pool) => {
+    seedFakePoolControl(pool, 'active');
     // Structurally invalid durable partition: a null game row.
     pool.committed.set(MERGE_KEY, JSON.stringify({ ...MERGE_BASE, fetchedAt: 'x', games: [null] }));
     const result = await mergeGameStatsPartitionDurable({
@@ -797,9 +836,13 @@ test('service: merge-computation failure rolls back and is not labeled a lock fa
     assert.equal(result.unavailableReason, 'merge-computation-failed');
     assert.equal(result.partitionKey, 'game-stats/2024:6:regular');
     // The transaction rolled back on the lock-owning client before returning.
+    // The second lock + first read are the writer-control authorization
+    // (PLATFORM-086H3D), which passed before the partition read.
     assert.deepEqual(clientLog(pool, 1), [
       'client1:begin',
       'client1:lock',
+      'client1:lock',
+      'client1:read',
       'client1:read',
       'client1:rollback',
       'client1:release',
@@ -810,6 +853,7 @@ test('service: merge-computation failure rolls back and is not labeled a lock fa
 
 test('service: a post-commit release failure preserves the written outcome', async () => {
   await withFakePg(async (pool) => {
+    seedFakePoolControl(pool, 'active');
     pool.releaseFailure = new Error('release exploded');
     const result = await mergeGameStatsPartitionDurable({
       ...MERGE_BASE,
@@ -818,6 +862,109 @@ test('service: a post-commit release failure preserves the written outcome', asy
     });
     assert.equal(result.outcome, 'written');
     assert.ok(pool.committed.has(MERGE_KEY));
+  });
+});
+
+// === PLATFORM-086H3D serialization barriers (deterministic, gated fake pg) ===
+
+test('barrier: a legacy write holding control completes before legacy→armed; a later writer rereads armed and refuses', async () => {
+  await withFakePg(async (pool) => {
+    seedFakePoolControl(pool, 'legacy');
+    const gate = deferred();
+    pool.gates['client1:write'] = gate.promise;
+    const partition = (id: number, fetchedAt: string) => ({
+      ...MERGE_BASE,
+      fetchedAt,
+      games: [legacyRowFromWire(wireGame({ id }))],
+    });
+
+    // W passed its fence check under `legacy` and is PARKED at its write while
+    // holding both the partition lock and the control lock.
+    const held = writeLegacyGameStatsPartition(partition(401_000_001, '2024-10-07T00:00:00.000Z'));
+    await waitForLogEntry(pool, 'client1:write');
+    // The operator transition arrives while W provably holds control: it roots
+    // at the control key and parks at its primary lock query.
+    const transition = transitionWriterControl({ expected: 'legacy', to: 'armed', apply: true });
+    await waitForLogEntry(pool, 'client2:lock');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(
+      JSON.parse(pool.committed.get(CONTROL_KEY)!).state,
+      'legacy',
+      'the transition has NOT committed while the write holds the control lock'
+    );
+    assert.ok(!pool.committed.has(MERGE_KEY), 'the held write has not committed yet');
+
+    gate.resolve();
+    // The write holding control completes FIRST (under `legacy`)…
+    assert.deepEqual(await held, { ok: true });
+    // …then the queued transition commits.
+    assert.deepEqual(await transition, { kind: 'transitioned', from: 'legacy', to: 'armed' });
+
+    // A writer arriving AFTER the completed transition rereads `armed` under
+    // both locks and refuses without mutation.
+    const after = await writeLegacyGameStatsPartition(
+      partition(401_000_002, '2024-10-08T00:00:00.000Z')
+    );
+    assert.deepEqual(after, { ok: false, reason: 'writer-control-not-legacy', state: 'armed' });
+    const stored = JSON.parse(pool.committed.get(MERGE_KEY)!) as {
+      games: Array<{ providerGameId: number }>;
+    };
+    assert.deepEqual(
+      stored.games.map((g) => g.providerGameId),
+      [401_000_001],
+      'only the pre-transition write is durable'
+    );
+  });
+});
+
+test('barrier: an H2 write holding control completes before active→read-only-safe; a later H2 write rereads and refuses', async () => {
+  await withFakePg(async (pool) => {
+    seedFakePoolControl(pool, 'active');
+    const gate = deferred();
+    pool.gates['client1:write'] = gate.promise;
+
+    // H2 passed its active-only authorization and is PARKED at its write while
+    // holding both the partition lock and the control lock.
+    const held = mergeGameStatsPartitionDurable({
+      ...MERGE_BASE,
+      fetchStartedAt: '2024-10-07T00:00:00.000Z',
+      observations: [mergeObservation(1)],
+    });
+    await waitForLogEntry(pool, 'client1:write');
+    const stop = transitionWriterControl({ expected: 'active', to: 'read-only-safe', apply: true });
+    await waitForLogEntry(pool, 'client2:lock');
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(
+      JSON.parse(pool.committed.get(CONTROL_KEY)!).state,
+      'active',
+      'the stop transition has NOT committed while the H2 write holds the control lock'
+    );
+
+    gate.resolve();
+    // The H2 write holding control completes FIRST (under `active`)…
+    assert.equal((await held).outcome, 'written');
+    // …then the queued stop transition commits.
+    assert.deepEqual(await stop, { kind: 'transitioned', from: 'active', to: 'read-only-safe' });
+
+    // An H2 write arriving AFTER the completed stop rereads the control UNDER
+    // both locks and refuses — its earlier out-of-transaction observation of
+    // `active` (the state this test started from) grants nothing.
+    const after = await mergeGameStatsPartitionDurable({
+      ...MERGE_BASE,
+      fetchStartedAt: '2024-10-08T00:00:00.000Z',
+      observations: [mergeObservation(2)],
+    });
+    assert.equal(after.outcome, 'unavailable');
+    assert.equal(after.unavailableReason, 'control-not-active');
+    assert.equal(after.controlState, 'read-only-safe');
+    const stored = JSON.parse(pool.committed.get(MERGE_KEY)!) as {
+      games: Array<{ providerGameId: number }>;
+    };
+    assert.deepEqual(
+      stored.games.map((g) => g.providerGameId),
+      [1],
+      'no H2 write commits after the completed stop transition'
+    );
   });
 });
 

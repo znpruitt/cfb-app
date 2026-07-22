@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import type { Pool } from 'pg';
+
 import {
   classifyGameStatsRow,
   isAnalyticsEligible,
@@ -18,14 +20,23 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateKeyLockFailureForTests,
+  __setAppStatePoolForTests,
   __setAppStateReadFailureForTests,
   __setAppStateWriteFailureForTests,
+  getAppState,
+  setAppState,
 } from '../../server/appStateStore.ts';
+import { WRITER_CONTROL_KEY, WRITER_CONTROL_SCOPE } from '../writerFence.ts';
+import { seedActiveWriterControl, seedWriterControlState } from './writerControlSeed.ts';
 import { legacyRowFromWire, wireGame } from './fixtures.ts';
 
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  // PLATFORM-086H3D: H2 persists ONLY under an exactly-valid `active` control.
+  // These tests intentionally exercise merging, so they run in the
+  // post-activation world; the authorization refusals have their own section.
+  await seedActiveWriterControl();
 });
 
 const T0 = '2024-10-06T00:00:00.000Z';
@@ -689,4 +700,161 @@ test('mixed batches report partially-merged; pure no-change batches report their
     input(T2, [customObs(270, { home: { turnovers: '3' }, away: { turnovers: '3' } })])
   );
   assert.equal(conflictOnly.outcome, 'conflict');
+});
+
+// === PLATFORM-086H3D: active-only writer-control authorization ===
+
+/** Seed a durable partition (under `active`), returning its stored bytes. */
+async function seedPartition(id: number) {
+  const written = await mergeGameStatsPartitionDurable(input(T1, [fullObs(id)]));
+  assert.equal(written.outcome, 'written');
+  const stored = await getCachedGameStats(2024, 6, 'regular');
+  assert.ok(stored);
+  return stored!;
+}
+
+for (const state of ['legacy', 'armed', 'read-only-safe'] as const) {
+  test(`authorization: '${state}' control refuses with control-not-active and mutates nothing`, async () => {
+    const before = await seedPartition(500);
+    await seedWriterControlState(state);
+    // Arm the write seam: a refusal must never even attempt a durable write.
+    __setAppStateWriteFailureForTests(new Error('no writes expected'), 'game-stats');
+    const result = await mergeGameStatsPartitionDurable(
+      input(T2, [customObs(500, { home: { turnovers: '9' }, away: { turnovers: '9' } })])
+    );
+    __setAppStateWriteFailureForTests(null);
+    assert.equal(result.outcome, 'unavailable');
+    assert.equal(result.unavailableReason, 'control-not-active');
+    assert.equal(result.controlState, state);
+    assert.deepEqual(result.inserted, []);
+    assert.deepEqual(result.updated, []);
+    assert.deepEqual(await getCachedGameStats(2024, 6, 'regular'), before);
+  });
+}
+
+test('authorization: absent control refuses with control-absent and mutates nothing', async () => {
+  const before = await seedPartition(510);
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  // Restore ONLY the partition — the control row stays durably absent.
+  await setAppState('game-stats', '2024:6:regular', before);
+  const result = await mergeGameStatsPartitionDurable(input(T2, [fullObs(511)]));
+  assert.equal(result.outcome, 'unavailable');
+  assert.equal(result.unavailableReason, 'control-absent');
+  assert.equal(result.controlState, undefined);
+  assert.deepEqual(await getCachedGameStats(2024, 6, 'regular'), before);
+});
+
+test('authorization: malformed control refuses with control-malformed and mutates nothing', async () => {
+  const before = await seedPartition(520);
+  const malformed = { recordVersion: 1, state: 'active', extra: true };
+  await setAppState(WRITER_CONTROL_SCOPE, WRITER_CONTROL_KEY, malformed);
+  const result = await mergeGameStatsPartitionDurable(input(T2, [fullObs(521)]));
+  assert.equal(result.outcome, 'unavailable');
+  assert.equal(result.unavailableReason, 'control-malformed');
+  assert.deepEqual(await getCachedGameStats(2024, 6, 'regular'), before);
+  // The malformed record is preserved bit-for-bit, never repaired.
+  const rawControl = await getAppState<unknown>(WRITER_CONTROL_SCOPE, WRITER_CONTROL_KEY);
+  assert.deepEqual(rawControl?.value, malformed);
+});
+
+test('authorization: a failed control read is typed control-read-failed, never a merge', async () => {
+  const before = await seedPartition(530);
+  __setAppStateReadFailureForTests(new Error('control read down'), WRITER_CONTROL_SCOPE);
+  __setAppStateWriteFailureForTests(new Error('no writes expected'), 'game-stats');
+  const result = await mergeGameStatsPartitionDurable(input(T2, [fullObs(531)]));
+  __setAppStateReadFailureForTests(null);
+  __setAppStateWriteFailureForTests(null);
+  assert.equal(result.outcome, 'unavailable');
+  assert.equal(result.unavailableReason, 'control-read-failed');
+  assert.deepEqual(await getCachedGameStats(2024, 6, 'regular'), before);
+});
+
+test('authorization: every batch shape is checked — empty, nonpersistable, unchanged, and stale batches all refuse', async () => {
+  const before = await seedPartition(540);
+  await seedWriterControlState('armed');
+  // Identical re-send (would be `unchanged` under active).
+  const unchanged = await mergeGameStatsPartitionDurable(input(T1, [fullObs(540)]));
+  assert.equal(unchanged.unavailableReason, 'control-not-active');
+  // Older observation (would be `stale` under active).
+  const stale = await mergeGameStatsPartitionDurable(
+    input(T0, [customObs(540, { home: { turnovers: '9' }, away: { turnovers: '9' } })])
+  );
+  assert.equal(stale.unavailableReason, 'control-not-active');
+  // Entirely non-persistable batch and an empty batch.
+  const nonPersistable = await mergeGameStatsPartitionDurable(
+    input(T2, [customObs(541, { home: { sacks: '3' }, away: { sacks: '2' } })])
+  );
+  assert.equal(nonPersistable.unavailableReason, 'control-not-active');
+  const empty = await mergeGameStatsPartitionDurable(input(T2, []));
+  assert.equal(empty.unavailableReason, 'control-not-active');
+  assert.deepEqual(await getCachedGameStats(2024, 6, 'regular'), before);
+});
+
+test('authorization: an invalid input fence still short-circuits before any control observation', async () => {
+  await seedWriterControlState('legacy');
+  const result = await mergeGameStatsPartitionDurable(input('not-a-time', [fullObs(550)]));
+  // Input validation precedes the transaction; the control refusal never
+  // relabels it.
+  assert.equal(result.unavailableReason, 'invalid-fetch-started-at');
+});
+
+/**
+ * Minimal fake pg client/pool: the PRIMARY partition advisory lock succeeds and
+ * the SECOND advisory-lock query — the writer-control `lockKey` — fails. The
+ * file fallback cannot produce a secondary acquisition failure (its only
+ * `lockKey` rejection is the ordering error), so PG mode is required to
+ * exercise the typed `control-lock-unavailable` mapping.
+ */
+class ControlLockDownClient {
+  private lockCalls = 0;
+  wroteAnything = false;
+  async query(text: string): Promise<{ rows: unknown[] }> {
+    const sql = text.toLowerCase();
+    if (sql.includes('to_regclass')) return { rows: [{ present: true }] };
+    if (sql.includes('pg_advisory_xact_lock')) {
+      this.lockCalls += 1;
+      if (this.lockCalls === 2) throw new Error('control lock down');
+      return { rows: [] };
+    }
+    if (sql.includes('insert into app_state')) {
+      this.wroteAnything = true;
+      return { rows: [] };
+    }
+    // begin / select value / commit / rollback / ddl.
+    return { rows: [] };
+  }
+  release(): void {}
+}
+
+class ControlLockDownPool {
+  readonly client = new ControlLockDownClient();
+  async query(text: string): Promise<{ rows: unknown[] }> {
+    return text.toLowerCase().includes('to_regclass')
+      ? { rows: [{ present: true }] }
+      : { rows: [] };
+  }
+  async connect(): Promise<ControlLockDownClient> {
+    return this.client;
+  }
+  async end(): Promise<void> {}
+}
+
+test('authorization: a failed control lock acquisition is typed control-lock-unavailable', async () => {
+  const previousDatabaseUrl = process.env.DATABASE_URL;
+  process.env.DATABASE_URL = 'postgres://fake-host/fake-db';
+  const pool = new ControlLockDownPool();
+  __setAppStatePoolForTests(pool as unknown as Pool);
+  try {
+    const result = await mergeGameStatsPartitionDurable(input(T1, [fullObs(560)]));
+    assert.equal(result.outcome, 'unavailable');
+    assert.equal(result.unavailableReason, 'control-lock-unavailable');
+    // The refusal happened before any read/merge/write: nothing was submitted.
+    assert.equal(pool.client.wroteAnything, false);
+  } finally {
+    __setAppStatePoolForTests(null);
+    if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+    else process.env.DATABASE_URL = previousDatabaseUrl;
+    __resetAppStateForTests();
+  }
 });
