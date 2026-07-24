@@ -39,6 +39,10 @@ export type CfbdScheduleGame = {
   away_conference?: string | null;
   homeConference?: string | null;
   awayConference?: string | null;
+  home_classification?: string | null;
+  homeClassification?: string | null;
+  away_classification?: string | null;
+  awayClassification?: string | null;
   status?: string | null;
   venue?: string | null;
   venue_city?: string | null;
@@ -174,6 +178,29 @@ function hasPlayoffMarker(text: string): boolean {
   );
 }
 
+/**
+ * CFBD classification values that are EXPLICIT negative evidence for CFP
+ * inference. CFBD currently emits `fbs`, `fcs`, `ii`, and `iii`.
+ */
+const NON_FBS_CLASSIFICATIONS: ReadonlySet<string> = new Set(['fcs', 'ii', 'iii']);
+
+/**
+ * Whether the provider EXPLICITLY classifies either participant below FBS.
+ * Generic postseason wording ("semifinal", "championship", …) also appears on
+ * FCS / Division II / Division III championship rows — the 2024 partition
+ * carried FCS and D-III semifinals whose notes minted the SHARED `cfp-semifinal`
+ * event key, collapsing four unrelated games into one canonical postseason slot
+ * and producing a hybrid record (one row's participants under another row's
+ * provider id). An explicit non-FBS classification therefore suppresses
+ * text-based CFP inference; MISSING classification metadata keeps the existing
+ * text fallback, and explicit FBS CFP rows are unaffected.
+ */
+function hasExplicitNonFbsParticipant(game: CfbdScheduleGame): boolean {
+  const home = normalizeString(game.home_classification ?? game.homeClassification).toLowerCase();
+  const away = normalizeString(game.away_classification ?? game.awayClassification).toLowerCase();
+  return NON_FBS_CLASSIFICATIONS.has(home) || NON_FBS_CLASSIFICATIONS.has(away);
+}
+
 function hasChampionshipMarker(text: string): boolean {
   return /\bchampionship\b/i.test(text);
 }
@@ -303,7 +330,12 @@ function deriveEventMetadata(params: {
   if (normalizedGamePhase === 'postseason') {
     const text = normalizedText(game);
     const bowlName = normalizedBowlName || extractBowlName(game);
-    const playoffFromText = hasPlayoffMarker(text);
+    // Explicit non-FBS participants suppress TEXT-based CFP inference — the
+    // wording of FCS/D-II/D-III championship rows must never mint a shared
+    // `cfp-*` identity. Explicitly supplied normalized metadata (subtype,
+    // round, event key) is preserved as-is.
+    const explicitNonFbs = hasExplicitNonFbsParticipant(game);
+    const playoffFromText = !explicitNonFbs && hasPlayoffMarker(text);
     const roundFromText = playoffFromText ? playoffRoundFromText(text) : null;
     const round: PlayoffRound | null =
       normalizedPlayoffRound === 'first-round' || normalizedPlayoffRound === 'first round'
@@ -329,7 +361,7 @@ function deriveEventMetadata(params: {
       conferenceChampionshipConference: null,
       eventKey:
         normalizedEventKey ||
-        (postseasonSubtype === 'playoff'
+        (postseasonSubtype === 'playoff' && !explicitNonFbs
           ? playoffEventKey(round ?? 'playoff', bowlName)
           : bowlName
             ? slugify(bowlName)
@@ -348,7 +380,11 @@ function deriveEventMetadata(params: {
 
   const text = normalizedText(game);
   const bowlName = extractBowlName(game);
-  const playoff = hasPlayoffMarker(text);
+  // Same guard as the normalized-postseason branch above: explicit non-FBS
+  // participants keep generic wording from inferring CFP identity here or in
+  // the `seasonType === 'postseason'` fallback below.
+  const explicitNonFbs = hasExplicitNonFbsParticipant(game);
+  const playoff = !explicitNonFbs && hasPlayoffMarker(text);
   const championship = hasChampionshipMarker(text);
   const conferenceFromText =
     matchConferenceChampionshipSlotByText(game.name) ??
