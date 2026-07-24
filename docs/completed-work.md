@@ -1640,6 +1640,30 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086 — Team-Catalog Derived-Alias Safety — Complete
+
+**Status:** Complete. Merged to `main` via **PR #405** (merge commit `d5ee260`, 2026-07-24; from `main@c8705dd`; impl `47b34de` + read-time-override remediation `4d31b7c` + cache-identity remediation `d1d9218` + docs closeout `f7db872`). Three Codex rounds: round 1 P1 (a pre-fix durable `team-database/current` takes precedence over the regenerated bundled catalog, leaving the misattribution live until an operator resync) → remediated with read-time curated-override application; round 2 P1 (warm `revalidate: false` standings/insights snapshots keyed only `SEED_ALIASES_HASH`, bypassing the fix) → remediated by folding `ALIAS_OVERRIDES_HASH` into both cache identities; round 3 **clean — no actionable regressions**. `/verify` (local only): game-stats HTTP surface byte-identical to `main`; `/api/teams` serves corrected aliases from the bundled fallback; a seeded pre-fix durable catalog is served sanitized while the stored record stays byte-untouched. `tsc`, `lint:all`, `git diff --check` clean; full `npm test` 1980/1980.
+**PROMPT_ID(s):** PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY-IMPLEMENTATION-v1
+
+**Goals completed:**
+
+- Corrected the generated team-identity collision that mapped CFBD's bare `San Diego` label to San Diego State — crediting University of San Diego statistics to the SDSU-rostering owner each season 2022–2025 (found by the PLATFORM-086H3E production parity audit; root-caused by the identity audit to the derived `sandiego` catalog alt). Both alias generators (`buildDerivedAlts`, `buildDerivedTeamAliases`) now emit the compact tokens-first join ONLY when the two tokens are the whole variant; three-token compaction preserved; `src/lib/teamIdentity.ts` untouched.
+- Curated `src/data/alias-overrides.json`: San Diego State `{add: ["sdsu"], remove: ["sandiego"]}` plus three preservation entries (`la tech`, `miami (fl)`, `louisiana monroe`) keeping previously-shipped legitimate shorthand the current generator no longer derives — the committed catalog stays reproducible via `npm run fetch:teams`.
+- Regenerated `src/data/teams.json` through the supported workflow (one read-only CFBD call) reconciled to an alias-focused diff: 19 schools lose exactly the unsafe two-token-prefix class (`sandiego`, `newmexico`, `sanjose`, `texasa` + 15 junk mascot prefixes); SDSU gains `sdsu`; the generator's optional metadata fields were stripped (no all-catalog expansion); zero team/mascot/conference/order churn.
+- Deploy-effective activation without data mutation: curated overrides apply at durable-store READ time (stale synced catalogs served sanitized, never rewritten), and `ALIAS_OVERRIDES_HASH` versions the canonical-standings + insights cache identities so pre-override snapshots miss at deploy and future override changes auto-version.
+- Regressions: derived-alias truncation guards; override application; checked-in catalog invariants; real-catalog resolution (bare `San Diego` unresolved / distinct non-ownable observed identity; `SDSU` → `sandiegostate`; `San Jose` → `sanjosestate`; isolated NMSU cannot claim bare `New Mexico`); a stored bare-`San Diego` row NOT credited to the SDSU owner with a genuine SDSU control row still credited (aggregation code unchanged); mocked-CFBD durable sync persisting corrected alts with standings invalidation unchanged; stale-durable-catalog read-time sanitization without write-back; exact cache-key coverage of both policy hashes.
+
+**Key outcomes:**
+
+- The live production insights inflation (e.g. Maleski 2025 +341 points, +4,337 total yards of USD production) is corrected from deploy, independent of the H3E activation work. No production data was contacted or mutated during implementation.
+
+**Optional follow-up debt (non-blocking):**
+
+- **PENDING post-merge operations (recorded in `docs/next-tasks.md`; procedure in `docs/deployment-runbook.md` §8b):** (1) production durable team-catalog resync + `/api/teams` and resolver-diagnostic verification; (2) the required PLATFORM-086H3E production parity-audit rerun with the synced catalog's `updatedAt` as prerequisite — expected residual difference is only the single 2022 Akron@Buffalo `stats-manual-only` game.
+- Canonical ownership IDs for current-season draft ownership remain separate architectural debt (identity-audit recommendation), explicitly out of scope here.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
