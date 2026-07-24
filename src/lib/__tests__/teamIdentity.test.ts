@@ -10,6 +10,7 @@ import {
   toTeamIdentityKey,
 } from '../teamIdentity.ts';
 import { buildScheduleFromApi } from '../schedule.ts';
+import teamsCatalogForIdentity from '../../data/teams.json';
 import { classifyScheduleRow } from '../postseason-classify.ts';
 
 test('normalization cases', () => {
@@ -2580,4 +2581,65 @@ test('registry prefers persisted canonical id while keeping school-name identity
   assert.equal(resolved.identityKey, 'texas');
   assert.equal(resolved.canonicalName, 'Texas');
   assert.equal(team?.id, 'texas');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY: resolution against the REAL
+// regenerated checked-in catalog. The generated "sandiego" alt on San Diego
+// State previously claimed the normalized identity of the (uncataloged, FCS)
+// University of San Diego before its observed provider label could register,
+// so bare "San Diego" resolved to the ownable San Diego State identity.
+// ---------------------------------------------------------------------------
+
+const REAL_CATALOG = (teamsCatalogForIdentity as { items: Array<Record<string, unknown>> })
+  .items as unknown as import('../teamIdentity.ts').TeamCatalogItem[];
+
+test('catalog safety: bare San Diego never resolves to San Diego State', () => {
+  // Without an observed provider label: nothing may claim the identity at all.
+  const resolver = createTeamIdentityResolver({ teams: REAL_CATALOG, aliasMap: {} });
+  const bare = resolver.resolveName('San Diego');
+  assert.equal(bare.status, 'unresolved');
+  assert.equal(bare.identityKey, null);
+
+  // With "San Diego" as an observed opponent label (the CFBD stored-row case):
+  // it registers as its OWN distinct, non-ownable identity — never the ownable
+  // sandiegostate identity.
+  const withObserved = createTeamIdentityResolver({
+    teams: REAL_CATALOG,
+    aliasMap: {},
+    observedNames: ['San Diego'],
+  });
+  const observed = withObserved.resolveName('San Diego');
+  assert.equal(observed.status, 'resolved');
+  assert.equal(observed.identityKey, 'sandiego');
+  assert.notEqual(observed.identityKey, 'sandiegostate');
+  assert.equal(observed.canonicalName, 'San Diego');
+  assert.equal(observed.isOwnable, false);
+});
+
+test('catalog safety: canonical and sanctioned-shorthand identities resolve correctly', () => {
+  const resolver = createTeamIdentityResolver({
+    teams: REAL_CATALOG,
+    aliasMap: {},
+    observedNames: ['San Diego'],
+  });
+  assert.equal(resolver.resolveName('San Diego State').identityKey, 'sandiegostate');
+  assert.equal(resolver.resolveName('San Diego State').canonicalName, 'San Diego State');
+  assert.equal(resolver.resolveName('SDSU').identityKey, 'sandiegostate');
+  assert.equal(resolver.resolveName('San Jose').identityKey, 'sanjosestate');
+  assert.equal(resolver.resolveName('San Jose').canonicalName, 'San José State');
+  const newMexico = resolver.resolveName('New Mexico');
+  assert.equal(newMexico.identityKey, 'newmexico');
+  assert.equal(newMexico.canonicalName, 'New Mexico');
+});
+
+test('catalog safety: an isolated New Mexico State entry cannot claim bare New Mexico', () => {
+  const nmsuOnly = REAL_CATALOG.filter((team) => team.school === 'New Mexico State');
+  assert.equal(nmsuOnly.length, 1);
+  const resolver = createTeamIdentityResolver({ teams: nmsuOnly, aliasMap: {} });
+  const bare = resolver.resolveName('New Mexico');
+  assert.equal(bare.status, 'unresolved');
+  assert.notEqual(bare.identityKey, 'newmexicostate');
+  // The real school still resolves to itself.
+  assert.equal(resolver.resolveName('New Mexico State').identityKey, 'newmexicostate');
 });

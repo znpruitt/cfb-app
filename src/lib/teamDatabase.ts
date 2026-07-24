@@ -117,7 +117,12 @@ export function buildDerivedTeamAliases(school: string, mascot?: string | null):
 
   for (const value of [...aliases]) {
     const tokens = value.split(/\s+/).filter(Boolean);
-    if (tokens.length >= 2) aliases.add(tokens.slice(0, 2).join(''));
+    // Compact the first two tokens ONLY when they are the WHOLE variant. A
+    // two-token prefix of a longer variant can name a DIFFERENT real school —
+    // "San Diego State" → "sandiego" hijacked the (uncataloged) University of
+    // San Diego's identity and credited its stats to SDSU's owner. Legitimate
+    // shorthand for longer names belongs in curated alias-overrides.json.
+    if (tokens.length === 2) aliases.add(tokens.slice(0, 2).join(''));
     if (tokens.length >= 3) aliases.add(tokens.slice(0, 3).join(''));
   }
 

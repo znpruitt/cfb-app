@@ -5,6 +5,23 @@
     "remove": []
   },
   {
+    "school": "San Diego State",
+    "add": ["sdsu"],
+    "remove": ["sandiego"]
+  },
+  {
+    "school": "Louisiana Tech",
+    "add": ["la tech"]
+  },
+  {
+    "school": "Miami",
+    "add": ["miami (fl)"]
+  },
+  {
+    "school": "UL Monroe",
+    "add": ["louisiana monroe"]
+  },
+  {
     "school": "Appalachian State",
     "add": ["appalachian st", "app state", "app st"]
   },

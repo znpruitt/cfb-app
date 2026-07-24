@@ -17,7 +17,7 @@
       "school": "Alabama",
       "mascot": "Crimson Tide",
       "conference": "SEC",
-      "alts": ["alabama", "alabama crimson tide", "alabamacrimson", "alabamacrimsontide"]
+      "alts": ["alabama", "alabama crimson tide", "alabamacrimsontide"]
     },
     {
       "school": "App State",
@@ -80,7 +80,7 @@
       "school": "Army",
       "mascot": "Black Knights",
       "conference": "American Athletic",
-      "alts": ["army", "army black knights", "armyblack", "armyblackknights"]
+      "alts": ["army", "army black knights", "armyblackknights"]
     },
     {
       "school": "Auburn",
@@ -152,7 +152,7 @@
       "school": "California",
       "mascot": "Golden Bears",
       "conference": "ACC",
-      "alts": ["california", "california golden bears", "californiagolden", "californiagoldenbears"]
+      "alts": ["california", "california golden bears", "californiagoldenbears"]
     },
     {
       "school": "Central Michigan",
@@ -219,13 +219,13 @@
       "school": "Delaware",
       "mascot": "Blue Hens",
       "conference": "Conference USA",
-      "alts": ["delaware", "delaware blue hens", "delawareblue", "delawarebluehens"]
+      "alts": ["delaware", "delaware blue hens", "delawarebluehens"]
     },
     {
       "school": "Duke",
       "mascot": "Blue Devils",
       "conference": "ACC",
-      "alts": ["duke", "duke blue devils", "dukeblue", "dukebluedevils"]
+      "alts": ["duke", "duke blue devils", "dukebluedevils"]
     },
     {
       "school": "East Carolina",
@@ -344,7 +344,7 @@
       "school": "Hawai'i",
       "mascot": "Rainbow Warriors",
       "conference": "Mountain West",
-      "alts": ["hawai'i", "hawai'i rainbow warriors", "hawai'irainbow", "hawai'irainbowwarriors"]
+      "alts": ["hawai'i", "hawai'i rainbow warriors", "hawai'irainbowwarriors"]
     },
     {
       "school": "Houston",
@@ -356,7 +356,7 @@
       "school": "Illinois",
       "mascot": "Fighting Illini",
       "conference": "Big Ten",
-      "alts": ["illinois", "illinois fighting illini", "illinoisfighting", "illinoisfightingillini"]
+      "alts": ["illinois", "illinois fighting illini", "illinoisfightingillini"]
     },
     {
       "school": "Indiana",
@@ -473,7 +473,7 @@
       "school": "Louisiana",
       "mascot": "Ragin' Cajuns",
       "conference": "Sun Belt",
-      "alts": ["louisiana", "louisiana ragin' cajuns", "louisianaragin'", "louisianaragin'cajuns"]
+      "alts": ["louisiana", "louisiana ragin' cajuns", "louisianaragin'cajuns"]
     },
     {
       "school": "Louisiana Tech",
@@ -503,12 +503,7 @@
       "school": "Marshall",
       "mascot": "Thundering Herd",
       "conference": "Sun Belt",
-      "alts": [
-        "marshall",
-        "marshall thundering herd",
-        "marshallthundering",
-        "marshallthunderingherd"
-      ]
+      "alts": ["marshall", "marshall thundering herd", "marshallthunderingherd"]
     },
     {
       "school": "Maryland",
@@ -576,7 +571,7 @@
       "school": "Minnesota",
       "mascot": "Golden Gophers",
       "conference": "Big Ten",
-      "alts": ["minnesota", "minnesota golden gophers", "minnesotagolden", "minnesotagoldengophers"]
+      "alts": ["minnesota", "minnesota golden gophers", "minnesotagoldengophers"]
     },
     {
       "school": "Mississippi State",
@@ -645,7 +640,7 @@
       "school": "Nevada",
       "mascot": "Wolf Pack",
       "conference": "Mountain West",
-      "alts": ["nevada", "nevada wolf pack", "nevadawolf", "nevadawolfpack"]
+      "alts": ["nevada", "nevada wolf pack", "nevadawolfpack"]
     },
     {
       "school": "New Mexico",
@@ -662,7 +657,6 @@
         "new mexico state aggies",
         "new mexico st",
         "new mexico st.",
-        "newmexico",
         "newmexicostate",
         "newmexicost",
         "newmexicost."
@@ -815,7 +809,7 @@
       "school": "Rutgers",
       "mascot": "Scarlet Knights",
       "conference": "Big Ten",
-      "alts": ["rutgers", "rutgers scarlet knights", "rutgersscarlet", "rutgersscarletknights"]
+      "alts": ["rutgers", "rutgers scarlet knights", "rutgersscarletknights"]
     },
     {
       "school": "Sam Houston",
@@ -832,10 +826,10 @@
         "san diego state aztecs",
         "san diego st",
         "san diego st.",
-        "sandiego",
         "sandiegostate",
         "sandiegost",
-        "sandiegost."
+        "sandiegost.",
+        "sdsu"
       ]
     },
     {
@@ -848,7 +842,6 @@
         "san jose st",
         "san jose st.",
         "sjsu",
-        "sanjose",
         "sanjosestate",
         "sanjosest",
         "sanjosest.",
@@ -906,7 +899,7 @@
       "school": "TCU",
       "mascot": "Horned Frogs",
       "conference": "Big 12",
-      "alts": ["tcu", "tcu horned frogs", "tcuhorned", "tcuhornedfrogs"]
+      "alts": ["tcu", "tcu horned frogs", "tcuhornedfrogs"]
     },
     {
       "school": "Temple",
@@ -938,7 +931,6 @@
         "texas a and m",
         "texas am",
         "texasa&m",
-        "texasa",
         "texasam",
         "texasa&maggies",
         "texasaand"
@@ -981,13 +973,13 @@
       "school": "Tulane",
       "mascot": "Green Wave",
       "conference": "American Athletic",
-      "alts": ["tulane", "tulane green wave", "tulanegreen", "tulanegreenwave"]
+      "alts": ["tulane", "tulane green wave", "tulanegreenwave"]
     },
     {
       "school": "Tulsa",
       "mascot": "Golden Hurricane",
       "conference": "American Athletic",
-      "alts": ["tulsa", "tulsa golden hurricane", "tulsagolden", "tulsagoldenhurricane"]
+      "alts": ["tulsa", "tulsa golden hurricane", "tulsagoldenhurricane"]
     },
     {
       "school": "UAB",
