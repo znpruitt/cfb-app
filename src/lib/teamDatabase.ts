@@ -129,7 +129,15 @@ export function buildDerivedTeamAliases(school: string, mascot?: string | null):
   return [...aliases].filter(Boolean).sort((a, b) => a.localeCompare(b));
 }
 
-function mergeAliasOverrides(items: TeamCatalogItem[]): TeamCatalogItem[] {
+/**
+ * Apply the curated `src/data/alias-overrides.json` entries to catalog items in
+ * place (adds sanctioned shorthand, removes unsafe generated aliases).
+ * Exported so the durable-store READ path can sanitize a previously synced
+ * catalog that still carries a removed alias (e.g. the pre-fix `sandiego`
+ * truncation) without waiting for — or replacing — the operator resync.
+ * Idempotent: re-applying to an already-corrected catalog is a no-op.
+ */
+export function mergeAliasOverrides(items: TeamCatalogItem[]): TeamCatalogItem[] {
   const overrides = aliasOverrides as AliasOverrideItem[];
   if (!Array.isArray(overrides) || overrides.length === 0) return items;
 
