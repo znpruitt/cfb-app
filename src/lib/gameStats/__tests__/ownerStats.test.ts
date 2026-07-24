@@ -91,3 +91,56 @@ test('season aggregation matches the main per-week accumulation', () => {
   assert.equal(alice!.totalYards, 412 * 2);
   assert.equal(alice!.turnoversForced, 2);
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY: production-shaped regression
+// for the corrected catalog INPUT (ownerStats.ts itself is unchanged). A stored
+// CFBD row labeled bare "San Diego" (University of San Diego, uncataloged FCS)
+// must never be credited to the owner who rosters "San Diego State" — the
+// pre-fix generated `sandiego` alt caused exactly that attribution.
+// ---------------------------------------------------------------------------
+
+import teamsCatalogForOwnerStats from '../../../data/teams.json';
+import type { TeamCatalogItem } from '../../teamIdentity.ts';
+import { legacyRowFromWire, wireGame } from './fixtures.ts';
+
+test('a stored bare-"San Diego" row is not credited to the San Diego State owner', () => {
+  const catalog = teamsCatalogForOwnerStats.items as unknown as TeamCatalogItem[];
+  // The real production resolver inputs: regenerated catalog, no manual
+  // aliases, the stored row labels as observed names.
+  const realResolver = createTeamIdentityResolver({
+    teams: catalog,
+    aliasMap: {},
+    observedNames: ['San Diego', 'Butler', 'San Diego State', 'Beta Tech'],
+  });
+  const sdsuRoster = new Map<string, string>([['San Diego State', 'SDSUOwner']]);
+
+  const usdRow = legacyRowFromWire(
+    wireGame({
+      id: 900,
+      home: { school: 'San Diego', teamId: 5001 },
+      away: { school: 'Butler', teamId: 5002 },
+    })
+  );
+  // Neither weekly nor season aggregation credits the USD row.
+  const weekly = aggregateOwnerGameStats([usdRow], sdsuRoster, realResolver);
+  assert.deepEqual(weekly, []);
+  const season = aggregateOwnerSeasonStats([[usdRow]], sdsuRoster, realResolver, 2025);
+  assert.deepEqual(season, []);
+
+  // Control: a genuine San Diego State row still credits the SDSU owner.
+  const sdsuRow = legacyRowFromWire(
+    wireGame({
+      id: 901,
+      home: { school: 'San Diego State', teamId: 21 },
+      away: { school: 'Beta Tech', teamId: 202 },
+    })
+  );
+  const controlWeekly = aggregateOwnerGameStats([sdsuRow], sdsuRoster, realResolver);
+  assert.equal(controlWeekly.length, 1);
+  assert.equal(controlWeekly[0]!.owner, 'SDSUOwner');
+  assert.equal(controlWeekly[0]!.gamesPlayed, 1);
+  const controlSeason = aggregateOwnerSeasonStats([[sdsuRow]], sdsuRoster, realResolver, 2025);
+  assert.equal(controlSeason.length, 1);
+  assert.equal(controlSeason[0]!.owner, 'SDSUOwner');
+});

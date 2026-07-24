@@ -117,14 +117,56 @@ export function buildDerivedTeamAliases(school: string, mascot?: string | null):
 
   for (const value of [...aliases]) {
     const tokens = value.split(/\s+/).filter(Boolean);
-    if (tokens.length >= 2) aliases.add(tokens.slice(0, 2).join(''));
+    // Compact the first two tokens ONLY when they are the WHOLE variant. A
+    // two-token prefix of a longer variant can name a DIFFERENT real school —
+    // "San Diego State" → "sandiego" hijacked the (uncataloged) University of
+    // San Diego's identity and credited its stats to SDSU's owner. Legitimate
+    // shorthand for longer names belongs in curated alias-overrides.json.
+    if (tokens.length === 2) aliases.add(tokens.slice(0, 2).join(''));
     if (tokens.length >= 3) aliases.add(tokens.slice(0, 3).join(''));
   }
 
   return [...aliases].filter(Boolean).sort((a, b) => a.localeCompare(b));
 }
 
-function mergeAliasOverrides(items: TeamCatalogItem[]): TeamCatalogItem[] {
+/**
+ * Deterministic hash of the curated alias-override policy
+ * (`src/data/alias-overrides.json`). Folded into the canonical-standings and
+ * insights cache identities (alongside `SEED_ALIASES_HASH`) so an override
+ * change — which alters resolver output but fires no runtime invalidation —
+ * naturally busts every warm `revalidate: false` snapshot at deploy. Same
+ * FNV-1a construction as `hashSeedAliases`, over an order-independent
+ * serialization of each entry's school / adds / removes.
+ */
+export const ALIAS_OVERRIDES_HASH = (() => {
+  const overrides = aliasOverrides as AliasOverrideItem[];
+  const serialized = (Array.isArray(overrides) ? overrides : [])
+    .map(
+      (o) =>
+        `${soft(o.school ?? '')}:+${(o.add ?? []).map(soft).sort().join(',')}:-${(o.remove ?? [])
+          .map(soft)
+          .sort()
+          .join(',')}`
+    )
+    .sort()
+    .join(';');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < serialized.length; i += 1) {
+    h ^= serialized.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+})();
+
+/**
+ * Apply the curated `src/data/alias-overrides.json` entries to catalog items in
+ * place (adds sanctioned shorthand, removes unsafe generated aliases).
+ * Exported so the durable-store READ path can sanitize a previously synced
+ * catalog that still carries a removed alias (e.g. the pre-fix `sandiego`
+ * truncation) without waiting for — or replacing — the operator resync.
+ * Idempotent: re-applying to an already-corrected catalog is a no-op.
+ */
+export function mergeAliasOverrides(items: TeamCatalogItem[]): TeamCatalogItem[] {
   const overrides = aliasOverrides as AliasOverrideItem[];
   if (!Array.isArray(overrides) || overrides.length === 0) return items;
 

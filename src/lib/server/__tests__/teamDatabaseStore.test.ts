@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  getAppState,
   setAppState,
 } from '../appStateStore.ts';
 import {
@@ -78,4 +79,61 @@ test('getTeamDatabaseItems reflects a subsequent external catalog change', async
     ['Beta', 'Gamma'],
     'a later external write is observed on the next read (no stale singleton)'
   );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY: a durable catalog synced
+// BEFORE the alias-safety fix still carries the unsafe generated `sandiego`
+// truncation. The store must serve it SANITIZED through the curated overrides
+// at read time — without mutating the stored snapshot — so the fix is
+// effective from deploy, not only after the operator resync.
+// ---------------------------------------------------------------------------
+
+test('a stale pre-fix durable catalog is served with curated overrides applied, without a write-back', async () => {
+  const preFixSnapshot = {
+    source: 'cfbd',
+    updatedAt: '2025-01-01T00:00:00.000Z',
+    items: [
+      {
+        school: 'San Diego State',
+        conference: 'Mountain West',
+        // Pre-fix synced alts: carries the unsafe truncation, lacks 'sdsu'.
+        alts: ['san diego state', 'sandiego', 'sandiegostate'],
+      },
+      {
+        school: 'San José State',
+        conference: 'Mountain West',
+        alts: ['san jose state', 'sanjosestate'],
+      },
+      {
+        school: 'New Mexico State',
+        conference: 'Conference USA',
+        alts: ['new mexico state', 'newmexico', 'newmexicostate'],
+      },
+    ],
+  };
+  await setAppState('team-database', 'current', preFixSnapshot);
+
+  const items = await getTeamDatabaseItems();
+  const bySchool = new Map(items.map((i) => [i.school, i]));
+  const sdsu = bySchool.get('San Diego State');
+  assert.ok(sdsu);
+  assert.ok(!sdsu!.alts?.includes('sandiego'), 'unsafe truncation removed at read time');
+  assert.ok(sdsu!.alts?.includes('sdsu'), 'sanctioned shorthand added at read time');
+  const sjsu = bySchool.get('San José State');
+  assert.ok(sjsu);
+  assert.ok(sjsu!.alts?.includes('san jose'), 'San José State override applied at read time');
+  // Overrides with no entry for a school leave its alts untouched.
+  const nmsu = bySchool.get('New Mexico State');
+  assert.ok(nmsu);
+  assert.ok(
+    nmsu!.alts?.includes('newmexico'),
+    'no override for NMSU — read path never invents removals'
+  );
+
+  // The durable snapshot itself is NOT rewritten — sanitization is read-time only.
+  const raw = await getAppState<typeof preFixSnapshot>('team-database', 'current');
+  const rawSdsu = raw!.value.items.find((i) => i.school === 'San Diego State');
+  assert.ok(rawSdsu!.alts.includes('sandiego'), 'stored snapshot untouched');
+  assert.ok(!rawSdsu!.alts.includes('sdsu'), 'stored snapshot untouched');
 });

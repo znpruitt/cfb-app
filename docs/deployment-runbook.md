@@ -178,6 +178,42 @@ These three mechanisms are independent: Clerk (identity + admin role), `ADMIN_AP
 5. Confirm scores refresh behavior looks acceptable during a live or recently completed game window.
 6. Confirm the `/admin` link is only shared with the platform-admin/operator group.
 
+## 8b) Post-merge team-catalog sync (PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY)
+
+After the derived-alias-safety fix (or any future `src/data/alias-overrides.json` change) is merged and deployed, resync the durable team catalog so the stored snapshot itself carries the corrected aliases. (Read-time override application already sanitizes SERVED items from deploy; the resync makes the durable record canonical and rebuilds every derived alias.)
+
+1. Sign in as `platform_admin`, open `/admin/diagnostics`, expand **Team Database**, click **Update Team Database**; confirm the response reports `ok: true`, `source: "cfbd"`, a current `updatedAt`, and a nonzero written count. Machine equivalent (with `ADMIN_API_TOKEN` configured):
+
+   ```bash
+   curl --fail-with-body --silent --show-error \
+     --request POST \
+     --header "Accept: application/json" \
+     --header "Authorization: Bearer ${ADMIN_API_TOKEN}" \
+     https://turfwar.games/api/admin/team-database
+   ```
+
+   This rebuilds the catalog through the corrected `buildTeamDatabaseFile`, applies `alias-overrides.json`, writes `team-database/current`, and invalidates all canonical standings.
+
+2. Verify the durable catalog served by `/api/teams`:
+
+   ```bash
+   curl --fail-with-body --silent --show-error \
+     "https://turfwar.games/api/teams?level=FBS" |
+   jq -e '
+     ([.items[] | select(.school == "San Diego State")][0]) as $sdsu |
+     ([.items[] | select(.school == "San José State")][0]) as $sjsu |
+     ([.items[] | select(.school == "New Mexico State")][0]) as $nmsu |
+     (($sdsu.alts | index("sandiego")) == null) and
+     (($sdsu.alts | index("sdsu")) != null) and
+     (($sjsu.alts | index("san jose")) != null) and
+     (($nmsu.alts | index("newmexico")) == null)
+   '
+   ```
+
+3. Verify resolution through the admin-gated resolver diagnostic (`/api/debug/resolve-team`): `San Diego` must NOT resolve to `sandiegostate` (distinct or unresolved); `SDSU` → `sandiegostate`; `San Jose` → `sanjosestate`; `New Mexico` → `newmexico`. If any check fails, stop and inspect the effective alias diagnostic — never edit owners, drafts, archives, or CSV data as a workaround.
+
+4. Rerun the established `PLATFORM-086H3E` production parity audit (the approved read-only audit procedure — there is no checked-in CLI) with the synced catalog's `updatedAt` recorded as its prerequisite. Do not claim H3E parity until that rerun completes.
+
 ## 9) Common failure diagnosis
 
 ### Clerk sign-in fails or redirects loop

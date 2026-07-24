@@ -4,7 +4,7 @@ import path from 'node:path';
 import { cache } from 'react';
 
 import type { TeamCatalogItem } from '../teamIdentity.ts';
-import type { TeamDatabaseFile } from '../teamDatabase.ts';
+import { mergeAliasOverrides, type TeamDatabaseFile } from '../teamDatabase.ts';
 import { normalizeTeamName } from '../teamNormalization.ts';
 import { deleteAppState, getAppState, setAppState } from './appStateStore.ts';
 
@@ -109,7 +109,17 @@ async function readSourceCatalogFallback(): Promise<TeamDatabaseFile> {
 
 async function readStoreFile(): Promise<TeamDatabaseFile> {
   const record = await getAppState<TeamDatabaseFile>(teamDatabaseScope(), 'current');
-  return toTeamDatabaseFile(record?.value) ?? (await readSourceCatalogFallback());
+  const file = toTeamDatabaseFile(record?.value) ?? (await readSourceCatalogFallback());
+  // Read-time application of the curated alias overrides
+  // (PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY): a durable catalog synced
+  // BEFORE an override shipped still carries any since-removed generated alias
+  // (e.g. the unsafe `sandiego` truncation that credited University of San
+  // Diego stats to San Diego State's owner). Sanitizing served items keeps the
+  // fix effective from deploy WITHOUT mutating the stored snapshot; the admin
+  // resync (POST /api/admin/team-database) remains the canonical refresh and
+  // is idempotent with this application.
+  mergeAliasOverrides(file.items);
+  return file;
 }
 
 /**

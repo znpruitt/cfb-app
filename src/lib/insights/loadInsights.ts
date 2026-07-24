@@ -9,6 +9,7 @@ import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import { loadSeasonRankings } from '@/lib/server/rankings';
 import { getAppState } from '@/lib/server/appStateStore';
 import { getScopedAliasMap, SEED_ALIASES_HASH } from '@/lib/server/globalAliasStore';
+import { ALIAS_OVERRIDES_HASH } from '@/lib/teamDatabase';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import {
   loadCachedScheduleItems,
@@ -81,7 +82,16 @@ function emptyResponse(
  * cache even though it fires no runtime invalidation.
  */
 export function insightsCacheKeyParts(slug: string, resolvedYear: number): string[] {
-  return ['insights', slug, String(resolvedYear), `seeds:${SEED_ALIASES_HASH}`];
+  // `alias-overrides:` mirrors canonical standings: the curated catalog-alias
+  // policy is applied at read time and feeds identity resolution here, so it is
+  // part of the cache identity (see canonicalStandingsCacheKeyParts).
+  return [
+    'insights',
+    slug,
+    String(resolvedYear),
+    `seeds:${SEED_ALIASES_HASH}`,
+    `alias-overrides:${ALIAS_OVERRIDES_HASH}`,
+  ];
 }
 
 /**

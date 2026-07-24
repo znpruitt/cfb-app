@@ -34,6 +34,15 @@ stored global (aliases:global)  >  year (aliases:${year})  >  SEED_ALIASES (code
 
 Persisted copies of a known seed default are demoted (`withoutCopiedSeedDefaults`) so the current code seed resolves the identity, while a genuine manual repair (different target) always wins over the seed. Only two functions write the stored global map (`upsertGlobalAliases`, `migrateYearScopedAliasesToGlobal`), serialized behind a write lock; no read path writes aliases.
 
+### Generated catalog aliases (derived-alias safety)
+
+The team catalog's `alts` are GENERATED (`buildDerivedAlts` in `scripts/fetch-cfbd-teams.ts` for the checked-in `src/data/teams.json`; `buildDerivedTeamAliases` in `src/lib/teamDatabase.ts` for the durable admin sync). Because catalog alternates register in the resolver registry BEFORE observed provider names, a generated alias silently claims that identity for its team — so generation must be conservative:
+
+- **Automatic compaction never truncates a multi-token school.** The compact tokens-first join (`"ohio state"` → `ohiostate`) is produced only when the two tokens are the WHOLE variant. A two-token prefix of a longer name can be a DIFFERENT real school: the pre-fix `"San Diego State"` → `sandiego` truncation hijacked the (uncataloged, FCS) University of San Diego's identity and credited its stored game-stat production to the owner rostering San Diego State (PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY; discovered by the PLATFORM-086H3E production parity audit).
+- **Legitimate shorthand for longer names belongs in curated `src/data/alias-overrides.json`** (`add`/`remove` per school; `remove` compares the exact compact key after `soft()`). Examples: `sdsu` → San Diego State, `san jose`/`sjsu` → San José State.
+- **Overrides are applied at durable-store READ time** (`readStoreFile` in `teamDatabaseStore.ts`), so a catalog synced before an override shipped is served sanitized without waiting for — or replacing — the operator resync; the stored snapshot is never rewritten by a read.
+- **Override policy is part of cache identity:** `ALIAS_OVERRIDES_HASH` is folded into the canonical-standings and insights cache keys (alongside `SEED_ALIASES_HASH`), so an override change automatically busts warm `revalidate: false` snapshots at deploy.
+
 ## Game ownership — `src/lib/gameOwnership.ts`
 
 Current-season game-ownership attribution flows through `gameOwnership.ts` (exports `sideIdentityCandidates`, `getOwnerForGameSide`, `getGameOwners`, `getGameSideForTeam`). It is **intentionally resolver-free**: the canonical `AppGame` already carries alias-resolved identity (`canHome`/`canAway`, `participants.*`), so ownership is decided from the identity candidates on the game — never by raw provider-label equality re-derived elsewhere.

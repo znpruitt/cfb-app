@@ -133,10 +133,14 @@ function buildDerivedAlts(school: string, mascot?: string | null): string[] {
     ...shorts, // curated short names eg "sjsu", "app state"
   ]);
 
-  // Also add tokens-first join for 2-token schools (e.g., "ohio state" -> "ohiostate")
+  // Also add tokens-first join for 2-token variants (e.g., "ohio state" -> "ohiostate").
+  // The two-token join applies ONLY when it is the WHOLE variant: a two-token
+  // prefix of a longer name can be a DIFFERENT real school ("San Diego State" ->
+  // "sandiego" hijacked University of San Diego's identity). Curated shorthand
+  // for longer names belongs in src/data/alias-overrides.json.
   for (const b of Array.from(basePieces)) {
     const tokens = b.split(/\s+/).filter(Boolean);
-    if (tokens.length >= 2) basePieces.add(tokens[0] + tokens[1]);
+    if (tokens.length === 2) basePieces.add(tokens[0] + tokens[1]);
     if (tokens.length >= 3) basePieces.add(tokens[0] + tokens[1] + tokens[2]);
   }
 

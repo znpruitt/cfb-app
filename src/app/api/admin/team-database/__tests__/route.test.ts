@@ -242,3 +242,36 @@ test('an upstream failure writes nothing and invalidates nothing', async () => {
     ['Preexisting']
   );
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY: a durable sync must persist a
+// catalog with the corrected derived aliases — no truncated multi-token
+// prefixes, sanctioned shorthand applied via alias-overrides.json.
+// ---------------------------------------------------------------------------
+
+test('a sync persists the corrected derived aliases in the durable catalog', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('league-a')]);
+  stubFetchOk([
+    { school: 'San Diego State', classification: 'fbs', mascot: 'Aztecs' },
+    { school: 'San José State', classification: 'fbs', mascot: 'Spartans' },
+    { school: 'New Mexico State', classification: 'fbs', mascot: 'Aggies' },
+  ]);
+
+  const { result: res, tags } = await runCapturingTags(() => POST(postRequest()));
+  assert.equal(res.status, 200, await res.text());
+  // Existing durable-write + invalidation behavior is unchanged.
+  assert.ok(tags.includes('standings:all'), 'shared standings tag still invalidated');
+
+  const stored = await getTeamDatabaseFile();
+  const bySchool = new Map(stored.items.map((i) => [i.school, i]));
+  const sdsu = bySchool.get('San Diego State');
+  assert.ok(sdsu);
+  assert.ok(sdsu!.alts?.includes('sdsu'), 'sanctioned SDSU shorthand persisted');
+  assert.ok(!sdsu!.alts?.includes('sandiego'), 'truncated sandiego prefix not persisted');
+  const sjsu = bySchool.get('San José State');
+  assert.ok(sjsu);
+  assert.ok(sjsu!.alts?.includes('san jose'), 'San José State retains explicit shorthand');
+  const nmsu = bySchool.get('New Mexico State');
+  assert.ok(nmsu);
+  assert.ok(!nmsu!.alts?.includes('newmexico'), 'truncated newmexico prefix not persisted');
+});
