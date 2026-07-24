@@ -99,15 +99,18 @@ test('coverage: no expected games → not-applicable', () => {
   );
 });
 
-test('coverage: an id-associated usable row satisfies (participant validation deferred)', () => {
-  // Under PLATFORM-086H3C1-SIMPLIFICATION-v1 the CFBD game id + partition
-  // associate a row; participant identity is NOT validated in C1 (deferred to a
-  // pre-activation prerequisite), so a schema-usable row for the expected game id
-  // satisfies regardless of stored participant labels.
+test('coverage: an id-associated row with a wrong numeric participant is identity-mismatch (PLATFORM-086H3C5)', () => {
+  // The CFBD game id + partition still associate the row, but the C1-era
+  // "satisfies regardless of stored participant labels" deferral is superseded:
+  // the schedule's numeric ids (101/202) are known, the stored home side proves
+  // a different school id (303), so the game is a fail-closed identity mismatch
+  // — never satisfied coverage.
   const usable = completeFor(G1, ['Gamma A&M', 303], ['Beta Tech', 202]);
   const coverage = coverageOf([G1], [usable]);
-  assert.equal(gameState(coverage, 100), 'satisfied');
-  assert.equal(coverage.state, 'complete');
+  assert.equal(gameState(coverage, 100), 'identity-mismatch');
+  // A partition whose only evidence is a nonpublishable validation gap keeps
+  // the existing coarse vocabulary (no new partition state).
+  assert.equal(coverage.state, 'absent');
 });
 
 test('coverage: divergent authoritative duplicates → duplicate-conflict gap', () => {
@@ -192,4 +195,49 @@ test('coverage: a null durable record leaves every expected game absent', () => 
   const coverage = evaluatePartitionCoverage(slateOf([G1, G2]), 3, 'regular', null, 'current');
   assert.equal(coverage.state, 'absent');
   assert.equal(coverage.games.length, 2);
+});
+
+// === PLATFORM-086H3C5: participant-validation coverage states ===
+
+test('coverage: missing schedule participant ids → per-game participant-validation-unavailable (never mismatch, never absence)', () => {
+  // Models an old durable schedule cache written before participant-id
+  // persistence: the canonical game carries null ids, so its otherwise
+  // satisfied-quality row fails CLOSED as validation-unavailable.
+  const oldCacheGame = canonicalGame({
+    providerGameId: 100,
+    home: 'Alpha State',
+    away: 'Beta Tech',
+    week: 3,
+    homeId: null,
+    awayId: null,
+  });
+  const coverage = coverageOf([oldCacheGame], [G1_COMPLETE]);
+  assert.equal(gameState(coverage, 100), 'participant-validation-unavailable');
+  const decision = coverage.games[0]?.decision;
+  assert.equal(decision?.participantValidation, 'schedule-ids-unavailable');
+  assert.equal(decision?.selected, null);
+});
+
+test('coverage: mixed verified + validation-gap coverage is partial', () => {
+  const gapGame = canonicalGame({
+    providerGameId: 200,
+    home: 'Gamma A&M',
+    away: 'Delta University',
+    week: 3,
+    homeId: null,
+    awayId: null,
+  });
+  const coverage = coverageOf([G1, gapGame], [G1_COMPLETE, G2_COMPLETE]);
+  assert.equal(coverage.state, 'partial');
+  assert.equal(gameState(coverage, 100), 'satisfied');
+  assert.equal(gameState(coverage, 200), 'participant-validation-unavailable');
+});
+
+test('coverage: verified rows still satisfy through the shared decision (validation is invisible to satisfied coverage)', () => {
+  const coverage = coverageOf([G1, G2], [G1_COMPLETE, G2_COMPLETE]);
+  assert.equal(coverage.state, 'complete');
+  for (const g of coverage.games) {
+    assert.equal(g.decision.state, 'satisfied');
+    assert.equal(g.decision.participantValidation, 'verified');
+  }
 });

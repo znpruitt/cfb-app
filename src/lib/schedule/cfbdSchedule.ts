@@ -35,6 +35,10 @@ export type CfbdScheduleGame = {
   away_team?: string;
   homeTeam?: string;
   awayTeam?: string;
+  home_id?: number | string | null;
+  homeId?: number | string | null;
+  away_id?: number | string | null;
+  awayId?: number | string | null;
   home_conference?: string | null;
   away_conference?: string | null;
   homeConference?: string | null;
@@ -83,6 +87,15 @@ export type ScheduleItem = {
   conferenceGame: boolean;
   homeTeam: string;
   awayTeam: string;
+  /**
+   * CFBD numeric participant ids, normalized to a positive safe integer or
+   * explicit `null` when the provider omitted or supplied an invalid value.
+   * Participant METADATA only — canonical team identity remains the
+   * resolver-produced string identity (`teamIdentity.ts`); these ids never
+   * drive name matching, and an invalid id never drops the schedule row.
+   */
+  homeId: number | null;
+  awayId: number | null;
   homeConference: string;
   awayConference: string;
   status: string;
@@ -125,6 +138,27 @@ function extractVenueInfo(game: CfbdScheduleGame): VenueInfo | string | null {
   if (!city && !state && !country) return stadium;
 
   return { stadium, city, state, country };
+}
+
+/**
+ * Normalize a CFBD numeric participant id to a positive safe integer, or `null`.
+ * Strict grammar: a positive safe-integer number, or a canonical decimal-digit
+ * string collapsing to one. Zero, negatives, fractions, exponent/hex/signed
+ * forms (`1e3`, `0x10`, `+16`, `12.5`), unsafe integers, blank strings, and
+ * every other coercive JavaScript numeric form normalize to `null` — a missing
+ * or invalid participant id never drops an otherwise valid schedule row.
+ */
+function normalizeParticipantId(value: unknown): number | null {
+  if (typeof value === 'number') {
+    return Number.isSafeInteger(value) && value > 0 ? value : null;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!/^\d+$/.test(trimmed)) return null;
+    const parsed = Number(trimmed);
+    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+  }
+  return null;
 }
 
 function normalizeWeek(value: unknown): number | null {
@@ -489,6 +523,8 @@ export function mapCfbdScheduleGame(
       conferenceGame: Boolean(game.conference_game ?? game.conferenceGame),
       homeTeam,
       awayTeam,
+      homeId: normalizeParticipantId(game.home_id ?? game.homeId),
+      awayId: normalizeParticipantId(game.away_id ?? game.awayId),
       homeConference,
       awayConference,
       status: normalizeString(game.status) || 'scheduled',

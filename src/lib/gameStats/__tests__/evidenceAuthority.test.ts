@@ -295,3 +295,266 @@ test('defective-only evidence: recoverable (absent) for current season, manual-o
   assert.equal(historical.state, 'manual-only');
   assert.equal(historical.selected, null);
 });
+
+// === PLATFORM-086H3C5: numeric participant validation ===
+
+test('participant validation: direct numeric match selects the row as stored and satisfies', () => {
+  const row = v2Row({ id: 100, home: HOME, away: AWAY, week: 3 });
+  const d = decide(GAME, [row]);
+  assert.equal(d.state, 'satisfied');
+  assert.equal(d.participantValidation, 'verified');
+  assert.equal(d.selected?.home.schoolId, 101);
+  assert.equal(d.selected?.away.schoolId, 202);
+});
+
+test('participant validation: names may disagree while matching numeric ids still verify', () => {
+  // Numeric identity is the whole validation authority — provider names never
+  // verify or contradict it.
+  const row = v2Row({
+    id: 100,
+    home: { school: 'Totally Different Label', schoolId: 101 },
+    away: { school: 'Another Label', schoolId: 202 },
+    week: 3,
+  });
+  const d = decide(GAME, [row]);
+  assert.equal(d.state, 'satisfied');
+  assert.equal(d.participantValidation, 'verified');
+});
+
+test('participant validation: matching names with a wrong numeric id mismatch', () => {
+  const row = v2Row({
+    id: 100,
+    home: { school: 'Alpha State', schoolId: 999 }, // right name, wrong id
+    away: { school: 'Beta Tech', schoolId: 202 },
+    week: 3,
+  });
+  const d = decide(GAME, [row]);
+  assert.equal(d.state, 'identity-mismatch');
+  assert.equal(d.participantValidation, 'mismatch');
+  assert.equal(d.selected, null);
+  assert.equal(d.provenance, null);
+});
+
+test('participant validation: an exact reversal is a mismatch (non-neutral and neutral)', () => {
+  const reversed = v2Row({
+    id: 100,
+    home: { school: 'Beta Tech', schoolId: 202 }, // schedule says 101 is home
+    away: { school: 'Alpha State', schoolId: 101 },
+    week: 3,
+  });
+  const nonNeutral = decide(GAME, [reversed]);
+  assert.equal(nonNeutral.state, 'identity-mismatch');
+  assert.equal(nonNeutral.selected, null); // never swapped back into evidence
+
+  const neutralGame = canonicalGame({
+    providerGameId: 100,
+    home: 'Alpha State',
+    away: 'Beta Tech',
+    neutral: true,
+  });
+  const neutral = decide(neutralGame, [reversed]);
+  assert.equal(neutral.state, 'identity-mismatch'); // neutral-site changes nothing
+});
+
+test('participant validation: missing one or both schedule ids → participant-validation-unavailable', () => {
+  const row = v2Row({ id: 100, home: HOME, away: AWAY, week: 3 });
+
+  const missingBoth = canonicalGame({
+    providerGameId: 100,
+    home: 'Alpha State',
+    away: 'Beta Tech',
+    homeId: null,
+    awayId: null,
+  });
+  const both = decide(missingBoth, [row]);
+  assert.equal(both.state, 'participant-validation-unavailable');
+  assert.equal(both.participantValidation, 'schedule-ids-unavailable');
+  assert.equal(both.selected, null);
+
+  const missingOne = canonicalGame({
+    providerGameId: 100,
+    home: 'Alpha State',
+    away: 'Beta Tech',
+    awayId: null,
+  });
+  const one = decide(missingOne, [row]);
+  assert.equal(one.state, 'participant-validation-unavailable');
+  assert.equal(one.participantValidation, 'schedule-ids-unavailable');
+});
+
+test('participant validation: missing/invalid stored school ids → separately reasoned validation-unavailable', () => {
+  // Legacy identity is bounded to nonblank schools, so a legacy-compatible row
+  // can carry an unusable stored id — it stays usable evidence but cannot be
+  // numerically validated.
+  const base = legacyBase(100);
+  const noStoredId: GameStats = {
+    ...base,
+    home: { ...base.home, schoolId: undefined as unknown as number },
+  };
+  const d = decide(GAME, [noStoredId]);
+  assert.equal(d.state, 'participant-validation-unavailable');
+  assert.equal(d.participantValidation, 'stored-ids-unavailable');
+  assert.equal(d.selected, null);
+});
+
+test('participant validation: schedule-unavailable, stored-unavailable, mismatch, and absence are four distinct outcomes', () => {
+  const verifiedRow = v2Row({ id: 100, home: HOME, away: AWAY, week: 3 });
+  const scheduleGap = canonicalGame({
+    providerGameId: 100,
+    home: 'Alpha State',
+    away: 'Beta Tech',
+    homeId: null,
+    awayId: null,
+  });
+  assert.equal(
+    decide(scheduleGap, [verifiedRow]).participantValidation,
+    'schedule-ids-unavailable'
+  );
+
+  const base = legacyBase(100);
+  const storedGap: GameStats = {
+    ...base,
+    away: { ...base.away, schoolId: Number.NaN },
+  };
+  assert.equal(decide(GAME, [storedGap]).participantValidation, 'stored-ids-unavailable');
+
+  const wrong = v2Row({
+    id: 100,
+    home: { school: 'Alpha State', schoolId: 777 },
+    away: AWAY,
+    week: 3,
+  });
+  assert.equal(decide(GAME, [wrong]).state, 'identity-mismatch');
+
+  // No candidate rows at all stays ordinary absence — never a validation state.
+  const absent = decide(GAME, []);
+  assert.equal(absent.state, 'absent');
+  assert.equal(absent.participantValidation, null);
+});
+
+test('participant validation: a mismatched higher-sufficiency candidate cannot displace a verified lower-sufficiency candidate', () => {
+  const verifiedLegacy = legacyBase(100); // legacy-compatible, ids 101/202
+  const mismatchedV2 = v2Row({
+    id: 100,
+    home: { school: 'Alpha State', schoolId: 999 },
+    away: AWAY,
+    week: 3,
+  });
+  for (const rows of [
+    [verifiedLegacy, mismatchedV2],
+    [mismatchedV2, verifiedLegacy],
+  ]) {
+    const d = decide(GAME, rows);
+    assert.equal(d.state, 'satisfied');
+    assert.equal(d.provenance, 'legacy-compatible'); // v2 mismatch excluded from ranking
+    assert.equal(d.participantValidation, 'verified');
+    assert.equal(d.selected?.home.schoolId, 101);
+  }
+});
+
+test('participant validation: a validation-unavailable candidate cannot displace a verified candidate', () => {
+  const verifiedLegacy = legacyBase(100);
+  const base = legacyBase(100);
+  const unverifiableV2Shape: GameStats = {
+    ...v2Row({ id: 100, home: HOME, away: AWAY, week: 3 }),
+  };
+  (unverifiableV2Shape.home as { schoolId: unknown }).schoolId = undefined;
+  for (const rows of [
+    [verifiedLegacy, unverifiableV2Shape],
+    [unverifiableV2Shape, verifiedLegacy],
+  ]) {
+    const d = decide(GAME, rows);
+    assert.equal(d.state, 'satisfied');
+    assert.equal(d.participantValidation, 'verified');
+    assert.equal(d.selected?.home.schoolId, base.home.schoolId);
+  }
+});
+
+test('participant validation: a mismatch-only candidate set is identity-mismatch (mismatch outranks unavailable)', () => {
+  const mismatch = v2Row({
+    id: 100,
+    home: { school: 'Alpha State', schoolId: 999 },
+    away: AWAY,
+    week: 3,
+  });
+  const base = legacyBase(100);
+  const unverifiable: GameStats = {
+    ...base,
+    home: { ...base.home, schoolId: undefined as unknown as number },
+  };
+  for (const rows of [
+    [mismatch, unverifiable],
+    [unverifiable, mismatch],
+  ]) {
+    const d = decide(GAME, rows);
+    assert.equal(d.state, 'identity-mismatch');
+    assert.equal(d.participantValidation, 'mismatch');
+  }
+});
+
+test('participant validation: same-id unsupported/malformed/bad-fence schema still blocks BEFORE participant validation', () => {
+  const unsupported: GameStats = {
+    ...v2Row({ id: 100, home: HOME, away: AWAY, week: 3 }),
+    schemaVersion: 99,
+  } as unknown as GameStats;
+  const mismatched = v2Row({
+    id: 100,
+    home: { school: 'Alpha State', schoolId: 999 },
+    away: AWAY,
+    week: 3,
+  });
+  const d = decide(GAME, [unsupported, mismatched]);
+  assert.equal(d.state, 'blocked-unsupported-schema');
+  assert.equal(d.participantValidation, null); // validation never reached
+  assert.deepEqual(d.blockers, ['unsupported-schema-version']);
+});
+
+test('participant validation: partition disagreement remains non-evidence, never a mismatch', () => {
+  // A wrong-partition row with contradictory ids is skipped by association —
+  // it cannot prove a mismatch for a game it is not evidence for.
+  const wrongWeek = v2Row({
+    id: 100,
+    home: { school: 'Alpha State', schoolId: 999 },
+    away: AWAY,
+    week: 9,
+  });
+  const d = decide(GAME, [wrongWeek]);
+  assert.equal(d.state, 'absent');
+  assert.equal(d.participantValidation, null);
+});
+
+test('participant validation: verified duplicate/freshness/conflict matrices are order-invariant and unchanged', () => {
+  // Two verified equal-fence v2 rows with divergent publishable content still
+  // conflict; validation does not alter the duplicate authority among verified
+  // candidates.
+  const divergentRaw = {
+    totalYards: '999',
+    rushingYards: '187',
+    netPassingYards: '225',
+    turnovers: '1',
+    thirdDownEff: '6-14',
+    possessionTime: '31:24',
+  };
+  const a = v2Row({
+    id: 100,
+    home: HOME,
+    away: AWAY,
+    week: 3,
+    fetchStartedAt: '2025-09-08T00:00:00Z',
+  });
+  const b = v2Row({
+    id: 100,
+    home: { ...HOME, raw: divergentRaw },
+    away: AWAY,
+    week: 3,
+    fetchStartedAt: '2025-09-08T00:00:00Z',
+  });
+  for (const rows of [
+    [a, b],
+    [b, a],
+  ]) {
+    const d = decide(GAME, rows);
+    assert.equal(d.state, 'duplicate-conflict');
+    assert.equal(d.participantValidation, 'verified');
+  }
+});

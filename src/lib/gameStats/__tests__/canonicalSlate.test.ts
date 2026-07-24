@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  getAppState,
   setAppState,
 } from '../../server/appStateStore.ts';
 import {
@@ -339,7 +340,15 @@ test('canonical slate: malformed non-decimal schedule ids are not addressable', 
 
 test('loadCanonicalGameStatsSlate: aggregate and partition-only layouts produce identical expectations', async () => {
   const items = [
-    scheduleItem({ id: '4101', week: 5, home: 'Alpha State', away: 'Beta Tech', status: 'final' }),
+    scheduleItem({
+      id: '4101',
+      week: 5,
+      home: 'Alpha State',
+      away: 'Beta Tech',
+      status: 'final',
+      homeId: 101,
+      awayId: 202,
+    }),
     scheduleItem({
       id: '4102',
       week: 1,
@@ -350,6 +359,8 @@ test('loadCanonicalGameStatsSlate: aggregate and partition-only layouts produce 
       gamePhase: 'postseason',
       postseasonSubtype: 'bowl',
       eventKey: 'tau-bowl',
+      homeId: 303,
+      awayId: 404,
     }),
   ];
   const regularItems = items.filter((i) => i.seasonType !== 'postseason');
@@ -384,11 +395,18 @@ test('loadCanonicalGameStatsSlate: aggregate and partition-only layouts produce 
         applicability: g.applicability,
         home: g.home?.identityKey ?? null,
         away: g.away?.identityKey ?? null,
+        homeId: g.homeId,
+        awayId: g.awayId,
       }))
       .sort((a, b) => a.id - b.id);
 
   assert.deepEqual(summarize(aggregate.slate.games), summarize(partitioned.slate.games));
   assert.ok(summarize(aggregate.slate.games).some((g) => g.id === 4101));
+  // Both layouts carry the SAME numeric participant ids onto the canonical games.
+  assert.equal(bySlateId(aggregate.slate.games, 4101)?.homeId, 101);
+  assert.equal(bySlateId(aggregate.slate.games, 4101)?.awayId, 202);
+  assert.equal(bySlateId(aggregate.slate.games, 4102)?.homeId, 303);
+  assert.equal(bySlateId(aggregate.slate.games, 4102)?.awayId, 404);
 
   // Leave the shared stores clean for any non-isolated runner.
   await __deleteAppStateFileForTests();
@@ -422,6 +440,176 @@ test('loadCanonicalGameStatsSlate: an empty team catalog is unavailable context,
   const result = await loadCanonicalGameStatsSlate({ year: 2025, now: NOW });
   assert.equal(result.status, 'unavailable');
   if (result.status === 'unavailable') assert.equal(result.reason, 'catalog-load-failed');
+
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  __resetTeamDatabaseStoreForTests();
+  await __deleteTeamDatabaseStoreFileForTests();
+});
+
+// === PLATFORM-086H3C5: numeric participant ids on the canonical slate ===
+
+test('canonical slate: wire participant ids copy onto canonical games; missing ids are explicit null', () => {
+  const slate = build([
+    scheduleItem({
+      id: '6001',
+      week: 3,
+      home: 'Alpha State',
+      away: 'Beta Tech',
+      status: 'final',
+      homeId: 101,
+      awayId: 202,
+    }),
+    // No id properties at all — models a durable row written before this PR.
+    scheduleItem({ id: '6002', week: 3, home: 'Gamma A&M', away: 'Delta University' }),
+  ]);
+
+  const withIds = bySlateId(slate.games, 6001);
+  assert.equal(withIds?.homeId, 101);
+  assert.equal(withIds?.awayId, 202);
+
+  const withoutIds = bySlateId(slate.games, 6002);
+  assert.equal(withoutIds?.homeId, null);
+  assert.equal(withoutIds?.awayId, null);
+});
+
+test('canonical slate: only already-normalized positive safe integers pass revalidation (no second normalization authority)', () => {
+  // Durable app-state is untyped at rest — a stale/corrupt cached row can hold
+  // anything. The slate layer revalidates but never re-normalizes: a string the
+  // schedule MAPPER would have normalized is null here, as is every invalid form.
+  const corrupt = [
+    scheduleItem({ id: '6003', week: 3, home: 'Alpha State', away: 'Beta Tech', status: 'final' }),
+  ];
+  (corrupt[0] as Record<string, unknown>).homeId = '101'; // un-normalized string
+  (corrupt[0] as Record<string, unknown>).awayId = 0; // invalid zero
+  const a = build(corrupt);
+  assert.equal(bySlateId(a.games, 6003)?.homeId, null);
+  assert.equal(bySlateId(a.games, 6003)?.awayId, null);
+
+  (corrupt[0] as Record<string, unknown>).homeId = 12.5;
+  (corrupt[0] as Record<string, unknown>).awayId = -7;
+  const b = build(corrupt);
+  assert.equal(bySlateId(b.games, 6003)?.homeId, null);
+  assert.equal(bySlateId(b.games, 6003)?.awayId, null);
+});
+
+test('canonical slate: participant ids never alter canonical identity resolution or postseason weeks', () => {
+  const slate = build([
+    scheduleItem({
+      id: '6004',
+      week: 1,
+      home: 'Alpha State',
+      away: 'Beta Tech',
+      status: 'final',
+      seasonType: 'postseason',
+      gamePhase: 'postseason',
+      postseasonSubtype: 'bowl',
+      eventKey: 'sigma-bowl',
+      // Deliberately WRONG numeric ids: identity stays name-resolved through the
+      // shared resolver; numeric ids are provider metadata for evidence
+      // validation only and never drive matching.
+      homeId: 999,
+      awayId: 888,
+    }),
+  ]);
+  const game = bySlateId(slate.games, 6004);
+  assert.ok(game);
+  assert.equal(game!.home?.identityKey, IDENTITY_KEYS['Alpha State']);
+  assert.equal(game!.away?.identityKey, IDENTITY_KEYS['Beta Tech']);
+  assert.equal(typeof game!.home?.identityKey, 'string');
+  assert.equal(game!.homeId, 999);
+  assert.equal(game!.awayId, 888);
+  // Postseason provider week/season type behavior is unchanged by the ids.
+  assert.equal(game!.providerWeek, 1);
+  assert.equal(game!.seasonType, 'postseason');
+});
+
+test('canonical slate: duplicate CFBD id rejection is unchanged for id-bearing rows', () => {
+  assert.throws(
+    () =>
+      build([
+        scheduleItem({
+          id: '6005',
+          week: 3,
+          home: 'Alpha State',
+          away: 'Beta Tech',
+          status: 'final',
+          homeId: 101,
+          awayId: 202,
+        }),
+        scheduleItem({
+          id: '6005',
+          week: 3,
+          home: 'Gamma A&M',
+          away: 'Delta University',
+          status: 'final',
+          homeId: 303,
+          awayId: 404,
+        }),
+      ]),
+    /duplicate CFBD schedule id/
+  );
+});
+
+test('loadCanonicalGameStatsSlate: old cache layouts without id properties stay available with nullable ids, and no read writes fields back', async () => {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  __resetTeamDatabaseStoreForTests();
+  await __deleteTeamDatabaseStoreFileForTests();
+  await setTeamDatabaseFile({ items: C1_TEAMS } as never);
+
+  // Old-shape rows: no homeId/awayId properties anywhere.
+  const oldRows = [
+    scheduleItem({ id: '6101', week: 5, home: 'Alpha State', away: 'Beta Tech', status: 'final' }),
+    scheduleItem({
+      id: '6102',
+      week: 1,
+      home: 'Gamma A&M',
+      away: 'Delta University',
+      status: 'final',
+      seasonType: 'postseason',
+      gamePhase: 'postseason',
+      postseasonSubtype: 'bowl',
+      eventKey: 'rho-bowl',
+    }),
+  ];
+  for (const row of oldRows) {
+    assert.equal(Object.prototype.hasOwnProperty.call(row, 'homeId'), false);
+  }
+
+  // Layout A: old aggregate record.
+  await setAppState('schedule', '2025-all-all', { items: oldRows });
+  const aggregate = await loadCanonicalGameStatsSlate({ year: 2025, now: NOW });
+  assert.equal(aggregate.status, 'available');
+  if (aggregate.status === 'available') {
+    assert.equal(bySlateId(aggregate.slate.games, 6101)?.homeId, null);
+    assert.equal(bySlateId(aggregate.slate.games, 6101)?.awayId, null);
+    assert.equal(bySlateId(aggregate.slate.games, 6102)?.homeId, null);
+  }
+
+  // Layout B: old partition-only records behave identically.
+  await setAppState('schedule', '2025-all-all', { items: [] });
+  await setAppState('schedule', '2025-all-regular', {
+    items: oldRows.filter((i) => i.seasonType !== 'postseason'),
+  });
+  await setAppState('schedule', '2025-all-postseason', {
+    items: oldRows.filter((i) => i.seasonType === 'postseason'),
+  });
+  const partitioned = await loadCanonicalGameStatsSlate({ year: 2025, now: NOW });
+  assert.equal(partitioned.status, 'available');
+  if (partitioned.status === 'available') {
+    assert.equal(bySlateId(partitioned.slate.games, 6101)?.homeId, null);
+    assert.equal(bySlateId(partitioned.slate.games, 6102)?.homeId, null);
+  }
+
+  // The reads never wrote participant-id fields back into the durable records.
+  for (const key of ['2025-all-regular', '2025-all-postseason']) {
+    const stored = await getAppState<{ items?: Record<string, unknown>[] }>('schedule', key);
+    for (const item of stored?.value?.items ?? []) {
+      assert.equal(Object.prototype.hasOwnProperty.call(item, 'homeId'), false, `${key} homeId`);
+      assert.equal(Object.prototype.hasOwnProperty.call(item, 'awayId'), false, `${key} awayId`);
+    }
+  }
 
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();

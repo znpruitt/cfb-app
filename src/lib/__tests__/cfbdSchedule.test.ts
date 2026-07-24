@@ -573,3 +573,115 @@ test('non-FBS safety: the normalized-postseason branch is guarded too (no explic
   const key = eventKeyOf(result);
   assert.ok(!key.startsWith('cfp-'), `key must not be CFP: ${key}`);
 });
+
+// === PLATFORM-086H3C5: numeric participant-id normalization ===
+
+function mapIds(game: Record<string, unknown>) {
+  const result = mapCfbdScheduleGame(
+    {
+      id: 9001,
+      week: 4,
+      home_team: 'Texas',
+      away_team: 'Rice',
+      ...game,
+    },
+    'regular'
+  );
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error('unreachable');
+  return result.item;
+}
+
+test('participant ids: camel-case numeric ids are retained', () => {
+  const item = mapIds({ homeId: 251, awayId: 242 });
+  assert.equal(item.homeId, 251);
+  assert.equal(item.awayId, 242);
+});
+
+test('participant ids: snake-case numeric ids are retained', () => {
+  const item = mapIds({ home_id: 251, away_id: 242 });
+  assert.equal(item.homeId, 251);
+  assert.equal(item.awayId, 242);
+});
+
+test('participant ids: accepted decimal strings normalize to numbers', () => {
+  const item = mapIds({ home_id: '251', away_id: ' 242 ' });
+  assert.equal(item.homeId, 251);
+  assert.equal(item.awayId, 242);
+});
+
+test('participant ids: missing ids become explicit null (never fabricated)', () => {
+  const item = mapIds({});
+  assert.equal(item.homeId, null);
+  assert.equal(item.awayId, null);
+  assert.ok(Object.prototype.hasOwnProperty.call(item, 'homeId'));
+  assert.ok(Object.prototype.hasOwnProperty.call(item, 'awayId'));
+});
+
+test('participant ids: zero, negative, fractional, exponent, unsafe, blank, and nonnumeric values become null', () => {
+  const invalid: unknown[] = [
+    0,
+    -5,
+    12.5,
+    '0',
+    '-5',
+    '12.5',
+    '1e3',
+    '0x10',
+    '+16',
+    Number.MAX_SAFE_INTEGER + 1,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    '',
+    '   ',
+    'abc',
+    true,
+    {},
+    [],
+    null,
+  ];
+  for (const value of invalid) {
+    const item = mapIds({ home_id: value, away_id: value });
+    assert.equal(item.homeId, null, `home_id ${String(value)} must normalize to null`);
+    assert.equal(item.awayId, null, `away_id ${String(value)} must normalize to null`);
+  }
+});
+
+test('participant ids: an invalid id never drops an otherwise valid schedule row', () => {
+  const result = mapCfbdScheduleGame(
+    { id: 9002, week: 4, home_team: 'Texas', away_team: 'Rice', home_id: 'bogus', away_id: -1 },
+    'regular'
+  );
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.item.homeTeam, 'Texas');
+    assert.equal(result.item.homeId, null);
+    assert.equal(result.item.awayId, null);
+  }
+});
+
+test('participant ids: all existing schedule metadata is unchanged by id normalization', () => {
+  const item = mapIds({
+    home_id: 251,
+    away_id: 242,
+    start_date: '2025-09-20T16:00:00.000Z',
+    neutral_site: true,
+    conference_game: true,
+    home_conference: 'SEC',
+    away_conference: 'American Athletic',
+    status: 'final',
+    venue: 'DKR',
+    notes: 'a note',
+  });
+  assert.equal(item.id, '9001');
+  assert.equal(item.week, 4);
+  assert.equal(item.startDate, '2025-09-20T16:00:00.000Z');
+  assert.equal(item.neutralSite, true);
+  assert.equal(item.conferenceGame, true);
+  assert.equal(item.homeConference, 'SEC');
+  assert.equal(item.awayConference, 'American Athletic');
+  assert.equal(item.status, 'final');
+  assert.equal(item.notes, 'a note');
+  assert.equal(item.seasonType, 'regular');
+  assert.equal(item.gamePhase, 'regular');
+});
