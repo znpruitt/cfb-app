@@ -214,6 +214,91 @@ After the derived-alias-safety fix (or any future `src/data/alias-overrides.json
 
 4. Rerun the established `PLATFORM-086H3E` production parity audit (the approved read-only audit procedure — there is no checked-in CLI) with the synced catalog's `updatedAt` recorded as its prerequisite. Do not claim H3E parity until that rerun completes.
 
+## 8c) Post-merge schedule refresh (PLATFORM-086-SCHEDULE-NON-FBS-POSTSEASON-CLASSIFICATION-SAFETY)
+
+After the non-FBS postseason classification fix is merged and deployed, the durable 2024 and 2025 schedule caches still carry the defective shared `cfp-semifinal` identities on FCS / Division III championship rows and must be re-normalized. Deploy the merged correction before refreshing data. If the pending team-catalog sync from §8b has not been completed, perform and verify that first.
+
+Refresh the canonical full-year durable schedule for both affected seasons through the supported schedule route. Do **not** use the Historical Data Cache button: it sends `force: false` and can return `alreadyCached` without replacing the defective snapshot.
+
+```bash
+for year in 2024 2025; do
+  curl --fail-with-body --silent --show-error \
+    --header "Accept: application/json" \
+    --header "Authorization: Bearer ${ADMIN_API_TOKEN}" \
+    "https://turfwar.games/api/schedule?year=${year}&bypassCache=1" \
+    --output "/tmp/platform-086-schedule-${year}.json"
+
+  jq -e '
+    .meta.source == "cfbd" and
+    .meta.cache == "miss" and
+    .meta.fallbackUsed == false and
+    .meta.partialFailure == false and
+    ((.meta.failedSeasonTypes // []) | length == 0) and
+    (.items | length > 0)
+  ' "/tmp/platform-086-schedule-${year}.json"
+done
+```
+
+Verify 2024 identities:
+
+```bash
+jq -e '
+  . as $root
+  | def byid($id): first($root.items[] | select(.id == $id));
+    ["401729786", "401738295", "401738307", "401729787"] as $nonfbs
+  | ["401677189", "401677191"] as $semis
+  | all($nonfbs[];
+      byid(.) != null and
+      (((byid(.).eventKey // "") | startswith("cfp-")) | not))
+    and
+    (([$nonfbs[] | byid(.).eventKey] | unique | length) == ($nonfbs | length))
+    and
+    all($semis[];
+      byid(.).postseasonSubtype == "playoff" and
+      byid(.).playoffRound == "semifinal" and
+      ((byid(.).eventKey // "") | startswith("cfp-semifinal"))
+    )
+    and
+    byid("401677192").postseasonSubtype == "playoff"
+    and
+    byid("401677192").playoffRound == "national_championship"
+    and
+    byid("401677192").eventKey == "national-championship"
+' /tmp/platform-086-schedule-2024.json
+```
+
+Verify 2025 identities:
+
+```bash
+jq -e '
+  . as $root
+  | def byid($id): first($root.items[] | select(.id == $id));
+    ["401840097", "401833989", "401840096", "401833990"] as $nonfbs
+  | ["401769075", "401769074"] as $semis
+  | all($nonfbs[];
+      byid(.) != null and
+      (((byid(.).eventKey // "") | startswith("cfp-")) | not))
+    and
+    (([$nonfbs[] | byid(.).eventKey] | unique | length) == ($nonfbs | length))
+    and
+    all($semis[];
+      byid(.).postseasonSubtype == "playoff" and
+      byid(.).playoffRound == "semifinal" and
+      ((byid(.).eventKey // "") | startswith("cfp-semifinal"))
+    )
+    and
+    byid("401769076").postseasonSubtype == "playoff"
+    and
+    byid("401769076").playoffRound == "national_championship"
+    and
+    byid("401769076").eventKey == "national-championship"
+' /tmp/platform-086-schedule-2025.json
+```
+
+For each year, verify `/api/admin/provider-status?year=<year>` reports the schedule year scope with `latestAttemptOutcome: "succeeded"`, `partialFailure: false`, `rowsCommitted > 0`, and a current `lastSuccessAt`. Then make a cache-only `/api/schedule?year=<year>` request and repeat the identity assertions against the served response. If another process still serves a pre-refresh process-cache entry, wait for the established one-hour schedule TTL and recheck. Do not delete app-state rows or mutate other production records as a workaround.
+
+Finally, rerun the established read-only `PLATFORM-086H3E` production parity audit for 2024 (the approved audit procedure — there is no checked-in H3E CLI; do not invent one). Record as prerequisites: the synced team catalog's `updatedAt`; the 2024 schedule refresh response's `meta.generatedAt`; the schedule provider-status `lastSuccessAt`. Do not claim H3E parity until the rerun completes. Do not modify game-stat evidence, ownership, archives, or activation state during the audit.
+
 ## 9) Common failure diagnosis
 
 ### Clerk sign-in fails or redirects loop
