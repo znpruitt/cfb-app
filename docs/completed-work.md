@@ -1664,6 +1664,28 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086 — Schedule Non-FBS Postseason Classification Safety — Complete
+
+**Status:** Complete. Merged to `main` via **PR #406** (merge commit `a015348`, 2026-07-24; from `main@e25cca7`; impl `535f54e` + docs closeout `13cb93f`). Codex review clean on the first pass (zero remediation rounds) and on the final full code+tests+docs review. `/verify`: the served `/api/schedule` surface is **byte-identical to `main`** against an identically seeded 2024 cache carrying the defective rows (cache-hit 200 serving cached items verbatim; 400s; 503 miss) — the correction manifests at refresh-time normalization only, where regressions failing 9/9 against pre-fix logic prove the intended identity change. `tsc`, `lint:all`, `git diff --check` clean; focused suites 101/101; full `npm test` 1994/1994.
+**PROMPT_ID(s):** PLATFORM-086-SCHEDULE-NON-FBS-POSTSEASON-CLASSIFICATION-SAFETY-IMPLEMENTATION-v1
+
+**Goals completed:**
+
+- Corrected the schedule-normalization defect that assigned CFP event identities to explicitly non-FBS postseason games. Generic "semifinal" wording on FCS and Division III championship rows minted the SHARED `cfp-semifinal` event key: the 2024 partition's four such rows (FCS `401729786`/`401729787`, D-III `401738295`/`401738307`) collapsed into one canonical postseason slot, and the authoritative collection produced a hybrid record — North Dakota State vs South Dakota State participants under the D-III provider id `401738295` — once the resynced team catalog made NDSU resolvable. This caused the 2024 alignment failure in the post-resync PLATFORM-086H3E parity rerun. The 2025 partition carries the same defect class (`401840097`/`401840096` D-III, `401833989`/`401833990` FCS).
+- One production file (`src/lib/schedule/cfbdSchedule.ts`): the previously discarded CFBD `homeClassification`/`awayClassification` fields (camel + snake case) are read and normalized; `fcs`/`ii`/`iii` on either side suppress text-based CFP inference in both text-inference branches of `deriveEventMetadata` — no `cfp-*`/`national-championship` key is minted for such rows, which keep row-specific non-CFP identities. Missing classifications preserve the legacy fallback; explicit metadata and curated keys pass through verbatim; genuine `fbs/fbs` CFP rows unchanged; eligibility untouched; no game-id special-casing; all six protected schedule/identity modules untouched.
+- Regressions (+14, fail-against-main proven): classification acceptance in both casings, non-FBS suppression matrix, missing-classification fallback, genuine-CFP retention, same-kickoff 2024 pairs receiving distinct identities, canonical collection keeping each row's participants aligned with its own provider id via the exported `buildScheduleFromApi` path, and FBS-vs-FCS eligibility.
+
+**Key outcomes:**
+
+- No production API, database, or durable data was contacted or modified during implementation; serving behavior for existing caches is provably unchanged.
+
+**Optional follow-up debt (non-blocking):**
+
+- **PENDING post-merge operations (recorded in `docs/next-tasks.md`; procedure in `docs/deployment-runbook.md` §8c):** (1) forced full-year durable schedule refresh for 2024 AND 2025 (`bypassCache=1`; never the `force: false` Historical Data Cache button) + per-year `jq` identity verifications + provider-status checks + cache-only recheck; (2) the required PLATFORM-086H3E parity-audit rerun for 2024 with three recorded prerequisites (catalog `updatedAt`; 2024 refresh `meta.generatedAt`; schedule provider-status `lastSuccessAt`). Expected residual across all five archived seasons after the refresh: only the 2022 Akron@Buffalo `stats-manual-only` game.
+- Canonical ownership IDs for current-season draft ownership remain separate architectural debt.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
