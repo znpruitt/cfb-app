@@ -9,6 +9,7 @@ import {
 } from '@/lib/insights/engine';
 import { insightsCacheKeyParts, insightsCacheTags } from '@/lib/insights/loadInsights';
 import { ALL_STANDINGS_TAG } from '@/lib/selectors/leagueStandings';
+import { ALIAS_OVERRIDES_HASH } from '../teamDatabase.ts';
 import { SEED_ALIASES_HASH } from '@/lib/server/globalAliasStore';
 import {
   listAppStateKeys,
@@ -29,12 +30,13 @@ test.beforeEach(async () => {
 // isolation is asserted through the builders.)
 // ---------------------------------------------------------------------------
 
-test('insights cache key includes slug, year, and the seed-alias hash', () => {
+test('insights cache key includes slug, year, the seed-alias hash, and the override-policy hash', () => {
   assert.deepEqual(insightsCacheKeyParts('tsc', 2026), [
     'insights',
     'tsc',
     '2026',
     `seeds:${SEED_ALIASES_HASH}`,
+    `alias-overrides:${ALIAS_OVERRIDES_HASH}`,
   ]);
 });
 

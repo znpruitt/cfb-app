@@ -165,3 +165,20 @@ test('checked-in catalog invariants: no truncated collision aliases, sanctioned 
   assert.ok(tamu);
   assert.ok(!tamu!.alts.includes('texasa'));
 });
+
+test('the alias-override policy hash is stable, nonempty, and folded into cache identities', async () => {
+  const { ALIAS_OVERRIDES_HASH } = await import('../teamDatabase.ts');
+  assert.match(ALIAS_OVERRIDES_HASH, /^[0-9a-f]{1,8}$/);
+  const { canonicalStandingsCacheKeyParts } = await import('../selectors/leagueStandings.ts');
+  assert.ok(
+    canonicalStandingsCacheKeyParts('slug', 2025).includes(
+      `alias-overrides:${ALIAS_OVERRIDES_HASH}`
+    ),
+    'standings cache identity carries the override-policy hash'
+  );
+  const { insightsCacheKeyParts } = await import('../insights/loadInsights.ts');
+  assert.ok(
+    insightsCacheKeyParts('slug', 2025).includes(`alias-overrides:${ALIAS_OVERRIDES_HASH}`),
+    'insights cache identity carries the override-policy hash'
+  );
+});

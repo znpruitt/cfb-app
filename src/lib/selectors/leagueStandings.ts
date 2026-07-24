@@ -20,6 +20,7 @@ import { getScheduleProbeState } from '../scheduleProbe.ts';
 import { selectSeasonContext } from './seasonContext.ts';
 import { getAppState } from '../server/appStateStore.ts';
 import { getScopedAliasMap, SEED_ALIASES_HASH } from '../server/globalAliasStore.ts';
+import { ALIAS_OVERRIDES_HASH } from '../teamDatabase.ts';
 import { getTeamDatabaseItems } from '../server/teamDatabaseStore.ts';
 import {
   loadCachedScheduleItems,
@@ -146,7 +147,18 @@ export function canonicalStandingsCacheKeyParts(
   slug: string,
   resolvedYear: number | null
 ): string[] {
-  return ['canonical-standings', slug, String(resolvedYear), `seeds:${SEED_ALIASES_HASH}`];
+  // `alias-overrides:` versions the curated catalog-alias policy the same way
+  // `seeds:` versions SEED_ALIASES: overrides are applied at catalog read time
+  // (PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY) and change resolver output
+  // without any runtime invalidation, so they must be part of cache identity —
+  // otherwise a warm snapshot keeps serving pre-override attribution.
+  return [
+    'canonical-standings',
+    slug,
+    String(resolvedYear),
+    `seeds:${SEED_ALIASES_HASH}`,
+    `alias-overrides:${ALIAS_OVERRIDES_HASH}`,
+  ];
 }
 
 /**

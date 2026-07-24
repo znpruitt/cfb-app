@@ -130,6 +130,35 @@ export function buildDerivedTeamAliases(school: string, mascot?: string | null):
 }
 
 /**
+ * Deterministic hash of the curated alias-override policy
+ * (`src/data/alias-overrides.json`). Folded into the canonical-standings and
+ * insights cache identities (alongside `SEED_ALIASES_HASH`) so an override
+ * change — which alters resolver output but fires no runtime invalidation —
+ * naturally busts every warm `revalidate: false` snapshot at deploy. Same
+ * FNV-1a construction as `hashSeedAliases`, over an order-independent
+ * serialization of each entry's school / adds / removes.
+ */
+export const ALIAS_OVERRIDES_HASH = (() => {
+  const overrides = aliasOverrides as AliasOverrideItem[];
+  const serialized = (Array.isArray(overrides) ? overrides : [])
+    .map(
+      (o) =>
+        `${soft(o.school ?? '')}:+${(o.add ?? []).map(soft).sort().join(',')}:-${(o.remove ?? [])
+          .map(soft)
+          .sort()
+          .join(',')}`
+    )
+    .sort()
+    .join(';');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < serialized.length; i += 1) {
+    h ^= serialized.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return (h >>> 0).toString(16);
+})();
+
+/**
  * Apply the curated `src/data/alias-overrides.json` entries to catalog items in
  * place (adds sanctioned shorthand, removes unsafe generated aliases).
  * Exported so the durable-store READ path can sanitize a previously synced
