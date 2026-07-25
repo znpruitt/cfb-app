@@ -5,7 +5,9 @@ branch. The fenced-writer prerequisite (§2) is **merged to `main` (PR #399, 202
 the C evidence slices (C1–C5) are merged (PRs #400–#402, #404, #407 — C5 is the
 numeric participant validation, PLATFORM-086H3C5); the rollout-safety
 capability D (§5, PLATFORM-086H3D) is merged dormant (PR #403); the activation execution (E)
-is unwritten — production remains in `legacy` and no transition has ever been executed.
+ships as approved slices E1 → E2 → E3 (§4) — E1 (paired analytics provenance,
+PLATFORM-086H3E1) is implemented and review-clean pending merge, E2/E3 are unwritten —
+production remains in `legacy` and no transition has ever been executed.
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any conflict.
 
 This document records (a) the disposition of PLATFORM-086H3B and (b) the small
@@ -162,9 +164,32 @@ store.
   ingestion/route/cron/reader wiring, consumer activation, reader smoke tests,
   controlled refreshes, final diagnostics, and any final transactional status
   requirement. The `legacy → armed → active` sequence on this control record
-  replaces the irreversible witness; no lineage.
+  replaces the irreversible witness; no lineage. **E ships as approved slices
+  E1 → E2 → E3** (E1 paired analytics provenance; E2 dormant refresh-outcome /
+  polling-target / quota-policy primitives; E3 the single behaviorally atomic
+  live switch).
+- **E1 — paired analytics provenance (PLATFORM-086H3E1 — implemented, pending
+  merge):** adds `deriveCanonicalGameStatsSlateFromBuild` (slate derivation from
+  an EXACT prior canonical build — its unmodified `buildScheduleFromApi` games
+  plus the exact wire rows — inheriting that build's league-scoped aliases,
+  manual postseason overrides, and attachment keys instead of an independent
+  league-agnostic rebuild; an addressable built game with no associated wire row
+  fails CLOSED) and the archive-owned `gameStatSlate` snapshot: a minimal strict
+  versioned wire schema built during `buildSeasonArchive` from the same build
+  that produced `archive.games`, paired ONLY with that archive's own
+  `scoresByKey`, self-validated through its strict parser at build time, and
+  failing closed on empty catalog, duplicate/unassociated provider ids, or
+  invalid field values. Archives written before E1 lack the field; E3 consumers
+  fail closed on absent/malformed snapshots (distinct reasons, never a live
+  rebuild) and the preview/confirm backfill is the only repair — so the operator
+  sequence runs the §4-C full-year schedule refreshes and parity audit FIRST,
+  then archive backfills, all BEFORE E3 activation. The dormant-boundary guard
+  now carries ONE exact allowlisted production crossing (`slateSnapshot.ts` →
+  `canonicalSlate`, derive entry only), positional and form-strict, with
+  laundering self-tests and a documented honest static scope.
 
-E is unwritten; deploying C and D changes no production behavior.
+E2 and E3 are unwritten; deploying C, D, and E1 changes no production behavior
+beyond the additive archive snapshot field on newly built/backfilled archives.
 
 ## 5. Rollout-safety capability (PLATFORM-086H3D — dormant)
 

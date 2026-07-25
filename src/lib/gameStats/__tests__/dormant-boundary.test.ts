@@ -52,6 +52,13 @@ function toPosix(p: string): string {
 // Exact files only — never whole directories. The shared RFC 3339 fence parser
 // (`observationFence.ts`) and the LIVE writer fence (`writerFence.ts`,
 // `cache.ts`) are not dormant homes, so they stay SCANNED (not excluded).
+//
+// PLATFORM-086H3E1 adds ONE exact, allowlisted production crossing (below):
+// the archive snapshot module (`slateSnapshot.ts`) may import `canonicalSlate`
+// and reference `deriveCanonicalGameStatsSlateFromBuild` ONLY, so archive
+// construction can snapshot the slate of its own exact build. The module
+// itself stays SCANNED — every other dormant surface remains forbidden to it,
+// and the crossing is forbidden to every other file.
 const EXCLUDED_FILES = new Set([
   'src/lib/gameStats/contract.ts',
   'src/lib/gameStats/types.ts',
@@ -104,7 +111,11 @@ const FORBIDDEN_SYMBOLS = [
   'mergeGameStatsPartitionDurable',
   // PLATFORM-086H3C1 dormant canonical evidence read-model entry points. A live
   // consumer must not import or re-export these until activation wires them.
+  // (`deriveCanonicalGameStatsSlateFromBuild` is PLATFORM-086H3E1's exact-build
+  // derivation entry — forbidden everywhere except the allowlisted archive
+  // snapshot seam below.)
   'buildCanonicalGameStatsSlate',
+  'deriveCanonicalGameStatsSlateFromBuild',
   'loadCanonicalGameStatsSlate',
   'selectCanonicalPartition',
   'selectGameEvidence',
@@ -125,10 +136,14 @@ const FORBIDDEN_SYMBOLS = [
 ];
 
 const SYMBOL_PATTERN = new RegExp(`\\b(${FORBIDDEN_SYMBOLS.join('|')})\\b`, 'g');
-// Module specifiers in every import form: static `from '...'` (incl.
-// re-exports), bare `import '...'`, dynamic `import('...')`, and `require('...')`.
+// Module specifiers in every statically-resolvable import form: static
+// `from '...'` (incl. re-exports), bare `import '...'`, dynamic
+// `import('...')`, `require('...')`, and the template-literal spellings of
+// each (`import(\`...\`)`). A template WITH interpolation is not statically
+// resolvable and stays out of scope — the `$`-exclusion below keeps a partial
+// prefix from ever matching a dormant module by accident.
 const SPECIFIER_PATTERN =
-  /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"]([^'"]+)['"]/g;
+  /(?:\bfrom\s*|\bimport\s*\(\s*|\brequire\s*\(\s*|\bimport\s+)['"`]([^'"`$]+)['"`]/g;
 
 // Every dormant game-stats module, by basename. Importing ANY of these from a
 // live production file is a boundary violation.
@@ -146,25 +161,104 @@ const DORMANT_MODULE_RESOLVED = new RegExp(
   `^src/lib/gameStats/(${DORMANT_MODULE_BASENAMES.join('|')})(\\.(?:js|mjs|cjs|ts|mts|cts|tsx))?$`
 );
 
-/** Whether a module specifier resolves to a dormant game-stats module. */
-function specifierTargetsDormantModule(
-  specifier: string,
-  importerRepoRelativePath: string
-): boolean {
-  const normalized = specifier.replace(/\\/g, '/');
+// PLATFORM-086H3E1: the ONLY permitted production crossings of the dormant
+// boundary, exact (file → module basename) and (file → symbol) pairs. The
+// archive snapshot module derives the slate of the archive's own exact
+// canonical build; every other dormant module and symbol stays forbidden to it,
+// and these crossings stay forbidden to every other production file.
+//
+// The allowance is POSITIONAL and FORM-STRICT, not blanket. The allowlisted
+// module may appear only in a SANCTIONED import statement: a plain named
+// import (`import { … } from '<module>'`, optionally `import type`), where
+// every non-`type` name is an allowlisted symbol, with no `as` aliasing, no
+// default or namespace clause, and no inline comments. The allowlisted symbol
+// may appear only inside that sanctioned statement or in direct call
+// position. Everything else flags: `export … from`, renamed or namespace
+// imports, dynamic `import(...)`/`require(...)`, value aliasing
+// (`const x = derive…;`), and value exports. Statement boundaries are found
+// on a comment/string-masked copy of the source, so semicolons inside
+// comments or string literals can neither hide a re-export nor break a
+// legitimate import.
+//
+// HONEST STATIC SCOPE: this is a textual scanner. It rejects every static
+// laundering FORM above, but it cannot judge semantics — an exported function
+// in the allowlisted file that CALLS the dormant entry and returns derived
+// data is the sanctioned purpose of the crossing, and distinguishing that
+// from a semantic re-exposure of raw capability belongs to review and to the
+// E3 activation guard, never to this scanner.
+const ALLOWED_DORMANT_IMPORTS = new Map<string, ReadonlySet<string>>([
+  ['src/lib/gameStats/slateSnapshot.ts', new Set(['canonicalSlate'])],
+]);
+const ALLOWED_DORMANT_SYMBOLS = new Map<string, ReadonlySet<string>>([
+  ['src/lib/gameStats/slateSnapshot.ts', new Set(['deriveCanonicalGameStatsSlateFromBuild'])],
+]);
+
+/**
+ * Decode JavaScript string escapes in a captured specifier body so an escaped
+ * spelling (`'./canonical\u0053late.ts'`, `'\x6C'`, `'\u{53}'`, identity
+ * escapes like `'\.'`) resolves exactly like the plain one — the runtime
+ * decodes them, so the guard must too. A malformed escape returns the raw
+ * text unchanged (it is not a resolvable module path anyway).
+ */
+function decodeSpecifierEscapes(specifier: string): string {
+  try {
+    // ONE pass, left to right, so a decoded character can never be re-consumed
+    // by a later escape — e.g. a decoded backslash (`\u{5c}`) must not join the
+    // following character into a fresh identity escape. A backslash before a
+    // line terminator is a line continuation and produces NOTHING, exactly as
+    // the runtime decodes it.
+    return specifier.replace(
+      /\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})|\\(\r\n|[\s\S])/g,
+      (
+        _whole: string,
+        codePoint: string | undefined,
+        u4: string | undefined,
+        x2: string | undefined,
+        single: string | undefined
+      ) => {
+        if (codePoint !== undefined) return String.fromCodePoint(parseInt(codePoint, 16));
+        if (u4 !== undefined) return String.fromCharCode(parseInt(u4, 16));
+        if (x2 !== undefined) return String.fromCharCode(parseInt(x2, 16));
+        if (
+          single === '\n' ||
+          single === '\r' ||
+          single === '\r\n' ||
+          single === ' ' ||
+          single === ' '
+        ) {
+          return '';
+        }
+        return single ?? '';
+      }
+    );
+  } catch {
+    return specifier;
+  }
+}
+
+/**
+ * The dormant module basename a specifier resolves to, or `null` when the
+ * specifier targets no dormant module. Returning the basename (not a boolean)
+ * lets the scanner apply the exact per-file allowlist above. Escapes are
+ * decoded first; any backslash remaining after decoding is treated as a
+ * Windows-style path separator.
+ */
+function dormantModuleTarget(specifier: string, importerRepoRelativePath: string): string | null {
+  const normalized = decodeSpecifierEscapes(specifier).replace(/\\/g, '/');
   // Alias/absolute forms (`@/lib/gameStats/contract`, deep relative paths).
-  if (DORMANT_MODULE_BASENAMES.some((base) => normalized.includes(`gameStats/${base}`))) {
-    return true;
+  for (const base of DORMANT_MODULE_BASENAMES) {
+    if (normalized.includes(`gameStats/${base}`)) return base;
   }
   // Relative forms resolve against the importing file so an unrelated module
   // that merely happens to be named `contract` elsewhere never matches.
-  if (!normalized.startsWith('.')) return false;
+  if (!normalized.startsWith('.')) return null;
   const resolved = path.posix.normalize(
     path.posix.join(path.posix.dirname(toPosix(importerRepoRelativePath)), normalized)
   );
   // TypeScript source commonly imports with .js/.mjs/.cjs specifiers (NodeNext
   // resolution) — every supported extension resolves to the same module.
-  return DORMANT_MODULE_RESOLVED.test(resolved);
+  const match = DORMANT_MODULE_RESOLVED.exec(resolved);
+  return match ? match[1]! : null;
 }
 
 type BoundaryViolation = { file: string; pattern: string; line: number };
@@ -173,24 +267,171 @@ function lineOf(source: string, index: number): number {
   return source.slice(0, index).split('\n').length;
 }
 
+/**
+ * One-pass textual mask with two modes. Comment contents always become
+ * spaces (newlines are kept, offsets preserved). With `maskStrings`,
+ * string/template-literal CONTENTS are blanked too (quote characters kept) —
+ * used for statement-boundary placement, where semicolons inside comments or
+ * strings must not act as boundaries. Without it, strings survive intact —
+ * used for the specifier scan, so a comment between an import keyword and its
+ * quoted specifier (`from /* x *\/ './m'`) can no longer hide the specifier
+ * while the specifier text itself stays readable. Textual, not a real lexer —
+ * regex literals and interpolated templates are out of scope, and the bias is
+ * fail-safe: a mis-mask can only cause a false FLAG, never a false allow of a
+ * non-import form.
+ */
+function maskComments(source: string, maskStrings: boolean): string {
+  const out = source.split('');
+  let state: 'code' | 'line' | 'block' | 'single' | 'double' | 'template' = 'code';
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i]!;
+    const next = source[i + 1];
+    if (state === 'code') {
+      if (ch === '/' && next === '/') {
+        state = 'line';
+        out[i] = ' ';
+      } else if (ch === '/' && next === '*') {
+        state = 'block';
+        out[i] = ' ';
+      } else if (ch === "'") state = 'single';
+      else if (ch === '"') state = 'double';
+      else if (ch === '`') state = 'template';
+    } else if (state === 'line') {
+      if (ch === '\n') state = 'code';
+      else out[i] = ' ';
+    } else if (state === 'block') {
+      if (ch === '*' && next === '/') {
+        out[i] = ' ';
+        out[i + 1] = ' ';
+        i += 1;
+        state = 'code';
+      } else if (ch !== '\n') out[i] = ' ';
+    } else {
+      const closer = state === 'single' ? "'" : state === 'double' ? '"' : '`';
+      if (ch === '\\' && next !== undefined && next !== '\n') {
+        if (maskStrings) {
+          out[i] = ' ';
+          out[i + 1] = ' ';
+        }
+        i += 1;
+      } else if (ch === closer) state = 'code';
+      else if (maskStrings && ch !== '\n') out[i] = ' ';
+    }
+  }
+  return out.join('');
+}
+
+/**
+ * Whether the statement containing `index` is a SANCTIONED import of an
+ * allowlisted module: a plain named import (optionally `import type`) whose
+ * every non-`type` name is an allowlisted symbol — no `as` aliasing, no
+ * default or namespace clause, no inline comments. Statement boundaries come
+ * from the masked source; the statement text (specifier included) comes from
+ * the original.
+ */
+function sanctionedImportStatement(
+  source: string,
+  masked: string,
+  index: number,
+  repoRelativePath: string,
+  allowedModules: ReadonlySet<string> | undefined,
+  allowedSymbols: ReadonlySet<string> | undefined
+): boolean {
+  if (!allowedModules) return false;
+  const boundary = masked.lastIndexOf(';', index - 1) + 1;
+  const endIdx = masked.indexOf(';', index);
+  const end = endIdx === -1 ? source.length : endIdx + 1;
+  // Skip leading whitespace AND leading comments (spaces in the mask).
+  let start = boundary;
+  while (start < end && /\s/.test(masked[start]!)) start += 1;
+  const statement = source.slice(start, end);
+  const clause = /^import\s+(type\s+)?\{([^}]*)\}\s*from\s*['"`]([^'"`$]+)['"`]\s*;?\s*$/.exec(
+    statement
+  );
+  if (!clause) return false;
+  // The sanctioned form requires the PLAIN spelling — an escape-obfuscated
+  // specifier is never sanctioned, even when it decodes to the allowed module.
+  if (clause[3]!.includes('\\')) return false;
+  const target = dormantModuleTarget(clause[3]!, repoRelativePath);
+  if (target === null || !allowedModules.has(target)) return false;
+  const typeOnlyImport = clause[1] !== undefined;
+  const entries = clause[2]!
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  for (const entry of entries) {
+    if (/^type\s+[A-Za-z_$][\w$]*$/.test(entry)) continue;
+    if (!/^[A-Za-z_$][\w$]*$/.test(entry)) return false; // aliasing / anything exotic
+    if (typeOnlyImport) continue; // a pure type import carries no capability
+    if (!allowedSymbols?.has(entry)) return false;
+  }
+  return true;
+}
+
 /** Pure scan of one production source text for dormant-boundary violations. */
 function findBoundaryViolations(source: string, repoRelativePath: string): BoundaryViolation[] {
   const violations: BoundaryViolation[] = [];
+  const allowedSymbols = ALLOWED_DORMANT_SYMBOLS.get(repoRelativePath);
+  const allowedImports = ALLOWED_DORMANT_IMPORTS.get(repoRelativePath);
+  // Boundary mask (comments AND string contents blanked): places statement
+  // boundaries for the allowlisted file's positional rules only.
+  const masked = allowedSymbols || allowedImports ? maskComments(source, true) : null;
+  // Specifier scan runs over a comments-only mask for EVERY file, so a comment
+  // between the import keyword and the quoted specifier cannot hide it; the
+  // specifier text itself survives. (Symbol scanning stays on the ORIGINAL
+  // source — a dormant name even in a comment keeps flagging, as before.)
+  const specifierScan = maskComments(source, false);
   for (const match of source.matchAll(SYMBOL_PATTERN)) {
+    if (allowedSymbols?.has(match[1]!) && masked !== null) {
+      // Positional allowance only: a direct call, or the name inside the
+      // sanctioned import statement. Re-exports, renamed imports, aliasing,
+      // and value exports fall through and flag as laundering.
+      const isDirectCall = /^\s*\(/.test(source.slice(match.index + match[1]!.length));
+      if (
+        isDirectCall ||
+        sanctionedImportStatement(
+          source,
+          masked,
+          match.index,
+          repoRelativePath,
+          allowedImports,
+          allowedSymbols
+        )
+      ) {
+        continue;
+      }
+    }
     violations.push({
       file: repoRelativePath,
       pattern: `forbidden symbol "${match[1]}"`,
       line: lineOf(source, match.index),
     });
   }
-  for (const match of source.matchAll(SPECIFIER_PATTERN)) {
-    if (specifierTargetsDormantModule(match[1]!, repoRelativePath)) {
-      violations.push({
-        file: repoRelativePath,
-        pattern: `dormant-module import "${match[1]}"`,
-        line: lineOf(source, match.index),
-      });
+  for (const match of specifierScan.matchAll(SPECIFIER_PATTERN)) {
+    const target = dormantModuleTarget(match[1]!, repoRelativePath);
+    if (target === null) continue;
+    // The specifier is allowed ONLY inside the fully sanctioned import form —
+    // `export * from`, `export { … } from`, namespace/renamed/default
+    // clauses, dynamic `import(...)`, and `require(...)` all still flag.
+    if (
+      masked !== null &&
+      allowedImports?.has(target) &&
+      sanctionedImportStatement(
+        source,
+        masked,
+        match.index,
+        repoRelativePath,
+        allowedImports,
+        allowedSymbols
+      )
+    ) {
+      continue;
     }
+    violations.push({
+      file: repoRelativePath,
+      pattern: `dormant-module import "${match[1]}"`,
+      line: lineOf(source, match.index),
+    });
   }
   return violations;
 }
@@ -385,6 +626,169 @@ test('scanner: detects static, dynamic, require, and re-export contract imports'
   );
 });
 
+test('scanner: the E1 archive-snapshot allowlist is exact — file, module, and symbol', () => {
+  const snapshotModule = 'src/lib/gameStats/slateSnapshot.ts';
+  const crossing = `import { deriveCanonicalGameStatsSlateFromBuild } from './canonicalSlate.ts';`;
+
+  // The allowlisted crossing itself is clean (both the specifier and the symbol).
+  assert.deepEqual(findBoundaryViolations(crossing, snapshotModule), []);
+
+  // The SAME source from any other production file flags BOTH ways.
+  const elsewhere = findBoundaryViolations(
+    `import { deriveCanonicalGameStatsSlateFromBuild } from '../gameStats/canonicalSlate.ts';`,
+    'src/lib/seasonRollover.ts'
+  );
+  assert.equal(elsewhere.length, 2, 'symbol + import must both flag outside the allowlist');
+  assert.ok(elsewhere.some((v) => v.pattern.includes('deriveCanonicalGameStatsSlateFromBuild')));
+  assert.ok(elsewhere.some((v) => v.pattern.startsWith('dormant-module import')));
+
+  // The allowlisted FILE gains no other dormant privileges: every other dormant
+  // module and every other dormant symbol still flags inside it.
+  const laundering = [
+    `import { mergeGameStatsPartitionDurable } from './durableMerge.ts';`,
+    `const m = await import('./publicProjection.ts');`,
+    `export * from './evidenceAuthority.ts';`,
+    `const p = projectAnalyticsPartition(input, w, st, rec, rel);`,
+    `const s = buildCanonicalGameStatsSlate({ year, scheduleItems, teams, aliasMap, now });`,
+  ];
+  for (const source of laundering) {
+    assert.ok(
+      findBoundaryViolations(source, snapshotModule).length >= 1,
+      `must stay forbidden inside the snapshot module: ${source}`
+    );
+  }
+
+  // The allowance is POSITIONAL and FORM-STRICT: even the allowlisted
+  // module/symbol cannot be re-exported, renamed, namespace-grabbed,
+  // value-exported, dynamically imported, or bundled with non-allowlisted
+  // names from the allowlisted file — the crossing must not launder dormant
+  // capability onward.
+  const positionalLaundering = [
+    `export * from './canonicalSlate.ts';`,
+    `export { deriveCanonicalGameStatsSlateFromBuild } from './canonicalSlate.ts';`,
+    `export { deriveCanonicalGameStatsSlateFromBuild as deriveSlate } from './canonicalSlate.ts';`,
+    // Renamed import: the alias would be invisible to the symbol scan afterward.
+    `import { deriveCanonicalGameStatsSlateFromBuild as derive } from './canonicalSlate.ts';`,
+    // Namespace import: grabs the whole dormant module without naming a symbol.
+    `import * as canonicalSlate from './canonicalSlate.ts';`,
+    // Bundling a non-allowlisted runtime export into the sanctioned form.
+    `import { deriveCanonicalGameStatsSlateFromBuild, EXPECTED_KICKOFF_MIN_AGE_MS } from './canonicalSlate.ts';`,
+    // A semicolon hidden in a comment must not disguise a re-export as an import.
+    `export /* ; import */ { deriveCanonicalGameStatsSlateFromBuild } from './canonicalSlate.ts';`,
+    // A comment between the import keyword and the specifier must not hide it.
+    `import * as c from /* reason */ './canonicalSlate.ts';`,
+    `export * from /* reason */ './canonicalSlate.ts';`,
+    'const m = await import(/* reason */ `./canonicalSlate.ts`);',
+    // Even the sanctioned named-import form is non-compliant with an inline
+    // comment (fail-safe strictness — remove the comment to sanction it).
+    `import { deriveCanonicalGameStatsSlateFromBuild } from /* why */ './canonicalSlate.ts';`,
+    `const m = await import('./canonicalSlate.ts');`,
+    'const m = await import(`./canonicalSlate.ts`);',
+    `const m = require('./canonicalSlate.ts');`,
+    `const alias = deriveCanonicalGameStatsSlateFromBuild;`,
+    `export const derive = deriveCanonicalGameStatsSlateFromBuild;`,
+  ];
+  for (const source of positionalLaundering) {
+    assert.ok(
+      findBoundaryViolations(source, snapshotModule).length >= 1,
+      `positional laundering must flag inside the snapshot module: ${source}`
+    );
+  }
+
+  // …while the sanctioned forms are clean, exactly as the real module uses
+  // them — including with a semicolon-bearing comment BEFORE the import
+  // (statement boundaries come from the comment/string mask).
+  const sanctioned = [
+    `/* provenance rationale; more rationale */`,
+    `import {`,
+    `  deriveCanonicalGameStatsSlateFromBuild,`,
+    `  type CanonicalGame,`,
+    `  type CanonicalSlate,`,
+    `} from './canonicalSlate.ts';`,
+    `const slate = deriveCanonicalGameStatsSlateFromBuild(input);`,
+  ].join('\n');
+  assert.deepEqual(findBoundaryViolations(sanctioned, snapshotModule), []);
+
+  // A pure type import carries no runtime capability and stays clean.
+  assert.deepEqual(
+    findBoundaryViolations(
+      `import type { CanonicalGame } from './canonicalSlate.ts';`,
+      snapshotModule
+    ),
+    []
+  );
+});
+
+test('scanner: template-literal and comment-separated specifiers resolve like plain ones', () => {
+  const importer = 'src/lib/insights/context.ts';
+  const flagged = [
+    'const m = await import(`../gameStats/durableMerge`);',
+    'const m = require(`@/lib/gameStats/publicProjection`);',
+    // Comment-separated specifiers in ANY file are scanned via the
+    // comments-only mask — a comment cannot hide the module.
+    `import { x } from /* hack */ '../gameStats/durableMerge';`,
+    `export * from /* hack */ '../gameStats/evidenceAuthority';`,
+    ['import * as m from // hack', `  '../gameStats/partitionCoverage';`].join('\n'),
+  ];
+  for (const source of flagged) {
+    const violations = findBoundaryViolations(source, importer);
+    assert.ok(
+      violations.some((v) => v.pattern.startsWith('dormant-module import')),
+      source
+    );
+  }
+  // An INTERPOLATED template is not statically resolvable — its partial prefix
+  // must never accidentally match a dormant module.
+  assert.deepEqual(
+    // eslint-disable-next-line no-template-curly-in-string
+    findBoundaryViolations('const m = await import(`./modules/${name}`);', importer),
+    []
+  );
+});
+
+test('scanner: escape-obfuscated specifiers decode and still flag', () => {
+  const importer = 'src/lib/insights/context.ts';
+  const flagged = [
+    // \u0053 → 'S'
+    String.raw`import { x } from '../gameStats/canonical\u0053late.ts';`,
+    // \u{53} → 'S'
+    String.raw`export * from '../gameStats/canonical\u{53}late';`,
+    // \x6C → 'l'
+    String.raw`const m = require('../gameStats/durab\x6CeMerge.ts');`,
+    // identity escape \. → '.'
+    String.raw`import '../gameStats/durableMerge\.ts';`,
+    // line continuation (backslash + newline) decodes to NOTHING
+    String.raw`import { x } from '../gameStats/canonicalSla\
+te.ts';`,
+  ];
+  for (const source of flagged) {
+    const violations = findBoundaryViolations(source, importer);
+    assert.ok(
+      violations.some((v) => v.pattern.startsWith('dormant-module import')),
+      source
+    );
+  }
+  // A DECODED backslash must never be re-consumed as a fresh identity escape:
+  // this spelling statically resolves to the NON-dormant path
+  // 'canonical\Slate.ts', so it must produce no violation — a multi-pass
+  // decoder would collapse it to canonicalSlate and false-flag.
+  assert.deepEqual(
+    findBoundaryViolations(
+      String.raw`import { x } from '../gameStats/canonical\u{5c}Slate.ts';`,
+      importer
+    ),
+    []
+  );
+  // An escaped spelling is NEVER a sanctioned crossing, even in the
+  // allowlisted file, even when it decodes to the allowed module.
+  assert.ok(
+    findBoundaryViolations(
+      String.raw`import { deriveCanonicalGameStatsSlateFromBuild } from './canonical\u0053late.ts';`,
+      'src/lib/gameStats/slateSnapshot.ts'
+    ).length >= 1
+  );
+});
+
 test('scanner: clean and unrelated sources produce no violations', () => {
   const clean = [
     [`import { foo } from './contract';`, 'src/lib/billing/index.ts'], // unrelated module named contract
@@ -429,6 +833,9 @@ test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', (
     'src/lib/gameStats/cache.ts',
     'src/lib/gameStats/coverage.ts',
     'src/lib/gameStats/normalizers.ts',
+    // The E1 archive-snapshot seam holds an EXACT allowlisted crossing — it must
+    // stay SCANNED so every non-allowlisted dormant reference inside it flags.
+    'src/lib/gameStats/slateSnapshot.ts',
     // The LIVE writer fence must stay scanned — only the transition authority
     // (writerControlTransition.ts) is a dormant home, never the fence itself.
     'src/lib/gameStats/writerFence.ts',
