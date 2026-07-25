@@ -9,6 +9,7 @@ import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage
 
 import { GET } from '../route';
 import { SCHEDULE_ROUTE_CACHE, resetScheduleRouteCacheForTests } from '../cache';
+import type { ScheduleItem } from '../../../../lib/schedule/cfbdSchedule.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -729,7 +730,10 @@ const WA_POSTSEASON_KEY = `${WA_YEAR}-${WA_WEEK}-postseason`;
 const WA_LEGACY_KEY = `${WA_YEAR}-${WA_WEEK}-all`;
 
 // A canonical schedule row tagged with its `seasonType` — the field composition
-// partitions the legacy aggregate by (never a raw provider label).
+// partitions the legacy aggregate by (never a raw provider label). Deliberately
+// LEGACY-shaped (PLATFORM-086H3C5): rows cached before participant-id
+// persistence lack `homeId`/`awayId`, and the cache read path must serve them
+// unchanged without fabricating ids — the seeds below cast to the cache type.
 function scheduleRow(id: string, seasonType: 'regular' | 'postseason') {
   return {
     id,
@@ -780,7 +784,9 @@ function seedProcessChild(
 ) {
   SCHEDULE_ROUTE_CACHE[`${WA_YEAR}-${WA_WEEK}-${seasonType}`] = {
     at,
-    items: ids.map((id) => scheduleRow(id, seasonType)),
+    // Legacy pre-participant-id rows: the cast models a cache populated before
+    // this field existed (the runtime read path never requires it).
+    items: ids.map((id) => scheduleRow(id, seasonType)) as ScheduleItem[],
     partialFailure: false,
     failedSeasonTypes: [],
   };

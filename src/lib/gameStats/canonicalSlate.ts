@@ -80,13 +80,24 @@ export type CanonicalGame = {
   /**
    * Name-resolved canonical participants — the schedule-authoritative
    * expectation of who is playing, retained for display/diagnostics and future
-   * consumers. C1's evidence path associates rows by game id + partition and
-   * does not validate against these (numeric participant validation is a
-   * separate pre-activation prerequisite, deferred until schedule persistence
-   * captures numeric `homeId`/`awayId`).
+   * consumers. The evidence path associates rows by game id + partition and
+   * validates participants NUMERICALLY (`homeId`/`awayId` below,
+   * PLATFORM-086H3C5) — these name-resolved slots never verify or contradict a
+   * stored row's numeric identity.
    */
   home: CanonicalParticipant | null;
   away: CanonicalParticipant | null;
+  /**
+   * CFBD numeric participant ids copied from the uniquely associated schedule
+   * wire row (PLATFORM-086H3C5). Explicitly nullable: a durable schedule record
+   * written before participant-id persistence, or a provider row missing/
+   * invalidating an id, yields `null` — never a guessed value. Provider
+   * participant METADATA consumed by the evidence authority's numeric
+   * validation only; canonical identity remains the resolver-produced string
+   * (`ParticipantSlot.teamId` is never a CFBD numeric id).
+   */
+  homeId: number | null;
+  awayId: number | null;
   /** Original schedule kickoff (ISO) used for applicability. */
   kickoff: string | null;
   /** Original raw provider status label used for applicability. */
@@ -129,6 +140,18 @@ function toProviderGameId(raw: string | null): number | null {
   if (!DECIMAL_PROVIDER_ID.test(trimmed)) return null;
   const parsed = Number(trimmed);
   return isValidProviderGameId(parsed) ? parsed : null;
+}
+
+/**
+ * Revalidate a wire row's numeric participant id at slate-build time. Durable
+ * app-state is untyped at rest, so the wire type alone proves nothing: only an
+ * already-normalized positive safe integer passes; anything else — including a
+ * string the schedule mapper would have normalized — is `null` here. This layer
+ * never re-normalizes provider forms (that authority stays with
+ * `mapCfbdScheduleGame`) and never guesses.
+ */
+function toParticipantId(raw: unknown): number | null {
+  return isValidProviderGameId(raw) ? raw : null;
 }
 
 /**
@@ -189,8 +212,9 @@ function classifyApplicability(input: {
   // the CFBD-id authority model, numeric participant identity governs a stored
   // row's integrity, not whether the game is expected — a half-set matchup (one
   // known team + one TBD/derived slot) or an unresolved-name pair is still an
-  // addressable scheduled game whose rows attach as `unverified` when numeric
-  // schedule ids are absent.
+  // addressable scheduled game. Its rows are then judged by the evidence
+  // authority's numeric participant validation, which fails CLOSED
+  // (`participant-validation-unavailable`) when numeric schedule ids are absent.
   if (game.isPlaceholder) {
     return { applicability: 'not-expected', notExpectedReason: 'placeholder' };
   }
@@ -306,6 +330,8 @@ export function buildCanonicalGameStatsSlate(input: {
       notExpectedReason,
       home,
       away,
+      homeId: toParticipantId(item?.homeId),
+      awayId: toParticipantId(item?.awayId),
       kickoff,
       rawStatus,
     });

@@ -4,10 +4,11 @@ import test from 'node:test';
 import { evaluatePartitionCoverage } from '../partitionCoverage.ts';
 import {
   projectAnalyticsPartition,
+  projectPublicFromCoverage,
   projectPublicPartition,
   type PublicProjectionResult,
 } from '../publicProjection.ts';
-import { canonicalGame, slateOf, v2Row, weeklyRecord } from './c1Fixtures.ts';
+import { canonicalGame, legacyRow, slateOf, v2Row, weeklyRecord } from './c1Fixtures.ts';
 import type { CanonicalSlateResult } from '../canonicalSlate.ts';
 import type { GameStats, WeeklyGameStats } from '../types.ts';
 import type { CanonicalGame } from '../canonicalSlate.ts';
@@ -600,4 +601,116 @@ test('fixture sanity: the sparse row is v2-sparse, the complete row is v2-comple
   assert.equal(complete.schemaVersion, 2);
   assert.equal(complete.home.pointsProvided, true);
   assert.equal(G2_SPARSE.home.pointsProvided, false);
+});
+
+// === PLATFORM-086H3C5: participant-validation gaps across coverage + projections ===
+
+const G1_NO_SCHEDULE_IDS = canonicalGame({
+  providerGameId: 100,
+  home: 'Alpha State',
+  away: 'Beta Tech',
+  week: 3,
+  homeId: null,
+  awayId: null,
+});
+
+const G1_MISMATCH_ROW = v2Row({
+  id: 100,
+  home: { school: 'Alpha State', schoolId: 999 }, // schedule expects 101
+  away: { school: 'Beta Tech', schoolId: 202 },
+  week: 3,
+});
+
+test('availability: participant-validation gaps are counted distinctly and publish nothing', () => {
+  // G1 has no schedule ids (validation unavailable); G2 has a mismatched row.
+  const g2Mismatch = v2Row({
+    id: 200,
+    home: { school: 'Gamma A&M', schoolId: 777 },
+    away: { school: 'Delta University', schoolId: 404 },
+    week: 3,
+  });
+  const coverage = coverageFor([G1_NO_SCHEDULE_IDS, G2], [G1_COMPLETE, g2Mismatch]);
+  const wire = projectPublicFromCoverage(coverage, '2025-09-08T00:00:00.000Z');
+
+  assert.equal(wire.games.length, 0); // neither class publishes a row
+  assert.equal(wire.availability.participantValidationUnavailable, 1);
+  assert.equal(wire.availability.identityMismatch, 1);
+  assert.equal(wire.availability.published, 0);
+  assert.equal(wire.availability.satisfied, 0);
+  // The two gap classes are distinct — neither is folded into absent.
+  assert.equal(wire.availability.absent, 0);
+});
+
+test('coverage: mixed verified + validation-gap coverage is partial', () => {
+  // G1 verified + satisfied; G2 identity-mismatch → the partition is partial.
+  const g2Mismatch = v2Row({
+    id: 200,
+    home: { school: 'Gamma A&M', schoolId: 777 },
+    away: { school: 'Delta University', schoolId: 404 },
+    week: 3,
+  });
+  const coverage = coverageFor([G1, G2], [G1_COMPLETE, g2Mismatch]);
+  assert.equal(coverage.state, 'partial');
+  const wire = projectPublicFromCoverage(coverage, '2025-09-08T00:00:00.000Z');
+  assert.equal(wire.games.length, 1);
+  assert.equal(wire.games[0]?.providerGameId, 100);
+  assert.equal(wire.availability.identityMismatch, 1);
+});
+
+test('public wire: rows expose no schedule ids or participant-validation internals', () => {
+  const coverage = coverageFor([G1], [G1_COMPLETE]);
+  const wire = projectPublicFromCoverage(coverage, '2025-09-08T00:00:00.000Z');
+  assert.equal(wire.games.length, 1);
+  const game = wire.games[0] as unknown as Record<string, unknown>;
+  for (const forbidden of ['homeId', 'awayId', 'participantValidation', 'decision', 'game']) {
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(game, forbidden),
+      false,
+      `public game must not expose ${forbidden}`
+    );
+  }
+  // Availability carries aggregate COUNTS only.
+  assert.equal(typeof wire.availability.participantValidationUnavailable, 'number');
+  assert.equal(typeof wire.availability.identityMismatch, 'number');
+});
+
+test('matrix: FINAL score + COMPLETE stats with UNAVAILABLE schedule ids → excluded from analytics', () => {
+  const analytics = analyticsFor([G1_NO_SCHEDULE_IDS], [G1_COMPLETE], FINAL_100);
+  assert.deepEqual(analytics, []);
+});
+
+test('matrix: FINAL score + COMPLETE stats with UNAVAILABLE stored ids → excluded from analytics', () => {
+  const base = legacyRow({
+    id: 100,
+    home: { school: 'Alpha State', teamId: 101 },
+    away: { school: 'Beta Tech', teamId: 202 },
+    week: 3,
+  });
+  const noStoredIds = {
+    ...base,
+    home: { ...base.home, schoolId: undefined as unknown as number },
+  };
+  const analytics = analyticsFor([G1], [noStoredIds], FINAL_100);
+  assert.deepEqual(analytics, []);
+});
+
+test('matrix: FINAL score + COMPLETE stats with MISMATCHED participants → excluded from analytics', () => {
+  const analytics = analyticsFor([G1], [G1_MISMATCH_ROW], FINAL_100);
+  assert.deepEqual(analytics, []);
+});
+
+test('matrix: direct numeric agreement remains analytics-eligible (verified final-and-complete projects)', () => {
+  const analytics = analyticsFor([G1], [G1_COMPLETE], FINAL_100);
+  assert.equal(analytics.length, 1);
+  assert.equal(analytics[0]?.providerGameId, 100);
+});
+
+test('matrix: sparse VERIFIED evidence stays public-incomplete but analytics-ineligible', () => {
+  // G2_SPARSE carries the matching 303/404 ids → verified, sparse → incomplete.
+  const coverage = coverageFor([G2], [G2_SPARSE]);
+  const wire = projectPublicFromCoverage(coverage, '2025-09-08T00:00:00.000Z');
+  assert.equal(wire.games.length, 1);
+  assert.equal(wire.games[0]?.complete, false);
+  assert.equal(wire.availability.incomplete, 1);
+  assert.deepEqual(analyticsFor([G2], [G2_SPARSE], { 'key-200': scorePack('final') }), []);
 });

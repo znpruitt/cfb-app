@@ -1686,6 +1686,28 @@ Key architectural decisions across Phase 5:
 
 ---
 
+**Status:** Implemented dormant on branch `platform/086h3c5-numeric-participant-validation` (from `main@b301774`, impl `d95de9e` + docs closeout). Codex review of the code/test diff **clean on the first pass**; a final review of the complete code+tests+docs diff gates the PR; merge + post-merge status flip pending. Gates: focused schedule suites 82/82; dormant game-stats suites 179/179 (dormant-boundary guard unmodified); `tsc` / `lint:all` / `git diff --check` clean; full `npm test` 2030/2030; `npm run build` clean; local-only runtime probes byte-identical to `main` across all seven schedule/game-stats requests (old-shaped cache hit serves with no fabricated ids; a new-shaped cache serves ids verbatim).
+**PROMPT_ID(s):** PLATFORM-086H3C5-DORMANT-NUMERIC-PARTICIPANT-VALIDATION-v1
+
+**Goals completed:**
+
+- Persisted CFBD numeric schedule participant ids through the ONE shared mapper: `CfbdScheduleGame` reads `homeId`/`awayId` in camel and snake casings; `mapCfbdScheduleGame` strictly normalizes each to a positive safe integer or explicit `null` (zero, negatives, fractions, exponent/hex/signed forms, unsafe integers, blanks, and coercive forms → `null`; an invalid id never drops the row). `ScheduleItem` owns explicit nullable ids; `ScheduleWireItem` gains optional compatibility fields; all three durable schedule write paths persist the mapper output unchanged and no read path fabricates or writes ids back.
+- Copied the wire row's strictly valid ids onto `CanonicalGame` as nullable provider-participant metadata (revalidation only — no second normalization authority); `ParticipantSlot.teamId` remains the resolver-produced canonical string identity and `teamIdentity.ts` is untouched.
+- Reintroduced numeric participant validation inside the dormant evidence authority: exact oriented `stored.home.schoolId === schedule.homeId && stored.away.schoolId === schedule.awayId` (a reversal is a mismatch; neutral-site is irrelevant; names/aliases/conferences never verify or contradict). New fail-closed states `participant-validation-unavailable` and `identity-mismatch` plus a typed `participantValidation` outcome on `EvidenceDecision`; schema blockers precede validation; only VERIFIED candidates rank; a mismatched/unverifiable candidate of any sufficiency never displaces a verified sibling; mismatch outranks unavailable; no-rows stays `absent`.
+- Public availability now counts both gap classes in aggregate; neither publishes a public row nor enters analytics (the C4 final-score + strict-completeness gate is unchanged and now implies participant verification); coverage keeps the existing coarse partition vocabulary.
+- +34 regressions across the schedule normalization, slate compatibility (old aggregate/partition-only caches → nullable ids, no write-back), the full evidence matrix, and coverage/projection exclusions; one C1-era test asserting the superseded participant-validation deferral rewritten to the fail-closed behavior.
+
+**Key outcomes:**
+
+- No provider, production API, database, or durable data was contacted or modified. C1–C5 and H2 remain dormant behind the unmodified recursive dormant-boundary guard; production remains on the fenced legacy writer in `legacy`; H3E final activation remains unwritten. The only live wire-shape change is additive: a REFRESHED `/api/schedule` response carries `homeId`/`awayId`; cache hits over pre-C5 rows serve byte-identically with no fabricated fields.
+
+**Optional follow-up debt (non-blocking):**
+
+- **Post-merge rollout prerequisite (documented in `docs/ai/game-stats-writer-fence.md` §4/§6, NOT executed):** full-year `bypassCache=1` schedule refreshes for every H3E target season, per-year id verification, and the read-only participant-validation/parity audit before E begins; old caches fail closed (`participant-validation-unavailable`) until refreshed.
+- The accepted 2022 `401506450` upstream-CFBD limitation and the `manual-only`/`stats-manual-only` rename terminology debt are unchanged (see `docs/next-tasks.md` → "Unresolved decisions & known deferrals").
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:

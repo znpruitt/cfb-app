@@ -2,8 +2,9 @@
 
 Status: **Current architecture.** Supersedes the PLATFORM-086H3B revision/status-authority
 branch. The fenced-writer prerequisite (§2) is **merged to `main` (PR #399, 2026-07-21)**;
-the C evidence slices (C1–C3) are merged (PRs #400–#402); the rollout-safety
-capability D (§5, PLATFORM-086H3D) is implemented dormant; the activation execution (E)
+the C evidence slices (C1–C4) are merged (PRs #400–#402, #404) and C5 (numeric
+participant validation, PLATFORM-086H3C5) is implemented dormant; the rollout-safety
+capability D (§5, PLATFORM-086H3D) is merged dormant (PR #403); the activation execution (E)
 is unwritten — production remains in `legacy` and no transition has ever been executed.
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any conflict.
 
@@ -133,8 +134,25 @@ store.
 - **C — canonical evidence authority:** provider contract, participant validation,
   component merge policy, coverage, public projection. (Duplicate authority keys on
   provider id + resolved participant pair + schema class — no lineage identity.)
-  **Landed dormant in slices C1–C3** (read model, ingestion coordination, analytics
-  finality gate — see `docs/prompt-registry.md`).
+  **Landed dormant in slices C1–C5** (read model, ingestion coordination, analytics
+  finality gate, paired-input analytics readiness, numeric participant validation —
+  see `docs/prompt-registry.md`). C5 completes the participant-validation piece C1
+  deferred: schedule persistence captures CFBD numeric `homeId`/`awayId` (additive,
+  nullable), and `selectGameEvidence` validates a stored row's `schoolId`s against
+  them by EXACT ORIENTED comparison before ranking — mismatched (`identity-mismatch`)
+  or unverifiable (`participant-validation-unavailable`) evidence fails CLOSED and can
+  never satisfy coverage, publish, enter analytics, or displace a verified sibling.
+  **Activation prerequisite this adds for E:** durable schedule caches written before
+  C5 carry no participant ids, so their games read `participant-validation-unavailable`
+  — before E activates any evidence consumer, force a full-year `bypassCache=1`
+  schedule refresh for EVERY target season (2021–2025 + the activation-scope current
+  season), verify every addressable stat-producing canonical game has positive numeric
+  home/away ids, and run the established read-only participant-validation/parity audit
+  (zero validation-unavailable for activation-eligible games, zero unexpected
+  identity-mismatch, the accepted 2022 `401506450` exclusion as the sole residual).
+  If any year has missing ids or contradictions, STOP — never infer ids, alter
+  aliases/owners/archives, mutate evidence, or transition writer control as a
+  workaround.
 - **D — rollout safety (PLATFORM-086H3D, §5):** the strict writer-control transition
   authority, the operator transition CLI, and H2's in-transaction active-only
   permission check — the complete dormant capability E later executes. Bounded
@@ -226,6 +244,11 @@ game-stats partition (primary)
 
 Documented now; **no step below has been executed.** Production transition
 execution, reader smoke tests, and controlled refreshes are E responsibilities.
+
+Pre-step (added by C5, before step 4): complete the post-deploy full-year schedule
+refreshes and the participant-validation audit described in §4's C bullet for every
+season E will consume — a season whose canonical games lack numeric participant ids
+fails closed everywhere and MUST NOT be activated around.
 
 ```text
  1. confirm the target control record is exactly a valid `legacy`

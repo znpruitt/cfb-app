@@ -82,6 +82,16 @@ export type ScheduleWireItem = {
   conferenceGame: boolean;
   homeTeam: string;
   awayTeam: string;
+  /**
+   * CFBD numeric participant ids (PLATFORM-086H3C5). OPTIONAL compatibility
+   * fields: durable schedule records written before participant-id persistence
+   * legitimately lack both properties, and a cache read never fabricates or
+   * writes them back. When present they are a positive safe integer or an
+   * explicit `null`. Participant metadata only — canonical identity remains the
+   * resolver-produced string (`teamIdentity.ts`).
+   */
+  homeId?: number | null;
+  awayId?: number | null;
   homeConference: string;
   awayConference: string;
   status: string;

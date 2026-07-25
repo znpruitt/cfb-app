@@ -46,6 +46,22 @@ export const IDENTITY_KEYS: Record<string, string> = Object.fromEntries(
   C1_TEAMS.map((team) => [team.school, toTeamIdentityKey(team.school)])
 );
 
+/**
+ * The CFBD numeric school ids the durable-row fixtures use for each fixture
+ * school (PLATFORM-086H3C5). `canonicalGame` defaults its schedule
+ * `homeId`/`awayId` from this map so stored-row fixtures built with the same
+ * schools verify numerically by default; tests override (including with
+ * explicit `null`) to exercise mismatch and unavailable outcomes.
+ */
+export const SCHOOL_IDS: Record<string, number> = {
+  'Alpha State': 101,
+  'Beta Tech': 202,
+  'Gamma A&M': 303,
+  'Delta University': 404,
+  'Epsilon College': 505,
+  'Zeta State': 606,
+};
+
 const CONFERENCE_OF: Record<string, string> = {
   'Alpha State': 'Sun Belt',
   'Beta Tech': 'ACC',
@@ -70,6 +86,13 @@ export function scheduleItem(params: {
   postseasonSubtype?: string;
   playoffRound?: string;
   eventKey?: string;
+  /**
+   * Numeric participant ids. OMITTED by default — mirroring a durable schedule
+   * record written before participant-id persistence — so slate tests must opt
+   * in explicitly to id-bearing rows.
+   */
+  homeId?: number | null;
+  awayId?: number | null;
 }): ScheduleWireItem {
   return {
     id: params.id,
@@ -79,6 +102,8 @@ export function scheduleItem(params: {
     conferenceGame: false,
     homeTeam: params.home,
     awayTeam: params.away,
+    ...(params.homeId !== undefined ? { homeId: params.homeId } : {}),
+    ...(params.awayId !== undefined ? { awayId: params.awayId } : {}),
     homeConference: params.homeConf ?? CONFERENCE_OF[params.home] ?? 'Sun Belt',
     awayConference: params.awayConf ?? CONFERENCE_OF[params.away] ?? 'ACC',
     status: params.status ?? 'scheduled',
@@ -103,6 +128,13 @@ export function canonicalGame(params: {
   /** Canonical attachment key; defaults distinct from `eventId` to exercise divergence. */
   key?: string;
   eventId?: string;
+  /**
+   * Schedule numeric participant ids. Default to the fixture school's
+   * `SCHOOL_IDS` entry so default stored-row fixtures verify; pass explicit
+   * `null` to model a pre-persistence schedule record.
+   */
+  homeId?: number | null;
+  awayId?: number | null;
 }): CanonicalGame {
   const homeKey = IDENTITY_KEYS[params.home] ?? params.home;
   const awayKey = IDENTITY_KEYS[params.away] ?? params.away;
@@ -117,6 +149,8 @@ export function canonicalGame(params: {
     notExpectedReason: params.notExpectedReason ?? null,
     home: { identityKey: homeKey, canonicalName: params.home },
     away: { identityKey: awayKey, canonicalName: params.away },
+    homeId: params.homeId === undefined ? (SCHOOL_IDS[params.home] ?? null) : params.homeId,
+    awayId: params.awayId === undefined ? (SCHOOL_IDS[params.away] ?? null) : params.awayId,
     kickoff: '2025-09-06T16:00:00Z',
     rawStatus: 'final',
   };

@@ -141,8 +141,11 @@ export async function GET(req: Request) {
       upstream: {
         homeName: item.homeTeam,
         awayName: item.awayTeam,
-        homeId: null,
-        awayId: null,
+        // PLATFORM-086H3C5: pass the cached row's numeric participant ids
+        // through so this rollout diagnostic reports what the cache actually
+        // holds — pre-C5 rows without the fields truthfully read null.
+        homeId: item.homeId ?? null,
+        awayId: item.awayId ?? null,
       },
       canonical: {
         homeTeamId: homeResolved.identityKey,

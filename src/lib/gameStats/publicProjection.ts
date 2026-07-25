@@ -91,6 +91,13 @@ export type PublicAvailability = {
   duplicateConflict: number;
   blocked: number;
   manualOnly: number;
+  /**
+   * PLATFORM-086H3C5 fail-closed participant-validation gaps. AGGREGATE counts
+   * only — the wire never exposes schedule ids, stored ids, or internal
+   * validation objects, and neither class ever publishes a row.
+   */
+  participantValidationUnavailable: number;
+  identityMismatch: number;
   pending: number;
   /** Games published on the wire (satisfied + incomplete). */
   published: number;
@@ -187,6 +194,8 @@ function buildAvailability(coverage: PartitionCoverage, published: number): Publ
     duplicateConflict: count('duplicate-conflict'),
     blocked: count('blocked-unsupported-schema'),
     manualOnly: count('manual-only'),
+    participantValidationUnavailable: count('participant-validation-unavailable'),
+    identityMismatch: count('identity-mismatch'),
     pending: coverage.pending.length,
     published,
   };
@@ -200,6 +209,9 @@ export function projectPublicFromCoverage(
   const games: PublicGameStats[] = [];
   for (const { decision } of coverage.games) {
     // Every coverage-satisfied game publishes; sparse rows publish as incomplete.
+    // Both states are participant-VERIFIED by construction (PLATFORM-086H3C5) —
+    // validation-unavailable and identity-mismatch decisions carry no selected
+    // row and never publish.
     if (decision.state === 'satisfied' && decision.selected) {
       games.push(publicGame(decision.selected, true));
     } else if (decision.state === 'incomplete' && decision.selected) {
@@ -330,7 +342,11 @@ export type CanonicalAnalyticsReadInput = {
  * progress, disrupted, ambiguous, or unavailable (a missing key classifies as
  * `scheduled`, so absence is excluded without a special case), OR when its
  * game-stat evidence is sparse (incomplete), absent, conflicting, unsupported
- * (blocked), or manual-only. An in-progress game with complete stats remains
+ * (blocked), manual-only, participant-validation-unavailable, or
+ * identity-mismatched (PLATFORM-086H3C5: even a final score with otherwise
+ * complete statistics never projects when the schedule ids are unavailable, the
+ * stored ids are unavailable, or the numeric participants contradict — only a
+ * directly verified `satisfied` decision is eligible). An in-progress game with complete stats remains
  * durable evidence — stored, merged, and selectable — but is excluded from
  * launch analytics until its score is final; finality is an ANALYTICS
  * eligibility rule only, never an ingestion, persistence, merge, or general

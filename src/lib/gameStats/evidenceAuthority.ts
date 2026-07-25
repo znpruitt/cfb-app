@@ -12,23 +12,33 @@ import type { GameStats, TeamGameStats } from './types.ts';
  * PLATFORM-086H3C1 — the single, schedule-aware, row-level evidence authority
  * (DORMANT).
  *
- * Authority model (PLATFORM-086H3C1-SIMPLIFICATION-v1): a UNIQUE canonical CFBD
- * game id, plus partition agreement, establishes association — WHICH scheduled
- * game a durable row belongs to. That is the whole association authority.
- * Numeric participant validation was REMOVED: schedule records do not yet persist
- * the numeric participant ids (`homeId`/`awayId`) that would make it operational,
- * so it is deferred as a separate pre-activation prerequisite (after schedule
- * persistence captures those ids). CFBD `homeAway` remains trusted — sides are
- * never swapped — and two rows for the same id that disagree on a side's stored
- * `homeAway` are a `duplicate-conflict`, not silently collapsed.
+ * Authority model (PLATFORM-086H3C1-SIMPLIFICATION-v1 + PLATFORM-086H3C5): a
+ * UNIQUE canonical CFBD game id, plus partition agreement, establishes
+ * association — WHICH scheduled game a durable row belongs to. Numeric
+ * participant validation (PLATFORM-086H3C5) then decides whether an associated,
+ * schema-supported row's stored `schoolId`s are the schedule's own numeric
+ * `homeId`/`awayId` — by EXACT ORIENTED equality only. An exact reversal is a
+ * mismatch; neutral-site status changes nothing; provider names, canonical
+ * names, aliases, and conferences neither verify nor contradict numeric
+ * identity. CFBD `homeAway` remains trusted — sides are never swapped or
+ * reoriented — and two verified rows for the same id that disagree on a side's
+ * stored `homeAway` are a `duplicate-conflict`, not silently collapsed.
+ *
+ * Validation fails CLOSED (activation prerequisite): evidence that cannot be
+ * numerically validated never satisfies coverage, publishes, or enters
+ * analytics. Missing schedule ids and missing/invalid stored ids are the typed
+ * `participant-validation-unavailable` state — distinct from a PROVEN
+ * `identity-mismatch` and from ordinary evidence absence; neither is ever
+ * guessed into the other.
  *
  * For one expected canonical game and its candidate durable rows (all sharing the
  * game's provider id):
  *   - a same-partition unsupported / malformed / bad-fence schema BLOCKS weaker
- *     siblings from its id alone;
+ *     siblings from its id alone (before any participant interpretation);
  *   - every other schema-supported row is a usable candidate;
- *   - the winner is the highest-sufficiency, freshest, deterministically chosen
- *     row (complete v2 > compatible legacy > sparse v2 > defective).
+ *   - only participant-VERIFIED candidates are ranked; the winner is the
+ *     highest-sufficiency, freshest, deterministically chosen verified row
+ *     (complete v2 > compatible legacy > sparse v2 > defective).
  *
  * Committed coverage, public projection, and analytics projection all consume
  * THIS decision — there is no second read-side duplicate authority (the former
@@ -37,9 +47,12 @@ import type { GameStats, TeamGameStats } from './types.ts';
  * Selection order:
  *   1. confirm partition agreement (association is the game's own id + partition);
  *   2. apply unsupported/malformed/bad-fence schema blockers by id;
- *   3. rank supported candidates by sufficiency;
- *   4. apply freshness ONLY among v2 candidates in the same sufficiency class;
- *   5. collapse equivalent candidates; divergent same-class candidates conflict.
+ *   3. validate supported candidates by exact numeric home/away ids — a
+ *      mismatched or unverifiable candidate is EXCLUDED from ranking and can
+ *      never displace, shadow, or replace a verified sibling;
+ *   4. rank the verified candidates by sufficiency;
+ *   5. apply freshness ONLY among v2 candidates in the same sufficiency class;
+ *   6. collapse equivalent candidates; divergent same-class candidates conflict.
  *
  * Evidence selection is row-level: read-time field composition across rows is
  * forbidden. Component-level composition stays with the dormant durable merge
@@ -60,8 +73,12 @@ export type EvidenceBlockReason =
 
 /**
  * Per-game evidence state. These names are exactly the per-game coverage states,
- * so coverage maps 1:1 without re-deriving policy. (`identity-mismatch` returns
- * with participant validation in a later pre-activation prerequisite.)
+ * so coverage maps 1:1 without re-deriving policy.
+ * PLATFORM-086H3C5 adds the two fail-closed participant-validation states:
+ * `participant-validation-unavailable` (required schedule or stored numeric ids
+ * are unavailable — NOT a proven contradiction, NOT ordinary absence) and
+ * `identity-mismatch` (all four ids known, no candidate directly matches).
+ * Neither publishes, satisfies coverage, or enters analytics.
  */
 export type EvidenceState =
   | 'satisfied'
@@ -69,7 +86,21 @@ export type EvidenceState =
   | 'manual-only'
   | 'blocked-unsupported-schema'
   | 'duplicate-conflict'
+  | 'participant-validation-unavailable'
+  | 'identity-mismatch'
   | 'absent';
+
+/**
+ * Typed participant-validation outcome (PLATFORM-086H3C5). Per-candidate during
+ * selection; the decision carries the outcome that governed it. There is
+ * deliberately NO broad `unverified` value that could satisfy coverage —
+ * anything short of `verified` fails closed.
+ */
+export type ParticipantValidationOutcome =
+  | 'verified'
+  | 'schedule-ids-unavailable'
+  | 'stored-ids-unavailable'
+  | 'mismatch';
 
 export type EvidenceDecision = {
   providerGameId: number;
@@ -80,6 +111,13 @@ export type EvidenceDecision = {
   selected: GameStats | null;
   /** Set only for `blocked-unsupported-schema`; sorted + deduplicated. */
   blockers: EvidenceBlockReason[];
+  /**
+   * The participant-validation outcome that governed this decision: `verified`
+   * when ranking proceeded over verified candidates (whatever the final state),
+   * the specific unavailable/mismatch reason for the two new states, and `null`
+   * when validation was never reached (schema-blocked, or no usable candidates).
+   */
+  participantValidation: ParticipantValidationOutcome | null;
 };
 
 // === Publishable-content equivalence ===
@@ -261,6 +299,34 @@ function assessCandidate(row: GameStats, game: CanonicalGame): CandidateAssessme
   };
 }
 
+// === Participant validation (PLATFORM-086H3C5) ===
+
+/**
+ * Validate one schema-supported candidate's stored numeric identity against the
+ * schedule's numeric participant ids. EXACT ORIENTED comparison only:
+ * `stored.home.schoolId === schedule.homeId && stored.away.schoolId ===
+ * schedule.awayId`. An exact reversal is a mismatch like any other disagreement
+ * — sides are never swapped, reoriented, negated, or recomputed, and
+ * neutral-site status changes nothing. Missing schedule ids (either side) are
+ * `schedule-ids-unavailable`; missing/invalid stored ids are
+ * `stored-ids-unavailable` — both are validation gaps, never a PROVEN mismatch.
+ * Names, aliases, and conferences are never consulted.
+ */
+function validateCandidateParticipants(
+  row: GameStats,
+  game: CanonicalGame
+): ParticipantValidationOutcome {
+  if (game.homeId === null || game.awayId === null) return 'schedule-ids-unavailable';
+  const home = asRecord(asRecord(row)?.home);
+  const away = asRecord(asRecord(row)?.away);
+  const storedHomeId = home?.schoolId;
+  const storedAwayId = away?.schoolId;
+  if (!isValidProviderGameId(storedHomeId) || !isValidProviderGameId(storedAwayId)) {
+    return 'stored-ids-unavailable';
+  }
+  return storedHomeId === game.homeId && storedAwayId === game.awayId ? 'verified' : 'mismatch';
+}
+
 // === Winner selection ===
 
 const SUFFICIENCY_RANK: Record<EvidenceSufficiency, number> = {
@@ -270,14 +336,29 @@ const SUFFICIENCY_RANK: Record<EvidenceSufficiency, number> = {
   defective: 3,
 };
 
+/**
+ * Rank candidates that already passed participant validation (`verified` only —
+ * the caller excludes mismatched/unverifiable candidates before ranking, so a
+ * higher-sufficiency mismatched row can never displace a verified one).
+ */
 function decide(
   providerGameId: number,
   usable: UsableCandidate[],
   seasonRelation: SeasonRelation
 ): EvidenceDecision {
-  const base = { providerGameId, provenance: null, selected: null, blockers: [] };
+  const base = {
+    providerGameId,
+    provenance: null,
+    selected: null,
+    blockers: [],
+    participantValidation: 'verified' as const,
+  };
 
-  if (usable.length === 0) return { ...base, state: 'absent' };
+  // Defensive only — the caller resolves an empty candidate set before
+  // validation, so ranking always receives at least one verified candidate.
+  if (usable.length === 0) {
+    return { ...base, state: 'absent', participantValidation: null };
+  }
 
   const topRank = Math.min(...usable.map((c) => SUFFICIENCY_RANK[c.sufficiency]));
   const topClass = usable.find((c) => SUFFICIENCY_RANK[c.sufficiency] === topRank)!.sufficiency;
@@ -346,7 +427,8 @@ export function selectGameEvidence(
   }
 
   // A matching same-id unsupported/malformed/bad-fence row blocks the game — by
-  // id alone — and never falls back to a sibling.
+  // id alone, BEFORE any participant interpretation — and never falls back to a
+  // sibling. Missing or contradictory participants cannot bypass a schema block.
   if (blockers.length > 0) {
     return {
       providerGameId,
@@ -354,8 +436,54 @@ export function selectGameEvidence(
       provenance: null,
       selected: null,
       blockers: Array.from(new Set(blockers)).sort(),
+      participantValidation: null,
     };
   }
 
-  return decide(providerGameId, usable, seasonRelation);
+  // With valid schedule ids and no candidate rows the decision remains plain
+  // `absent` — participant validation only ever judges rows that exist.
+  if (usable.length === 0) {
+    return {
+      providerGameId,
+      state: 'absent',
+      provenance: null,
+      selected: null,
+      blockers: [],
+      participantValidation: null,
+    };
+  }
+
+  // PLATFORM-086H3C5: numeric participant validation gates ranking. Only
+  // verified candidates may satisfy, publish, or enter analytics; mismatched
+  // and unverifiable candidates are excluded from ranking entirely, so they can
+  // never displace, shadow, or replace a verified sibling of ANY sufficiency.
+  const validations = usable.map((candidate) => ({
+    candidate,
+    validation: validateCandidateParticipants(candidate.row, game),
+  }));
+  const verified = validations
+    .filter((entry) => entry.validation === 'verified')
+    .map((entry) => entry.candidate);
+
+  if (verified.length === 0) {
+    const base = { providerGameId, provenance: null, selected: null, blockers: [] };
+    // A known numeric contradiction outranks a validation gap: if ANY candidate
+    // proves all four ids and disagrees, the game is `identity-mismatch`.
+    if (validations.some((entry) => entry.validation === 'mismatch')) {
+      return { ...base, state: 'identity-mismatch', participantValidation: 'mismatch' };
+    }
+    // Otherwise validation was unavailable. The schedule-side gap dominates the
+    // reason (it applies to every candidate uniformly); a stored-side gap is
+    // reported when the schedule ids were present but no row's ids were usable.
+    return {
+      ...base,
+      state: 'participant-validation-unavailable',
+      participantValidation:
+        game.homeId === null || game.awayId === null
+          ? 'schedule-ids-unavailable'
+          : 'stored-ids-unavailable',
+    };
+  }
+
+  return decide(providerGameId, verified, seasonRelation);
 }
