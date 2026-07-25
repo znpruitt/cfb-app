@@ -194,12 +194,35 @@ const ALLOWED_DORMANT_SYMBOLS = new Map<string, ReadonlySet<string>>([
 ]);
 
 /**
+ * Decode JavaScript string escapes in a captured specifier body so an escaped
+ * spelling (`'./canonical\u0053late.ts'`, `'\x6C'`, `'\u{53}'`, identity
+ * escapes like `'\.'`) resolves exactly like the plain one — the runtime
+ * decodes them, so the guard must too. A malformed escape returns the raw
+ * text unchanged (it is not a resolvable module path anyway).
+ */
+function decodeSpecifierEscapes(specifier: string): string {
+  try {
+    return specifier
+      .replace(/\\u\{([0-9a-fA-F]+)\}/g, (_, hex: string) =>
+        String.fromCodePoint(parseInt(hex, 16))
+      )
+      .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
+      .replace(/\\(.)/g, '$1');
+  } catch {
+    return specifier;
+  }
+}
+
+/**
  * The dormant module basename a specifier resolves to, or `null` when the
  * specifier targets no dormant module. Returning the basename (not a boolean)
- * lets the scanner apply the exact per-file allowlist above.
+ * lets the scanner apply the exact per-file allowlist above. Escapes are
+ * decoded first; any backslash remaining after decoding is treated as a
+ * Windows-style path separator.
  */
 function dormantModuleTarget(specifier: string, importerRepoRelativePath: string): string | null {
-  const normalized = specifier.replace(/\\/g, '/');
+  const normalized = decodeSpecifierEscapes(specifier).replace(/\\/g, '/');
   // Alias/absolute forms (`@/lib/gameStats/contract`, deep relative paths).
   for (const base of DORMANT_MODULE_BASENAMES) {
     if (normalized.includes(`gameStats/${base}`)) return base;
@@ -304,6 +327,9 @@ function sanctionedImportStatement(
     statement
   );
   if (!clause) return false;
+  // The sanctioned form requires the PLAIN spelling — an escape-obfuscated
+  // specifier is never sanctioned, even when it decodes to the allowed module.
+  if (clause[3]!.includes('\\')) return false;
   const target = dormantModuleTarget(clause[3]!, repoRelativePath);
   if (target === null || !allowedModules.has(target)) return false;
   const typeOnlyImport = clause[1] !== undefined;
@@ -695,6 +721,35 @@ test('scanner: template-literal and comment-separated specifiers resolve like pl
     // eslint-disable-next-line no-template-curly-in-string
     findBoundaryViolations('const m = await import(`./modules/${name}`);', importer),
     []
+  );
+});
+
+test('scanner: escape-obfuscated specifiers decode and still flag', () => {
+  const importer = 'src/lib/insights/context.ts';
+  const flagged = [
+    // \u0053 → 'S'
+    String.raw`import { x } from '../gameStats/canonical\u0053late.ts';`,
+    // \u{53} → 'S'
+    String.raw`export * from '../gameStats/canonical\u{53}late';`,
+    // \x6C → 'l'
+    String.raw`const m = require('../gameStats/durab\x6CeMerge.ts');`,
+    // identity escape \. → '.'
+    String.raw`import '../gameStats/durableMerge\.ts';`,
+  ];
+  for (const source of flagged) {
+    const violations = findBoundaryViolations(source, importer);
+    assert.ok(
+      violations.some((v) => v.pattern.startsWith('dormant-module import')),
+      source
+    );
+  }
+  // An escaped spelling is NEVER a sanctioned crossing, even in the
+  // allowlisted file, even when it decodes to the allowed module.
+  assert.ok(
+    findBoundaryViolations(
+      String.raw`import { deriveCanonicalGameStatsSlateFromBuild } from './canonical\u0053late.ts';`,
+      'src/lib/gameStats/slateSnapshot.ts'
+    ).length >= 1
   );
 });
 
