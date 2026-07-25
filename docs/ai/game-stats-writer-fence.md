@@ -2,8 +2,8 @@
 
 Status: **Current architecture.** Supersedes the PLATFORM-086H3B revision/status-authority
 branch. The fenced-writer prerequisite (§2) is **merged to `main` (PR #399, 2026-07-21)**;
-the C evidence slices (C1–C4) are merged (PRs #400–#402, #404) and C5 (numeric
-participant validation, PLATFORM-086H3C5) is implemented dormant; the rollout-safety
+the C evidence slices (C1–C5) are merged (PRs #400–#402, #404, #407 — C5 is the
+numeric participant validation, PLATFORM-086H3C5); the rollout-safety
 capability D (§5, PLATFORM-086H3D) is merged dormant (PR #403); the activation execution (E)
 is unwritten — production remains in `legacy` and no transition has ever been executed.
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any conflict.
