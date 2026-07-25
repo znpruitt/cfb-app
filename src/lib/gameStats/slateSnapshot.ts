@@ -106,7 +106,20 @@ export function buildGameStatSlateSnapshot(input: {
       awayId: game.awayId,
     });
   }
-  return { snapshotVersion: GAME_STAT_SLATE_SNAPSHOT_VERSION, year: input.year, games };
+  const snapshot: GameStatSlateSnapshot = {
+    snapshotVersion: GAME_STAT_SLATE_SNAPSHOT_VERSION,
+    year: input.year,
+    games,
+  };
+  // Self-verify against the strict parser BEFORE the snapshot can be
+  // persisted: durable override maps receive no field-level validation, so an
+  // override can inject a blank attachment key or an invalid provider week
+  // into the exact build. Failing the archive build here is honest; writing a
+  // snapshot the reader will call malformed later is not.
+  if (parseGameStatSlateSnapshot(snapshot, input.year).status !== 'valid') {
+    throw new Error('built game-stat slate snapshot failed strict validation');
+  }
+  return snapshot;
 }
 
 // Positive-safe-integer predicate, intentionally local: the canonical form

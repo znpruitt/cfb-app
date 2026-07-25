@@ -184,6 +184,20 @@ test('snapshot: survives JSON persistence round-trip through the strict parser',
   assert.deepEqual(parsed.status === 'valid' ? parsed.snapshot : null, validSnapshot());
 });
 
+test('snapshot: builder self-verifies against the strict parser before returning', () => {
+  const input = exactBuild();
+  // Simulate an unvalidated manual override injecting an invalid provider week
+  // into the exact build: the builder must fail the archive build rather than
+  // emit a snapshot its own reader would call malformed.
+  const poisoned = {
+    ...input,
+    games: input.games.map((game) =>
+      game.providerGameId === '5001' ? { ...game, providerWeek: -1 } : game
+    ),
+  };
+  assert.throws(() => buildGameStatSlateSnapshot(poisoned), /failed strict validation/);
+});
+
 test('snapshot: builder refuses an empty team catalog', () => {
   const input = exactBuild();
   assert.throws(

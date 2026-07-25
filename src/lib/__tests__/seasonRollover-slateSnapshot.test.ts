@@ -205,6 +205,20 @@ test('buildSeasonArchive: an override rewriting a provider id fails closed', asy
   await assert.rejects(buildSeasonArchive(SLUG, YEAR), /no associated schedule wire row/);
 });
 
+test('buildSeasonArchive: an override injecting an invalid attachment key fails closed', async () => {
+  await seedSeason();
+  const baseline = await buildSeasonArchive(SLUG, YEAR);
+  const eventId = baseline.games.find((g) => g.providerGameId === '9001')!.eventId;
+  // Durable override maps receive no field-level validation; a blank key would
+  // otherwise persist a snapshot the strict parser rejects at read time. The
+  // build must fail instead — never write a snapshot its own reader calls
+  // malformed.
+  await setAppState(`postseason-overrides:${SLUG}:${YEAR}`, 'map', {
+    [eventId]: { key: '   ' },
+  });
+  await assert.rejects(buildSeasonArchive(SLUG, YEAR), /failed strict validation/);
+});
+
 test('buildSeasonArchive: an empty team catalog fails closed', async () => {
   await seedSeason();
   await seedTeamDb([]);
