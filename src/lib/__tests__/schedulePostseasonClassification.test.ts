@@ -668,3 +668,145 @@ test('E4 collection: an exact provider-id fragment attaches to ITS game in every
     assert.deepEqual(project(inputs), expected, `order ${inputs.map((g) => g.label ?? g.key)}`);
   }
 });
+
+// --- Round-4 counter-example regressions ---
+
+test('E4 collection: a non-numeric-id fragment can hydrate but NEVER replaces the provider id', () => {
+  // The residual hybrid path: a compatible one-team fragment carrying a
+  // synthetic non-numeric providerGameId (production mints these for
+  // placeholder shells) merges its fields — but the merged game must keep the
+  // full's AUTHORITATIVE numeric id, or slate construction would drop it.
+  const syntheticFragment = e4AppGame({
+    key: '2024-sec-championship',
+    providerGameId: 'missing-w15-texas-georgia',
+    label: 'synthetic fragment',
+    isPlaceholder: false,
+    participants: {
+      home: teamSlot('texas', 'Texas'),
+      away: { kind: 'placeholder', slotId: 'syn-away', displayName: 'Team TBD' },
+    },
+    csvHome: 'Texas',
+    canHome: 'Texas',
+  });
+  for (const inputs of permutations([STALE_SEC, syntheticFragment])) {
+    const games = buildAuthoritativeGameCollection([], inputs);
+    assert.equal(games.length, 1, 'the compatible fragment hydrates');
+    const merged = games[0]!;
+    assert.equal(String(merged.providerGameId), '401673469', 'numeric provider id survives');
+    assert.equal(merged.label, 'synthetic fragment', 'fragment fields still hydrate');
+    assert.equal(
+      merged.participants.away.kind === 'team' ? merged.participants.away.teamId : null,
+      'georgia'
+    );
+  }
+});
+
+test('E4 collection: a DISTINCT-pid fragment is preserved standalone in every ordering', () => {
+  // The mandated distinct-pid counter-example: fulls AB/1 and CD/2 plus a
+  // pid-3 fragment naming A. Distinct numeric pids never merge — the fragment
+  // survives intact with its own id in all six orderings.
+  const pidThreeFragment = e4AppGame({
+    key: '2024-sec-championship',
+    providerGameId: '3',
+    isPlaceholder: false,
+    participants: {
+      home: teamSlot('texas', 'Texas'),
+      away: { kind: 'placeholder', slotId: 'p3-away', displayName: 'Team TBD' },
+    },
+    csvHome: 'Texas',
+    canHome: 'Texas',
+  });
+  const project = (inputs: AppGame[]) =>
+    buildAuthoritativeGameCollection([], inputs)
+      .map((g) => ({
+        providerGameId: g.providerGameId,
+        home: g.participants.home.kind === 'team' ? g.participants.home.teamId : null,
+        away: g.participants.away.kind === 'team' ? g.participants.away.teamId : null,
+      }))
+      .sort((a, b) => String(a.providerGameId).localeCompare(String(b.providerGameId)));
+
+  const expected = project([STALE_SEC, STALE_FCS, pidThreeFragment]);
+  assert.deepEqual(expected, [
+    { providerGameId: '3', home: 'texas', away: null },
+    { providerGameId: '401673469', home: 'texas', away: 'georgia' },
+    { providerGameId: '401729753', home: 'ucdavis', away: 'illinoisstate' },
+  ]);
+  for (const inputs of permutations([STALE_SEC, STALE_FCS, pidThreeFragment])) {
+    assert.deepEqual(project(inputs), expected, `order ${inputs.map((g) => g.providerGameId)}`);
+  }
+});
+
+test('E4 collection: fixed-set routing — a preserved ambiguous fragment never perturbs later routing', () => {
+  // Discriminates fixed-fulls-set routing from the former dynamic candidate
+  // routing: with fulls AB/1 and CD/2, an ambiguous TBD/TBD shell, and an
+  // id-less A/TBD fragment, the A fragment must attach to AB (its sole
+  // compatible FULL) in all 24 orderings — under dynamic routing an
+  // ambiguous-shell-first ordering would give it two compatibles and strand
+  // it, changing the survivor count.
+  const ambiguousShell = e4AppGame({
+    key: '2024-sec-championship',
+    isPlaceholder: true,
+    status: 'placeholder',
+  });
+  const texasFragment = e4AppGame({
+    key: '2024-sec-championship',
+    label: 'texas fragment',
+    isPlaceholder: false,
+    participants: {
+      home: teamSlot('texas', 'Texas'),
+      away: { kind: 'placeholder', slotId: 'tf-away', displayName: 'Team TBD' },
+    },
+    csvHome: 'Texas',
+    canHome: 'Texas',
+  });
+  const project = (inputs: AppGame[]) =>
+    buildAuthoritativeGameCollection([], inputs)
+      .map((g) => ({
+        providerGameId: g.providerGameId,
+        label: g.label ?? null,
+        home: g.participants.home.kind === 'team' ? g.participants.home.teamId : null,
+        away: g.participants.away.kind === 'team' ? g.participants.away.teamId : null,
+      }))
+      .sort((a, b) =>
+        `${a.providerGameId}::${a.label}`.localeCompare(`${b.providerGameId}::${b.label}`)
+      );
+
+  const expected = project([STALE_SEC, STALE_FCS, ambiguousShell, texasFragment]);
+  assert.equal(expected.length, 3, 'AB absorbs the texas fragment; the shell stands alone');
+  assert.deepEqual(expected, [
+    { providerGameId: '401673469', label: 'texas fragment', home: 'texas', away: 'georgia' },
+    { providerGameId: '401729753', label: null, home: 'ucdavis', away: 'illinoisstate' },
+    { providerGameId: null, label: null, home: null, away: null },
+  ]);
+  for (const inputs of permutations([STALE_SEC, STALE_FCS, ambiguousShell, texasFragment])) {
+    assert.deepEqual(project(inputs), expected, `order ${inputs.map((g) => g.label ?? g.key)}`);
+  }
+});
+
+test('E4 collection: beyond-safe-integer id strings never collapse into one pid', () => {
+  // Number("9007199254740992") === Number("9007199254740993") — such rows must
+  // be treated as id-less and kept apart by their contradictory pairs.
+  const bigA = e4AppGame({
+    key: '2024-sec-championship',
+    providerGameId: '9007199254740992',
+    participants: { home: teamSlot('texas', 'Texas'), away: teamSlot('georgia', 'Georgia') },
+    csvHome: 'Texas',
+    csvAway: 'Georgia',
+  });
+  const bigB = e4AppGame({
+    key: '2024-sec-championship',
+    providerGameId: '9007199254740993',
+    participants: {
+      home: teamSlot('ucdavis', 'UC Davis'),
+      away: teamSlot('illinoisstate', 'Illinois State'),
+    },
+    csvHome: 'UC Davis',
+    csvAway: 'Illinois State',
+  });
+  for (const inputs of permutations([bigA, bigB])) {
+    const games = buildAuthoritativeGameCollection([], inputs);
+    assert.equal(games.length, 2, 'no collapse into a hybrid');
+    const ids = games.map((g) => String(g.providerGameId)).sort();
+    assert.deepEqual(ids, ['9007199254740992', '9007199254740993']);
+  }
+});

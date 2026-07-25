@@ -126,8 +126,13 @@ type CollectionIdentity = {
 function collectionIdentity(game: AppGame): CollectionIdentity {
   const home = game.participants.home.kind === 'team' ? game.participants.home.teamId : null;
   const away = game.participants.away.kind === 'team' ? game.participants.away.teamId : null;
+  // A numeric provider id must be a SAFE integer: beyond-safe decimal strings
+  // collapse under Number ("…992" === "…993"), which would let two textually
+  // distinct ids read as the same pid. Such rows are treated as id-less and
+  // fall to the participant-contradiction rules instead.
   const rawPid = typeof game.providerGameId === 'string' ? game.providerGameId.trim() : '';
-  const pid = /^\d+$/.test(rawPid) ? Number(rawPid) : null;
+  const parsed = /^\d+$/.test(rawPid) ? Number(rawPid) : null;
+  const pid = parsed !== null && Number.isSafeInteger(parsed) ? parsed : null;
   return { home, away, pid };
 }
 
@@ -168,6 +173,17 @@ function isIncompatibleCollision(a: CollectionIdentity, b: CollectionIdentity): 
     }
   }
   return false;
+}
+
+/** Deterministic sorted-key serialization for total content ordering. */
+function stableSerialize(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'undefined';
+  if (Array.isArray(value)) return `[${value.map(stableSerialize).join(',')}]`;
+  const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([k, v]) => `${JSON.stringify(k)}:${stableSerialize(v)}`);
+  return `{${entries.join(',')}}`;
 }
 
 export function buildAuthoritativeGameCollection(
@@ -216,9 +232,25 @@ export function buildAuthoritativeGameCollection(
           : preferred.participants.away,
     };
 
+    // The AUTHORITATIVE provider id survives the merge: when exactly one side
+    // carries a numeric id, the merged game keeps it — a compatible id-less
+    // (or non-numeric-id) fragment can hydrate fields but never replace the
+    // provider association (the residual hybrid path round 4 confirmed).
+    // When both sides are numeric they are the SAME pid by the
+    // incompatibility rule, so the preferred spelling stands.
+    const existingPid = collectionIdentity(existing).pid;
+    const gamePid = collectionIdentity(game).pid;
+    const providerGameId =
+      existingPid !== null && gamePid === null
+        ? existing.providerGameId
+        : gamePid !== null && existingPid === null
+          ? game.providerGameId
+          : preferred.providerGameId;
+
     return {
       ...existing,
       ...preferred,
+      providerGameId,
       participants: mergedParticipants,
       csvHome: participantCsvValue(mergedParticipants.home),
       csvAway: participantCsvValue(mergedParticipants.away),
@@ -245,7 +277,12 @@ export function buildAuthoritativeGameCollection(
     if (byPair !== 0) return byPair;
     const byCsv = `${a.csvHome}::${a.csvAway}`.localeCompare(`${b.csvHome}::${b.csvAway}`);
     if (byCsv !== 0) return byCsv;
-    return String(a.label ?? '').localeCompare(String(b.label ?? ''));
+    const byLabel = String(a.label ?? '').localeCompare(String(b.label ?? ''));
+    if (byLabel !== 0) return byLabel;
+    // TOTAL order: a final sorted-key serialization tiebreak, so comparing
+    // equal means byte-identical rows — genuinely interchangeable, never
+    // merely similar (venue/status/notes differences all order).
+    return stableSerialize(a).localeCompare(stableSerialize(b));
   };
 
   // Phase B: resolve each group content-deterministically.
