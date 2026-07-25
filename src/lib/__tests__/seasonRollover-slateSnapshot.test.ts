@@ -242,3 +242,152 @@ test('buildSeasonArchive: ambiguous duplicate schedule ids fail closed', async (
   });
   await assert.rejects(buildSeasonArchive(SLUG, YEAR), /ambiguous duplicate CFBD schedule id/);
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086H3E4 — downstream safety for the "Second Round"/SEC collision.
+// Even when the DURABLE schedule cache still carries the stale colliding pair
+// (both rows normalized to the sec-championship identity, as the corrupted
+// 2021–2025 caches do), cache-only archive assembly must produce the genuine
+// Texas–Georgia game with its own provider id, score, and ownership — never
+// the archived hybrid.
+// ---------------------------------------------------------------------------
+
+const E4_YEAR = 2024;
+
+function staleSecChampionshipRow(params: {
+  id: string;
+  home: string;
+  away: string;
+  homeId: number;
+  awayId: number;
+}): Record<string, unknown> {
+  return {
+    id: params.id,
+    week: 15,
+    startDate: '2024-12-07T21:00:00.000Z',
+    neutralSite: true,
+    conferenceGame: true,
+    homeTeam: params.home,
+    awayTeam: params.away,
+    homeId: params.homeId,
+    awayId: params.awayId,
+    homeConference: 'SEC',
+    awayConference: 'SEC',
+    status: 'final',
+    seasonType: 'regular',
+    // The STALE misclassification both rows carry in the corrupted caches.
+    gamePhase: 'conference_championship',
+    regularSubtype: 'conference_championship',
+    eventKey: 'sec-championship',
+    conferenceChampionshipConference: 'SEC',
+  };
+}
+
+async function seedE4Season(): Promise<void> {
+  await setTeamDatabaseFile({
+    source: 'cfbd',
+    updatedAt: '2025-01-01T00:00:00.000Z',
+    items: [
+      { school: 'Texas', level: 'FBS', conference: 'SEC' },
+      { school: 'Georgia', level: 'FBS', conference: 'SEC' },
+      { school: 'UC Davis', level: 'FCS', conference: 'Big Sky' },
+      { school: 'Illinois State', level: 'FCS', conference: 'Missouri Valley' },
+    ],
+  });
+  await setAppState('schedule', `${E4_YEAR}-all-all`, {
+    items: [
+      staleSecChampionshipRow({
+        id: '401673469',
+        home: 'Texas',
+        away: 'Georgia',
+        homeId: 251,
+        awayId: 61,
+      }),
+      staleSecChampionshipRow({
+        id: '401729753',
+        home: 'UC Davis',
+        away: 'Illinois State',
+        homeId: 302,
+        awayId: 2287,
+      }),
+    ],
+  });
+  await setAppState('scores', `${E4_YEAR}-all-regular`, {
+    items: [
+      {
+        id: '401673469',
+        seasonType: 'regular',
+        startDate: '2024-12-07T21:00:00.000Z',
+        week: 15,
+        status: 'final',
+        home: { team: 'Texas', score: 19 },
+        away: { team: 'Georgia', score: 22 },
+        time: null,
+      },
+    ],
+  });
+  await setAppState(
+    `owners:${SLUG}:${E4_YEAR}`,
+    'csv',
+    ['team,owner', 'Texas,TexOwner', 'Georgia,DawgOwner'].join('\n')
+  );
+}
+
+test('E4 downstream: archive assembly over the stale colliding caches yields the genuine SEC game', async () => {
+  await seedE4Season();
+  const archive = await buildSeasonArchive(SLUG, E4_YEAR);
+
+  // The genuine game survives with its own provider id and orientation.
+  const sec = archive.games.find((g) => String(g.providerGameId) === '401673469');
+  assert.ok(sec, 'the genuine SEC Championship is archived');
+  assert.equal(
+    sec!.participants.home.kind === 'team' ? sec!.participants.home.canonicalName : null,
+    'Texas'
+  );
+  assert.equal(
+    sec!.participants.away.kind === 'team' ? sec!.participants.away.canonicalName : null,
+    'Georgia'
+  );
+
+  // No hybrid and no FCS id bound to the SEC identity anywhere in the archive.
+  for (const game of archive.games) {
+    const names = (['home', 'away'] as const)
+      .map((side) => game.participants[side])
+      .filter((p): p is Extract<typeof p, { kind: 'team' }> => p.kind === 'team')
+      .map((p) => p.canonicalName);
+    const hasSec = names.some((n) => n === 'Texas' || n === 'Georgia');
+    const hasFcs = names.some((n) => n === 'UC Davis' || n === 'Illinois State');
+    assert.ok(!(hasSec && hasFcs), `hybrid participants archived on ${game.key}`);
+    if (String(game.providerGameId) === '401729753') {
+      assert.ok(!hasSec, 'the FCS provider id must never carry SEC participants');
+    }
+  }
+
+  // The archive-owned score pairs with the genuine game's key.
+  const score = archive.scoresByKey[sec!.key];
+  assert.ok(score, 'the SEC game key attaches its archived score');
+  assert.equal(score!.home.score, 19);
+  assert.equal(score!.away.score, 22);
+
+  // Ownership attribution: Georgia's owner won, Texas's owner lost.
+  const wins = (owner: string) =>
+    archive.finalStandings.find((row) => row.owner === owner)?.wins ?? -1;
+  const losses = (owner: string) =>
+    archive.finalStandings.find((row) => row.owner === owner)?.losses ?? -1;
+  assert.equal(wins('DawgOwner'), 1);
+  assert.equal(losses('DawgOwner'), 0);
+  assert.equal(wins('TexOwner'), 0);
+  assert.equal(losses('TexOwner'), 1);
+
+  // The E1 slate snapshot pairs the genuine game's id with its own key.
+  const snapGame = archive.gameStatSlate?.games.find((g) => g.providerGameId === 401673469);
+  assert.ok(snapGame, 'the snapshot carries the genuine game');
+  assert.equal(snapGame!.key, sec!.key);
+  assert.equal(snapGame!.homeId, 251);
+  assert.equal(snapGame!.awayId, 61);
+  assert.equal(
+    archive.gameStatSlate?.games.find((g) => g.providerGameId === 401729753),
+    undefined,
+    'the FCS game is not stat-applicable for this league slate'
+  );
+});

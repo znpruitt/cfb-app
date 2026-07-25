@@ -60,9 +60,17 @@ export function matchConferenceChampionshipSlotByText(
   const normalizedText = normalizeConferenceIdentity(text);
   if (!normalizedText) return null;
 
+  // Aliases match COMPLETE normalized tokens or token phrases, never arbitrary
+  // substrings: normalization collapses every non-alphanumeric run to a single
+  // space, so padding both sides with spaces makes `includes` a whole-token
+  // phrase test. The 2024 archive corruption came from the bare-substring
+  // predecessor here reading the `sec` inside "Second Round" as the SEC alias
+  // (PLATFORM-086H3E4). Slot iteration order is unchanged — first match wins,
+  // exactly as before.
+  const paddedText = ` ${normalizedText} `;
   return (
     CONFERENCE_CHAMPIONSHIP_SLOTS.find((slot) =>
-      slot.aliases.some((alias) => normalizedText.includes(normalizeConferenceIdentity(alias)))
+      slot.aliases.some((alias) => paddedText.includes(` ${normalizeConferenceIdentity(alias)} `))
     ) ?? null
   );
 }

@@ -431,7 +431,16 @@ function deriveEventMetadata(params: {
   })();
   const conferenceSlot = conferenceFromText ?? conferenceFromTeams;
 
-  const isConferenceChampionship = championship && !playoff && Boolean(conferenceSlot);
+  // Explicit non-FBS negative evidence suppresses FBS conference-championship
+  // inference exactly as it suppresses CFP inference above: a row CFBD
+  // explicitly classifies FCS / Division II / Division III can never acquire
+  // an inferred FBS conference-championship identity from generic wording
+  // (PLATFORM-086H3E4 — the "FCS Championship - Second Round" row must not
+  // become `sec-championship`). Genuine FBS conference championships have no
+  // non-FBS participant, and missing classification metadata keeps the
+  // existing text fallback.
+  const isConferenceChampionship =
+    championship && !playoff && Boolean(conferenceSlot) && !explicitNonFbs;
 
   if (isConferenceChampionship) {
     return {

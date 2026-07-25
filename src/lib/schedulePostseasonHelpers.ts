@@ -112,21 +112,107 @@ export function buildPlaceholderParticipant(params: {
   };
 }
 
+/**
+ * The resolved identity a collection candidate asserts: canonical team ids of
+ * settled 'team' slots (resolver-produced — never local raw-string matching)
+ * plus the numeric CFBD provider id when the stored id is a plain decimal.
+ */
+type CollectionIdentity = {
+  home: string | null;
+  away: string | null;
+  pid: number | null;
+};
+
+function collectionIdentity(game: AppGame): CollectionIdentity {
+  const home = game.participants.home.kind === 'team' ? game.participants.home.teamId : null;
+  const away = game.participants.away.kind === 'team' ? game.participants.away.teamId : null;
+  const rawPid = typeof game.providerGameId === 'string' ? game.providerGameId.trim() : '';
+  const pid = /^\d+$/.test(rawPid) ? Number(rawPid) : null;
+  return { home, away, pid };
+}
+
+function isFullyResolved(identity: CollectionIdentity): boolean {
+  return identity.home !== null && identity.away !== null && identity.pid !== null;
+}
+
+function participantPairKey(identity: CollectionIdentity): string {
+  return [identity.home, identity.away].sort().join('::');
+}
+
+/**
+ * Whether two rows that collide on event/stage/week/date metadata must NOT be
+ * fieldwise merged (PLATFORM-086H3E4 — the 2024 archive hybrid combined one
+ * game's provider id with another game's participants):
+ *
+ *   - two FULLY resolved games (both settled team slots + numeric provider
+ *     ids) with DISTINCT provider ids and CONTRADICTORY canonical participant
+ *     pairs are different real games — never merged;
+ *   - a partially resolved row whose settled team slot names a team outside a
+ *     fully resolved candidate's pair contradicts it — routed away instead of
+ *     hydrating the wrong game.
+ *
+ * Everything else keeps today's merge behavior: placeholder hydration,
+ * same-provider-id duplicates, and fragments whose settled slots agree.
+ */
+function isIncompatibleCollision(a: CollectionIdentity, b: CollectionIdentity): boolean {
+  if (isFullyResolved(a) && isFullyResolved(b)) {
+    return a.pid !== b.pid && participantPairKey(a) !== participantPairKey(b);
+  }
+  const [full, partial] = isFullyResolved(a) ? [a, b] : isFullyResolved(b) ? [b, a] : [null, null];
+  if (full === null || partial === null) return false;
+  const pair = new Set([full.home, full.away]);
+  for (const id of [partial.home, partial.away]) {
+    if (id !== null && !pair.has(id)) return true;
+  }
+  return false;
+}
+
 export function buildAuthoritativeGameCollection(
   regularGames: AppGame[],
   postseasonGames: AppGame[],
   overrides?: Record<string, Partial<AppGame>>
 ): AppGame[] {
-  const byMergeKey = new Map<string, AppGame>();
+  // Candidate LISTS per merge key: nearly always length 1 — a second candidate
+  // exists only when an incompatible collision (above) forbids merging.
+  const byMergeKey = new Map<string, AppGame[]>();
 
   const toMergeKey = (game: AppGame): string =>
     [game.eventId, game.stage, String(game.week), game.date ?? 'unknown'].join('::');
 
+  /**
+   * Candidates in DETERMINISTIC order — numeric provider id ascending, ids
+   * before id-less fragments — so collision routing and key disambiguation
+   * are permutation-invariant for the resolved games regardless of input
+   * order.
+   */
+  const sortCandidates = (candidates: AppGame[]): AppGame[] =>
+    [...candidates].sort((a, b) => {
+      const pa = collectionIdentity(a).pid;
+      const pb = collectionIdentity(b).pid;
+      if (pa !== null && pb !== null) return pa - pb;
+      if (pa !== null) return -1;
+      if (pb !== null) return 1;
+      return 0;
+    });
+
   for (const game of [...regularGames, ...postseasonGames]) {
     const mergeKey = toMergeKey(game);
-    const existing = byMergeKey.get(mergeKey);
-    if (!existing) {
-      byMergeKey.set(mergeKey, game);
+    const candidates = byMergeKey.get(mergeKey);
+    if (!candidates) {
+      byMergeKey.set(mergeKey, [game]);
+      continue;
+    }
+
+    // Route to the first COMPATIBLE candidate in deterministic order; an
+    // incompatible collision preserves the incoming game as its own candidate
+    // and lets the existing unique-key disambiguation handle both.
+    const incomingIdentity = collectionIdentity(game);
+    const ordered = sortCandidates(candidates);
+    const existing = ordered.find(
+      (candidate) => !isIncompatibleCollision(collectionIdentity(candidate), incomingIdentity)
+    );
+    if (existing === undefined) {
+      candidates.push(game);
       continue;
     }
 
@@ -155,7 +241,7 @@ export function buildAuthoritativeGameCollection(
           : preferred.participants.away,
     };
 
-    byMergeKey.set(mergeKey, {
+    const merged: AppGame = {
       ...existing,
       ...preferred,
       participants: mergedParticipants,
@@ -164,39 +250,49 @@ export function buildAuthoritativeGameCollection(
       canHome: participantCanonicalValue(mergedParticipants.home),
       canAway: participantCanonicalValue(mergedParticipants.away),
       sources: { ...existing.sources, ...preferred.sources },
-    });
+    };
+    candidates[candidates.indexOf(existing)] = merged;
   }
 
   for (const [eventId, override] of Object.entries(overrides ?? {})) {
-    for (const [mergeKey, current] of byMergeKey.entries()) {
-      if (current.eventId !== eventId) continue;
-      byMergeKey.set(mergeKey, applyManualOverride(current, override));
+    for (const [mergeKey, candidates] of byMergeKey.entries()) {
+      byMergeKey.set(
+        mergeKey,
+        candidates.map((candidate) =>
+          candidate.eventId === eventId ? applyManualOverride(candidate, override) : candidate
+        )
+      );
     }
   }
 
   const gamesWithUniqueKeys: AppGame[] = [];
   const seenKeys = new Set<string>();
 
-  for (const [mergeKey, game] of byMergeKey.entries()) {
-    const baseKey = game.key || game.eventId || mergeKey;
-    if (!seenKeys.has(baseKey)) {
-      seenKeys.add(baseKey);
-      gamesWithUniqueKeys.push(game);
-      continue;
-    }
+  for (const [mergeKey, candidates] of byMergeKey.entries()) {
+    // Deterministic emission: for a split merge key, the lowest numeric
+    // provider id keeps the base key and later candidates disambiguate —
+    // identical output identities whichever order the inputs arrived in.
+    for (const game of sortCandidates(candidates)) {
+      const baseKey = game.key || game.eventId || mergeKey;
+      if (!seenKeys.has(baseKey)) {
+        seenKeys.add(baseKey);
+        gamesWithUniqueKeys.push(game);
+        continue;
+      }
 
-    const disambiguator = [game.stage, `w${game.week}`, game.providerGameId ?? game.date ?? 'na']
-      .join('::')
-      .replace(/\s+/g, '-');
-    let nextKey = `${baseKey}::${disambiguator}`;
-    let counter = 2;
-    while (seenKeys.has(nextKey)) {
-      nextKey = `${baseKey}::${disambiguator}::${counter}`;
-      counter += 1;
-    }
+      const disambiguator = [game.stage, `w${game.week}`, game.providerGameId ?? game.date ?? 'na']
+        .join('::')
+        .replace(/\s+/g, '-');
+      let nextKey = `${baseKey}::${disambiguator}`;
+      let counter = 2;
+      while (seenKeys.has(nextKey)) {
+        nextKey = `${baseKey}::${disambiguator}::${counter}`;
+        counter += 1;
+      }
 
-    seenKeys.add(nextKey);
-    gamesWithUniqueKeys.push({ ...game, key: nextKey });
+      seenKeys.add(nextKey);
+      gamesWithUniqueKeys.push({ ...game, key: nextKey });
+    }
   }
 
   return gamesWithUniqueKeys;
