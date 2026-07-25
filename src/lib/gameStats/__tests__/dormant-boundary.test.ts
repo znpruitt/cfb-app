@@ -131,6 +131,7 @@ const FORBIDDEN_SYMBOLS = [
   'projectPublicPartition',
   'projectPublicFromCoverage',
   'projectAnalyticsPartition',
+  'validateGameStatsEnvelope',
   // PLATFORM-086H3C2 dormant ingestion-coordinator entry point. A live consumer
   // must not import or reference it until activation (E) wires ingestion.
   'ingestGameStatsPartitionResponse',
@@ -508,6 +509,7 @@ test('scanner: detects dormant API references and v2 metadata names', () => {
     ['const k = pollingPartitionKey(ref);', 'pollingPartitionKey'],
     ['const q = evaluateAutomationQuota(usage);', 'evaluateAutomationQuota'],
     ['const m = evaluateManualQuota(usage, override);', 'evaluateManualQuota'],
+    ['const v = validateGameStatsEnvelope(value, y, w, st);', 'validateGameStatsEnvelope'],
   ];
   for (const [source, symbol] of cases) {
     const violations = findBoundaryViolations(source, 'src/lib/example.ts');

@@ -185,6 +185,63 @@ test('select: satisfied evidence resolves the game; a fully resolved partition s
   assert.equal(target, null);
 });
 
+test('select: a malformed envelope resolves nothing — it polls and never throws', () => {
+  const game = windowGame({ id: 101, ageMs: 4 * H });
+  const malformed = new Map<string, unknown>([
+    // games is not an array — groupRowsById would throw if this were trusted.
+    [
+      pollingPartitionKey({ year: 2025, week: 3, seasonType: 'regular' }),
+      {
+        year: 2025,
+        week: 3,
+        seasonType: 'regular',
+        fetchedAt: '2025-09-07T00:00:00.000Z',
+        games: {},
+      },
+    ],
+  ]);
+  const target = selectPollingTarget({
+    slate: slateOf([game]),
+    now: NOW,
+    seasonRelation: 'current',
+    recordsByPartition: malformed,
+  });
+  assert.notEqual(target, null);
+});
+
+test('select: a partition-mismatched envelope never resolves another partition', () => {
+  // A week-4 record (carrying satisfying evidence for the game id) stored
+  // under the week-3 key must not suppress week-3 polling.
+  const game = windowGame({ id: 101, ageMs: 4 * H });
+  const mispaired = new Map<string, unknown>([
+    [
+      pollingPartitionKey({ year: 2025, week: 3, seasonType: 'regular' }),
+      weeklyRecord(4, 'regular', [satisfyingRow(101)]),
+    ],
+  ]);
+  const target = selectPollingTarget({
+    slate: slateOf([game]),
+    now: NOW,
+    seasonRelation: 'current',
+    recordsByPartition: mispaired,
+  });
+  assert.notEqual(target, null);
+});
+
+test('select: an invalid fetchedAt envelope resolves nothing', () => {
+  const game = windowGame({ id: 101, ageMs: 4 * H });
+  const record = { ...weeklyRecord(3, 'regular', [satisfyingRow(101)]), fetchedAt: 'not-a-time' };
+  const target = selectPollingTarget({
+    slate: slateOf([game]),
+    now: NOW,
+    seasonRelation: 'current',
+    recordsByPartition: new Map<string, unknown>([
+      [pollingPartitionKey({ year: 2025, week: 3, seasonType: 'regular' }), record],
+    ]),
+  });
+  assert.notEqual(target, null);
+});
+
 test('select: sparse (unsatisfied) evidence keeps the game unresolved within the window', () => {
   const game = windowGame({ id: 101, ageMs: 4 * H });
   const sparse = v2Row({

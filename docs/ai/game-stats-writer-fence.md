@@ -196,10 +196,11 @@ store.
   result (H2's `DurableMergeResult` nested unchanged) into the locked matrix
   (empty/clean-unchanged/clean-stale → no-op; rejections and mixed
   unchanged/stale → failure with prior-good preserved; written+clean →
-  success; written+mixed and partially-merged → partial, the only outcomes
-  that may advance last-success; conflict → 409; unavailable → known-unchanged
-  503; indeterminate → 503, durability unknown, reread required, no same-run
-  retry). `pollingTarget.ts` derives the single 15-minute fetch target from
+  success; written+mixed and partially-merged → partial; those three
+  confirmed-commit outcomes — written+clean, written+mixed, partially-merged —
+  are the ONLY ones that may advance last-success; conflict → 409;
+  unavailable → known-unchanged 503; indeterminate → 503, durability unknown,
+  reread required, no same-run retry). `pollingTarget.ts` derives the single 15-minute fetch target from
   schedule time + evidence — NOT score-gated: a game polls while addressable,
   stat-applicable, kickoff-aged [3h, 24h), and not evidence-`satisfied`
   (shared evidence authority); earliest-unresolved-kickoff ordering, regular

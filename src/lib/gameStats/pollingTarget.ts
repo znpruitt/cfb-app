@@ -3,7 +3,7 @@ import type { SeasonRelation } from './contract.ts';
 import type { CanonicalGame, CanonicalSlate } from './canonicalSlate.ts';
 import { selectGameEvidence } from './evidenceAuthority.ts';
 import { groupRowsById } from './partitionCoverage.ts';
-import type { WeeklyGameStats } from './types.ts';
+import { validateGameStatsEnvelope } from './publicProjection.ts';
 
 /**
  * PLATFORM-086H3E2 — schedule/evidence polling-target derivation (DORMANT).
@@ -135,12 +135,17 @@ export type PollingTargetInput = {
   now: Date;
   seasonRelation: SeasonRelation;
   /**
-   * Committed durable record per phase-1 partition, keyed by
-   * `pollingPartitionKey` — read CACHE-ONLY by the caller. A missing entry is
-   * treated exactly like an absent record (`null`): every window game is then
-   * unresolved, which fails toward polling, bounded by the finite window.
+   * RAW durable read value per phase-1 partition, keyed by
+   * `pollingPartitionKey` — read CACHE-ONLY by the caller and validated HERE
+   * through the shared `validateGameStatsEnvelope` authority (durable
+   * app-state is untyped at rest; the stored value proves nothing). A missing
+   * entry, an absent record, a malformed envelope, a partition-mismatched
+   * envelope, or a non-array games payload all resolve NOTHING: every window
+   * game stays unresolved, which fails TOWARD polling — corrupt or mispaired
+   * durable context can suppress neither the poll nor a repair, and the
+   * finite window plus the quota reserve bound the cost.
    */
-  recordsByPartition: ReadonlyMap<string, WeeklyGameStats | null>;
+  recordsByPartition: ReadonlyMap<string, unknown>;
 };
 
 /**
@@ -157,8 +162,16 @@ export function selectPollingTarget(input: PollingTargetInput): PollingTarget | 
 
   let best: { target: PollingTarget; sortKey: PartitionAccumulator } | null = null;
   for (const partition of collectWindowPartitions(slate, nowMs)) {
-    const record = recordsByPartition.get(pollingPartitionKey(partition.ref)) ?? null;
-    const rowsById = groupRowsById(record);
+    // Validate the untyped stored value through the ONE envelope authority
+    // before any row is grouped: only an exactly-valid envelope for THIS
+    // partition may resolve games.
+    const validation = validateGameStatsEnvelope(
+      recordsByPartition.get(pollingPartitionKey(partition.ref)) ?? null,
+      partition.ref.year,
+      partition.ref.week,
+      partition.ref.seasonType
+    );
+    const rowsById = groupRowsById(validation.status === 'ok' ? validation.record : null);
 
     let earliestUnresolvedMs = Number.POSITIVE_INFINITY;
     let earliestUnresolvedKickoff: string | null = null;

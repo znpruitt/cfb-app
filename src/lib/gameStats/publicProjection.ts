@@ -230,7 +230,7 @@ export function projectPublicFromCoverage(
 
 // === Envelope validation ===
 
-type EnvelopeValidation =
+export type EnvelopeValidation =
   | { status: 'ok'; record: WeeklyGameStats }
   | { status: 'absent' }
   | { status: 'malformed-envelope' }
@@ -238,7 +238,14 @@ type EnvelopeValidation =
   | { status: 'invalid-fetched-at' }
   | { status: 'non-array-games' };
 
-function validateEnvelope(
+/**
+ * The ONE durable-envelope validation authority (PLATFORM-086H3E2 export):
+ * every dormant consumer of a committed `WeeklyGameStats` read — the public
+ * projection below and the polling-target derivation — validates the untyped
+ * stored value through this exact function, so envelope identity/shape policy
+ * can never fork.
+ */
+export function validateGameStatsEnvelope(
   value: unknown,
   year: number,
   week: number,
@@ -282,7 +289,12 @@ export function projectPublicPartition(
   }
   if (read.status === 'read-failed') return { status: 'read-failure' };
 
-  const validation = validateEnvelope(read.value, slateResult.slate.year, week, seasonType);
+  const validation = validateGameStatsEnvelope(
+    read.value,
+    slateResult.slate.year,
+    week,
+    seasonType
+  );
   if (validation.status !== 'ok') return { status: validation.status };
 
   const coverage = evaluatePartitionCoverage(
@@ -358,7 +370,7 @@ export type CanonicalAnalyticsReadInput = {
  *     successfully established the partition is ABSENT — a durable read failure
  *     must be handled by the caller and never converted to `null`.
  *   - A non-null committed record is validated through the SAME
- *     `validateEnvelope` authority the public projection uses (the durable
+ *     `validateGameStatsEnvelope` authority the public projection uses (the durable
  *     store itself never validates stored values): a malformed envelope, a
  *     partition mismatch, an invalid `fetchedAt`, or a non-array `games`
  *     payload fails CLOSED to no analytics evidence — it never throws and
@@ -369,7 +381,7 @@ export type CanonicalAnalyticsReadInput = {
  *     mutates state. Assembling live and archived inputs and performing durable
  *     reads is the caller's (E's) responsibility.
  *   - Association, evidence selection, duplicate authority, and the strict
- *     analytics projection are all REUSED from C1 (`validateEnvelope`,
+ *     analytics projection are all REUSED from C1 (`validateGameStatsEnvelope`,
  *     `groupRowsById`, `selectGameEvidence`, `toAnalyticsGameStats`) — there is
  *     no second envelope/selection/completeness policy, and no
  *     recovery-filtered `PartitionCoverage` input.
@@ -389,7 +401,12 @@ export function projectAnalyticsPartition(
   // evidence — never a throw, never analytics from a corrupt envelope.
   let validated: WeeklyGameStats | null = null;
   if (committedRecord !== null) {
-    const validation = validateEnvelope(committedRecord, input.slate.year, week, seasonType);
+    const validation = validateGameStatsEnvelope(
+      committedRecord,
+      input.slate.year,
+      week,
+      seasonType
+    );
     if (validation.status !== 'ok') return [];
     validated = validation.record;
   }
