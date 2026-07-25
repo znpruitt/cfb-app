@@ -234,7 +234,9 @@ function classifyApplicability(input: {
  * Pure canonical slate builder. `now` is injected (never ambient) so
  * applicability is deterministic and testable. Throws only if
  * `buildScheduleFromApi` throws over malformed inputs — the async wrapper below
- * translates that into `canonical-build-failed`.
+ * translates that into `canonical-build-failed`. Performs its own internal
+ * league-agnostic canonical build, then delegates to
+ * `deriveCanonicalGameStatsSlateFromBuild` over that exact build.
  */
 export function buildCanonicalGameStatsSlate(input: {
   year: number;
@@ -256,6 +258,43 @@ export function buildCanonicalGameStatsSlate(input: {
   // Build the canonical games FIRST so the attachment resolver can be seeded from
   // their settled participants (never from raw labels of excluded schedule rows).
   const { games } = buildScheduleFromApi({ scheduleItems, teams, aliasMap, season: year });
+  return deriveCanonicalGameStatsSlateFromBuild({
+    year,
+    games,
+    scheduleItems,
+    teams,
+    aliasMap,
+    now,
+  });
+}
+
+/**
+ * PLATFORM-086H3E1 — derive the canonical game-stat slate from an EXACT prior
+ * canonical schedule build instead of an internal rebuild. `games` MUST be the
+ * unmodified output of ONE `buildScheduleFromApi` invocation and
+ * `scheduleItems` the exact wire rows fed to that same invocation: the slate
+ * then inherits that build's keys, aliases, overrides, and exclusions, so a
+ * consumer pairing it with scores attached to the SAME build can never mix
+ * provenance across builds. The only production caller outside the dormant
+ * boundary is the archive snapshot seam (`slateSnapshot.ts`), enforced by the
+ * dormant-boundary guard's exact allowlist.
+ */
+export function deriveCanonicalGameStatsSlateFromBuild(input: {
+  year: number;
+  /** The exact `buildScheduleFromApi(...).games` output of one build. */
+  games: AppGame[];
+  /** The exact wire rows fed to that same build. */
+  scheduleItems: ScheduleWireItem[];
+  teams: TeamCatalogItem[];
+  aliasMap: AliasMap;
+  now: Date;
+}): CanonicalSlate {
+  const { year, games, scheduleItems, teams, aliasMap, now } = input;
+  // Same identity-authority precondition as the building entry point: the
+  // attachment resolver is never seeded without catalog authority.
+  if (teams.length === 0) {
+    throw new Error('deriveCanonicalGameStatsSlateFromBuild requires a non-empty team catalog');
+  }
   const resolver = createGameStatsResolver({ games, teams, aliasMap });
 
   // Index raw schedule rows by their PARSED numeric CFBD provider id (first-wins),
