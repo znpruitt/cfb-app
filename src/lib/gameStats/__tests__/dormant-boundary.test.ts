@@ -69,6 +69,12 @@ const EXCLUDED_FILES = new Set([
   'src/lib/gameStats/publicProjection.ts',
   'src/lib/gameStats/ingestionCoordinator.ts',
   'src/lib/gameStats/writerControlTransition.ts',
+  // PLATFORM-086H3E2 dormant activation prerequisites: the one refresh-outcome
+  // interpreter, the polling-target derivation, and the quota-reserve policy.
+  // Pure and unwired until E3 connects route/cron through them.
+  'src/lib/gameStats/refreshOutcome.ts',
+  'src/lib/gameStats/pollingTarget.ts',
+  'src/lib/gameStats/quotaPolicy.ts',
 ]);
 const EXCLUDED_DIRS = new Set(['__tests__', '__fixtures__', 'fixtures']);
 const TEST_FILE_PATTERN = /\.(test|spec)\.tsx?$/;
@@ -125,6 +131,7 @@ const FORBIDDEN_SYMBOLS = [
   'projectPublicPartition',
   'projectPublicFromCoverage',
   'projectAnalyticsPartition',
+  'validateGameStatsEnvelope',
   // PLATFORM-086H3C2 dormant ingestion-coordinator entry point. A live consumer
   // must not import or reference it until activation (E) wires ingestion.
   'ingestGameStatsPartitionResponse',
@@ -133,6 +140,14 @@ const FORBIDDEN_SYMBOLS = [
   // import or reference it — production transitions are E's manual runbook.
   'transitionWriterControl',
   'isAllowedWriterControlTransition',
+  // PLATFORM-086H3E2 dormant activation-prerequisite entry points. E3 wires
+  // route/cron through these; until then no production file may reference them.
+  'interpretGameStatsRefreshOutcome',
+  'listKickoffWindowPartitions',
+  'selectPollingTarget',
+  'pollingPartitionKey',
+  'evaluateAutomationQuota',
+  'evaluateManualQuota',
 ];
 
 const SYMBOL_PATTERN = new RegExp(`\\b(${FORBIDDEN_SYMBOLS.join('|')})\\b`, 'g');
@@ -156,6 +171,10 @@ const DORMANT_MODULE_BASENAMES = [
   'publicProjection',
   'ingestionCoordinator',
   'writerControlTransition',
+  // PLATFORM-086H3E2 dormant activation prerequisites.
+  'refreshOutcome',
+  'pollingTarget',
+  'quotaPolicy',
 ];
 const DORMANT_MODULE_RESOLVED = new RegExp(
   `^src/lib/gameStats/(${DORMANT_MODULE_BASENAMES.join('|')})(\\.(?:js|mjs|cjs|ts|mts|cts|tsx))?$`
@@ -483,6 +502,14 @@ test('scanner: detects dormant API references and v2 metadata names', () => {
       'transitionWriterControl',
     ],
     ['if (isAllowedWriterControlTransition(a, b)) {}', 'isAllowedWriterControlTransition'],
+    // PLATFORM-086H3E2 activation-prerequisite entry points.
+    ['const i = interpretGameStatsRefreshOutcome(result);', 'interpretGameStatsRefreshOutcome'],
+    ['const p = listKickoffWindowPartitions(slate, now);', 'listKickoffWindowPartitions'],
+    ['const t = selectPollingTarget(input);', 'selectPollingTarget'],
+    ['const k = pollingPartitionKey(ref);', 'pollingPartitionKey'],
+    ['const q = evaluateAutomationQuota(usage);', 'evaluateAutomationQuota'],
+    ['const m = evaluateManualQuota(usage, override);', 'evaluateManualQuota'],
+    ['const v = validateGameStatsEnvelope(value, y, w, st);', 'validateGameStatsEnvelope'],
   ];
   for (const [source, symbol] of cases) {
     const violations = findBoundaryViolations(source, 'src/lib/example.ts');
@@ -596,6 +623,28 @@ test('scanner: detects static, dynamic, require, and re-export contract imports'
     ).length,
     1
   );
+  // The PLATFORM-086H3E2 prerequisite modules are guarded the same way in
+  // every import form.
+  const e2Flagged = [
+    `import { interpretGameStatsRefreshOutcome } from '../gameStats/refreshOutcome';`,
+    `const m = await import('@/lib/gameStats/pollingTarget');`,
+    `const m = require('../gameStats/quotaPolicy.ts');`,
+    `export * from '../gameStats/refreshOutcome';`,
+  ];
+  for (const source of e2Flagged) {
+    const violations = findBoundaryViolations(source, importer);
+    assert.ok(
+      violations.some((v) => v.pattern.startsWith('dormant-module import')),
+      source
+    );
+  }
+  for (const base of ['refreshOutcome', 'pollingTarget', 'quotaPolicy']) {
+    assert.equal(
+      findBoundaryViolations(`export * from './${base}';`, 'src/lib/gameStats/index.ts').length,
+      1,
+      base
+    );
+  }
   // The shared fence parser is a benign primitive — importing it is NOT a
   // boundary violation.
   assert.deepEqual(
@@ -820,6 +869,10 @@ test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', (
     'src/lib/gameStats/ingestionCoordinator.ts',
     // PLATFORM-086H3D writer-control transition authority.
     'src/lib/gameStats/writerControlTransition.ts',
+    // PLATFORM-086H3E2 activation prerequisites.
+    'src/lib/gameStats/refreshOutcome.ts',
+    'src/lib/gameStats/pollingTarget.ts',
+    'src/lib/gameStats/quotaPolicy.ts',
   ]) {
     assert.ok(!set.has(excluded), `${excluded} must be excluded`);
   }
