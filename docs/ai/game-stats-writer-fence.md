@@ -6,7 +6,7 @@ the C evidence slices (C1–C5) are merged (PRs #400–#402, #404, #407 — C5 i
 numeric participant validation, PLATFORM-086H3C5); the rollout-safety
 capability D (§5, PLATFORM-086H3D) is merged dormant (PR #403); the activation execution (E)
 ships as approved slices E1 → E2 → E3 (§4) — E1 (paired analytics provenance,
-PLATFORM-086H3E1) is implemented and review-clean pending merge, E2/E3 are unwritten —
+PLATFORM-086H3E1) is merged (PR #408), E2/E3 are unwritten —
 production remains in `legacy` and no transition has ever been executed.
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any conflict.
 
@@ -168,8 +168,8 @@ store.
   E1 → E2 → E3** (E1 paired analytics provenance; E2 dormant refresh-outcome /
   polling-target / quota-policy primitives; E3 the single behaviorally atomic
   live switch).
-- **E1 — paired analytics provenance (PLATFORM-086H3E1 — implemented, pending
-  merge):** adds `deriveCanonicalGameStatsSlateFromBuild` (slate derivation from
+- **E1 — paired analytics provenance (PLATFORM-086H3E1 — merged, PR #408):**
+  adds `deriveCanonicalGameStatsSlateFromBuild` (slate derivation from
   an EXACT prior canonical build — its unmodified `buildScheduleFromApi` games
   plus the exact wire rows — inheriting that build's league-scoped aliases,
   manual postseason overrides, and attachment keys instead of an independent

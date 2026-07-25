@@ -1708,6 +1708,25 @@ Key architectural decisions across Phase 5:
 
 ---
 
+**Status:** Complete. Merged to `main` via **PR #408** (merge commit `a4dd9d5`, 2026-07-24; from `main@ef4133e`; impl `6c50884`/`aa309fa`/`c1143af`/`df94dfb` + remediations `c5e9a53`/`1441ed9`/`c06b8d4`/`a847493`/`4ebb068` + docs closeout `0ee949c`). Six Codex review rounds — round 1: one blocker (silent wire-row mis-association under id-rewriting manual overrides → now fails closed) + three should-fix; rounds 2–5: progressively narrower dormant-guard hardening (positional/form-strict allowlist, comment/string-masked statement boundaries, template/comment-separated/escape-decoded specifiers, single-pass decoding with line continuations) + snapshot build-time self-validation; round 6 **clean**; final full-diff review incl. docs **clean**. Gates: `tsc` / `lint:all` / `git diff --check` clean; full `npm test` 2055/2055; `npm run build` clean; isolated semantic comparison (seeded file-fallback state, no network) byte-identical to `main` except the single additive `gameStatSlate` block.
+**PROMPT_ID(s):** PLATFORM-086H3E1-PAIRED-ANALYTICS-PROVENANCE-v1 (slice 1 of PLATFORM-086H3E-FINAL-ATOMIC-ACTIVATION-v1)
+
+**Goals completed:**
+
+- Added `deriveCanonicalGameStatsSlateFromBuild`: canonical game-stat slate derivation from the EXACT `buildScheduleFromApi` build (unmodified games + exact wire rows), inheriting that build's league-scoped aliases, manual postseason overrides, and attachment keys instead of an independent league-agnostic rebuild; an addressable built game with no associated wire row fails CLOSED. `buildCanonicalGameStatsSlate` delegates to it (equivalence-tested; behavior unchanged).
+- Added the archive-owned `gameStatSlate` snapshot (`src/lib/gameStats/slateSnapshot.ts`): minimal strict versioned wire schema (per game: providerGameId, attachment key, providerWeek, seasonType, name-resolved participants, numeric homeId/awayId — never a serialized runtime `CanonicalGame`); built during `buildSeasonArchive` from the same build that produced `archive.games`, paired ONLY with that archive's own `scoresByKey`; self-validated through its strict parser at build time; fail-closed on empty catalog, duplicate/unassociated provider ids, and invalid override-injected values. Strict parser distinguishes `absent` (pre-E1 archive) from `malformed` (incl. present `null`, `expectedYear` mismatch).
+- Extended the recursive dormant-boundary guard with its single exact production crossing (`slateSnapshot.ts` → `canonicalSlate`, derive entry only) — positional and form-strict, with laundering self-tests (re-exports, renamed/namespace imports, dynamic/template/comment-separated/escape-obfuscated specifiers, line continuations, value aliasing) and a documented honest static scope.
+
+**Key outcomes:**
+
+- Additive and non-activating: no live consumer lifecycle, writer, or provider access; production remains on the fenced legacy writer in `legacy`; E2/E3 remain unwritten. Newly built/backfilled archives carry the snapshot; nothing reads it until E3, which fails closed on absent/malformed snapshots — the preview/confirm backfill is the only repair.
+
+**Optional follow-up debt (non-blocking):**
+
+- **Operator ordering before E3 activation (documented, NOT executed):** full-year schedule refreshes (2021–2025 + activation season) → participant/parity audit → preview/confirm archive backfills; backfilling first would bake null participant ids into snapshots.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
