@@ -7,9 +7,14 @@ import {
   __resetAppStateForTests,
 } from '../../../../lib/server/appStateStore.ts';
 import { getCachedGameStats } from '../../../../lib/gameStats/cache.ts';
-import { seedLegacyWriterControl } from '../../../../lib/gameStats/__tests__/writerControlSeed.ts';
+import { seedActiveWriterControl } from '../../../../lib/gameStats/__tests__/writerControlSeed.ts';
+import { wireGame } from '../../../../lib/gameStats/__tests__/fixtures.ts';
 import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
 import { weekPartitionScope } from '../../../../lib/providerRefreshScope.ts';
+
+// PLATFORM-086H3E3 — the activated manual-refresh contract: admin-first,
+// attempt-before-credentials, quota gate with explicit quotaOverride, the ONE
+// ingestion path + interpreter, and a durable-reread response.
 
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
 const ORIGINAL = {
@@ -20,28 +25,35 @@ const ORIGINAL = {
 const ORIGINAL_FETCH = globalThis.fetch;
 const ADMIN_TOKEN = 'test-admin-token';
 
-function adminRefresh(): Request {
+function adminRefresh(extra = ''): Request {
   return new Request(
-    'https://example.com/api/game-stats?year=2026&week=3&seasonType=regular&bypassCache=1',
+    `https://example.com/api/game-stats?year=2026&week=3&seasonType=regular&bypassCache=1${extra}`,
     { headers: { 'x-admin-token': ADMIN_TOKEN } }
   );
 }
 
-function stubJson(body: unknown) {
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify(body), {
+/** Stub CFBD: /info serves healthy usage; /games/teams serves `payload`. */
+function stubProvider(payload: unknown, usage: unknown = { patronLevel: 1, remainingCalls: 4000 }) {
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    const body = url.includes('/info') ? usage : payload;
+    return new Response(JSON.stringify(body), {
       status: 200,
       headers: { 'content-type': 'application/json' },
-    })) as typeof fetch;
+    });
+  }) as typeof fetch;
 }
 
 test.beforeEach(async () => {
-  await __deleteAppStateFileForTests();
-  __resetAppStateForTests();
-  await seedLegacyWriterControl();
+  // Env first: a prior test may have left NODE_ENV=production, under which the
+  // file-fallback store (rightly) refuses.
   MUTABLE_ENV.NODE_ENV = 'development';
   MUTABLE_ENV.ADMIN_API_TOKEN = ADMIN_TOKEN;
   globalThis.fetch = ORIGINAL_FETCH;
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  // The activated world: H2 is the only writer, permitted only under `active`.
+  await seedActiveWriterControl();
 });
 
 test.after(() => {
@@ -53,17 +65,45 @@ test.after(() => {
   globalThis.fetch = ORIGINAL_FETCH;
 });
 
-test('manual game-stats refresh with a missing CFBD key records a failed attempt (finding #5)', async () => {
+test('auth precedes validation: an unauthenticated MALFORMED request fails auth first', async () => {
+  delete MUTABLE_ENV.ADMIN_API_TOKEN;
+  MUTABLE_ENV.NODE_ENV = 'production';
+  const res = await GET(new Request('https://example.com/api/game-stats?year=abc&week=-1'));
+  assert.equal(res.status, 401);
+});
+
+test('strict seasonType: any present value outside the two partitions is rejected', async () => {
+  const res = await GET(
+    new Request('https://example.com/api/game-stats?year=2026&week=3&seasonType=preseason', {
+      headers: { 'x-admin-token': ADMIN_TOKEN },
+    })
+  );
+  assert.equal(res.status, 400);
+  const body = (await res.json()) as { field?: string };
+  assert.equal(body.field, 'seasonType');
+});
+
+test('missing usage WITHOUT quotaOverride refuses 429 and resolves the attempt as failed', async () => {
+  // No CFBD key → the usage probe itself cannot run → usage-unavailable.
   delete MUTABLE_ENV.CFBD_API_KEY;
 
-  const res = await GET(
-    new Request(
-      'https://example.com/api/game-stats?year=2026&week=3&seasonType=regular&bypassCache=1',
-      {
-        headers: { 'x-admin-token': ADMIN_TOKEN },
-      }
-    )
+  const res = await GET(adminRefresh());
+  assert.equal(res.status, 429);
+  const body = (await res.json()) as { code?: string };
+  assert.equal(body.code, 'game-stats-quota-usage-unavailable');
+
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(2026, 3, 'regular')
   );
+  assert.equal(status.latestAttemptOutcome, 'failed', 'the quota refusal resolves the attempt');
+  assert.equal(status.lastError?.code, 'game-stats-quota-usage-unavailable');
+});
+
+test('missing CFBD key WITH quotaOverride reaches the credential check and records the failure', async () => {
+  delete MUTABLE_ENV.CFBD_API_KEY;
+
+  const res = await GET(adminRefresh('&quotaOverride=1'));
   assert.equal(res.status, 500);
   const body = (await res.json()) as { error: string };
   assert.equal(body.error, 'CFBD_API_KEY not configured');
@@ -72,24 +112,44 @@ test('manual game-stats refresh with a missing CFBD key records a failed attempt
     'game-stats',
     weekPartitionScope(2026, 3, 'regular')
   );
-  assert.equal(
-    status.latestAttemptOutcome,
-    'failed',
-    'the missing-key attempt is recorded as failed'
-  );
+  assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'cfbd-api-key-missing');
 });
 
-// 5th-review finding #5 — manual route shares the cron's empty/nonempty-zero rules.
-test('manual refresh: a genuinely empty provider response is a no-op without a durable write', async () => {
+test('below-reserve usage refuses 429 unless the explicit override is supplied', async () => {
   MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
-  stubJson([]);
+  stubProvider([], { patronLevel: 1, remainingCalls: 900 });
+
+  const refused = await GET(adminRefresh());
+  assert.equal(refused.status, 429);
+  assert.equal(
+    ((await refused.json()) as { code?: string }).code,
+    'game-stats-quota-below-reserve'
+  );
+
+  // The explicit second parameter proceeds — and the empty payload is a no-op.
+  const overridden = await GET(adminRefresh('&quotaOverride=1'));
+  assert.equal(overridden.status, 200);
+  const body = (await overridden.json()) as {
+    refresh: { outcome: string; reason: string; quotaOverride: boolean };
+  };
+  assert.equal(body.refresh.outcome, 'no-op');
+  assert.equal(body.refresh.quotaOverride, true);
+});
+
+test('a genuinely empty provider response is a no-op: no durable write, truthful reread', async () => {
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+  stubProvider([]);
 
   const res = await GET(adminRefresh());
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { games: unknown[]; meta: { noApplicableData?: boolean } };
-  assert.deepEqual(body.games, []);
-  assert.equal(body.meta.noApplicableData, true);
+  const body = (await res.json()) as {
+    refresh: { outcome: string; reason: string };
+    durable: { status: string };
+  };
+  assert.equal(body.refresh.outcome, 'no-op');
+  assert.equal(body.refresh.reason, 'empty-response');
+  assert.equal(body.durable.status, 'absent', 'the reread truthfully reports absence');
 
   assert.equal(await getCachedGameStats(2026, 3, 'regular'), null, 'no empty record written');
   const status = await getProviderRefreshStatus(
@@ -100,48 +160,84 @@ test('manual refresh: a genuinely empty provider response is a no-op without a d
   assert.equal(status.lastSuccessAt, null);
 });
 
-test('manual refresh: a nonempty payload with no usable rows resolves as failure (no write)', async () => {
+test('a payload with no persistable observations fails (prior-good preserved, no write)', async () => {
   MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
-  // A row missing its away team is dropped by normalization → zero usable rows.
-  stubJson([{ id: 5001, teams: [{ team: 'Alpha', homeAway: 'home', points: 21, stats: [] }] }]);
+  // A row missing its away team parses to nothing persistable.
+  stubProvider([{ id: 5001, teams: [{ team: 'Alpha', homeAway: 'home', points: 21, stats: [] }] }]);
 
   const res = await GET(adminRefresh());
   assert.equal(res.status, 502);
   const body = (await res.json()) as { code?: string };
-  assert.equal(body.code, 'game-stats-no-usable-rows');
+  assert.equal(body.code, 'game-stats-no-persistable-observations');
 
-  assert.equal(await getCachedGameStats(2026, 3, 'regular'), null, 'no unusable record written');
+  assert.equal(await getCachedGameStats(2026, 3, 'regular'), null, 'nothing written');
   const status = await getProviderRefreshStatus(
     'game-stats',
     weekPartitionScope(2026, 3, 'regular')
   );
   assert.equal(status.latestAttemptOutcome, 'failed');
-  assert.equal(status.lastError?.code, 'game-stats-no-usable-rows');
+  assert.equal(status.lastError?.code, 'game-stats-no-persistable-observations');
 });
 
-test('manual refresh: a usable payload commits and records success', async () => {
+test('a persistable payload commits through H2 and records success from the confirmed commit', async () => {
   MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
-  stubJson([
-    {
+  stubProvider([
+    wireGame({
       id: 5001,
-      teams: [
-        { teamId: 1, team: 'Alpha', conference: 'X', homeAway: 'home', points: 21, stats: [] },
-        { teamId: 2, team: 'Beta', conference: 'Y', homeAway: 'away', points: 14, stats: [] },
-      ],
-    },
+      home: { school: 'Alpha State', teamId: 101 },
+      away: { school: 'Beta Tech', teamId: 202 },
+    }),
   ]);
 
   const res = await GET(adminRefresh());
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { games: unknown[]; meta: { cache: string } };
-  assert.equal(body.games.length, 1);
-  assert.equal(body.meta.cache, 'miss');
+  const body = (await res.json()) as { refresh: { outcome: string; reason: string } };
+  assert.equal(body.refresh.outcome, 'success');
+  assert.equal(body.refresh.reason, 'written-clean');
 
   const stored = await getCachedGameStats(2026, 3, 'regular');
-  assert.equal(stored?.games.length, 1, 'the usable record is committed');
+  assert.equal(stored?.games.length, 1, 'the durable partition holds the merged row');
   const status = await getProviderRefreshStatus(
     'game-stats',
     weekPartitionScope(2026, 3, 'regular')
   );
   assert.equal(status.latestAttemptOutcome, 'succeeded');
+});
+
+test('while control is NOT active, H2 refuses and the refresh is a truthful 503 failure', async () => {
+  const { seedLegacyWriterControl } = await import(
+    '../../../../lib/gameStats/__tests__/writerControlSeed.ts'
+  );
+  await seedLegacyWriterControl();
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+  stubProvider([
+    wireGame({
+      id: 5001,
+      home: { school: 'Alpha State', teamId: 101 },
+      away: { school: 'Beta Tech', teamId: 202 },
+    }),
+  ]);
+
+  const res = await GET(adminRefresh());
+  assert.equal(res.status, 503);
+  const body = (await res.json()) as { code?: string };
+  assert.equal(body.code, 'game-stats-unavailable');
+  assert.equal(await getCachedGameStats(2026, 3, 'regular'), null, 'both writers refused');
+});
+
+test('an ordinary read is cache-only and provider-free even when the cache is absent', async () => {
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+  let providerCalled = false;
+  globalThis.fetch = (async () => {
+    providerCalled = true;
+    return new Response('[]', { status: 200 });
+  }) as typeof fetch;
+
+  const res = await GET(
+    new Request('https://example.com/api/game-stats?year=2026&week=3&seasonType=regular', {
+      headers: { 'x-admin-token': ADMIN_TOKEN },
+    })
+  );
+  assert.equal(res.status, 404, 'absence is a distinct outcome, never a provider trigger');
+  assert.equal(providerCalled, false, 'no provider attempt for an ordinary read');
 });

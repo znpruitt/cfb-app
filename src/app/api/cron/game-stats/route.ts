@@ -16,10 +16,7 @@ import {
   type PollingTarget,
 } from '@/lib/gameStats/pollingTarget';
 import { projectPublicPartition } from '@/lib/gameStats/publicProjection';
-import {
-  evaluateAutomationQuota,
-  type CfbdUsageSnapshot,
-} from '@/lib/gameStats/quotaPolicy';
+import { evaluateAutomationQuota, type CfbdUsageSnapshot } from '@/lib/gameStats/quotaPolicy';
 import { interpretGameStatsRefreshOutcome } from '@/lib/gameStats/refreshOutcome';
 import { getAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
@@ -106,7 +103,10 @@ function skippedResult(year: number, skipped: string): CronResult {
  * means no candidate partition exists right now (fully resolved, out of
  * window, or no games) — never an error.
  */
-async function resolvePollingTarget(year: number, now: Date): Promise<
+async function resolvePollingTarget(
+  year: number,
+  now: Date
+): Promise<
   | { status: 'ok'; target: PollingTarget | null; slateResult: CanonicalSlateResult }
   | { status: 'context-unavailable'; reason: string }
 > {

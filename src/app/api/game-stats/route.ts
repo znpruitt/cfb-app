@@ -12,10 +12,7 @@ import {
   type DurableReadOutcome,
   type PublicProjectionResult,
 } from '@/lib/gameStats/publicProjection';
-import {
-  evaluateManualQuota,
-  type CfbdUsageSnapshot,
-} from '@/lib/gameStats/quotaPolicy';
+import { evaluateManualQuota, type CfbdUsageSnapshot } from '@/lib/gameStats/quotaPolicy';
 import {
   interpretGameStatsRefreshOutcome,
   type GameStatsRefreshInterpretation,
@@ -96,7 +93,9 @@ async function readDurablePartition(
 }
 
 /** Map every non-available projection status to a distinct safe response. */
-function projectionErrorResponse(projection: Exclude<PublicProjectionResult, { status: 'available' }>) {
+function projectionErrorResponse(
+  projection: Exclude<PublicProjectionResult, { status: 'available' }>
+) {
   switch (projection.status) {
     case 'absent':
       return NextResponse.json(
@@ -122,7 +121,10 @@ function projectionErrorResponse(projection: Exclude<PublicProjectionResult, { s
     case 'invalid-fetched-at':
     case 'non-array-games':
       return NextResponse.json(
-        { error: 'stored game-stats record is not servable', code: `game-stats-${projection.status}` },
+        {
+          error: 'stored game-stats record is not servable',
+          code: `game-stats-${projection.status}`,
+        },
         { status: 500 }
       );
   }
@@ -344,26 +346,25 @@ export async function GET(req: Request) {
       );
     }
 
-    if (projection.status !== 'available') {
-      // The refresh itself succeeded or was a no-op, but the durable reread is
-      // not servable — report the projection outcome distinctly, never the
-      // request payload.
-      const errorResponse = projectionErrorResponse(projection);
-      const body = (await errorResponse.json()) as Record<string, unknown>;
-      return NextResponse.json(
-        { ...body, refresh: refreshMeta(interpretation, quotaMeta) },
-        { status: errorResponse.status }
-      );
-    }
-
-    return NextResponse.json({
-      ...projection.wire,
-      meta: {
-        source: 'durable',
-        projection: 'public',
+    // Non-failure outcomes: the interpreter's status (200) is authoritative and
+    // the body carries the projected durable REREAD — including a truthful
+    // `absent` after a no-op on an empty partition, which is not a failure.
+    return NextResponse.json(
+      {
         refresh: refreshMeta(interpretation, quotaMeta),
+        durable:
+          projection.status === 'available'
+            ? { status: 'available' as const, ...projection.wire }
+            : {
+                status: projection.status,
+                ...(projection.status === 'context-unavailable'
+                  ? { reason: projection.reason }
+                  : {}),
+              },
+        meta: { source: 'durable', projection: 'public' },
       },
-    });
+      { status: interpretation.httpStatus }
+    );
   } catch (error) {
     await recordProviderRefreshFailure('game-stats', gameStatsScope, {
       attempt,

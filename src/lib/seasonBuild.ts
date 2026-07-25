@@ -124,12 +124,11 @@ export async function assembleSeasonScoredBuild(
     `postseason-overrides:${leagueSlug}:${year}`,
     'map'
   );
-  const manualOverrides: Record<string, Partial<AppGame>> =
-    overridesRecord?.value &&
-    typeof overridesRecord.value === 'object' &&
-    !Array.isArray(overridesRecord.value)
-      ? overridesRecord.value
-      : {};
+  const manualOverrides: Record<string, Partial<AppGame>> = overridesRecord?.value &&
+  typeof overridesRecord.value === 'object' &&
+  !Array.isArray(overridesRecord.value)
+    ? overridesRecord.value
+    : {};
 
   // Build AppGame[] via the full schedule pipeline
   const { games } = buildScheduleFromApi({

@@ -9,6 +9,7 @@ import {
 import { __resetOddsUsageStoreForTests, setLatestKnownOddsUsage } from '../oddsUsageStore.ts';
 import { getProviderDataDiagnostics } from '../providerDataDiagnostics.ts';
 import { createOddsCacheKey, defaultOddsCacheKey } from '../../../app/api/odds/routeInternals.ts';
+import { legacyRowFromWire, wireGame } from '../../gameStats/__tests__/fixtures.ts';
 
 const YEAR = 2026;
 const NOW = Date.parse('2026-10-15T12:00:00.000Z');
@@ -25,12 +26,29 @@ type ScheduleItemSeed = {
   awayTeam: string;
 };
 
+/** Numeric CFBD participant ids derived from the seed's game id (home/away). */
+function participantIds(id: string): { homeId: number; awayId: number } {
+  const base = Number(id) * 10;
+  return { homeId: base + 1, awayId: base + 2 };
+}
+
 function seedScheduleItems(items: ScheduleItemSeed[]) {
   return setAppState('schedule', `${YEAR}-all-all`, {
     at: NOW - 3 * 60 * 60 * 1000,
     partialFailure: false,
     failedSeasonTypes: [],
-    items,
+    // PLATFORM-086H3E3: diagnostics now judge coverage through the canonical
+    // slate + evidence authorities, so seeds must be REAL canonical-build
+    // inputs — FBS conferences (so games are tracked) and numeric participant
+    // ids (so complete stored rows can participant-verify).
+    items: items.map((item) => ({
+      ...item,
+      neutralSite: false,
+      conferenceGame: false,
+      homeConference: 'SEC',
+      awayConference: 'Big Ten',
+      ...(Number.isFinite(Number(item.id)) ? participantIds(item.id) : {}),
+    })),
   });
 }
 
@@ -90,6 +108,24 @@ function gameStatsRow(providerGameId: number) {
   };
 }
 
+/**
+ * A COMPLETE, participant-verified legacy row for a seeded game id: built
+ * through the real legacy writer path, with schoolIds matching the schedule
+ * seed's derived participant ids — the shape the evidence authority classifies
+ * `satisfied` (PLATFORM-086H3E3 coverage is evidence-based, not row-count).
+ */
+function satisfiedRow(id: number, home = 'Alpha', away = 'Beta') {
+  const ids = participantIds(String(id));
+  return legacyRowFromWire(
+    wireGame({
+      id,
+      home: { school: home, teamId: ids.homeId },
+      away: { school: away, teamId: ids.awayId },
+    }),
+    1
+  );
+}
+
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
@@ -135,7 +171,7 @@ test('full coverage (final scores + usable game stats) → no scores/game-stats 
     week: 1,
     seasonType: 'regular',
     fetchedAt: new Date(NOW).toISOString(),
-    games: [gameStatsRow(101)],
+    games: [satisfiedRow(101)],
   });
 
   const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
@@ -352,13 +388,13 @@ test('partial game-stats coverage is surfaced as an info note', async () => {
       awayTeam: 'Delta',
     },
   ]);
-  // Only one of the two expected week-1 games has stats → partial, not missing.
+  // Only one of the two expected week-1 games has SATISFIED evidence → partial, not missing.
   await setAppState('game-stats', `${YEAR}:1:regular`, {
     year: YEAR,
     week: 1,
     seasonType: 'regular',
     fetchedAt: new Date(NOW).toISOString(),
-    games: [gameStatsRow(101)],
+    games: [satisfiedRow(101)],
   });
   const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
   assert.equal(
@@ -402,14 +438,14 @@ test('a disrupted (canceled) game is not counted as an expected missing game-sta
       awayTeam: 'Delta',
     },
   ]);
-  // Only the played game (101) has stats; the canceled game (105) will never
-  // produce team stats, so this is FULL coverage, not partial.
+  // Only the played game (101) has SATISFIED evidence; the canceled game (105)
+  // will never produce team stats, so this is FULL coverage, not partial.
   await setAppState('game-stats', `${YEAR}:1:regular`, {
     year: YEAR,
     week: 1,
     seasonType: 'regular',
     fetchedAt: new Date(NOW).toISOString(),
-    games: [gameStatsRow(101)],
+    games: [satisfiedRow(101)],
   });
   const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
   assert.equal(
@@ -504,31 +540,28 @@ test('split Thursday/Saturday slate is NOT complete while Saturday games are rec
 
 test('split slate once the whole slate is old DOES warn on missing data', async () => {
   const longAgoNow = Date.parse('2026-10-20T12:00:00.000Z');
-  await setAppState('schedule', `${YEAR}-all-all`, {
-    at: longAgoNow - 3 * 60 * 60 * 1000,
-    partialFailure: false,
-    failedSeasonTypes: [],
-    items: [
-      {
-        id: 'thu',
-        week: 7,
-        seasonType: 'regular',
-        startDate: THURSDAY_KICKOFF,
-        status: 'STATUS_FINAL',
-        homeTeam: 'Alpha',
-        awayTeam: 'Beta',
-      },
-      {
-        id: 'sat',
-        week: 7,
-        seasonType: 'regular',
-        startDate: SATURDAY_STILL_LIVE,
-        status: 'STATUS_FINAL',
-        homeTeam: 'Gamma',
-        awayTeam: 'Delta',
-      },
-    ],
-  });
+  // Numeric ids: the canonical slate addresses games only by real CFBD ids —
+  // unaddressable rows can never be covered OR flagged, by design.
+  await seedScheduleItems([
+    {
+      id: '701',
+      week: 7,
+      seasonType: 'regular',
+      startDate: THURSDAY_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: '702',
+      week: 7,
+      seasonType: 'regular',
+      startDate: SATURDAY_STILL_LIVE,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Gamma',
+      awayTeam: 'Delta',
+    },
+  ]);
 
   const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: longAgoNow });
   assert.ok(
@@ -540,7 +573,7 @@ test('split slate once the whole slate is old DOES warn on missing data', async 
 test('postseason completed slate with no game stats is flagged', async () => {
   await seedScheduleItems([
     {
-      id: 'bowl',
+      id: '901',
       week: 1,
       seasonType: 'postseason',
       startDate: COMPLETED_KICKOFF,

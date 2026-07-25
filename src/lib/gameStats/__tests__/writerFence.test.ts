@@ -358,11 +358,15 @@ const REPO_ROOT = path.resolve(
 );
 const read = (rel: string): string => readFileSync(path.join(REPO_ROOT, rel), 'utf8');
 
-test('boundary: the live game-stats route and cron still write via the legacy setter', () => {
+test('boundary: the activated route and cron never touch the legacy setter or the fence', () => {
+  // PLATFORM-086H3E3 inverted this pin: the live writers are gone from both
+  // callers — ingestion flows only through ingestGameStatsPartitionResponse
+  // (the activation-invariants guard enforces the full seam set).
   for (const rel of ['src/app/api/game-stats/route.ts', 'src/app/api/cron/game-stats/route.ts']) {
     const src = read(rel);
-    assert.match(src, /setCachedGameStats/, `${rel} uses setCachedGameStats`);
+    assert.doesNotMatch(src, /setCachedGameStats/, `${rel} must not use setCachedGameStats`);
     assert.doesNotMatch(src, /writerFence/, `${rel} does not reach the fence directly`);
+    assert.match(src, /ingestGameStatsPartitionResponse/, `${rel} ingests through the coordinator`);
   }
 });
 

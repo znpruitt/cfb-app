@@ -41,9 +41,7 @@ function buildHistoricalRosters(archives: SeasonArchive[]): Record<number, Map<s
 }
 
 /** The paired provenance a season-stats load runs against. */
-export type OwnerSeasonStatsSource =
-  | { kind: 'live' }
-  | { kind: 'archive'; archive: SeasonArchive };
+export type OwnerSeasonStatsSource = { kind: 'live' } | { kind: 'archive'; archive: SeasonArchive };
 
 export type OwnerSeasonStatsUnavailableReason =
   | AnalyticsProvenanceUnavailableReason
@@ -113,7 +111,13 @@ export async function loadOwnerSeasonStats(
     const seasonType = parts[2];
     if (seasonType !== 'regular' && seasonType !== 'postseason') continue;
     const stats = await getCachedGameStats(year, week, seasonType);
-    const rows = projectAnalyticsPartition(provenance.input, week, seasonType, stats, seasonRelation);
+    const rows = projectAnalyticsPartition(
+      provenance.input,
+      week,
+      seasonType,
+      stats,
+      seasonRelation
+    );
     if (rows.length > 0) weeklyGames.push(rows);
   }
 

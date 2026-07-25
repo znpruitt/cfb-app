@@ -1,41 +1,40 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-// MUST precede the '../route' import: sets CFBD_API_KEY before the route captures
-// it in a module-load-time constant, so the cron reaches its coverage-based skip
-// decision instead of the missing-key early return (finding #3).
-import './_setup/withCfbdKey';
 import { GET as cronGet } from '../route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
-  __setAppStateReadFailureForTests,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
-import { getCachedGameStats, setCachedGameStats } from '../../../../../lib/gameStats/cache.ts';
-import { seedLegacyWriterControl } from '../../../../../lib/gameStats/__tests__/writerControlSeed.ts';
-import type { GameStats } from '../../../../../lib/gameStats/types.ts';
-import {
-  beginProviderRefreshAttempt,
-  getProviderRefreshStatus,
-  recordProviderRefreshFailure,
-} from '../../../../../lib/server/providerRefreshStatus.ts';
-import { weekPartitionScope, yearScope } from '../../../../../lib/providerRefreshScope.ts';
+import { getCachedGameStats, getGameStatsKey } from '../../../../../lib/gameStats/cache.ts';
+import { seedActiveWriterControl } from '../../../../../lib/gameStats/__tests__/writerControlSeed.ts';
+import { legacyRowFromWire, wireGame } from '../../../../../lib/gameStats/__tests__/fixtures.ts';
+import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
+import { weekPartitionScope } from '../../../../../lib/providerRefreshScope.ts';
+
+// PLATFORM-086H3E3 — kickoff-window targeting + evidence resolution + quota
+// reserve for the activated cron: a partition polls only while it holds a
+// stat-producing game aged [3h, 24h) whose evidence is not satisfied; at most
+// ONE partition is fetched per run; the quota reserve refuses truthfully.
 
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
-const CRON_SECRET = 'test-cron-secret';
+const ORIGINAL = {
+  CRON_SECRET: process.env.CRON_SECRET,
+  CFBD_API_KEY: process.env.CFBD_API_KEY,
+  NODE_ENV: process.env.NODE_ENV,
+};
 const ORIGINAL_FETCH = globalThis.fetch;
-
-// Compute the season year exactly as the route does (seasonYearForToday), so the
-// seeded schedule lands under the key the cron will read regardless of run date.
+const CRON_SECRET = 'test-cron-secret';
+const NO_TARGET_SKIP = 'no partition inside the polling window';
 const YEAR = (() => {
   const d = new Date();
   const m = d.getUTCMonth();
   const y = d.getUTCFullYear();
   return m >= 6 ? y : y - 1;
 })();
-const WEEK = 3;
-const COMPLETED_KICKOFF = new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString();
+
+const H = 60 * 60 * 1000;
 
 function cronRequest(): Request {
   return new Request('https://example.com/api/cron/game-stats', {
@@ -43,274 +42,243 @@ function cronRequest(): Request {
   });
 }
 
-function usableRow(providerGameId: number): GameStats {
+type GameSeed = {
+  id: number;
+  week: number;
+  seasonType?: 'regular' | 'postseason';
+  ageHours: number;
+  status?: string;
+  home?: string;
+  away?: string;
+};
+
+function scheduleItem(seed: GameSeed) {
   return {
-    providerGameId,
-    week: WEEK,
-    seasonType: 'regular',
-    home: { school: 'Alpha' } as GameStats['home'],
-    away: { school: 'Beta' } as GameStats['away'],
+    id: String(seed.id),
+    week: seed.week,
+    seasonType: seed.seasonType ?? 'regular',
+    startDate: new Date(Date.now() - seed.ageHours * H).toISOString(),
+    neutralSite: false,
+    conferenceGame: false,
+    homeTeam: seed.home ?? 'Alpha',
+    awayTeam: seed.away ?? 'Beta',
+    homeId: seed.id * 10 + 1,
+    awayId: seed.id * 10 + 2,
+    homeConference: 'SEC',
+    awayConference: 'Big Ten',
+    status: seed.status ?? 'STATUS_FINAL',
   };
 }
 
-async function seedCompletedSchedule() {
+async function seedSchedule(seeds: GameSeed[]) {
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: Date.now(),
     partialFailure: false,
     failedSeasonTypes: [],
-    items: [
-      {
-        id: '5001',
-        week: WEEK,
-        seasonType: 'regular',
-        startDate: COMPLETED_KICKOFF,
-        neutralSite: false,
-        conferenceGame: false,
-        homeTeam: 'Alpha',
-        awayTeam: 'Beta',
-        homeConference: 'X',
-        awayConference: 'Y',
-        status: 'STATUS_FINAL',
-      },
-    ],
+    items: seeds.map(scheduleItem),
   });
 }
 
-type ScheduleSeed = {
-  id: string;
-  week: number;
-  startDate: string;
-  status: string;
-  seasonType?: 'regular' | 'postseason';
-};
+/** A complete, participant-verified stored legacy row for a seeded game. */
+function satisfiedRow(seed: GameSeed) {
+  return legacyRowFromWire(
+    wireGame({
+      id: seed.id,
+      home: { school: seed.home ?? 'Alpha', teamId: seed.id * 10 + 1 },
+      away: { school: seed.away ?? 'Beta', teamId: seed.id * 10 + 2 },
+    }),
+    seed.week
+  );
+}
 
-async function seedScheduleItems(items: ScheduleSeed[]) {
-  await setAppState('schedule', `${YEAR}-all-all`, {
-    at: Date.now(),
-    partialFailure: false,
-    failedSeasonTypes: [],
-    items: items.map((it) => ({
-      id: it.id,
-      week: it.week,
-      seasonType: it.seasonType ?? 'regular',
-      startDate: it.startDate,
-      neutralSite: false,
-      conferenceGame: false,
-      homeTeam: `Home ${it.id}`,
-      awayTeam: `Away ${it.id}`,
-      homeConference: 'X',
-      awayConference: 'Y',
-      status: it.status,
-    })),
+async function seedPartitionRecord(
+  week: number,
+  seasonType: 'regular' | 'postseason',
+  games: unknown[]
+) {
+  await setAppState('game-stats', getGameStatsKey(YEAR, week, seasonType), {
+    year: YEAR,
+    week,
+    seasonType,
+    fetchedAt: new Date().toISOString(),
+    games,
   });
 }
 
-const DAYS_AGO = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString();
-
-function stubTeamStats() {
-  globalThis.fetch = (async () =>
-    new Response(
-      JSON.stringify([
-        {
-          id: 5001,
-          teams: [
-            { teamId: 1, team: 'Alpha', conference: 'X', homeAway: 'home', points: 21, stats: [] },
-            { teamId: 2, team: 'Beta', conference: 'Y', homeAway: 'away', points: 14, stats: [] },
-          ],
-        },
-      ]),
-      { status: 200, headers: { 'content-type': 'application/json' } }
-    )) as typeof fetch;
-}
-
-function stubJson(body: unknown) {
-  globalThis.fetch = (async () =>
-    new Response(JSON.stringify(body), {
+/** Stub CFBD: healthy /info usage, `payload` for /games/teams; tracks URLs. */
+function stubProvider(payload: unknown, remainingCalls = 4000): { urls: string[] } {
+  const calls = { urls: [] as string[] };
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.urls.push(url);
+    const body = url.includes('/info') ? { patronLevel: 1, remainingCalls } : payload;
+    return new Response(JSON.stringify(body), {
       status: 200,
       headers: { 'content-type': 'application/json' },
-    })) as typeof fetch;
-}
-
-function stubThrow(message: string) {
-  globalThis.fetch = (async () => {
-    throw new Error(message);
+    });
   }) as typeof fetch;
+  return calls;
 }
 
 test.beforeEach(async () => {
+  MUTABLE_ENV.NODE_ENV = 'development';
+  MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+  globalThis.fetch = ORIGINAL_FETCH;
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
-  await seedLegacyWriterControl();
-  MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
-  globalThis.fetch = ORIGINAL_FETCH;
+  await seedActiveWriterControl();
 });
 
 test.after(() => {
+  for (const [key, value] of Object.entries(ORIGINAL)) {
+    if (value === undefined) delete MUTABLE_ENV[key];
+    else MUTABLE_ENV[key] = value;
+  }
   globalThis.fetch = ORIGINAL_FETCH;
 });
 
-test('the cron re-fetches a week whose cached record is empty (games:[]), not skips it (finding #3)', async () => {
-  await seedCompletedSchedule();
-  // A prior empty record must NOT count as coverage — the empty week should repair.
-  await setCachedGameStats({
-    year: YEAR,
-    week: WEEK,
-    seasonType: 'regular',
-    fetchedAt: '2020-01-01T00:00:00.000Z',
-    games: [],
-  });
-  stubTeamStats();
-
-  const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { skipped?: string; gamesProcessed?: number };
-  assert.equal(res.status, 200, JSON.stringify(body));
-  assert.equal(body.skipped, undefined, 'an empty cached record must not be treated as covered');
-  assert.equal(body.gamesProcessed, 1, 'the cron re-fetched and persisted usable stats');
-
-  const stored = await getCachedGameStats(YEAR, WEEK, 'regular');
-  assert.equal(stored?.games.length, 1, 'the empty record was repaired with usable content');
-});
-
-test('the cron skips a week that already has usable cached stats (finding #3)', async () => {
-  await seedCompletedSchedule();
-  await setCachedGameStats({
-    year: YEAR,
-    week: WEEK,
-    seasonType: 'regular',
-    fetchedAt: '2026-01-01T00:00:00.000Z',
-    games: [usableRow(5001)],
-  });
-  // Fetch must NOT run when usable coverage already exists.
-  globalThis.fetch = (async () => {
-    throw new Error('cron must not fetch when usable stats already exist');
-  }) as typeof fetch;
+test('a window partition with satisfied evidence does NOT poll (no target, no calls)', async () => {
+  const seed: GameSeed = { id: 9001, week: 3, ageHours: 5 };
+  await seedSchedule([seed]);
+  await seedPartitionRecord(3, 'regular', [satisfiedRow(seed)]);
+  const calls = stubProvider([]);
 
   const res = await cronGet(cronRequest());
   const body = (await res.json()) as { skipped?: string };
-  assert.equal(res.status, 200);
-  assert.match(String(body.skipped ?? ''), /already cached/i);
+  assert.equal(body.skipped, NO_TARGET_SKIP);
+  assert.equal(calls.urls.length, 0, 'no usage or provider call');
 });
 
-// 5th-review finding #1 — disrupted-only slates are never selected for retrieval.
-test('the cron does not select a disrupted-only latest slate; it picks the older eligible one', async () => {
-  await seedScheduleItems([
-    // Latest completed slate (week 5) is entirely disrupted → not stat-producing.
-    { id: '9001', week: 5, startDate: DAYS_AGO(2), status: 'Canceled' },
-    { id: '9002', week: 5, startDate: DAYS_AGO(2), status: 'Postponed' },
-    // Older completed slate (week 3) has a real final game → eligible.
-    { id: '5001', week: 3, startDate: DAYS_AGO(10), status: 'STATUS_FINAL' },
+test('a games:[] record leaves the window game unresolved → the cron fetches and commits', async () => {
+  const seed: GameSeed = { id: 9001, week: 3, ageHours: 5 };
+  await seedSchedule([seed]);
+  await seedPartitionRecord(3, 'regular', []);
+  const calls = stubProvider([
+    wireGame({
+      id: 9001,
+      home: { school: 'Alpha', teamId: 90011 },
+      away: { school: 'Beta', teamId: 90012 },
+    }),
   ]);
-  stubTeamStats();
 
   const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { week?: number; gamesProcessed?: number; skipped?: string };
-  assert.equal(res.status, 200, JSON.stringify(body));
-  assert.equal(body.week, 3, 'the disrupted week 5 is skipped; the eligible week 3 is selected');
-  assert.equal(body.gamesProcessed, 1);
-});
-
-test('a disrupted-only schedule yields no eligible slate and spends no provider call', async () => {
-  await seedScheduleItems([
-    { id: '9001', week: 5, startDate: DAYS_AGO(2), status: 'Canceled' },
-    { id: '9002', week: 5, startDate: DAYS_AGO(2), status: 'Suspended' },
-  ]);
-  stubThrow('cron must not fetch when no stat-producing slate exists');
-
-  const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { skipped?: string };
   assert.equal(res.status, 200);
-  assert.match(String(body.skipped ?? ''), /no completed weeks/i);
-});
+  const body = (await res.json()) as { outcome?: string; reason?: string; committedGames?: number };
+  assert.equal(body.outcome, 'success');
+  assert.equal(body.reason, 'written-clean');
+  assert.equal(body.committedGames, 1);
 
-// 5th-review finding #5 — empty/nonempty-zero provider responses.
-test('a genuinely empty provider response resolves as a no-op without a durable write', async () => {
-  await seedCompletedSchedule();
-  stubJson([]); // CFBD returns [] — stats not published yet
-  const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { skipped?: string; gamesProcessed?: number };
-  assert.equal(res.status, 200, JSON.stringify(body));
-  assert.equal(body.gamesProcessed, 0);
-
-  assert.equal(await getCachedGameStats(YEAR, WEEK, 'regular'), null, 'no empty record written');
+  const stored = await getCachedGameStats(YEAR, 3, 'regular');
+  assert.equal(stored?.games.length, 1, 'the merged row is durable');
   const status = await getProviderRefreshStatus(
     'game-stats',
-    weekPartitionScope(YEAR, WEEK, 'regular')
+    weekPartitionScope(YEAR, 3, 'regular')
   );
-  assert.equal(status.latestAttemptOutcome, 'no-op');
-  assert.equal(status.lastSuccessAt, null, 'a no-op does not advance last-success');
-});
-
-// SCOPED-STATUS review v2 #1 — the resolved week partition owns the outcome, and
-// a later successful run of the same week replaces a prior failure through normal
-// attempt ordering.
-test('a later successful run replaces a prior failure on the same week partition', async () => {
-  await seedCompletedSchedule();
-  const scope = weekPartitionScope(YEAR, WEEK, 'regular');
-  // A prior failed attempt on this exact week scope (e.g. an earlier missing-key run).
-  const priorFail = await beginProviderRefreshAttempt('game-stats', scope, {
-    attemptId: 'prior-fail',
-  });
-  await recordProviderRefreshFailure('game-stats', scope, {
-    attempt: priorFail,
-    error: 'CFBD_API_KEY not configured',
-    code: 'cfbd-api-key-missing',
-    status: 500,
-  });
+  assert.equal(status.latestAttemptOutcome, 'succeeded');
   assert.equal(
-    (await getProviderRefreshStatus('game-stats', scope)).latestAttemptOutcome,
-    'failed',
-    'precondition: the week scope starts failed'
+    calls.urls.filter((u) => !u.includes('/info')).length,
+    1,
+    'exactly ONE partition fetch'
   );
-
-  stubTeamStats();
-  const res = await cronGet(cronRequest());
-  assert.equal(res.status, 200, await res.text());
-
-  const status = await getProviderRefreshStatus('game-stats', scope);
-  assert.equal(status.latestAttemptOutcome, 'succeeded', 'the later success replaces the failure');
-  assert.equal(status.lastError, null);
 });
 
-// SCOPED-STATUS review v2 #3 — a local target-resolution failure uses the
-// established cron error path and never assigns the failure to an unrelated year
-// or week data scope.
-test('a target-resolution read failure returns 500 and mutates no game-stats scope', async () => {
-  await seedCompletedSchedule();
-  // Fail ONLY 'schedule' reads (findLatestCompletedWeek) while provider-refresh
-  // status reads still succeed for the assertions.
-  __setAppStateReadFailureForTests(new Error('schedule read down'), 'schedule');
-  let res: Response;
-  try {
-    res = await cronGet(cronRequest());
-  } finally {
-    __setAppStateReadFailureForTests(null);
-  }
-  assert.equal(res.status, 500);
-
-  const yearRollup = await getProviderRefreshStatus('game-stats', yearScope(YEAR));
-  assert.equal(yearRollup.latestAttemptOutcome, null, 'no year-scope failure fabricated');
-  const week = await getProviderRefreshStatus(
-    'game-stats',
-    weekPartitionScope(YEAR, WEEK, 'regular')
-  );
-  assert.equal(week.latestAttemptOutcome, null, 'no week-scope failure fabricated');
-});
-
-test('a nonempty payload that normalizes to zero usable rows resolves as failure (no write)', async () => {
-  await seedCompletedSchedule();
-  // A row missing its away team is dropped by normalization → zero usable rows.
-  stubJson([{ id: 5001, teams: [{ team: 'Alpha', homeAway: 'home', points: 21, stats: [] }] }]);
+test('games outside the window never poll: too fresh (<3h) and already left (≥24h)', async () => {
+  await seedSchedule([
+    { id: 9001, week: 3, ageHours: 2 }, // too fresh
+    { id: 9002, week: 4, ageHours: 30 }, // window closed — manual recovery only
+  ]);
+  const calls = stubProvider([]);
 
   const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { error?: string };
-  assert.equal(res.status, 502, JSON.stringify(body));
-  assert.equal(body.error, 'game-stats-no-usable-rows');
+  const body = (await res.json()) as { skipped?: string };
+  assert.equal(body.skipped, NO_TARGET_SKIP);
+  assert.equal(calls.urls.length, 0);
+});
 
-  assert.equal(await getCachedGameStats(YEAR, WEEK, 'regular'), null, 'no unusable record written');
+test('a disrupted-only window slate yields no target and spends nothing', async () => {
+  await seedSchedule([{ id: 9001, week: 3, ageHours: 5, status: 'Canceled' }]);
+  const calls = stubProvider([]);
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as { skipped?: string };
+  assert.equal(body.skipped, NO_TARGET_SKIP);
+  assert.equal(calls.urls.length, 0);
+});
+
+test('the earliest unresolved eligible kickoff wins when several partitions are in-window', async () => {
+  await seedSchedule([
+    { id: 9001, week: 3, ageHours: 5 },
+    { id: 9002, week: 4, ageHours: 10, home: 'Gamma', away: 'Delta' }, // earlier kickoff
+  ]);
+  const calls = stubProvider([]);
+
+  await cronGet(cronRequest());
+  const fetches = calls.urls.filter((u) => !u.includes('/info'));
+  assert.equal(fetches.length, 1, 'max one partition per run');
+  assert.match(fetches[0]!, /week=4/, 'the earlier unresolved kickoff is the target');
+});
+
+test('below-reserve usage refuses truthfully and scopes the failure to the target week', async () => {
+  const seed: GameSeed = { id: 9001, week: 3, ageHours: 5 };
+  await seedSchedule([seed]);
+  const calls = stubProvider([], 900);
+
+  const res = await cronGet(cronRequest());
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { outcome?: string; reason?: string; remaining?: number };
+  assert.equal(body.outcome, 'failure');
+  assert.equal(body.reason, 'quota-below-reserve');
+  assert.equal(body.remaining, 900);
+  assert.equal(calls.urls.filter((u) => !u.includes('/info')).length, 0, 'no partition fetch');
+
   const status = await getProviderRefreshStatus(
     'game-stats',
-    weekPartitionScope(YEAR, WEEK, 'regular')
+    weekPartitionScope(YEAR, 3, 'regular')
   );
   assert.equal(status.latestAttemptOutcome, 'failed');
-  assert.equal(status.lastError?.code, 'game-stats-no-usable-rows');
+  assert.equal(status.lastError?.code, 'game-stats-quota-below-reserve');
+});
+
+test('a later successful run replaces a prior failure on the same week partition', async () => {
+  const seed: GameSeed = { id: 9001, week: 3, ageHours: 5 };
+  await seedSchedule([seed]);
+
+  // Run 1: below reserve → failed.
+  stubProvider([], 900);
+  await cronGet(cronRequest());
+  let status = await getProviderRefreshStatus('game-stats', weekPartitionScope(YEAR, 3, 'regular'));
+  assert.equal(status.latestAttemptOutcome, 'failed');
+
+  // Run 2: healthy usage + persistable payload → succeeded replaces failed.
+  stubProvider([
+    wireGame({
+      id: 9001,
+      home: { school: 'Alpha', teamId: 90011 },
+      away: { school: 'Beta', teamId: 90012 },
+    }),
+  ]);
+  await cronGet(cronRequest());
+  status = await getProviderRefreshStatus('game-stats', weekPartitionScope(YEAR, 3, 'regular'));
+  assert.equal(status.latestAttemptOutcome, 'succeeded');
+});
+
+test('an empty provider response is a no-op that keeps the partition polled next run', async () => {
+  const seed: GameSeed = { id: 9001, week: 3, ageHours: 5 };
+  await seedSchedule([seed]);
+  stubProvider([]);
+
+  const res = await cronGet(cronRequest());
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { outcome?: string; reason?: string };
+  assert.equal(body.outcome, 'no-op');
+  assert.equal(body.reason, 'empty-response');
+  assert.equal(await getCachedGameStats(YEAR, 3, 'regular'), null, 'no empty record written');
+
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(YEAR, 3, 'regular')
+  );
+  assert.equal(status.latestAttemptOutcome, 'no-op');
+  assert.equal(status.lastSuccessAt, null, 'a no-op never advances last-success');
 });

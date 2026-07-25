@@ -1,7 +1,4 @@
-import {
-  assembleSeasonScoredBuild,
-  SeasonScheduleCacheUnavailableError,
-} from '../seasonBuild.ts';
+import { assembleSeasonScoredBuild, SeasonScheduleCacheUnavailableError } from '../seasonBuild.ts';
 import type { SeasonArchive } from '../seasonArchive.ts';
 import { deriveCanonicalGameStatsSlateFromBuild } from './canonicalSlate.ts';
 import type { CanonicalAnalyticsReadInput } from './publicProjection.ts';
