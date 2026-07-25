@@ -45,12 +45,16 @@ export const dynamic = 'force-dynamic';
  * assumed merge result. The legacy writer is gone from this route.
  */
 
+// ONE provider request per manual refresh — no transport retries. A retried
+// request is a second CFBD call the quota arithmetic (reserve + 2-call margin)
+// does not account for, and cross-attempt recovery belongs to the operator
+// re-invoking the refresh, never to hidden transport loops.
 const CFBD_RETRY_POLICY = {
-  maxAttempts: 3,
-  baseDelayMs: 250,
-  maxDelayMs: 2_000,
-  jitterRatio: 0.2,
-  retryOnHttpStatuses: [408, 425, 429, 500, 502, 503, 504],
+  maxAttempts: 1,
+  baseDelayMs: 0,
+  maxDelayMs: 0,
+  jitterRatio: 0,
+  retryOnHttpStatuses: [],
 } as const;
 
 const CFBD_PACING_POLICY = {
@@ -63,10 +67,13 @@ function parseNonNegativeInt(raw: string | null): number | null {
   return parseInt(raw, 10);
 }
 
-function parseBooleanQueryParam(raw: string | null): boolean {
-  if (!raw) return false;
-  const normalized = raw.trim().toLowerCase();
-  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+/**
+ * The locked flag grammar: EXACTLY `=1`. `bypassCache` and `quotaOverride` are
+ * deliberate operator actions — looser spellings (`true`, `yes`) must not
+ * trigger provider access or bypass the quota reserve.
+ */
+function parseExplicitFlag(raw: string | null): boolean {
+  return raw?.trim() === '1';
 }
 
 function seasonYearForToday(now = new Date()): number {
@@ -151,8 +158,8 @@ export async function GET(req: Request) {
   const yearParam = url.searchParams.get('year');
   const weekParam = url.searchParams.get('week');
   const seasonTypeParam = url.searchParams.get('seasonType');
-  const bypassCache = parseBooleanQueryParam(url.searchParams.get('bypassCache'));
-  const quotaOverride = parseBooleanQueryParam(url.searchParams.get('quotaOverride'));
+  const bypassCache = parseExplicitFlag(url.searchParams.get('bypassCache'));
+  const quotaOverride = parseExplicitFlag(url.searchParams.get('quotaOverride'));
 
   const now = new Date();
   const currentYear = now.getUTCFullYear();
@@ -335,32 +342,36 @@ export async function GET(req: Request) {
         ? { quotaOverride: true, quotaReason: quota.reason, remaining: quota.remaining }
         : { quotaOverride: false, remaining: quota.remaining };
 
+    // EVERY refresh response — success, partial, no-op, AND failure (conflict,
+    // unavailable, indeterminate) — carries the projected durable REREAD, so
+    // the caller always sees the exact durable partition, never the request
+    // payload or an assumed merge result.
+    const durable =
+      projection.status === 'available'
+        ? { status: 'available' as const, ...projection.wire }
+        : {
+            status: projection.status,
+            ...(projection.status === 'context-unavailable' ? { reason: projection.reason } : {}),
+          };
+
     if (interpretation.kind === 'failure') {
       return NextResponse.json(
         {
           error: `game-stats refresh failed: ${interpretation.reason}`,
           code: `game-stats-${interpretation.reason}`,
           refresh: refreshMeta(interpretation, quotaMeta),
+          durable,
         },
         { status: interpretation.httpStatus }
       );
     }
 
-    // Non-failure outcomes: the interpreter's status (200) is authoritative and
-    // the body carries the projected durable REREAD — including a truthful
-    // `absent` after a no-op on an empty partition, which is not a failure.
+    // Non-failure outcomes: the interpreter's status (200) is authoritative —
+    // including a truthful `absent` after a no-op on an empty partition.
     return NextResponse.json(
       {
         refresh: refreshMeta(interpretation, quotaMeta),
-        durable:
-          projection.status === 'available'
-            ? { status: 'available' as const, ...projection.wire }
-            : {
-                status: projection.status,
-                ...(projection.status === 'context-unavailable'
-                  ? { reason: projection.reason }
-                  : {}),
-              },
+        durable,
         meta: { source: 'durable', projection: 'public' },
       },
       { status: interpretation.httpStatus }

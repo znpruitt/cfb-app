@@ -1,5 +1,8 @@
 import { assembleSeasonScoredBuild, SeasonScheduleCacheUnavailableError } from '../seasonBuild.ts';
+import type { ScorePack } from '../scores.ts';
 import type { SeasonArchive } from '../seasonArchive.ts';
+import type { TeamCatalogItem } from '../teamIdentity.ts';
+import type { AliasMap } from '../teamNames.ts';
 import { deriveCanonicalGameStatsSlateFromBuild } from './canonicalSlate.ts';
 import type { CanonicalAnalyticsReadInput } from './publicProjection.ts';
 import { parseGameStatSlateSnapshot, snapshotToCanonicalSlate } from './slateSnapshot.ts';
@@ -31,10 +34,27 @@ export type AnalyticsProvenanceUnavailableReason =
   | 'build-failed'
   | 'slate-derivation-failed'
   | 'archive-slate-missing'
-  | 'archive-slate-malformed';
+  | 'archive-slate-malformed'
+  | 'archive-scores-missing'
+  | 'archive-scores-malformed';
+
+/**
+ * The identity inputs of the SAME build the slate derives from (live path) —
+ * consumers must resolve owner attribution against these, never a second,
+ * possibly-concurrent read. The archive path carries none (archives do not
+ * snapshot identity inputs); its consumer loads identity once, fail-closed.
+ */
+export type AnalyticsProvenanceIdentity = {
+  teams: TeamCatalogItem[];
+  aliasMap: AliasMap;
+};
 
 export type AnalyticsProvenanceResult =
-  | { status: 'available'; input: CanonicalAnalyticsReadInput }
+  | {
+      status: 'available';
+      input: CanonicalAnalyticsReadInput;
+      identity: AnalyticsProvenanceIdentity | null;
+    }
   | { status: 'unavailable'; reason: AnalyticsProvenanceUnavailableReason };
 
 /**
@@ -71,7 +91,11 @@ export async function assembleLiveAnalyticsProvenance(params: {
       aliasMap: build.aliasMap,
       now,
     });
-    return { status: 'available', input: { slate, scoresByKey: build.scoresByKey } };
+    return {
+      status: 'available',
+      input: { slate, scoresByKey: build.scoresByKey },
+      identity: { teams: build.teams, aliasMap: build.aliasMap },
+    };
   } catch {
     // Empty catalog / ambiguous duplicate ids / unassociated provider ids —
     // unverifiable context, never served as absence.
@@ -94,11 +118,23 @@ export function assembleArchiveAnalyticsProvenance(
   if (parsed.status === 'malformed') {
     return { status: 'unavailable', reason: 'archive-slate-malformed' };
   }
+  // Durable archives are untyped at rest: the paired score map must be a plain
+  // object before anything indexes it. Absent/null is distinct from a
+  // non-object shape; neither is ever served, guessed, or rebuilt.
+  const scores = (archive as { scoresByKey?: unknown }).scoresByKey;
+  if (scores === undefined || scores === null) {
+    return { status: 'unavailable', reason: 'archive-scores-missing' };
+  }
+  if (typeof scores !== 'object' || Array.isArray(scores)) {
+    return { status: 'unavailable', reason: 'archive-scores-malformed' };
+  }
+
   return {
     status: 'available',
     input: {
       slate: snapshotToCanonicalSlate(parsed.snapshot),
-      scoresByKey: archive.scoresByKey,
+      scoresByKey: scores as Record<string, ScorePack>,
     },
+    identity: null,
   };
 }

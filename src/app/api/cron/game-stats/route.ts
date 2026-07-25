@@ -49,12 +49,16 @@ export const dynamic = 'force-dynamic';
  * same-run retries — and no score automation.
  */
 
+// ONE provider request per run — no transport retries. The cron promises at
+// most one CFBD /games/teams call per run and the quota floor's 2-call margin
+// assumes exactly one usage probe plus one fetch; recovery across runs is the
+// polling window's job, never a hidden transport loop.
 const RETRY_POLICY = {
-  maxAttempts: 3,
-  baseDelayMs: 500,
-  maxDelayMs: 4_000,
-  jitterRatio: 0.2,
-  retryOnHttpStatuses: [408, 429, 500, 502, 503, 504],
+  maxAttempts: 1,
+  baseDelayMs: 0,
+  maxDelayMs: 0,
+  jitterRatio: 0,
+  retryOnHttpStatuses: [],
 } as const;
 
 const PACING_POLICY = {

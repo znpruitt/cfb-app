@@ -197,41 +197,59 @@ const BANNED_EVERYWHERE = [
 ];
 
 /**
- * Symbols allowed ONLY inside the gameStats module family (the authorities
- * reference each other freely) plus an exact, justified per-file allowlist.
+ * Symbols allowed only in an EXACT per-file allowlist — including their own
+ * defining files. There is deliberately NO blanket gameStats-family
+ * exemption: a brand-new family file gains no privileges.
  */
-const GAME_STATS_DIR = 'src/lib/gameStats/';
 const RESTRICTED_SYMBOLS: ReadonlyArray<[string, ReadonlySet<string>]> = [
-  // Writer entry points: definitions only — no production caller anywhere.
-  ['setCachedGameStats', new Set<string>()],
-  ['writeLegacyGameStatsPartition', new Set<string>()],
-  // Durable merge entry points: only the coordinator (inside the family) may call.
-  ['mergeGameStatsPartitionDurable', new Set<string>()],
-  ['computeWeeklyGameStatsMerge', new Set<string>()],
-  // Writer-control transitions: CLI-only, banned even as bare names outside the family.
-  ['transitionWriterControl', new Set<string>()],
-  ['isAllowedWriterControlTransition', new Set<string>()],
-  // Raw partition READS: the projection-consuming loader, the admin PRESENCE
-  // probe, and the justified archive-integrity score cross-check (non-analytics).
+  // Writer entry points: the fenced definition only — no caller anywhere.
+  ['setCachedGameStats', new Set(['src/lib/gameStats/cache.ts'])],
+  ['writeLegacyGameStatsPartition', new Set(['src/lib/gameStats/cache.ts'])],
+  // Durable merge entry points: the definition + the ONE coordinator.
+  [
+    'mergeGameStatsPartitionDurable',
+    new Set(['src/lib/gameStats/durableMerge.ts', 'src/lib/gameStats/ingestionCoordinator.ts']),
+  ],
+  ['computeWeeklyGameStatsMerge', new Set(['src/lib/gameStats/durableMerge.ts'])],
+  // Writer-control transitions: CLI-only — the defining module and nothing else.
+  ['transitionWriterControl', new Set(['src/lib/gameStats/writerControlTransition.ts'])],
+  ['isAllowedWriterControlTransition', new Set(['src/lib/gameStats/writerControlTransition.ts'])],
+  // Raw partition READS: the definitions, the projection-consuming loader, the
+  // admin PRESENCE probe, and the justified archive-integrity score
+  // cross-check (non-analytics).
   [
     'getCachedGameStats',
-    new Set(['src/lib/insights/context.ts', 'src/app/api/debug/archive-integrity/route.ts']),
-  ],
-  [
-    'listCachedGameStatsWeeks',
-    new Set(['src/lib/insights/context.ts', 'src/app/api/debug/archive-integrity/route.ts']),
-  ],
-  [
-    'listCachedGameStats',
     new Set([
-      'src/lib/server/providerCacheState.ts',
+      'src/lib/gameStats/cache.ts',
       'src/lib/insights/context.ts',
       'src/app/api/debug/archive-integrity/route.ts',
     ]),
   ],
-  ['usableGameStatsGameIds', new Set(['src/lib/server/providerCacheState.ts'])],
-  // Owner aggregation: ONLY the projection-consuming loader may call it.
-  ['aggregateOwnerSeasonStats', new Set(['src/lib/insights/context.ts'])],
+  [
+    'listCachedGameStatsWeeks',
+    new Set([
+      'src/lib/gameStats/cache.ts',
+      'src/lib/insights/context.ts',
+      'src/app/api/debug/archive-integrity/route.ts',
+    ]),
+  ],
+  [
+    'listCachedGameStats',
+    new Set([
+      'src/lib/gameStats/cache.ts',
+      'src/lib/server/providerCacheState.ts',
+      'src/app/api/debug/archive-integrity/route.ts',
+    ]),
+  ],
+  [
+    'usableGameStatsGameIds',
+    new Set(['src/lib/gameStats/coverage.ts', 'src/lib/server/providerCacheState.ts']),
+  ],
+  // Owner aggregation: the definition + the projection-consuming loader.
+  [
+    'aggregateOwnerSeasonStats',
+    new Set(['src/lib/gameStats/ownerStats.ts', 'src/lib/insights/context.ts']),
+  ],
 ];
 
 /**
@@ -241,8 +259,13 @@ const RESTRICTED_SYMBOLS: ReadonlyArray<[string, ReadonlySet<string>]> = [
  */
 const APP_LAYER_BANNED = ['schemaVersion', 'pointsProvided', 'observationFence', 'rowAcceptance'];
 
-/** Spreads of persisted values the game-stats route must never emit. */
-const ROUTE_BANNED_SPREADS = ['...cached', '...result', '...record', '...stats'];
+/**
+ * The route may spread ONLY these expressions into a response body. Every
+ * other `...expr` — whatever it is named — is treated as a potential
+ * persisted-value wire leak (renames cannot launder it).
+ */
+const ROUTE_SPREAD_ALLOWLIST = new Set(['projection.wire', 'extra']);
+const SPREAD_PATTERN = /\.\.\.\s*([A-Za-z_$][\w$.]*)/g;
 
 const ROUTE_FILE = 'src/app/api/game-stats/route.ts';
 const CRON_FILE = 'src/app/api/cron/game-stats/route.ts';
@@ -314,21 +337,18 @@ function findActivationViolations(source: string, repoRelativePath: string): Vio
     });
   }
 
-  const inFamily = repoRelativePath.startsWith(GAME_STATS_DIR);
-  if (!inFamily) {
-    for (const [symbol, allowed] of RESTRICTED_SYMBOLS) {
-      for (const match of source.matchAll(symbolPattern([symbol]))) {
-        // Longest-match protection: `listCachedGameStats` must not claim a
-        // `listCachedGameStatsWeeks` occurrence.
-        const after = source[match.index + symbol.length];
-        if (after !== undefined && /[\w$]/.test(after)) continue;
-        if (allowed.has(repoRelativePath)) continue;
-        violations.push({
-          file: repoRelativePath,
-          pattern: `restricted symbol "${symbol}" outside its allowlist`,
-          line: lineOf(source, match.index),
-        });
-      }
+  for (const [symbol, allowed] of RESTRICTED_SYMBOLS) {
+    if (allowed.has(repoRelativePath)) continue;
+    for (const match of source.matchAll(symbolPattern([symbol]))) {
+      // Longest-match protection: `listCachedGameStats` must not claim a
+      // `listCachedGameStatsWeeks` occurrence.
+      const after = source[match.index + symbol.length];
+      if (after !== undefined && /[\w$]/.test(after)) continue;
+      violations.push({
+        file: repoRelativePath,
+        pattern: `restricted symbol "${symbol}" outside its allowlist`,
+        line: lineOf(source, match.index),
+      });
     }
   }
 
@@ -342,23 +362,21 @@ function findActivationViolations(source: string, repoRelativePath: string): Vio
     }
   }
 
+  // CLI-only module imports and route spreads scan a comments-masked copy so
+  // comments can neither hide nor satisfy anything; escapes decode before
+  // module resolution.
+  const specifierScan = maskComments(source);
+
   if (repoRelativePath === ROUTE_FILE) {
-    for (const spread of ROUTE_BANNED_SPREADS) {
-      let index = source.indexOf(spread);
-      while (index !== -1) {
-        violations.push({
-          file: repoRelativePath,
-          pattern: `persisted-value spread "${spread}" in the route wire`,
-          line: lineOf(source, index),
-        });
-        index = source.indexOf(spread, index + spread.length);
-      }
+    for (const match of specifierScan.matchAll(SPREAD_PATTERN)) {
+      if (ROUTE_SPREAD_ALLOWLIST.has(match[1]!)) continue;
+      violations.push({
+        file: repoRelativePath,
+        pattern: `non-allowlisted spread "...${match[1]}" in the route wire`,
+        line: lineOf(source, match.index),
+      });
     }
   }
-
-  // CLI-only module imports: scan specifiers over a comments-masked copy so a
-  // comment cannot hide the specifier; escapes decode before resolution.
-  const specifierScan = maskComments(source);
   for (const match of specifierScan.matchAll(SPECIFIER_PATTERN)) {
     const target = cliOnlyModuleTarget(match[1]!, repoRelativePath);
     if (target === null) continue;
@@ -388,21 +406,24 @@ test('activation invariants hold across every production source', () => {
   );
 });
 
-test('required live seams are CONNECTED', () => {
+/** Auth-order predicate over a comments-MASKED source (comments cannot spoof). */
+function authPrecedesParsing(maskedSource: string): boolean {
+  const auth = maskedSource.indexOf('requireAdminRequest(');
+  const parse = maskedSource.indexOf('searchParams');
+  return auth !== -1 && parse !== -1 && auth < parse;
+}
+
+test('required live seams are CONNECTED (in code, not comments)', () => {
   for (const [file, seams] of CONNECTED_SEAMS) {
-    const source = readSource(file);
+    const masked = maskComments(readSource(file));
     for (const seam of seams) {
-      assert.ok(source.includes(seam), `${file} must contain the "${seam}" seam`);
+      assert.ok(masked.includes(seam), `${file} must contain the "${seam}" seam`);
     }
   }
 });
 
 test('the route authenticates BEFORE parsing the query', () => {
-  const source = readSource(ROUTE_FILE);
-  const auth = source.indexOf('requireAdminRequest(');
-  const parse = source.indexOf('searchParams');
-  assert.ok(auth !== -1 && parse !== -1, 'both markers present');
-  assert.ok(auth < parse, 'admin auth must precede query parsing');
+  assert.ok(authPrecedesParsing(maskComments(readSource(ROUTE_FILE))));
 });
 
 test('vercel.json schedules the game-stats cron every 15 minutes', () => {
@@ -444,7 +465,7 @@ test('scanner: legacy-writer and raw-consumer laundering flags outside the famil
   }
 });
 
-test('scanner: allowlisted files and the gameStats family stay clean', () => {
+test('scanner: allowlisted files stay clean; the allowlists are EXACT, not family-wide', () => {
   // The presence probe may use its restricted reads…
   assert.deepEqual(
     findActivationViolations(
@@ -461,7 +482,7 @@ test('scanner: allowlisted files and the gameStats family stay clean', () => {
     ),
     []
   );
-  // …and inside the gameStats family the authorities reference each other freely.
+  // …the ONE coordinator may call the durable merge…
   assert.deepEqual(
     findActivationViolations(
       `const m = await mergeGameStatsPartitionDurable(input);`,
@@ -469,6 +490,18 @@ test('scanner: allowlisted files and the gameStats family stay clean', () => {
     ),
     []
   );
+  // …but a BRAND-NEW gameStats-family file gains no privileges at all.
+  for (const source of [
+    `await setCachedGameStats(result);`,
+    `const m = await mergeGameStatsPartitionDurable(input);`,
+    `const rows = await listCachedGameStats(year);`,
+    `const agg = aggregateOwnerSeasonStats(weekly, roster, resolver, y);`,
+  ]) {
+    assert.ok(
+      findActivationViolations(source, 'src/lib/gameStats/rogue.ts').length >= 1,
+      `a new family file must not launder: ${source}`
+    );
+  }
   // Longest-match protection: Weeks-listing in an allowed file never
   // false-flags the shorter name.
   assert.deepEqual(
@@ -507,11 +540,37 @@ test('scanner: app-layer internal metadata and route spreads flag', () => {
     findActivationViolations(`const v = row.schemaVersion;`, 'src/lib/gameStats/contract.ts'),
     []
   );
-  assert.ok(
-    findActivationViolations(`return NextResponse.json({ ...cached, meta });`, ROUTE_FILE).some(
-      (v) => v.pattern.includes('...cached')
-    )
+  // The spread rule is allowlist-based — renames cannot launder a wire leak.
+  for (const source of [
+    `return NextResponse.json({ ...cached, meta });`,
+    `return NextResponse.json({ ...read.value });`,
+    `return NextResponse.json({ ...anythingRenamed });`,
+  ]) {
+    assert.ok(
+      findActivationViolations(source, ROUTE_FILE).some((v) =>
+        v.pattern.includes('non-allowlisted spread')
+      ),
+      source
+    );
+  }
+  assert.deepEqual(
+    findActivationViolations(`return NextResponse.json({ ...projection.wire, meta });`, ROUTE_FILE),
+    []
   );
+});
+
+test('scanner: a comment cannot spoof the auth-before-parsing order', () => {
+  const spoofed = [
+    `// requireAdminRequest( comes first in this comment`,
+    `const url = new URL(req.url); url.searchParams.get('year');`,
+    `const failure = await requireAdminRequest(req);`,
+  ].join('\n');
+  assert.equal(authPrecedesParsing(maskComments(spoofed)), false);
+  const genuine = [
+    `const failure = await requireAdminRequest(req);`,
+    `const url = new URL(req.url); url.searchParams.get('year');`,
+  ].join('\n');
+  assert.equal(authPrecedesParsing(maskComments(genuine)), true);
 });
 
 test('scanner: CLI-only module imports flag in every statically-resolvable form', () => {

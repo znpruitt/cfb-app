@@ -17,7 +17,8 @@ import { getTeamDatabaseItems } from '../server/teamDatabaseStore';
 import type { SeasonContext } from '../selectors/seasonContext';
 import type { OwnerStandingsRow } from '../standings';
 import type { StandingsHistoryWeekSnapshot } from '../standingsHistory';
-import { createTeamIdentityResolver } from '../teamIdentity';
+import { createTeamIdentityResolver, type TeamCatalogItem } from '../teamIdentity';
+import type { AliasMap } from '../teamNames';
 import { chooseDefaultWeek, deriveRegularWeeks } from '../weekSelection';
 import { deriveLifecycleState, deriveTotalRegularSeasonWeeks } from './lifecycle';
 import { selectAllRecords } from '../selectors/leagueRecords';
@@ -45,6 +46,7 @@ export type OwnerSeasonStatsSource = { kind: 'live' } | { kind: 'archive'; archi
 
 export type OwnerSeasonStatsUnavailableReason =
   | AnalyticsProvenanceUnavailableReason
+  | 'identity-load-failed'
   | 'no-cached-partitions';
 
 export type OwnerSeasonStatsLoad =
@@ -83,10 +85,25 @@ export async function loadOwnerSeasonStats(
   const weekKeys = await listCachedGameStatsWeeks(year);
   if (weekKeys.length === 0) return { status: 'unavailable', reason: 'no-cached-partitions' };
 
-  const [teams, aliasMap] = await Promise.all([
-    getTeamDatabaseItems(),
-    getScopedAliasMap(leagueSlug, year),
-  ]);
+  // Owner attribution resolves against the SAME identity inputs the provenance
+  // was built from (live: the exact build's teams/aliases — never a second,
+  // possibly-concurrent read). Archives carry no identity snapshot, so the
+  // archive path loads identity ONCE, fail-closed: a read failure is typed
+  // unavailability, never an escaping exception.
+  let teams: TeamCatalogItem[];
+  let aliasMap: AliasMap;
+  if (provenance.identity !== null) {
+    ({ teams, aliasMap } = provenance.identity);
+  } else {
+    try {
+      [teams, aliasMap] = await Promise.all([
+        getTeamDatabaseItems(),
+        getScopedAliasMap(leagueSlug, year),
+      ]);
+    } catch {
+      return { status: 'unavailable', reason: 'identity-load-failed' };
+    }
+  }
   // Observed names seed from the provenance slate's SETTLED participants —
   // never from raw provider labels of another build.
   const observedNames = Array.from(

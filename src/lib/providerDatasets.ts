@@ -154,7 +154,7 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     currentAutomation:
       'Every 15 minutes: at most ONE partition per run, only while a stat-producing game is 3–24h past kickoff with unresolved evidence, and only above the 1,000-call monthly CFBD reserve. Outside the window, manual refresh is the recovery path.',
     plannedPolicy:
-      'Active policy shipped (PLATFORM-086H3E). No further game-stats automation planned; score automation (PLATFORM-086B) is tracked separately.',
+      'PLATFORM-086H3E cadence; writing is gated by the operator-controlled writer-control state and the auto-refresh setting. Score automation (PLATFORM-086B) is tracked separately.',
     lifecycleCritical: false,
     autoRefreshSettingConsumed: true,
     // Bounded 15-minute kickoff-window polling (PLATFORM-086H3E3): during an

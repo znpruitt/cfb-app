@@ -220,9 +220,36 @@ test('while control is NOT active, H2 refuses and the refresh is a truthful 503 
 
   const res = await GET(adminRefresh());
   assert.equal(res.status, 503);
-  const body = (await res.json()) as { code?: string };
+  const body = (await res.json()) as { code?: string; durable?: { status?: string } };
   assert.equal(body.code, 'game-stats-unavailable');
+  // Even FAILURE responses carry the projected durable reread — the caller
+  // sees the exact durable partition, never an assumed merge result.
+  assert.equal(body.durable?.status, 'absent');
   assert.equal(await getCachedGameStats(2026, 3, 'regular'), null, 'both writers refused');
+});
+
+test('the flag grammar is EXACTLY =1: loose spellings neither refresh nor override', async () => {
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+  let providerCalled = false;
+  globalThis.fetch = (async () => {
+    providerCalled = true;
+    return new Response('[]', { status: 200 });
+  }) as typeof fetch;
+
+  // bypassCache=true is NOT a refresh — it is an ordinary cache-only read.
+  const looseBypass = await GET(
+    new Request(
+      'https://example.com/api/game-stats?year=2026&week=3&seasonType=regular&bypassCache=true',
+      { headers: { 'x-admin-token': ADMIN_TOKEN } }
+    )
+  );
+  assert.equal(looseBypass.status, 404, 'ordinary-read absence, not a refresh');
+  assert.equal(providerCalled, false);
+
+  // quotaOverride=yes does NOT bypass the reserve (usage unknowable here).
+  delete MUTABLE_ENV.CFBD_API_KEY;
+  const looseOverride = await GET(adminRefresh('&quotaOverride=yes'));
+  assert.equal(looseOverride.status, 429);
 });
 
 test('an ordinary read is cache-only and provider-free even when the cache is absent', async () => {
