@@ -100,6 +100,23 @@ test('derive-from-build: consumes the EXACT games it is given, never an internal
   );
 });
 
+test('derive-from-build: fails closed when a built game has no associated wire row', () => {
+  const input = exactBuild();
+  // Simulate a manual override rewriting a provider id away from every wire
+  // row: the association is unverifiable and must throw, never silently
+  // default the partition/season type or null the participant ids.
+  const rewritten = {
+    ...input,
+    games: input.games.map((game) =>
+      game.providerGameId === '5001' ? { ...game, providerGameId: '99999' } : game
+    ),
+  };
+  assert.throws(
+    () => deriveCanonicalGameStatsSlateFromBuild(rewritten),
+    /no associated schedule wire row/
+  );
+});
+
 test('derive-from-build: refuses an empty team catalog', () => {
   const input = exactBuild();
   assert.throws(
@@ -177,9 +194,9 @@ test('snapshot: builder refuses an empty team catalog', () => {
 
 // === parseGameStatSlateSnapshot ===
 
-test('parse: missing value is absent — never malformed, never valid', () => {
+test('parse: only a MISSING value is absent; a present null is corrupt → malformed', () => {
   assert.deepEqual(parseGameStatSlateSnapshot(undefined), { status: 'absent' });
-  assert.deepEqual(parseGameStatSlateSnapshot(null), { status: 'absent' });
+  assert.deepEqual(parseGameStatSlateSnapshot(null), { status: 'malformed' });
 });
 
 test('parse: expectedYear mismatch is a provenance violation → malformed', () => {

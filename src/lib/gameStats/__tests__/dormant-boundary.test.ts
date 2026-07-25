@@ -162,6 +162,13 @@ const DORMANT_MODULE_RESOLVED = new RegExp(
 // archive snapshot module derives the slate of the archive's own exact
 // canonical build; every other dormant module and symbol stays forbidden to it,
 // and these crossings stay forbidden to every other production file.
+//
+// The allowance is POSITIONAL, not blanket: the allowlisted module may appear
+// only in a statement that BEGINS with `import` (never `export … from`, never
+// dynamic `import(...)`/`require(...)` bound to a value), and the allowlisted
+// symbol may appear only inside that import statement or in direct call
+// position. Re-exports, aliasing (`const x = derive…;`), and value exports
+// all still flag — the crossing cannot launder dormant capability onward.
 const ALLOWED_DORMANT_IMPORTS = new Map<string, ReadonlySet<string>>([
   ['src/lib/gameStats/slateSnapshot.ts', new Set(['canonicalSlate'])],
 ]);
@@ -198,23 +205,76 @@ function lineOf(source: string, index: number): number {
   return source.slice(0, index).split('\n').length;
 }
 
+/**
+ * First word of the statement containing `index`: scan back to the previous
+ * `;` (or file start), strip comments/whitespace, take the leading word.
+ * Textual, not parsed — exactly strong enough to distinguish `import …` from
+ * `export … from`, `const … = import(...)`, and other value statements for
+ * the positional allowlist rules, and pinned by self-tests below.
+ */
+function statementFirstWord(source: string, index: number): string {
+  const start = source.lastIndexOf(';', index - 1) + 1;
+  const segment = source
+    .slice(start, index)
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/\/\/[^\n]*/g, ' ')
+    .trimStart();
+  return segment.split(/[\s({]/, 1)[0] ?? '';
+}
+
+/**
+ * Whether the statement containing `index` is a static `import … from '<m>'`
+ * whose specifier resolves to a module allowlisted for this file.
+ */
+function insideAllowedImportStatement(
+  source: string,
+  index: number,
+  repoRelativePath: string,
+  allowedModules: ReadonlySet<string> | undefined
+): boolean {
+  if (!allowedModules || statementFirstWord(source, index) !== 'import') return false;
+  const start = source.lastIndexOf(';', index - 1) + 1;
+  const end = source.indexOf(';', index);
+  const statement = source.slice(start, end === -1 ? source.length : end + 1);
+  const specifier = /\bfrom\s*['"]([^'"]+)['"]/.exec(statement);
+  if (!specifier) return false;
+  const target = dormantModuleTarget(specifier[1]!, repoRelativePath);
+  return target !== null && allowedModules.has(target);
+}
+
 /** Pure scan of one production source text for dormant-boundary violations. */
 function findBoundaryViolations(source: string, repoRelativePath: string): BoundaryViolation[] {
   const violations: BoundaryViolation[] = [];
   const allowedSymbols = ALLOWED_DORMANT_SYMBOLS.get(repoRelativePath);
+  const allowedImports = ALLOWED_DORMANT_IMPORTS.get(repoRelativePath);
   for (const match of source.matchAll(SYMBOL_PATTERN)) {
-    if (allowedSymbols?.has(match[1]!)) continue;
+    if (allowedSymbols?.has(match[1]!)) {
+      // Positional allowance only: a direct call, or the name inside the
+      // allowlisted static import statement. Re-exports, aliasing, and value
+      // exports fall through and flag as laundering.
+      const isDirectCall = /^\s*\(/.test(source.slice(match.index + match[1]!.length));
+      if (
+        isDirectCall ||
+        insideAllowedImportStatement(source, match.index, repoRelativePath, allowedImports)
+      ) {
+        continue;
+      }
+    }
     violations.push({
       file: repoRelativePath,
       pattern: `forbidden symbol "${match[1]}"`,
       line: lineOf(source, match.index),
     });
   }
-  const allowedImports = ALLOWED_DORMANT_IMPORTS.get(repoRelativePath);
   for (const match of source.matchAll(SPECIFIER_PATTERN)) {
     const target = dormantModuleTarget(match[1]!, repoRelativePath);
     if (target === null) continue;
-    if (allowedImports?.has(target)) continue;
+    // Positional allowance only: the specifier must sit in a statement that
+    // BEGINS with `import` — `export * from`, `export { … } from`, dynamic
+    // `import(...)` and `require(...)` bound to values all still flag.
+    if (allowedImports?.has(target) && statementFirstWord(source, match.index) === 'import') {
+      continue;
+    }
     violations.push({
       file: repoRelativePath,
       pattern: `dormant-module import "${match[1]}"`,
@@ -445,6 +505,36 @@ test('scanner: the E1 archive-snapshot allowlist is exact — file, module, and 
       `must stay forbidden inside the snapshot module: ${source}`
     );
   }
+
+  // The allowance is POSITIONAL: even the allowlisted module/symbol cannot be
+  // re-exported, aliased, value-exported, or namespace-grabbed from the
+  // allowlisted file — the crossing must not launder dormant capability onward.
+  const positionalLaundering = [
+    `export * from './canonicalSlate.ts';`,
+    `export { deriveCanonicalGameStatsSlateFromBuild } from './canonicalSlate.ts';`,
+    `export { deriveCanonicalGameStatsSlateFromBuild as deriveSlate } from './canonicalSlate.ts';`,
+    `const m = await import('./canonicalSlate.ts');`,
+    `const m = require('./canonicalSlate.ts');`,
+    `const alias = deriveCanonicalGameStatsSlateFromBuild;`,
+    `export const derive = deriveCanonicalGameStatsSlateFromBuild;`,
+  ];
+  for (const source of positionalLaundering) {
+    assert.ok(
+      findBoundaryViolations(source, snapshotModule).length >= 1,
+      `positional laundering must flag inside the snapshot module: ${source}`
+    );
+  }
+
+  // …while the sanctioned pair — multi-line static import + direct call — is
+  // clean, exactly as the real module uses it.
+  const sanctioned = [
+    `import {`,
+    `  deriveCanonicalGameStatsSlateFromBuild,`,
+    `  type CanonicalSlate,`,
+    `} from './canonicalSlate.ts';`,
+    `const slate = deriveCanonicalGameStatsSlateFromBuild(input);`,
+  ].join('\n');
+  assert.deepEqual(findBoundaryViolations(sanctioned, snapshotModule), []);
 });
 
 test('scanner: clean and unrelated sources produce no violations', () => {

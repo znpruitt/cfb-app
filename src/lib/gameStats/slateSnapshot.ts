@@ -15,8 +15,10 @@ import {
  * `games`/`scoresByKey`, so an archive consumer never rebuilds a live slate
  * and pairs it with archived scores (cross-provenance mixing). This module is
  * the single permitted production crossing of the dormant game-stats boundary
- * (`deriveCanonicalGameStatsSlateFromBuild` only), enforced by the
- * dormant-boundary guard's exact allowlist.
+ * (the slate derive-from-build entry only), enforced by the dormant-boundary
+ * guard's exact allowlist — which permits that name solely in the static
+ * import statement and in direct call position, so this file cannot re-export
+ * or alias dormant capability onward.
  *
  * The persisted schema is a MINIMAL STRICT ALLOWLIST — exactly the fields the
  * analytics projection consumes (association id, attachment key, partition,
@@ -164,7 +166,11 @@ export function parseGameStatSlateSnapshot(
   value: unknown,
   expectedYear?: number
 ): GameStatSlateSnapshotParse {
-  if (value === undefined || value === null) return { status: 'absent' };
+  // Only a MISSING field is absence (a pre-E1 archive never wrote the key). A
+  // PRESENT `null` was written by something and is corrupt durable data —
+  // malformed, never absence.
+  if (value === undefined) return { status: 'absent' };
+  if (value === null) return { status: 'malformed' };
   if (typeof value !== 'object' || Array.isArray(value)) return { status: 'malformed' };
   if (!hasExactKeys(value, SNAPSHOT_KEYS)) return { status: 'malformed' };
 

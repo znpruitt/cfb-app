@@ -165,3 +165,66 @@ test('buildSeasonArchive: the persisted snapshot round-trips the strict parser',
   // Wrong-year pairing fails closed at parse time.
   assert.equal(parseGameStatSlateSnapshot(persisted, YEAR + 1).status, 'malformed');
 });
+
+test('buildSeasonArchive: a manual override on the exact build is reflected in the snapshot', async () => {
+  await seedSeason();
+
+  // Discover the game's eventId from an un-overridden build, then override its
+  // attachment key — overrides are keyed by eventId and applied INSIDE the
+  // archive's own buildScheduleFromApi invocation.
+  const baseline = await buildSeasonArchive(SLUG, YEAR);
+  const eventId = baseline.games.find((g) => g.providerGameId === '9001')!.eventId;
+  await setAppState(`postseason-overrides:${SLUG}:${YEAR}`, 'map', {
+    [eventId]: { key: 'overridden-key-9001' },
+  });
+
+  const archive = await buildSeasonArchive(SLUG, YEAR);
+  const snapGame = archive.gameStatSlate!.games.find((g) => g.providerGameId === 9001);
+  assert.ok(snapGame, 'overridden game still persisted');
+  // A league-agnostic internal rebuild would ignore the league's manual
+  // override and yield the underived key; the exact-build snapshot must carry
+  // the overridden attachment key AND stay paired with this archive's own
+  // scoresByKey under that same key.
+  assert.equal(snapGame!.key, 'overridden-key-9001');
+  assert.ok(
+    'overridden-key-9001' in archive.scoresByKey,
+    'archive-owned score attached under the overridden key'
+  );
+});
+
+test('buildSeasonArchive: an override rewriting a provider id fails closed', async () => {
+  await seedSeason();
+  const baseline = await buildSeasonArchive(SLUG, YEAR);
+  const eventId = baseline.games.find((g) => g.providerGameId === '9001')!.eventId;
+  // Rewriting the association id away from every schedule wire row makes the
+  // game unverifiable — the archive build must reject, never silently default
+  // the partition or null the participant ids.
+  await setAppState(`postseason-overrides:${SLUG}:${YEAR}`, 'map', {
+    [eventId]: { providerGameId: '77777' },
+  });
+  await assert.rejects(buildSeasonArchive(SLUG, YEAR), /no associated schedule wire row/);
+});
+
+test('buildSeasonArchive: an empty team catalog fails closed', async () => {
+  await seedSeason();
+  await seedTeamDb([]);
+  await assert.rejects(buildSeasonArchive(SLUG, YEAR), /non-empty team catalog/);
+});
+
+test('buildSeasonArchive: ambiguous duplicate schedule ids fail closed', async () => {
+  await seedSeason();
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    items: [
+      wireItem({
+        id: '9001',
+        week: 1,
+        home: 'Texas',
+        away: 'Rival Tech',
+        homeId: 251,
+        awayId: 252,
+      }),
+      wireItem({ id: '9001', week: 2, home: 'Gulf State', away: 'Marsh College' }),
+    ],
+  });
+  await assert.rejects(buildSeasonArchive(SLUG, YEAR), /ambiguous duplicate CFBD schedule id/);
+});

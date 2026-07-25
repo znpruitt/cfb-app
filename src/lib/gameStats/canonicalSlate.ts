@@ -344,8 +344,18 @@ export function deriveCanonicalGameStatsSlateFromBuild(input: {
     seenIds.add(providerGameId);
 
     const item = itemsByProviderId.get(providerGameId);
-    const kickoff = item?.startDate ?? game.date ?? null;
-    const rawStatus = item?.status ?? null;
+    // Fail CLOSED when an addressable game has NO associated schedule wire row.
+    // Unreachable through an internal build (every numeric id originates from a
+    // wire row), but reachable through `deriveCanonicalGameStatsSlateFromBuild`
+    // when a manual override rewrote `providerGameId` away from every schedule
+    // row: that id is unverifiable — its season type, kickoff, status, and
+    // numeric participant ids would all be silent guessed defaults. Association
+    // authority is never guessed.
+    if (item === undefined) {
+      throw new Error(`canonical game ${providerGameId} has no associated schedule wire row`);
+    }
+    const kickoff = item.startDate ?? game.date ?? null;
+    const rawStatus = item.status ?? null;
     // Name-resolved participants: the schedule-authoritative expectation of who
     // is playing (display/diagnostics). C1's evidence path does not validate
     // against them.
@@ -369,8 +379,8 @@ export function deriveCanonicalGameStatsSlateFromBuild(input: {
       notExpectedReason,
       home,
       away,
-      homeId: toParticipantId(item?.homeId),
-      awayId: toParticipantId(item?.awayId),
+      homeId: toParticipantId(item.homeId),
+      awayId: toParticipantId(item.awayId),
       kickoff,
       rawStatus,
     });
