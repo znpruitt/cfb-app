@@ -12,6 +12,7 @@ import {
 import { deriveStandingsHistory } from './standingsHistory.ts';
 import { parseOwnersCsv } from './parseOwnersCsv.ts';
 import { isLikelyInvalidTeamLabel } from './teamNormalization.ts';
+import { buildGameStatSlateSnapshot } from './gameStats/slateSnapshot.ts';
 import type { SeasonArchive } from './seasonArchive.ts';
 import type { ScorePack } from './scores.ts';
 import type { AliasMap } from './teamNames.ts';
@@ -235,14 +236,32 @@ export async function buildSeasonArchive(leagueSlug: string, year: number): Prom
   const finalStandings =
     lastWeek !== undefined ? (standingsHistory.byWeek[lastWeek]?.standings ?? []) : [];
 
+  const now = new Date();
+
+  // Archive-owned game-stat slate snapshot (PLATFORM-086H3E1): derived from the
+  // EXACT build above — the same scheduleItems/teams/aliasMap/manualOverrides
+  // that produced `games` — so the snapshot pairs ONLY with THIS archive's
+  // scoresByKey and can never mix provenance with a live rebuild. Throws (fail
+  // closed) on an empty team catalog or ambiguous duplicate provider ids: an
+  // archive must not be written with a snapshot lacking catalog authority.
+  const gameStatSlate = buildGameStatSlateSnapshot({
+    year,
+    games,
+    scheduleItems,
+    teams,
+    aliasMap,
+    now,
+  });
+
   return {
     leagueSlug,
     year,
-    archivedAt: new Date().toISOString(),
+    archivedAt: now.toISOString(),
     ownerRosterSnapshot: ownersCsvText,
     standingsHistory,
     finalStandings,
     games,
     scoresByKey: scoresByKey as Record<string, ScorePack>,
+    gameStatSlate,
   };
 }

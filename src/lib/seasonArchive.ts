@@ -9,6 +9,7 @@ import type {
 } from './standingsHistory.ts';
 import type { AppGame } from './schedule.ts';
 import type { ScorePack } from './scores.ts';
+import type { GameStatSlateSnapshot } from './gameStats/slateSnapshot.ts';
 
 export type { AppGame } from './schedule.ts';
 
@@ -26,6 +27,15 @@ export type SeasonArchive = {
    * Used for superlative derivation and head-to-head matchup details.
    */
   scoresByKey: Record<string, ScorePack>;
+  /**
+   * Archive-owned canonical game-stat slate snapshot (PLATFORM-086H3E1) —
+   * derived from the EXACT build that produced `games` and paired ONLY with
+   * this archive's own `scoresByKey`. OPTIONAL: archives written before E1
+   * legitimately lack it; analytics consumers (E3) fail closed on absence or
+   * malformation rather than rebuilding a live slate, and the established
+   * preview/confirm backfill is the only repair.
+   */
+  gameStatSlate?: GameStatSlateSnapshot;
 };
 
 export type SeasonArchiveDiff = {
