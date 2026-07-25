@@ -101,6 +101,21 @@ test('window: entry is inclusive at exactly +3h, exit exclusive at exactly +24h'
   );
 });
 
+test('window: an invalid injected clock proves nothing — nothing polls', () => {
+  const slate = slateOf([windowGame({ id: 1, ageMs: 4 * H })]);
+  const invalidNow = new Date('not-a-clock');
+  assert.deepEqual(listKickoffWindowPartitions(slate, invalidNow), []);
+  assert.equal(
+    selectPollingTarget({
+      slate,
+      now: invalidNow,
+      seasonRelation: 'current',
+      recordsByPartition: new Map(),
+    }),
+    null
+  );
+});
+
 test('window: disrupted, placeholder, and unprovable kickoffs never poll', () => {
   const partitions = listKickoffWindowPartitions(
     slateOf([

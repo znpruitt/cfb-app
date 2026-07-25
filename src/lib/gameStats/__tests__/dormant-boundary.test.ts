@@ -501,6 +501,13 @@ test('scanner: detects dormant API references and v2 metadata names', () => {
       'transitionWriterControl',
     ],
     ['if (isAllowedWriterControlTransition(a, b)) {}', 'isAllowedWriterControlTransition'],
+    // PLATFORM-086H3E2 activation-prerequisite entry points.
+    ['const i = interpretGameStatsRefreshOutcome(result);', 'interpretGameStatsRefreshOutcome'],
+    ['const p = listKickoffWindowPartitions(slate, now);', 'listKickoffWindowPartitions'],
+    ['const t = selectPollingTarget(input);', 'selectPollingTarget'],
+    ['const k = pollingPartitionKey(ref);', 'pollingPartitionKey'],
+    ['const q = evaluateAutomationQuota(usage);', 'evaluateAutomationQuota'],
+    ['const m = evaluateManualQuota(usage, override);', 'evaluateManualQuota'],
   ];
   for (const [source, symbol] of cases) {
     const violations = findBoundaryViolations(source, 'src/lib/example.ts');

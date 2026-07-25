@@ -68,9 +68,12 @@ function windowGame(game: CanonicalGame, nowMs: number): WindowGame | null {
   // Placeholder shells and disrupted games never produce stats.
   if (game.applicability === 'not-expected') return null;
   const kickoffMs = typeof game.kickoff === 'string' ? Date.parse(game.kickoff) : Number.NaN;
-  // An unprovable kickoff age never polls (fail-safe, quota-first).
+  // An unprovable kickoff age never polls (fail-safe, quota-first). The age
+  // itself must be finite: an invalid injected clock (NaN nowMs) would make
+  // both window comparisons false and fall through to eligible otherwise.
   if (!Number.isFinite(kickoffMs)) return null;
   const age = nowMs - kickoffMs;
+  if (!Number.isFinite(age)) return null;
   if (age < POLLING_MIN_KICKOFF_AGE_MS || age >= POLLING_MAX_KICKOFF_AGE_MS) return null;
   return { game, kickoffMs };
 }
