@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/cron/game-stats",
-      "schedule": "0 11 * * 1"
+      "schedule": "*/15 * * * *"
     }
   ]
 }
