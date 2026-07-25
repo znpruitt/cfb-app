@@ -52,6 +52,13 @@ function toPosix(p: string): string {
 // Exact files only — never whole directories. The shared RFC 3339 fence parser
 // (`observationFence.ts`) and the LIVE writer fence (`writerFence.ts`,
 // `cache.ts`) are not dormant homes, so they stay SCANNED (not excluded).
+//
+// PLATFORM-086H3E1 adds ONE exact, allowlisted production crossing (below):
+// the archive snapshot module (`slateSnapshot.ts`) may import `canonicalSlate`
+// and reference `deriveCanonicalGameStatsSlateFromBuild` ONLY, so archive
+// construction can snapshot the slate of its own exact build. The module
+// itself stays SCANNED — every other dormant surface remains forbidden to it,
+// and the crossing is forbidden to every other file.
 const EXCLUDED_FILES = new Set([
   'src/lib/gameStats/contract.ts',
   'src/lib/gameStats/types.ts',
@@ -104,7 +111,11 @@ const FORBIDDEN_SYMBOLS = [
   'mergeGameStatsPartitionDurable',
   // PLATFORM-086H3C1 dormant canonical evidence read-model entry points. A live
   // consumer must not import or re-export these until activation wires them.
+  // (`deriveCanonicalGameStatsSlateFromBuild` is PLATFORM-086H3E1's exact-build
+  // derivation entry — forbidden everywhere except the allowlisted archive
+  // snapshot seam below.)
   'buildCanonicalGameStatsSlate',
+  'deriveCanonicalGameStatsSlateFromBuild',
   'loadCanonicalGameStatsSlate',
   'selectCanonicalPartition',
   'selectGameEvidence',
@@ -146,25 +157,39 @@ const DORMANT_MODULE_RESOLVED = new RegExp(
   `^src/lib/gameStats/(${DORMANT_MODULE_BASENAMES.join('|')})(\\.(?:js|mjs|cjs|ts|mts|cts|tsx))?$`
 );
 
-/** Whether a module specifier resolves to a dormant game-stats module. */
-function specifierTargetsDormantModule(
-  specifier: string,
-  importerRepoRelativePath: string
-): boolean {
+// PLATFORM-086H3E1: the ONLY permitted production crossings of the dormant
+// boundary, exact (file → module basename) and (file → symbol) pairs. The
+// archive snapshot module derives the slate of the archive's own exact
+// canonical build; every other dormant module and symbol stays forbidden to it,
+// and these crossings stay forbidden to every other production file.
+const ALLOWED_DORMANT_IMPORTS = new Map<string, ReadonlySet<string>>([
+  ['src/lib/gameStats/slateSnapshot.ts', new Set(['canonicalSlate'])],
+]);
+const ALLOWED_DORMANT_SYMBOLS = new Map<string, ReadonlySet<string>>([
+  ['src/lib/gameStats/slateSnapshot.ts', new Set(['deriveCanonicalGameStatsSlateFromBuild'])],
+]);
+
+/**
+ * The dormant module basename a specifier resolves to, or `null` when the
+ * specifier targets no dormant module. Returning the basename (not a boolean)
+ * lets the scanner apply the exact per-file allowlist above.
+ */
+function dormantModuleTarget(specifier: string, importerRepoRelativePath: string): string | null {
   const normalized = specifier.replace(/\\/g, '/');
   // Alias/absolute forms (`@/lib/gameStats/contract`, deep relative paths).
-  if (DORMANT_MODULE_BASENAMES.some((base) => normalized.includes(`gameStats/${base}`))) {
-    return true;
+  for (const base of DORMANT_MODULE_BASENAMES) {
+    if (normalized.includes(`gameStats/${base}`)) return base;
   }
   // Relative forms resolve against the importing file so an unrelated module
   // that merely happens to be named `contract` elsewhere never matches.
-  if (!normalized.startsWith('.')) return false;
+  if (!normalized.startsWith('.')) return null;
   const resolved = path.posix.normalize(
     path.posix.join(path.posix.dirname(toPosix(importerRepoRelativePath)), normalized)
   );
   // TypeScript source commonly imports with .js/.mjs/.cjs specifiers (NodeNext
   // resolution) — every supported extension resolves to the same module.
-  return DORMANT_MODULE_RESOLVED.test(resolved);
+  const match = DORMANT_MODULE_RESOLVED.exec(resolved);
+  return match ? match[1]! : null;
 }
 
 type BoundaryViolation = { file: string; pattern: string; line: number };
@@ -176,21 +201,25 @@ function lineOf(source: string, index: number): number {
 /** Pure scan of one production source text for dormant-boundary violations. */
 function findBoundaryViolations(source: string, repoRelativePath: string): BoundaryViolation[] {
   const violations: BoundaryViolation[] = [];
+  const allowedSymbols = ALLOWED_DORMANT_SYMBOLS.get(repoRelativePath);
   for (const match of source.matchAll(SYMBOL_PATTERN)) {
+    if (allowedSymbols?.has(match[1]!)) continue;
     violations.push({
       file: repoRelativePath,
       pattern: `forbidden symbol "${match[1]}"`,
       line: lineOf(source, match.index),
     });
   }
+  const allowedImports = ALLOWED_DORMANT_IMPORTS.get(repoRelativePath);
   for (const match of source.matchAll(SPECIFIER_PATTERN)) {
-    if (specifierTargetsDormantModule(match[1]!, repoRelativePath)) {
-      violations.push({
-        file: repoRelativePath,
-        pattern: `dormant-module import "${match[1]}"`,
-        line: lineOf(source, match.index),
-      });
-    }
+    const target = dormantModuleTarget(match[1]!, repoRelativePath);
+    if (target === null) continue;
+    if (allowedImports?.has(target)) continue;
+    violations.push({
+      file: repoRelativePath,
+      pattern: `dormant-module import "${match[1]}"`,
+      line: lineOf(source, match.index),
+    });
   }
   return violations;
 }
@@ -385,6 +414,39 @@ test('scanner: detects static, dynamic, require, and re-export contract imports'
   );
 });
 
+test('scanner: the E1 archive-snapshot allowlist is exact — file, module, and symbol', () => {
+  const snapshotModule = 'src/lib/gameStats/slateSnapshot.ts';
+  const crossing = `import { deriveCanonicalGameStatsSlateFromBuild } from './canonicalSlate.ts';`;
+
+  // The allowlisted crossing itself is clean (both the specifier and the symbol).
+  assert.deepEqual(findBoundaryViolations(crossing, snapshotModule), []);
+
+  // The SAME source from any other production file flags BOTH ways.
+  const elsewhere = findBoundaryViolations(
+    `import { deriveCanonicalGameStatsSlateFromBuild } from '../gameStats/canonicalSlate.ts';`,
+    'src/lib/seasonRollover.ts'
+  );
+  assert.equal(elsewhere.length, 2, 'symbol + import must both flag outside the allowlist');
+  assert.ok(elsewhere.some((v) => v.pattern.includes('deriveCanonicalGameStatsSlateFromBuild')));
+  assert.ok(elsewhere.some((v) => v.pattern.startsWith('dormant-module import')));
+
+  // The allowlisted FILE gains no other dormant privileges: every other dormant
+  // module and every other dormant symbol still flags inside it.
+  const laundering = [
+    `import { mergeGameStatsPartitionDurable } from './durableMerge.ts';`,
+    `const m = await import('./publicProjection.ts');`,
+    `export * from './evidenceAuthority.ts';`,
+    `const p = projectAnalyticsPartition(input, w, st, rec, rel);`,
+    `const s = buildCanonicalGameStatsSlate({ year, scheduleItems, teams, aliasMap, now });`,
+  ];
+  for (const source of laundering) {
+    assert.ok(
+      findBoundaryViolations(source, snapshotModule).length >= 1,
+      `must stay forbidden inside the snapshot module: ${source}`
+    );
+  }
+});
+
 test('scanner: clean and unrelated sources produce no violations', () => {
   const clean = [
     [`import { foo } from './contract';`, 'src/lib/billing/index.ts'], // unrelated module named contract
@@ -429,6 +491,9 @@ test('scanner: exclusions are exactly the dormant homes, tests, and fixtures', (
     'src/lib/gameStats/cache.ts',
     'src/lib/gameStats/coverage.ts',
     'src/lib/gameStats/normalizers.ts',
+    // The E1 archive-snapshot seam holds an EXACT allowlisted crossing — it must
+    // stay SCANNED so every non-allowlisted dormant reference inside it flags.
+    'src/lib/gameStats/slateSnapshot.ts',
     // The LIVE writer fence must stay scanned — only the transition authority
     // (writerControlTransition.ts) is a dormant home, never the fence itself.
     'src/lib/gameStats/writerFence.ts',
