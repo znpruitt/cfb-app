@@ -223,15 +223,19 @@ function lineOf(source: string, index: number): number {
 }
 
 /**
- * One-pass textual mask: comment contents and string/template-literal
- * contents become spaces (newlines and the quote characters themselves are
- * kept), so semicolons inside them stop acting as statement boundaries.
- * Identifiers, braces, and keywords survive untouched. Textual, not a real
- * lexer — regex literals and interpolated templates are out of scope, and the
- * bias is fail-safe: a mis-mask can only cause a false FLAG for the
- * allowlisted file, never a false allow of a non-import form.
+ * One-pass textual mask with two modes. Comment contents always become
+ * spaces (newlines are kept, offsets preserved). With `maskStrings`,
+ * string/template-literal CONTENTS are blanked too (quote characters kept) —
+ * used for statement-boundary placement, where semicolons inside comments or
+ * strings must not act as boundaries. Without it, strings survive intact —
+ * used for the specifier scan, so a comment between an import keyword and its
+ * quoted specifier (`from /* x *\/ './m'`) can no longer hide the specifier
+ * while the specifier text itself stays readable. Textual, not a real lexer —
+ * regex literals and interpolated templates are out of scope, and the bias is
+ * fail-safe: a mis-mask can only cause a false FLAG, never a false allow of a
+ * non-import form.
  */
-function maskCommentsAndStrings(source: string): string {
+function maskComments(source: string, maskStrings: boolean): string {
   const out = source.split('');
   let state: 'code' | 'line' | 'block' | 'single' | 'double' | 'template' = 'code';
   for (let i = 0; i < source.length; i++) {
@@ -260,11 +264,13 @@ function maskCommentsAndStrings(source: string): string {
     } else {
       const closer = state === 'single' ? "'" : state === 'double' ? '"' : '`';
       if (ch === '\\' && next !== undefined && next !== '\n') {
-        out[i] = ' ';
-        out[i + 1] = ' ';
+        if (maskStrings) {
+          out[i] = ' ';
+          out[i + 1] = ' ';
+        }
         i += 1;
       } else if (ch === closer) state = 'code';
-      else if (ch !== '\n') out[i] = ' ';
+      else if (maskStrings && ch !== '\n') out[i] = ' ';
     }
   }
   return out.join('');
@@ -319,9 +325,14 @@ function findBoundaryViolations(source: string, repoRelativePath: string): Bound
   const violations: BoundaryViolation[] = [];
   const allowedSymbols = ALLOWED_DORMANT_SYMBOLS.get(repoRelativePath);
   const allowedImports = ALLOWED_DORMANT_IMPORTS.get(repoRelativePath);
-  // The mask exists only to place statement boundaries for the allowlisted
-  // file's positional rules; non-allowlisted files never consult it.
-  const masked = allowedSymbols || allowedImports ? maskCommentsAndStrings(source) : null;
+  // Boundary mask (comments AND string contents blanked): places statement
+  // boundaries for the allowlisted file's positional rules only.
+  const masked = allowedSymbols || allowedImports ? maskComments(source, true) : null;
+  // Specifier scan runs over a comments-only mask for EVERY file, so a comment
+  // between the import keyword and the quoted specifier cannot hide it; the
+  // specifier text itself survives. (Symbol scanning stays on the ORIGINAL
+  // source — a dormant name even in a comment keeps flagging, as before.)
+  const specifierScan = maskComments(source, false);
   for (const match of source.matchAll(SYMBOL_PATTERN)) {
     if (allowedSymbols?.has(match[1]!) && masked !== null) {
       // Positional allowance only: a direct call, or the name inside the
@@ -348,7 +359,7 @@ function findBoundaryViolations(source: string, repoRelativePath: string): Bound
       line: lineOf(source, match.index),
     });
   }
-  for (const match of source.matchAll(SPECIFIER_PATTERN)) {
+  for (const match of specifierScan.matchAll(SPECIFIER_PATTERN)) {
     const target = dormantModuleTarget(match[1]!, repoRelativePath);
     if (target === null) continue;
     // The specifier is allowed ONLY inside the fully sanctioned import form —
@@ -616,6 +627,13 @@ test('scanner: the E1 archive-snapshot allowlist is exact — file, module, and 
     `import { deriveCanonicalGameStatsSlateFromBuild, EXPECTED_KICKOFF_MIN_AGE_MS } from './canonicalSlate.ts';`,
     // A semicolon hidden in a comment must not disguise a re-export as an import.
     `export /* ; import */ { deriveCanonicalGameStatsSlateFromBuild } from './canonicalSlate.ts';`,
+    // A comment between the import keyword and the specifier must not hide it.
+    `import * as c from /* reason */ './canonicalSlate.ts';`,
+    `export * from /* reason */ './canonicalSlate.ts';`,
+    'const m = await import(/* reason */ `./canonicalSlate.ts`);',
+    // Even the sanctioned named-import form is non-compliant with an inline
+    // comment (fail-safe strictness — remove the comment to sanction it).
+    `import { deriveCanonicalGameStatsSlateFromBuild } from /* why */ './canonicalSlate.ts';`,
     `const m = await import('./canonicalSlate.ts');`,
     'const m = await import(`./canonicalSlate.ts`);',
     `const m = require('./canonicalSlate.ts');`,
@@ -653,11 +671,16 @@ test('scanner: the E1 archive-snapshot allowlist is exact — file, module, and 
   );
 });
 
-test('scanner: template-literal specifiers resolve like quoted ones', () => {
+test('scanner: template-literal and comment-separated specifiers resolve like plain ones', () => {
   const importer = 'src/lib/insights/context.ts';
   const flagged = [
     'const m = await import(`../gameStats/durableMerge`);',
     'const m = require(`@/lib/gameStats/publicProjection`);',
+    // Comment-separated specifiers in ANY file are scanned via the
+    // comments-only mask — a comment cannot hide the module.
+    `import { x } from /* hack */ '../gameStats/durableMerge';`,
+    `export * from /* hack */ '../gameStats/evidenceAuthority';`,
+    ['import * as m from // hack', `  '../gameStats/partitionCoverage';`].join('\n'),
   ];
   for (const source of flagged) {
     const violations = findBoundaryViolations(source, importer);
