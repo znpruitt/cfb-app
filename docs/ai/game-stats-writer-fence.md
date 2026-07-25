@@ -7,9 +7,8 @@ numeric participant validation, PLATFORM-086H3C5); the rollout-safety
 capability D (§5, PLATFORM-086H3D) is merged dormant (PR #403); the activation execution (E)
 ships as approved slices E1 → E2 → E3 (§4) — E1 (paired analytics provenance,
 PLATFORM-086H3E1) is merged (PR #408); E2 (dormant refresh/polling/quota
-primitives, PLATFORM-086H3E2) is implemented and review-clean pending merge;
-E3 is unwritten — production remains in `legacy` and no transition has ever
-been executed.
+primitives, PLATFORM-086H3E2) is merged (PR #409); E3 is unwritten —
+production remains in `legacy` and no transition has ever been executed.
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any conflict.
 
 This document records (a) the disposition of PLATFORM-086H3B and (b) the small
@@ -189,8 +188,8 @@ store.
   now carries ONE exact allowlisted production crossing (`slateSnapshot.ts` →
   `canonicalSlate`, derive entry only), positional and form-strict, with
   laundering self-tests and a documented honest static scope.
-- **E2 — dormant refresh/polling/quota primitives (PLATFORM-086H3E2 —
-  implemented, pending merge):** three pure, unwired dormant modules E3's
+- **E2 — dormant refresh/polling/quota primitives (PLATFORM-086H3E2 — merged,
+  PR #409):** three pure, unwired dormant modules E3's
   atomic wiring will consume. `refreshOutcome.ts` is the ONE typed interpreter
   both route and cron must share — it classifies C2's complete ingestion
   result (H2's `DurableMergeResult` nested unchanged) into the locked matrix

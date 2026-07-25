@@ -1727,6 +1727,26 @@ Key architectural decisions across Phase 5:
 
 ---
 
+**Status:** Complete. Merged to `main` via **PR #409** (merge commit `d04f3b3`, 2026-07-25; from `main@f412382`; impl `17323a0` + tests `6534d6c` + remediations `9a1adb7`/`0de9629` + docs `d3cf48a`/`4972c6e`/`154a5ea`). Five Codex rounds ending clean — round 1: invalid-clock NaN fall-through + missing bare-symbol self-tests (remediated); round 2 clean; final full-diff round: unvalidated durable reads in the polling selector + two doc corrections (remediated, incl. exporting the shared envelope validator); round 4 code-clean with a doc-wording remediation; round 5 clean. Gates: `tsc` / `lint:all` / `git diff --check` clean; full `npm test` 2095/2095; `npm run build` clean; served surfaces byte-identical to `main` by construction (dormant additions only).
+**PROMPT_ID(s):** PLATFORM-086H3E2-DORMANT-REFRESH-POLLING-PREREQUISITE-v1 (slice 2 of PLATFORM-086H3E-FINAL-ATOMIC-ACTIVATION-v1)
+
+**Goals completed:**
+
+- `refreshOutcome.ts` — the ONE typed refresh-outcome interpreter E3's route and cron must share: classifies C2's complete `GameStatsIngestionResult` (H2's `DurableMergeResult` nested unchanged) into 13 stable reasons per the locked matrix; only the three confirmed-commit outcomes (written+clean, written+mixed, partially-merged) may advance last-success; conflict → 409, unavailable → known-unchanged 503, indeterminate → 503 with durability UNKNOWN; `knownUnchanged`/`durabilityUnknown` mutually exclusive across the matrix.
+- `pollingTarget.ts` — the approved schedule/evidence 15-minute target derivation (NOT score-gated): games poll while addressable, stat-applicable, kickoff-aged [3h, 24h), and not evidence-`satisfied` per the shared evidence authority; earliest-unresolved ordering with regular-before-postseason and week tie-breaks; at most ONE partition per run; invalid clocks, unparseable kickoffs, and malformed/mismatched durable records (validated through the shared `validateGameStatsEnvelope`, newly exported from dormant `publicProjection.ts` — no second envelope policy) resolve nothing and never suppress a poll.
+- `quotaPolicy.ts` — the 1,000-call reserve: automation requires trustworthy finite provider-reported usage ≥ 1,002 remaining; `usage-unavailable`/`usage-untrustworthy`/`below-reserve` fail closed with distinct reasons, never fabricated; manual refresh refuses 429 below reserve unless the second explicit `quotaOverride=1` parameter is supplied, overrides reported truthfully.
+- Dormant-boundary guard extended: all three modules are dormant homes; seven forbidden entry-point symbols with flagged-import and bare-symbol self-tests; the E1 allowlist untouched.
+
+**Key outcomes:**
+
+- Pure and unwired: no routes, cron, provider status, diagnostics, analytics consumers, or `vercel.json` change; production remains on the fenced legacy writer in `legacy`; E3 retains sole ownership of activation and remains unwritten.
+
+**Optional follow-up debt (non-blocking):**
+
+- E3 wiring contracts documented at the seams (attempt begins after target resolution and before credential/usage checks; quota refusal resolves the attempt once as a truthful failure; durable reread after every possibly-writing attempt) — implemented in E3, not here.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
