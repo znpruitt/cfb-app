@@ -588,21 +588,28 @@ test('E4 collection: two incompatible fulls + an AMBIGUOUS fragment are permutat
   const expected = project([STALE_SEC, STALE_FCS, ambiguousFragment]);
   assert.equal(expected.length, 3, 'both fulls AND the ambiguous fragment survive');
   assert.deepEqual(
-    expected.map((g) => ({ key: g.key, providerGameId: g.providerGameId, home: g.home })),
+    expected,
     [
-      { key: '2024-sec-championship', providerGameId: '401673469', home: 'texas' },
+      {
+        key: '2024-sec-championship',
+        providerGameId: '401673469',
+        home: 'texas',
+        away: 'georgia',
+      },
       {
         key: '2024-sec-championship::conference_championship::w15::2024-12-07T21:00:00.000Z',
         providerGameId: null,
         home: null,
+        away: null,
       },
       {
         key: '2024-sec-championship::conference_championship::w15::401729753',
         providerGameId: '401729753',
         home: 'ucdavis',
+        away: 'illinoisstate',
       },
     ],
-    'exact keys, provider bindings, and participants'
+    'exact keys, provider bindings, and BOTH participants'
   );
 
   for (const inputs of permutations([STALE_SEC, STALE_FCS, ambiguousFragment])) {
@@ -613,12 +620,19 @@ test('E4 collection: two incompatible fulls + an AMBIGUOUS fragment are permutat
 test('E4 collection: an exact provider-id fragment attaches to ITS game in every ordering', () => {
   // A fragment carrying the FCS provider id has decisive affinity — it must
   // hydrate the FCS candidate (never the SEC game, never stand alone) in all
-  // six orderings.
+  // six orderings. The fragment carries an OBSERVABLE marker (label + settled
+  // home slot) so a mis-attachment or a dropped attachment fails loudly.
   const pidFragment = e4AppGame({
     key: '2024-sec-championship',
     providerGameId: '401729753',
-    isPlaceholder: true,
-    status: 'placeholder',
+    label: 'FCS Second Round (fragment marker)',
+    isPlaceholder: false,
+    participants: {
+      home: teamSlot('ucdavis', 'UC Davis'),
+      away: { kind: 'placeholder', slotId: 'pid-frag-away', displayName: 'Team TBD' },
+    },
+    csvHome: 'UC Davis',
+    canHome: 'UC Davis',
   });
 
   const project = (inputs: AppGame[]) =>
@@ -626,24 +640,31 @@ test('E4 collection: an exact provider-id fragment attaches to ITS game in every
       .map((g) => ({
         key: g.key,
         providerGameId: g.providerGameId,
+        label: g.label ?? null,
         home: g.participants.home.kind === 'team' ? g.participants.home.teamId : null,
         away: g.participants.away.kind === 'team' ? g.participants.away.teamId : null,
       }))
       .sort((a, b) => String(a.key).localeCompare(String(b.key)));
 
   const expected = project([STALE_SEC, STALE_FCS, pidFragment]);
-  assert.equal(expected.length, 2, 'the pid fragment merges into its exact game');
   assert.deepEqual(expected, [
-    { key: '2024-sec-championship', providerGameId: '401673469', home: 'texas', away: 'georgia' },
+    {
+      key: '2024-sec-championship',
+      providerGameId: '401673469',
+      label: null,
+      home: 'texas',
+      away: 'georgia',
+    },
     {
       key: '2024-sec-championship::conference_championship::w15::401729753',
       providerGameId: '401729753',
+      label: 'FCS Second Round (fragment marker)',
       home: 'ucdavis',
       away: 'illinoisstate',
     },
   ]);
 
   for (const inputs of permutations([STALE_SEC, STALE_FCS, pidFragment])) {
-    assert.deepEqual(project(inputs), expected, `order ${inputs.map((g) => g.key)}`);
+    assert.deepEqual(project(inputs), expected, `order ${inputs.map((g) => g.label ?? g.key)}`);
   }
 });

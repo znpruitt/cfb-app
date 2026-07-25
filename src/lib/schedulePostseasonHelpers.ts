@@ -144,25 +144,28 @@ function participantPairKey(identity: CollectionIdentity): string {
  * fieldwise merged (PLATFORM-086H3E4 — the 2024 archive hybrid combined one
  * game's provider id with another game's participants):
  *
- *   - two FULLY resolved games (both settled team slots + numeric provider
- *     ids) with DISTINCT provider ids and CONTRADICTORY canonical participant
- *     pairs are different real games — never merged;
- *   - a partially resolved row whose settled team slot names a team outside a
- *     fully resolved candidate's pair contradicts it — routed away instead of
- *     hydrating the wrong game.
+ *   - DISTINCT non-null numeric provider ids are DIFFERENT provider games,
+ *     period — never merged, whatever their resolution state (a pid-bearing
+ *     fragment can no more join a differently-numbered full than a second
+ *     full can);
+ *   - a row with a COMPLETE settled team pair is contradicted by any settled
+ *     team slot on the other row naming a team outside that pair — routed
+ *     away instead of hydrating the wrong game (symmetric, pid or not).
  *
  * Everything else keeps today's merge behavior: placeholder hydration,
  * same-provider-id duplicates, and fragments whose settled slots agree.
  */
 function isIncompatibleCollision(a: CollectionIdentity, b: CollectionIdentity): boolean {
-  if (isFullyResolved(a) && isFullyResolved(b)) {
-    return a.pid !== b.pid && participantPairKey(a) !== participantPairKey(b);
-  }
-  const [full, partial] = isFullyResolved(a) ? [a, b] : isFullyResolved(b) ? [b, a] : [null, null];
-  if (full === null || partial === null) return false;
-  const pair = new Set([full.home, full.away]);
-  for (const id of [partial.home, partial.away]) {
-    if (id !== null && !pair.has(id)) return true;
+  if (a.pid !== null && b.pid !== null && a.pid !== b.pid) return true;
+  for (const [pairSide, slotSide] of [
+    [a, b],
+    [b, a],
+  ] as const) {
+    if (pairSide.home === null || pairSide.away === null) continue;
+    const pair = new Set([pairSide.home, pairSide.away]);
+    for (const id of [slotSide.home, slotSide.away]) {
+      if (id !== null && !pair.has(id)) return true;
+    }
   }
   return false;
 }
@@ -178,8 +181,7 @@ export function buildAuthoritativeGameCollection(
   // Phase A: group by merge key WITHOUT merging, preserving arrival order.
   // Deferring resolution is what makes collision handling permutation-
   // invariant: no attachment decision is made until the key's full membership
-  // is known, so no candidate can be absorbed differently depending on what
-  // happened to arrive first.
+  // is known.
   const groups = new Map<string, AppGame[]>();
   for (const game of [...regularGames, ...postseasonGames]) {
     const mergeKey = toMergeKey(game);
@@ -227,60 +229,104 @@ export function buildAuthoritativeGameCollection(
   };
 
   /**
-   * Candidates in DETERMINISTIC emission order — numeric provider id
-   * ascending, id-less candidates last (tie-broken by participant content) —
-   * so key disambiguation is identical whatever order the inputs arrived in.
+   * CONTENT order for candidates and fragment folds — numeric provider id
+   * ascending, id-less rows last, then participant pair and csv labels — so
+   * every canonical fold and the final key disambiguation are identical
+   * whatever order the inputs arrived in. Rows identical on every component
+   * are interchangeable, so a residual tie cannot change output content.
    */
-  const sortCandidates = (candidates: AppGame[]): AppGame[] =>
-    [...candidates].sort((a, b) => {
-      const ia = collectionIdentity(a);
-      const ib = collectionIdentity(b);
-      if (ia.pid !== null && ib.pid !== null && ia.pid !== ib.pid) return ia.pid - ib.pid;
-      if (ia.pid !== null && ib.pid === null) return -1;
-      if (ia.pid === null && ib.pid !== null) return 1;
-      return participantPairKey(ia).localeCompare(participantPairKey(ib));
-    });
+  const contentCompare = (a: AppGame, b: AppGame): number => {
+    const ia = collectionIdentity(a);
+    const ib = collectionIdentity(b);
+    if (ia.pid !== null && ib.pid !== null && ia.pid !== ib.pid) return ia.pid - ib.pid;
+    if (ia.pid !== null && ib.pid === null) return -1;
+    if (ia.pid === null && ib.pid !== null) return 1;
+    const byPair = participantPairKey(ia).localeCompare(participantPairKey(ib));
+    if (byPair !== 0) return byPair;
+    const byCsv = `${a.csvHome}::${a.csvAway}`.localeCompare(`${b.csvHome}::${b.csvAway}`);
+    if (byCsv !== 0) return byCsv;
+    return String(a.label ?? '').localeCompare(String(b.label ?? ''));
+  };
 
-  // Phase B: resolve each group content-deterministically. Fully resolved
-  // games place first (arrival order — compatible fulls merge exactly as
-  // before); fragments then attach by CONTENT affinity:
-  //   1. an exact provider-id match always wins;
-  //   2. otherwise a fragment attaches only when exactly ONE candidate is
-  //      compatible with it;
-  //   3. a fragment compatible with MULTIPLE candidates is ambiguous and
-  //      FAILS CLOSED — preserved as its own candidate, never attached by
-  //      arrival order.
-  // Every routing decision depends only on group membership and identity
-  // content, so the resolved output is permutation-invariant.
+  // Phase B: resolve each group content-deterministically.
+  //   1. FULLS (settled team pair + numeric pid) place first, arrival order:
+  //      same-pid duplicates merge exactly as before; distinct pids are
+  //      distinct games and never merge.
+  //   2. Fragment ATTACH decisions evaluate against the FIXED fulls-only set:
+  //      a pid-bearing fragment attaches only to its same-pid full; an
+  //      id-less fragment attaches only when exactly ONE full is compatible;
+  //      ambiguity (or no compatible full) FAILS CLOSED — the fragment is
+  //      preserved, never attached by arrival order. Attachments fold into
+  //      their full in content order.
+  //   3. Preserved fragments fold among THEMSELVES in content order under the
+  //      same exactly-one-compatible rule.
+  // Every decision depends only on group membership and identity content, so
+  // the resolved output is permutation-invariant.
   const byMergeKey = new Map<string, AppGame[]>();
   for (const [mergeKey, group] of groups.entries()) {
-    const candidates: AppGame[] = [];
+    const fulls: AppGame[] = [];
+    const fragments: AppGame[] = [];
+    for (const game of group) {
+      if (isFullyResolved(collectionIdentity(game))) fulls.push(game);
+      else fragments.push(game);
+    }
 
-    const route = (game: AppGame): void => {
-      const identity = collectionIdentity(game);
-      const compatible = candidates.filter(
+    const fullCandidates: AppGame[] = [];
+    for (const game of fulls) {
+      const pid = collectionIdentity(game).pid;
+      const index = fullCandidates.findIndex(
+        (candidate) => collectionIdentity(candidate).pid === pid
+      );
+      if (index === -1) fullCandidates.push(game);
+      else fullCandidates[index] = mergeInto(fullCandidates[index]!, game);
+    }
+
+    const attachedByFull = new Map<number, AppGame[]>();
+    const preserved: AppGame[] = [];
+    for (const fragment of fragments) {
+      const identity = collectionIdentity(fragment);
+      const compatibleIndexes = fullCandidates
+        .map((candidate, index) => ({ candidate, index }))
+        .filter(
+          ({ candidate }) => !isIncompatibleCollision(collectionIdentity(candidate), identity)
+        );
+      const target =
+        identity.pid !== null
+          ? compatibleIndexes.find(
+              ({ candidate }) => collectionIdentity(candidate).pid === identity.pid
+            )
+          : compatibleIndexes.length === 1
+            ? compatibleIndexes[0]
+            : undefined;
+      if (target === undefined) {
+        preserved.push(fragment);
+        continue;
+      }
+      const list = attachedByFull.get(target.index);
+      if (list) list.push(fragment);
+      else attachedByFull.set(target.index, [fragment]);
+    }
+    for (const [index, attachments] of attachedByFull.entries()) {
+      for (const fragment of [...attachments].sort(contentCompare)) {
+        fullCandidates[index] = mergeInto(fullCandidates[index]!, fragment);
+      }
+    }
+
+    const fragmentCandidates: AppGame[] = [];
+    for (const fragment of [...preserved].sort(contentCompare)) {
+      const identity = collectionIdentity(fragment);
+      const compatible = fragmentCandidates.filter(
         (candidate) => !isIncompatibleCollision(collectionIdentity(candidate), identity)
       );
-      const samePid =
-        identity.pid !== null
-          ? compatible.find((candidate) => collectionIdentity(candidate).pid === identity.pid)
-          : undefined;
-      const target = samePid ?? (compatible.length === 1 ? compatible[0] : undefined);
-      if (target === undefined) {
-        candidates.push(game);
-        return;
+      if (compatible.length === 1) {
+        const index = fragmentCandidates.indexOf(compatible[0]!);
+        fragmentCandidates[index] = mergeInto(fragmentCandidates[index]!, fragment);
+      } else {
+        fragmentCandidates.push(fragment);
       }
-      candidates[candidates.indexOf(target)] = mergeInto(target, game);
-    };
-
-    for (const game of group) {
-      if (isFullyResolved(collectionIdentity(game))) route(game);
-    }
-    for (const game of group) {
-      if (!isFullyResolved(collectionIdentity(game))) route(game);
     }
 
-    byMergeKey.set(mergeKey, candidates);
+    byMergeKey.set(mergeKey, [...fullCandidates, ...fragmentCandidates]);
   }
 
   for (const [eventId, override] of Object.entries(overrides ?? {})) {
@@ -301,7 +347,7 @@ export function buildAuthoritativeGameCollection(
     // Deterministic emission: for a split merge key, the lowest numeric
     // provider id keeps the base key and later candidates disambiguate —
     // identical output identities whichever order the inputs arrived in.
-    for (const game of sortCandidates(candidates)) {
+    for (const game of [...candidates].sort(contentCompare)) {
       const baseKey = game.key || game.eventId || mergeKey;
       if (!seenKeys.has(baseKey)) {
         seenKeys.add(baseKey);
