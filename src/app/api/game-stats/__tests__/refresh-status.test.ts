@@ -250,6 +250,10 @@ test('the flag grammar is EXACTLY =1: loose spellings neither refresh nor overri
   delete MUTABLE_ENV.CFBD_API_KEY;
   const looseOverride = await GET(adminRefresh('&quotaOverride=yes'));
   assert.equal(looseOverride.status, 429);
+
+  // Whitespace-padded encodings decode to ' 1 ', which is NOT the literal '1'.
+  const paddedOverride = await GET(adminRefresh('&quotaOverride=%201%20'));
+  assert.equal(paddedOverride.status, 429);
 });
 
 test('an ordinary read is cache-only and provider-free even when the cache is absent', async () => {

@@ -111,3 +111,24 @@ test('a non-object score map fails closed distinctly', () => {
     );
   }
 });
+
+test('a malformed score ENTRY marks the whole map malformed — never a downstream throw', () => {
+  // `status` is the one field classification dereferences; a non-string there
+  // would throw inside analytics if it were ever accepted.
+  for (const entry of [{ status: 42 }, 'final', null, ['final'], new Date(0)]) {
+    assert.deepEqual(
+      assembleArchiveAnalyticsProvenance(
+        archiveWith({ scoresByKey: { 'key-1': { status: 'final' }, 'key-2': entry } })
+      ),
+      { status: 'unavailable', reason: 'archive-scores-malformed' },
+      String(entry)
+    );
+  }
+  // Entries with a string status and extra fields stay valid (ScorePack shape).
+  const ok = assembleArchiveAnalyticsProvenance(
+    archiveWith({
+      scoresByKey: { 'key-1': { status: 'final', home: { team: 'A', score: 1 }, time: null } },
+    })
+  );
+  assert.equal(ok.status, 'available');
+});

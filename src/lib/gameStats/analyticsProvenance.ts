@@ -118,15 +118,30 @@ export function assembleArchiveAnalyticsProvenance(
   if (parsed.status === 'malformed') {
     return { status: 'unavailable', reason: 'archive-slate-malformed' };
   }
-  // Durable archives are untyped at rest: the paired score map must be a plain
-  // object before anything indexes it. Absent/null is distinct from a
-  // non-object shape; neither is ever served, guessed, or rebuilt.
+  // Durable archives are untyped at rest: the paired score map must be a
+  // present plain object, and EVERY entry must be a plain object whose
+  // `status` is a string — the one field score classification dereferences, so
+  // a numeric/absent status would throw inside analytics. One malformed entry
+  // marks the whole map malformed (archives are immutable snapshots; a corrupt
+  // entry means the archive needs the established backfill, never a guess).
+  // Exotic containers (Date, Map, …) fail the per-entry rule or enumerate
+  // empty, so nothing here can throw downstream.
   const scores = (archive as { scoresByKey?: unknown }).scoresByKey;
   if (scores === undefined || scores === null) {
     return { status: 'unavailable', reason: 'archive-scores-missing' };
   }
   if (typeof scores !== 'object' || Array.isArray(scores)) {
     return { status: 'unavailable', reason: 'archive-scores-malformed' };
+  }
+  for (const value of Object.values(scores)) {
+    if (
+      value === null ||
+      typeof value !== 'object' ||
+      Array.isArray(value) ||
+      typeof (value as { status?: unknown }).status !== 'string'
+    ) {
+      return { status: 'unavailable', reason: 'archive-scores-malformed' };
+    }
   }
 
   return {

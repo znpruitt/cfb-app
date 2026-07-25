@@ -368,6 +368,15 @@ function findActivationViolations(source: string, repoRelativePath: string): Vio
   const specifierScan = maskComments(source);
 
   if (repoRelativePath === ROUTE_FILE) {
+    // A parenthesized spread (`...(anything)`) is a direct textual laundering
+    // form — banned outright; the route is written without conditional spreads.
+    for (const match of specifierScan.matchAll(/\.\.\.\s*\(/g)) {
+      violations.push({
+        file: repoRelativePath,
+        pattern: 'parenthesized spread "...(…)" in the route',
+        line: lineOf(source, match.index),
+      });
+    }
     for (const match of specifierScan.matchAll(SPREAD_PATTERN)) {
       if (ROUTE_SPREAD_ALLOWLIST.has(match[1]!)) continue;
       violations.push({
@@ -540,16 +549,17 @@ test('scanner: app-layer internal metadata and route spreads flag', () => {
     findActivationViolations(`const v = row.schemaVersion;`, 'src/lib/gameStats/contract.ts'),
     []
   );
-  // The spread rule is allowlist-based — renames cannot launder a wire leak.
+  // The spread rule is allowlist-based — renames cannot launder a wire leak —
+  // and parenthesization is banned outright, so `...(cached)` cannot slip by.
   for (const source of [
     `return NextResponse.json({ ...cached, meta });`,
     `return NextResponse.json({ ...read.value });`,
     `return NextResponse.json({ ...anythingRenamed });`,
+    `return NextResponse.json({ ...(cached) });`,
+    `return NextResponse.json({ ...(read.value) });`,
   ]) {
     assert.ok(
-      findActivationViolations(source, ROUTE_FILE).some((v) =>
-        v.pattern.includes('non-allowlisted spread')
-      ),
+      findActivationViolations(source, ROUTE_FILE).some((v) => v.pattern.includes('spread')),
       source
     );
   }

@@ -69,11 +69,12 @@ function parseNonNegativeInt(raw: string | null): number | null {
 
 /**
  * The locked flag grammar: EXACTLY `=1`. `bypassCache` and `quotaOverride` are
- * deliberate operator actions — looser spellings (`true`, `yes`) must not
- * trigger provider access or bypass the quota reserve.
+ * deliberate operator actions — looser spellings (`true`, `yes`, and even
+ * whitespace-padded encodings like `%201`) must not trigger provider access or
+ * bypass the quota reserve. No trimming: the decoded value must BE `'1'`.
  */
 function parseExplicitFlag(raw: string | null): boolean {
-  return raw?.trim() === '1';
+  return raw === '1';
 }
 
 function seasonYearForToday(now = new Date()): number {
@@ -97,6 +98,31 @@ async function readDurablePartition(
   } catch {
     return { status: 'read-failed' };
   }
+}
+
+/**
+ * The projected durable REREAD block EVERY refresh response carries — quota
+ * refusals, credential failures, upstream failures, and every interpreter
+ * outcome included. The caller always sees the exact durable partition, never
+ * the request payload or an assumed merge result.
+ */
+async function projectDurableBlock(
+  year: number,
+  week: number,
+  seasonType: CfbdSeasonType,
+  seasonRelation: SeasonRelation,
+  now: Date
+): Promise<Record<string, unknown>> {
+  const read = await readDurablePartition(year, week, seasonType);
+  const slateResult = await loadCanonicalGameStatsSlate({ year, now });
+  const projection = projectPublicPartition(slateResult, week, seasonType, read, seasonRelation);
+  if (projection.status === 'available') {
+    return { status: 'available', ...projection.wire };
+  }
+  if (projection.status === 'context-unavailable') {
+    return { status: projection.status, reason: projection.reason };
+  }
+  return { status: projection.status };
 }
 
 /** Map every non-available projection status to a distinct safe response. */
@@ -264,6 +290,7 @@ export async function GET(req: Request) {
         code: `game-stats-quota-${quota.reason}`,
         remaining: quota.remaining,
         quotaOverride: false,
+        durable: await projectDurableBlock(year, week, seasonType, seasonRelation, now),
       },
       { status: quota.httpStatus }
     );
@@ -278,7 +305,13 @@ export async function GET(req: Request) {
       code: 'cfbd-api-key-missing',
       status: 500,
     });
-    return NextResponse.json({ error: 'CFBD_API_KEY not configured' }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: 'CFBD_API_KEY not configured',
+        durable: await projectDurableBlock(year, week, seasonType, seasonRelation, now),
+      },
+      { status: 500 }
+    );
   }
 
   try {
@@ -311,14 +344,28 @@ export async function GET(req: Request) {
       const committedGames = merge
         ? merge.inserted.length + merge.updated.length + merge.refreshed.length
         : 0;
-      await recordProviderRefreshSuccess('game-stats', gameStatsScope, {
-        attempt,
-        committedAt: new Date().toISOString(),
-        commitSeq: nextProviderCommitSeq(),
-        source: 'cfbd',
-        rowsCommitted: committedGames,
-        ...(interpretation.partialFailure ? { partialFailure: true } : {}),
-      });
+      const committedAt = new Date().toISOString();
+      const commitSeq = nextProviderCommitSeq();
+      // Branch instead of a conditional spread — the activation guard bans
+      // every non-allowlisted spread form in this file.
+      if (interpretation.partialFailure) {
+        await recordProviderRefreshSuccess('game-stats', gameStatsScope, {
+          attempt,
+          committedAt,
+          commitSeq,
+          source: 'cfbd',
+          rowsCommitted: committedGames,
+          partialFailure: true,
+        });
+      } else {
+        await recordProviderRefreshSuccess('game-stats', gameStatsScope, {
+          attempt,
+          committedAt,
+          commitSeq,
+          source: 'cfbd',
+          rowsCommitted: committedGames,
+        });
+      }
     } else if (interpretation.kind === 'no-op') {
       await recordProviderRefreshNoop('game-stats', gameStatsScope, { attempt, source: 'cfbd' });
     } else {
@@ -333,26 +380,12 @@ export async function GET(req: Request) {
     // Durable REREAD: every response reflects the exact durable partition, not
     // the request payload or an assumed merge result — including after
     // `indeterminate`, where durability is unknown and no success is inferred.
-    const read = await readDurablePartition(year, week, seasonType);
-    const slateResult = await loadCanonicalGameStatsSlate({ year, now });
-    const projection = projectPublicPartition(slateResult, week, seasonType, read, seasonRelation);
+    const durable = await projectDurableBlock(year, week, seasonType, seasonRelation, now);
 
     const quotaMeta =
       quota.kind === 'allowed-with-override'
         ? { quotaOverride: true, quotaReason: quota.reason, remaining: quota.remaining }
         : { quotaOverride: false, remaining: quota.remaining };
-
-    // EVERY refresh response — success, partial, no-op, AND failure (conflict,
-    // unavailable, indeterminate) — carries the projected durable REREAD, so
-    // the caller always sees the exact durable partition, never the request
-    // payload or an assumed merge result.
-    const durable =
-      projection.status === 'available'
-        ? { status: 'available' as const, ...projection.wire }
-        : {
-            status: projection.status,
-            ...(projection.status === 'context-unavailable' ? { reason: projection.reason } : {}),
-          };
 
     if (interpretation.kind === 'failure') {
       return NextResponse.json(
@@ -382,14 +415,15 @@ export async function GET(req: Request) {
       error: error instanceof Error ? error.message : 'unknown error',
       status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502,
     });
+    const durable = await projectDurableBlock(year, week, seasonType, seasonRelation, now);
     if (error instanceof UpstreamFetchError) {
       return NextResponse.json(
-        { error: 'upstream error', detail: error.details },
+        { error: 'upstream error', detail: error.details, durable },
         { status: error.details.status ?? 502 }
       );
     }
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'unknown error' },
+      { error: error instanceof Error ? error.message : 'unknown error', durable },
       { status: 502 }
     );
   }
