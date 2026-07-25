@@ -172,53 +172,23 @@ export function buildAuthoritativeGameCollection(
   postseasonGames: AppGame[],
   overrides?: Record<string, Partial<AppGame>>
 ): AppGame[] {
-  // Candidate LISTS per merge key: nearly always length 1 — a second candidate
-  // exists only when an incompatible collision (above) forbids merging.
-  const byMergeKey = new Map<string, AppGame[]>();
-
   const toMergeKey = (game: AppGame): string =>
     [game.eventId, game.stage, String(game.week), game.date ?? 'unknown'].join('::');
 
-  /**
-   * Candidates in DETERMINISTIC order — numeric provider id ascending, ids
-   * before id-less fragments. This makes the two-fully-resolved collision
-   * SPLIT (and its key disambiguation) permutation-invariant. Agreeing
-   * partial fragments keep the legacy arrival-order merge behavior by
-   * design, so a pathological three-way case (two incompatible fulls plus a
-   * compatible fragment) may hydrate a different full depending on input
-   * order — the split itself never varies.
-   */
-  const sortCandidates = (candidates: AppGame[]): AppGame[] =>
-    [...candidates].sort((a, b) => {
-      const pa = collectionIdentity(a).pid;
-      const pb = collectionIdentity(b).pid;
-      if (pa !== null && pb !== null) return pa - pb;
-      if (pa !== null) return -1;
-      if (pb !== null) return 1;
-      return 0;
-    });
-
+  // Phase A: group by merge key WITHOUT merging, preserving arrival order.
+  // Deferring resolution is what makes collision handling permutation-
+  // invariant: no attachment decision is made until the key's full membership
+  // is known, so no candidate can be absorbed differently depending on what
+  // happened to arrive first.
+  const groups = new Map<string, AppGame[]>();
   for (const game of [...regularGames, ...postseasonGames]) {
     const mergeKey = toMergeKey(game);
-    const candidates = byMergeKey.get(mergeKey);
-    if (!candidates) {
-      byMergeKey.set(mergeKey, [game]);
-      continue;
-    }
+    const group = groups.get(mergeKey);
+    if (group) group.push(game);
+    else groups.set(mergeKey, [game]);
+  }
 
-    // Route to the first COMPATIBLE candidate in deterministic order; an
-    // incompatible collision preserves the incoming game as its own candidate
-    // and lets the existing unique-key disambiguation handle both.
-    const incomingIdentity = collectionIdentity(game);
-    const ordered = sortCandidates(candidates);
-    const existing = ordered.find(
-      (candidate) => !isIncompatibleCollision(collectionIdentity(candidate), incomingIdentity)
-    );
-    if (existing === undefined) {
-      candidates.push(game);
-      continue;
-    }
-
+  const mergeInto = (existing: AppGame, game: AppGame): AppGame => {
     const keepExistingConferenceChampionship =
       existing.stage === 'conference_championship' &&
       game.stage !== 'conference_championship' &&
@@ -244,7 +214,7 @@ export function buildAuthoritativeGameCollection(
           : preferred.participants.away,
     };
 
-    const merged: AppGame = {
+    return {
       ...existing,
       ...preferred,
       participants: mergedParticipants,
@@ -254,7 +224,63 @@ export function buildAuthoritativeGameCollection(
       canAway: participantCanonicalValue(mergedParticipants.away),
       sources: { ...existing.sources, ...preferred.sources },
     };
-    candidates[candidates.indexOf(existing)] = merged;
+  };
+
+  /**
+   * Candidates in DETERMINISTIC emission order — numeric provider id
+   * ascending, id-less candidates last (tie-broken by participant content) —
+   * so key disambiguation is identical whatever order the inputs arrived in.
+   */
+  const sortCandidates = (candidates: AppGame[]): AppGame[] =>
+    [...candidates].sort((a, b) => {
+      const ia = collectionIdentity(a);
+      const ib = collectionIdentity(b);
+      if (ia.pid !== null && ib.pid !== null && ia.pid !== ib.pid) return ia.pid - ib.pid;
+      if (ia.pid !== null && ib.pid === null) return -1;
+      if (ia.pid === null && ib.pid !== null) return 1;
+      return participantPairKey(ia).localeCompare(participantPairKey(ib));
+    });
+
+  // Phase B: resolve each group content-deterministically. Fully resolved
+  // games place first (arrival order — compatible fulls merge exactly as
+  // before); fragments then attach by CONTENT affinity:
+  //   1. an exact provider-id match always wins;
+  //   2. otherwise a fragment attaches only when exactly ONE candidate is
+  //      compatible with it;
+  //   3. a fragment compatible with MULTIPLE candidates is ambiguous and
+  //      FAILS CLOSED — preserved as its own candidate, never attached by
+  //      arrival order.
+  // Every routing decision depends only on group membership and identity
+  // content, so the resolved output is permutation-invariant.
+  const byMergeKey = new Map<string, AppGame[]>();
+  for (const [mergeKey, group] of groups.entries()) {
+    const candidates: AppGame[] = [];
+
+    const route = (game: AppGame): void => {
+      const identity = collectionIdentity(game);
+      const compatible = candidates.filter(
+        (candidate) => !isIncompatibleCollision(collectionIdentity(candidate), identity)
+      );
+      const samePid =
+        identity.pid !== null
+          ? compatible.find((candidate) => collectionIdentity(candidate).pid === identity.pid)
+          : undefined;
+      const target = samePid ?? (compatible.length === 1 ? compatible[0] : undefined);
+      if (target === undefined) {
+        candidates.push(game);
+        return;
+      }
+      candidates[candidates.indexOf(target)] = mergeInto(target, game);
+    };
+
+    for (const game of group) {
+      if (isFullyResolved(collectionIdentity(game))) route(game);
+    }
+    for (const game of group) {
+      if (!isFullyResolved(collectionIdentity(game))) route(game);
+    }
+
+    byMergeKey.set(mergeKey, candidates);
   }
 
   for (const [eventId, override] of Object.entries(overrides ?? {})) {

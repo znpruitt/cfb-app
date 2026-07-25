@@ -552,3 +552,98 @@ test('E4: no provider game id is special-cased in the corrected modules', () => 
     }
   }
 });
+
+// --- Full permutation invariance (owner-mandated three-way regression) ---
+
+function permutations<T>(items: T[]): T[][] {
+  if (items.length <= 1) return [items];
+  return items.flatMap((item, index) =>
+    permutations([...items.slice(0, index), ...items.slice(index + 1)]).map((rest) => [
+      item,
+      ...rest,
+    ])
+  );
+}
+
+test('E4 collection: two incompatible fulls + an AMBIGUOUS fragment are permutation-invariant', () => {
+  // The fragment shares the base key and is compatible with BOTH fulls — it
+  // must FAIL CLOSED as its own candidate in every ordering, never attach by
+  // arrival order.
+  const ambiguousFragment = e4AppGame({
+    key: '2024-sec-championship',
+    isPlaceholder: true,
+    status: 'placeholder',
+  });
+
+  const project = (inputs: AppGame[]) =>
+    buildAuthoritativeGameCollection([], inputs)
+      .map((g) => ({
+        key: g.key,
+        providerGameId: g.providerGameId,
+        home: g.participants.home.kind === 'team' ? g.participants.home.teamId : null,
+        away: g.participants.away.kind === 'team' ? g.participants.away.teamId : null,
+      }))
+      .sort((a, b) => String(a.key).localeCompare(String(b.key)));
+
+  const expected = project([STALE_SEC, STALE_FCS, ambiguousFragment]);
+  assert.equal(expected.length, 3, 'both fulls AND the ambiguous fragment survive');
+  assert.deepEqual(
+    expected.map((g) => ({ key: g.key, providerGameId: g.providerGameId, home: g.home })),
+    [
+      { key: '2024-sec-championship', providerGameId: '401673469', home: 'texas' },
+      {
+        key: '2024-sec-championship::conference_championship::w15::2024-12-07T21:00:00.000Z',
+        providerGameId: null,
+        home: null,
+      },
+      {
+        key: '2024-sec-championship::conference_championship::w15::401729753',
+        providerGameId: '401729753',
+        home: 'ucdavis',
+      },
+    ],
+    'exact keys, provider bindings, and participants'
+  );
+
+  for (const inputs of permutations([STALE_SEC, STALE_FCS, ambiguousFragment])) {
+    assert.deepEqual(project(inputs), expected, `order ${inputs.map((g) => g.providerGameId)}`);
+  }
+});
+
+test('E4 collection: an exact provider-id fragment attaches to ITS game in every ordering', () => {
+  // A fragment carrying the FCS provider id has decisive affinity — it must
+  // hydrate the FCS candidate (never the SEC game, never stand alone) in all
+  // six orderings.
+  const pidFragment = e4AppGame({
+    key: '2024-sec-championship',
+    providerGameId: '401729753',
+    isPlaceholder: true,
+    status: 'placeholder',
+  });
+
+  const project = (inputs: AppGame[]) =>
+    buildAuthoritativeGameCollection([], inputs)
+      .map((g) => ({
+        key: g.key,
+        providerGameId: g.providerGameId,
+        home: g.participants.home.kind === 'team' ? g.participants.home.teamId : null,
+        away: g.participants.away.kind === 'team' ? g.participants.away.teamId : null,
+      }))
+      .sort((a, b) => String(a.key).localeCompare(String(b.key)));
+
+  const expected = project([STALE_SEC, STALE_FCS, pidFragment]);
+  assert.equal(expected.length, 2, 'the pid fragment merges into its exact game');
+  assert.deepEqual(expected, [
+    { key: '2024-sec-championship', providerGameId: '401673469', home: 'texas', away: 'georgia' },
+    {
+      key: '2024-sec-championship::conference_championship::w15::401729753',
+      providerGameId: '401729753',
+      home: 'ucdavis',
+      away: 'illinoisstate',
+    },
+  ]);
+
+  for (const inputs of permutations([STALE_SEC, STALE_FCS, pidFragment])) {
+    assert.deepEqual(project(inputs), expected, `order ${inputs.map((g) => g.key)}`);
+  }
+});
