@@ -10,12 +10,23 @@ const buttonClass =
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
 
-type GameStatsResult = {
-  year: number;
-  week: number;
-  seasonType: string;
-  fetchedAt: string;
-  games: unknown[];
+/**
+ * The activated refresh wire (PLATFORM-086H3E3): allowlisted refresh metadata
+ * plus the projected durable REREAD — never raw persisted rows.
+ */
+type RefreshResponse = {
+  refresh?: {
+    outcome?: string;
+    reason?: string;
+    quotaOverride?: boolean;
+    remaining?: number | null;
+  };
+  durable?: {
+    status?: string;
+    week?: number;
+    seasonType?: string;
+    availability?: { expected?: number; satisfied?: number; published?: number };
+  };
 };
 
 type BackfillStatus = 'idle' | 'running' | 'done';
@@ -37,7 +48,7 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
   const [seasonType, setSeasonType] = useState<'regular' | 'postseason'>('regular');
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | undefined>();
-  const [result, setResult] = useState<GameStatsResult | null>(null);
+  const [result, setResult] = useState<RefreshResponse | null>(null);
 
   const [backfillStatus, setBackfillStatus] = useState<BackfillStatus>('idle');
   const [backfillProgress, setBackfillProgress] = useState('');
@@ -67,7 +78,7 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
         setStatus('error');
         return;
       }
-      const data = (await res.json()) as GameStatsResult;
+      const data = (await res.json()) as RefreshResponse;
       setResult(data);
       setStatus('success');
     } catch (err) {
@@ -108,6 +119,12 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
           errors.push(
             `${step.seasonType} wk ${step.week}: ${res.status}${text ? ` — ${text.slice(0, 80)}` : ''}`
           );
+          // A quota refusal will refuse every remaining step too (each refresh
+          // probes FRESH usage) — stop instead of burning 429s.
+          if (res.status === 429) {
+            errors.push('quota reserve reached — backfill stopped');
+            break;
+          }
         } else {
           cached++;
         }
@@ -201,8 +218,11 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
         )}
         {status === 'success' && result && (
           <span className="text-xs text-green-600 dark:text-green-400">
-            Cached {result.games.length} game{result.games.length !== 1 ? 's' : ''} for week{' '}
-            {result.week} ({result.seasonType})
+            Refresh {result.refresh?.outcome ?? 'done'} ({result.refresh?.reason ?? 'unknown'}) —
+            durable {result.durable?.status ?? 'unknown'}
+            {result.durable?.availability
+              ? `, ${result.durable.availability.satisfied ?? 0}/${result.durable.availability.expected ?? 0} verified`
+              : ''}
           </span>
         )}
         {status === 'error' && (

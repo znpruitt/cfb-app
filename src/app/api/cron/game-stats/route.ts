@@ -194,7 +194,9 @@ export async function GET(req: Request) {
   // the attempt as a truthful failure — never fabricated either direction.
   let usageSnapshot: CfbdUsageSnapshot;
   try {
-    const usage = await fetchCfbdUsage();
+    // FRESH usage for the quota gate — a cached snapshot must never let a
+    // burst of refreshes reuse pre-spend remaining counts.
+    const usage = await fetchCfbdUsage({ fresh: true });
     usageSnapshot = { remainingCalls: usage.remaining, monthlyLimit: usage.limit };
   } catch {
     usageSnapshot = { remainingCalls: null };
