@@ -96,7 +96,9 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
     setError(undefined);
 
     const errors: string[] = [];
-    let cached = 0;
+    let committed = 0;
+    let empty = 0;
+    let stoppedEarly: string | null = null;
     const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
     const total = BACKFILL_STEPS.length;
 
@@ -114,19 +116,28 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
           cache: 'no-store',
           headers: authHeaders,
         });
+        const body = (await res.json().catch(() => null)) as
+          | (RefreshResponse & { code?: string })
+          | null;
         if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          errors.push(
-            `${step.seasonType} wk ${step.week}: ${res.status}${text ? ` — ${text.slice(0, 80)}` : ''}`
-          );
-          // A quota refusal will refuse every remaining step too (each refresh
-          // probes FRESH usage) — stop instead of burning 429s.
+          const code = body?.code ?? `HTTP ${res.status}`;
+          errors.push(`${step.seasonType} wk ${step.week}: ${res.status} — ${code}`);
+          // A quota refusal refuses every remaining step too (each refresh
+          // probes FRESH usage) — stop, with the TRUTHFUL reason: 429 also
+          // covers unavailable/untrustworthy usage and upstream rate limits.
           if (res.status === 429) {
-            errors.push('quota reserve reached — backfill stopped');
+            stoppedEarly =
+              code === 'game-stats-quota-below-reserve'
+                ? 'quota reserve reached'
+                : 'quota usage unavailable or rate-limited';
             break;
           }
         } else {
-          cached++;
+          // Consume the activated wire: a 200 can be a NO-OP with nothing
+          // durable — only confirmed commits count as cached.
+          const outcome = body?.refresh?.outcome;
+          if (outcome === 'success' || outcome === 'partial') committed++;
+          else empty++;
         }
       } catch (err) {
         errors.push(
@@ -138,7 +149,9 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
 
     setBackfillErrors(errors);
     setBackfillSummary(
-      `Backfill complete — ${cached} week${cached !== 1 ? 's' : ''} cached${errors.length > 0 ? `, ${errors.length} failed` : ''}`
+      `Backfill ${stoppedEarly ? `stopped early (${stoppedEarly})` : 'complete'} — ` +
+        `${committed} week${committed !== 1 ? 's' : ''} committed, ${empty} empty` +
+        `${errors.length > 0 ? `, ${errors.length} failed` : ''}`
     );
     setBackfillProgress('');
     setBackfillStatus('done');
