@@ -417,7 +417,7 @@ function teamSlot(teamId: string, name: string) {
 }
 
 const STALE_SEC: AppGame = e4AppGame({
-  key: '2024-sec-championship-a',
+  key: '2024-sec-championship',
   providerGameId: '401673469',
   participants: { home: teamSlot('texas', 'Texas'), away: teamSlot('georgia', 'Georgia') },
   csvHome: 'Texas',
@@ -427,7 +427,7 @@ const STALE_SEC: AppGame = e4AppGame({
 });
 
 const STALE_FCS: AppGame = e4AppGame({
-  key: '2024-sec-championship-b',
+  key: '2024-sec-championship',
   providerGameId: '401729753',
   participants: {
     home: teamSlot('ucdavis', 'UC Davis'),
@@ -462,7 +462,16 @@ test('E4 collection: incompatible fully-resolved games are never fieldwise merge
       fcs!.participants.home.kind === 'team' ? fcs!.participants.home.teamId : null,
       'ucdavis'
     );
+    assert.equal(
+      fcs!.participants.away.kind === 'team' ? fcs!.participants.away.teamId : null,
+      'illinoisstate'
+    );
     assert.equal(sec!.neutral, true, 'the SEC game keeps its own metadata');
+    // Real shared-base-key disambiguation: the LOWER provider id keeps the
+    // base key; the other receives the deterministic disambiguated key —
+    // identical in both input orders.
+    assert.equal(sec!.key, '2024-sec-championship');
+    assert.equal(fcs!.key, '2024-sec-championship::conference_championship::w15::401729753');
   }
 });
 
@@ -507,12 +516,25 @@ test('E4 collection: a fragment naming a foreign team never hydrates the wrong g
     [foreignFragment, STALE_SEC],
   ]) {
     const games = buildAuthoritativeGameCollection([], inputs);
+    assert.equal(games.length, 2, 'the fragment survives as its own candidate');
     const sec = games.find((g) => String(g.providerGameId) === '401673469');
     assert.ok(sec, 'the real game survives');
     assert.equal(
       sec!.participants.home.kind === 'team' ? sec!.participants.home.teamId : null,
       'texas',
       'the foreign fragment did not replace Texas'
+    );
+    assert.equal(
+      sec!.participants.away.kind === 'team' ? sec!.participants.away.teamId : null,
+      'georgia',
+      'the full pair is intact'
+    );
+    const fragment = games.find((g) => g !== sec);
+    assert.ok(fragment, 'fragment candidate present');
+    assert.equal(
+      fragment!.participants.home.kind === 'team' ? fragment!.participants.home.teamId : null,
+      'ucdavis',
+      'the fragment keeps its own slot'
     );
   }
 });

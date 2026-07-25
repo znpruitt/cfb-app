@@ -181,9 +181,12 @@ export function buildAuthoritativeGameCollection(
 
   /**
    * Candidates in DETERMINISTIC order — numeric provider id ascending, ids
-   * before id-less fragments — so collision routing and key disambiguation
-   * are permutation-invariant for the resolved games regardless of input
-   * order.
+   * before id-less fragments. This makes the two-fully-resolved collision
+   * SPLIT (and its key disambiguation) permutation-invariant. Agreeing
+   * partial fragments keep the legacy arrival-order merge behavior by
+   * design, so a pathological three-way case (two incompatible fulls plus a
+   * compatible fragment) may hydrate a different full depending on input
+   * order — the split itself never varies.
    */
   const sortCandidates = (candidates: AppGame[]): AppGame[] =>
     [...candidates].sort((a, b) => {
