@@ -202,13 +202,35 @@ const ALLOWED_DORMANT_SYMBOLS = new Map<string, ReadonlySet<string>>([
  */
 function decodeSpecifierEscapes(specifier: string): string {
   try {
-    return specifier
-      .replace(/\\u\{([0-9a-fA-F]+)\}/g, (_, hex: string) =>
-        String.fromCodePoint(parseInt(hex, 16))
-      )
-      .replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
-      .replace(/\\x([0-9a-fA-F]{2})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)))
-      .replace(/\\(.)/g, '$1');
+    // ONE pass, left to right, so a decoded character can never be re-consumed
+    // by a later escape — e.g. a decoded backslash (`\u{5c}`) must not join the
+    // following character into a fresh identity escape. A backslash before a
+    // line terminator is a line continuation and produces NOTHING, exactly as
+    // the runtime decodes it.
+    return specifier.replace(
+      /\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})|\\x([0-9a-fA-F]{2})|\\(\r\n|[\s\S])/g,
+      (
+        _whole: string,
+        codePoint: string | undefined,
+        u4: string | undefined,
+        x2: string | undefined,
+        single: string | undefined
+      ) => {
+        if (codePoint !== undefined) return String.fromCodePoint(parseInt(codePoint, 16));
+        if (u4 !== undefined) return String.fromCharCode(parseInt(u4, 16));
+        if (x2 !== undefined) return String.fromCharCode(parseInt(x2, 16));
+        if (
+          single === '\n' ||
+          single === '\r' ||
+          single === '\r\n' ||
+          single === ' ' ||
+          single === ' '
+        ) {
+          return '';
+        }
+        return single ?? '';
+      }
+    );
   } catch {
     return specifier;
   }
@@ -735,6 +757,9 @@ test('scanner: escape-obfuscated specifiers decode and still flag', () => {
     String.raw`const m = require('../gameStats/durab\x6CeMerge.ts');`,
     // identity escape \. → '.'
     String.raw`import '../gameStats/durableMerge\.ts';`,
+    // line continuation (backslash + newline) decodes to NOTHING
+    String.raw`import { x } from '../gameStats/canonicalSla\
+te.ts';`,
   ];
   for (const source of flagged) {
     const violations = findBoundaryViolations(source, importer);
@@ -743,6 +768,17 @@ test('scanner: escape-obfuscated specifiers decode and still flag', () => {
       source
     );
   }
+  // A DECODED backslash must never be re-consumed as a fresh identity escape:
+  // this spelling statically resolves to the NON-dormant path
+  // 'canonical\Slate.ts', so it must produce no violation — a multi-pass
+  // decoder would collapse it to canonicalSlate and false-flag.
+  assert.deepEqual(
+    findBoundaryViolations(
+      String.raw`import { x } from '../gameStats/canonical\u{5c}Slate.ts';`,
+      importer
+    ),
+    []
+  );
   // An escaped spelling is NEVER a sanctioned crossing, even in the
   // allowlisted file, even when it decodes to the allowed module.
   assert.ok(
