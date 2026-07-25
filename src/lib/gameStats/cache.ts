@@ -19,6 +19,9 @@ import {
 
 const SCOPE = 'game-stats';
 
+/** The durable app-state scope game-stat partitions live under (PLATFORM-086H3E3 export). */
+export const GAME_STATS_SCOPE = SCOPE;
+
 export function getGameStatsKey(year: number, week: number, seasonType: CfbdSeasonType): string {
   return `${year}:${week}:${seasonType}`;
 }

@@ -1,14 +1,26 @@
 import { NextResponse } from 'next/server';
 
-import { fetchUpstreamJson } from '@/lib/api/fetchUpstream';
+import { fetchCfbdUsage } from '@/lib/api/cfbdUsage';
+import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
-import { getCachedGameStats, setCachedGameStats } from '@/lib/gameStats/cache';
+import { GAME_STATS_SCOPE, getGameStatsKey } from '@/lib/gameStats/cache';
+import { ingestGameStatsPartitionResponse } from '@/lib/gameStats/ingestionCoordinator';
 import {
-  classifyGameStatsPayload,
-  expectsGameStats,
-  hasUsableGameStats,
-} from '@/lib/gameStats/coverage';
-import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
+  loadCanonicalGameStatsSlate,
+  type CanonicalSlateResult,
+} from '@/lib/gameStats/canonicalSlate';
+import {
+  listKickoffWindowPartitions,
+  pollingPartitionKey,
+  selectPollingTarget,
+  type PollingTarget,
+} from '@/lib/gameStats/pollingTarget';
+import { projectPublicPartition } from '@/lib/gameStats/publicProjection';
+import {
+  evaluateAutomationQuota,
+  type CfbdUsageSnapshot,
+} from '@/lib/gameStats/quotaPolicy';
+import { interpretGameStatsRefreshOutcome } from '@/lib/gameStats/refreshOutcome';
 import { getAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
 import { weekPartitionScope } from '@/lib/providerRefreshScope';
@@ -19,11 +31,26 @@ import {
   recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
-import type { CacheEntry } from '@/app/api/schedule/cache';
 
 export const dynamic = 'force-dynamic';
 
-const CFBD_API_KEY = process.env.CFBD_API_KEY ?? '';
+/**
+ * PLATFORM-086H3E3 — the activated 15-minute game-stats cron.
+ *
+ * Bounded kickoff-window polling (PLATFORM-086H3E2 policy, NOT score-gated):
+ * the current season's slate is derived cache-only; a partition is a candidate
+ * while it holds a stat-applicable game aged [3h, 24h) past kickoff whose
+ * evidence is not yet satisfied; at most ONE partition is fetched per run,
+ * chosen by earliest unresolved eligible kickoff. If automation is paused,
+ * context is unavailable, the quota reserve refuses, or no target exists,
+ * there is NO provider call — and with no exact target, no scoped attempt is
+ * ever begun. One attempt begins after the target is resolved and BEFORE
+ * credential validation or any usage/provider request; a quota refusal
+ * resolves it exactly once as a truthful failure. Ingestion flows through the
+ * ONE coordinator and the ONE interpreter, then the exact durable partition is
+ * reread. No recovery sweeps, claims, leases, backoff, disposition stores, or
+ * same-run retries — and no score automation.
+ */
 
 const RETRY_POLICY = {
   maxAttempts: 3,
@@ -42,8 +69,9 @@ type CronResult = {
   year: number;
   week: number | null;
   seasonType: CfbdSeasonType | null;
-  gamesProcessed: number;
-  fetchedAt: string | null;
+  outcome: string | null;
+  reason: string | null;
+  committedGames: number;
   skipped?: string;
   error?: string;
 };
@@ -61,134 +89,133 @@ function seasonYearForToday(now = new Date()): number {
   return month >= 6 ? year : year - 1;
 }
 
+function skippedResult(year: number, skipped: string): CronResult {
+  return {
+    year,
+    week: null,
+    seasonType: null,
+    outcome: null,
+    reason: null,
+    committedGames: 0,
+    skipped,
+  };
+}
+
 /**
- * Determine the most recently completed week from the cached schedule.
- * Looks at game start dates relative to now to find the latest week
- * with games that have already been played.
+ * Resolve the single approved fetch target for this run, cache-only. `null`
+ * means no candidate partition exists right now (fully resolved, out of
+ * window, or no games) — never an error.
  */
-async function findLatestCompletedWeek(
-  year: number
-): Promise<{ week: number; seasonType: CfbdSeasonType } | null> {
-  // Check regular season schedule cache first
-  const cacheKey = `${year}-all-all`;
-  const stored = await getAppState<CacheEntry>('schedule', cacheKey);
-  if (!stored?.value?.items?.length) return null;
-
-  const now = Date.now();
-  const items = stored.value.items;
-
-  // Build a map of (week, seasonType) → latest game startDate. Only STAT-PRODUCING
-  // games count (5th-review finding #1): a disrupted game (canceled/postponed/…)
-  // never yields team stats, so a slate composed solely of them contributes
-  // nothing and is never selected — otherwise every cron run would re-spend CFBD
-  // quota on a permanently unresolvable week (its cache can never be "usable").
-  const slateMaxDate = new Map<string, number>();
-  const completedThreshold = now - 6 * 60 * 60 * 1000;
-
-  for (const item of items) {
-    if (!item.startDate) continue;
-    if (!expectsGameStats(item.status)) continue;
-    const gameTime = new Date(item.startDate).getTime();
-    if (gameTime > completedThreshold) continue;
-
-    const seasonType: CfbdSeasonType = item.seasonType === 'postseason' ? 'postseason' : 'regular';
-    const key = `${item.week}:${seasonType}`;
-    const prev = slateMaxDate.get(key) ?? 0;
-    if (gameTime > prev) slateMaxDate.set(key, gameTime);
+async function resolvePollingTarget(year: number, now: Date): Promise<
+  | { status: 'ok'; target: PollingTarget | null; slateResult: CanonicalSlateResult }
+  | { status: 'context-unavailable'; reason: string }
+> {
+  const slateResult = await loadCanonicalGameStatsSlate({ year, now });
+  if (slateResult.status === 'unavailable') {
+    return { status: 'context-unavailable', reason: slateResult.reason };
   }
 
-  if (slateMaxDate.size === 0) return null;
-
-  // Select the slate whose most recent game is latest by calendar date
-  let bestKey: string | null = null;
-  let bestDate = 0;
-  for (const [key, maxDate] of slateMaxDate) {
-    if (maxDate > bestDate) {
-      bestDate = maxDate;
-      bestKey = key;
+  // Phase 1: which partitions even have window games; Phase 2 needs their
+  // committed records, read cache-only and validated inside the selector.
+  const refs = listKickoffWindowPartitions(slateResult.slate, now);
+  const recordsByPartition = new Map<string, unknown>();
+  for (const ref of refs) {
+    try {
+      const record = await getAppState<unknown>(
+        GAME_STATS_SCOPE,
+        getGameStatsKey(ref.year, ref.week, ref.seasonType)
+      );
+      recordsByPartition.set(pollingPartitionKey(ref), record?.value ?? null);
+    } catch {
+      // A failed read resolves nothing — the selector treats the partition as
+      // absent, which fails toward polling, bounded by the finite window.
+      recordsByPartition.set(pollingPartitionKey(ref), null);
     }
   }
 
-  if (!bestKey) return null;
-  const [weekStr, seasonType] = bestKey.split(':');
-  return { week: parseInt(weekStr, 10), seasonType: seasonType as CfbdSeasonType };
+  const target = selectPollingTarget({
+    slate: slateResult.slate,
+    now,
+    seasonRelation: 'current',
+    recordsByPartition,
+  });
+  return { status: 'ok', target, slateResult };
 }
 
-export async function GET(req: Request): Promise<NextResponse<CronResult>> {
-  const authResult = verifyCronSecret(req);
-  if (authResult !== 'ok') {
-    const error =
-      authResult === 'not-configured'
-        ? 'CRON_SECRET is not configured on the server'
-        : 'unauthorized: Bearer token did not match CRON_SECRET';
+export async function GET(req: Request) {
+  // CRON_SECRET first — fail closed with distinct configuration errors.
+  const auth = verifyCronSecret(req);
+  if (auth !== 'ok') {
     return NextResponse.json(
-      { year: 0, week: null, seasonType: null, gamesProcessed: 0, fetchedAt: null, error },
+      {
+        error:
+          auth === 'not-configured'
+            ? 'CRON_SECRET is not configured; scheduled game-stats refresh is disabled'
+            : 'invalid cron authorization',
+      },
       { status: 401 }
     );
   }
 
-  const year = seasonYearForToday();
-  const emptyResult: CronResult = {
-    year,
-    week: null,
-    seasonType: null,
-    gamesProcessed: 0,
-    fetchedAt: null,
-  };
+  const now = new Date();
+  const year = seasonYearForToday(now);
 
-  // Operational auto-refresh control (PLATFORM-086A): game-stats is a
-  // NONCRITICAL ingestion job, so it honors the global pause and its per-dataset
-  // enable flag. Manual admin refresh (/api/game-stats?bypassCache=1) stays
-  // available even when paused. (The lifecycle-critical season-transition cron is
-  // exempt and does not call this.)
+  // Operator pause — before target selection, so no scoped attempt exists.
   if (!(await isAutoRefreshAllowed('game-stats'))) {
-    return NextResponse.json({
-      ...emptyResult,
-      skipped: 'automatic game-stats refresh is paused or disabled',
-    });
-  }
-
-  // Resolve the canonical target week BEFORE credential validation (cache-only,
-  // no provider call) so a missing-key failure — and every other outcome —
-  // records against the EXACT week partition this run intends to refresh, never
-  // the year rollup (SCOPED-STATUS review v2 #1). A one-week cron never owns the
-  // year data-rollup status.
-  let latest: { week: number; seasonType: CfbdSeasonType } | null;
-  try {
-    latest = await findLatestCompletedWeek(year);
-  } catch (err) {
-    // Local target resolution itself failed (e.g. a durable schedule read error).
-    // Use the established cron failure path WITHOUT assigning the failure to any
-    // year/week data scope (Requirement 3) — no target has been verified.
     return NextResponse.json(
-      { ...emptyResult, error: err instanceof Error ? err.message : 'unknown error' },
-      { status: 500 }
+      skippedResult(year, 'automatic game-stats refresh is paused or disabled')
     );
   }
 
-  if (!latest) {
-    // No applicable completed week — no work, no scoped status, no provider call.
-    return NextResponse.json({
-      ...emptyResult,
-      skipped: 'no completed weeks found in cached schedule',
-    });
+  // Resolve the exact target BEFORE any credential/usage/provider concern.
+  const resolution = await resolvePollingTarget(year, now);
+  if (resolution.status === 'context-unavailable') {
+    return NextResponse.json(
+      skippedResult(year, `canonical context unavailable: ${resolution.reason}`)
+    );
+  }
+  if (resolution.target === null) {
+    // No exact target → no scoped attempt, no usage check, no provider call.
+    return NextResponse.json(skippedResult(year, 'no partition inside the polling window'));
   }
 
-  const { week, seasonType } = latest;
-  // One canonical target scope, captured ONCE and reused by every terminal
-  // resolver below (missing-key failure, provider failure, no-op, success,
-  // durable-commit failure) so begin and resolve always agree (Requirement 4).
+  const { week, seasonType } = resolution.target;
   const weekScope = weekPartitionScope(year, week, seasonType);
+  const attempt = await beginProviderRefreshAttempt('game-stats', weekScope, {
+    startedAt: new Date().toISOString(),
+  });
 
-  if (!CFBD_API_KEY) {
-    // Missing credential on an unpaused cron WITH a resolved target: record a
-    // failed attempt against THIS week partition (not the year rollup) so the
-    // panel shows the automatic refresh is broken and a later successful run of
-    // the same week can replace it through normal attempt ordering. Prior-good
-    // data is preserved.
-    const attempt = await beginProviderRefreshAttempt('game-stats', weekScope, {
-      startedAt: new Date().toISOString(),
+  // Quota reserve (PLATFORM-086H3E2 policy): provider-reported usage only,
+  // checked ONLY once a target exists. Unknown or below-reserve usage resolves
+  // the attempt as a truthful failure — never fabricated either direction.
+  let usageSnapshot: CfbdUsageSnapshot;
+  try {
+    const usage = await fetchCfbdUsage();
+    usageSnapshot = { remainingCalls: usage.remaining, monthlyLimit: usage.limit };
+  } catch {
+    usageSnapshot = { remainingCalls: null };
+  }
+  const quota = evaluateAutomationQuota(usageSnapshot);
+  if (quota.kind === 'refused') {
+    await recordProviderRefreshFailure('game-stats', weekScope, {
+      attempt,
+      error: `scheduled refresh refused by quota policy: ${quota.reason}`,
+      code: `game-stats-quota-${quota.reason}`,
     });
+    return NextResponse.json({
+      year,
+      week,
+      seasonType,
+      outcome: 'failure',
+      reason: `quota-${quota.reason}`,
+      committedGames: 0,
+      remaining: quota.remaining,
+    } satisfies CronResult & { remaining: number | null });
+  }
+
+  // Credential validation after target + quota, before provider access.
+  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
+  if (!cfbdApiKey) {
     await recordProviderRefreshFailure('game-stats', weekScope, {
       attempt,
       error: 'CFBD_API_KEY not configured',
@@ -196,123 +223,110 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       status: 500,
     });
     return NextResponse.json(
-      { ...emptyResult, week, seasonType, error: 'CFBD_API_KEY not configured' },
+      { ...skippedResult(year, ''), skipped: undefined, error: 'CFBD_API_KEY not configured' },
       { status: 500 }
     );
   }
 
   try {
-    // Skip only when we already have USABLE stats for this week. A cached record
-    // with `games: []` (CFBD returned no rows, or every row was dropped during
-    // normalization) is NOT coverage — treating a bare key as cached would leave
-    // an empty week permanently skipped on every subsequent run (4th-review
-    // finding #3). Re-fetching an empty week is bounded by the cron cadence and
-    // its pause/enable gate, so this cannot spin: it self-resolves once CFBD
-    // publishes the week's stats.
-    const existing = await getCachedGameStats(year, week, seasonType);
-    if (hasUsableGameStats(existing)) {
-      return NextResponse.json({
-        ...emptyResult,
-        week,
-        seasonType,
-        skipped: `week ${week} ${seasonType} already cached at ${existing?.fetchedAt}`,
-      });
-    }
-
-    // Fetch from CFBD. This per-week ingestion records against only its
-    // (year, week, seasonType) partition — one week never establishes full-season
-    // game-stats success.
-    const attempt = await beginProviderRefreshAttempt('game-stats', weekScope, {
-      startedAt: new Date().toISOString(),
+    // Observation fence before provider access; at most ONE partition fetch.
+    const fetchStartedAt = new Date().toISOString();
+    const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
+    const payload = await fetchUpstreamJson<unknown>(cfbdUrl.toString(), {
+      cache: 'no-store',
+      timeoutMs: 12_000,
+      headers: { Authorization: `Bearer ${cfbdApiKey}` },
+      retry: RETRY_POLICY,
+      pacing: PACING_POLICY,
     });
 
-    try {
-      const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
-      const rawGames = await fetchUpstreamJson<RawGameTeamStats[]>(cfbdUrl.toString(), {
-        headers: { Authorization: `Bearer ${CFBD_API_KEY}` },
-        timeoutMs: 15_000,
-        retry: RETRY_POLICY,
-        pacing: PACING_POLICY,
-      });
+    const result = await ingestGameStatsPartitionResponse({
+      year,
+      week,
+      seasonType,
+      fetchStartedAt,
+      payload,
+    });
+    const interpretation = interpretGameStatsRefreshOutcome(result);
 
-      // Classify the provider response before committing (5th-review finding #5).
-      const classification = classifyGameStatsPayload(rawGames, week, seasonType);
-      if (classification.kind === 'noop') {
-        // Genuine empty provider array (stats not published yet): a no-op, NOT a
-        // durable commit. Writing `games: []` would advance last-success while
-        // `hasUsableGameStats` still treats the week as uncovered — a contradiction.
-        await recordProviderRefreshNoop('game-stats', weekScope, { attempt, source: 'cfbd' });
-        return NextResponse.json({
-          year,
-          week,
-          seasonType,
-          gamesProcessed: 0,
-          fetchedAt: null,
-          skipped: `week ${week} ${seasonType}: provider returned no game stats yet (no-op)`,
-        });
-      }
-      if (classification.kind === 'no-usable-rows') {
-        // A NONEMPTY payload that normalized to zero usable rows is schema
-        // drift/validation failure — preserve prior-good, record failed, do not
-        // advance last-success.
-        await recordProviderRefreshFailure('game-stats', weekScope, {
-          attempt,
-          error: `week ${week} ${seasonType}: provider returned rows but none normalized to a usable game stat`,
-          code: 'game-stats-no-usable-rows',
-          status: 502,
-        });
-        return NextResponse.json(
-          { ...emptyResult, week, seasonType, error: 'game-stats-no-usable-rows' },
-          { status: 502 }
-        );
-      }
-
-      const { games } = classification;
-      const fetchedAt = new Date().toISOString();
-
-      const result: WeeklyGameStats = {
-        year,
-        week,
-        seasonType,
-        fetchedAt,
-        games,
-      };
-
-      await setCachedGameStats(result);
-      // Durable commit time + sequence for success ordering (rereview findings #3/#6).
-      const committedAt = new Date().toISOString();
-      const commitSeq = nextProviderCommitSeq();
-
+    let committedGames = 0;
+    if (interpretation.advanceLastSuccess) {
+      const merge = result.kind === 'merge-result' ? result.merge : null;
+      committedGames = merge
+        ? merge.inserted.length + merge.updated.length + merge.refreshed.length
+        : 0;
       await recordProviderRefreshSuccess('game-stats', weekScope, {
         attempt,
-        committedAt,
-        commitSeq,
+        committedAt: new Date().toISOString(),
+        commitSeq: nextProviderCommitSeq(),
         source: 'cfbd',
-        rowsCommitted: games.length,
+        rowsCommitted: committedGames,
+        ...(interpretation.partialFailure ? { partialFailure: true } : {}),
       });
+    } else if (interpretation.kind === 'no-op') {
+      await recordProviderRefreshNoop('game-stats', weekScope, { attempt, source: 'cfbd' });
+    } else {
+      await recordProviderRefreshFailure('game-stats', weekScope, {
+        attempt,
+        error: `scheduled game-stats refresh failed: ${interpretation.reason}`,
+        code: `game-stats-${interpretation.reason}`,
+        status: interpretation.httpStatus,
+      });
+    }
 
-      return NextResponse.json({
+    // Durable REREAD — downstream truth is the durable partition, never the
+    // payload or an assumed merge result. The run report's availability comes
+    // from projecting the reread; no success inference, no same-run retry
+    // (indeterminate stays a failure until a later run observes it).
+    let read: { status: 'ok'; value: unknown } | { status: 'read-failed' };
+    try {
+      const record = await getAppState<unknown>(
+        GAME_STATS_SCOPE,
+        getGameStatsKey(year, week, seasonType)
+      );
+      read = { status: 'ok', value: record?.value ?? null };
+    } catch {
+      read = { status: 'read-failed' };
+    }
+    const projection = projectPublicPartition(
+      resolution.slateResult,
+      week,
+      seasonType,
+      read,
+      'current'
+    );
+
+    return NextResponse.json(
+      {
         year,
         week,
         seasonType,
-        gamesProcessed: games.length,
-        fetchedAt,
-      });
-    } catch (err) {
-      await recordProviderRefreshFailure('game-stats', weekScope, {
-        attempt,
-        error: err instanceof Error ? err.message : 'unknown error',
-      });
-      throw err;
-    }
-  } catch (err) {
+        outcome: interpretation.kind,
+        reason: interpretation.reason,
+        committedGames,
+        durable:
+          projection.status === 'available'
+            ? { status: 'available', availability: projection.wire.availability }
+            : { status: projection.status },
+      } satisfies CronResult & { durable: unknown },
+      { status: interpretation.kind === 'failure' ? interpretation.httpStatus : 200 }
+    );
+  } catch (error) {
+    await recordProviderRefreshFailure('game-stats', weekScope, {
+      attempt,
+      error: error instanceof Error ? error.message : 'unknown error',
+      status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 500,
+    });
     return NextResponse.json(
       {
-        ...emptyResult,
+        year,
         week,
         seasonType,
-        error: err instanceof Error ? err.message : 'unknown error',
-      },
+        outcome: 'failure',
+        reason: 'provider-fetch-failed',
+        committedGames: 0,
+        error: error instanceof Error ? error.message : 'unknown error',
+      } satisfies CronResult,
       { status: 500 }
     );
   }
