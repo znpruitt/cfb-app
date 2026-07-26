@@ -19,6 +19,7 @@ import {
   resolveQstashBase,
   runManageSchedule,
   SCHEDULE_ID,
+  scrubSecrets,
   summarizeSchedule,
   type FetchLike,
   type RunDeps,
@@ -516,17 +517,38 @@ test('the summary counts forwarded headers, never their names or values', () => 
   assert.ok(!JSON.stringify(summary).includes('Bearer'));
 });
 
-test('a multi-value forwarded Authorization is ambiguous and diverges (route would 401)', () => {
-  const multi = {
-    ...goodSchedule,
-    header: { Authorization: ['Bearer right', 'Bearer wrong'] },
-  };
-  const { ok, mismatches } = evaluateScheduleContract(multi);
-  assert.equal(ok, false);
-  assert.match(mismatches.join(' | '), /multiple forwarded Authorization values/);
-  assert.equal(summarizeSchedule(multi).authorization, 'ambiguous');
+test('forwarded Authorization cardinality is judged on RAW entries (route sees the comma-combined header)', () => {
+  // Two entries — including when one is empty — must be ambiguous: the route
+  // receives `Bearer right, ...` and 401s, so it must not collapse to one.
+  for (const values of [
+    ['Bearer right', 'Bearer wrong'],
+    ['Bearer right', ''],
+    ['', 'Bearer right'],
+  ]) {
+    const multi = { ...goodSchedule, header: { Authorization: values } };
+    const { ok, mismatches } = evaluateScheduleContract(multi);
+    assert.equal(ok, false, JSON.stringify(values));
+    assert.match(mismatches.join(' | '), /multiple forwarded Authorization values/);
+    assert.equal(summarizeSchedule(multi).authorization, 'ambiguous');
+  }
+  // A single empty entry is missing, not ok.
+  assert.equal(
+    evaluateScheduleContract({ ...goodSchedule, header: { Authorization: [''] } }).ok,
+    false
+  );
   // A single correct value still verifies.
   assert.equal(evaluateScheduleContract(goodSchedule).ok, true);
+});
+
+test('scrubSecrets removes the actual credential values from free text', () => {
+  const env = { QSTASH_TOKEN: TOKEN, CRON_SECRET };
+  const message = `boom at https://host with ${TOKEN} and header Bearer ${CRON_SECRET}`;
+  const scrubbed = scrubSecrets(message, env);
+  assert.ok(!scrubbed.includes(TOKEN), 'management token scrubbed');
+  assert.ok(!scrubbed.includes(CRON_SECRET), 'cron secret scrubbed');
+  assert.match(scrubbed, /<redacted>/);
+  // With no secrets set, the text is unchanged.
+  assert.equal(scrubSecrets('plain message', {}), 'plain message');
 });
 
 // === 6. Every request targets only a QStash management schedule endpoint ===

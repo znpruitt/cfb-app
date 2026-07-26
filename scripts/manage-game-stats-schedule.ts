@@ -225,19 +225,22 @@ export function redactHeaderNames(header: unknown): string[] {
 }
 
 /**
- * The forwarded-Authorization values of a readback: only from an EXACTLY-named
+ * Every RAW entry of the forwarded Authorization from an EXACTLY-named
  * `Authorization` header (case-insensitive, never a `*-Authorization` suffix
- * like `X-Authorization`, which the route would not receive). Returns the
- * non-empty string values (a header maps to an array of values in the QStash
- * readback). Values are compared/shape-checked, never formatted into a message.
+ * like `X-Authorization`, which the route would not receive). Entries are
+ * returned UNFILTERED — empties and non-strings included — because CARDINALITY
+ * must be judged on what QStash would actually send: the route receives one
+ * comma-combined header, so `['Bearer x', '']` is two entries and must be
+ * rejected, not silently collapsed to one. Entries are compared/shape-checked,
+ * never formatted into a message.
  */
-function forwardedAuthorizationValues(header: unknown): string[] {
+function forwardedAuthorizationEntries(header: unknown): unknown[] {
   if (!header || typeof header !== 'object' || Array.isArray(header)) return [];
-  const out: string[] = [];
+  const out: unknown[] = [];
   for (const [name, value] of Object.entries(header as Record<string, unknown>)) {
     if (name.toLowerCase() !== 'authorization') continue;
-    const values = Array.isArray(value) ? value : [value];
-    for (const v of values) if (typeof v === 'string' && v.trim().length > 0) out.push(v);
+    if (Array.isArray(value)) out.push(...value);
+    else out.push(value);
   }
   return out;
 }
@@ -247,19 +250,21 @@ function forwardedAuthorizationValues(header: unknown): string[] {
  * route accepts ONLY `Bearer ${CRON_SECRET}` (exact); when the operator's
  * CRON_SECRET is available we verify that exact value (never printed), else we
  * fall back to the strongest shape check we can make without the secret — a
- * non-empty Bearer token. A `Basic …`, an empty bearer, or a wrong value all
- * fail, so inspect can no longer green-light a schedule the route would 401.
+ * non-empty Bearer token. More than one raw entry (even if one is empty), an
+ * empty/non-string sole entry, a `Basic …`, or a wrong value all fail, so
+ * inspect can no longer green-light a schedule the route would 401.
  */
 function classifyAuthorization(
   header: unknown,
   expectedAuthorization?: string
 ): 'ok' | 'missing' | 'ambiguous' | 'wrong-shape' | 'mismatch' {
-  const values = forwardedAuthorizationValues(header);
-  if (values.length === 0) return 'missing';
+  const entries = forwardedAuthorizationEntries(header);
+  if (entries.length === 0) return 'missing';
   // The route receives ONE header; QStash combines multiple values with commas,
-  // so anything but a single value would 401 even if one entry is correct.
-  if (values.length > 1) return 'ambiguous';
-  const value = values[0]!;
+  // so anything but a single entry would 401 even if one entry is correct.
+  if (entries.length > 1) return 'ambiguous';
+  const value = entries[0];
+  if (typeof value !== 'string' || value.trim().length === 0) return 'missing';
   if (expectedAuthorization !== undefined) {
     return value === expectedAuthorization ? 'ok' : 'mismatch';
   }
@@ -350,7 +355,7 @@ export function summarizeSchedule(
   options: { expectedAuthorization?: string } = {}
 ): Record<string, unknown> {
   const retriesOk = schedule.retries === RETRIES || schedule.retries === String(RETRIES);
-  const authValues = forwardedAuthorizationValues(schedule.header);
+  const authEntries = forwardedAuthorizationEntries(schedule.header);
   return {
     scheduleId: schedule.scheduleId === SCHEDULE_ID ? SCHEDULE_ID : '<divergent>',
     destination: schedule.destination === DESTINATION ? DESTINATION : '<divergent>',
@@ -363,7 +368,7 @@ export function summarizeSchedule(
     // secret, so names are never printed. The contract expects exactly one
     // (Authorization); any surplus shows here as a count > 1.
     forwardedHeaderCount: redactHeaderNames(schedule.header).length,
-    forwardedAuthorizationValueCount: authValues.length,
+    forwardedAuthorizationValueCount: authEntries.length,
     callback: isUnset(schedule.callback) ? 'none' : 'set',
     failureCallback: isUnset(schedule.failureCallback) ? 'none' : 'set',
     delay: isNumericUnset(schedule.delay) ? 'none' : 'set',
@@ -548,6 +553,21 @@ export async function runManageSchedule(deps: RunDeps): Promise<number> {
   return runMutation(deps, parsed.action, req, (status) => status >= 200 && status < 300);
 }
 
+/**
+ * Replace any literal occurrence of the actual QSTASH_TOKEN / CRON_SECRET values
+ * with `<redacted>`. Applied to the ONLY free-text sink (the debug exception
+ * detail), so even an unexpected exception whose message happens to contain a
+ * credential value cannot print it.
+ */
+export function scrubSecrets(text: string, env: Record<string, string | undefined>): string {
+  let out = text;
+  for (const key of ['QSTASH_TOKEN', 'CRON_SECRET']) {
+    const value = env[key]?.trim();
+    if (value && value.length > 0) out = out.split(value).join('<redacted>');
+  }
+  return out;
+}
+
 async function main(): Promise<void> {
   // `.env.local` (gitignored, operator-held) wins; `.env` fills gaps. QSTASH_TOKEN
   // must live here or in the shell — never in the repo or Vercel.
@@ -566,15 +586,14 @@ async function main(): Promise<void> {
       env: process.env,
       fetchImpl: nativeFetch,
       log: (line) => console.log(line),
-      // Redacted by default: raw errors could carry a URL, token, or SQL. Detail
-      // is available only through an explicitly enabled debug channel, and even
-      // then this CLI never formats a credential into a message.
       errorLog: (line) => console.error(line),
     });
   } catch (err) {
+    // Even the explicit debug channel scrubs the actual credential values, so an
+    // unexpected exception whose message contains a token/secret cannot print it.
     const detail =
       process.env.MANAGE_GAME_STATS_SCHEDULE_DEBUG === '1' && err instanceof Error
-        ? `: ${err.message}`
+        ? `: ${scrubSecrets(err.message, process.env)}`
         : '';
     console.error(
       `unexpected error [manage-game-stats-schedule-failed] (set MANAGE_GAME_STATS_SCHEDULE_DEBUG=1 for detail)${detail}`
