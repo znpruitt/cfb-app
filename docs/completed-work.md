@@ -1747,6 +1747,26 @@ Key architectural decisions across Phase 5:
 
 ---
 
+**Status:** Complete. Merged to `main` via **PR #411** (merge commit `4e4535d`, 2026-07-25; from `main@b4b7c19`; impl `b4dc496` + remediations `7d0f6ec`/`a2a12ac`/`39745f4`/`3f35cfc`/`353f213`/`413c716` + docs closeout `4f2fc18`). Seven Codex rounds ending clean — round 1 had no production findings; the owner then mandated FULL permutation invariance, and rounds 3–6 eliminated every statically-demonstrable order dependency with counter-example regressions (2-, 6-, and 24-ordering scale); round 7 clean. Gates: `tsc` / `lint:all` / `git diff --check` clean; full `npm test` 2116/2116; five files changed; `teamIdentity.ts` untouched; no provider game id special-cased (test-enforced).
+**PROMPT_ID(s):** PLATFORM-086H3E4-SECOND-ROUND-CONFERENCE-COLLISION-REMEDIATION-v1
+
+**Goals completed:**
+
+- Token/phrase-boundary conference alias matching (`matchConferenceChampionshipSlotByText`): the `sec` inside "Second Round" can no longer read as the SEC alias; multi-token aliases and first-match slot order preserved.
+- Consistent non-FBS negative evidence: explicitly classified FCS/D-II/D-III rows can no longer acquire an inferred FBS conference-championship identity (mirroring the existing CFP suppression); explicit metadata compatibility and eligibility rules unchanged.
+- Permutation-invariant, hybrid-proof `buildAuthoritativeGameCollection`: deferred two-phase content-deterministic resolution; distinct numeric provider ids never merge; a numeric provider id always survives a merge; fragments attach by exact-id affinity or sole-compatibility against the fixed fulls-only set with fail-closed ambiguity; byte-total content ordering; arrival-independent cross-group base-key ownership.
+- Regression evidence: the confirmed `401673469`/`401729753` pair end-to-end in both input orders; all-orderings collection tests; a discriminating byte-distinct-Unicode fold regression; downstream archive assembly over the stale corrupted caches yielding the genuine Texas–Georgia game (19–22, correct ownership, correct E1 snapshot pairing).
+
+**Key outcomes:**
+
+- The confirmed 2024 archive-corruption mechanism (FCS "Second Round" inheriting the SEC Championship identity and fieldwise-merging into a hybrid) is closed at classification AND collection, deterministically in every input order. **The 2024 durable archive itself remains corrupted until the runbook §8d operator sequence executes** (deploy while `legacy`/paused → 2021–2025 refreshes → identity verification → collision-audit rerun → full H3E parity-audit rerun → backfills), which PRECEDES the H3E activation audits. `401506450` remains the sole accepted parity exclusion.
+
+**Optional follow-up debt (non-blocking):**
+
+- The accepted round-6 nit: an adversarial hand-crafted stored key equal to another candidate's generated suffix could still contest key assignment order-dependently; no schedule-generated input can produce it.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
