@@ -43,8 +43,10 @@ import { legacyRowFromWire, wireGame } from './fixtures.ts';
 //   6. Writer-control transitions stay CLI-only: nothing in production src may
 //      import `writerControlTransition` or reference its entry points.
 //   7. The required live seams are CONNECTED (positive assertions), including
-//      auth-before-parsing in the route, the 15-minute `vercel.json` cadence,
-//      and the truthful descriptor.
+//      auth-before-parsing in the route and the truthful descriptor. The
+//      15-minute game-stats trigger is EXTERNAL (QStash, PLATFORM-086H3E): the
+//      guard asserts `vercel.json` carries ONLY the daily lifecycle crons and
+//      declares no sub-daily game-stats cron.
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -435,13 +437,22 @@ test('the route authenticates BEFORE parsing the query', () => {
   assert.ok(authPrecedesParsing(maskComments(readSource(ROUTE_FILE))));
 });
 
-test('vercel.json schedules the game-stats cron every 15 minutes', () => {
+test('vercel.json carries only the daily lifecycle crons — the game-stats trigger is external (QStash)', () => {
   const config = JSON.parse(readFileSync(path.join(REPO_ROOT, 'vercel.json'), 'utf8')) as {
     crons?: Array<{ path?: string; schedule?: string }>;
   };
-  const cron = (config.crons ?? []).find((c) => c.path === '/api/cron/game-stats');
-  assert.ok(cron, 'game-stats cron entry present');
-  assert.equal(cron!.schedule, '*/15 * * * *');
+  const crons = config.crons ?? [];
+  // The 15-minute game-stats poll is triggered by an EXTERNAL QStash schedule
+  // (Vercel Hobby rejects sub-daily crons at deploy time; PLATFORM-086H3E), so
+  // vercel.json must NOT declare a game-stats cron.
+  assert.ok(
+    !crons.some((c) => c.path === '/api/cron/game-stats'),
+    'vercel.json must not declare a game-stats cron (externalized to QStash)'
+  );
+  // The daily lifecycle crons remain Vercel-scheduled and unchanged.
+  const paths = crons.map((c) => c.path).sort();
+  assert.deepEqual(paths, ['/api/cron/season-rollover', '/api/cron/season-transition']);
+  for (const c of crons) assert.equal(c.schedule, '0 0 * * *');
 });
 
 test('the provider descriptor describes the active cadence truthfully', () => {
