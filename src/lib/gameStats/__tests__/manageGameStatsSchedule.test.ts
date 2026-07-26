@@ -317,24 +317,21 @@ test('divergence messages reference only the fixed constants, never the raw read
   assert.match(joined, /destination diverges/);
 });
 
-test('rejected arguments never echo a pasted secret value (long OR short, flag OR positional)', () => {
+test('rejected arguments never echo a pasted secret value (long/short, flag/positional/flag-name)', () => {
   for (const secret of [
     'super-secret-token-value-1234567890', // long
-    'tiny-Sec3t', // short (<=16) — must still not echo
+    'tiny-Sec3t', // short, token-shaped
     'AbC123', // very short but token-shaped
+    'ops-secret', // a secret shaped like a plausible flag name
   ]) {
-    const flagged = parseScheduleArgs([`--token=${secret}`]);
-    assert.ok('error' in flagged);
-    assert.ok(
-      !(flagged as { error: string }).error.includes(secret),
-      `flag value redacted: ${secret}`
-    );
-    const positional = parseScheduleArgs([secret]);
-    assert.ok('error' in positional);
-    assert.ok(
-      !(positional as { error: string }).error.includes(secret),
-      `positional value redacted: ${secret}`
-    );
+    for (const argv of [[`--token=${secret}`], [secret], [`--${secret}`]]) {
+      const parsed = parseScheduleArgs(argv);
+      assert.ok('error' in parsed, argv.join(' '));
+      assert.ok(
+        !(parsed as { error: string }).error.includes(secret),
+        `secret must never be echoed: ${argv.join(' ')}`
+      );
+    }
   }
 });
 
@@ -364,16 +361,31 @@ test('resolveQstashBase accepts the canonical and regional hosts but rejects loo
   assert.equal(resolveQstashBase({ QSTASH_URL: 'https://notqstash.upstash.io' }).ok, false);
 });
 
-test('summarizeSchedule redacts userinfo AND query/fragment secrets in a destination', () => {
-  for (const destination of [
-    `https://user:${CRON_SECRET}@turfwar.games/api/cron/game-stats`,
-    `https://turfwar.games/api/cron/game-stats?token=${CRON_SECRET}`,
-    `https://turfwar.games/api/cron/game-stats#${CRON_SECRET}`,
-  ]) {
-    const printed = JSON.stringify(summarizeSchedule({ ...goodSchedule, destination }));
-    assert.ok(!printed.includes(CRON_SECRET), `secret redacted from the summary: ${destination}`);
-    assert.match(printed, /secrets redacted/);
-  }
+test('summarizeSchedule is derived: it never echoes a raw untrusted readback value', () => {
+  // A secret hidden anywhere in the readback (destination, a scalar field, or a
+  // header NAME) must not appear in the derived summary — divergent fields read
+  // `<divergent>`, header names collapse to a count.
+  const poisoned: ScheduleReadback = {
+    scheduleId: `${SCHEDULE_ID}-${CRON_SECRET}`,
+    destination: `https://turfwar.games/api/cron/game-stats?token=${CRON_SECRET}`,
+    cron: `*/5 ${CRON_SECRET}`,
+    method: `GET ${CRON_SECRET}`,
+    retries: CRON_SECRET,
+    isPaused: false,
+    header: { Authorization: [`Bearer ${CRON_SECRET}`], [CRON_SECRET]: ['x'] },
+  };
+  const summary = summarizeSchedule(poisoned);
+  const printed = JSON.stringify(summary);
+  assert.ok(!printed.includes(CRON_SECRET), 'no readback field leaks a secret into the summary');
+  assert.equal(summary.scheduleId, '<divergent>');
+  assert.equal(summary.destination, '<divergent>');
+  assert.equal(summary.cron, '<divergent>');
+  assert.equal(summary.forwardedHeaderCount, 2);
+  // A clean schedule shows the fixed constants and the ok auth status.
+  const clean = summarizeSchedule(goodSchedule);
+  assert.equal(clean.cron, CRON);
+  assert.equal(clean.method, METHOD);
+  assert.equal(clean.authorization, 'ok');
 });
 
 test('inspect reports divergence as a fail-closed refusal (exit 2)', async () => {
@@ -492,14 +504,29 @@ test('no code path prints the management token or the forwarded route secret', a
   }
 });
 
-test('redactHeaderNames and summarizeSchedule expose names only, never values', () => {
+test('the summary counts forwarded headers, never their names or values', () => {
   assert.deepEqual(redactHeaderNames({ Authorization: ['Bearer x'], 'X-Y': ['z'] }), [
     'Authorization',
     'X-Y',
   ]);
   const summary = summarizeSchedule(goodSchedule);
-  assert.deepEqual(summary.headerNames, ['Authorization']);
+  assert.equal(summary.forwardedHeaderCount, 1);
+  assert.equal(summary.forwardedAuthorizationValueCount, 1);
+  assert.ok(!('headerNames' in summary), 'header names are never printed');
   assert.ok(!JSON.stringify(summary).includes('Bearer'));
+});
+
+test('a multi-value forwarded Authorization is ambiguous and diverges (route would 401)', () => {
+  const multi = {
+    ...goodSchedule,
+    header: { Authorization: ['Bearer right', 'Bearer wrong'] },
+  };
+  const { ok, mismatches } = evaluateScheduleContract(multi);
+  assert.equal(ok, false);
+  assert.match(mismatches.join(' | '), /multiple forwarded Authorization values/);
+  assert.equal(summarizeSchedule(multi).authorization, 'ambiguous');
+  // A single correct value still verifies.
+  assert.equal(evaluateScheduleContract(goodSchedule).ok, true);
 });
 
 // === 6. Every request targets only a QStash management schedule endpoint ===

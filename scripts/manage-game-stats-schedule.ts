@@ -61,18 +61,14 @@ export type ScheduleCliArgs = { action: ScheduleAction; apply: boolean };
 
 /**
  * Redact a rejected argument before it is echoed. An operator can paste a
- * secret by mistake — as a `--flag=<secret>`, or as a bare token — so:
- *   - a `--flag`/`--flag=value` echoes ONLY a plausible flag NAME (lowercase +
- *     hyphens, bounded), dropping any `=value`;
- *   - anything else (a bare positional, or a `--`-token that is not clearly a
- *     flag name — the shapes a secret would take) is reduced to a length
- *     descriptor and never echoed verbatim, regardless of length.
- * The error names the SHAPE of the mistake, never its content.
+ * secret by mistake — as a `--flag=<secret>`, a bare token, or even a
+ * secret-shaped `--<secret>` flag name — so NO raw content is ever echoed: the
+ * error names only the SHAPE of the mistake (its length). The only valid flag
+ * is `--apply` and the only valid positionals are the four known actions, all
+ * listed in the usage text, so a length descriptor is enough to orient the
+ * operator without risking a credential leak.
  */
 export function redactArg(arg: string): string {
-  const name = arg.includes('=') ? arg.slice(0, arg.indexOf('=')) : arg;
-  const isPlausibleFlagName = /^--[a-z][a-z-]{0,30}$/.test(name);
-  if (isPlausibleFlagName) return arg.includes('=') ? `${name}=<redacted>` : name;
   return `<redacted:${arg.length} chars>`;
 }
 
@@ -257,13 +253,17 @@ function forwardedAuthorizationValues(header: unknown): string[] {
 function classifyAuthorization(
   header: unknown,
   expectedAuthorization?: string
-): 'ok' | 'missing' | 'wrong-shape' | 'mismatch' {
+): 'ok' | 'missing' | 'ambiguous' | 'wrong-shape' | 'mismatch' {
   const values = forwardedAuthorizationValues(header);
   if (values.length === 0) return 'missing';
+  // The route receives ONE header; QStash combines multiple values with commas,
+  // so anything but a single value would 401 even if one entry is correct.
+  if (values.length > 1) return 'ambiguous';
+  const value = values[0]!;
   if (expectedAuthorization !== undefined) {
-    return values.some((v) => v === expectedAuthorization) ? 'ok' : 'mismatch';
+    return value === expectedAuthorization ? 'ok' : 'mismatch';
   }
-  return values.some((v) => /^Bearer\s+\S/.test(v)) ? 'ok' : 'wrong-shape';
+  return /^Bearer\s+\S/.test(value) ? 'ok' : 'wrong-shape';
 }
 
 /** Unset for a string/object field: absent, null, or the empty string. */
@@ -301,6 +301,9 @@ export function evaluateScheduleContract(
     case 'missing':
       mismatches.push('no forwarded, non-empty Authorization header is present');
       break;
+    case 'ambiguous':
+      mismatches.push('multiple forwarded Authorization values are present (must be exactly one)');
+      break;
     case 'wrong-shape':
       mismatches.push('the forwarded Authorization is not a non-empty Bearer token');
       break;
@@ -335,43 +338,40 @@ export function evaluateScheduleContract(
 }
 
 /**
- * Redact any secret-bearing part of a URL-ish value: userinfo (`user:pass@`),
- * the query string, and the fragment. A normal fixed destination has none of
- * these, so it prints unchanged; a misconfigured one can't leak an embedded
- * secret into the summary.
+ * A printable summary DERIVED from the readback — it never echoes a raw
+ * untrusted value, so no readback field (a misconfigured destination, a
+ * secret-shaped header name, a divergent scalar) can leak a credential. Fields
+ * that match the fixed contract show the known-safe expected constant; anything
+ * divergent shows `<divergent>`; `isPaused` is a strict boolean; the forwarded
+ * Authorization is a status; other forwarded headers are counted, not named.
  */
-function redactUrl(value: unknown): unknown {
-  if (typeof value !== 'string') return value;
-  try {
-    const url = new URL(value);
-    const sensitive = url.username || url.password || url.search || url.hash;
-    if (!sensitive) return value;
-    url.username = '';
-    url.password = '';
-    url.search = '';
-    url.hash = '';
-    return `${url.toString()} (secrets redacted)`;
-  } catch {
-    return value;
-  }
-}
-
-/** A fully-redacted, printable summary of a readback (never contains a secret). */
-export function summarizeSchedule(schedule: ScheduleReadback): Record<string, unknown> {
+export function summarizeSchedule(
+  schedule: ScheduleReadback,
+  options: { expectedAuthorization?: string } = {}
+): Record<string, unknown> {
+  const retriesOk = schedule.retries === RETRIES || schedule.retries === String(RETRIES);
+  const authValues = forwardedAuthorizationValues(schedule.header);
   return {
-    scheduleId: schedule.scheduleId,
-    // A misconfigured destination could embed a secret in userinfo/query/hash.
-    destination: redactUrl(schedule.destination),
-    cron: schedule.cron,
-    method: schedule.method,
-    retries: schedule.retries,
-    isPaused: schedule.isPaused,
-    callback: isUnset(schedule.callback) ? null : 'set',
-    failureCallback: isUnset(schedule.failureCallback) ? null : 'set',
-    delay: isNumericUnset(schedule.delay) ? null : 'set',
-    flowControlKey: isUnset(schedule.flowControlKey) ? null : 'set',
-    retryDelayExpression: isUnset(schedule.retryDelayExpression) ? null : 'set',
-    headerNames: redactHeaderNames(schedule.header),
+    scheduleId: schedule.scheduleId === SCHEDULE_ID ? SCHEDULE_ID : '<divergent>',
+    destination: schedule.destination === DESTINATION ? DESTINATION : '<divergent>',
+    cron: schedule.cron === CRON ? CRON : '<divergent>',
+    method: schedule.method === METHOD ? METHOD : '<divergent>',
+    retries: retriesOk ? RETRIES : '<divergent>',
+    isPaused: schedule.isPaused === true,
+    authorization: classifyAuthorization(schedule.header, options.expectedAuthorization),
+    // Only the COUNT of forwarded headers — a header NAME could itself be a
+    // secret, so names are never printed. The contract expects exactly one
+    // (Authorization); any surplus shows here as a count > 1.
+    forwardedHeaderCount: redactHeaderNames(schedule.header).length,
+    forwardedAuthorizationValueCount: authValues.length,
+    callback: isUnset(schedule.callback) ? 'none' : 'set',
+    failureCallback: isUnset(schedule.failureCallback) ? 'none' : 'set',
+    delay: isNumericUnset(schedule.delay) ? 'none' : 'set',
+    flowControlKey: isUnset(schedule.flowControlKey) ? 'none' : 'set',
+    parallelism: isNumericUnset(schedule.parallelism) ? 'none' : 'set',
+    rate: isNumericUnset(schedule.rate) ? 'none' : 'set',
+    period: isNumericUnset(schedule.period) ? 'none' : 'set',
+    retryDelayExpression: isUnset(schedule.retryDelayExpression) ? 'none' : 'set',
   };
 }
 
@@ -430,11 +430,13 @@ async function runInspect(
     );
     return 2;
   }
-  deps.log(`[inspect] ${SCHEDULE_ID}: ${JSON.stringify(summarizeSchedule(read.schedule))}`);
   // When CRON_SECRET is available, verify the forwarded Authorization value
   // EXACTLY (never printed); otherwise the contract falls back to a Bearer-shape
   // check and reports below that the value was not verified against CRON_SECRET.
   const expectedAuthorization = cronSecret.length > 0 ? `Bearer ${cronSecret}` : undefined;
+  deps.log(
+    `[inspect] ${SCHEDULE_ID}: ${JSON.stringify(summarizeSchedule(read.schedule, { expectedAuthorization }))}`
+  );
   const { ok, mismatches } = evaluateScheduleContract(read.schedule, { expectedAuthorization });
   if (ok) {
     deps.log(
