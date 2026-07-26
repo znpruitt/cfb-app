@@ -79,6 +79,11 @@ function harness(
   return { deps, out, err, calls };
 }
 
+// A correctly-provisioned schedule reads its forwarded Authorization back
+// REDACTED (QStash still delivers the real Bearer value to the route). The
+// opaque suffix is deliberately NOT hex/length-shaped — the CLI must accept any
+// nonempty opaque digest.
+const REDACTED_AUTH = 'REDACTED:9f2c-opaque-digest-value';
 const goodSchedule: ScheduleReadback = {
   scheduleId: SCHEDULE_ID,
   destination: DESTINATION,
@@ -86,9 +91,7 @@ const goodSchedule: ScheduleReadback = {
   method: METHOD,
   retries: 0,
   isPaused: false,
-  // The forwarded value equals `Bearer ${CRON_SECRET}` so an inspect run that
-  // supplies CRON_SECRET verifies EXACTLY and reaches a clean exit 0.
-  header: { Authorization: [`Bearer ${CRON_SECRET}`] },
+  header: { Authorization: [REDACTED_AUTH] },
 };
 
 // === 1. vercel.json contains no game-stats cron, keeps the two lifecycle crons ===
@@ -126,6 +129,8 @@ test('buildUpsertRequest emits exactly the fixed contract', () => {
     'Upstash-Method': 'GET',
     'Upstash-Retries': '0',
     'Upstash-Forward-Authorization': `Bearer ${CRON_SECRET}`,
+    // Provider-side redaction of the forwarded route credential (exact raw value).
+    'Upstash-Redact-Fields': 'header[Authorization]',
   });
   // No callback / failure-callback / queue / workflow / scheduler-retry headers.
   const names = Object.keys(req.headers).join(',').toLowerCase();
@@ -183,45 +188,57 @@ test('mutating actions REFUSE without --apply', () => {
   }
 });
 
-test('inspect issues only a single GET and never mutates', async () => {
-  const { deps, calls } = harness([], { QSTASH_TOKEN: TOKEN, CRON_SECRET }, [
+test('inspect issues only a single GET, needs no CRON_SECRET, and never mutates', async () => {
+  // A redacted, structurally-correct schedule verifies with ONLY QSTASH_TOKEN —
+  // inspect no longer requires (or can use) CRON_SECRET.
+  const { deps, calls, out } = harness([], { QSTASH_TOKEN: TOKEN }, [
     { status: 200, body: goodSchedule },
   ]);
   const code = await runManageSchedule(deps);
   assert.equal(code, 0);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.method, 'GET');
+  // The verdict states redaction is verified but exact route auth is NOT proven.
+  assert.match(out.join('\n'), /provider-side redaction/);
+  assert.match(out.join('\n'), /Exact route authentication is NOT yet proven/);
+  // Neither the opaque digest nor a Bearer value is ever echoed.
+  assert.ok(
+    !out.join('\n').includes('opaque-digest-value'),
+    'the redacted digest is never printed'
+  );
+  assert.ok(!out.join('\n').includes('REDACTED:9f2c'), 'the full redacted value is never printed');
 });
 
-test('inspect exit-0 requires EXACT verification of the forwarded secret', async () => {
-  // Without CRON_SECRET a structurally-perfect schedule is only shape-checked —
-  // the route accepts ONLY the exact secret, so inspect must NOT read as verified.
-  const noSecret = harness([], { QSTASH_TOKEN: TOKEN }, [{ status: 200, body: goodSchedule }]);
-  assert.equal(await runManageSchedule(noSecret.deps), 2, 'no CRON_SECRET → incomplete, never 0');
-  assert.match(noSecret.err.join('\n'), /INCOMPLETE/);
-
-  // With CRON_SECRET but a WRONG forwarded value → divergent (route would 401).
-  const wrong = harness([], { QSTASH_TOKEN: TOKEN, CRON_SECRET }, [
+test('inspect exit 0 requires the forwarded Authorization to be REDACTED, not plaintext', async () => {
+  // A plaintext `Bearer <secret>` readback means provider-side redaction is
+  // missing — the route secret would be exposed in QStash. Inspect must refuse.
+  const plaintext = harness([], { QSTASH_TOKEN: TOKEN }, [
     {
       status: 200,
-      body: { ...goodSchedule, header: { Authorization: ['Bearer not-the-secret'] } },
+      body: { ...goodSchedule, header: { Authorization: [`Bearer ${CRON_SECRET}`] } },
     },
   ]);
-  assert.equal(await runManageSchedule(wrong.deps), 2, 'wrong forwarded secret → divergent');
+  assert.equal(await runManageSchedule(plaintext.deps), 2, 'plaintext forwarded auth → divergent');
+  assert.match(plaintext.err.join('\n'), /not redacted/);
+  // Even correct-secret plaintext leaks it, so it must be rejected all the same.
+  assert.ok(!plaintext.err.join('\n').includes(CRON_SECRET), 'secret never echoed');
 
-  // With CRON_SECRET and the exact value → verified.
-  const right = harness([], { QSTASH_TOKEN: TOKEN, CRON_SECRET }, [
-    { status: 200, body: goodSchedule },
+  // An empty opaque suffix is malformed → missing/divergent.
+  const emptySuffix = harness([], { QSTASH_TOKEN: TOKEN }, [
+    { status: 200, body: { ...goodSchedule, header: { Authorization: ['REDACTED:'] } } },
   ]);
-  assert.equal(await runManageSchedule(right.deps), 0, 'exact match → verified');
-  assert.ok(!right.out.join('\n').includes('PAUSED'), 'an active schedule is not flagged paused');
+  assert.equal(
+    await runManageSchedule(emptySuffix.deps),
+    2,
+    'REDACTED: with empty suffix → divergent'
+  );
 
-  // A paused-but-otherwise-correct schedule still verifies (config matches) but
-  // the verdict loudly flags that it is delivering nothing.
-  const paused = harness([], { QSTASH_TOKEN: TOKEN, CRON_SECRET }, [
+  // A paused-but-redacted schedule still verifies (config matches) but the
+  // verdict loudly flags that it is delivering nothing.
+  const paused = harness([], { QSTASH_TOKEN: TOKEN }, [
     { status: 200, body: { ...goodSchedule, isPaused: true } },
   ]);
-  assert.equal(await runManageSchedule(paused.deps), 0, 'paused config still verifies');
+  assert.equal(await runManageSchedule(paused.deps), 0, 'paused redacted config still verifies');
   assert.match(paused.out.join('\n'), /PAUSED/);
 });
 
@@ -274,13 +291,16 @@ test('evaluateScheduleContract flags every divergence and passes a matching sche
   }
 });
 
-test('the contract check is strict: auth shape/value, coerced retries, and queue/retry settings all diverge', () => {
+test('the contract check is strict: redaction, coerced retries, and queue/retry settings all diverge', () => {
+  // A correctly-redacted forwarded Authorization verifies.
+  assert.equal(evaluateScheduleContract(goodSchedule).ok, true);
   // `X-Authorization` is NOT the `Authorization` header the route receives.
   assert.equal(
-    evaluateScheduleContract({ ...goodSchedule, header: { 'X-Authorization': ['Bearer x'] } }).ok,
+    evaluateScheduleContract({ ...goodSchedule, header: { 'X-Authorization': [REDACTED_AUTH] } })
+      .ok,
     false
   );
-  // Present but empty, or a non-Bearer shape the route would 401.
+  // Missing / empty / empty-array entry → missing.
   assert.equal(
     evaluateScheduleContract({ ...goodSchedule, header: { Authorization: [''] } }).ok,
     false
@@ -289,29 +309,25 @@ test('the contract check is strict: auth shape/value, coerced retries, and queue
     evaluateScheduleContract({ ...goodSchedule, header: { Authorization: [] } }).ok,
     false
   );
+  // Plaintext (even the real secret), a non-`REDACTED:` value, or an empty
+  // opaque suffix all mean redaction is missing/malformed → divergent.
+  for (const value of [
+    `Bearer ${CRON_SECRET}`,
+    'Basic attacker',
+    'plaintext',
+    'REDACTED:',
+    'REDACTED:  ',
+  ]) {
+    assert.equal(
+      evaluateScheduleContract({ ...goodSchedule, header: { Authorization: [value] } }).ok,
+      false,
+      value
+    );
+  }
+  // Any nonempty opaque suffix is accepted (the digest shape is undocumented).
   assert.equal(
-    evaluateScheduleContract({ ...goodSchedule, header: { Authorization: ['Basic attacker'] } }).ok,
-    false
-  );
-  assert.equal(
-    evaluateScheduleContract({ ...goodSchedule, header: { Authorization: ['Bearer '] } }).ok,
-    false
-  );
-  // With CRON_SECRET known, the value must match EXACTLY (never printed).
-  const expectedAuthorization = 'Bearer the-real-cron-secret';
-  assert.equal(
-    evaluateScheduleContract(
-      { ...goodSchedule, header: { Authorization: ['Bearer the-real-cron-secret'] } },
-      { expectedAuthorization }
-    ).ok,
+    evaluateScheduleContract({ ...goodSchedule, header: { Authorization: ['REDACTED:xyz'] } }).ok,
     true
-  );
-  assert.equal(
-    evaluateScheduleContract(
-      { ...goodSchedule, header: { Authorization: ['Bearer a-different-secret'] } },
-      { expectedAuthorization }
-    ).ok,
-    false
   );
   // retries must be EXACTLY 0 — `null` must not coerce to zero.
   assert.equal(evaluateScheduleContract({ ...goodSchedule, retries: null }).ok, false);

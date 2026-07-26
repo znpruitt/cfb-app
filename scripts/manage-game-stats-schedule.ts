@@ -171,6 +171,12 @@ export function buildUpsertRequest(params: {
       'Upstash-Method': METHOD,
       'Upstash-Retries': String(RETRIES),
       'Upstash-Forward-Authorization': `Bearer ${params.cronSecret}`,
+      // Provider-side redaction of the FORWARDED route credential: QStash stores
+      // and returns `REDACTED:<opaque>` for this header in the dashboard/API,
+      // while still delivering the real `Bearer <CRON_SECRET>` to the route. This
+      // keeps the route secret out of QStash's readable state. The raw HTTP-header
+      // value is `header[Authorization]` (NOT the SDK's `header: true`).
+      'Upstash-Redact-Fields': 'header[Authorization]',
     },
   };
 }
@@ -246,18 +252,23 @@ function forwardedAuthorizationEntries(header: unknown): unknown[] {
 }
 
 /**
- * Classify the forwarded Authorization against the route's requirement. The
- * route accepts ONLY `Bearer ${CRON_SECRET}` (exact); when the operator's
- * CRON_SECRET is available we verify that exact value (never printed), else we
- * fall back to the strongest shape check we can make without the secret — a
- * non-empty Bearer token. More than one raw entry (even if one is empty), an
- * empty/non-string sole entry, a `Basic …`, or a wrong value all fail, so
- * inspect can no longer green-light a schedule the route would 401.
+ * Classify the forwarded Authorization readback. The upsert configures QStash to
+ * REDACT this header (`Upstash-Redact-Fields: header[Authorization]`), so a
+ * correctly-provisioned schedule reads back as `REDACTED:<opaque>` — QStash still
+ * delivers the real `Bearer <CRON_SECRET>` to the route. Inspect therefore proves
+ * provider-side redaction is ACTIVE (the plaintext secret is not exposed in
+ * QStash's state), NOT that the redacted value is the exact route credential: the
+ * digest algorithm/encoding is undocumented and unreproducible without a live
+ * schedule, so exact route authentication is proven separately by the §8e
+ * scheduled-delivery test, never here.
+ *   - `ok`         — exactly one entry, `REDACTED:` + a nonempty opaque suffix;
+ *   - `missing`    — zero entries, or a non-string/empty sole entry;
+ *   - `ambiguous`  — more than one entry (the route would see a comma-combined header);
+ *   - `not-redacted` — a single nonempty entry that is NOT redacted (plaintext /
+ *                    `Bearer …` / any non-`REDACTED:` value) — redaction is missing.
+ * No value is ever formatted into a message.
  */
-function classifyAuthorization(
-  header: unknown,
-  expectedAuthorization?: string
-): 'ok' | 'missing' | 'ambiguous' | 'wrong-shape' | 'mismatch' {
+function classifyAuthorization(header: unknown): 'ok' | 'missing' | 'ambiguous' | 'not-redacted' {
   const entries = forwardedAuthorizationEntries(header);
   if (entries.length === 0) return 'missing';
   // The route receives ONE header; QStash combines multiple values with commas,
@@ -265,10 +276,11 @@ function classifyAuthorization(
   if (entries.length > 1) return 'ambiguous';
   const value = entries[0];
   if (typeof value !== 'string' || value.trim().length === 0) return 'missing';
-  if (expectedAuthorization !== undefined) {
-    return value === expectedAuthorization ? 'ok' : 'mismatch';
+  const REDACTED_PREFIX = 'REDACTED:';
+  if (value.startsWith(REDACTED_PREFIX) && value.slice(REDACTED_PREFIX.length).trim().length > 0) {
+    return 'ok';
   }
-  return /^Bearer\s+\S/.test(value) ? 'ok' : 'wrong-shape';
+  return 'not-redacted';
 }
 
 /** Unset for a string/object field: absent, null, or the empty string. */
@@ -287,10 +299,10 @@ function isNumericUnset(value: unknown): boolean {
  * inspection meant to diagnose it. Header values are never formatted into a
  * message (compared/shape-checked only). Returns the divergences (empty = good).
  */
-export function evaluateScheduleContract(
-  schedule: ScheduleReadback,
-  options: { expectedAuthorization?: string } = {}
-): { ok: boolean; mismatches: string[] } {
+export function evaluateScheduleContract(schedule: ScheduleReadback): {
+  ok: boolean;
+  mismatches: string[];
+} {
   const mismatches: string[] = [];
   if (schedule.scheduleId !== SCHEDULE_ID)
     mismatches.push(`scheduleId diverges from the fixed id \`${SCHEDULE_ID}\``);
@@ -302,18 +314,17 @@ export function evaluateScheduleContract(
   // `null`/absent read as zero retries.
   if (schedule.retries !== RETRIES && schedule.retries !== String(RETRIES))
     mismatches.push(`retries diverges from ${RETRIES}`);
-  switch (classifyAuthorization(schedule.header, options.expectedAuthorization)) {
+  switch (classifyAuthorization(schedule.header)) {
     case 'missing':
       mismatches.push('no forwarded, non-empty Authorization header is present');
       break;
     case 'ambiguous':
       mismatches.push('multiple forwarded Authorization values are present (must be exactly one)');
       break;
-    case 'wrong-shape':
-      mismatches.push('the forwarded Authorization is not a non-empty Bearer token');
-      break;
-    case 'mismatch':
-      mismatches.push('the forwarded Authorization does not match the expected CRON_SECRET');
+    case 'not-redacted':
+      mismatches.push(
+        'the forwarded Authorization is not redacted (`Upstash-Redact-Fields: header[Authorization]` missing) — the plaintext route secret would be exposed in QStash'
+      );
       break;
     case 'ok':
       break;
@@ -350,10 +361,7 @@ export function evaluateScheduleContract(
  * divergent shows `<divergent>`; `isPaused` is a strict boolean; the forwarded
  * Authorization is a status; other forwarded headers are counted, not named.
  */
-export function summarizeSchedule(
-  schedule: ScheduleReadback,
-  options: { expectedAuthorization?: string } = {}
-): Record<string, unknown> {
+export function summarizeSchedule(schedule: ScheduleReadback): Record<string, unknown> {
   const retriesOk = schedule.retries === RETRIES || schedule.retries === String(RETRIES);
   const authEntries = forwardedAuthorizationEntries(schedule.header);
   return {
@@ -363,7 +371,9 @@ export function summarizeSchedule(
     method: schedule.method === METHOD ? METHOD : '<divergent>',
     retries: retriesOk ? RETRIES : '<divergent>',
     isPaused: schedule.isPaused === true,
-    authorization: classifyAuthorization(schedule.header, options.expectedAuthorization),
+    // The forwarded Authorization is reported as a status ('ok' = redacted);
+    // its value (redacted or not) is never printed.
+    authorization: classifyAuthorization(schedule.header),
     // Only the COUNT of forwarded headers — a header NAME could itself be a
     // secret, so names are never printed. The contract expects exactly one
     // (Authorization); any surplus shows here as a count > 1.
@@ -418,12 +428,7 @@ async function readSchedule(
   }
 }
 
-async function runInspect(
-  deps: RunDeps,
-  base: string,
-  token: string,
-  cronSecret: string
-): Promise<number> {
+async function runInspect(deps: RunDeps, base: string, token: string): Promise<number> {
   const read = await readSchedule(deps, base, token);
   if (read.kind === 'error') {
     deps.errorLog('FAILED: could not read the schedule from QStash management. No change made.');
@@ -435,42 +440,31 @@ async function runInspect(
     );
     return 2;
   }
-  // A clean exit 0 ("verified") REQUIRES verifying the forwarded Authorization
-  // value EXACTLY against CRON_SECRET (never printed). Without CRON_SECRET the
-  // structural contract can still be checked, but the forwarded secret cannot —
-  // and the route accepts ONLY `Bearer ${CRON_SECRET}` (else 401), so a
-  // shape-only pass must NOT read as fully verified. Absent CRON_SECRET therefore
-  // yields exit 2 (incomplete), never exit 0.
-  const hasSecret = cronSecret.length > 0;
-  const expectedAuthorization = hasSecret ? `Bearer ${cronSecret}` : undefined;
-  deps.log(
-    `[inspect] ${SCHEDULE_ID}: ${JSON.stringify(summarizeSchedule(read.schedule, { expectedAuthorization }))}`
-  );
-  const { ok, mismatches } = evaluateScheduleContract(read.schedule, { expectedAuthorization });
+  // Exit 0 proves schedule STRUCTURE + provider-side redaction: the forwarded
+  // Authorization reads back as `REDACTED:<opaque>` (so the plaintext route secret
+  // is not exposed in QStash), not that the redacted value is the exact route
+  // credential — the digest is undocumented/unreproducible, so exact route
+  // authentication is proven separately by the §8e scheduled-delivery test. No
+  // CRON_SECRET is needed (or usable) for inspection.
+  deps.log(`[inspect] ${SCHEDULE_ID}: ${JSON.stringify(summarizeSchedule(read.schedule))}`);
+  const { ok, mismatches } = evaluateScheduleContract(read.schedule);
   if (!ok) {
     deps.errorLog(
       `REFUSED: schedule diverges from the fixed contract:\n - ${mismatches.join('\n - ')}`
     );
     return 2;
   }
-  if (!hasSecret) {
-    deps.errorLog(
-      'INCOMPLETE: the structural contract matches, but the forwarded Authorization value ' +
-        'could NOT be verified without CRON_SECRET (the route accepts only the exact secret). ' +
-        'Set CRON_SECRET and re-run to fully verify (exit 0).'
-    );
-    return 2;
-  }
-  // The verdict surfaces liveness too: a paused schedule matches the config
-  // contract but delivers NOTHING, so the operator must not read exit 0 as
-  // "polling is live". (Pause is an operational state, not a config divergence,
-  // so it stays exit 0 — but the note is loud.)
+  // A paused schedule matches the config contract but delivers NOTHING, so the
+  // operator must not read exit 0 as "polling is live". (Pause is an operational
+  // state, not a config divergence, so it stays exit 0 — but the note is loud.)
   const pausedNote =
     read.schedule.isPaused === true
       ? ' NOTE: the schedule is currently PAUSED — no deliveries until resumed.'
       : '';
   deps.log(
-    `[inspect] verified: the schedule matches the fixed contract (Authorization matches CRON_SECRET).${pausedNote}`
+    '[inspect] verified: schedule structure and provider-side redaction match the fixed ' +
+      'contract. Exact route authentication is NOT yet proven here — confirm it via the §8e ' +
+      `scheduled-delivery test (one 200 paused/disabled result, zero provider calls).${pausedNote}`
   );
   return 0;
 }
@@ -539,12 +533,11 @@ export async function runManageSchedule(deps: RunDeps): Promise<number> {
     return 3;
   }
 
+  // Inspect needs no CRON_SECRET — it verifies structure + that the forwarded
+  // Authorization is REDACTED, not the exact secret (which QStash redacts).
+  if (parsed.action === 'inspect') return runInspect(deps, base, token);
+
   const cronSecret = deps.env.CRON_SECRET?.trim() ?? '';
-
-  // Inspect verifies the forwarded Authorization against CRON_SECRET when it is
-  // available (optional for inspect — falls back to a shape check otherwise).
-  if (parsed.action === 'inspect') return runInspect(deps, base, token, cronSecret);
-
   if (parsed.action === 'upsert') {
     if (cronSecret.length === 0) {
       deps.errorLog('FAILED: CRON_SECRET is not set (forwarded route credential). Fail closed.');
