@@ -86,7 +86,9 @@ const goodSchedule: ScheduleReadback = {
   method: METHOD,
   retries: 0,
   isPaused: false,
-  header: { Authorization: ['Bearer forwarded'] },
+  // The forwarded value equals `Bearer ${CRON_SECRET}` so an inspect run that
+  // supplies CRON_SECRET verifies EXACTLY and reaches a clean exit 0.
+  header: { Authorization: [`Bearer ${CRON_SECRET}`] },
 };
 
 // === 1. vercel.json contains no game-stats cron, keeps the two lifecycle crons ===
@@ -182,13 +184,36 @@ test('mutating actions REFUSE without --apply', () => {
 });
 
 test('inspect issues only a single GET and never mutates', async () => {
-  const { deps, calls } = harness([], { QSTASH_TOKEN: TOKEN }, [
+  const { deps, calls } = harness([], { QSTASH_TOKEN: TOKEN, CRON_SECRET }, [
     { status: 200, body: goodSchedule },
   ]);
   const code = await runManageSchedule(deps);
   assert.equal(code, 0);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]!.method, 'GET');
+});
+
+test('inspect exit-0 requires EXACT verification of the forwarded secret', async () => {
+  // Without CRON_SECRET a structurally-perfect schedule is only shape-checked —
+  // the route accepts ONLY the exact secret, so inspect must NOT read as verified.
+  const noSecret = harness([], { QSTASH_TOKEN: TOKEN }, [{ status: 200, body: goodSchedule }]);
+  assert.equal(await runManageSchedule(noSecret.deps), 2, 'no CRON_SECRET → incomplete, never 0');
+  assert.match(noSecret.err.join('\n'), /INCOMPLETE/);
+
+  // With CRON_SECRET but a WRONG forwarded value → divergent (route would 401).
+  const wrong = harness([], { QSTASH_TOKEN: TOKEN, CRON_SECRET }, [
+    {
+      status: 200,
+      body: { ...goodSchedule, header: { Authorization: ['Bearer not-the-secret'] } },
+    },
+  ]);
+  assert.equal(await runManageSchedule(wrong.deps), 2, 'wrong forwarded secret → divergent');
+
+  // With CRON_SECRET and the exact value → verified.
+  const right = harness([], { QSTASH_TOKEN: TOKEN, CRON_SECRET }, [
+    { status: 200, body: goodSchedule },
+  ]);
+  assert.equal(await runManageSchedule(right.deps), 0, 'exact match → verified');
 });
 
 // === 4. Fail-closed: unknown args, missing creds, divergence, ambiguous mutation ===
@@ -500,8 +525,8 @@ test('no code path prints the management token or the forwarded route secret', a
     const all = [...out, ...err].join('\n');
     assert.ok(!all.includes(TOKEN), `token leaked: ${s.argv.join(' ')}`);
     assert.ok(!all.includes(CRON_SECRET), `cron secret leaked: ${s.argv.join(' ')}`);
-    // Even a readback containing the forwarded value is redacted to names only.
-    assert.ok(!all.includes('Bearer forwarded'));
+    // The forwarded Bearer value is never echoed — the summary shows a status only.
+    assert.ok(!all.includes(`Bearer ${CRON_SECRET}`));
   }
 });
 

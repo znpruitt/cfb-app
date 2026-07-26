@@ -134,9 +134,10 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
           }
         } else {
           // Consume the activated wire: a 200 can be a NO-OP with nothing
-          // durable — only confirmed commits count as cached.
+          // durable — only confirmed commits count as cached. The interpreter's
+          // only 2xx kinds are `success` (incl. partially-merged) and `no-op`.
           const outcome = body?.refresh?.outcome;
-          if (outcome === 'success' || outcome === 'partial') committed++;
+          if (outcome === 'success') committed++;
           else empty++;
         }
       } catch (err) {

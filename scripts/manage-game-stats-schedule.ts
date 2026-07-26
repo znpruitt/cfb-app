@@ -435,26 +435,36 @@ async function runInspect(
     );
     return 2;
   }
-  // When CRON_SECRET is available, verify the forwarded Authorization value
-  // EXACTLY (never printed); otherwise the contract falls back to a Bearer-shape
-  // check and reports below that the value was not verified against CRON_SECRET.
-  const expectedAuthorization = cronSecret.length > 0 ? `Bearer ${cronSecret}` : undefined;
+  // A clean exit 0 ("verified") REQUIRES verifying the forwarded Authorization
+  // value EXACTLY against CRON_SECRET (never printed). Without CRON_SECRET the
+  // structural contract can still be checked, but the forwarded secret cannot —
+  // and the route accepts ONLY `Bearer ${CRON_SECRET}` (else 401), so a
+  // shape-only pass must NOT read as fully verified. Absent CRON_SECRET therefore
+  // yields exit 2 (incomplete), never exit 0.
+  const hasSecret = cronSecret.length > 0;
+  const expectedAuthorization = hasSecret ? `Bearer ${cronSecret}` : undefined;
   deps.log(
     `[inspect] ${SCHEDULE_ID}: ${JSON.stringify(summarizeSchedule(read.schedule, { expectedAuthorization }))}`
   );
   const { ok, mismatches } = evaluateScheduleContract(read.schedule, { expectedAuthorization });
-  if (ok) {
-    deps.log(
-      expectedAuthorization
-        ? '[inspect] verified: the schedule matches the fixed contract (Authorization matches CRON_SECRET).'
-        : '[inspect] verified: the schedule matches the fixed contract (Authorization shape only — CRON_SECRET not set, value unverified).'
+  if (!ok) {
+    deps.errorLog(
+      `REFUSED: schedule diverges from the fixed contract:\n - ${mismatches.join('\n - ')}`
     );
-    return 0;
+    return 2;
   }
-  deps.errorLog(
-    `REFUSED: schedule diverges from the fixed contract:\n - ${mismatches.join('\n - ')}`
+  if (!hasSecret) {
+    deps.errorLog(
+      'INCOMPLETE: the structural contract matches, but the forwarded Authorization value ' +
+        'could NOT be verified without CRON_SECRET (the route accepts only the exact secret). ' +
+        'Set CRON_SECRET and re-run to fully verify (exit 0).'
+    );
+    return 2;
+  }
+  deps.log(
+    '[inspect] verified: the schedule matches the fixed contract (Authorization matches CRON_SECRET).'
   );
-  return 2;
+  return 0;
 }
 
 async function runMutation(
@@ -600,7 +610,10 @@ async function main(): Promise<void> {
     );
     code = 1;
   }
-  process.exit(code);
+  // Set exitCode and let the event loop drain rather than process.exit(), which
+  // can truncate buffered stdout/stderr (the inspect summary) when output is
+  // piped or redirected.
+  process.exitCode = code;
 }
 
 // Run only when invoked directly, so tests import the pure helpers and the
