@@ -390,7 +390,7 @@ function e4AppGame(overrides: Partial<AppGame>): AppGame {
     providerGameId: overrides.providerGameId ?? null,
     neutral: overrides.neutral ?? true,
     neutralDisplay: 'vs',
-    venue: null,
+    venue: overrides.venue ?? null,
     isPlaceholder: overrides.isPlaceholder ?? false,
     sources: overrides.sources,
     participants: overrides.participants ?? {
