@@ -1767,6 +1767,20 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086H3E external scheduler — migration + pre-activation remediation (2026-07-26)
+
+- **Status:** ✅ MERGED (code); the §8d operator correction sequence PERFORMED; H3E production **activation still PENDING** (production remains in `legacy`).
+- **PROMPT_ID(s):** `PLATFORM-086H3E3-FINAL-ATOMIC-WIRING-v1` (PR #410, incl. the cron durable-observability remediation), `PLATFORM-086H3E-EXTERNAL-SCHEDULER-MIGRATION-v1` (PR #410), `PLATFORM-086H3E-EXTERNAL-SCHEDULER-PRE-ACTIVATION-REMEDIATION-v1` (PR #412, merge `a161e33`).
+- **Goals completed:**
+  - The 15-minute game-stats poll is externalized off Vercel crons onto an external **QStash** schedule that calls the UNCHANGED `GET /api/cron/game-stats` (Vercel Hobby rejects sub-daily crons at deploy time; the Vercel deploy check is now GREEN, no plan requirement for `*/15`). `vercel.json` keeps only the two daily lifecycle crons.
+  - An inspect-first operator CLI (`npm run manage:game-stats-schedule`) provisions/controls the fixed schedule through the QStash management API — read-only default; `-- upsert/pause/resume --apply`; no delete; no QStash SDK. The upsert redacts the forwarded route credential (`Upstash-Redact-Fields: header[Authorization]` → QStash returns `REDACTED:<opaque>` while still delivering the real Bearer to the route); inspect verifies structure + that the readback is redacted (never plaintext), needs no `CRON_SECRET`, and states exact route auth is proven only by the §8e delivery test. Credentials/digest are never printed; `QSTASH_URL` is host-allowlisted before any request.
+  - The cron durable-observability remediation: the activated cron carries the durable reread on every target-resolved failure path and splits provider-transport (`provider-fetch-failed`) from ingestion (`ingestion-failed`) faults via a fully fail-safe `projectDurableBlock`.
+  - The **§8d** post-merge correction sequence (E4 deploy → 2021–2025 full-year schedule refreshes → identity verification → collision + parity audit reruns → all five archive backfills) was PERFORMED and verified clean: the 2024 durable archive now holds the genuine Texas–Georgia game, every archive carries a valid paired `gameStatSlate` snapshot, and `401506450` remains the sole accepted analytics-incomplete residual.
+- **Key outcomes:** the game-stats route, writer-control, quota, one-request, and no-retry behavior are byte-unchanged by the externalization; the runbook §8d is now a completed historical record and §8e is a read-only-verify activation sequence with both automation gates (`globalPause` + dataset `enabled`) held closed until an exact-authentication scheduled-delivery proof passes. Production activation (writer transitions, QStash provisioning, gate opening) has NOT run — the merges activate nothing.
+- **Optional follow-up debt (non-blocking):** two sequential-`getAppState` loops (provider diagnostics; cron target resolution) and a duplicated `fetchCfbdUsage` headers object were reported by `/code-review` and left as low-severity, unapplied.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
