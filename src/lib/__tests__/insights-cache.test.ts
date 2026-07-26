@@ -37,6 +37,7 @@ test('insights cache key includes slug, year, the seed-alias hash, and the overr
     '2026',
     `seeds:${SEED_ALIASES_HASH}`,
     `alias-overrides:${ALIAS_OVERRIDES_HASH}`,
+    'analytics:h3e3-final-complete-v1',
   ]);
 });
 

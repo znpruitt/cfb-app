@@ -10,12 +10,23 @@ const buttonClass =
 
 type Status = 'idle' | 'loading' | 'success' | 'error';
 
-type GameStatsResult = {
-  year: number;
-  week: number;
-  seasonType: string;
-  fetchedAt: string;
-  games: unknown[];
+/**
+ * The activated refresh wire (PLATFORM-086H3E3): allowlisted refresh metadata
+ * plus the projected durable REREAD — never raw persisted rows.
+ */
+type RefreshResponse = {
+  refresh?: {
+    outcome?: string;
+    reason?: string;
+    quotaOverride?: boolean;
+    remaining?: number | null;
+  };
+  durable?: {
+    status?: string;
+    week?: number;
+    seasonType?: string;
+    availability?: { expected?: number; satisfied?: number; published?: number };
+  };
 };
 
 type BackfillStatus = 'idle' | 'running' | 'done';
@@ -37,7 +48,7 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
   const [seasonType, setSeasonType] = useState<'regular' | 'postseason'>('regular');
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | undefined>();
-  const [result, setResult] = useState<GameStatsResult | null>(null);
+  const [result, setResult] = useState<RefreshResponse | null>(null);
 
   const [backfillStatus, setBackfillStatus] = useState<BackfillStatus>('idle');
   const [backfillProgress, setBackfillProgress] = useState('');
@@ -67,7 +78,7 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
         setStatus('error');
         return;
       }
-      const data = (await res.json()) as GameStatsResult;
+      const data = (await res.json()) as RefreshResponse;
       setResult(data);
       setStatus('success');
     } catch (err) {
@@ -85,7 +96,9 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
     setError(undefined);
 
     const errors: string[] = [];
-    let cached = 0;
+    let committed = 0;
+    let empty = 0;
+    let stoppedEarly: string | null = null;
     const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
     const total = BACKFILL_STEPS.length;
 
@@ -103,13 +116,31 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
           cache: 'no-store',
           headers: authHeaders,
         });
+        const body = (await res.json().catch(() => null)) as
+          | (RefreshResponse & { code?: string })
+          | null;
         if (!res.ok) {
-          const text = await res.text().catch(() => '');
-          errors.push(
-            `${step.seasonType} wk ${step.week}: ${res.status}${text ? ` — ${text.slice(0, 80)}` : ''}`
-          );
+          const code = body?.code ?? `HTTP ${res.status}`;
+          errors.push(`${step.seasonType} wk ${step.week}: ${res.status} — ${code}`);
+          // A quota refusal refuses every remaining step too (each refresh
+          // probes FRESH usage) — stop, with the TRUTHFUL reason: 429 also
+          // covers unavailable/untrustworthy usage and upstream rate limits.
+          if (res.status === 429) {
+            stoppedEarly =
+              code === 'game-stats-quota-below-reserve'
+                ? 'quota reserve reached'
+                : 'quota usage unavailable or rate-limited';
+            break;
+          }
         } else {
-          cached++;
+          // Consume the activated wire: a 200 can be a NO-OP with nothing
+          // durable — only confirmed commits count as cached. The interpreter's
+          // 2xx commit kinds are `success` (written-clean) AND `partial`
+          // (written-mixed / partially-merged) — both advance last-success — so
+          // both count; only `no-op` is empty.
+          const outcome = body?.refresh?.outcome;
+          if (outcome === 'success' || outcome === 'partial') committed++;
+          else empty++;
         }
       } catch (err) {
         errors.push(
@@ -121,7 +152,9 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
 
     setBackfillErrors(errors);
     setBackfillSummary(
-      `Backfill complete — ${cached} week${cached !== 1 ? 's' : ''} cached${errors.length > 0 ? `, ${errors.length} failed` : ''}`
+      `Backfill ${stoppedEarly ? `stopped early (${stoppedEarly})` : 'complete'} — ` +
+        `${committed} week${committed !== 1 ? 's' : ''} committed, ${empty} empty` +
+        `${errors.length > 0 ? `, ${errors.length} failed` : ''}`
     );
     setBackfillProgress('');
     setBackfillStatus('done');
@@ -201,8 +234,11 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
         )}
         {status === 'success' && result && (
           <span className="text-xs text-green-600 dark:text-green-400">
-            Cached {result.games.length} game{result.games.length !== 1 ? 's' : ''} for week{' '}
-            {result.week} ({result.seasonType})
+            Refresh {result.refresh?.outcome ?? 'done'} ({result.refresh?.reason ?? 'unknown'}) —
+            durable {result.durable?.status ?? 'unknown'}
+            {result.durable?.availability
+              ? `, ${result.durable.availability.satisfied ?? 0}/${result.durable.availability.expected ?? 0} verified`
+              : ''}
           </span>
         )}
         {status === 'error' && (

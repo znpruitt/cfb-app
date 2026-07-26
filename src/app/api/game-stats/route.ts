@@ -1,11 +1,24 @@
 import { NextResponse } from 'next/server';
 
+import { fetchCfbdUsage } from '@/lib/api/cfbdUsage';
 import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGameTeamStatsUrl, type CfbdSeasonType } from '@/lib/cfbd';
-import { getCachedGameStats, setCachedGameStats } from '@/lib/gameStats/cache';
-import { classifyGameStatsPayload } from '@/lib/gameStats/coverage';
-import type { RawGameTeamStats, WeeklyGameStats } from '@/lib/gameStats/types';
+import { GAME_STATS_SCOPE, getGameStatsKey } from '@/lib/gameStats/cache';
+import { loadCanonicalGameStatsSlate } from '@/lib/gameStats/canonicalSlate';
+import type { SeasonRelation } from '@/lib/gameStats/contract';
+import { ingestGameStatsPartitionResponse } from '@/lib/gameStats/ingestionCoordinator';
+import {
+  projectPublicPartition,
+  type DurableReadOutcome,
+  type PublicProjectionResult,
+} from '@/lib/gameStats/publicProjection';
+import { evaluateManualQuota, type CfbdUsageSnapshot } from '@/lib/gameStats/quotaPolicy';
+import {
+  interpretGameStatsRefreshOutcome,
+  type GameStatsRefreshInterpretation,
+} from '@/lib/gameStats/refreshOutcome';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
+import { getAppState } from '@/lib/server/appStateStore';
 import { weekPartitionScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
@@ -17,14 +30,31 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+/**
+ * PLATFORM-086H3E3 — the activated game-stats route.
+ *
+ * EVERY request is admin-only, authenticated BEFORE query validation, store
+ * reads, credential checks, or provider access. Ordinary reads are cache-only
+ * and provider-free regardless of cache age or absence, and the response is
+ * built ONLY through the public projector (allowlisted wire — persisted rows
+ * are never spread, internal H2/C2 metadata never leaks). Provider access
+ * happens only for an explicit `bypassCache=1` manual refresh, which flows
+ * through the ONE ingestion path (`ingestGameStatsPartitionResponse`) and the
+ * ONE outcome interpreter, then re-reads the exact durable partition — the
+ * response always reflects the durable reread, never the request payload or an
+ * assumed merge result. The legacy writer is gone from this route.
+ */
 
+// ONE provider request per manual refresh — no transport retries. A retried
+// request is a second CFBD call the quota arithmetic (reserve + 2-call margin)
+// does not account for, and cross-attempt recovery belongs to the operator
+// re-invoking the refresh, never to hidden transport loops.
 const CFBD_RETRY_POLICY = {
-  maxAttempts: 3,
-  baseDelayMs: 250,
-  maxDelayMs: 2_000,
-  jitterRatio: 0.2,
-  retryOnHttpStatuses: [408, 425, 429, 500, 502, 503, 504],
+  maxAttempts: 1,
+  baseDelayMs: 0,
+  maxDelayMs: 0,
+  jitterRatio: 0,
+  retryOnHttpStatuses: [],
 } as const;
 
 const CFBD_PACING_POLICY = {
@@ -37,10 +67,14 @@ function parseNonNegativeInt(raw: string | null): number | null {
   return parseInt(raw, 10);
 }
 
-function parseBooleanQueryParam(raw: string | null): boolean {
-  if (!raw) return false;
-  const normalized = raw.trim().toLowerCase();
-  return normalized === '1' || normalized === 'true' || normalized === 'yes';
+/**
+ * The locked flag grammar: EXACTLY `=1`. `bypassCache` and `quotaOverride` are
+ * deliberate operator actions — looser spellings (`true`, `yes`, and even
+ * whitespace-padded encodings like `%201`) must not trigger provider access or
+ * bypass the quota reserve. No trimming: the decoded value must BE `'1'`.
+ */
+function parseExplicitFlag(raw: string | null): boolean {
+  return raw === '1';
 }
 
 function seasonYearForToday(now = new Date()): number {
@@ -49,18 +83,116 @@ function seasonYearForToday(now = new Date()): number {
   return month >= 6 ? year : year - 1;
 }
 
+/** Raw durable read for the projector — the stored value proves nothing. */
+async function readDurablePartition(
+  year: number,
+  week: number,
+  seasonType: CfbdSeasonType
+): Promise<DurableReadOutcome> {
+  try {
+    const record = await getAppState<unknown>(
+      GAME_STATS_SCOPE,
+      getGameStatsKey(year, week, seasonType)
+    );
+    return { status: 'ok', value: record?.value ?? null };
+  } catch {
+    return { status: 'read-failed' };
+  }
+}
+
+/**
+ * The projected durable REREAD block EVERY refresh response carries — quota
+ * refusals, credential failures, upstream failures, and every interpreter
+ * outcome included. The caller always sees the exact durable partition, never
+ * the request payload or an assumed merge result.
+ */
+async function projectDurableBlock(
+  year: number,
+  week: number,
+  seasonType: CfbdSeasonType,
+  seasonRelation: SeasonRelation,
+  now: Date
+): Promise<Record<string, unknown>> {
+  const read = await readDurablePartition(year, week, seasonType);
+  const slateResult = await loadCanonicalGameStatsSlate({ year, now });
+  const projection = projectPublicPartition(slateResult, week, seasonType, read, seasonRelation);
+  if (projection.status === 'available') {
+    return { status: 'available', ...projection.wire };
+  }
+  if (projection.status === 'context-unavailable') {
+    return { status: projection.status, reason: projection.reason };
+  }
+  return { status: projection.status };
+}
+
+/** Map every non-available projection status to a distinct safe response. */
+function projectionErrorResponse(
+  projection: Exclude<PublicProjectionResult, { status: 'available' }>
+) {
+  switch (projection.status) {
+    case 'absent':
+      return NextResponse.json(
+        { error: 'no game stats stored for this partition', code: 'game-stats-absent' },
+        { status: 404 }
+      );
+    case 'read-failure':
+      return NextResponse.json(
+        { error: 'durable game-stats read failed', code: 'game-stats-read-failure' },
+        { status: 503 }
+      );
+    case 'context-unavailable':
+      return NextResponse.json(
+        {
+          error: 'canonical schedule context unavailable',
+          code: 'game-stats-context-unavailable',
+          reason: projection.reason,
+        },
+        { status: 503 }
+      );
+    case 'malformed-envelope':
+    case 'partition-mismatch':
+    case 'invalid-fetched-at':
+    case 'non-array-games':
+      return NextResponse.json(
+        {
+          error: 'stored game-stats record is not servable',
+          code: `game-stats-${projection.status}`,
+        },
+        { status: 500 }
+      );
+  }
+}
+
+/** Safe, allowlisted refresh metadata — counts and stable codes only. */
+function refreshMeta(
+  interpretation: GameStatsRefreshInterpretation,
+  extra: Record<string, unknown> = {}
+): Record<string, unknown> {
+  return {
+    outcome: interpretation.kind,
+    reason: interpretation.reason,
+    ...extra,
+  };
+}
+
 export async function GET(req: Request) {
+  // Admin-first: an unauthenticated malformed request still fails auth first.
+  const adminAuthFailure = await requireAdminRequest(req);
+  if (adminAuthFailure) return adminAuthFailure;
+
   const url = new URL(req.url);
   const yearParam = url.searchParams.get('year');
   const weekParam = url.searchParams.get('week');
   const seasonTypeParam = url.searchParams.get('seasonType');
-  const bypassCache = parseBooleanQueryParam(url.searchParams.get('bypassCache'));
+  const bypassCache = parseExplicitFlag(url.searchParams.get('bypassCache'));
+  const quotaOverride = parseExplicitFlag(url.searchParams.get('quotaOverride'));
 
-  const currentYear = new Date().getUTCFullYear();
+  const now = new Date();
+  const currentYear = now.getUTCFullYear();
   const minYear = 2001;
   const maxYear = currentYear + 1;
 
-  let year = seasonYearForToday();
+  let year = seasonYearForToday(now);
   if (yearParam != null) {
     const parsedYear = parseNonNegativeInt(yearParam);
     if (parsedYear == null || parsedYear < minYear || parsedYear > maxYear) {
@@ -76,6 +208,8 @@ export async function GET(req: Request) {
     year = parsedYear;
   }
 
+  // `week` is the CFBD/provider partition week — postseason included; canonical
+  // postseason week is never substituted.
   const week = weekParam == null ? null : parseNonNegativeInt(weekParam);
   if (weekParam != null && week === null) {
     return NextResponse.json(
@@ -83,7 +217,6 @@ export async function GET(req: Request) {
       { status: 400 }
     );
   }
-
   if (week === null) {
     return NextResponse.json(
       { error: 'week parameter is required for game stats', field: 'week' },
@@ -91,55 +224,81 @@ export async function GET(req: Request) {
     );
   }
 
-  const seasonType: CfbdSeasonType = seasonTypeParam === 'postseason' ? 'postseason' : 'regular';
-
-  // Admin auth check
-  const adminAuthFailure = await requireAdminRequest(req);
-  const isAdmin = !adminAuthFailure;
-  if (bypassCache && adminAuthFailure) return adminAuthFailure;
-
-  // Check cache
-  if (!bypassCache) {
-    const cached = await getCachedGameStats(year, week, seasonType);
-    if (cached) {
-      const age = Date.now() - new Date(cached.fetchedAt).getTime();
-      if (age < CACHE_TTL_MS) {
-        return NextResponse.json({
-          ...cached,
-          meta: { cache: 'hit', source: 'cfbd' },
-        });
-      }
-    }
-
-    // Non-admin with stale/missing cache
-    if (!isAdmin) {
-      if (cached) {
-        return NextResponse.json({
-          ...cached,
-          meta: { cache: 'hit', source: 'cfbd', stale: true },
-        });
-      }
-
-      return NextResponse.json(
-        { error: 'game stats cache miss: admin refresh required' },
-        { status: 503 }
-      );
-    }
+  // Strict season type: only the two provider partitions exist. Absent defaults
+  // to `regular`; any OTHER present value is rejected, never coerced.
+  let seasonType: CfbdSeasonType;
+  if (seasonTypeParam === null || seasonTypeParam === 'regular') {
+    seasonType = 'regular';
+  } else if (seasonTypeParam === 'postseason') {
+    seasonType = 'postseason';
+  } else {
+    return NextResponse.json(
+      {
+        error: "seasonType must be 'regular' or 'postseason'",
+        field: 'seasonType',
+        value: seasonTypeParam,
+      },
+      { status: 400 }
+    );
   }
 
-  // Provider-refresh observability (PLATFORM-086A): record the manual refresh
-  // attempt before credential validation and the fetch, so a missing-key early
-  // return still resolves a recorded failed attempt (rereview finding #5).
-  // Success is recorded only after the durable cache write.
-  // Manual game-stats refresh targets one (year, week, seasonType) partition: it
-  // records against only that week partition and can never establish full-season
-  // game-stats success.
+  const seasonRelation: SeasonRelation = year < seasonYearForToday(now) ? 'historical' : 'current';
+
+  // === Ordinary read: cache-only, provider-free, projector-only. ===
+  if (!bypassCache) {
+    const slateResult = await loadCanonicalGameStatsSlate({ year, now });
+    const read = await readDurablePartition(year, week, seasonType);
+    const projection = projectPublicPartition(slateResult, week, seasonType, read, seasonRelation);
+    if (projection.status !== 'available') return projectionErrorResponse(projection);
+    return NextResponse.json({
+      ...projection.wire,
+      meta: { source: 'durable', projection: 'public' },
+    });
+  }
+
+  // === Authenticated manual refresh. The exact (year, providerWeek,
+  // seasonType) scope is known — begin exactly ONE attempt BEFORE credential
+  // validation or any usage/provider request. ===
   const gameStatsScope = weekPartitionScope(year, week, seasonType);
   const attempt = await beginProviderRefreshAttempt('game-stats', gameStatsScope, {
     startedAt: new Date().toISOString(),
   });
 
-  // Fetch from CFBD
+  // Quota gate (PLATFORM-086H3E2 policy): provider-reported usage is the
+  // truth; unknown usage is never fabricated in either direction. A refusal
+  // resolves the attempt exactly once as a truthful failure and returns 429 —
+  // the explicit `quotaOverride=1` parameter (in addition to `bypassCache=1`)
+  // is the only way past it.
+  let usageSnapshot: CfbdUsageSnapshot;
+  try {
+    // FRESH usage for the quota gate — a cached snapshot must never let a
+    // burst of refreshes reuse pre-spend remaining counts.
+    const usage = await fetchCfbdUsage({ fresh: true });
+    usageSnapshot = { remainingCalls: usage.remaining, monthlyLimit: usage.limit };
+  } catch {
+    usageSnapshot = { remainingCalls: null };
+  }
+  const quota = evaluateManualQuota(usageSnapshot, quotaOverride);
+  if (quota.kind === 'refused') {
+    await recordProviderRefreshFailure('game-stats', gameStatsScope, {
+      attempt,
+      error: `manual refresh refused by quota policy: ${quota.reason}`,
+      code: `game-stats-quota-${quota.reason}`,
+      status: quota.httpStatus,
+    });
+    return NextResponse.json(
+      {
+        error: 'manual refresh refused by quota policy',
+        code: `game-stats-quota-${quota.reason}`,
+        remaining: quota.remaining,
+        quotaOverride: false,
+        durable: await projectDurableBlock(year, week, seasonType, seasonRelation, now),
+      },
+      { status: quota.httpStatus }
+    );
+  }
+
+  // Credential validation AFTER the attempt + quota gate, BEFORE provider access.
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   if (!cfbdApiKey) {
     await recordProviderRefreshFailure('game-stats', gameStatsScope, {
@@ -148,12 +307,20 @@ export async function GET(req: Request) {
       code: 'cfbd-api-key-missing',
       status: 500,
     });
-    return NextResponse.json({ error: 'CFBD_API_KEY not configured' }, { status: 500 });
+    return NextResponse.json(
+      {
+        error: 'CFBD_API_KEY not configured',
+        durable: await projectDurableBlock(year, week, seasonType, seasonRelation, now),
+      },
+      { status: 500 }
+    );
   }
 
   try {
+    // The observation fence is captured BEFORE provider access.
+    const fetchStartedAt = new Date().toISOString();
     const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
-    const rawGames = await fetchUpstreamJson<RawGameTeamStats[]>(cfbdUrl.toString(), {
+    const payload = await fetchUpstreamJson<unknown>(cfbdUrl.toString(), {
       cache: 'no-store',
       timeoutMs: 12_000,
       headers: { Authorization: `Bearer ${cfbdApiKey}` },
@@ -161,76 +328,104 @@ export async function GET(req: Request) {
       pacing: CFBD_PACING_POLICY,
     });
 
-    // Classify the provider response identically to the cron (5th-review finding
-    // #5): a genuine empty array is a no-op (no empty durable write, no last-success
-    // advance), a nonempty payload with zero usable rows is a failure (prior-good
-    // preserved), and only a payload with ≥1 usable row commits.
-    const classification = classifyGameStatsPayload(rawGames, week, seasonType);
-    if (classification.kind === 'noop') {
-      await recordProviderRefreshNoop('game-stats', gameStatsScope, { attempt, source: 'cfbd' });
-      return NextResponse.json({
-        year,
-        week,
-        seasonType,
-        fetchedAt: null,
-        games: [],
-        meta: { cache: 'miss', source: 'cfbd', noApplicableData: true },
-      });
-    }
-    if (classification.kind === 'no-usable-rows') {
-      await recordProviderRefreshFailure('game-stats', gameStatsScope, {
-        attempt,
-        error: 'provider returned rows but none normalized to a usable game stat',
-        code: 'game-stats-no-usable-rows',
-        status: 502,
-      });
-      return NextResponse.json(
-        { error: 'game-stats refresh produced no usable rows', code: 'game-stats-no-usable-rows' },
-        { status: 502 }
-      );
-    }
-
-    const { games } = classification;
-    const result: WeeklyGameStats = {
+    // The ONE ingestion path and the ONE interpreter — no legacy classifier,
+    // no direct merge call, no policy re-derivation.
+    const result = await ingestGameStatsPartitionResponse({
       year,
       week,
       seasonType,
-      fetchedAt: new Date().toISOString(),
-      games,
-    };
-
-    await setCachedGameStats(result);
-    // Durable commit time + sequence for success ordering (rereview findings #3/#6).
-    const committedAt = new Date().toISOString();
-    const commitSeq = nextProviderCommitSeq();
-
-    await recordProviderRefreshSuccess('game-stats', gameStatsScope, {
-      attempt,
-      committedAt,
-      commitSeq,
-      source: 'cfbd',
-      rowsCommitted: games.length,
+      fetchStartedAt,
+      payload,
     });
+    const interpretation = interpretGameStatsRefreshOutcome(result);
 
-    return NextResponse.json({
-      ...result,
-      meta: { cache: 'miss', source: 'cfbd' },
-    });
+    // Resolve the attempt exactly once per the interpreter's verdict. Only a
+    // confirmed durable commit advances last-success metadata.
+    if (interpretation.advanceLastSuccess) {
+      const merge = result.kind === 'merge-result' ? result.merge : null;
+      const committedGames = merge
+        ? merge.inserted.length + merge.updated.length + merge.refreshed.length
+        : 0;
+      const committedAt = new Date().toISOString();
+      const commitSeq = nextProviderCommitSeq();
+      // Branch instead of a conditional spread — the activation guard bans
+      // every non-allowlisted spread form in this file.
+      if (interpretation.partialFailure) {
+        await recordProviderRefreshSuccess('game-stats', gameStatsScope, {
+          attempt,
+          committedAt,
+          commitSeq,
+          source: 'cfbd',
+          rowsCommitted: committedGames,
+          partialFailure: true,
+        });
+      } else {
+        await recordProviderRefreshSuccess('game-stats', gameStatsScope, {
+          attempt,
+          committedAt,
+          commitSeq,
+          source: 'cfbd',
+          rowsCommitted: committedGames,
+        });
+      }
+    } else if (interpretation.kind === 'no-op') {
+      await recordProviderRefreshNoop('game-stats', gameStatsScope, { attempt, source: 'cfbd' });
+    } else {
+      await recordProviderRefreshFailure('game-stats', gameStatsScope, {
+        attempt,
+        error: `game-stats refresh failed: ${interpretation.reason}`,
+        code: `game-stats-${interpretation.reason}`,
+        status: interpretation.httpStatus,
+      });
+    }
+
+    // Durable REREAD: every response reflects the exact durable partition, not
+    // the request payload or an assumed merge result — including after
+    // `indeterminate`, where durability is unknown and no success is inferred.
+    const durable = await projectDurableBlock(year, week, seasonType, seasonRelation, now);
+
+    const quotaMeta =
+      quota.kind === 'allowed-with-override'
+        ? { quotaOverride: true, quotaReason: quota.reason, remaining: quota.remaining }
+        : { quotaOverride: false, remaining: quota.remaining };
+
+    if (interpretation.kind === 'failure') {
+      return NextResponse.json(
+        {
+          error: `game-stats refresh failed: ${interpretation.reason}`,
+          code: `game-stats-${interpretation.reason}`,
+          refresh: refreshMeta(interpretation, quotaMeta),
+          durable,
+        },
+        { status: interpretation.httpStatus }
+      );
+    }
+
+    // Non-failure outcomes: the interpreter's status (200) is authoritative —
+    // including a truthful `absent` after a no-op on an empty partition.
+    return NextResponse.json(
+      {
+        refresh: refreshMeta(interpretation, quotaMeta),
+        durable,
+        meta: { source: 'durable', projection: 'public' },
+      },
+      { status: interpretation.httpStatus }
+    );
   } catch (error) {
     await recordProviderRefreshFailure('game-stats', gameStatsScope, {
       attempt,
       error: error instanceof Error ? error.message : 'unknown error',
       status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 502,
     });
+    const durable = await projectDurableBlock(year, week, seasonType, seasonRelation, now);
     if (error instanceof UpstreamFetchError) {
       return NextResponse.json(
-        { error: 'upstream error', detail: error.details },
+        { error: 'upstream error', detail: error.details, durable },
         { status: error.details.status ?? 502 }
       );
     }
-
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'unknown error' },
+      { error: error instanceof Error ? error.message : 'unknown error', durable },
       { status: 502 }
     );
   }

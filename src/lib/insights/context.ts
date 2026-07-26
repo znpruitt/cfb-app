@@ -1,7 +1,12 @@
-import type { CfbdSeasonType } from '../cfbd';
 import { getCachedGameStats, listCachedGameStatsWeeks } from '../gameStats/cache';
+import {
+  assembleArchiveAnalyticsProvenance,
+  assembleLiveAnalyticsProvenance,
+  type AnalyticsProvenanceUnavailableReason,
+} from '../gameStats/analyticsProvenance';
+import type { AnalyticsGameStats, SeasonRelation } from '../gameStats/contract';
 import { aggregateOwnerSeasonStats } from '../gameStats/ownerStats';
-import type { GameStats } from '../gameStats/types';
+import { projectAnalyticsPartition } from '../gameStats/publicProjection';
 import type { League } from '../league';
 import { parseOwnersCsv } from '../parseOwnersCsv';
 import type { RankingsResponse } from '../rankings';
@@ -12,7 +17,8 @@ import { getTeamDatabaseItems } from '../server/teamDatabaseStore';
 import type { SeasonContext } from '../selectors/seasonContext';
 import type { OwnerStandingsRow } from '../standings';
 import type { StandingsHistoryWeekSnapshot } from '../standingsHistory';
-import { createTeamIdentityResolver } from '../teamIdentity';
+import { createTeamIdentityResolver, type TeamCatalogItem } from '../teamIdentity';
+import type { AliasMap } from '../teamNames';
 import { chooseDefaultWeek, deriveRegularWeeks } from '../weekSelection';
 import { deriveLifecycleState, deriveTotalRegularSeasonWeeks } from './lifecycle';
 import { selectAllRecords } from '../selectors/leagueRecords';
@@ -35,38 +41,107 @@ function buildHistoricalRosters(archives: SeasonArchive[]): Record<number, Map<s
   return result;
 }
 
+/** The paired provenance a season-stats load runs against. */
+export type OwnerSeasonStatsSource = { kind: 'live' } | { kind: 'archive'; archive: SeasonArchive };
+
+export type OwnerSeasonStatsUnavailableReason =
+  | AnalyticsProvenanceUnavailableReason
+  | 'identity-load-failed'
+  | 'no-cached-partitions';
+
+export type OwnerSeasonStatsLoad =
+  | { status: 'available'; stats: OwnerSeasonStats[] }
+  | { status: 'unavailable'; reason: OwnerSeasonStatsUnavailableReason };
+
+/**
+ * PLATFORM-086H3E3 — owner season stats consume ONLY the final-and-complete
+ * analytics projection over ONE paired provenance:
+ *
+ *   - `live`: the league-scoped scored build assembled once, cache-only, with
+ *     the slate derived from that exact build;
+ *   - `archive`: the archive's own `gameStatSlate` snapshot paired with the
+ *     archive's own `scoresByKey` — absent/malformed snapshots FAIL CLOSED
+ *     with a distinct reason (no live rebuild, no cross-provenance fallback).
+ *
+ * Committed weekly records are read cache-only; each partition projects
+ * through `projectAnalyticsPartition` (final canonical score + complete,
+ * participant-verified evidence, per game, sibling-independent) and only the
+ * projected rows aggregate.
+ */
 export async function loadOwnerSeasonStats(
   leagueSlug: string,
   year: number,
   currentRoster: Map<string, string>,
-  games: AppGame[]
-): Promise<OwnerSeasonStats[] | null> {
-  const weekKeys = await listCachedGameStatsWeeks(year);
-  if (weekKeys.length === 0) return null;
+  source: OwnerSeasonStatsSource
+): Promise<OwnerSeasonStatsLoad> {
+  const provenance =
+    source.kind === 'live'
+      ? await assembleLiveAnalyticsProvenance({ leagueSlug, year, now: new Date() })
+      : assembleArchiveAnalyticsProvenance(source.archive);
+  if (provenance.status === 'unavailable') {
+    return { status: 'unavailable', reason: provenance.reason };
+  }
 
-  const [teams, aliasMap] = await Promise.all([
-    getTeamDatabaseItems(),
-    getScopedAliasMap(leagueSlug, year),
-  ]);
+  const weekKeys = await listCachedGameStatsWeeks(year);
+  if (weekKeys.length === 0) return { status: 'unavailable', reason: 'no-cached-partitions' };
+
+  // Owner attribution resolves against the SAME identity inputs the provenance
+  // was built from (live: the exact build's teams/aliases — never a second,
+  // possibly-concurrent read). Archives carry no identity snapshot, so the
+  // archive path loads identity ONCE, fail-closed: a read failure is typed
+  // unavailability, never an escaping exception.
+  let teams: TeamCatalogItem[];
+  let aliasMap: AliasMap;
+  if (provenance.identity !== null) {
+    ({ teams, aliasMap } = provenance.identity);
+  } else {
+    try {
+      [teams, aliasMap] = await Promise.all([
+        getTeamDatabaseItems(),
+        getScopedAliasMap(leagueSlug, year),
+      ]);
+    } catch {
+      return { status: 'unavailable', reason: 'identity-load-failed' };
+    }
+  }
+  // Observed names seed from the provenance slate's SETTLED participants —
+  // never from raw provider labels of another build.
   const observedNames = Array.from(
-    new Set(games.flatMap((game) => [game.csvAway, game.csvHome]).filter(Boolean))
+    new Set(
+      provenance.input.slate.games
+        .flatMap((game) => [game.home?.canonicalName, game.away?.canonicalName])
+        .filter((name): name is string => Boolean(name))
+    )
   );
   const resolver = createTeamIdentityResolver({ teams, aliasMap, observedNames });
 
-  const weeklyGames: GameStats[][] = [];
+  // Season relation only disambiguates DEFECTIVE evidence (current → absent /
+  // recoverable, historical → manual-only); neither state ever aggregates.
+  const seasonRelation: SeasonRelation = source.kind === 'archive' ? 'historical' : 'current';
+
+  const weeklyGames: AnalyticsGameStats[][] = [];
   for (const key of weekKeys) {
     const parts = key.split(':');
     if (parts.length !== 3) continue;
     const week = Number(parts[1]);
     if (!Number.isFinite(week)) continue;
-    const seasonType = parts[2] as CfbdSeasonType;
+    const seasonType = parts[2];
+    if (seasonType !== 'regular' && seasonType !== 'postseason') continue;
     const stats = await getCachedGameStats(year, week, seasonType);
-    if (!stats) continue;
-    weeklyGames.push(stats.games);
+    const rows = projectAnalyticsPartition(
+      provenance.input,
+      week,
+      seasonType,
+      stats,
+      seasonRelation
+    );
+    if (rows.length > 0) weeklyGames.push(rows);
   }
 
-  if (weeklyGames.length === 0) return null;
-  return aggregateOwnerSeasonStats(weeklyGames, currentRoster, resolver, year);
+  return {
+    status: 'available',
+    stats: aggregateOwnerSeasonStats(weeklyGames, currentRoster, resolver, year),
+  };
 }
 
 export type CareerStatsDiagnostic = {
@@ -74,6 +149,8 @@ export type CareerStatsDiagnostic = {
   resolvedGames: number;
   unresolvedGames: number;
   gameStatsCacheAvailable: boolean;
+  /** Set when game stats are unavailable — the distinct fail-closed reason. */
+  gameStatsUnavailableReason?: OwnerSeasonStatsUnavailableReason;
   ownersInFinalStandings: number;
 };
 
@@ -187,15 +264,15 @@ export async function buildOwnerCareerStats(params: {
       }
     }
 
-    const yearStats = await loadOwnerSeasonStats(
-      leagueSlug,
-      archive.year,
-      yearRoster,
-      archive.games
-    );
-    const gameStatsAvailable = yearStats !== null;
-    if (yearStats) {
-      for (const stats of yearStats) {
+    // Archived-year game stats consume the archive's OWN paired provenance
+    // (gameStatSlate + scoresByKey); a pre-E1 archive without a snapshot fails
+    // closed here with a distinct reason until it is backfilled.
+    const yearStats = await loadOwnerSeasonStats(leagueSlug, archive.year, yearRoster, {
+      kind: 'archive',
+      archive,
+    });
+    if (yearStats.status === 'available') {
+      for (const stats of yearStats.stats) {
         if (!activeOwners.has(stats.owner)) continue;
         const acc = accumulators.get(stats.owner)!;
         acc.totalYards += stats.totalYards;
@@ -208,7 +285,10 @@ export async function buildOwnerCareerStats(params: {
       totalGames: archive.games.length,
       resolvedGames: countResolvedGames(archive, yearRoster),
       unresolvedGames: countUnresolvedGames(archive, yearRoster),
-      gameStatsCacheAvailable: gameStatsAvailable,
+      gameStatsCacheAvailable: yearStats.status === 'available',
+      ...(yearStats.status === 'unavailable'
+        ? { gameStatsUnavailableReason: yearStats.reason }
+        : {}),
       ownersInFinalStandings: eligibleRows.length,
     };
   }
@@ -285,10 +365,13 @@ export async function buildInsightContext(
 
   const { resolvedRoster, usingArchivedRoster } = computeRosterFallback(currentRoster, archives);
 
-  const ownerGameStats =
-    lifecycleState === 'preseason' || lifecycleState === 'offseason'
-      ? null
-      : await loadOwnerSeasonStats(leagueSlug, league.year, resolvedRoster, games);
+  let ownerGameStats: OwnerSeasonStats[] | null = null;
+  if (lifecycleState !== 'preseason' && lifecycleState !== 'offseason') {
+    const load = await loadOwnerSeasonStats(leagueSlug, league.year, resolvedRoster, {
+      kind: 'live',
+    });
+    ownerGameStats = load.status === 'available' ? load.stats : null;
+  }
 
   const { ownerCareerStats } = await buildOwnerCareerStats({
     leagueSlug,

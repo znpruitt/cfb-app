@@ -8,8 +8,7 @@ import {
   __resetAppStateForTests,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
-import { setCachedGameStats } from '../../../../../lib/gameStats/cache.ts';
-import { seedLegacyWriterControl } from '../../../../../lib/gameStats/__tests__/writerControlSeed.ts';
+import { seedActiveWriterControl } from '../../../../../lib/gameStats/__tests__/writerControlSeed.ts';
 import {
   setDatasetAutoRefreshEnabled,
   setGlobalPause,
@@ -17,12 +16,24 @@ import {
 import { getProviderRefreshStatus } from '../../../../../lib/server/providerRefreshStatus.ts';
 import { weekPartitionScope, yearScope } from '../../../../../lib/providerRefreshScope.ts';
 
+// PLATFORM-086H3E3 — the activated 15-minute cron's gates, in order:
+// CRON_SECRET → auto-refresh pause (before any attempt) → cache-only
+// kickoff-window target resolution (no target = no attempt, no usage check,
+// no provider call) → ONE scoped attempt → quota reserve → credentials.
+
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
-const ORIGINAL_CRON_SECRET = process.env.CRON_SECRET;
+const ORIGINAL = {
+  CRON_SECRET: process.env.CRON_SECRET,
+  CFBD_API_KEY: process.env.CFBD_API_KEY,
+  NODE_ENV: process.env.NODE_ENV,
+  ADMIN_API_TOKEN: process.env.ADMIN_API_TOKEN,
+};
+const ORIGINAL_FETCH = globalThis.fetch;
 const CRON_SECRET = 'test-cron-secret';
+const ADMIN_TOKEN = 'test-admin-token';
 const PAUSE_SKIP = 'automatic game-stats refresh is paused or disabled';
-// Season year the cron computes (seasonYearForToday). The missing-key failure now
-// records against the EXACT resolved week partition, never the year rollup.
+const NO_TARGET_SKIP = 'no partition inside the polling window';
+// Season year the cron computes (seasonYearForToday).
 const YEAR = (() => {
   const d = new Date();
   const m = d.getUTCMonth();
@@ -36,26 +47,26 @@ function cronRequest(): Request {
   });
 }
 
-// Seed the cached schedule so `findLatestCompletedWeek` resolves the given week as
-// the cron's target (a completed, stat-producing slate). Used to exercise the
-// missing-key path WITH a resolved target.
-async function seedCompletedWeek(week: number, seasonType: 'regular' | 'postseason') {
+/** Seed a stat-producing game inside the [3h, 24h) polling window. */
+async function seedWindowGame(week: number, seasonType: 'regular' | 'postseason', ageHours = 5) {
   await setAppState('schedule', `${YEAR}-all-all`, {
     at: Date.now(),
     partialFailure: false,
     failedSeasonTypes: [],
     items: [
       {
-        id: `${week}-${seasonType}`,
+        id: '9001',
         week,
         seasonType,
-        startDate: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000).toISOString(),
+        startDate: new Date(Date.now() - ageHours * 60 * 60 * 1000).toISOString(),
         neutralSite: false,
         conferenceGame: false,
         homeTeam: 'Alpha',
         awayTeam: 'Beta',
-        homeConference: 'X',
-        awayConference: 'Y',
+        homeId: 90011,
+        awayId: 90012,
+        homeConference: 'SEC',
+        awayConference: 'Big Ten',
         status: 'STATUS_FINAL',
       },
     ],
@@ -63,23 +74,42 @@ async function seedCompletedWeek(week: number, seasonType: 'regular' | 'postseas
 }
 
 test.beforeEach(async () => {
+  MUTABLE_ENV.NODE_ENV = 'development';
+  MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
+  MUTABLE_ENV.ADMIN_API_TOKEN = ADMIN_TOKEN;
+  delete MUTABLE_ENV.CFBD_API_KEY;
+  globalThis.fetch = ORIGINAL_FETCH;
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
-  await seedLegacyWriterControl();
-  MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
+  await seedActiveWriterControl();
 });
 
 test.after(() => {
-  if (ORIGINAL_CRON_SECRET === undefined) delete MUTABLE_ENV.CRON_SECRET;
-  else MUTABLE_ENV.CRON_SECRET = ORIGINAL_CRON_SECRET;
+  for (const [key, value] of Object.entries(ORIGINAL)) {
+    if (value === undefined) delete MUTABLE_ENV[key];
+    else MUTABLE_ENV[key] = value;
+  }
+  globalThis.fetch = ORIGINAL_FETCH;
 });
 
-test('global pause makes the game-stats cron skip before fetching', async () => {
+test('an invalid cron secret is rejected before anything else', async () => {
+  const res = await cronGet(
+    new Request('https://example.com/api/cron/game-stats', {
+      headers: { authorization: 'Bearer wrong' },
+    })
+  );
+  assert.equal(res.status, 401);
+});
+
+test('global pause makes the game-stats cron skip before any attempt', async () => {
   await setGlobalPause(true);
+  await seedWindowGame(3, 'regular');
   const res = await cronGet(cronRequest());
   assert.equal(res.status, 200);
   const body = (await res.json()) as { skipped?: string };
   assert.equal(body.skipped, PAUSE_SKIP);
+  const week = await getProviderRefreshStatus('game-stats', weekPartitionScope(YEAR, 3, 'regular'));
+  assert.equal(week.latestAttemptOutcome, null, 'pause precedes attempt creation');
 });
 
 test('per-dataset disable makes the game-stats cron skip', async () => {
@@ -90,98 +120,83 @@ test('per-dataset disable makes the game-stats cron skip', async () => {
 });
 
 test('when not paused, the cron proceeds past the pause gate', async () => {
-  // Not paused: the cron should NOT short-circuit with the pause skip. It will
-  // fail later (no CFBD key / no completed weeks), which still proves the gate
-  // let it through.
   const res = await cronGet(cronRequest());
   const body = (await res.json()) as { skipped?: string };
   assert.notEqual(body.skipped, PAUSE_SKIP);
 });
 
-test('missing CFBD key with a resolved target records a WEEK-partition failure, not the year rollup (v2 #1)', async () => {
-  // CFBD_API_KEY is unset in this test file, so the unpaused cron takes the
-  // missing-credential path. With a resolved target week, the failure must land on
-  // the EXACT week partition (so a later successful run of the same week replaces
-  // it) — never the year data rollup.
-  await seedCompletedWeek(3, 'regular');
-  const res = await cronGet(cronRequest());
-  const body = (await res.json()) as { error?: string; week?: number; seasonType?: string };
-  assert.equal(res.status, 500);
-  assert.equal(body.error, 'CFBD_API_KEY not configured');
-  assert.equal(body.week, 3, 'the response identifies the resolved target week');
-  assert.equal(body.seasonType, 'regular');
+test('no window partition → no scoped attempt, no usage check, no provider call', async () => {
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return new Response('[]', { status: 200 });
+  }) as typeof fetch;
 
-  const week = await getProviderRefreshStatus('game-stats', weekPartitionScope(YEAR, 3, 'regular'));
-  assert.equal(
-    week.latestAttemptOutcome,
-    'failed',
-    'the week partition owns the missing-key failure'
-  );
-  assert.equal(week.lastError?.code, 'cfbd-api-key-missing');
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as { skipped?: string };
+  assert.equal(res.status, 200);
+  assert.equal(body.skipped, NO_TARGET_SKIP);
+  assert.equal(fetchCalls, 0, 'no provider or usage call without a resolved target');
 
   const yearRollup = await getProviderRefreshStatus('game-stats', yearScope(YEAR));
-  assert.equal(
-    yearRollup.latestAttemptOutcome,
-    null,
-    'a one-week cron never writes the year data rollup'
-  );
+  assert.equal(yearRollup.latestAttemptOutcome, null, 'no fabricated attempt anywhere');
 });
 
-test('missing CFBD key with a resolved POSTSEASON target records against that week, not regular (v2 #1)', async () => {
-  await seedCompletedWeek(1, 'postseason');
+test('with a target but no CFBD key, usage is unknowable → truthful quota failure on the WEEK partition', async () => {
+  await seedWindowGame(3, 'regular');
   const res = await cronGet(cronRequest());
-  assert.equal(res.status, 500);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    outcome?: string;
+    reason?: string;
+    week?: number;
+    durable?: { status?: string };
+  };
+  assert.equal(body.outcome, 'failure');
+  assert.equal(body.reason, 'quota-usage-unavailable');
+  assert.equal(body.week, 3);
+  // A missing credential manifests HERE: fetchCfbdUsage cannot read usage, so
+  // the quota gate refuses first (the dedicated credential branch is defensive
+  // — unreachable while the quota gate short-circuits an unreadable key). Even
+  // so, this target-resolved failure carries the durable reread; with no prior
+  // record the truthful projection is `absent`, never a missing block.
+  assert.equal(body.durable?.status, 'absent');
+
+  const week = await getProviderRefreshStatus('game-stats', weekPartitionScope(YEAR, 3, 'regular'));
+  assert.equal(week.latestAttemptOutcome, 'failed');
+  assert.equal(week.lastError?.code, 'game-stats-quota-usage-unavailable');
+  const yearRollup = await getProviderRefreshStatus('game-stats', yearScope(YEAR));
+  assert.equal(yearRollup.latestAttemptOutcome, null, 'never the year rollup');
+});
+
+test('a POSTSEASON target scopes its failure to that exact partition', async () => {
+  await seedWindowGame(1, 'postseason');
+  const res = await cronGet(cronRequest());
+  assert.equal(res.status, 200);
 
   const post = await getProviderRefreshStatus(
     'game-stats',
     weekPartitionScope(YEAR, 1, 'postseason')
   );
   assert.equal(post.latestAttemptOutcome, 'failed');
-  assert.equal(post.lastError?.code, 'cfbd-api-key-missing');
-
   const reg = await getProviderRefreshStatus('game-stats', weekPartitionScope(YEAR, 1, 'regular'));
   assert.equal(reg.latestAttemptOutcome, null, 'the sibling regular week is untouched');
 });
 
-test('missing CFBD key with NO applicable target week records no scoped failure and calls no provider (v2 #3)', async () => {
-  // No schedule seeded → findLatestCompletedWeek returns null → no work. The cron
-  // must return its established skipped response WITHOUT fabricating a year (or any)
-  // provider-data failure, and WITHOUT spending a provider call.
+test('the ordinary game-stats READ stays available (and provider-free) while automation is paused', async () => {
+  await setGlobalPause(true);
   let fetchCalls = 0;
-  const priorFetch = globalThis.fetch;
   globalThis.fetch = (async () => {
     fetchCalls += 1;
     return new Response('[]', { status: 200 });
   }) as typeof fetch;
-  try {
-    const res = await cronGet(cronRequest());
-    const body = (await res.json()) as { skipped?: string };
-    assert.equal(res.status, 200);
-    assert.match(String(body.skipped ?? ''), /no completed weeks/i);
-    assert.equal(fetchCalls, 0, 'no provider call is made without a resolved target');
-  } finally {
-    globalThis.fetch = priorFetch;
-  }
-
-  const yearRollup = await getProviderRefreshStatus('game-stats', yearScope(YEAR));
-  assert.equal(yearRollup.latestAttemptOutcome, null, 'no fabricated year failure');
-});
-
-test('manual game-stats refresh (cache read) remains available while automation is paused', async () => {
-  await setGlobalPause(true);
-  await setCachedGameStats({
-    year: 2026,
-    week: 3,
-    seasonType: 'regular',
-    fetchedAt: new Date().toISOString(),
-    games: [],
-  });
 
   const res = await manualGet(
-    new Request('https://example.com/api/game-stats?year=2026&week=3&seasonType=regular')
+    new Request('https://example.com/api/game-stats?year=2026&week=3&seasonType=regular', {
+      headers: { 'x-admin-token': ADMIN_TOKEN },
+    })
   );
-  assert.equal(res.status, 200);
-  const body = (await res.json()) as { week: number; meta: { cache: string } };
-  assert.equal(body.week, 3);
-  assert.equal(body.meta.cache, 'hit');
+  // Absence is the truthful cache-only outcome; the surface itself is serving.
+  assert.equal(res.status, 404);
+  assert.equal(fetchCalls, 0, 'ordinary reads never touch the provider, paused or not');
 });

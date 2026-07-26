@@ -55,19 +55,29 @@ export function resolveCfbdUsage(data: CfbdInfoResponse): CfbdUsage {
   };
 }
 
-export async function fetchCfbdUsage(): Promise<CfbdUsage> {
+export async function fetchCfbdUsage(options: { fresh?: boolean } = {}): Promise<CfbdUsage> {
   const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
   if (!cfbdApiKey) {
     throw new Error('CFBD_API_KEY missing');
   }
 
-  const res = await fetch('https://api.collegefootballdata.com/info', {
-    headers: {
-      Authorization: `Bearer ${cfbdApiKey}`,
-      Accept: 'application/json',
-    },
-    next: { revalidate: 600 },
-  });
+  // Display surfaces tolerate a 600s-stale snapshot; QUOTA GATES must not — a
+  // cached remaining-count would let a burst of refreshes (e.g. the admin
+  // season backfill) reuse one pre-spend snapshot and collectively cross the
+  // reserve. `fresh` bypasses the framework cache for exactly those callers
+  // (its cost is the one /info call the reserve's 2-call margin accounts for).
+  const res = await fetch(
+    'https://api.collegefootballdata.com/info',
+    options.fresh
+      ? {
+          headers: { Authorization: `Bearer ${cfbdApiKey}`, Accept: 'application/json' },
+          cache: 'no-store',
+        }
+      : {
+          headers: { Authorization: `Bearer ${cfbdApiKey}`, Accept: 'application/json' },
+          next: { revalidate: 600 },
+        }
+  );
 
   if (!res.ok) {
     throw new Error(`CFBD usage fetch failed: ${res.status}`);

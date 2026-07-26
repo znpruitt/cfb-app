@@ -151,11 +151,15 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     label: 'Game stats',
     provider: 'CFBD',
     hasActiveAutomation: true,
-    currentAutomation: 'Weekly ingestion cron (Mondays 11:00 UTC).',
-    plannedPolicy: 'Planned (PLATFORM-086C): weekly ingestion plus missing-week recovery.',
+    currentAutomation:
+      'Every 15 minutes: at most ONE partition per run, only while a stat-producing game is 3–24h past kickoff with unresolved evidence, and only above the 1,000-call monthly CFBD reserve. Outside the window, manual refresh is the recovery path.',
+    plannedPolicy:
+      'PLATFORM-086H3E cadence; writing is gated by the operator-controlled writer-control state and the auto-refresh setting. Score automation (PLATFORM-086B) is tracked separately.',
     lifecycleCritical: false,
     autoRefreshSettingConsumed: true,
-    // Weekly ingestion cron.
+    // Bounded 15-minute kickoff-window polling (PLATFORM-086H3E3): during an
+    // active week evidence resolves within hours; a week-old partition without
+    // evidence is genuinely stale (window closed — manual refresh required).
     staleAfterMs: 8 * DAY_MS,
   },
 };

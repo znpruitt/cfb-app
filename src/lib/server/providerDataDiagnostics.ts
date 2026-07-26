@@ -11,8 +11,12 @@ import type { CacheEntry as ScheduleCacheEntry } from '@/app/api/schedule/cache'
 import { defaultOddsCacheKey } from '@/app/api/odds/routeInternals';
 import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
 import { getAppState, getAppStateEntries } from './appStateStore.ts';
-import { listCachedGameStats } from '../gameStats/cache.ts';
-import { expectsGameStats, usableGameStatsGameIds } from '../gameStats/coverage.ts';
+import { GAME_STATS_SCOPE, getGameStatsKey } from '../gameStats/cache.ts';
+import { loadCanonicalGameStatsSlate } from '../gameStats/canonicalSlate.ts';
+import type { SeasonRelation } from '../gameStats/contract.ts';
+import { evaluatePartitionCoverage } from '../gameStats/partitionCoverage.ts';
+import { validateGameStatsEnvelope } from '../gameStats/publicProjection.ts';
+import type { WeeklyGameStats } from '../gameStats/types.ts';
 import { deriveApplicableScoreSeasonTypes } from './scoreApplicability.ts';
 import { classifyStatusLabel, isCanceledStatusLabel } from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
@@ -205,88 +209,149 @@ export async function getProviderDataDiagnostics(
     push('scores', 'warning', `Score diagnostics unavailable: ${errText(error)}`);
   }
 
-  // ---- Game stats: completed slates missing usable cached game-stats CONTENT ----
+  // ---- Game stats: PARTICIPANT-VERIFIED evidence coverage through the shared
+  // canonical slate/evidence/coverage authorities (PLATFORM-086H3E3). Coverage
+  // is no longer a raw providerGameId/nonempty-row count: a game counts only
+  // when the evidence authority classifies its stored evidence `satisfied`
+  // (complete, participant-verified), and the distinct fail-closed classes —
+  // absence, incomplete, duplicate conflict, identity mismatch,
+  // participant-validation unavailable, malformed/unreadable context — are all
+  // reported distinctly. ----
   try {
     if (completedSlates.length > 0) {
-      // Coverage is judged by CONTENT resolved through canonical game identity, not
-      // key existence: a record with `games: []` — or one whose every row was
-      // dropped during normalization — is NOT coverage (4th-review finding #3). A
-      // bare key must never suppress the warning.
-      const coveredIdsBySlate = new Map<SlateKey, Set<string>>();
-      for (const record of await listCachedGameStats(year)) {
-        coveredIdsBySlate.set(
-          slateKey(record.week, normalizeSeasonType(record.seasonType)),
-          usableGameStatsGameIds(record)
+      const slateResult = await loadCanonicalGameStatsSlate({ year, now: new Date(now) });
+      if (slateResult.status === 'unavailable') {
+        push(
+          'game-stats',
+          'warning',
+          `Game-stats canonical context unavailable (${slateResult.reason}).`
         );
-      }
-      // Expected (canonical) STAT-PRODUCING games per completed slate, from the
-      // schedule. Disrupted games (canceled/postponed/suspended/delayed) are
-      // excluded via the shared `expectsGameStats` helper — the same definition the
-      // cron uses — so they neither manufacture a partial gap nor, when a whole
-      // slate is disrupted, a permanent missing warning (5th-review findings #1/#3).
-      const completedKeys = new Set(completedSlates.map((s) => slateKey(s.week, s.seasonType)));
-      const expectedIdsBySlate = new Map<SlateKey, Set<string>>();
-      for (const item of scheduleItems) {
-        const key = slateKey(item.week, normalizeSeasonType(item.seasonType));
-        if (!completedKeys.has(key)) continue;
-        if (!expectsGameStats(item.status)) continue;
-        if (!item.id) continue;
-        let expected = expectedIdsBySlate.get(key);
-        if (!expected) {
-          expected = new Set<string>();
-          expectedIdsBySlate.set(key, expected);
-        }
-        expected.add(String(item.id));
-      }
+      } else {
+        const nowDate = new Date(now);
+        const currentSeason =
+          nowDate.getUTCMonth() >= 6 ? nowDate.getUTCFullYear() : nowDate.getUTCFullYear() - 1;
+        const seasonRelation: SeasonRelation = year < currentSeason ? 'historical' : 'current';
 
-      const missing: CompletedSlate[] = [];
-      const partial: CompletedSlate[] = [];
-      for (const slate of completedSlates) {
-        const key = slateKey(slate.week, slate.seasonType);
-        // Determine applicability BEFORE checking coverage: a slate with zero
-        // expected stat-producing games (e.g. entirely disrupted) is not applicable,
-        // so it must not be reported as missing (5th-review finding #3).
-        const expected = expectedIdsBySlate.get(key);
-        if (!expected || expected.size === 0) continue;
-        const covered = coveredIdsBySlate.get(key);
-        if (!covered || covered.size === 0) {
-          missing.push(slate);
-          continue;
-        }
-        if ([...expected].some((id) => !covered.has(id))) {
-          partial.push(slate);
-        }
-      }
+        const missing: CompletedSlate[] = [];
+        const unservable: CompletedSlate[] = [];
+        const partialSummaries: string[] = [];
+        const defectSummaries: string[] = [];
 
-      if (missing.length > 0) {
-        const latest = completedSlates[0];
-        const latestMissing = missing.some(
-          (s) => s.week === latest.week && s.seasonType === latest.seasonType
-        );
-        if (latestMissing) {
-          push(
-            'game-stats',
-            'warning',
-            `Latest completed slate (week ${latest.week} ${latest.seasonType}) has no cached game stats.`
+        for (const slate of completedSlates) {
+          // Raw durable read + the ONE shared envelope validation: only an
+          // exactly-valid envelope for THIS partition resolves games.
+          let record: WeeklyGameStats | null = null;
+          let servable = true;
+          try {
+            const raw = await getAppState<unknown>(
+              GAME_STATS_SCOPE,
+              getGameStatsKey(year, slate.week, slate.seasonType)
+            );
+            const validation = validateGameStatsEnvelope(
+              raw?.value ?? null,
+              year,
+              slate.week,
+              slate.seasonType
+            );
+            if (validation.status === 'ok') record = validation.record;
+            else if (validation.status !== 'absent') servable = false;
+          } catch {
+            servable = false;
+          }
+          if (!servable) {
+            unservable.push(slate);
+            continue;
+          }
+
+          const coverage = evaluatePartitionCoverage(
+            slateResult.slate,
+            slate.week,
+            slate.seasonType,
+            record,
+            seasonRelation
+          );
+          // Zero expected stat-producing games (e.g. entirely disrupted): not
+          // applicable — never a missing warning.
+          if (coverage.games.length === 0) continue;
+
+          const count = (state: string): number =>
+            coverage.games.filter((g) => g.decision.state === state).length;
+          const satisfied = count('satisfied');
+          const incomplete = count('incomplete');
+          const absent = count('absent');
+          const duplicateConflict = count('duplicate-conflict');
+          const identityMismatch = count('identity-mismatch');
+          const participantUnavailable = count('participant-validation-unavailable');
+          const manualOnly = count('manual-only');
+
+          if (duplicateConflict > 0 || identityMismatch > 0) {
+            defectSummaries.push(
+              `week ${slate.week} ${slate.seasonType}: ${duplicateConflict} duplicate-conflict, ${identityMismatch} identity-mismatch`
+            );
+          }
+          if (participantUnavailable > 0) {
+            defectSummaries.push(
+              `week ${slate.week} ${slate.seasonType}: ${participantUnavailable} participant-validation-unavailable (full-year schedule refresh required)`
+            );
+          }
+
+          if (coverage.state === 'complete') continue;
+          if (satisfied === 0 && incomplete === 0 && manualOnly === 0) {
+            missing.push(slate);
+            continue;
+          }
+          partialSummaries.push(
+            `week ${slate.week} ${slate.seasonType}: ${satisfied}/${coverage.games.length} verified-complete` +
+              `${incomplete > 0 ? `, ${incomplete} incomplete` : ''}` +
+              `${absent > 0 ? `, ${absent} absent` : ''}` +
+              `${manualOnly > 0 ? `, ${manualOnly} manual-only` : ''}`
           );
         }
-        const older = missing.filter(
-          (s) => !(s.week === latest.week && s.seasonType === latest.seasonType)
-        );
-        if (older.length > 0) {
+
+        if (missing.length > 0) {
+          const latest = completedSlates[0];
+          const latestMissing = missing.some(
+            (s) => s.week === latest.week && s.seasonType === latest.seasonType
+          );
+          if (latestMissing) {
+            push(
+              'game-stats',
+              'warning',
+              `Latest completed slate (week ${latest.week} ${latest.seasonType}) has no verified game-stat evidence.`
+            );
+          }
+          const older = missing.filter(
+            (s) => !(s.week === latest.week && s.seasonType === latest.seasonType)
+          );
+          if (older.length > 0) {
+            push(
+              'game-stats',
+              'info',
+              `${describeSlates(older)} missing verified game-stat evidence (recoverable via manual refresh).`
+            );
+          }
+        }
+        if (partialSummaries.length > 0) {
           push(
             'game-stats',
             'info',
-            `${describeSlates(older)} missing game stats (recoverable via backfill).`
+            `Partially verified game-stat evidence — ${partialSummaries.slice(0, MAX_LISTED_SLATES).join('; ')}.`
           );
         }
-      }
-      if (partial.length > 0) {
-        push(
-          'game-stats',
-          'info',
-          `${describeSlates(partial)} partially cached game stats (some games still missing; recoverable via backfill).`
-        );
+        if (defectSummaries.length > 0) {
+          push(
+            'game-stats',
+            'warning',
+            `Game-stat evidence defects — ${defectSummaries.slice(0, MAX_LISTED_SLATES).join('; ')}.`
+          );
+        }
+        if (unservable.length > 0) {
+          push(
+            'game-stats',
+            'warning',
+            `${describeSlates(unservable)} stored game-stat records are malformed or unreadable.`
+          );
+        }
       }
     }
   } catch (error) {

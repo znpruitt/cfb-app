@@ -1,21 +1,9 @@
 import { getAppState } from './server/appStateStore.ts';
-import { loadReconciledSeasonScoresByType } from './server/scoreCacheReader.ts';
-import { getScopedAliasMap } from './server/globalAliasStore.ts';
-import { getTeamDatabaseItems } from './server/teamDatabaseStore.ts';
-import { buildScheduleFromApi, type ScheduleWireItem, type AppGame } from './schedule.ts';
-import { createTeamIdentityResolver } from './teamIdentity.ts';
-import {
-  buildScheduleIndex,
-  attachScoresToSchedule,
-  type NormalizedScoreRow,
-} from './scoreAttachment.ts';
 import { deriveStandingsHistory } from './standingsHistory.ts';
 import { parseOwnersCsv } from './parseOwnersCsv.ts';
-import { isLikelyInvalidTeamLabel } from './teamNormalization.ts';
+import { assembleSeasonScoredBuild } from './seasonBuild.ts';
 import { buildGameStatSlateSnapshot } from './gameStats/slateSnapshot.ts';
 import type { SeasonArchive } from './seasonArchive.ts';
-import type { ScorePack } from './scores.ts';
-import type { AliasMap } from './teamNames.ts';
 
 // Loose type matching the schedule cache CacheEntry items
 type ScheduleCacheItem = {
@@ -25,38 +13,6 @@ type ScheduleCacheItem = {
   awayTeam: string;
   [key: string]: unknown;
 };
-
-// Loose type matching the scores cache CacheEntry items (mirrors scores/types.ts ScorePack)
-type ScoresCacheItem = {
-  id?: string | null;
-  seasonType?: string | null;
-  startDate?: string | null;
-  week: number | null;
-  status: string;
-  home: { team: string; score: number | null };
-  away: { team: string; score: number | null };
-  time: string | null;
-};
-
-function scoresCacheItemToNormalizedRow(
-  item: ScoresCacheItem,
-  defaultSeasonType: 'regular' | 'postseason'
-): NormalizedScoreRow {
-  const seasonType =
-    item.seasonType === 'regular' || item.seasonType === 'postseason'
-      ? item.seasonType
-      : defaultSeasonType;
-  return {
-    week: item.week,
-    seasonType,
-    providerEventId: item.id ?? null,
-    status: item.status,
-    time: item.time,
-    date: item.startDate ?? null,
-    home: item.home,
-    away: item.away,
-  };
-}
 
 /**
  * Locate the latest postseason game date from the schedule cache for the given year.
@@ -131,93 +87,18 @@ export async function isSeasonComplete(year: number): Promise<boolean> {
  * Called by the rollover route for both the preview diff and the confirmed write.
  */
 export async function buildSeasonArchive(leagueSlug: string, year: number): Promise<SeasonArchive> {
-  // Load schedule items from cache (CacheEntry.items is ScheduleItem[] from cfbdSchedule.ts,
-  // which is a structural subtype of ScheduleWireItem[] from schedule.ts — cast is safe)
-  let scheduleItems: ScheduleWireItem[];
-  const combinedCache = await getAppState<{ items: unknown[] }>('schedule', `${year}-all-all`);
-  if (combinedCache?.value?.items && combinedCache.value.items.length > 0) {
-    scheduleItems = combinedCache.value.items as ScheduleWireItem[];
-  } else {
-    // Fall back to combining regular + postseason caches if the combined key is absent
-    const [regularScheduleCache, postseasonScheduleCache] = await Promise.all([
-      getAppState<{ items: unknown[] }>('schedule', `${year}-all-regular`),
-      getAppState<{ items: unknown[] }>('schedule', `${year}-all-postseason`),
-    ]);
-    scheduleItems = [
-      ...((regularScheduleCache?.value?.items ?? []) as ScheduleWireItem[]),
-      ...((postseasonScheduleCache?.value?.items ?? []) as ScheduleWireItem[]),
-    ];
-  }
-
-  if (scheduleItems.length === 0) {
-    throw new Error(
-      `Full-season schedule cache is unavailable for ${year}. Rebuild the schedule cache before archiving.`
-    );
-  }
-
-  // Load team database
-  const teams = await getTeamDatabaseItems();
-
-  // Load the effective alias map (stored global > year > SEED_ALIASES) — the
-  // SAME resolution live canonical standings use, so archived standings/history
-  // can't disagree with live for the same games/roster/scores.
-  const aliasMap: AliasMap = await getScopedAliasMap(leagueSlug, year);
+  // The ONE league-scoped scored build (PLATFORM-086H3E3, extracted verbatim):
+  // cache-only schedule/teams/aliases/overrides/reconciled-scores loads, ONE
+  // buildScheduleFromApi invocation, scores attached against that same build.
+  // The archive and the live analytics provenance share this exact assembly.
+  const { scheduleItems, teams, aliasMap, games, scoresByKey } = await assembleSeasonScoredBuild(
+    leagueSlug,
+    year
+  );
 
   // Load owners CSV
   const ownersRecord = await getAppState<string>(`owners:${leagueSlug}:${year}`, 'csv');
   const ownersCsvText = typeof ownersRecord?.value === 'string' ? ownersRecord.value : '';
-
-  // Load postseason overrides
-  const overridesRecord = await getAppState<Record<string, Partial<AppGame>>>(
-    `postseason-overrides:${leagueSlug}:${year}`,
-    'map'
-  );
-  const manualOverrides: Record<string, Partial<AppGame>> = overridesRecord?.value &&
-  typeof overridesRecord.value === 'object' &&
-  !Array.isArray(overridesRecord.value)
-    ? overridesRecord.value
-    : {};
-
-  // Build AppGame[] via the full schedule pipeline
-  const { games } = buildScheduleFromApi({
-    scheduleItems,
-    teams,
-    aliasMap,
-    season: year,
-    manualOverrides,
-  });
-
-  // Rebuild resolver with same observed names buildScheduleFromApi uses internally,
-  // needed for score attachment (buildScheduleFromApi creates its own internal resolver)
-  const providerNames = Array.from(
-    new Set(
-      scheduleItems
-        .flatMap((item) => [item.homeTeam, item.awayTeam])
-        .filter(
-          (name): name is string => typeof name === 'string' && !isLikelyInvalidTeamLabel(name)
-        )
-    )
-  );
-  const resolver = createTeamIdentityResolver({ teams, aliasMap, observedNames: providerNames });
-
-  // Load scores from cache (regular + postseason), reconciling the season-wide
-  // and per-week entries via the shared cache-only reader (PLATFORM-084B) so the
-  // archive captures the SAME reconciled scores public /api/scores and canonical
-  // standings see — not just the ${year}-all-* keys. Both season types come from
-  // ONE `${year}-` prefix read. Cache-only; no provider call. A store-read
-  // failure propagates (PLATFORM-084A) so a blip does not silently archive an
-  // incomplete final standings snapshot.
-  const { regular: regularScores, postseason: postseasonScores } =
-    await loadReconciledSeasonScoresByType({ year, teams, aliasMap });
-
-  const normalizedRows: NormalizedScoreRow[] = [
-    ...regularScores.items.map((item) => scoresCacheItemToNormalizedRow(item, 'regular')),
-    ...postseasonScores.items.map((item) => scoresCacheItemToNormalizedRow(item, 'postseason')),
-  ];
-
-  // Attach scores to schedule
-  const scheduleIndex = buildScheduleIndex(games, resolver);
-  const { scoresByKey } = attachScoresToSchedule({ rows: normalizedRows, scheduleIndex, resolver });
 
   // Build owner roster map from CSV
   const ownerRows = parseOwnersCsv(ownersCsvText);
@@ -261,7 +142,7 @@ export async function buildSeasonArchive(leagueSlug: string, year: number): Prom
     standingsHistory,
     finalStandings,
     games,
-    scoresByKey: scoresByKey as Record<string, ScorePack>,
+    scoresByKey,
     gameStatSlate,
   };
 }

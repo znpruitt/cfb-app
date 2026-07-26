@@ -81,6 +81,16 @@ function emptyResponse(
  * which feeds team-identity resolution inside the context build — busts the
  * cache even though it fires no runtime invalidation.
  */
+/**
+ * Analytics-projection policy version (PLATFORM-086H3E3). Owner game-stat
+ * values inside cached insights now come from the final-and-complete,
+ * participant-verified canonical projection over paired provenance instead of
+ * raw partition aggregation — a POLICY change with no runtime invalidation
+ * signal, so it must be part of the cache identity: warm `revalidate`-bounded
+ * entries computed under the old policy die with the deploy, not a TTL.
+ */
+const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
+
 export function insightsCacheKeyParts(slug: string, resolvedYear: number): string[] {
   // `alias-overrides:` mirrors canonical standings: the curated catalog-alias
   // policy is applied at read time and feeds identity resolution here, so it is
@@ -91,6 +101,7 @@ export function insightsCacheKeyParts(slug: string, resolvedYear: number): strin
     String(resolvedYear),
     `seeds:${SEED_ALIASES_HASH}`,
     `alias-overrides:${ALIAS_OVERRIDES_HASH}`,
+    `analytics:${ANALYTICS_PROJECTION_VERSION}`,
   ];
 }
 

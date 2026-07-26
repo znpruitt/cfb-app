@@ -1053,7 +1053,10 @@ export async function loadOwnerCareerExtras(
     archives.map(async (archive) => {
       const rosterRows = parseOwnersCsv(archive.ownerRosterSnapshot);
       const yearRoster = new Map(rosterRows.map((r) => [r.team, r.owner]));
-      return loadOwnerSeasonStats(slug, archive.year, yearRoster, archive.games);
+      // Archived-year extras consume the archive's OWN paired provenance
+      // (PLATFORM-086H3E3); a pre-E1 archive without its gameStatSlate
+      // snapshot fails closed and simply contributes nothing until backfilled.
+      return loadOwnerSeasonStats(slug, archive.year, yearRoster, { kind: 'archive', archive });
     })
   );
 
@@ -1063,8 +1066,8 @@ export async function loadOwnerCareerExtras(
       console.warn('[loadOwnerCareerExtras] archive load failed:', result.reason);
       continue;
     }
-    const stats = result.value;
-    if (!stats) continue;
+    if (result.value.status !== 'available') continue;
+    const stats = result.value.stats;
     for (const s of stats) {
       const prev = accumulator.get(s.owner) ?? { totalYards: 0, totalTurnoverMargin: 0 };
       accumulator.set(s.owner, {

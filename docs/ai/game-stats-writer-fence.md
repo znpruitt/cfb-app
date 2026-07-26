@@ -7,7 +7,10 @@ numeric participant validation, PLATFORM-086H3C5); the rollout-safety
 capability D (§5, PLATFORM-086H3D) is merged dormant (PR #403); the activation execution (E)
 ships as approved slices E1 → E2 → E3 (§4) — E1 (paired analytics provenance,
 PLATFORM-086H3E1) is merged (PR #408); E2 (dormant refresh/polling/quota
-primitives, PLATFORM-086H3E2) is merged (PR #409); E3 is unwritten —
+primitives, PLATFORM-086H3E2) is merged (PR #409); E3 (final atomic wiring,
+PLATFORM-086H3E3) is implemented and review-clean pending merge, with the
+complete operator activation sequence documented in
+`docs/deployment-runbook.md` §8e and NOT executed —
 production remains in `legacy` and no transition has ever been executed.
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any conflict.
 
@@ -211,8 +214,26 @@ store.
   parameter is supplied, reported truthfully. All three are dormant-guard
   homes with forbidden entry-point symbols.
 
-E3 is unwritten; deploying C, D, E1, and E2 changes no production behavior
-beyond the additive archive snapshot field on newly built/backfilled archives.
+- **E3 — final atomic wiring (PLATFORM-086H3E3 — implemented, pending
+  merge):** the single behaviorally atomic live switch. The admin-only route
+  serves projector-only cache reads and runs manual refreshes through the ONE
+  ingestion path (`ingestGameStatsPartitionResponse`) + ONE interpreter +
+  durable reread (explicit `bypassCache=1` / `quotaOverride=1` grammar, fresh
+  quota probes); the 15-minute cron polls at most one kickoff-window partition
+  per run under the reserve; every analytics value consumes
+  `projectAnalyticsPartition` over ONE paired provenance (live exact build /
+  archive-owned snapshot, fail-closed); diagnostics are evidence-based; the
+  activation-invariant guard replaces the dormant guard. Deploying E3 changes
+  SERVING behavior, but writing stays operator-gated by this control record:
+  legacy only under `legacy`, H2 only under `active`, both refuse in `armed`.
+  The complete operator sequence — including the staged-promotion release and
+  the refreshes → audit → backfills ordering — is
+  `docs/deployment-runbook.md` §8e (preceded by the §8d PLATFORM-086H3E4
+  collision-correction sequence; supersedes the sketch in §6 where they
+  differ); it has NOT been executed.
+
+Deploying C, D, E1, and E2 changes no production behavior beyond the additive
+archive snapshot field on newly built/backfilled archives.
 
 ## 5. Rollout-safety capability (PLATFORM-086H3D — dormant)
 
