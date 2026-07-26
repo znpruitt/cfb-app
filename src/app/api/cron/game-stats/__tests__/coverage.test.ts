@@ -5,6 +5,7 @@ import { GET as cronGet } from '../route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateWriteFailureForTests,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
 import { getCachedGameStats, getGameStatsKey } from '../../../../../lib/gameStats/cache.ts';
@@ -281,4 +282,120 @@ test('an empty provider response is a no-op that keeps the partition polled next
   );
   assert.equal(status.latestAttemptOutcome, 'no-op');
   assert.equal(status.lastSuccessAt, null, 'a no-op never advances last-success');
+});
+
+// PLATFORM-086H3E3 remediation — every TARGET-RESOLVED failure carries the
+// durable reread of the exact partition and never advances last-success. A
+// week with one covered game (9001) and one uncovered game (9002) stays an
+// unresolved target while its durable record is non-empty, so each failure can
+// prove the prior-good evidence survives untouched.
+const COVERED: GameSeed = { id: 9001, week: 3, ageHours: 5 };
+const UNCOVERED: GameSeed = { id: 9002, week: 3, ageHours: 6, home: 'Gamma', away: 'Delta' };
+
+type FailureBody = {
+  outcome?: string;
+  reason?: string;
+  remaining?: number;
+  durable?: { status?: string; availability?: unknown };
+};
+
+async function seedPriorGoodTarget() {
+  await seedSchedule([COVERED, UNCOVERED]);
+  await seedPartitionRecord(3, 'regular', [satisfiedRow(COVERED)]);
+}
+
+test('a quota refusal rereads the prior-good partition and never advances last-success', async () => {
+  await seedPriorGoodTarget();
+  stubProvider([], 900); // below reserve → refuse
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as FailureBody;
+  assert.equal(body.outcome, 'failure');
+  assert.equal(body.reason, 'quota-below-reserve');
+  assert.equal(body.durable?.status, 'available', 'the refusal rereads the prior-good partition');
+
+  const stored = await getCachedGameStats(YEAR, 3, 'regular');
+  assert.equal(stored?.games.length, 1, 'a refused run leaves the prior-good record intact');
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(YEAR, 3, 'regular')
+  );
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastSuccessAt, null, 'a refusal never advances last-success');
+});
+
+test('a provider-transport failure is labeled provider-fetch-failed with the durable reread', async () => {
+  await seedPriorGoodTarget();
+  // Healthy /info, but the /games/teams transport throws — a fetch-phase
+  // failure, distinct from any ingestion failure.
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.includes('/info')) {
+      return new Response(JSON.stringify({ patronLevel: 1, remainingCalls: 4000 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+    throw new Error('network down');
+  }) as typeof fetch;
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as FailureBody;
+  assert.equal(body.outcome, 'failure');
+  assert.equal(body.reason, 'provider-fetch-failed');
+  assert.notEqual(body.reason, 'ingestion-failed');
+  assert.equal(body.durable?.status, 'available', 'a transport failure still rereads prior-good');
+
+  const stored = await getCachedGameStats(YEAR, 3, 'regular');
+  assert.equal(stored?.games.length, 1, 'the prior-good record is untouched');
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(YEAR, 3, 'regular')
+  );
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'game-stats-provider-fetch-failed');
+  assert.equal(status.lastSuccessAt, null);
+});
+
+test('an ingestion-phase failure carries the interpreter reason (never provider-fetch-failed), rereads prior-good, and never advances last-success', async () => {
+  await seedPriorGoodTarget();
+  // The fetch SUCCEEDS with a persistable row for the uncovered game, so the
+  // run reaches ingestion…
+  stubProvider([
+    wireGame({
+      id: 9002,
+      home: { school: 'Gamma', teamId: 90021 },
+      away: { school: 'Delta', teamId: 90022 },
+    }),
+  ]);
+  // …but the durable partition WRITE fails. H2 funnels every EXPECTED fault
+  // into a typed outcome (here `unavailable`), so this surfaces on the normal
+  // interpreter path — status 503, reason `unavailable` — NOT as a transport
+  // failure and NOT as the raw-throw `ingestion-failed` catch (which is purely
+  // defensive: no store fault reaches it by design). Scoped to `game-stats` so
+  // the failure-status write and the durable reread stay healthy.
+  __setAppStateWriteFailureForTests(new Error('durable write boom'), 'game-stats');
+
+  const res = await cronGet(cronRequest());
+  const body = (await res.json()) as FailureBody;
+  assert.equal(res.status, 503);
+  assert.equal(body.outcome, 'failure');
+  assert.equal(body.reason, 'unavailable');
+  assert.notEqual(body.reason, 'provider-fetch-failed');
+  assert.equal(
+    body.durable?.status,
+    'available',
+    'the reread reports prior-good despite the failed write'
+  );
+
+  __setAppStateWriteFailureForTests(null);
+  const stored = await getCachedGameStats(YEAR, 3, 'regular');
+  assert.equal(stored?.games.length, 1, 'the failed write left the prior-good record intact');
+  const status = await getProviderRefreshStatus(
+    'game-stats',
+    weekPartitionScope(YEAR, 3, 'regular')
+  );
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'game-stats-unavailable');
+  assert.equal(status.lastSuccessAt, null, 'a durable-write failure never advances last-success');
 });

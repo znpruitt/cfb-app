@@ -146,10 +146,21 @@ test('with a target but no CFBD key, usage is unknowable → truthful quota fail
   await seedWindowGame(3, 'regular');
   const res = await cronGet(cronRequest());
   assert.equal(res.status, 200);
-  const body = (await res.json()) as { outcome?: string; reason?: string; week?: number };
+  const body = (await res.json()) as {
+    outcome?: string;
+    reason?: string;
+    week?: number;
+    durable?: { status?: string };
+  };
   assert.equal(body.outcome, 'failure');
   assert.equal(body.reason, 'quota-usage-unavailable');
   assert.equal(body.week, 3);
+  // A missing credential manifests HERE: fetchCfbdUsage cannot read usage, so
+  // the quota gate refuses first (the dedicated credential branch is defensive
+  // — unreachable while the quota gate short-circuits an unreadable key). Even
+  // so, this target-resolved failure carries the durable reread; with no prior
+  // record the truthful projection is `absent`, never a missing block.
+  assert.equal(body.durable?.status, 'absent');
 
   const week = await getProviderRefreshStatus('game-stats', weekPartitionScope(YEAR, 3, 'regular'));
   assert.equal(week.latestAttemptOutcome, 'failed');

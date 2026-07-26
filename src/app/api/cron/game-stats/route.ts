@@ -146,6 +146,39 @@ async function resolvePollingTarget(
   return { status: 'ok', target, slateResult };
 }
 
+/**
+ * The projected durable REREAD block a TARGET-RESOLVED run report carries.
+ * Reuses the canonical slate already resolved for target selection (no second
+ * canonical load) and rereads the exact durable partition, so EVERY
+ * target-resolved response — quota refusal, missing credential, provider-fetch
+ * failure, ingestion/interpretation failure, and every interpreter outcome —
+ * reflects the true durable state, never the payload or an assumed merge
+ * result. A failed run therefore never reads as lost prior-good evidence. The
+ * shape matches the success path exactly: `availability` on success, otherwise
+ * the projection status alone (no persisted value ever reaches the report).
+ */
+async function projectDurableBlock(
+  slateResult: CanonicalSlateResult,
+  year: number,
+  week: number,
+  seasonType: CfbdSeasonType
+): Promise<Record<string, unknown>> {
+  let read: { status: 'ok'; value: unknown } | { status: 'read-failed' };
+  try {
+    const record = await getAppState<unknown>(
+      GAME_STATS_SCOPE,
+      getGameStatsKey(year, week, seasonType)
+    );
+    read = { status: 'ok', value: record?.value ?? null };
+  } catch {
+    read = { status: 'read-failed' };
+  }
+  const projection = projectPublicPartition(slateResult, week, seasonType, read, 'current');
+  return projection.status === 'available'
+    ? { status: 'available', availability: projection.wire.availability }
+    : { status: projection.status };
+}
+
 export async function GET(req: Request) {
   // CRON_SECRET first — fail closed with distinct configuration errors.
   const auth = verifyCronSecret(req);
@@ -216,7 +249,8 @@ export async function GET(req: Request) {
       reason: `quota-${quota.reason}`,
       committedGames: 0,
       remaining: quota.remaining,
-    } satisfies CronResult & { remaining: number | null });
+      durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
+    } satisfies CronResult & { remaining: number | null; durable: unknown });
   }
 
   // Credential validation after target + quota, before provider access.
@@ -229,23 +263,61 @@ export async function GET(req: Request) {
       status: 500,
     });
     return NextResponse.json(
-      { ...skippedResult(year, ''), skipped: undefined, error: 'CFBD_API_KEY not configured' },
+      {
+        year,
+        week,
+        seasonType,
+        outcome: 'failure',
+        reason: 'cfbd-api-key-missing',
+        committedGames: 0,
+        error: 'CFBD_API_KEY not configured',
+        durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
+      } satisfies CronResult & { durable: unknown },
       { status: 500 }
     );
   }
 
+  // Observation fence before provider access; at most ONE partition fetch. The
+  // provider transport and the downstream ingestion/interpretation are fenced
+  // into SEPARATE try blocks so their failures classify distinctly — a
+  // transport error is `provider-fetch-failed`, a throw from ingestion (with
+  // INDETERMINATE durability) is `ingestion-failed` — and BOTH carry the
+  // durable reread so the report never mislabels one as the other or reads as
+  // lost prior-good evidence.
+  const fetchStartedAt = new Date().toISOString();
+  let payload: unknown;
   try {
-    // Observation fence before provider access; at most ONE partition fetch.
-    const fetchStartedAt = new Date().toISOString();
     const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
-    const payload = await fetchUpstreamJson<unknown>(cfbdUrl.toString(), {
+    payload = await fetchUpstreamJson<unknown>(cfbdUrl.toString(), {
       cache: 'no-store',
       timeoutMs: 12_000,
       headers: { Authorization: `Bearer ${cfbdApiKey}` },
       retry: RETRY_POLICY,
       pacing: PACING_POLICY,
     });
+  } catch (error) {
+    await recordProviderRefreshFailure('game-stats', weekScope, {
+      attempt,
+      error: error instanceof Error ? error.message : 'unknown error',
+      code: 'game-stats-provider-fetch-failed',
+      status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 500,
+    });
+    return NextResponse.json(
+      {
+        year,
+        week,
+        seasonType,
+        outcome: 'failure',
+        reason: 'provider-fetch-failed',
+        committedGames: 0,
+        error: error instanceof Error ? error.message : 'unknown error',
+        durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
+      } satisfies CronResult & { durable: unknown },
+      { status: 500 }
+    );
+  }
 
+  try {
     const result = await ingestGameStatsPartitionResponse({
       year,
       week,
@@ -284,24 +356,6 @@ export async function GET(req: Request) {
     // payload or an assumed merge result. The run report's availability comes
     // from projecting the reread; no success inference, no same-run retry
     // (indeterminate stays a failure until a later run observes it).
-    let read: { status: 'ok'; value: unknown } | { status: 'read-failed' };
-    try {
-      const record = await getAppState<unknown>(
-        GAME_STATS_SCOPE,
-        getGameStatsKey(year, week, seasonType)
-      );
-      read = { status: 'ok', value: record?.value ?? null };
-    } catch {
-      read = { status: 'read-failed' };
-    }
-    const projection = projectPublicPartition(
-      resolution.slateResult,
-      week,
-      seasonType,
-      read,
-      'current'
-    );
-
     return NextResponse.json(
       {
         year,
@@ -310,18 +364,23 @@ export async function GET(req: Request) {
         outcome: interpretation.kind,
         reason: interpretation.reason,
         committedGames,
-        durable:
-          projection.status === 'available'
-            ? { status: 'available', availability: projection.wire.availability }
-            : { status: projection.status },
+        durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
       } satisfies CronResult & { durable: unknown },
       { status: interpretation.kind === 'failure' ? interpretation.httpStatus : 200 }
     );
   } catch (error) {
+    // Defensive: H2 funnels every EXPECTED ingestion fault (write failure,
+    // conflict, stale, indeterminate commit) into a typed outcome handled on
+    // the normal path above. A throw reaching HERE is an unexpected
+    // ingestion/interpretation defect with INDETERMINATE durability — never a
+    // provider-transport failure. Record it distinctly (never advancing
+    // last-success) and reread the durable partition so the report reflects the
+    // true prior-good (or partially-applied) state.
     await recordProviderRefreshFailure('game-stats', weekScope, {
       attempt,
       error: error instanceof Error ? error.message : 'unknown error',
-      status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 500,
+      code: 'game-stats-ingestion-failed',
+      status: 500,
     });
     return NextResponse.json(
       {
@@ -329,10 +388,11 @@ export async function GET(req: Request) {
         week,
         seasonType,
         outcome: 'failure',
-        reason: 'provider-fetch-failed',
+        reason: 'ingestion-failed',
         committedGames: 0,
         error: error instanceof Error ? error.message : 'unknown error',
-      } satisfies CronResult,
+        durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
+      } satisfies CronResult & { durable: unknown },
       { status: 500 }
     );
   }
