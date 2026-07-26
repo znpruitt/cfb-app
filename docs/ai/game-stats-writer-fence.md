@@ -10,7 +10,7 @@ PLATFORM-086H3E1) is merged (PR #408); E2 (dormant refresh/polling/quota
 primitives, PLATFORM-086H3E2) is merged (PR #409); E3 (final atomic wiring,
 PLATFORM-086H3E3) is implemented and review-clean pending merge, with the
 complete operator activation sequence documented in
-`docs/deployment-runbook.md` §8d and NOT executed —
+`docs/deployment-runbook.md` §8e and NOT executed —
 production remains in `legacy` and no transition has ever been executed.
 Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any conflict.
 
@@ -228,7 +228,8 @@ store.
   legacy only under `legacy`, H2 only under `active`, both refuse in `armed`.
   The complete operator sequence — including the staged-promotion release and
   the refreshes → audit → backfills ordering — is
-  `docs/deployment-runbook.md` §8d (supersedes the sketch in §6 where they
+  `docs/deployment-runbook.md` §8e (preceded by the §8d PLATFORM-086H3E4
+  collision-correction sequence; supersedes the sketch in §6 where they
   differ); it has NOT been executed.
 
 Deploying C, D, E1, and E2 changes no production behavior beyond the additive
