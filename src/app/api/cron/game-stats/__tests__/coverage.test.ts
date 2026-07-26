@@ -406,15 +406,58 @@ test('an ingestion-phase failure carries the interpreter reason (never provider-
   assert.equal(status.lastSuccessAt, null, 'a durable-write failure never advances last-success');
 });
 
-// Two remediation seams are DEFENSIVE and unreachable at runtime, so only a
-// static check guards them against silent regression: (1) the raw
-// `ingestion-failed` catch — H2 funnels every expected fault into a typed
-// outcome, and a throwing stored record is short-circuited by target
-// resolution before any failure path, so nothing reaches it; (2) the
-// `projection-failed` fallback in `projectDurableBlock` — the fail-safe that
-// keeps a projector throw from turning a controlled failure into an unhandled
-// 500. This pins their distinct classifications and the defensive durable reread.
-test('the cron pins distinct transport/ingestion classifications and the fail-safe reread', () => {
+// `projection-failed` IS runtime-reachable (empirically confirmed): a partition
+// can hold an IN-WINDOW uncovered game (the poll target) plus an OUT-OF-WINDOW
+// (>24h) game whose stored row is deep enough to overflow the recursive
+// canonicalizer (evidenceAuthority `canonicalJson`). Target resolution only
+// canonicalizes in-window games, so it selects the week without throwing; the
+// durable reread then projects EVERY expected game in the partition and hits the
+// throw — which `projectDurableBlock` must catch, returning a controlled
+// `projection-failed` rather than an unhandled 500.
+//
+// It is NOT covered by a runtime assertion on purpose: the ONLY projector-throw
+// surface is a stack overflow in `canonicalJson`, whose depth threshold depends
+// on the ambient call stack, and the durable store's own JSON serialization
+// (which any test row must pass to persist) sits right beside that threshold —
+// so the persistable-yet-overflowing window is narrow and moves with the
+// environment, making any depth-pinned runtime test flaky. The structural pin
+// below instead proves the invariant that actually matters — `projectPublicPartition`
+// executes INSIDE the fail-safe try — deterministically.
+test('projectDurableBlock keeps the projector inside its fail-safe try (projection-failed on any throw)', () => {
+  const routeSrc = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'route.ts'),
+    'utf8'
+  );
+  const fnStart = routeSrc.indexOf('async function projectDurableBlock(');
+  assert.notEqual(fnStart, -1, 'projectDurableBlock is defined');
+  const nextFn = routeSrc.indexOf('\nexport async function GET', fnStart);
+  const fnBody = routeSrc.slice(fnStart, nextFn === -1 ? undefined : nextFn);
+
+  const projIdx = fnBody.indexOf('projectPublicPartition(');
+  const fallbackIdx = fnBody.indexOf("return { status: 'projection-failed' };");
+  assert.notEqual(projIdx, -1, 'the helper calls projectPublicPartition');
+  assert.notEqual(fallbackIdx, -1, 'the helper has the projection-failed fallback');
+  // The projector must precede the fallback (i.e. sit above the enclosing catch)…
+  assert.ok(
+    projIdx < fallbackIdx,
+    'projectPublicPartition must sit before the fail-safe fallback, not after the catch'
+  );
+  // …and a `} catch {` must sit between them, proving the projector is enclosed
+  // by the try whose catch returns projection-failed. Move the projector out of
+  // the try (Codex finding-1 regression) and this fails.
+  assert.match(
+    fnBody.slice(projIdx, fallbackIdx),
+    /\}\s*catch\s*(\([^)]*\))?\s*\{/,
+    'the projector is enclosed by the fail-safe catch'
+  );
+});
+
+// The raw `ingestion-failed` catch is genuinely DEFENSIVE and unreachable at
+// runtime: H2 funnels every EXPECTED ingestion fault into a typed outcome
+// (surfaced on the normal interpreter path), and no valid provider payload makes
+// the coordinator throw — so only a static check guards it against silent
+// regression.
+test('the cron pins the distinct transport/ingestion classifications and the defensive reread', () => {
   const routeSrc = readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'route.ts'),
     'utf8'
@@ -423,7 +466,6 @@ test('the cron pins distinct transport/ingestion classifications and the fail-sa
   assert.match(routeSrc, /code: 'game-stats-provider-fetch-failed'/);
   assert.match(routeSrc, /reason: 'ingestion-failed'/);
   assert.match(routeSrc, /code: 'game-stats-ingestion-failed'/);
-  assert.match(routeSrc, /return \{ status: 'projection-failed' \};/);
   // The defensive ingestion catch still appends the durable reread.
   const ingestCatch = routeSrc.slice(routeSrc.indexOf("reason: 'ingestion-failed'"));
   assert.match(ingestCatch, /durable: await projectDurableBlock\(/);
