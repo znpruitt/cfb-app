@@ -299,6 +299,21 @@ For each year, verify `/api/admin/provider-status?year=<year>` reports the sched
 
 Finally, rerun the established read-only `PLATFORM-086H3E` production parity audit for 2024 (the approved audit procedure — there is no checked-in H3E CLI; do not invent one). Record as prerequisites: the synced team catalog's `updatedAt`; the 2024 schedule refresh response's `meta.generatedAt`; the schedule provider-status `lastSuccessAt`. Do not claim H3E parity until the rerun completes. Do not modify game-stat evidence, ownership, archives, or activation state during the audit.
 
+## 8d) Post-merge schedule-identity correction (PLATFORM-086H3E4-SECOND-ROUND-CONFERENCE-COLLISION-REMEDIATION)
+
+The merged E4 correction (token-boundary conference alias matching, non-FBS conference-championship suppression, hybrid-proof canonical collection) changes normalization at REFRESH time and hardens collection defensively — the durable 2021–2025 schedule caches still carry false `sec-championship` classifications on FCS "Second Round" rows, and the durable 2024 archive still holds the corrupted hybrid, until this sequence is performed. **These steps precede the PLATFORM-086H3E activation sequence's audit and backfill steps** (documented with the E3 slice): those audits fail on the 2024 mismatch until the corrected identities are durable. Execute in order; STOP on any unexpected residual.
+
+1. **Deploy the merged correction** while writer control remains `legacy`, provider pause remains enabled, and automatic game-stats refresh remains disabled. Deploying changes no durable data by itself.
+2. **Forced full-year schedule refreshes for 2021–2025** through the authorized procedure (`/api/schedule?year=<year>&bypassCache=1`, admin-authenticated; never the `force: false` Historical Data Cache button). Verify each new durable generation is CFBD-backed, non-partial, duplicate-free, and carries positive numeric participant ids, with the exact year-scoped provider status succeeded and a cache-only recheck per year.
+3. **Verify the corrected identities** per year:
+   - no "Second Round" row is classified `sec-championship` (or any FBS conference championship);
+   - `401673469` is Texas home / Georgia away with the genuine SEC Championship identity;
+   - `401729753` remains the UC Davis–Illinois State non-FBS game and is not activation-eligible;
+   - no unrelated schedule population or identity churn occurred.
+4. **Rerun `PLATFORM-086H3E-2024-ARCHIVE-PARTICIPANT-COLLISION-AUDIT-v1`** (the read-only audit that confirmed the corruption). Require: zero archive-versus-schedule participant mismatches attributable to this defect.
+5. **Rerun the complete PLATFORM-086H3E production participant-validation and archive/canonical parity audit.** Require the established pass: positive numeric ids everywhere applicable, zero `participant-validation-unavailable`, zero unexpected `identity-mismatch`, and parity with **only** the accepted 2022 game `401506450` excluded (analytics-incomplete upstream; not reopened, not special-cased).
+6. **Only after both audits are clean**, proceed to the established archive-backfill preview and explicit confirmed steps for the affected years (the 2024 backfill replaces the corrupted hybrid with the genuine Texas–Georgia game and its paired snapshot).
+
 ## 9) Common failure diagnosis
 
 ### Clerk sign-in fails or redirects loop
