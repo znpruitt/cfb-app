@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { GET as cronGet } from '../route';
 import {
@@ -342,8 +345,9 @@ test('a provider-transport failure is labeled provider-fetch-failed with the dur
   const res = await cronGet(cronRequest());
   const body = (await res.json()) as FailureBody;
   assert.equal(body.outcome, 'failure');
+  // The exact reason `provider-fetch-failed` (never the ingestion-phase
+  // `ingestion-failed`) proves the transport fault is classified on its own path.
   assert.equal(body.reason, 'provider-fetch-failed');
-  assert.notEqual(body.reason, 'ingestion-failed');
   assert.equal(body.durable?.status, 'available', 'a transport failure still rereads prior-good');
 
   const stored = await getCachedGameStats(YEAR, 3, 'regular');
@@ -380,8 +384,10 @@ test('an ingestion-phase failure carries the interpreter reason (never provider-
   const body = (await res.json()) as FailureBody;
   assert.equal(res.status, 503);
   assert.equal(body.outcome, 'failure');
+  // The exact interpreter reason `unavailable` (never the transport
+  // `provider-fetch-failed`, never the defensive raw `ingestion-failed`) proves
+  // an ingestion-phase fault is classified on its own path.
   assert.equal(body.reason, 'unavailable');
-  assert.notEqual(body.reason, 'provider-fetch-failed');
   assert.equal(
     body.durable?.status,
     'available',
@@ -398,4 +404,27 @@ test('an ingestion-phase failure carries the interpreter reason (never provider-
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'game-stats-unavailable');
   assert.equal(status.lastSuccessAt, null, 'a durable-write failure never advances last-success');
+});
+
+// Two remediation seams are DEFENSIVE and unreachable at runtime, so only a
+// static check guards them against silent regression: (1) the raw
+// `ingestion-failed` catch — H2 funnels every expected fault into a typed
+// outcome, and a throwing stored record is short-circuited by target
+// resolution before any failure path, so nothing reaches it; (2) the
+// `projection-failed` fallback in `projectDurableBlock` — the fail-safe that
+// keeps a projector throw from turning a controlled failure into an unhandled
+// 500. This pins their distinct classifications and the defensive durable reread.
+test('the cron pins distinct transport/ingestion classifications and the fail-safe reread', () => {
+  const routeSrc = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'route.ts'),
+    'utf8'
+  );
+  assert.match(routeSrc, /reason: 'provider-fetch-failed'/);
+  assert.match(routeSrc, /code: 'game-stats-provider-fetch-failed'/);
+  assert.match(routeSrc, /reason: 'ingestion-failed'/);
+  assert.match(routeSrc, /code: 'game-stats-ingestion-failed'/);
+  assert.match(routeSrc, /return \{ status: 'projection-failed' \};/);
+  // The defensive ingestion catch still appends the durable reread.
+  const ingestCatch = routeSrc.slice(routeSrc.indexOf("reason: 'ingestion-failed'"));
+  assert.match(ingestCatch, /durable: await projectDurableBlock\(/);
 });

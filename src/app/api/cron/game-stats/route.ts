@@ -163,20 +163,29 @@ async function projectDurableBlock(
   week: number,
   seasonType: CfbdSeasonType
 ): Promise<Record<string, unknown>> {
-  let read: { status: 'ok'; value: unknown } | { status: 'read-failed' };
+  // Fully fail-safe: this block is best-effort observability appended to an
+  // ALREADY-decided response, so neither the durable read NOR the projector may
+  // escape. A projector throw (e.g. structurally corrupt durable state that the
+  // recursive canonicalizer chokes on) must never convert a controlled failure
+  // response into an unhandled 500 — it resolves to a distinct `projection-failed`.
   try {
-    const record = await getAppState<unknown>(
-      GAME_STATS_SCOPE,
-      getGameStatsKey(year, week, seasonType)
-    );
-    read = { status: 'ok', value: record?.value ?? null };
+    let read: { status: 'ok'; value: unknown } | { status: 'read-failed' };
+    try {
+      const record = await getAppState<unknown>(
+        GAME_STATS_SCOPE,
+        getGameStatsKey(year, week, seasonType)
+      );
+      read = { status: 'ok', value: record?.value ?? null };
+    } catch {
+      read = { status: 'read-failed' };
+    }
+    const projection = projectPublicPartition(slateResult, week, seasonType, read, 'current');
+    return projection.status === 'available'
+      ? { status: 'available', availability: projection.wire.availability }
+      : { status: projection.status };
   } catch {
-    read = { status: 'read-failed' };
+    return { status: 'projection-failed' };
   }
-  const projection = projectPublicPartition(slateResult, week, seasonType, read, 'current');
-  return projection.status === 'available'
-    ? { status: 'available', availability: projection.wire.availability }
-    : { status: projection.status };
 }
 
 export async function GET(req: Request) {
