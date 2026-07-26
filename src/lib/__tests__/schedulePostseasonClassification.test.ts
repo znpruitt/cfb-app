@@ -810,3 +810,75 @@ test('E4 collection: beyond-safe-integer id strings never collapse into one pid'
     assert.deepEqual(ids, ['9007199254740992', '9007199254740993']);
   }
 });
+
+// --- Round-5 counter-example regressions ---
+
+test('E4 collection: cross-group base-key ownership is arrival-independent', () => {
+  // Two fulls in DIFFERENT merge-key groups (different dates) sharing one
+  // stored base key: the byte-total content order (lower pid) must own the
+  // base key in both arrival orders.
+  const dayOne = e4AppGame({
+    key: 'shared-base-key',
+    date: '2024-12-07T21:00:00.000Z',
+    providerGameId: '401673469',
+    participants: { home: teamSlot('texas', 'Texas'), away: teamSlot('georgia', 'Georgia') },
+    csvHome: 'Texas',
+    csvAway: 'Georgia',
+  });
+  const dayTwo = e4AppGame({
+    key: 'shared-base-key',
+    date: '2024-12-08T21:00:00.000Z',
+    providerGameId: '401729753',
+    participants: {
+      home: teamSlot('ucdavis', 'UC Davis'),
+      away: teamSlot('illinoisstate', 'Illinois State'),
+    },
+    csvHome: 'UC Davis',
+    csvAway: 'Illinois State',
+  });
+  const project = (inputs: AppGame[]) =>
+    buildAuthoritativeGameCollection([], inputs)
+      .map((g) => ({ key: g.key, providerGameId: g.providerGameId }))
+      .sort((a, b) => String(a.providerGameId).localeCompare(String(b.providerGameId)));
+
+  const expected = project([dayOne, dayTwo]);
+  assert.deepEqual(expected, [
+    { key: 'shared-base-key', providerGameId: '401673469' },
+    {
+      key: 'shared-base-key::conference_championship::w15::401729753',
+      providerGameId: '401729753',
+    },
+  ]);
+  for (const inputs of permutations([dayOne, dayTwo])) {
+    assert.deepEqual(project(inputs), expected, `order ${inputs.map((g) => g.providerGameId)}`);
+  }
+});
+
+test('E4 collection: byte-distinct but locale-equal fragment content folds identically in both orders', () => {
+  // 'Café' (precomposed) vs 'Café' (decomposed) compare equal under
+  // locale collation but differ by code units — the byte-total tiebreak must
+  // order them, so the fold winner (and every output byte) is identical
+  // across arrival orders.
+  const composd = e4AppGame({
+    key: '2024-sec-championship',
+    isPlaceholder: true,
+    status: 'placeholder',
+    venue: 'Café Stadium',
+  });
+  const decomposed = e4AppGame({
+    key: '2024-sec-championship',
+    isPlaceholder: true,
+    status: 'placeholder',
+    venue: 'Café Stadium',
+  });
+  const project = (inputs: AppGame[]) =>
+    buildAuthoritativeGameCollection([], inputs).map((g) => ({
+      key: g.key,
+      venue: g.venue,
+    }));
+
+  const expected = project([composd, decomposed]);
+  for (const inputs of permutations([composd, decomposed])) {
+    assert.deepEqual(project(inputs), expected, 'byte-identical output across orders');
+  }
+});

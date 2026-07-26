@@ -279,10 +279,13 @@ export function buildAuthoritativeGameCollection(
     if (byCsv !== 0) return byCsv;
     const byLabel = String(a.label ?? '').localeCompare(String(b.label ?? ''));
     if (byLabel !== 0) return byLabel;
-    // TOTAL order: a final sorted-key serialization tiebreak, so comparing
-    // equal means byte-identical rows — genuinely interchangeable, never
-    // merely similar (venue/status/notes differences all order).
-    return stableSerialize(a).localeCompare(stableSerialize(b));
+    // TOTAL order: a final sorted-key serialization tiebreak compared by CODE
+    // UNITS (never locale collation, which treats canonically equivalent but
+    // byte-distinct Unicode as equal) — comparing equal means byte-identical
+    // rows, genuinely interchangeable.
+    const sa = stableSerialize(a);
+    const sb = stableSerialize(b);
+    return sa < sb ? -1 : sa > sb ? 1 : 0;
   };
 
   // Phase B: resolve each group content-deterministically.
@@ -377,35 +380,53 @@ export function buildAuthoritativeGameCollection(
     }
   }
 
-  const gamesWithUniqueKeys: AppGame[] = [];
-  const seenKeys = new Set<string>();
-
+  // Emission keeps today's POSITIONAL order (groups in first-arrival order,
+  // candidates content-ordered within a group), but KEY OWNERSHIP is assigned
+  // in a separate deterministic pass: candidates sharing a base key are
+  // ordered by the byte-total content comparator — across ALL groups — so
+  // which game keeps a contested base key never depends on arrival order.
+  const positioned: { game: AppGame; baseKey: string }[] = [];
   for (const [mergeKey, candidates] of byMergeKey.entries()) {
-    // Deterministic emission: for a split merge key, the lowest numeric
-    // provider id keeps the base key and later candidates disambiguate —
-    // identical output identities whichever order the inputs arrived in.
     for (const game of [...candidates].sort(contentCompare)) {
-      const baseKey = game.key || game.eventId || mergeKey;
-      if (!seenKeys.has(baseKey)) {
-        seenKeys.add(baseKey);
-        gamesWithUniqueKeys.push(game);
+      positioned.push({ game, baseKey: game.key || game.eventId || mergeKey });
+    }
+  }
+
+  const cohorts = new Map<string, { game: AppGame; baseKey: string }[]>();
+  for (const entry of positioned) {
+    const cohort = cohorts.get(entry.baseKey);
+    if (cohort) cohort.push(entry);
+    else cohorts.set(entry.baseKey, [entry]);
+  }
+
+  const assignedKeys = new Map<{ game: AppGame; baseKey: string }, string>();
+  const seenKeys = new Set<string>();
+  for (const cohort of cohorts.values()) {
+    for (const entry of [...cohort].sort((a, b) => contentCompare(a.game, b.game))) {
+      if (!seenKeys.has(entry.baseKey)) {
+        seenKeys.add(entry.baseKey);
+        assignedKeys.set(entry, entry.baseKey);
         continue;
       }
-
+      const { game } = entry;
       const disambiguator = [game.stage, `w${game.week}`, game.providerGameId ?? game.date ?? 'na']
         .join('::')
         .replace(/\s+/g, '-');
-      let nextKey = `${baseKey}::${disambiguator}`;
+      let nextKey = `${entry.baseKey}::${disambiguator}`;
       let counter = 2;
       while (seenKeys.has(nextKey)) {
-        nextKey = `${baseKey}::${disambiguator}::${counter}`;
+        nextKey = `${entry.baseKey}::${disambiguator}::${counter}`;
         counter += 1;
       }
-
       seenKeys.add(nextKey);
-      gamesWithUniqueKeys.push({ ...game, key: nextKey });
+      assignedKeys.set(entry, nextKey);
     }
   }
+
+  const gamesWithUniqueKeys: AppGame[] = positioned.map((entry) => {
+    const assigned = assignedKeys.get(entry)!;
+    return assigned === entry.game.key ? entry.game : { ...entry.game, key: assigned };
+  });
 
   return gamesWithUniqueKeys;
 }
