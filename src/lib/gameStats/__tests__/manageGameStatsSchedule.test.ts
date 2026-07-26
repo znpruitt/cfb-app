@@ -239,13 +239,13 @@ test('evaluateScheduleContract flags every divergence and passes a matching sche
   }
 });
 
-test('the contract check is strict: suffix-auth, empty auth, coerced retries, and queue/retry settings all diverge', () => {
+test('the contract check is strict: auth shape/value, coerced retries, and queue/retry settings all diverge', () => {
   // `X-Authorization` is NOT the `Authorization` header the route receives.
   assert.equal(
     evaluateScheduleContract({ ...goodSchedule, header: { 'X-Authorization': ['Bearer x'] } }).ok,
     false
   );
-  // Present but empty forwarded auth.
+  // Present but empty, or a non-Bearer shape the route would 401.
   assert.equal(
     evaluateScheduleContract({ ...goodSchedule, header: { Authorization: [''] } }).ok,
     false
@@ -254,11 +254,35 @@ test('the contract check is strict: suffix-auth, empty auth, coerced retries, an
     evaluateScheduleContract({ ...goodSchedule, header: { Authorization: [] } }).ok,
     false
   );
+  assert.equal(
+    evaluateScheduleContract({ ...goodSchedule, header: { Authorization: ['Basic attacker'] } }).ok,
+    false
+  );
+  assert.equal(
+    evaluateScheduleContract({ ...goodSchedule, header: { Authorization: ['Bearer '] } }).ok,
+    false
+  );
+  // With CRON_SECRET known, the value must match EXACTLY (never printed).
+  const expectedAuthorization = 'Bearer the-real-cron-secret';
+  assert.equal(
+    evaluateScheduleContract(
+      { ...goodSchedule, header: { Authorization: ['Bearer the-real-cron-secret'] } },
+      { expectedAuthorization }
+    ).ok,
+    true
+  );
+  assert.equal(
+    evaluateScheduleContract(
+      { ...goodSchedule, header: { Authorization: ['Bearer a-different-secret'] } },
+      { expectedAuthorization }
+    ).ok,
+    false
+  );
   // retries must be EXACTLY 0 — `null` must not coerce to zero.
   assert.equal(evaluateScheduleContract({ ...goodSchedule, retries: null }).ok, false);
   assert.equal(evaluateScheduleContract({ ...goodSchedule, retries: 2 }).ok, false);
   assert.equal(evaluateScheduleContract({ ...goodSchedule, retries: '0' }).ok, true);
-  // queue / flow-control / delay / scheduler retry-delay are all forbidden.
+  // queue / flow-control / delay / scheduler retry-delay are all forbidden…
   for (const field of [
     'delay',
     'flowControlKey',
@@ -271,6 +295,15 @@ test('the contract check is strict: suffix-auth, empty auth, coerced retries, an
     (s as Record<string, unknown>)[field] = 'x';
     assert.equal(evaluateScheduleContract(s).ok, false, field);
   }
+  // …and a malformed banned field is NOT masked by empty-ish coercion:
+  // `callback: 0` / `flowControlKey: {}` still diverge (finding-4 regression guard).
+  assert.equal(evaluateScheduleContract({ ...goodSchedule, callback: 0 }).ok, false);
+  assert.equal(evaluateScheduleContract({ ...goodSchedule, flowControlKey: {} }).ok, false);
+  // But a numeric limit of exactly 0 is legitimately "no limit" — not a divergence.
+  assert.equal(
+    evaluateScheduleContract({ ...goodSchedule, parallelism: 0, rate: 0, period: 0, delay: 0 }).ok,
+    true
+  );
 });
 
 test('divergence messages reference only the fixed constants, never the raw readback value', () => {
@@ -284,18 +317,35 @@ test('divergence messages reference only the fixed constants, never the raw read
   assert.match(joined, /destination diverges/);
 });
 
-test('rejected arguments never echo a pasted secret value', () => {
-  const secret = 'super-secret-token-value-1234567890';
-  const flagged = parseScheduleArgs([`--token=${secret}`]);
-  assert.ok('error' in flagged);
-  assert.ok(!(flagged as { error: string }).error.includes(secret), 'flag value redacted');
-  const positional = parseScheduleArgs([secret]);
-  assert.ok('error' in positional);
-  assert.ok(!(positional as { error: string }).error.includes(secret), 'positional value redacted');
+test('rejected arguments never echo a pasted secret value (long OR short, flag OR positional)', () => {
+  for (const secret of [
+    'super-secret-token-value-1234567890', // long
+    'tiny-Sec3t', // short (<=16) — must still not echo
+    'AbC123', // very short but token-shaped
+  ]) {
+    const flagged = parseScheduleArgs([`--token=${secret}`]);
+    assert.ok('error' in flagged);
+    assert.ok(
+      !(flagged as { error: string }).error.includes(secret),
+      `flag value redacted: ${secret}`
+    );
+    const positional = parseScheduleArgs([secret]);
+    assert.ok('error' in positional);
+    assert.ok(
+      !(positional as { error: string }).error.includes(secret),
+      `positional value redacted: ${secret}`
+    );
+  }
 });
 
-test('a poisoned QSTASH_URL fails closed before any credential leaves the process', async () => {
-  for (const bad of ['http://collector.example', 'https://evil.example/v2/schedules']) {
+test('a poisoned or lookalike QSTASH_URL fails closed before any credential leaves the process', async () => {
+  for (const bad of [
+    'http://collector.example', // not https
+    'https://evil.example/v2/schedules', // path
+    'https://qstash.upstash.io.evil.example', // lookalike host
+    'https://qstash.upstash.io@evil.example', // userinfo host-confusion
+    'https://qstash.upstash.io:8443', // non-default port
+  ]) {
     const { deps, calls } = harness([], { QSTASH_TOKEN: TOKEN, QSTASH_URL: bad }, [
       { status: 200, body: goodSchedule },
     ]);
@@ -304,14 +354,26 @@ test('a poisoned QSTASH_URL fails closed before any credential leaves the proces
   }
 });
 
-test('summarizeSchedule redacts userinfo embedded in a destination', () => {
-  const summary = summarizeSchedule({
-    ...goodSchedule,
-    destination: `https://user:${CRON_SECRET}@turfwar.games/api/cron/game-stats`,
-  });
-  const printed = JSON.stringify(summary);
-  assert.ok(!printed.includes(CRON_SECRET), 'userinfo secret redacted from the summary');
-  assert.match(printed, /userinfo redacted/);
+test('resolveQstashBase accepts the canonical and regional hosts but rejects lookalikes', () => {
+  assert.equal(resolveQstashBase({ QSTASH_URL: 'https://qstash.upstash.io' }).ok, true);
+  assert.equal(resolveQstashBase({ QSTASH_URL: 'https://qstash-eu-west-1.upstash.io' }).ok, true);
+  assert.equal(
+    resolveQstashBase({ QSTASH_URL: 'https://qstash.upstash.io.evil.example' }).ok,
+    false
+  );
+  assert.equal(resolveQstashBase({ QSTASH_URL: 'https://notqstash.upstash.io' }).ok, false);
+});
+
+test('summarizeSchedule redacts userinfo AND query/fragment secrets in a destination', () => {
+  for (const destination of [
+    `https://user:${CRON_SECRET}@turfwar.games/api/cron/game-stats`,
+    `https://turfwar.games/api/cron/game-stats?token=${CRON_SECRET}`,
+    `https://turfwar.games/api/cron/game-stats#${CRON_SECRET}`,
+  ]) {
+    const printed = JSON.stringify(summarizeSchedule({ ...goodSchedule, destination }));
+    assert.ok(!printed.includes(CRON_SECRET), `secret redacted from the summary: ${destination}`);
+    assert.match(printed, /secrets redacted/);
+  }
 });
 
 test('inspect reports divergence as a fail-closed refusal (exit 2)', async () => {

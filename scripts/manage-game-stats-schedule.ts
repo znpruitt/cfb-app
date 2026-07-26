@@ -61,15 +61,19 @@ export type ScheduleCliArgs = { action: ScheduleAction; apply: boolean };
 
 /**
  * Redact a rejected argument before it is echoed. An operator can paste a
- * secret by mistake (`--token=<QSTASH_TOKEN>`, or a bare secret), so the VALUE
- * after `=` is dropped and any long/opaque token is reduced to a length
- * descriptor — the error names the shape of the mistake, never its secret.
+ * secret by mistake — as a `--flag=<secret>`, or as a bare token — so:
+ *   - a `--flag`/`--flag=value` echoes ONLY a plausible flag NAME (lowercase +
+ *     hyphens, bounded), dropping any `=value`;
+ *   - anything else (a bare positional, or a `--`-token that is not clearly a
+ *     flag name — the shapes a secret would take) is reduced to a length
+ *     descriptor and never echoed verbatim, regardless of length.
+ * The error names the SHAPE of the mistake, never its content.
  */
 export function redactArg(arg: string): string {
-  const eq = arg.indexOf('=');
-  if (eq !== -1) return `${arg.slice(0, eq)}=<redacted>`;
-  if (arg.length > 16) return `<redacted:${arg.length} chars>`;
-  return arg;
+  const name = arg.includes('=') ? arg.slice(0, arg.indexOf('=')) : arg;
+  const isPlausibleFlagName = /^--[a-z][a-z-]{0,30}$/.test(name);
+  if (isPlausibleFlagName) return arg.includes('=') ? `${name}=<redacted>` : name;
+  return `<redacted:${arg.length} chars>`;
 }
 
 /**
@@ -132,6 +136,17 @@ export function resolveQstashBase(
     return {
       ok: false,
       reason: 'QSTASH_URL must be an origin (scheme+host), with no path or query',
+    };
+  if (url.port && url.port !== '443')
+    return { ok: false, reason: 'QSTASH_URL must use the default https port' };
+  // Host allowlist: the credentials only ever go to an Upstash QStash host —
+  // the canonical `qstash.upstash.io` or a regional `qstash-<region>.upstash.io`.
+  // This rejects lookalikes such as `qstash.upstash.io.evil.example` and any
+  // trailing-dot variant, which the scheme/userinfo/path checks alone allow.
+  if (!/^qstash(-[a-z0-9-]+)?\.upstash\.io$/.test(url.hostname))
+    return {
+      ok: false,
+      reason: 'QSTASH_URL host must be an Upstash QStash host (qstash[-region].upstash.io)',
     };
   return { ok: true, base: `${url.protocol}//${url.host}` };
 }
@@ -214,45 +229,63 @@ export function redactHeaderNames(header: unknown): string[] {
 }
 
 /**
- * True only when the readback carries an EXACTLY-named `Authorization` header
- * (case-insensitive, never a `*-Authorization` suffix like `X-Authorization`,
- * which the route would not receive) with a NON-EMPTY value. The value is
- * length-checked, never read into any message.
+ * The forwarded-Authorization values of a readback: only from an EXACTLY-named
+ * `Authorization` header (case-insensitive, never a `*-Authorization` suffix
+ * like `X-Authorization`, which the route would not receive). Returns the
+ * non-empty string values (a header maps to an array of values in the QStash
+ * readback). Values are compared/shape-checked, never formatted into a message.
  */
-function hasForwardedAuthorization(header: unknown): boolean {
-  if (!header || typeof header !== 'object' || Array.isArray(header)) return false;
+function forwardedAuthorizationValues(header: unknown): string[] {
+  if (!header || typeof header !== 'object' || Array.isArray(header)) return [];
+  const out: string[] = [];
   for (const [name, value] of Object.entries(header as Record<string, unknown>)) {
     if (name.toLowerCase() !== 'authorization') continue;
-    if (Array.isArray(value))
-      return value.some((v) => typeof v === 'string' && v.trim().length > 0);
-    if (typeof value === 'string') return value.trim().length > 0;
-    return false;
+    const values = Array.isArray(value) ? value : [value];
+    for (const v of values) if (typeof v === 'string' && v.trim().length > 0) out.push(v);
   }
-  return false;
+  return out;
 }
 
-function isEmptyish(value: unknown): boolean {
-  return (
-    value === undefined ||
-    value === null ||
-    value === '' ||
-    value === 0 ||
-    (Array.isArray(value) && value.length === 0) ||
-    (typeof value === 'object' && value !== null && Object.keys(value).length === 0)
-  );
+/**
+ * Classify the forwarded Authorization against the route's requirement. The
+ * route accepts ONLY `Bearer ${CRON_SECRET}` (exact); when the operator's
+ * CRON_SECRET is available we verify that exact value (never printed), else we
+ * fall back to the strongest shape check we can make without the secret — a
+ * non-empty Bearer token. A `Basic …`, an empty bearer, or a wrong value all
+ * fail, so inspect can no longer green-light a schedule the route would 401.
+ */
+function classifyAuthorization(
+  header: unknown,
+  expectedAuthorization?: string
+): 'ok' | 'missing' | 'wrong-shape' | 'mismatch' {
+  const values = forwardedAuthorizationValues(header);
+  if (values.length === 0) return 'missing';
+  if (expectedAuthorization !== undefined) {
+    return values.some((v) => v === expectedAuthorization) ? 'ok' : 'mismatch';
+  }
+  return values.some((v) => /^Bearer\s+\S/.test(v)) ? 'ok' : 'wrong-shape';
+}
+
+/** Unset for a string/object field: absent, null, or the empty string. */
+function isUnset(value: unknown): boolean {
+  return value === undefined || value === null || value === '';
+}
+/** Unset for a numeric limit: also treats `0` as "no limit" (unconfigured). */
+function isNumericUnset(value: unknown): boolean {
+  return isUnset(value) || value === 0;
 }
 
 /**
  * Compare a readback against the FIXED contract. Divergence messages reference
  * ONLY the known-safe expected constants — never the raw readback value — so a
  * misconfigured field that embedded a secret cannot leak through the very
- * inspection meant to diagnose it. Header values are never read (presence +
- * non-emptiness only). Returns the exact set of divergences (empty = good).
+ * inspection meant to diagnose it. Header values are never formatted into a
+ * message (compared/shape-checked only). Returns the divergences (empty = good).
  */
-export function evaluateScheduleContract(schedule: ScheduleReadback): {
-  ok: boolean;
-  mismatches: string[];
-} {
+export function evaluateScheduleContract(
+  schedule: ScheduleReadback,
+  options: { expectedAuthorization?: string } = {}
+): { ok: boolean; mismatches: string[] } {
   const mismatches: string[] = [];
   if (schedule.scheduleId !== SCHEDULE_ID)
     mismatches.push(`scheduleId diverges from the fixed id \`${SCHEDULE_ID}\``);
@@ -264,37 +297,60 @@ export function evaluateScheduleContract(schedule: ScheduleReadback): {
   // `null`/absent read as zero retries.
   if (schedule.retries !== RETRIES && schedule.retries !== String(RETRIES))
     mismatches.push(`retries diverges from ${RETRIES}`);
-  if (!hasForwardedAuthorization(schedule.header))
-    mismatches.push('no forwarded, non-empty Authorization header is present');
+  switch (classifyAuthorization(schedule.header, options.expectedAuthorization)) {
+    case 'missing':
+      mismatches.push('no forwarded, non-empty Authorization header is present');
+      break;
+    case 'wrong-shape':
+      mismatches.push('the forwarded Authorization is not a non-empty Bearer token');
+      break;
+    case 'mismatch':
+      mismatches.push('the forwarded Authorization does not match the expected CRON_SECRET');
+      break;
+    case 'ok':
+      break;
+  }
   // No callbacks, no queue/flow-control (queue), no delay, no scheduler-level
-  // retry policy — each verified present-but-empty, reported without its value.
-  const banned: Array<[keyof ScheduleReadback, string]> = [
+  // retry policy. String/URL fields must be absent/empty; numeric limits may be
+  // absent OR 0 (unconfigured). Each is reported without its value.
+  const bannedStringFields: Array<[keyof ScheduleReadback, string]> = [
     ['callback', 'a callback is set (must be none)'],
     ['failureCallback', 'a failure callback is set (must be none)'],
-    ['delay', 'a delay is set (must be none)'],
     ['flowControlKey', 'a flow-control/queue key is set (must be none)'],
+    ['retryDelayExpression', 'a scheduler retry-delay policy is set (must be none)'],
+  ];
+  for (const [field, message] of bannedStringFields) {
+    if (!isUnset(schedule[field])) mismatches.push(message);
+  }
+  const bannedNumericFields: Array<[keyof ScheduleReadback, string]> = [
+    ['delay', 'a delay is set (must be none)'],
     ['parallelism', 'a parallelism/queue limit is set (must be none)'],
     ['rate', 'a rate limit is set (must be none)'],
     ['period', 'a period is set (must be none)'],
-    ['retryDelayExpression', 'a scheduler retry-delay policy is set (must be none)'],
   ];
-  for (const [field, message] of banned) {
-    if (!isEmptyish(schedule[field])) mismatches.push(message);
+  for (const [field, message] of bannedNumericFields) {
+    if (!isNumericUnset(schedule[field])) mismatches.push(message);
   }
   return { ok: mismatches.length === 0, mismatches };
 }
 
-/** Strip any `user:pass@` userinfo from a URL-ish value; leave non-URLs as-is. */
-function redactUrlUserinfo(value: unknown): unknown {
+/**
+ * Redact any secret-bearing part of a URL-ish value: userinfo (`user:pass@`),
+ * the query string, and the fragment. A normal fixed destination has none of
+ * these, so it prints unchanged; a misconfigured one can't leak an embedded
+ * secret into the summary.
+ */
+function redactUrl(value: unknown): unknown {
   if (typeof value !== 'string') return value;
   try {
     const url = new URL(value);
-    if (url.username || url.password) {
-      url.username = '';
-      url.password = '';
-      return `${url.toString()} (userinfo redacted)`;
-    }
-    return value;
+    const sensitive = url.username || url.password || url.search || url.hash;
+    if (!sensitive) return value;
+    url.username = '';
+    url.password = '';
+    url.search = '';
+    url.hash = '';
+    return `${url.toString()} (secrets redacted)`;
   } catch {
     return value;
   }
@@ -304,17 +360,17 @@ function redactUrlUserinfo(value: unknown): unknown {
 export function summarizeSchedule(schedule: ScheduleReadback): Record<string, unknown> {
   return {
     scheduleId: schedule.scheduleId,
-    // A misconfigured destination could embed `user:pass@` userinfo — redact it.
-    destination: redactUrlUserinfo(schedule.destination),
+    // A misconfigured destination could embed a secret in userinfo/query/hash.
+    destination: redactUrl(schedule.destination),
     cron: schedule.cron,
     method: schedule.method,
     retries: schedule.retries,
     isPaused: schedule.isPaused,
-    callback: isEmptyish(schedule.callback) ? null : 'set',
-    failureCallback: isEmptyish(schedule.failureCallback) ? null : 'set',
-    delay: isEmptyish(schedule.delay) ? null : 'set',
-    flowControlKey: isEmptyish(schedule.flowControlKey) ? null : 'set',
-    retryDelayExpression: isEmptyish(schedule.retryDelayExpression) ? null : 'set',
+    callback: isUnset(schedule.callback) ? null : 'set',
+    failureCallback: isUnset(schedule.failureCallback) ? null : 'set',
+    delay: isNumericUnset(schedule.delay) ? null : 'set',
+    flowControlKey: isUnset(schedule.flowControlKey) ? null : 'set',
+    retryDelayExpression: isUnset(schedule.retryDelayExpression) ? null : 'set',
     headerNames: redactHeaderNames(schedule.header),
   };
 }
@@ -357,7 +413,12 @@ async function readSchedule(
   }
 }
 
-async function runInspect(deps: RunDeps, base: string, token: string): Promise<number> {
+async function runInspect(
+  deps: RunDeps,
+  base: string,
+  token: string,
+  cronSecret: string
+): Promise<number> {
   const read = await readSchedule(deps, base, token);
   if (read.kind === 'error') {
     deps.errorLog('FAILED: could not read the schedule from QStash management. No change made.');
@@ -370,9 +431,17 @@ async function runInspect(deps: RunDeps, base: string, token: string): Promise<n
     return 2;
   }
   deps.log(`[inspect] ${SCHEDULE_ID}: ${JSON.stringify(summarizeSchedule(read.schedule))}`);
-  const { ok, mismatches } = evaluateScheduleContract(read.schedule);
+  // When CRON_SECRET is available, verify the forwarded Authorization value
+  // EXACTLY (never printed); otherwise the contract falls back to a Bearer-shape
+  // check and reports below that the value was not verified against CRON_SECRET.
+  const expectedAuthorization = cronSecret.length > 0 ? `Bearer ${cronSecret}` : undefined;
+  const { ok, mismatches } = evaluateScheduleContract(read.schedule, { expectedAuthorization });
   if (ok) {
-    deps.log('[inspect] verified: the schedule matches the fixed contract.');
+    deps.log(
+      expectedAuthorization
+        ? '[inspect] verified: the schedule matches the fixed contract (Authorization matches CRON_SECRET).'
+        : '[inspect] verified: the schedule matches the fixed contract (Authorization shape only — CRON_SECRET not set, value unverified).'
+    );
     return 0;
   }
   deps.errorLog(
@@ -445,10 +514,13 @@ export async function runManageSchedule(deps: RunDeps): Promise<number> {
     return 3;
   }
 
-  if (parsed.action === 'inspect') return runInspect(deps, base, token);
+  const cronSecret = deps.env.CRON_SECRET?.trim() ?? '';
+
+  // Inspect verifies the forwarded Authorization against CRON_SECRET when it is
+  // available (optional for inspect — falls back to a shape check otherwise).
+  if (parsed.action === 'inspect') return runInspect(deps, base, token, cronSecret);
 
   if (parsed.action === 'upsert') {
-    const cronSecret = deps.env.CRON_SECRET?.trim() ?? '';
     if (cronSecret.length === 0) {
       deps.errorLog('FAILED: CRON_SECRET is not set (forwarded route credential). Fail closed.');
       return 3;
