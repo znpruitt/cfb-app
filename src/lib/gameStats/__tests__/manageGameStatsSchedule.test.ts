@@ -214,6 +214,15 @@ test('inspect exit-0 requires EXACT verification of the forwarded secret', async
     { status: 200, body: goodSchedule },
   ]);
   assert.equal(await runManageSchedule(right.deps), 0, 'exact match → verified');
+  assert.ok(!right.out.join('\n').includes('PAUSED'), 'an active schedule is not flagged paused');
+
+  // A paused-but-otherwise-correct schedule still verifies (config matches) but
+  // the verdict loudly flags that it is delivering nothing.
+  const paused = harness([], { QSTASH_TOKEN: TOKEN, CRON_SECRET }, [
+    { status: 200, body: { ...goodSchedule, isPaused: true } },
+  ]);
+  assert.equal(await runManageSchedule(paused.deps), 0, 'paused config still verifies');
+  assert.match(paused.out.join('\n'), /PAUSED/);
 });
 
 // === 4. Fail-closed: unknown args, missing creds, divergence, ambiguous mutation ===

@@ -461,8 +461,16 @@ async function runInspect(
     );
     return 2;
   }
+  // The verdict surfaces liveness too: a paused schedule matches the config
+  // contract but delivers NOTHING, so the operator must not read exit 0 as
+  // "polling is live". (Pause is an operational state, not a config divergence,
+  // so it stays exit 0 — but the note is loud.)
+  const pausedNote =
+    read.schedule.isPaused === true
+      ? ' NOTE: the schedule is currently PAUSED — no deliveries until resumed.'
+      : '';
   deps.log(
-    '[inspect] verified: the schedule matches the fixed contract (Authorization matches CRON_SECRET).'
+    `[inspect] verified: the schedule matches the fixed contract (Authorization matches CRON_SECRET).${pausedNote}`
   );
   return 0;
 }
