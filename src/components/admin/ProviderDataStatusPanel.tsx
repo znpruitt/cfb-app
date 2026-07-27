@@ -80,6 +80,14 @@ const MANUAL_REFRESH_COST: Record<ProviderDataset, string> = {
 
 type ActionState = { status: 'idle' | 'loading' | 'success' | 'error'; message?: string };
 
+// Stable ids linking each authoritative-mutation control to its failure alert
+// (PLATFORM-086I). role="alert" + aria-describedby announce the stored mutation
+// error and associate it with the control that failed, without changing the
+// setting — the confirmed On/Off and checkbox states are untouched on failure.
+const GLOBAL_PAUSE_ERROR_ID = 'provider-global-pause-error';
+const datasetToggleErrorId = (dataset: ProviderDataset): string =>
+  `provider-toggle-${dataset}-error`;
+
 function toneClass(severity: ProviderDiagnostic['severity']): string {
   if (severity === 'error') return 'text-red-700 dark:text-red-400';
   if (severity === 'warning') return 'text-amber-700 dark:text-amber-300';
@@ -365,6 +373,9 @@ export default function ProviderDataStatusPanel({
           <button
             className={buttonClass}
             disabled={actions['global-pause']?.status === 'loading'}
+            aria-describedby={
+              actions['global-pause']?.status === 'error' ? GLOBAL_PAUSE_ERROR_ID : undefined
+            }
             onClick={() =>
               void mutateSettings(
                 { action: 'set-global-pause', paused: !feed.globalPause },
@@ -374,6 +385,18 @@ export default function ProviderDataStatusPanel({
           >
             {feed.globalPause ? 'Resume automation' : 'Pause automation'}
           </button>
+          {/* Surface the stored pause-mutation error (PLATFORM-086I). The setting
+              is NOT changed on failure — the confirmed On/Off above is untouched —
+              and this w-full alert wraps to its own line beneath the control row. */}
+          {actions['global-pause']?.status === 'error' && (
+            <p
+              id={GLOBAL_PAUSE_ERROR_ID}
+              role="alert"
+              className="w-full text-[11px] text-red-700 dark:text-red-400"
+            >
+              Pause update failed: {actions['global-pause']?.message}
+            </p>
+          )}
         </div>
       )}
 
@@ -492,6 +515,11 @@ export default function ProviderDataStatusPanel({
                           type="checkbox"
                           checked={row.setting.enabled}
                           disabled={actions[toggleKey]?.status === 'loading'}
+                          aria-describedby={
+                            actions[toggleKey]?.status === 'error'
+                              ? datasetToggleErrorId(row.dataset)
+                              : undefined
+                          }
                           onChange={(e) =>
                             void mutateSettings(
                               {
@@ -515,6 +543,22 @@ export default function ProviderDataStatusPanel({
                     )}
                   </div>
                 </div>
+
+                {/* Auto-refresh toggle failure (PLATFORM-086I). role="alert" +
+                    aria-describedby tie it to this card's checkbox; the checkbox
+                    stays at its server-confirmed value because the setting is only
+                    applied after a successful POST is reloaded from the feed. Only
+                    an interactive (setting-consumed) dataset can populate this key,
+                    so it renders only on the Game Stats card today. */}
+                {actions[toggleKey]?.status === 'error' && (
+                  <p
+                    id={datasetToggleErrorId(row.dataset)}
+                    role="alert"
+                    className="text-[11px] text-red-700 dark:text-red-400"
+                  >
+                    Auto-refresh update failed: {actions[toggleKey]?.message}
+                  </p>
+                )}
 
                 {row.dataset === 'game-stats' && (
                   <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500 dark:text-zinc-400">
