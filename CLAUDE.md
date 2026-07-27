@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Status: Current
-Last verified: 2026-07-26
+Last verified: 2026-07-27
 Owner: Project documentation
 Canonical for: Claude-specific workflow guidance and prompt-handoff expectations; points back to AGENTS.md/DESIGN.md and does not supersede or override them
 Supersedes: docs/archive/governance/cfb-engineering-operating-instructions.md (Claude-workflow portion; jointly with AGENTS.md, which is canonical for the binding rules)
@@ -74,6 +74,26 @@ Every Codex prompt Claude produces must:
 3. Be registered in `docs/prompt-registry.md` as part of the **pre-merge documentation closeout** — finalized after implementation and independent review/remediation are complete, immediately before merge, so the entry describes actual final behavior (see `AGENTS.md` → "Documentation closeout timing", the binding rule). Do not mark work complete in the registry while review findings remain open.
 
 Check `docs/prompt-registry.md` for related existing prompts before assigning a new ID.
+
+---
+
+## Automatic implementation review workflow
+
+Every implementation prompt should include the automatic review/remediation workflow defined canonically in `AGENTS.md` → “Automatic review/remediation convergence,” unless the prompt explicitly opts out for trivial or documentation-only work.
+
+Claude should carry out the workflow without requiring the user to shuttle findings between tools:
+
+1. Finish the implementation and scoped verification.
+2. Run Claude's `/code-review` once as a self-review and remediate findings that pass the `AGENTS.md` convergence gate.
+3. Start `/codex:review` against the complete diff (Codex round 1).
+4. Evaluate each finding against the acceptance contract, binding invariants, reachability, attribution to the current diff, and remediation scope. Remediate only actionable findings.
+5. When round 1 produced accepted remediation, start `/codex:review` again against the complete final diff (Codex round 2). Close review immediately if no actionable findings remain; the reviewer need not return the literal word “clean.”
+6. When round 2 produced accepted remediation, start `/codex:review` against the complete final diff once more (Codex round 3). Do not run the next round against an unchanged diff.
+7. After round 3, stop automatic remediation. Present any credible P0/P1/P2 findings to the user with evidence, impact, and a fix/defer recommendation, and wait for the user to decide whether another remediation/review cycle is warranted. Additional rounds require explicit user authorization.
+
+If round 3 has no credible P0/P1/P2 finding, record meaningful non-blockers as follow-ups and proceed to the pre-merge documentation closeout. Do not repeatedly rerun Claude's self-review after each Codex round, and do not let P3/nits, speculative edge-case hardening, unrelated findings, or disproportionate scope expansion keep the implementation loop open.
+
+If `/code-review` or `/codex:review` is unavailable in the active environment, report that limitation clearly rather than pretending the corresponding review occurred.
 
 ---
 
