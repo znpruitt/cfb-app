@@ -106,6 +106,10 @@ test('a manual refresh PRESERVES a live row committed after the manual request b
   assert.equal(row.status, 'Q4 2:00'); // the newer live row survived
   assert.equal(row.home.score, 28);
   assert.equal(entry!.itemUpdatedAtById!['401001'], future);
+  // The enclosing version must move FORWARD past the prior live entry so a
+  // cross-instance week-scoped read never keeps serving a cached newer live copy
+  // over this fresh commit (Codex round 1, P1).
+  assert.equal(entry!.at, future + 1);
 });
 
 // ---- Ordering B: live starts → manual commits → older live resumes ------------

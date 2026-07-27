@@ -72,9 +72,19 @@ export function mergeManualPartition(params: {
   for (const item of unkeyed) items.push(item);
 
   return {
-    // The manual observation time — accepted manual rows are stamped identically,
-    // and every keyed row carries its own stamp, so `at` is only a fallback.
-    at: now,
+    // Monotonic entry VERSION (PLATFORM-086B2A). The week-scoped `/api/scores`
+    // reader selects between a process-cached and a durable entry SOLELY by `at`,
+    // so the enclosing `at` must never move BACKWARD past a prior entry this merge
+    // read over. When a live merge committed after the manual request began, the
+    // prior durable entry's `at` is newer than the manual observation `now`; using
+    // `now` here would let another instance holding that newer live entry keep
+    // serving pre-manual values indefinitely (past TTL, the `pickFreshestScoresEntry`
+    // comparison would prefer the cached live copy). Bump strictly past the prior
+    // entry's `at`. The per-row `itemUpdatedAtById` stamps still drive the season
+    // reconciler (accepted manual rows keep their observation time), so this version
+    // bump never fabricates row-level freshness; the invariant `entry.at >= every
+    // row stamp` (held by both writers) keeps `at` at least as new as its content.
+    at: prior ? Math.max(now, prior.at + 1) : now,
     items,
     source: 'cfbd',
     cfbdFallbackReason: 'none',

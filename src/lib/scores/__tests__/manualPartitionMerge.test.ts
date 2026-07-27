@@ -75,6 +75,38 @@ test('a prior row NEWER than the observation is a live update and is PRESERVED o
   assert.equal(merged.itemUpdatedAtById!['a'], 9000); // keeps its effective timestamp
 });
 
+test('the merged entry `at` is monotonic — never older than the prior entry it merged over (Codex round 1, P1)', () => {
+  // A live merge already advanced this key to at=5000; a slow manual request whose
+  // observation is 3000 must NOT reset `at` backward (the week-scoped reader selects
+  // by `at` and would otherwise keep serving a cached newer live entry indefinitely).
+  const prior = entry({
+    at: 5000,
+    items: [pack('a', 'Q4 2:00', 28, 21)],
+    itemUpdatedAtById: { a: 5000 },
+  });
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'scheduled', null, null)],
+    prior,
+    now: 3000,
+  });
+  assert.equal(merged.at, 5001); // strictly newer than the prior entry
+  assert.equal(merged.itemUpdatedAtById!['a'], 5000); // the preserved live row keeps its own stamp
+});
+
+test('a pure manual refresh over an older prior stamps `at` at the observation time', () => {
+  const prior = entry({
+    at: 1000,
+    items: [pack('a', 'Q1 10:00', 3, 0)],
+    itemUpdatedAtById: { a: 1000 },
+  });
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'final', 24, 17)],
+    prior,
+    now: 5000,
+  });
+  assert.equal(merged.at, 5000); // prior (1000) is older, so no version bump is needed
+});
+
 test('pending metadata: a protected newer live final keeps pending; a manual-covered id is cleared', () => {
   const prior = entry({
     at: 1000,
