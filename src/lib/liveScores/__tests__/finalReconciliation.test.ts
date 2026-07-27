@@ -95,6 +95,24 @@ test('some confirmed, some not → a partial parse', () => {
   assert.equal(result.pendingTargetCount, 2);
 });
 
+test('a null entry in the /games payload does not throw (Codex round 1, P2)', () => {
+  const result = parseFinalReconciliation({
+    payload: [null, gamesRow(401001, 24, 21)],
+    pendingGames: [pendingGame(401001)],
+  });
+  assert.equal(result.kind, 'parsed');
+  if (result.kind !== 'parsed') return;
+  assert.deepEqual(result.confirmedIds, ['401001']);
+});
+
+test('a nonempty payload that normalizes to zero usable rows is schema-drift (Codex round 1, P2)', () => {
+  const result = parseFinalReconciliation({
+    payload: [null, 'foo', 42, {}],
+    pendingGames: [pendingGame(401001)],
+  });
+  assert.equal(result.kind, 'schema-drift');
+});
+
 test('a corrected final carries the /games score', () => {
   const result = parseFinalReconciliation({
     payload: [gamesRow(401001, 31, 28)],

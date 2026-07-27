@@ -215,3 +215,89 @@ test('empty updates against no prior data never publish an empty entry', async (
   assert.equal(result.wrote, false);
   assert.equal(await read(9), null);
 });
+
+// ---- Reconciled-baseline protection (Codex round 1, P1) -------------------
+
+test('a scoreboard row cannot regress a better aggregate baseline the child key lacks', async () => {
+  // No child row for 'a'; the reconciled baseline (from the season-wide aggregate)
+  // says in-progress 14-7. A transient scheduled scoreboard row must be rejected.
+  const result = await mergeScoresIntoPartition({
+    year: 2025,
+    week: 3,
+    seasonType: 'regular',
+    updates: [
+      {
+        pack: pack('a', 'scheduled', null, null),
+        provisionalFinal: false,
+        baseline: pack('a', 'Q2 5:00', 14, 7),
+      },
+    ],
+    now: 2000,
+  });
+  assert.equal(result.wrote, false);
+  assert.equal(result.committed, 0);
+  assert.equal(await read(3), null);
+});
+
+test('a null-score scoreboard row preserves the aggregate baseline scores', async () => {
+  await mergeScoresIntoPartition({
+    year: 2025,
+    week: 3,
+    seasonType: 'regular',
+    updates: [
+      {
+        pack: pack('a', 'In Progress', null, null),
+        provisionalFinal: false,
+        baseline: pack('a', 'Q2 5:00', 14, 7),
+      },
+    ],
+    now: 2000,
+  });
+  const entry = await read(3);
+  assert.equal(entry!.items[0]!.home.score, 14); // preserved from the baseline
+  assert.equal(entry!.items[0]!.away.score, 7);
+});
+
+// ---- Observation ordering across overlapping runs (Codex round 1, P2) -----
+
+test('an observation older than the child row is skipped', async () => {
+  await seed(3, {
+    at: 5000,
+    items: [pack('a', 'Q3 2:00', 21, 14)],
+    itemUpdatedAtById: { a: 5000 },
+  });
+  const result = await mergeScoresIntoPartition({
+    year: 2025,
+    week: 3,
+    seasonType: 'regular',
+    updates: [{ pack: pack('a', 'Q2 5:00', 14, 7), provisionalFinal: false }],
+    now: 3000, // older run than the child's effective 5000
+  });
+  assert.equal(result.wrote, false);
+  const entry = await read(3);
+  assert.equal(entry!.items[0]!.status, 'Q3 2:00'); // newer child row preserved
+  assert.equal(entry!.items[0]!.home.score, 21);
+});
+
+// ---- Write-free confirmation (Codex round 1, P2) --------------------------
+
+test('confirming an already-cleared pending id with an unchanged score is a no-op (wrote false)', async () => {
+  // Child final 24-17 with NO pending metadata (a concurrent op already cleared it).
+  await seed(3, { at: 1000, items: [pack('a', 'final', 24, 17)], itemUpdatedAtById: { a: 1000 } });
+  const result = await mergeScoresIntoPartition({
+    year: 2025,
+    week: 3,
+    seasonType: 'regular',
+    updates: [
+      {
+        pack: pack('a', 'final', 24, 17),
+        provisionalFinal: false,
+        baseline: pack('a', 'final', 24, 17),
+      },
+    ],
+    confirmFinalIds: ['a'],
+    now: 2000,
+  });
+  assert.equal(result.wrote, false);
+  assert.equal(result.committed, 0);
+});

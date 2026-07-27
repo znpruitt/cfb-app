@@ -1,4 +1,5 @@
 import type { CanonicalGame } from '@/lib/gameStats/canonicalSlate';
+import type { ScorePack } from '@/lib/scores/types';
 import type { TeamIdentityResolver } from '@/lib/teamIdentity';
 
 import type { LiveScoreContext, LiveScoreGame } from '../canonicalContext';
@@ -35,11 +36,16 @@ export function makeCanonicalGame(
 
 export function makeLiveGame(
   canonical: Partial<CanonicalGame> & { providerGameId: number },
-  state: { cachedStatus?: LiveScoreGame['cachedStatus']; pendingConfirmation?: boolean } = {}
+  state: {
+    cachedStatus?: LiveScoreGame['cachedStatus'];
+    cachedScore?: ScorePack | null;
+    pendingConfirmation?: boolean;
+  } = {}
 ): LiveScoreGame {
   return {
     canonical: makeCanonicalGame(canonical),
     cachedStatus: state.cachedStatus ?? null,
+    cachedScore: state.cachedScore ?? null,
     pendingConfirmation: state.pendingConfirmation ?? false,
   };
 }

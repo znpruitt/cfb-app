@@ -377,6 +377,22 @@ test('a corrected /games final rewrites the score and clears pending', async () 
   assert.equal(entry!.pendingFinalConfirmationIds, undefined);
 });
 
+test('a malformed /games payload during reconciliation fails cleanly and resolves the attempt', async () => {
+  await seedPendingFinal();
+  stubProvider({ games: [null, 'garbage', 42] });
+  const { res, event } = await runCron();
+  assert.equal(event.mode, 'final-reconciliation');
+  assert.equal(event.result, 'failure');
+  assert.equal(event.reason, 'final-reconciliation-invalid-payload');
+  assert.equal(res!.status, 500);
+  // Prior-good pending metadata is preserved.
+  const entry = await readScores(3);
+  assert.deepEqual(entry!.pendingFinalConfirmationIds, ['401001']);
+  // The begun attempt is resolved as a failure, never stranded in-progress.
+  const status = await getProviderRefreshStatus('scores', weekPartitionScope(YEAR, 3, 'regular'));
+  assert.equal(status.latestAttemptOutcome, 'failed');
+});
+
 test('a not-yet-final /games response leaves the pending final unconfirmed', async () => {
   await seedPendingFinal();
   stubProvider({

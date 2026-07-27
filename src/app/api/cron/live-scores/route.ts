@@ -373,6 +373,7 @@ async function runScoreboard(args: {
         updates: partitionMatches.map((m) => ({
           pack: m.pack,
           provisionalFinal: m.provisionalFinal,
+          baseline: m.game.cachedScore,
         })),
         now: now.getTime(),
       });
@@ -464,11 +465,30 @@ async function runFinalReconciliation(args: {
     return finalize(exec, 'failure', 'provider-fetch-failed', 0);
   }
 
-  const parse = parseFinalReconciliation({ payload, pendingGames: plan.pendingGames });
-  if (parse.kind === 'invalid-payload') {
+  // Parsing is fenced so an unexpected throw (e.g. a malformed provider row the
+  // shared normalizer cannot digest) still resolves the begun attempt rather than
+  // leaving it stranded in-progress.
+  let parse: ReturnType<typeof parseFinalReconciliation>;
+  try {
+    parse = parseFinalReconciliation({ payload, pendingGames: plan.pendingGames });
+  } catch (error) {
     await recordProviderRefreshFailure('scores', pa.scope, {
       attempt: pa.attempt,
-      error: 'games returned a non-array payload',
+      error: error instanceof Error ? error.message : 'games payload parse failed',
+      code: 'scores-final-reconciliation-invalid-payload',
+      status: 500,
+    });
+    return finalize(exec, 'failure', 'final-reconciliation-invalid-payload', 0);
+  }
+  // A non-array payload AND a nonempty array that normalizes to zero usable rows
+  // (schema drift) are both unusable payloads that preserve prior-good state.
+  if (parse.kind === 'invalid-payload' || parse.kind === 'schema-drift') {
+    await recordProviderRefreshFailure('scores', pa.scope, {
+      attempt: pa.attempt,
+      error:
+        parse.kind === 'schema-drift'
+          ? 'games returned rows but none normalized to a usable game (schema drift)'
+          : 'games returned a non-array payload',
       code: 'scores-final-reconciliation-invalid-payload',
     });
     return finalize(exec, 'failure', 'final-reconciliation-invalid-payload', 0);
@@ -482,9 +502,9 @@ async function runFinalReconciliation(args: {
     return finalize(exec, 'failure', 'final-reconciliation-empty-unexpected', 0);
   }
 
-  let committed: number;
+  let mergeResult;
   try {
-    const result = await mergeScoresIntoPartition({
+    mergeResult = await mergeScoresIntoPartition({
       year,
       week: partition.week,
       seasonType: partition.seasonType,
@@ -492,7 +512,6 @@ async function runFinalReconciliation(args: {
       confirmFinalIds: parse.confirmedIds,
       now: now.getTime(),
     });
-    committed = result.committed;
   } catch (error) {
     await recordProviderRefreshFailure('scores', pa.scope, {
       attempt: pa.attempt,
@@ -503,29 +522,38 @@ async function runFinalReconciliation(args: {
     return finalize(exec, 'failure', 'durable-commit-failed', 0);
   }
 
-  if (committed > 0) await invalidateStandingsForYear(year);
+  // Capture ordering metadata immediately after the durable commit and BEFORE the
+  // slower standings invalidation, so two overlapping commits cannot invert their
+  // last-success ordering (an older commit's slow invalidation must not stamp it
+  // with a later commitSeq than a newer commit).
+  const committedAt = new Date().toISOString();
+  const commitSeq = nextProviderCommitSeq();
+  if (mergeResult.committed > 0) await invalidateStandingsForYear(year);
 
   const { confirmedIds, pendingTargetCount } = parse;
-  if (confirmedIds.length > 0 && confirmedIds.length === pendingTargetCount) {
+  // A write-free run committed nothing durably (e.g. a concurrent op cleared the
+  // pending id and corrected the score between context load and this merge) —
+  // resolve it as a no-op, never a success that advances last-success with no commit.
+  if (mergeResult.wrote && confirmedIds.length === pendingTargetCount) {
     await recordProviderRefreshSuccess('scores', pa.scope, {
       attempt: pa.attempt,
-      committedAt: new Date().toISOString(),
-      commitSeq: nextProviderCommitSeq(),
+      committedAt,
+      commitSeq,
       source: 'cfbd',
-      rowsCommitted: committed,
+      rowsCommitted: mergeResult.committed,
     });
-    return finalize(exec, 'success', 'final-reconciliation-confirmed', committed);
+    return finalize(exec, 'success', 'final-reconciliation-confirmed', mergeResult.committed);
   }
-  if (confirmedIds.length > 0) {
+  if (mergeResult.wrote && confirmedIds.length > 0) {
     await recordProviderRefreshSuccess('scores', pa.scope, {
       attempt: pa.attempt,
-      committedAt: new Date().toISOString(),
-      commitSeq: nextProviderCommitSeq(),
+      committedAt,
+      commitSeq,
       source: 'cfbd',
-      rowsCommitted: committed,
+      rowsCommitted: mergeResult.committed,
       partialFailure: true,
     });
-    return finalize(exec, 'partial', 'final-reconciliation-partial', committed);
+    return finalize(exec, 'partial', 'final-reconciliation-partial', mergeResult.committed);
   }
   await recordProviderRefreshNoop('scores', pa.scope, { attempt: pa.attempt, source: 'cfbd' });
   return finalize(exec, 'no-op', 'final-reconciliation-not-confirmed', 0);

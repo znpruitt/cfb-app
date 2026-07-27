@@ -19,18 +19,43 @@ import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
  *   final       may replace in-progress
  *   same-state score corrections are allowed
  *
+ * Monotonic and null protection run against the reconciled prior score
+ * (`ScoreUpdate.baseline`, spanning the child AND the season-wide `${year}-all-*`
+ * aggregate), not merely the exact child key — the child alone treats an
+ * aggregate-only row as absent and would let a transient scoreboard row regress
+ * it. An observation older than the child's current row (an out-of-order
+ * overlapping run) is skipped entirely.
+ *
  * Per-row freshness (the required fix): a live merge stamps ONLY inserted or
  * materially changed rows with `now`; preserved rows keep their prior effective
  * timestamp, and a metadata-only (confirmation) change keeps the entry `at`
  * itself, so a preserved row can never out-rank a genuinely newer copy elsewhere
  * and freshness is never fabricated. Nothing is written when neither a score nor
  * the confirmation metadata changed, and an empty replacement is never published.
+ *
+ * KNOWN DEFERRAL (PLATFORM-086B2): this transaction serializes against OTHER
+ * `withAppStateKeyTransaction` writers of the same child key, but NOT against the
+ * `/api/scores?refresh=1` manual-repair path, which still writes the partition via
+ * a plain `setAppState` upsert that does not honor the advisory lock. A manual
+ * week-specific repair overlapping live polling could therefore interleave and
+ * drop the other writer's rows. The race is inert while this engine is dormant
+ * (no scheduler) and self-heals on the next poll/refresh; unifying every scores
+ * writer onto the locked protocol is deferred to the B2 activation slice so B1
+ * leaves the manual-refresh behavior unchanged.
  */
 
 export type ScoreUpdate = {
   pack: ScorePack;
   /** True when this update asserts a scoreboard final awaiting `/games` confirmation. */
   provisionalFinal: boolean;
+  /**
+   * The reconciled prior-good score for this game as of context load (across the
+   * child AND the season-wide `${year}-all-*` aggregate). Monotonic and null
+   * protection reference against the CURRENTLY-SERVED state, so a transient
+   * scoreboard row cannot regress a better aggregate row that the child key alone
+   * would treat as absent. Optional/nullable: absent when no score is cached.
+   */
+  baseline?: ScorePack | null;
 };
 
 export type PartitionMergeResult = {
@@ -85,6 +110,29 @@ export function mergeScoreRow(prior: ScorePack | undefined, next: ScorePack): Me
   return { rejected: false, changed, row };
 }
 
+/**
+ * The protection reference for a game: the HIGHER-state of the in-transaction
+ * child row and the reconciled baseline (child + aggregate) as of context load.
+ * State wins first (so monotonic protection always uses the best-known state); on
+ * an equal state the one carrying both scores is preferred, else the freshly-read
+ * child row. The reconciler's per-row timestamps still decide the ultimate served
+ * winner, so this only governs regression/preservation, never staleness.
+ */
+function chooseProtectionBaseline(
+  childPrior: ScorePack | undefined,
+  baseline: ScorePack | undefined
+): ScorePack | undefined {
+  if (!childPrior) return baseline;
+  if (!baseline) return childPrior;
+  const childOrder = stateOrder(classifyScorePackStatus(childPrior));
+  const baselineOrder = stateOrder(classifyScorePackStatus(baseline));
+  if (baselineOrder > childOrder) return baseline;
+  if (childOrder > baselineOrder) return childPrior;
+  const childHasScores = childPrior.home.score !== null && childPrior.away.score !== null;
+  const baselineHasScores = baseline.home.score !== null && baseline.away.score !== null;
+  return baselineHasScores && !childHasScores ? baseline : childPrior;
+}
+
 function toPendingSet(entry: CacheEntry | null): Set<string> {
   const set = new Set<string>();
   for (const id of entry?.pendingFinalConfirmationIds ?? []) {
@@ -134,7 +182,18 @@ export async function mergeScoresIntoPartition(params: {
     for (const update of updates) {
       const id = update.pack.id?.trim();
       if (!id) continue;
-      const result = mergeScoreRow(mergedById.get(id)?.item, update.pack);
+      const childPrior = mergedById.get(id)?.item;
+      // Observation ordering: never let an observation OLDER than the child's
+      // current row overwrite it. Overlapping runs can deliver an earlier
+      // (smaller `now`) response after a later one already committed; both may
+      // classify the same state, so the state check alone would accept the stale
+      // one. `now` is the run's start instant, a monotonic proxy for provider
+      // freshness.
+      if (childPrior && prior && now < effectiveRowTimestamp(prior, childPrior)) continue;
+      // Protect against the CURRENTLY-SERVED state (child + aggregate), not just
+      // the child key — the child alone treats an aggregate-only row as absent.
+      const protectionRef = chooseProtectionBaseline(childPrior, update.baseline ?? undefined);
+      const result = mergeScoreRow(protectionRef, update.pack);
       if (result.rejected) continue; // monotonic regression — preserve prior
       if (result.changed) {
         mergedById.set(id, { item: result.row, touched: true });

@@ -11,6 +11,7 @@ import {
   type NormalizedScoreRow,
 } from '@/lib/scoreAttachment';
 import type { CacheEntry } from '@/lib/scores/cache';
+import type { ScorePack } from '@/lib/scores/types';
 import { getAppStateEntries } from '@/lib/server/appStateStore';
 import { loadCachedScheduleItems } from '@/lib/server/canonicalScheduleCache';
 import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
@@ -55,6 +56,14 @@ export type LiveScoreContextUnavailableReason =
 export type LiveScoreGame = {
   canonical: CanonicalGame;
   cachedStatus: GameStatusBucket | null;
+  /**
+   * The reconciled prior-good score for this game (across the child AND the
+   * season-wide `${year}-all-*` aggregate) as a canonical ScorePack, or null when
+   * no score is cached. The durable merge uses this as its monotonic/null
+   * protection reference so a transient scoreboard row cannot regress a better
+   * aggregate row the child cache key alone would treat as absent.
+   */
+  cachedScore: ScorePack | null;
   pendingConfirmation: boolean;
 };
 
@@ -219,9 +228,25 @@ export async function loadLiveScoreContext(input: {
 
   const liveGames: LiveScoreGame[] = canonicalGames.map((canonical) => {
     const attachedScore = attached.scoresByKey[canonical.key];
+    // Reconstruct a canonical ScorePack from the attached reconciled score so the
+    // merge has a monotonic/null protection reference for the CURRENTLY-SERVED
+    // state (child + aggregate), keyed to this game's canonical identity.
+    const cachedScore: ScorePack | null = attachedScore
+      ? {
+          id: String(canonical.providerGameId),
+          seasonType: canonical.seasonType,
+          startDate: canonical.kickoff,
+          week: canonical.providerWeek,
+          status: attachedScore.status,
+          home: { team: attachedScore.home.team, score: attachedScore.home.score },
+          away: { team: attachedScore.away.team, score: attachedScore.away.score },
+          time: attachedScore.time,
+        }
+      : null;
     return {
       canonical,
       cachedStatus: attachedScore ? classifyScorePackStatus(attachedScore) : null,
+      cachedScore,
       pendingConfirmation: pendingIds.has(String(canonical.providerGameId)),
     };
   });

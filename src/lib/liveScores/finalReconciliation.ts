@@ -24,6 +24,7 @@ import type { ScoreUpdate } from './scoreMerge';
 export type FinalReconciliationParse =
   | { kind: 'invalid-payload' }
   | { kind: 'empty-unexpected' }
+  | { kind: 'schema-drift' }
   | {
       kind: 'parsed';
       /** Confirmed finals to durably apply/correct (schedule-oriented). */
@@ -78,17 +79,26 @@ export function parseFinalReconciliation(params: {
       : { kind: 'parsed', updates: [], confirmedIds: [], pendingTargetCount: 0 };
   }
 
-  // Group normalized `/games` rows by provider id. Only completed rows with both
-  // scores can confirm a final.
+  // Group normalized `/games` rows by provider id. Only object entries are fed to
+  // the shared normalizer — a primitive (`null`, a string, a number) is NOT
+  // null-safe there and would throw, leaving the begun attempt unresolved.
   const packsByProviderId = new Map<string, ScorePack[]>();
+  let usableRowCount = 0;
   for (const raw of payload) {
+    if (typeof raw !== 'object' || raw === null) continue;
     const pack = toScorePackFromCfbd(raw as CfbdGameLoose);
     const id = pack?.id?.trim();
     if (!pack || !id) continue;
+    usableRowCount += 1;
     const bucket = packsByProviderId.get(id);
     if (bucket) bucket.push(pack);
     else packsByProviderId.set(id, [pack]);
   }
+
+  // A nonempty response that normalizes to ZERO usable rows is provider schema
+  // drift (parity with the scoreboard classifier and the `/api/scores` refresh),
+  // never a silent no-op — prior-good confirmation metadata is preserved.
+  if (usableRowCount === 0) return { kind: 'schema-drift' };
 
   const updates: ScoreUpdate[] = [];
   const confirmedIds: string[] = [];
@@ -98,7 +108,11 @@ export function parseFinalReconciliation(params: {
     const pack = candidates[0]!;
     if (classifyScorePackStatus(pack) !== 'final') continue; // not final yet → stays pending
     if (pack.home.score === null || pack.away.score === null) continue; // incomplete → stays pending
-    updates.push({ pack: buildConfirmedFinalPack(game.canonical, pack), provisionalFinal: false });
+    updates.push({
+      pack: buildConfirmedFinalPack(game.canonical, pack),
+      provisionalFinal: false,
+      baseline: game.cachedScore,
+    });
     confirmedIds.push(providerId);
   }
 
