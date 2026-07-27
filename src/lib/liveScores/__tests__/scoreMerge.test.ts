@@ -301,3 +301,54 @@ test('confirming an already-cleared pending id with an unchanged score is a no-o
   assert.equal(result.wrote, false);
   assert.equal(result.committed, 0);
 });
+
+test('an equal-state staler child does not win null-score preservation over the fresher baseline', async () => {
+  // Child holds a STALE in-progress 14-7 (effective 1000); the reconciled baseline
+  // (the season-wide aggregate) is the fresher served 21-14 (effective 3000). A
+  // transient null-score scoreboard row must preserve from the FRESHER baseline.
+  await seed(3, { at: 1000, items: [pack('a', 'Q2 5:00', 14, 7)], itemUpdatedAtById: { a: 1000 } });
+  await mergeScoresIntoPartition({
+    year: 2025,
+    week: 3,
+    seasonType: 'regular',
+    updates: [
+      {
+        pack: pack('a', 'Q4 2:00', null, null),
+        provisionalFinal: false,
+        baseline: pack('a', 'Q3 8:14', 21, 14),
+        baselineAt: 3000,
+      },
+    ],
+    now: 5000,
+  });
+  const entry = await read(3);
+  assert.equal(entry!.items[0]!.home.score, 21); // preserved from the fresher baseline, not stale 14
+  assert.equal(entry!.items[0]!.away.score, 14);
+});
+
+test('a touched write does not re-stamp a retained ID-less row (keeps prior entry `at`)', async () => {
+  const idless: ScorePack = {
+    seasonType: 'regular',
+    startDate: null,
+    week: 3,
+    status: 'final',
+    home: { team: 'Xavier', score: 7 },
+    away: { team: 'Yale', score: 3 },
+    time: null,
+  };
+  await seed(3, {
+    at: 1000,
+    items: [idless, pack('a', 'Q1 10:00', 3, 0)],
+    itemUpdatedAtById: { a: 1000 },
+  });
+  await mergeScoresIntoPartition({
+    year: 2025,
+    week: 3,
+    seasonType: 'regular',
+    updates: [{ pack: pack('a', 'final', 21, 14), provisionalFinal: false }],
+    now: 5000,
+  });
+  const entry = await read(3);
+  assert.equal(entry!.at, 1000); // NOT re-stamped to 5000 — protects the ID-less row's effective ts
+  assert.equal(entry!.itemUpdatedAtById!['a'], 5000); // the keyed touched row is still fresh
+});

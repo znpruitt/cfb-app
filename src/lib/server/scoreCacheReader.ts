@@ -55,6 +55,14 @@ export type ReconciledSeasonScores = {
    * nothing is cached).
    */
   newestEffectiveAt: number | null;
+  /**
+   * The EFFECTIVE timestamp of each winning row that carries a provider game id,
+   * keyed by that id (PLATFORM-086B1). Lets a downstream durable merge know how
+   * fresh the currently-served value for a game is — so its monotonic/null
+   * protection references the reconciled winner (which may live in the
+   * season-wide aggregate) rather than a possibly-staler exact child row.
+   */
+  effectiveAtById: Record<string, number>;
   /** Number of matching cache entries found (including empty ones). */
   contributorCount: number;
 };
@@ -113,7 +121,13 @@ function reconcileContributors(
   aliasMap: AliasMap
 ): ReconciledSeasonScores {
   if (contributors.length === 0) {
-    return { items: [], newest: null, newestEffectiveAt: null, contributorCount: 0 };
+    return {
+      items: [],
+      newest: null,
+      newestEffectiveAt: null,
+      effectiveAtById: {},
+      contributorCount: 0,
+    };
   }
 
   // Build a canonical team-identity resolver over every label observed across
@@ -164,6 +178,16 @@ function reconcileContributors(
         )
       : null;
 
+  // Per-provider-game effective timestamp of each winning row, so a downstream
+  // merge can compare a game's served freshness against its own child row.
+  const effectiveAtById: Record<string, number> = {};
+  for (const { item, effectiveAt } of winners) {
+    const id = item.id?.trim();
+    if (!id) continue;
+    const existing = effectiveAtById[id];
+    if (existing === undefined || effectiveAt > existing) effectiveAtById[id] = effectiveAt;
+  }
+
   // `newest` (the enclosing entry) still carries source/cfbdFallbackReason. Take
   // the newest entry that actually contributed rows so an empty-but-newer
   // fallback does not report a misleading source.
@@ -176,6 +200,7 @@ function reconcileContributors(
     items: winners.map((w) => w.item),
     newest,
     newestEffectiveAt,
+    effectiveAtById,
     contributorCount: contributors.length,
   };
 }

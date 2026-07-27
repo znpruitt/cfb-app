@@ -64,6 +64,13 @@ export type LiveScoreGame = {
    * aggregate row the child cache key alone would treat as absent.
    */
   cachedScore: ScorePack | null;
+  /**
+   * The EFFECTIVE timestamp of {@link cachedScore} (the reconciled winning row's
+   * per-row timestamp), or null when no score is cached. The merge compares this
+   * against the child row's own effective timestamp to reference the truly
+   * freshest known state, so an equal-state stale child never wins preservation.
+   */
+  cachedScoreAt: number | null;
   pendingConfirmation: boolean;
 };
 
@@ -162,6 +169,9 @@ export async function loadLiveScoreContext(input: {
   let regularRows: NormalizedScoreRow[];
   let postseasonRows: NormalizedScoreRow[];
   let pendingIds: Set<string>;
+  // Per-provider-game effective timestamp of each reconciled winning row, so the
+  // merge knows how fresh a game's SERVED value is (child + aggregate).
+  const cachedScoreAtById = new Map<string, number>();
   try {
     const [reconciled, pending] = await Promise.all([
       loadReconciledSeasonScoresByType({ year, teams, aliasMap }),
@@ -169,6 +179,12 @@ export async function loadLiveScoreContext(input: {
     ]);
     regularRows = reconciled.regular.items.map(scorePackToNormalizedRow);
     postseasonRows = reconciled.postseason.items.map(scorePackToNormalizedRow);
+    for (const map of [reconciled.regular.effectiveAtById, reconciled.postseason.effectiveAtById]) {
+      for (const [id, at] of Object.entries(map)) {
+        const existing = cachedScoreAtById.get(id);
+        if (existing === undefined || at > existing) cachedScoreAtById.set(id, at);
+      }
+    }
     pendingIds = pending;
   } catch {
     return { status: 'unavailable', reason: 'score-cache-unavailable' };
@@ -247,6 +263,7 @@ export async function loadLiveScoreContext(input: {
       canonical,
       cachedStatus: attachedScore ? classifyScorePackStatus(attachedScore) : null,
       cachedScore,
+      cachedScoreAt: cachedScoreAtById.get(String(canonical.providerGameId)) ?? null,
       pendingConfirmation: pendingIds.has(String(canonical.providerGameId)),
     };
   });

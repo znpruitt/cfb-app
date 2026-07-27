@@ -2,6 +2,7 @@ import type { CanonicalGame } from '@/lib/gameStats/canonicalSlate';
 import { classifyScorePackStatus } from '@/lib/gameStatus';
 import { toScorePackFromCfbd } from '@/lib/scores/normalizers';
 import type { CfbdGameLoose, ScorePack } from '@/lib/scores/types';
+import { resolveTeamIdentityKey, type TeamIdentityResolver } from '@/lib/teamIdentity';
 
 import type { LiveScoreGame } from './canonicalContext';
 import type { ScoreUpdate } from './scoreMerge';
@@ -61,11 +62,34 @@ function buildConfirmedFinalPack(canonical: CanonicalGame, gamesPack: ScorePack)
  * confirmation targets exist is `empty-unexpected` (both failures that preserve
  * prior-good state).
  */
+/**
+ * Side-for-side participant validation for a `/games` final, via the same
+ * centralized identity authority the scoreboard path uses. Guards against a stale
+ * or corrected schedule orientation: a `/games` row whose home/away resolve to
+ * the SWAPPED (or mismatched, or unresolvable) canonical sides must NOT confirm a
+ * final — otherwise `buildConfirmedFinalPack` would assign the raw home/away
+ * points to the wrong canonical sides and persist an incorrect final + owner result.
+ */
+function gamesRowMatchesCanonicalSides(
+  canonical: CanonicalGame,
+  pack: ScorePack,
+  resolver: TeamIdentityResolver
+): boolean {
+  const canonHome = canonical.home?.identityKey ?? null;
+  const canonAway = canonical.away?.identityKey ?? null;
+  if (!canonHome || !canonAway) return false;
+  const homeKey = resolveTeamIdentityKey(resolver, pack.home.team);
+  const awayKey = resolveTeamIdentityKey(resolver, pack.away.team);
+  if (!homeKey || !awayKey) return false;
+  return homeKey === canonHome && awayKey === canonAway;
+}
+
 export function parseFinalReconciliation(params: {
   payload: unknown;
   pendingGames: LiveScoreGame[];
+  resolver: TeamIdentityResolver;
 }): FinalReconciliationParse {
-  const { payload, pendingGames } = params;
+  const { payload, pendingGames, resolver } = params;
   if (!Array.isArray(payload)) return { kind: 'invalid-payload' };
 
   const pendingByProviderId = new Map<string, LiveScoreGame>();
@@ -108,10 +132,14 @@ export function parseFinalReconciliation(params: {
     const pack = candidates[0]!;
     if (classifyScorePackStatus(pack) !== 'final') continue; // not final yet → stays pending
     if (pack.home.score === null || pack.away.score === null) continue; // incomplete → stays pending
+    // Confirm only when the `/games` orientation matches the canonical sides — a
+    // swapped/mismatched row must not persist an inverted final.
+    if (!gamesRowMatchesCanonicalSides(game.canonical, pack, resolver)) continue;
     updates.push({
       pack: buildConfirmedFinalPack(game.canonical, pack),
       provisionalFinal: false,
       baseline: game.cachedScore,
+      baselineAt: game.cachedScoreAt,
     });
     confirmedIds.push(providerId);
   }

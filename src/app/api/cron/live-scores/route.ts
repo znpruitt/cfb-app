@@ -256,7 +256,15 @@ export async function GET(req: Request) {
           now,
           exec,
         })
-      : await runFinalReconciliation({ plan, partitionAttempts, cfbdApiKey, year, now, exec });
+      : await runFinalReconciliation({
+          plan,
+          context: contextResult.context,
+          partitionAttempts,
+          cfbdApiKey,
+          year,
+          now,
+          exec,
+        });
   } finally {
     // The ONLY emission point — best-effort; cannot alter the response or mask a
     // throw. On an unexpected throw `exec` still holds `failure / unexpected-error`.
@@ -374,6 +382,7 @@ async function runScoreboard(args: {
           pack: m.pack,
           provisionalFinal: m.provisionalFinal,
           baseline: m.game.cachedScore,
+          baselineAt: m.game.cachedScoreAt,
         })),
         now: now.getTime(),
       });
@@ -435,13 +444,14 @@ async function runScoreboard(args: {
 
 async function runFinalReconciliation(args: {
   plan: Extract<PollingPlan, { mode: 'final-reconciliation' }>;
+  context: LiveScoreContext;
   partitionAttempts: PartitionAttempt[];
   cfbdApiKey: string;
   year: number;
   now: Date;
   exec: LiveScoresCronExecutionState;
 }) {
-  const { plan, partitionAttempts, cfbdApiKey, year, now, exec } = args;
+  const { plan, context, partitionAttempts, cfbdApiKey, year, now, exec } = args;
   const pa = partitionAttempts[0]!;
   const { partition } = plan;
 
@@ -470,7 +480,11 @@ async function runFinalReconciliation(args: {
   // leaving it stranded in-progress.
   let parse: ReturnType<typeof parseFinalReconciliation>;
   try {
-    parse = parseFinalReconciliation({ payload, pendingGames: plan.pendingGames });
+    parse = parseFinalReconciliation({
+      payload,
+      pendingGames: plan.pendingGames,
+      resolver: context.resolver,
+    });
   } catch (error) {
     await recordProviderRefreshFailure('scores', pa.scope, {
       attempt: pa.attempt,

@@ -56,6 +56,14 @@ export type ScoreUpdate = {
    * would treat as absent. Optional/nullable: absent when no score is cached.
    */
   baseline?: ScorePack | null;
+  /**
+   * The EFFECTIVE timestamp of {@link baseline} (the reconciled winning row's
+   * per-row timestamp). Compared against the child row's own effective timestamp
+   * to reference the truly freshest known state — so an equal-state but STALER
+   * child never wins null-score preservation over the reconciled winner. Absent
+   * falls back to state-based preference.
+   */
+  baselineAt?: number | null;
 };
 
 export type PartitionMergeResult = {
@@ -111,19 +119,25 @@ export function mergeScoreRow(prior: ScorePack | undefined, next: ScorePack): Me
 }
 
 /**
- * The protection reference for a game: the HIGHER-state of the in-transaction
- * child row and the reconciled baseline (child + aggregate) as of context load.
- * State wins first (so monotonic protection always uses the best-known state); on
- * an equal state the one carrying both scores is preferred, else the freshly-read
- * child row. The reconciler's per-row timestamps still decide the ultimate served
- * winner, so this only governs regression/preservation, never staleness.
+ * The protection reference for a game: the currently-served value across the
+ * in-transaction child row and the reconciled baseline (child + aggregate). When
+ * both effective timestamps are known the FRESHER row wins — the reconciler's own
+ * rule — so an equal-state but STALER child can never win null-score
+ * preservation over the newer served row. With no timestamps (e.g. a unit test
+ * passing only a baseline) it falls back to a state-first heuristic: higher state
+ * wins; on a tie the one carrying both scores; else the freshly-read child row.
  */
 function chooseProtectionBaseline(
   childPrior: ScorePack | undefined,
-  baseline: ScorePack | undefined
+  childEffective: number | undefined,
+  baseline: ScorePack | undefined,
+  baselineAt: number | undefined
 ): ScorePack | undefined {
   if (!childPrior) return baseline;
   if (!baseline) return childPrior;
+  if (childEffective !== undefined && baselineAt !== undefined) {
+    return baselineAt > childEffective ? baseline : childPrior;
+  }
   const childOrder = stateOrder(classifyScorePackStatus(childPrior));
   const baselineOrder = stateOrder(classifyScorePackStatus(baseline));
   if (baselineOrder > childOrder) return baseline;
@@ -189,10 +203,18 @@ export async function mergeScoresIntoPartition(params: {
       // classify the same state, so the state check alone would accept the stale
       // one. `now` is the run's start instant, a monotonic proxy for provider
       // freshness.
-      if (childPrior && prior && now < effectiveRowTimestamp(prior, childPrior)) continue;
+      const childEffective =
+        childPrior && prior ? effectiveRowTimestamp(prior, childPrior) : undefined;
+      if (childEffective !== undefined && now < childEffective) continue;
       // Protect against the CURRENTLY-SERVED state (child + aggregate), not just
-      // the child key — the child alone treats an aggregate-only row as absent.
-      const protectionRef = chooseProtectionBaseline(childPrior, update.baseline ?? undefined);
+      // the child key — the child alone treats an aggregate-only row as absent,
+      // and an equal-state staler child must not win null-score preservation.
+      const protectionRef = chooseProtectionBaseline(
+        childPrior,
+        childEffective,
+        update.baseline ?? undefined,
+        update.baselineAt ?? undefined
+      );
       const result = mergeScoreRow(protectionRef, update.pack);
       if (result.rejected) continue; // monotonic regression — preserve prior
       if (result.changed) {
@@ -229,11 +251,19 @@ export async function mergeScoresIntoPartition(params: {
     // Never publish an empty replacement.
     if (items.length === 0) return { wrote: false, committed };
 
+    // A live-written row always carries a provider id, so every keyed row above is
+    // stamped explicitly in `itemUpdatedAtById`; the entry `at` is then only the
+    // fallback for retained ID-LESS rows (a legacy artifact). Advancing `at` to
+    // `now` on a touched write would re-stamp those ID-less rows fresh via
+    // `effectiveRowTimestamp` and let them out-rank a genuinely newer aggregate
+    // copy — so when ID-less rows are retained, keep the prior `at` as their floor.
+    // Keyed rows are unaffected (they read their own stamps).
+    const advanceEntryAt = committed > 0 && unkeyedPrior.length === 0;
     const nextEntry: CacheEntry = {
-      // A score change advances the entry timestamp; a metadata-only change keeps
-      // the prior `at` so no served-score freshness is fabricated. A brand-new
-      // entry uses `now`.
-      at: committed > 0 ? now : (prior?.at ?? now),
+      // A score change advances the entry timestamp; a metadata-only change (or a
+      // touched write that retains ID-less rows) keeps the prior `at` so no
+      // served-score freshness is fabricated. A brand-new entry uses `now`.
+      at: advanceEntryAt ? now : (prior?.at ?? now),
       items,
       source: 'cfbd',
       cfbdFallbackReason: 'none',

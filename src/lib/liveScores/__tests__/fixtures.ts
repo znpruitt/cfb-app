@@ -39,6 +39,7 @@ export function makeLiveGame(
   state: {
     cachedStatus?: LiveScoreGame['cachedStatus'];
     cachedScore?: ScorePack | null;
+    cachedScoreAt?: number | null;
     pendingConfirmation?: boolean;
   } = {}
 ): LiveScoreGame {
@@ -46,6 +47,7 @@ export function makeLiveGame(
     canonical: makeCanonicalGame(canonical),
     cachedStatus: state.cachedStatus ?? null,
     cachedScore: state.cachedScore ?? null,
+    cachedScoreAt: state.cachedScoreAt ?? null,
     pendingConfirmation: state.pendingConfirmation ?? false,
   };
 }

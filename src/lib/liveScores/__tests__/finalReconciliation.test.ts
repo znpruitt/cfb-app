@@ -1,15 +1,33 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import {
+  createTeamIdentityResolver,
+  resolveTeamIdentityKey,
+  type TeamCatalogItem,
+} from '@/lib/teamIdentity';
+
 import { parseFinalReconciliation } from '../finalReconciliation';
 import { makeLiveGame } from './fixtures';
+
+const TEAMS: TeamCatalogItem[] = [
+  { school: 'Alabama', classification: 'fbs', conference: 'SEC' },
+  { school: 'Georgia', classification: 'fbs', conference: 'SEC' },
+];
+const resolver = createTeamIdentityResolver({
+  teams: TEAMS,
+  aliasMap: {},
+  observedNames: ['Alabama', 'Georgia'],
+});
+const ALA = resolveTeamIdentityKey(resolver, 'Alabama');
+const UGA = resolveTeamIdentityKey(resolver, 'Georgia');
 
 function pendingGame(providerGameId: number) {
   return makeLiveGame(
     {
       providerGameId,
-      home: { identityKey: 'h', canonicalName: 'Alabama' },
-      away: { identityKey: 'a', canonicalName: 'Georgia' },
+      home: { identityKey: ALA, canonicalName: 'Alabama' },
+      away: { identityKey: UGA, canonicalName: 'Georgia' },
     },
     { cachedStatus: 'final', pendingConfirmation: true }
   );
@@ -33,25 +51,26 @@ function gamesRow(
 
 test('a non-array payload is invalid-payload', () => {
   assert.equal(
-    parseFinalReconciliation({ payload: {}, pendingGames: [pendingGame(1)] }).kind,
+    parseFinalReconciliation({ resolver, payload: {}, pendingGames: [pendingGame(1)] }).kind,
     'invalid-payload'
   );
 });
 
 test('an empty payload while confirmation targets exist is empty-unexpected', () => {
   assert.equal(
-    parseFinalReconciliation({ payload: [], pendingGames: [pendingGame(1)] }).kind,
+    parseFinalReconciliation({ resolver, payload: [], pendingGames: [pendingGame(1)] }).kind,
     'empty-unexpected'
   );
 });
 
 test('an empty payload with no pending targets is a benign parsed result', () => {
-  const result = parseFinalReconciliation({ payload: [], pendingGames: [] });
+  const result = parseFinalReconciliation({ resolver, payload: [], pendingGames: [] });
   assert.equal(result.kind, 'parsed');
 });
 
 test('a completed /games row with both scores confirms the pending final', () => {
   const result = parseFinalReconciliation({
+    resolver,
     payload: [gamesRow(401001, 24, 21)],
     pendingGames: [pendingGame(401001)],
   });
@@ -66,6 +85,7 @@ test('a completed /games row with both scores confirms the pending final', () =>
 
 test('a /games row still in progress does not confirm; the id stays pending', () => {
   const result = parseFinalReconciliation({
+    resolver,
     payload: [gamesRow(401001, 24, 21, 'in_progress')],
     pendingGames: [pendingGame(401001)],
   });
@@ -76,6 +96,7 @@ test('a /games row still in progress does not confirm; the id stays pending', ()
 
 test('a completed /games row missing a score does not confirm', () => {
   const result = parseFinalReconciliation({
+    resolver,
     payload: [gamesRow(401001, 24, null)],
     pendingGames: [pendingGame(401001)],
   });
@@ -86,6 +107,7 @@ test('a completed /games row missing a score does not confirm', () => {
 
 test('some confirmed, some not → a partial parse', () => {
   const result = parseFinalReconciliation({
+    resolver,
     payload: [gamesRow(401001, 24, 21), gamesRow(401002, 10, 10, 'in_progress')],
     pendingGames: [pendingGame(401001), pendingGame(401002)],
   });
@@ -97,6 +119,7 @@ test('some confirmed, some not → a partial parse', () => {
 
 test('a null entry in the /games payload does not throw (Codex round 1, P2)', () => {
   const result = parseFinalReconciliation({
+    resolver,
     payload: [null, gamesRow(401001, 24, 21)],
     pendingGames: [pendingGame(401001)],
   });
@@ -107,14 +130,35 @@ test('a null entry in the /games payload does not throw (Codex round 1, P2)', ()
 
 test('a nonempty payload that normalizes to zero usable rows is schema-drift (Codex round 1, P2)', () => {
   const result = parseFinalReconciliation({
+    resolver,
     payload: [null, 'foo', 42, {}],
     pendingGames: [pendingGame(401001)],
   });
   assert.equal(result.kind, 'schema-drift');
 });
 
+test('a /games row whose participants are swapped relative to the schedule does not confirm (Codex round 2, P1)', () => {
+  const swapped = {
+    id: 401001,
+    home_team: 'Georgia', // schedule home is Alabama
+    away_team: 'Alabama',
+    home_points: 24,
+    away_points: 21,
+    status: 'final',
+  };
+  const result = parseFinalReconciliation({
+    resolver,
+    payload: [swapped],
+    pendingGames: [pendingGame(401001)],
+  });
+  assert.equal(result.kind, 'parsed');
+  if (result.kind !== 'parsed') return;
+  assert.deepEqual(result.confirmedIds, []); // inverted orientation → not confirmed
+});
+
 test('a corrected final carries the /games score', () => {
   const result = parseFinalReconciliation({
+    resolver,
     payload: [gamesRow(401001, 31, 28)],
     pendingGames: [pendingGame(401001)],
   });
