@@ -346,6 +346,9 @@ test('a /games confirmation clears the pending final via /games (never /scoreboa
   assert.equal(event.mode, 'final-reconciliation');
   assert.equal(event.result, 'success');
   assert.equal(event.reason, 'final-reconciliation-confirmed');
+  // A same-score confirmation is a metadata-only change: 0 committed games, so
+  // standings invalidation (gated on committed > 0) does NOT fire (prompt case 17).
+  assert.equal(event.committedGames, 0);
   assert.equal(urls.filter((u) => u.includes('/games')).length, 1);
   assert.equal(urls.filter((u) => u.includes('/scoreboard')).length, 0);
   const entry = await readScores(3);
