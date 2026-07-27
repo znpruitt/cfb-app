@@ -16,11 +16,13 @@ shipped as approved slices E1 → E2 → E3 (§4) — E1 (paired analytics prove
 PLATFORM-086H3E1) merged in PR #408; E2 (refresh/polling/quota primitives,
 PLATFORM-086H3E2) merged in PR #409; E3 (final atomic wiring) merged in PR #410.
 The reviewed code-bearing artifact (`a161e33`) is active in production and writer
-control is durably `active`; the remaining 2026-07-26 closeout is one live
-scheduled-delivery observation plus re-enabling automatic production-domain
-assignment after the docs-only update. The complete operator record is in
-`docs/deployment-runbook.md` §8e. Production must never return to `legacy`;
-the emergency fallback is `active → read-only-safe`.
+control is durably `active`. **Activation is fully closed (2026-07-26):**
+gates-open scheduled deliveries returned QStash HTTP `200` with CFBD quota
+unchanged at `4920` (no eligible partition ⇒ no provider attempt), and
+Auto-assign Custom Production Domains is re-enabled — no remaining activation or
+closeout work. The complete operator record is in `docs/deployment-runbook.md`
+§8e. Production must never return to `legacy`; the emergency fallback is
+`active → read-only-safe`.
 
 This document records (a) the disposition of PLATFORM-086H3B and (b) the small
 replacement prerequisite that ships in its place.
@@ -268,9 +270,11 @@ store.
   differ). **It has been EXECUTED (2026-07-26):** the reviewed artifact
   `a161e33` serves production, writer control completed `legacy → armed →
   active`, and the QStash schedule delivered a gates-closed authenticated
-  provider-free proof. The only remaining closeout is one gates-open
-  scheduled-delivery observation plus re-enabling automatic production-domain
-  assignment — recorded as pending in `docs/deployment-runbook.md` §8e.
+  provider-free proof. **Activation is now fully closed (2026-07-26):**
+  gates-open scheduled deliveries returned HTTP `200` with CFBD quota unchanged
+  at `4920` (no eligible partition ⇒ no provider attempt), and Auto-assign
+  Custom Production Domains is re-enabled — recorded in
+  `docs/deployment-runbook.md` §8e.
 
 Deploying C, D, E1, and E2 changes no production behavior beyond the additive
 archive snapshot field on newly built/backfilled archives.
