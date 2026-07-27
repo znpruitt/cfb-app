@@ -1,16 +1,16 @@
 /**
  * PLATFORM-086H2/H3C1 — the single strict RFC 3339 observation-fence parser.
  *
- * Extracted from the durable merge service so the (dormant) durable merge
- * authority AND the (dormant) C1 evidence authority order v2 observations by the
- * SAME freshness rule. There must be exactly one freshness parser: an
- * observation fence is a full RFC 3339 date-time with an explicit timezone,
- * canonicalized to UTC ISO form before comparison, and compared numerically.
+ * Extracted from the durable merge service so the durable merge authority AND
+ * the evidence authority order v2 observations by the SAME freshness rule.
+ * There must be exactly one freshness parser: an observation fence is a full
+ * RFC 3339 date-time with an explicit timezone, canonicalized to UTC ISO form
+ * before comparison, and compared numerically.
  *
  * This module is a pure, provider-free primitive — it carries no game-stats
- * schema knowledge and references no dormant contract capability — so it is not
- * itself a guarded dormant surface. Its only callers today are the two dormant
- * services above.
+ * schema knowledge — so it is not itself a guarded surface. Its callers are the
+ * durable merge authority, the evidence authority, and the public projector,
+ * all live since the PLATFORM-086H3E activation.
  */
 
 // Full date + time + seconds (optional fraction) + explicit Z or numeric

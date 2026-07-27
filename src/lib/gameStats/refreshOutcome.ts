@@ -1,9 +1,9 @@
 import type { GameStatsIngestionResult } from './ingestionCoordinator.ts';
 
 /**
- * PLATFORM-086H3E2 — the ONE typed refresh-outcome interpreter (DORMANT).
+ * PLATFORM-086H3E2 — the ONE typed refresh-outcome interpreter (ACTIVE).
  *
- * Both the manual route and the cron (wired in E3) must interpret a
+ * Both the manual route and the cron (wired by E3, now live) interpret a
  * `GameStatsIngestionResult` through THIS module and nothing else, so the two
  * callers can never diverge on what an ingestion attempt meant. It consumes
  * C2's complete result — with H2's `DurableMergeResult` nested UNCHANGED — and

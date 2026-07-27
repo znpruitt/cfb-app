@@ -6,10 +6,11 @@ import { groupRowsById } from './partitionCoverage.ts';
 import { validateGameStatsEnvelope } from './publicProjection.ts';
 
 /**
- * PLATFORM-086H3E2 — schedule/evidence polling-target derivation (DORMANT).
+ * PLATFORM-086H3E2 — schedule/evidence polling-target derivation (ACTIVE).
  *
- * The approved 15-minute cron policy (wired in E3) is deliberately NOT
- * score-gated: scores have no automation until PLATFORM-086B, so a
+ * The 15-minute cron policy (wired into `/api/cron/game-stats` by E3, now live)
+ * is deliberately NOT score-gated: scores have no automation until
+ * PLATFORM-086B, so a
  * final-score arming condition could leave the cron permanently inert.
  * Eligibility is schedule-time-and-evidence instead:
  *

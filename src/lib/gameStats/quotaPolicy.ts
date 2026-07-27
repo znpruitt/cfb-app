@@ -1,7 +1,8 @@
 /**
- * PLATFORM-086H3E2 — CFBD quota-reserve policy (DORMANT, pure).
+ * PLATFORM-086H3E2 — CFBD quota-reserve policy (ACTIVE, pure).
  *
- * The approved reserve semantics for game-stats automation (wired in E3):
+ * The reserve semantics for game-stats automation and manual refresh (wired by
+ * E3, now live in the cron and admin route):
  *
  *   - Usage truth is CFBD's OWN reported remaining-call count (the `/info`
  *     body's `remainingCalls`), fetched by the caller; this module never

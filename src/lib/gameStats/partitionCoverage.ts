@@ -11,7 +11,7 @@ import { isValidProviderGameId, type SeasonRelation } from './contract.ts';
 import type { GameStats, WeeklyGameStats } from './types.ts';
 
 /**
- * PLATFORM-086H3C1 — weekly coverage (DORMANT).
+ * PLATFORM-086H3C1 — weekly coverage (ACTIVE — consumed by provider-data diagnostics).
  *
  * Evaluates coverage for one provider partition from the SUPPLIED committed
  * durable weekly record (never a provider response or an unconfirmed write

@@ -107,14 +107,17 @@ export class GameStatsFenceError extends Error {
  * `read-only-safe` record refuses and writes nothing.
  *
  * Same-partition legacy writes therefore serialize across PostgreSQL-backed
- * instances (the primary key's `pg_advisory_xact_lock`), and a future rollout that
- * flips the control record to a non-`legacy` state stops this writer without a code
- * change. Provider fetch / retry / normalization / classification all happen BEFORE
- * this call — the transaction holds no provider or schedule work.
+ * instances (the primary key's `pg_advisory_xact_lock`), and flipping the control
+ * record to a non-`legacy` state stops this writer without a code change — which the
+ * PLATFORM-086H3E activation did: production is now durably `active`, so this legacy
+ * writer is refused and H2 is the live game-stats writer. This function is retained
+ * for test seeding and a brand-new environment's pre-fence bootstrap. Provider fetch /
+ * retry / normalization / classification all happen BEFORE this call — the transaction
+ * holds no provider or schedule work.
  *
- * While the record is validly `legacy` (its production state until E), the stored
- * partition bytes are IDENTICAL to the prior blind write — no revision, lineage,
- * commit-stamp, or activation metadata is added; only the extra fence read is.
+ * When the record is validly `legacy`, the stored partition bytes are IDENTICAL to the
+ * prior blind write — no revision, lineage, commit-stamp, or activation metadata is
+ * added; only the extra fence read is.
  */
 export async function writeLegacyGameStatsPartition(
   stats: WeeklyGameStats
@@ -152,14 +155,16 @@ export async function writeLegacyGameStatsPartition(
 }
 
 /**
- * The production legacy game-stats cache writer — now routed through the durable
+ * The fenced legacy game-stats cache writer — routed through the durable
  * writer-control fence (no longer a blind partition overwrite). Preserves the prior
  * `Promise<void>` contract and the exact stored weekly envelope shape while the fence
  * is validly `legacy`; throws `GameStatsFenceError` when the fence refuses (absent /
  * malformed / non-`legacy` control, or a store failure — `store-unavailable` or
- * `store-indeterminate`), so a rollout that has armed the control — or a store
- * failure — can never be mistaken for a successful write. In production the control is
- * `legacy` (nothing arms it before E), so this behaves exactly as before.
+ * `store-indeterminate`), so an armed/active control — or a store failure — can never
+ * be mistaken for a successful write. Since the PLATFORM-086H3E activation production
+ * control is durably `active`, so this writer is REFUSED in production (H2 is the live
+ * writer); it is retained only for test seeding and a brand-new environment's
+ * pre-fence bootstrap, where the control is validly `legacy`.
  */
 export async function setCachedGameStats(stats: WeeklyGameStats): Promise<void> {
   const result = await writeLegacyGameStatsPartition(stats);

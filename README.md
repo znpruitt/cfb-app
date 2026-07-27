@@ -1,45 +1,96 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# CFB App
 
-## Getting Started
+Status: Current
+Last verified: 2026-07-26
+Owner: Project documentation
+Canonical for: repository onboarding — what this app is, how to run it, and where the authoritative docs live
+Supersedes: (none — replaces the original create-next-app boilerplate)
 
-First, run the development server:
+A hosted, league-first dashboard for a college-football office pool, built with
+[Next.js](https://nextjs.org) (App Router) and React. League members get a
+stable place to check the current league picture, weekly matchups, standings,
+owner insights, and live context without commissioner intervention.
+
+The app is **API-first**: [CollegeFootballData (CFBD)](https://collegefootballdata.com)
+is the source of truth for schedule and scores (and the sole normal production
+score provider), and [The Odds API](https://the-odds-api.com) is the source of
+truth for betting odds. The **schedule is the canonical game universe** — all
+score, odds, ownership, standings, and analytics attachment respects
+schedule-derived canonical games; nothing constructs a parallel game identity.
+
+## Architecture & source of truth
+
+Read the canonical docs before making changes — do not infer architecture from
+this README:
+
+- **[`AGENTS.md`](AGENTS.md)** — canonical for code architecture, the binding
+  engineering/architecture invariants, and agent operating rules. **Start here.**
+- **[`DESIGN.md`](DESIGN.md)** — canonical for UI/UX and the design system. Read
+  before any UI work.
+- **[`docs/README.md`](docs/README.md)** — the full documentation map: which doc
+  owns what, plus lifecycle/status conventions.
+
+Upstream → downstream flow: CFBD provider schedule → schedule normalization +
+team-identity resolution (`src/lib/teamIdentity.ts`) → canonical game model
+(`AppGame`) → score and odds attachment → durable game-stat evidence
+evaluation/projection against canonical games → ownership / standings /
+analytics → UI. Identity resolution happens _during_ canonical construction
+(`buildScheduleFromApi`) through the centralized team-identity layer; the
+schedule is the source of truth. Scores and odds attach onto the canonical
+`AppGame`, whereas durable game-stat evidence is evaluated and projected against
+canonical games (it is not stored inline on `AppGame`) and never creates a
+parallel game identity. Diagnose upstream-first, in that order.
+
+Source entrypoints: the App Router routes live under `src/app/` (the root page
+is `src/app/page.tsx`, the root layout is `src/app/layout.tsx`); shared logic
+lives under `src/lib/` (cross-surface derived view models in
+`src/lib/selectors/`); UI components under `src/components/`.
+
+## Getting started
+
+Requires Node.js and npm. Set the provider/auth environment variables described
+in the deployment docs (see below) before running against live data — no secrets
+are reproduced here.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install        # install dependencies
+npm run dev        # start the dev server at http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Common commands
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+All commands are defined in [`package.json`](package.json):
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- `npm run dev` — start the Next.js dev server (localhost:3000).
+- `npm run build` — production build.
+- `npm start` — serve the production build.
+- `npm test` — full test suite (Node's built-in test runner via the `tsx`
+  loader; tests live in `src/**/__tests__/`). There is no Vitest/Jest.
+- `npm run lint` — fast, scoped ESLint + Prettier + markdown lint for local
+  iteration (skips test/data paths).
+- `npm run lint:all` — full-project lint (includes test files). **Run this
+  before pushing** — it is the intended pre-merge gate.
+- `npm run lint:fix` — auto-fix on the fast scope.
+- `npx tsc --noEmit` — type-check.
+- `npm run fetch:teams` — regenerate `src/data/teams.json` from CFBD.
 
-## Linting workflow
+To run a single test file, set the same env vars the `npm test` script uses
+(app-state isolation + the test tsconfig) so results match the full suite:
 
-- `npm run lint` is the fast day-to-day check for local development. It runs scoped ESLint on app/source/config files and a separate scoped Prettier check, intentionally skipping heavier test and data paths for speed.
-- `npm run lint:fix` is the matching local fix command. It runs ESLint auto-fixes first and then Prettier writes on that same fast/local scope.
-- `npm run lint:all` is the pre-merge / CI command. It runs full-project ESLint plus full-project Prettier checks across `src`, including `src/**/__tests__/**` and `src/data/**`.
-- `npm run lint:fix:all` is the full-project fix variant if you need to repair test/data formatting or lint issues before a larger cleanup.
-- Prettier runs separately from ESLint so formatting checks stay consistent without paying the cost of the `prettier/prettier` ESLint rule on every file.
-- There is no CI workflow checked into this repository today, but `npm run lint:all` is ready to be used as the CI/pre-merge lint command when one is added.
+```bash
+APP_STATE_TEST_ISOLATION=1 TSX_TSCONFIG_PATH=tsconfig.test.json \
+  node --import tsx --test src/path/to/__tests__/file.test.ts
+```
 
-## Learn More
+See `AGENTS.md` → "Verification and reference conventions" and
+[`CLAUDE.md`](CLAUDE.md) for the full linting/testing workflow.
 
-To learn more about Next.js, take a look at the following resources:
+## Deployment & environment
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The app deploys on Vercel. The high-level deploy/env/auth-secret/cron overview is
+[`docs/operations/deployment.md`](docs/operations/deployment.md); the detailed
+step-by-step operator checklist is
+[`docs/deployment-runbook.md`](docs/deployment-runbook.md). Those docs enumerate
+the required environment variables (CFBD/Odds API keys, Clerk auth, the league
+password gate, and `CRON_SECRET`) and the operational procedures — configure the
+actual secret values through your hosting provider, never in the repository.

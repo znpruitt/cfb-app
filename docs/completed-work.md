@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-07-14
+Last verified: 2026-07-26
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -1778,6 +1778,23 @@ Key architectural decisions across Phase 5:
   - The **§8d** post-merge correction sequence (E4 deploy → 2021–2025 full-year schedule refreshes → identity verification → collision + parity audit reruns → all five archive backfills) was PERFORMED and verified clean: the 2024 durable archive now holds the genuine Texas–Georgia game, every archive carries a valid paired `gameStatSlate` snapshot, and `401506450` remains the sole accepted analytics-incomplete residual.
 - **Key outcomes:** the game-stats route, writer-control, quota, one-request, and no-retry behavior are byte-unchanged by the externalization; the runbook §8d is now a completed historical record and §8e is a read-only-verify activation sequence with both automation gates (`globalPause` + dataset `enabled`) held closed until an exact-authentication scheduled-delivery proof passes. Production activation (writer transitions, QStash provisioning, gate opening) has NOT run — the merges activate nothing.
 - **Optional follow-up debt (non-blocking):** two sequential-`getAppState` loops (provider diagnostics; cron target resolution) and a duplicated `fetchCfbdUsage` headers object were reported by `/code-review` and left as low-severity, unapplied.
+
+---
+
+### PLATFORM-086H3E production activation checkpoint (2026-07-26)
+
+- **Status:** Production ACTIVE; steps 1–13 of runbook §8e complete. One gates-open scheduled-delivery observation and restoration of Auto-assign Custom Production Domains remain operational closeout.
+- **PROMPT_ID(s):** `PLATFORM-086H3E3-FINAL-ATOMIC-WIRING-v1`, `PLATFORM-086H3E-EXTERNAL-SCHEDULER-MIGRATION-v1`, `PLATFORM-086H3E-EXTERNAL-SCHEDULER-PRE-ACTIVATION-REMEDIATION-v1`.
+- **Goals completed:**
+  - Promoted the exact reviewed code-bearing artifact — commit `a161e33`, deployment `dpl_73jnt1KDqaAE5dRT9BJ5uLRfpLEt`; docs-only `main@34ffdd8` was deliberately not promoted.
+  - Transitioned durable writer control `legacy → armed → active`. Production must never return to `legacy`; emergency fallback is `active → read-only-safe`.
+  - Reverified cache-only game-stats, missing-partition, Historical Insights, Maleski career, archived-season, and career/season-record paths without identity, unavailable-data, or failed-data warnings.
+  - Performed one controlled manual provider proof for `2025 / week 16 / regular`: `success` / `written-clean`, durable expected/satisfied/published `1/1/1`, zero identity mismatch, zero participant-validation unavailable, and exact scoped status `game-stats:week:2025:16:regular` (`cfbd`, `rowsCommitted: 5`, no partial failure or last error).
+  - Confirmed CFBD `/info` costs zero calls; the single `/games/teams` proof consumed exactly one (`4921 → 4920`), leaving the 1,000-call automation reserve intact.
+  - Provisioned and inspected QStash schedule `turfwar-game-stats-15m` with 15-minute `GET`, retries `0`, no callbacks/queue/delay/scheduler retry, one forwarded Authorization header, and provider-side redaction. A gates-closed scheduled delivery returned HTTP `200`, created no provider-refresh attempt, and left quota at `4920`; then game-stats auto was enabled and global pause cleared last.
+- **Key outcomes:** Current live state is writer `active`, QStash active/unpaused, game-stats auto enabled, global provider pause off, CFBD remaining `4920`; score automation remains separate. The next no-target run should return HTTP `200`, create no provider attempt, and spend no quota.
+- **Known observability gap (non-blocking; PLATFORM-086F):** QStash receives the cron's useful JSON skip message, but the app does not emit a dedicated secret-safe structured log for every scheduler decision. The first 086F slice will add one event per run (`result`, `reason`, target, provider-call decision, committed rows, duration) without logging secrets/payloads and without turning harmless skips into provider-refresh attempts. An independent last-scheduler-check heartbeat is optional. This gap does not reopen or block H3E.
+- **Remaining closeout:** Observe one delivery after both gates opened; require QStash HTTP `200`, CFBD still `4920`, and no unexpected game-stats attempt. Then re-enable Auto-assign Custom Production Domains.
 
 ---
 

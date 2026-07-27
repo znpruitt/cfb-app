@@ -1,14 +1,14 @@
 # Documentation Index
 
 Status: Current
-Last verified: 2026-07-09
+Last verified: 2026-07-26
 Owner: Project documentation
 Canonical for: documentation source-of-truth map and doc lifecycle/status definitions
 Supersedes: (none)
 
 This is the **source-of-truth map** for the project's documentation. Start here to find which document owns a given concern, rather than searching across files. Each doc owns one thing; when two docs disagree, the authority hierarchy below decides.
 
-> Scope note: this index was established by **DOCS-002A** (governance + documentation index); **DOCS-002B** completed the planning/history cleanup; **DOCS-002C** added the dedicated architecture/operations doc layer; **DOCS-004** reconciled the known `DESIGN.md` contradictions; **DOCS-005** rolled lifecycle metadata onto the active/canonical docs; **DOCS-006** implemented the `archive/` path decision (standalone historical audits/design-specs/prompts moved under `docs/archive/**`); **DOCS-007** finished root-doc hygiene (moved the remaining historical/superseded root docs under `docs/archive/{governance,history}/`). **The documentation-closeout sequence is now complete** — no deferred documentation-maintenance follow-ups remain. See [Planned documentation work](#planned-documentation-work) at the bottom for the finished record.
+> Scope note: this index was established by **DOCS-002A** (governance + documentation index); **DOCS-002B** completed the planning/history cleanup; **DOCS-002C** added the dedicated architecture/operations doc layer; **DOCS-004** reconciled the known `DESIGN.md` contradictions; **DOCS-005** rolled lifecycle metadata onto the active/canonical docs; **DOCS-006** implemented the `archive/` path decision (standalone historical audits/design-specs/prompts moved under `docs/archive/**`); **DOCS-007** finished root-doc hygiene (moved the remaining historical/superseded root docs under `docs/archive/{governance,history}/`). **The DOCS-002x documentation-consolidation sequence is complete** — its planned follow-ups are all done. That does not freeze the docs: later drift-remediation passes still occur as the code changes (e.g. **DOCS-010**, the post-PLATFORM-086H3E-activation reconciliation), tracked in `docs/prompt-registry.md` and `docs/next-tasks.md`. See [Planned documentation work](#planned-documentation-work) at the bottom for the finished consolidation record.
 
 ## Source-of-truth map
 
@@ -17,13 +17,14 @@ This is the **source-of-truth map** for the project's documentation. Start here 
 | [`AGENTS.md`](../AGENTS.md) | Code architecture + **binding engineering/architecture invariants** + agent operating rules | Current (canonical) |
 | [`DESIGN.md`](../DESIGN.md) | UI/UX and the design system — layout, tables, cards, color, typography, component presentation | Current (canonical; the previously-tracked rank-number and game-card-border contradictions were reconciled in DOCS-004) |
 | [`CLAUDE.md`](../CLAUDE.md) | Claude-specific working guidance only; points back at `AGENTS.md`/`DESIGN.md` | Current |
+| [`README.md`](../README.md) | Repository onboarding — what the app is, how to run it, and where the authoritative docs live | Current (onboarding) |
 | [`docs/README.md`](README.md) | This documentation map + doc-ownership boundaries + the documentation-system's own maintenance roadmap | Current |
 | [`docs/next-tasks.md`](next-tasks.md) | Active queue + unresolved product decisions/deferrals ("what's next / still open") | Current |
 | [`docs/roadmap.md`](roadmap.md) | Higher-level product/platform roadmap + development philosophy | Current |
 | [`docs/prompt-registry.md`](prompt-registry.md) | Historical ledger of implementation/audit prompts (IDs, scope, outcomes) — **not a backlog** | Current (ledger) |
 | [`docs/completed-work.md`](completed-work.md) | Append-only record of shipped milestones | Historical (append-only) |
 | [`docs/architecture/overview.md`](architecture/overview.md) | High-level runtime architecture, canonical data-flow overview, source-of-truth hierarchy, architecture-doc index | Current |
-| [`docs/architecture/game-data-flow.md`](architecture/game-data-flow.md) | Schedule → canonical games, score/odds attachment, public cache-reader + authorized-refresh policy, provider quota | Current |
+| [`docs/architecture/game-data-flow.md`](architecture/game-data-flow.md) | Schedule → canonical games, score/odds attachment, game-stats ingestion/evidence flow, public cache-reader + authorized-refresh policy, provider quota | Current |
 | [`docs/architecture/identity-and-ownership.md`](architecture/identity-and-ownership.md) | Team-name canonicalization boundary, alias precedence, current-season ownership attribution, CSV's role | Current |
 | [`docs/architecture/standings.md`](architecture/standings.md) | Canonical standings authority, selector/LiveDelta boundaries, NoClaim, standings cache invalidation, lifecycle states | Current |
 | [`docs/architecture/auth-and-privacy.md`](architecture/auth-and-privacy.md) | Clerk identity/roles, platform-admin route/API gating, ADMIN_API_TOKEN fallback, league-password privacy gate, cron auth | Current |
@@ -33,6 +34,9 @@ This is the **source-of-truth map** for the project's documentation. Start here 
 | [`docs/deployment-runbook.md`](deployment-runbook.md) | Hosted deployment / operator checklist (detailed step-by-step; companion to `operations/deployment.md`) | Current |
 | [`docs/vision.md`](vision.md) | Product vision + canonical production data policy | Current |
 | [`docs/CFB_APP_ARCHITECTURE.md`](CFB_APP_ARCHITECTURE.md) | Quick upstream→downstream pipeline sketch (reference; `AGENTS.md` is canonical for architecture) | Current (reference) |
+| [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) | The game-stats activation / writer-control architecture record (PLATFORM-086H3 fence → C/D/E → PLATFORM-086H3E activation) | Current (architecture) |
+| [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md) | The original PLATFORM-086H3 lifecycle contract — **frozen, superseded in part** (its revision/lineage design was dropped); point-in-time technical history, not current authority (see the writer-fence doc) | Superseded (frozen) |
+| [`docs/ai/platform-086h3c1-implementation-handoff.md`](ai/platform-086h3c1-implementation-handoff.md) | The C1 evidence-read-model implementation handoff — point-in-time technical history of a shipped slice, not current authority | Historical (point-in-time) |
 | [`docs/campaigns/`](campaigns/) | Per-campaign historical detail and shipped-behavior notes — intentionally retained historical campaign record (not archived) | Historical |
 | [`docs/archive/`](archive/) | Archived historical artifacts — audits (`archive/audits/`), design specs (`archive/designs/`), prompt records (`archive/prompts/`), the original prompt-governance model (`archive/governance/`), and older shipped-work logs (`archive/history/`) — historical reference only, not current authority. See [`docs/archive/README.md`](archive/README.md) | Archived |
 
@@ -61,7 +65,7 @@ When documents disagree, this ownership hierarchy decides:
 
 ## Planned documentation work
 
-These were **documentation-system maintenance** follow-ups (meta-work on the docs themselves), sequenced out of DOCS-002A so each pass stayed small and reviewable. **The sequence is now complete (DOCS-002A → 002B → 002C → 004 → 005 → 006 → 007); no deferred documentation-maintenance work remains.** The finished record is kept below for traceability. Future doc-maintenance work, if any, goes through `docs/next-tasks.md`.
+These were **documentation-system maintenance** follow-ups (meta-work on the docs themselves), sequenced out of DOCS-002A so each pass stayed small and reviewable. **The DOCS-002x consolidation sequence is complete (DOCS-002A → 002B → 002C → 004 → 005 → 006 → 007); none of its planned follow-ups remain deferred.** The finished record is kept below for traceability. This does not mean documentation is frozen: later drift-remediation passes (e.g. **DOCS-010**, the post-PLATFORM-086H3E-activation reconciliation) still run as the code evolves — those go through `docs/prompt-registry.md` and `docs/next-tasks.md`, not this consolidation ledger.
 
 - **DOCS-002B — planning/history cleanup. ✅ Done.** Collapsed the completed PLATFORM-068 audit sequence in `docs/next-tasks.md` to a one-line ledger + an explicit "Unresolved decisions & known deferrals" subsection; removed shipped items (STANDINGS-PRESEASON-STATE, INSIGHTS-LIFECYCLE-AWARENESS) from the planned backlogs; reconciled the `roadmap.md` completed-work table ("Standings Page — Preseason State" → ✅ Complete). `docs/prompt-registry.md` already reads as a ledger (DOCS-002A); `docs/completed-work.md` left as the historical record. Unresolved product decisions and historical campaign detail preserved.
 - **DOCS-002C — architecture/operations docs. ✅ Done.** Added a dedicated current-architecture doc layer under `docs/architecture/` (`overview`, `game-data-flow`, `identity-and-ownership`, `standings`, `auth-and-privacy`, `storage-and-caching`) and an operations layer under `docs/operations/` (`deployment`, `diagnostics`), each carrying the lifecycle metadata header and linked from the source-of-truth map above. `AGENTS.md` remains canonical for binding invariants; these docs describe present runtime architecture and point back to it. The `deployment-runbook.md` stays the detailed operator checklist (now companioned by `operations/deployment.md`). The `archive/` path decision it flagged was taken up separately in DOCS-006 (below).

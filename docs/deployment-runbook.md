@@ -1,7 +1,7 @@
 # Production Deployment Runbook
 
 Status: Current
-Last verified: 2026-07-09
+Last verified: 2026-07-26
 Owner: Project documentation
 Canonical for: detailed hosted-deployment / operator checklist — the step-by-step operational companion to docs/operations/deployment.md
 Supersedes: (none)
@@ -39,7 +39,7 @@ Set these for **Production** (and **Preview** for preview deploys):
 - `ODDS_API_KEY`
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
 - `CLERK_SECRET_KEY`
-- `CRON_SECRET` — long random value (e.g. `openssl rand -hex 32`). Bearer token the scheduled cron jobs in `vercel.json` (`/api/cron/season-transition`, `/api/cron/season-rollover`, `/api/cron/game-stats`) must present. The cron routes **fail closed**: if this is missing or unset, every scheduled run returns `401` and automated season transition, season rollover, and weekly game-stats ingestion silently stop. Treat as required in any environment that runs the crons.
+- `CRON_SECRET` — long random value (e.g. `openssl rand -hex 32`). Bearer token every scheduled run must present. **Only the two lifecycle crons are declared in `vercel.json`** (`/api/cron/season-transition`, `/api/cron/season-rollover`, both daily 00:00 UTC). `/api/cron/game-stats` is **not** in `vercel.json` — it is triggered by an external **QStash** schedule that forwards `Authorization: Bearer <CRON_SECRET>` to the unchanged route every 15 minutes (Vercel Hobby rejects sub-daily crons; see §8e). The cron routes **fail closed**: if this is missing or unset, every scheduled run returns `401` and automated season transition, season rollover, and game-stats ingestion silently stop. `CRON_SECRET` is the route credential and is **deployed in Vercel**; it is distinct from `QSTASH_TOKEN`, the operator-held QStash **management** credential used only to provision/rotate the schedule (§8e step 11) — `QSTASH_TOKEN` must never be set in Vercel or committed. Treat `CRON_SECRET` as required in any environment that runs the crons, and supply it locally when provisioning or rotating the QStash schedule.
 - `LEAGUE_AUTH_SECRET` — long random value (e.g. `openssl rand -hex 32`). HMAC-SHA256 signing key for the per-league password gate's `league_auth_<slug>` session cookie. Required whenever **any** league has a password set; the gate logic **throws on a missing/empty value** (fails loud), so a passworded league cannot be unlocked without it. No in-code default. See `docs/campaigns/league-privacy-password.md`.
 
 Fallback auth (optional — only needed during Clerk migration):
@@ -312,9 +312,21 @@ Completed record (for audit reference):
 5. **Complete PLATFORM-086H3E production participant-validation and archive/canonical parity audit rerun clean**: positive numeric ids everywhere applicable, **zero** `participant-validation-unavailable`, **zero** unexpected `identity-mismatch`, and parity with **only** the accepted 2022 game `401506450` excluded (analytics-incomplete upstream; not reopened, not special-cased).
 6. **All five 2021–2025 archive replacements completed** through the established `POST /api/admin/backfill` preview → explicit confirmed flow; each rebuilt archive carries a valid `gameStatSlate` snapshot paired with that archive's own `scoresByKey` (the 2024 backfill replaced the corrupted hybrid with the genuine Texas–Georgia game and its paired snapshot); `401506450` remains the sole accepted analytics-incomplete residual.
 
-## 8e) PLATFORM-086H3E activation — the complete operator sequence (documented, NOT executed during implementation)
+## 8e) PLATFORM-086H3E activation — operator sequence + production record
 
 The E3 build (final atomic wiring, MERGED via PR #410) changes serving behavior when it is promoted, but **writing stays operator-gated**: the fenced legacy writer persists only under writer-control `legacy`, H2 only under `active`, and in `armed` both refuse. **Automatic** refreshes are additionally gated by BOTH `isAutoRefreshAllowed('game-stats')` conditions — `globalPause == false` **and** the game-stats dataset `enabled != false`; a scheduled QStash delivery that arrives while EITHER gate is closed returns a provider-free paused/disabled result. Execute these steps **in order**; on ANY unexpected residual, refusal anomaly, prerequisite drift, or CLI exit `4` (indeterminate durability — reread with a dry run and STOP; never blind-retry), stop and investigate.
+
+**Production activation checkpoint — 2026-07-26.** Steps 1–13 below are complete; they are retained as the historical sequence and must not be replayed merely because this document is being read.
+
+- Production serves the exact reviewed code-bearing artifact: commit `a161e33`, deployment `dpl_73jnt1KDqaAE5dRT9BJ5uLRfpLEt`. Repository `main` is `34ffdd8`, a docs-only build that was deliberately not promoted. Auto-assign Custom Production Domains remains disabled until this post-activation documentation update is complete.
+- Writer control transitioned `legacy → armed → active` and is now durably `active`. Production must never return to `legacy`; emergency fallback is `active → read-only-safe`.
+- Provider-free cache, missing-partition, historical Insights, Maleski career, archived-season, and career/season-record checks passed with no identity, unavailable-data, or failed-data warnings.
+- The one controlled manual proof targeted `2025 / week 16 / regular`: `success` / `written-clean`, durable coverage `1/1`, published `1`, zero identity mismatch, zero participant-validation unavailable, and exact scoped status `game-stats:week:2025:16:regular` with source `cfbd`, `rowsCommitted: 5`, no partial failure, and no last error.
+- CFBD `/info` probes consumed zero calls. The manual `/games/teams` proof consumed exactly one call (`4921 → 4920`); the confirmed remaining quota is `4920`, comfortably above the 1,000-call reserve.
+- QStash schedule `turfwar-game-stats-15m` is active and unpaused with the fixed 15-minute `GET` contract, retries `0`, no callbacks/queue/delay/scheduler retry, exactly one forwarded Authorization header, and provider-side credential redaction. Read-only inspection passed.
+- With global pause on and game-stats auto disabled, a scheduled delivery returned HTTP `200`; the route credential was therefore accepted, no provider-refresh attempt was created, and CFBD remained `4920`. The gates then opened in order: dataset enabled first, global pause cleared last.
+- Current live state: writer control `active`; QStash active/unpaused; game-stats auto enabled; global provider pause off; CFBD remaining `4920`. Score automation remains separate and was not activated.
+- **Closeout still pending:** observe one scheduled delivery after both gates opened; require QStash HTTP `200`, unchanged CFBD quota (`4920`) because no partition should currently be inside the polling window, and no unexpected game-stats provider attempt. After recording that evidence, re-enable Auto-assign Custom Production Domains. The lack of an app-side structured log for the exact harmless skip reason is a known non-blocking PLATFORM-086F observability gap; it does not reopen H3E or justify a fake provider-refresh attempt.
 
 **Preflight — read-only verification of the completed prerequisites (NO refresh, NO backfill).** The §8d correction sequence, the current-season refreshes, the participant/parity audits, and all five 2021–2025 archive backfills are **already complete** (§8d). Do NOT repeat them here. VERIFY read-only and STOP on any drift:
 

@@ -1,7 +1,7 @@
 # CFB App Architecture — Pipeline Sketch
 
 Status: Current (reference)
-Last verified: 2026-07-09
+Last verified: 2026-07-26
 Owner: Project documentation
 Canonical for: quick upstream→downstream pipeline reference only
 Supersedes: (none)
@@ -20,4 +20,16 @@ scores attachment
 odds attachment
    ↓
 UI rendering
+```
+
+Game stats attach to the same canonical model (PLATFORM-086H3E, active):
+
+```text
+CFBD /games/teams
+   ↓
+strict parse → H2 durable merge (under `active` writer control)
+   ↓
+evidence projection keyed to the canonical schedule (never a new game identity)
+   ↓
+owner analytics / Insights → UI
 ```

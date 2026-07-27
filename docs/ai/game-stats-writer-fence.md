@@ -1,18 +1,26 @@
-# Game-Stats Writer Fence — replacement reliability prerequisite
+# Game-Stats Writer Fence — game-stats activation & writer-control architecture
 
-Status: **Current architecture.** Supersedes the PLATFORM-086H3B revision/status-authority
-branch. The fenced-writer prerequisite (§2) is **merged to `main` (PR #399, 2026-07-21)**;
+Status: Current (architecture)
+Last verified: 2026-07-26
+Owner: PLATFORM / game-stats
+Canonical for: the game-stats fenced-writer + writer-control rollout and the PLATFORM-086H3E activation record (architecture; the operator step-by-step lives in `docs/deployment-runbook.md` §8e)
+Supersedes: the PLATFORM-086H3B revision/status-authority branch (frozen, unmerged) and the revision/lineage design in `docs/ai/platform-086h3-contract.md`
+
+Binding project rules in `AGENTS.md` win on any conflict.
+
+**Current state.** The fenced-writer prerequisite (§2) is **merged to `main` (PR #399, 2026-07-21)**;
 the C evidence slices (C1–C5) are merged (PRs #400–#402, #404, #407 — C5 is the
 numeric participant validation, PLATFORM-086H3C5); the rollout-safety
-capability D (§5, PLATFORM-086H3D) is merged dormant (PR #403); the activation execution (E)
-ships as approved slices E1 → E2 → E3 (§4) — E1 (paired analytics provenance,
-PLATFORM-086H3E1) is merged (PR #408); E2 (dormant refresh/polling/quota
-primitives, PLATFORM-086H3E2) is merged (PR #409); E3 (final atomic wiring,
-PLATFORM-086H3E3) is implemented and review-clean pending merge, with the
-complete operator activation sequence documented in
-`docs/deployment-runbook.md` §8e and NOT executed —
-production remains in `legacy` and no transition has ever been executed.
-Owner: PLATFORM / game-stats. Binding project rules in `AGENTS.md` win on any conflict.
+capability D (§5, PLATFORM-086H3D) is merged (PR #403); the activation execution (E)
+shipped as approved slices E1 → E2 → E3 (§4) — E1 (paired analytics provenance,
+PLATFORM-086H3E1) merged in PR #408; E2 (refresh/polling/quota primitives,
+PLATFORM-086H3E2) merged in PR #409; E3 (final atomic wiring) merged in PR #410.
+The reviewed code-bearing artifact (`a161e33`) is active in production and writer
+control is durably `active`; the remaining 2026-07-26 closeout is one live
+scheduled-delivery observation plus re-enabling automatic production-domain
+assignment after the docs-only update. The complete operator record is in
+`docs/deployment-runbook.md` §8e. Production must never return to `legacy`;
+the emergency fallback is `active → read-only-safe`.
 
 This document records (a) the disposition of PLATFORM-086H3B and (b) the small
 replacement prerequisite that ships in its place.
@@ -39,13 +47,24 @@ protection is atomic + serialized writes, keep-last-good, malformed-response ref
 stale-attempt ordering, and retry-on-next-poll — most of which already ship
 (prerequisite A + PLATFORM-086A + the payload classifier).
 
-**Recovery is NOT complete today (deferred to C/D).** The current cron selection skips
-a week that already has _some_ usable coverage (`hasUsableGameStats` — ≥1 usable
-game), so a **partial** partition (some games present, others missing) is **not**
-re-fetched and its gaps can remain **stranded** until the C/D coverage + recovery work
-lands. Only a week with zero usable coverage is re-fetched. This fenced-writer
-prerequisite does not change that — it does not add participant-validated coverage,
-gap detection, or recovery claims (those are explicitly C and D).
+**Recovery is NOT complete today (deferred to C/D).** _(This paragraph describes the
+state at the 086H3B-disposition time and is retained as historical rationale. It has
+since been superseded by the shipped C/D/E work — see below.)_ At that time the cron
+selection skipped a week that already had _some_ usable coverage, so a **partial**
+partition (some games present, others missing) was **not** re-fetched and its gaps
+could remain **stranded** until the C/D coverage + recovery work landed. Only a week
+with zero usable coverage was re-fetched. The fenced-writer prerequisite did not
+change that — it added no participant-validated coverage, gap detection, or recovery
+claims (those were explicitly C and D).
+
+> **Historical update (2026-07-26):** C1–C5, D, and E1–E3 have all shipped and the
+> activation (PLATFORM-086H3E) is live. The cron no longer uses the old
+> zero-coverage selection heuristic named above (that legacy helper was retired with
+> the legacy writer); it now runs evidence-based kickoff-window polling
+> (`pollingTarget.ts`) that re-polls a stat-applicable game from kickoff+3h to
+> kickoff+24h until its evidence is satisfied, so partial partitions are re-fetched
+> within that window. Bounded recovery beyond that window (claims/leases/backoff)
+> remains deferred future work.
 
 Removed from the active plan: **lineage, permanent revision numbers, the revision
 ledger, restoration high-water witnesses, the irreversible revision witness,
@@ -112,6 +131,13 @@ flipping the control record to a non-`legacy` state — with no code change.
 
 ## 3. Required production rollout sequence
 
+_(HISTORICAL — this one-time fence-bootstrap sequence was completed when the fenced
+writer shipped (PR #399). Production has since been initialized, deployed, and
+transitioned to `active`. The steps are retained as the record of how the fence was
+first stood up; step 6's "keep the state `legacy` until E" was satisfied — E has since
+executed and production is durably `active`. For a brand-new environment's pre-fence
+bootstrap the create-if-absent `legacy` initializer still applies.)_
+
 **The writer-control row MUST be initialized before the fenced writer is deployed.**
 Because absent state fails closed, deploying the fenced writer to an environment
 whose control row does not yet exist will cause **all legacy game-stat writes (cron
@@ -137,6 +163,12 @@ store.
 
 ## 4. Revised C / D / E (lineage/revision/repair removed)
 
+> **Status:** C (C1–C5), D, and E (E1→E2→E3) have all shipped, and E executed the
+> activation — production is durably `active` (see the current-state note at the top
+> and the per-slice PR references below). The bullets below describe the revised
+> **plan** each slice delivered; where a bullet still reads in the future/plan tense
+> it is describing that slice's design intent, not pending work.
+
 - **C — canonical evidence authority:** provider contract, participant validation,
   component merge policy, coverage, public projection. (Duplicate authority keys on
   provider id + resolved participant pair + schema class — no lineage identity.)
@@ -161,14 +193,16 @@ store.
   workaround.
 - **D — rollout safety (PLATFORM-086H3D, §5):** the strict writer-control transition
   authority, the operator transition CLI, and H2's in-transaction active-only
-  permission check — the complete dormant capability E later executes. Bounded
-  recovery (claims, leases, backoff, quota discipline, post-claim revalidation)
-  is **deferred future work and is NOT part of D**.
-- **E — activation:** executes the runbook in §6 — production transition execution,
-  ingestion/route/cron/reader wiring, consumer activation, reader smoke tests,
-  controlled refreshes, final diagnostics, and any final transactional status
+  permission check — the complete rollout capability. It shipped merged-but-inactive
+  in PR #403 and was **executed by E at activation**: the transition authority (CLI-only)
+  moved production `legacy → armed → active`, and H2's active-only permission is now
+  live. Bounded recovery (claims, leases, backoff, quota discipline, post-claim
+  revalidation) is **deferred future work and is NOT part of D**.
+- **E — activation (executed 2026-07-26):** ran the runbook in §6/§8e — production
+  transition execution, ingestion/route/cron/reader wiring, consumer activation, reader
+  smoke tests, controlled refreshes, final diagnostics, and any final transactional status
   requirement. The `legacy → armed → active` sequence on this control record
-  replaces the irreversible witness; no lineage. **E ships as approved slices
+  replaces the irreversible witness; no lineage. **E shipped as approved slices
   E1 → E2 → E3** (E1 paired analytics provenance; E2 dormant refresh-outcome /
   polling-target / quota-policy primitives; E3 the single behaviorally atomic
   live switch).
@@ -191,9 +225,9 @@ store.
   now carries ONE exact allowlisted production crossing (`slateSnapshot.ts` →
   `canonicalSlate`, derive entry only), positional and form-strict, with
   laundering self-tests and a documented honest static scope.
-- **E2 — dormant refresh/polling/quota primitives (PLATFORM-086H3E2 — merged,
-  PR #409):** three pure, unwired dormant modules E3's
-  atomic wiring will consume. `refreshOutcome.ts` is the ONE typed interpreter
+- **E2 — refresh/polling/quota primitives (PLATFORM-086H3E2 — merged,
+  PR #409; dormant at merge, now wired by E3):** three pure modules E3's
+  atomic wiring consumes. `refreshOutcome.ts` is the ONE typed interpreter
   both route and cron must share — it classifies C2's complete ingestion
   result (H2's `DurableMergeResult` nested unchanged) into the locked matrix
   (empty/clean-unchanged/clean-stale → no-op; rejections and mixed
@@ -211,11 +245,12 @@ store.
   reserve: automation needs trustworthy finite usage ≥ 1,002 remaining;
   unknown/malformed usage fails closed with distinct reasons; the manual gate
   refuses 429 below reserve unless the second explicit `quotaOverride=1`
-  parameter is supplied, reported truthfully. All three are dormant-guard
-  homes with forbidden entry-point symbols.
+  parameter is supplied, reported truthfully. All three shipped as dormant-guard
+  homes with forbidden entry-point symbols; the activation-invariant guard now
+  governs them as live seams.
 
-- **E3 — final atomic wiring (PLATFORM-086H3E3 — implemented, pending
-  merge):** the single behaviorally atomic live switch. The admin-only route
+- **E3 — final atomic wiring (PLATFORM-086H3E3 — merged, PR #410; active in
+  production):** the single behaviorally atomic live switch. The admin-only route
   serves projector-only cache reads and runs manual refreshes through the ONE
   ingestion path (`ingestGameStatsPartitionResponse`) + ONE interpreter +
   durable reread (explicit `bypassCache=1` / `quotaOverride=1` grammar, fresh
@@ -230,18 +265,32 @@ store.
   the refreshes → audit → backfills ordering — is
   `docs/deployment-runbook.md` §8e (preceded by the §8d PLATFORM-086H3E4
   collision-correction sequence; supersedes the sketch in §6 where they
-  differ); it has NOT been executed.
+  differ). **It has been EXECUTED (2026-07-26):** the reviewed artifact
+  `a161e33` serves production, writer control completed `legacy → armed →
+  active`, and the QStash schedule delivered a gates-closed authenticated
+  provider-free proof. The only remaining closeout is one gates-open
+  scheduled-delivery observation plus re-enabling automatic production-domain
+  assignment — recorded as pending in `docs/deployment-runbook.md` §8e.
 
 Deploying C, D, E1, and E2 changes no production behavior beyond the additive
 archive snapshot field on newly built/backfilled archives.
 
-## 5. Rollout-safety capability (PLATFORM-086H3D — dormant)
+## 5. Rollout-safety capability (PLATFORM-086H3D — executed at activation)
 
-Three pieces complete the fence into a full rollout mechanism. All are dormant:
-no route, cron, reader, or production caller invokes any of them (the recursive
-dormant-boundary guard enforces this), live game-stat writers remain on the
-fenced legacy setter, and **deploying D performs no transition — production
-stays `legacy`.**
+Three pieces complete the fence into a full rollout mechanism. Their status
+**after the PLATFORM-086H3E activation:**
+
+- The **strict transition authority** and **operator CLI** stay
+  operator-CLI-only — no route, cron, reader, or application code imports the
+  transition module (the activation-invariant guard forbids it). The operator
+  used the CLI to transition production `legacy → armed → active`; it remains
+  the mechanism for the emergency `active → read-only-safe` stop and
+  `read-only-safe → active` recovery.
+- **H2's active-only permission** is LIVE: H2 is now the only authorized
+  game-stat writer and merges only under `active`.
+
+(Historically, deploying D itself — PR #403 — performed no transition and left
+production `legacy`; the transitions above were executed later during E.)
 
 ### Strict transition authority
 
@@ -309,10 +358,16 @@ game-stats partition (primary)
   → game-stats-writer-control/state (lockKey)
 ```
 
-## 6. Activation runbook (executed during E — never before)
+## 6. Activation runbook sketch (HISTORICAL — executed 2026-07-26)
 
-Documented now; **no step below has been executed.** Production transition
-execution, reader smoke tests, and controlled refreshes are E responsibilities.
+**This is the original design-time sketch, retained for context. It has been
+EXECUTED during E (2026-07-26): production is durably `active`.** The
+authoritative operator record — including the staged-promotion release, the
+QStash external-scheduler provisioning, both automation gates, and the exact
+delivery-authentication proof — is `docs/deployment-runbook.md` §8e, which
+**supersedes this sketch wherever they differ.** Do not replay the steps below
+from this document; §8e verifies the completed prerequisites read-only and is
+the current source of truth.
 
 Pre-step (added by C5, before step 4): complete the post-deploy full-year schedule
 refreshes and the participant-validation audit described in §4's C bullet for every
@@ -323,7 +378,8 @@ fails closed everywhere and MUST NOT be activated around.
  1. confirm the target control record is exactly a valid `legacy`
       npm run init:writer-control              # dry run: expect already-legacy no-op
  2. confirm the merged fenced legacy writer is deployed on EVERY instance
- 3. deploy D — this performs no transition; production remains `legacy`
+ 3. deploy D — this performs no transition; production is still `legacy` at
+    this step (steps 5 and 8 below transitioned it to `armed`, then `active`)
  4. dry-run the arming edge
       npm run transition:writer-control -- --from legacy --to armed
  5. during E: apply `legacy → armed` and drain old requests

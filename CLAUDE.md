@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Status: Current
-Last verified: 2026-07-09
+Last verified: 2026-07-26
 Owner: Project documentation
 Canonical for: Claude-specific workflow guidance and prompt-handoff expectations; points back to AGENTS.md/DESIGN.md and does not supersede or override them
 Supersedes: docs/archive/governance/cfb-engineering-operating-instructions.md (Claude-workflow portion; jointly with AGENTS.md, which is canonical for the binding rules)
@@ -121,9 +121,9 @@ There is no Vitest/Jest config — test runner is Node's built-in. There is no C
 
 The canonical architecture map (runtime flow, module catalog, selectors, invariants) lives in `AGENTS.md` → **Architecture overview** and `docs/CFB_APP_ARCHITECTURE.md`. Read those rather than a duplicate here. The orientation Claude needs before diagnosing:
 
-- Upstream → downstream flow: CFBD → schedule normalization → canonical game model → identity resolution (`teamIdentity.ts`) → score/odds/ownership attachment → server-derived summaries → client selectors/state → UI. Diagnose in that order (see Debugging order below).
+- Upstream → downstream flow: CFBD → schedule normalization + identity resolution (`teamIdentity.ts`) → canonical game model (`AppGame`) → score/odds attachment → durable game-stat evidence evaluation/projection against canonical games → ownership/standings/server-derived summaries → client selectors/state → UI. The team-identity step runs _inside_ `buildScheduleFromApi`, not as a later pass; scores/odds attach onto the `AppGame`, while game-stat evidence is projected against canonical games (not inline `AppGame` fields) and never creates a parallel identity. Diagnose in that order (see Debugging order below).
 - `getCanonicalStandings` (`src/lib/selectors/leagueStandings.ts`) is the standings source of truth; `LiveDelta` is a client-only overlay never merged with canonical at render time.
-- `src/lib/selectors/` is the intended home for cross-surface derived view models. Note (per the PLATFORM-068 audit): a client-side `deriveStandings` path still exists in `CFBScheduleApp.tsx` outside `selectors/`, so treat "all derivation lives in selectors" as the target rule, not a fully-true statement today.
+- `src/lib/selectors/` is the home for cross-surface derived view models. On the client, canonical standings (`getCanonicalStandings` in `src/lib/selectors/leagueStandings.ts`) are the single source for standings/owner data — the PLATFORM-079 client-side `deriveStandings` fallback in `CFBScheduleApp.tsx` has been retired (the component now sources directly from `canonicalStandings`; `LiveDelta` remains the only client overlay). The lower-level derivation helpers (`deriveStandings`/`deriveStandingsCoverage`/`deriveStandingsHistory` in `src/lib/standings.ts` and `standingsHistory.ts`) still exist and are legitimately called _inside_ the canonical selector boundary — that is the canonical-selector-boundary vs. helpers-within-it distinction, not a parallel client derivation.
 
 ---
 

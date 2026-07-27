@@ -12,9 +12,10 @@ import type { GameStats, WeeklyGameStats } from './types.ts';
  * coverage is the evidence-based `evaluatePartitionCoverage` (participant-
  * verified, per the shared evidence authority), which diagnostics and every
  * analytics surface consume. The legacy payload classifier and cron slate
- * helpers were retired with the legacy writer (their names are banned by the
- * activation guard): ingestion policy lives solely in H1 parsing + H2 merge
- * behind `ingestGameStatsPartitionResponse`.
+ * helpers were retired when the live legacy route/cron write path was cut over
+ * (their names are banned by the activation guard); the fenced legacy writer
+ * itself is retained in `cache.ts`, refused under `active`. Ingestion policy
+ * lives solely in H1 parsing + H2 merge behind `ingestGameStatsPartitionResponse`.
  */
 
 /** Whether a normalized team row carries a resolvable identity (nonempty school). */

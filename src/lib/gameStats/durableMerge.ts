@@ -26,18 +26,20 @@ import type { CfbdSeasonType } from '../cfbd.ts';
 import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
 
 /**
- * PLATFORM-086H2 — durable game-stats merge service (DORMANT).
+ * PLATFORM-086H2 — durable game-stats merge service (ACTIVE).
  *
- * The durable merge authority the staged activation PR (PR 3) will later wire
- * into validated ingestion → durable merge → cache completeness →
- * schedule-relative recovery → analytics projection → truthful availability.
- * NOTHING in current production invokes it: no cron, manual refresh, coverage,
- * recovery, analytics, Insights, career, diagnostics, or availability path may
- * import this module until that atomic activation (the recursive
- * dormant-boundary guard enforces this). Activation invariant: every
- * game-stats writer must route through this authority (or the same
- * transaction-scoped lock) before the service is activated — an unlocked
- * writer bypasses the serialization entirely.
+ * The durable merge authority for game-stats ingestion. As of the
+ * PLATFORM-086H3E activation (PR #410, merged and live in production) this is
+ * the ONLY authorized game-stats writer: both the admin manual refresh
+ * (`/api/game-stats`) and the 15-minute scheduled poll (`/api/cron/game-stats`)
+ * reach it through the ONE ingestion coordinator
+ * (`ingestGameStatsPartitionResponse`). No other cron, refresh, coverage,
+ * analytics, Insights, career, diagnostics, or availability path imports this
+ * module directly — the activation-invariant guard enforces that the durable-
+ * merge entry points appear only here and in that coordinator. Activation
+ * invariant (still binding): every game-stats writer routes through this
+ * authority (or the same transaction-scoped lock) — an unlocked writer would
+ * bypass the serialization entirely.
  *
  * Core guarantees:
  *   - Active-only authorization (PLATFORM-086H3D): every invocation takes the

@@ -14,13 +14,13 @@ import {
 } from './writerFence.ts';
 
 /**
- * PLATFORM-086H3D — strict writer-control transition authority (DORMANT).
+ * PLATFORM-086H3D — strict writer-control transition authority (OPERATOR-CLI-ONLY).
  *
  * The single atomic operation that moves the existing
  * `game-stats-writer-control/state` record between rollout states. It completes
- * the fence PLATFORM-086H3B deployed: the fenced legacy writer and the dormant
- * H2 merge service both reread this record inside their own partition
- * transactions, so a committed transition here is a serialization barrier — a
+ * the fence PLATFORM-086H3B deployed: the fenced legacy writer and the H2 merge
+ * service both reread this record inside their own partition transactions, so a
+ * committed transition here is a serialization barrier — a
  * writer holding the control lock finishes first, and every writer arriving
  * after the transition rereads the new state and refuses.
  *
@@ -45,11 +45,15 @@ import {
  * REREAD, never retry blindly), and every other store failure is a typed
  * `store-unavailable` with no durable transition.
  *
- * DORMANT: no route, cron, reader, or production caller invokes this. Its only
- * caller is the operator CLI (`scripts/transition-game-stats-writer-control.ts`),
- * and the recursive dormant-boundary guard forbids any live import. Deploying
- * this capability performs NO transition — production stays `legacy` until the
- * staged rollout (E) executes the documented runbook.
+ * OPERATOR-CLI-ONLY: no route, cron, reader, or application code invokes this.
+ * Its only caller is the operator CLI
+ * (`scripts/transition-game-stats-writer-control.ts`), and the activation-
+ * invariant guard forbids any live import — production writer-control changes
+ * are the operator runbook's job, never application code's. The PLATFORM-086H3E
+ * activation used this authority to transition production `legacy → armed →
+ * active`; it remains the mechanism for the emergency `active → read-only-safe`
+ * stop and `read-only-safe → active` recovery. Once activated, the graph forbids
+ * any return to `legacy` — production must never go back to `legacy`.
  */
 
 /** The closed transition graph: every permitted `from → to` edge. */

@@ -19,13 +19,18 @@ import type { CfbdSeasonType } from '../cfbd.ts';
  *     legacy normalizer backfills zeroes for absent/malformed values, so a
  *     normalized `0` cannot be distinguished from an observed `0` without
  *     consulting the raw category map.
- *   - The lenient legacy normalizer (`normalizers.ts`) remains the unchanged
- *     production write path while v2 writers stay dormant; it is deliberately
- *     NOT rewritten here because strict parsing would alter written output for
- *     observed wire quirks (e.g. `fourthDownEff: "2-1"`). The strict system in
- *     this module is the single parser for classification, projection, v2
- *     construction, and future merge rebuilding — no second strict parser may
- *     be introduced elsewhere.
+ *   - The lenient legacy normalizer (`normalizers.ts`) is left unchanged: it
+ *     only converts provider rows — the fenced legacy writer (and its
+ *     writer-control transaction) lives in `cache.ts`, which is write-refused
+ *     under `active` control and retained only for test seeding and
+ *     pre-activation/bootstrap deploys. `normalizers.ts` is deliberately NOT
+ *     rewritten here because strict parsing would
+ *     alter written output for observed wire quirks (e.g. `fourthDownEff:
+ *     "2-1"`). Since the PLATFORM-086H3E activation the durable merge authority
+ *     (H2) is the only live writer and emits v2 rows. The strict system in this
+ *     module is the single parser for classification, projection, v2
+ *     construction, and merge rebuilding — no second strict parser may be
+ *     introduced elsewhere.
  *
  * The legacy-compatibility bounds in this module were validated against the
  * complete 2021–2025 durable inventory (PLATFORM-086H1-LEGACY-DURABLE-DATA-
@@ -487,7 +492,7 @@ export function isAnalyticsEligible(row: unknown): boolean {
   return state === 'v2-complete' || state === 'legacy-compatible';
 }
 
-// === Incoming v2 observation parsing (dormant until PR 2/3) ===
+// === Incoming v2 observation parsing (ACTIVE — consumed by ingestion/H2 merge) ===
 
 export type ParsedV2TeamObservation = {
   school: string;
@@ -673,9 +678,10 @@ function buildTeamStatsFromEvidence(team: ParsedV2TeamObservation): TeamGameStat
 /**
  * Pure v2 row constructor: builds a `schemaVersion: 2` game row from a
  * trustworthy parsed observation through the single strict normalization path.
- * NO production writer is connected to this in PLATFORM-086H1 — cron and manual
- * refresh continue to write legacy rows via `normalizers.ts` until PR 2/3
- * deliberately migrate them. Reads never stamp or rewrite legacy rows.
+ * Since the PLATFORM-086H3E activation the durable merge authority (H2) is the
+ * live game-stats writer and produces v2 rows through this path; the fenced
+ * legacy writer (in `cache.ts`, not `normalizers.ts`) is write-refused under
+ * `active` control. Reads never stamp or rewrite legacy rows.
  */
 export function buildV2GameStats(
   observation: ParsedV2Observation,

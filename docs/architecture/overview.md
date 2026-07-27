@@ -1,7 +1,7 @@
 # Architecture Overview
 
 Status: Current
-Last verified: 2026-07-09
+Last verified: 2026-07-26
 Owner: Project documentation
 Canonical for: high-level runtime architecture, data-flow overview, source-of-truth hierarchy, architecture-doc index
 Supersedes: (none — complements `AGENTS.md`; the `docs/CFB_APP_ARCHITECTURE.md` pipeline sketch is the one-line version of the data flow below)
@@ -32,6 +32,8 @@ The CFBD **schedule is the source of truth for the game universe.** `buildSchedu
 API response → normalization layer → canonical game model → attachment layers → UI
 ```
 
+**Game-stats evidence attaches the same way (PLATFORM-086H3E, active in production).** CFBD `/games/teams` stats are ingested through one coordinator, merged durably by the H2 authority under `active` writer control, then projected as evidence keyed to the canonical schedule (provider game id + partition + participant validation) — feeding owner analytics / Insights. Game-stat evidence **never creates an independent game identity**, and durable writing requires writer control `active`. See [game-data-flow.md](game-data-flow.md) → "Game stats" and [`../ai/game-stats-writer-fence.md`](../ai/game-stats-writer-fence.md).
+
 ## Source-of-truth hierarchy
 
 | Concern                                                           | Source of truth                                                                   |
@@ -42,12 +44,13 @@ API response → normalization layer → canonical game model → attachment lay
 | Standings (rows, history, color order, owner identity, lifecycle) | `getCanonicalStandings` (server)                                                  |
 | Live in-progress annotations                                      | client `LiveDelta` overlay (never merged into canonical at render time)           |
 | Scores / odds                                                     | CFBD / The Odds API, attached to canonical games; public reads are cache-only     |
+| Game-stats evidence / owner analytics                             | CFBD `/games/teams` → H2 durable merge (`active` writer control) → evidence projection keyed to the canonical schedule |
 | User identity + app role                                          | Clerk (`platform_admin` / `commissioner` / `member`)                              |
 | Per-league page access                                            | league password gate (`LEAGUE_AUTH_SECRET`) — separate from Clerk, grants no role |
 
 ## Deeper architecture docs
 
-- [game-data-flow.md](game-data-flow.md) — schedule → canonical games, score/odds attachment, provider cache/quota policy.
+- [game-data-flow.md](game-data-flow.md) — schedule → canonical games, score/odds attachment, game-stats ingestion/evidence flow, provider cache/quota policy.
 - [identity-and-ownership.md](identity-and-ownership.md) — `teamIdentity.ts`, alias precedence, `gameOwnership.ts`, CSV's role.
 - [standings.md](standings.md) — canonical standings authority, LiveDelta, NoClaim, cache invalidation, lifecycle states.
 - [auth-and-privacy.md](auth-and-privacy.md) — Clerk vs `ADMIN_API_TOKEN` vs league password; route/API auth.

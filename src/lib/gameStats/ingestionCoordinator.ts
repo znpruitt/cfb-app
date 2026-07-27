@@ -8,7 +8,7 @@ import {
 import { mergeGameStatsPartitionDurable, type DurableMergeResult } from './durableMerge.ts';
 
 /**
- * PLATFORM-086H3C2 — dormant safe ingestion coordination (DORMANT).
+ * PLATFORM-086H3C2 — safe ingestion coordination (ACTIVE).
  *
  * The smallest adapter connecting ONE already-fetched CFBD `/games/teams`
  * response to H1 parsing (`contract.ts`) and H2 durable merging
@@ -29,15 +29,16 @@ import { mergeGameStatsPartitionDurable, type DurableMergeResult } from './durab
  * responsible for filtering successfully parsed but non-persistable observations
  * and reporting `skippedNonPersistable`.
  *
- * DORMANT: nothing in production imports it. No CFBD fetch, credentials, retry,
+ * Batch coordination ONLY: it performs no CFBD fetch, credentials, retry,
  * pacing, or quota; no route or status-code mapping; no cron, polling cadence,
  * targeting, arming, or final-status confirmation; no provider-refresh records;
  * no schedule association or whole-slate coverage; no reader/analytics/Insights
  * surface; no writer-control permission check; no recovery/lease/backoff/repair.
- * Polling, scheduler, route, reader, and production activation belong in E — not
- * here. The recursive dormant-boundary guard enforces this (the adapter is an
- * authorized dormant home of H1/H2 imports; every live file is forbidden from
- * importing it). It is NOT exported from any game-stats barrel.
+ * Those concerns live in the activated route and cron (`/api/game-stats`,
+ * `/api/cron/game-stats`, PLATFORM-086H3E), which are this adapter's only
+ * production callers — it is the ONE ingestion path both reach. The activation-
+ * invariant guard keeps the H2 durable-merge entry points confined to this
+ * adapter and H2's own module. It is NOT exported from any game-stats barrel.
  */
 
 /** The requested partition plus the already-fetched, untrusted provider response. */
@@ -47,7 +48,7 @@ export type GameStatsIngestionInput = {
   seasonType: CfbdSeasonType;
   /**
    * When the provider request that produced `payload` STARTED — supplied by the
-   * future caller. Passed to H2 verbatim as the observation fence; the adapter
+   * calling route/cron. Passed to H2 verbatim as the observation fence; the adapter
    * never generates a later timestamp after receiving the response, and never
    * validates the fence itself (H2 owns fence policy: an invalid fence makes H2
    * `unavailable`, which is returned unchanged).

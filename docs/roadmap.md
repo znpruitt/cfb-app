@@ -1,7 +1,7 @@
 # CFB App Roadmap
 
 Status: Current
-Last verified: 2026-07-14
+Last verified: 2026-07-26
 Owner: Project documentation
 Canonical for: high-level product/platform roadmap and development philosophy only
 Supersedes: (none)
@@ -68,12 +68,12 @@ Keep this intentionally small:
 
 Fetch and cache weekly game-level team stats from CFBD to power the Insights Engine.
 
-- **Data source:** CFBD `game_team_stats` endpoint — one call per week, returns all team stats for all games in that week
+- **Data source:** CFBD `game_team_stats` (`/games/teams`) endpoint, returning all team stats for all games in a partition. _(The original design made one call per week; the active PLATFORM-086H3E poll is bounded per-run instead — see API cost below.)_
 - **Storage:** Cached in `appStateStore` by week, same pattern as scores
-- **Cron:** Monday 11am UTC — fetch weekend game stats (complements the daily 00:00 UTC season-transition cron; see `vercel.json`)
+- **Cron:** originally Monday 11am UTC — fetch weekend game stats. _(Superseded by PLATFORM-086H3E: the game-stats poll now runs every 15 minutes, triggered by the external QStash schedule `turfwar-game-stats-15m`, and is no longer declared in `vercel.json` — which keeps only the daily season-transition and season-rollover lifecycle crons.)_
 - **Owner aggregation:** `aggregateOwnerGameStats()` resolves teams via `TeamIdentityResolver`, attributes stats per owner at query time
 - **Stats available:** Yards gained/allowed, turnovers, turnover margin, third-down conversion %, time of possession, plus 6 special teams return stat fields
-- **API cost:** ~19 additional calls per season — well within the CFBD Tier 1 limit (5,000 calls/month)
+- **API cost (original weekly design — historical/superseded):** ~19 additional calls per season. _(Superseded by the PLATFORM-086H3E bounded polling model: **zero** CFBD calls when no eligible target exists; **at most one** `/games/teams` call per eligible 15-minute run; an unresolved partition may be re-fetched on later runs while it stays inside the 3–24h post-kickoff window, and later kickoff windows create further eligible runs; automation halts at the 1,000-call monthly reserve. There is no fixed per-week or per-season total under this model.)_ Both models stay well within the CFBD Tier 1 limit (5,000 calls/month).
 - **2021–2025 backfilled** (5 seasons × ~19 weeks = 95 weeks cached)
 - See `docs/completed-work.md` for full detail.
 
@@ -245,12 +245,12 @@ Provider limits (canonical): CFBD Tier 1 = 5,000 calls/month; The Odds API = 500
 - **PLATFORM-086A — provider-refresh observability foundation ✓ Complete (PR #391).** Durable per-dataset refresh status with typed canonical scopes and per-scope attempt ordering; cross-scope completion-token rejection; durable operator settings (global noncritical pause + per-dataset enable); `/admin/diagnostics` Provider Data Status panel with manual refresh; cache-aware missing-data diagnostics; CFBD quota normalization (Tier 1 = 5,000); user-facing freshness labels; CFBD as the sole normal score provider (automatic ESPN fallback removed); durable-first commits; empty-response/schema-drift classification; schedule `week + all` read-time cache composition.
 - **PLATFORM-086G1 — CFBD score & quota truthfulness ✓ Complete (PR #394).** Contextual target-scoped Scores empty classification (`cfbd-empty-unexpected` failures retain prior-good data; legitimate empties stay no-ops); CFBD quota missing/malformed fields resolve to unavailable, never false exhaustion.
 - **PLATFORM-086G2 — Odds boundary & usage truthfulness ✓ Complete (PR #395).** Malformed/schema-drift/unexpected-empty Odds payloads rejected before commit (`odds-invalid-payload` / `odds-schema-drift` / `odds-empty-unexpected`, prior-good retained; legitimate empties stay no-ops, with prior events reconciled against the canonical slate via a typed identity-certainty state model); odds-usage read failure now distinct from snapshot absence end to end. Separate PR from G1 (different provider family).
-- **PLATFORM-086H — game-stats recovery (in progress — staged).** 086H1 data-contract foundation ✓ complete (PR #396, dormant). 086H2 durable merge service ✓ complete (PR #397, dormant; single-client advisory-lock transaction, observation fencing, conservative field merge). 086H3 atomic contract activation is **decomposed into prerequisite PRs A–E** (a first single-branch attempt was frozen as a read-only salvage reference after an architecture audit; frozen design in `docs/ai/platform-086h3-contract.md`): A durable multi-key transaction primitive → B revision lineage/ledger + status chronology + operator repair + activation-control fence → C canonical evidence (participant-validated coverage, one duplicate authority) → D recovery/orchestration → E final atomic activation. **This lineage/revision A–E sequence is SUPERSEDED (see below).** **086H3A — durable multi-key app-state transaction primitive — MERGED into `main` (PR #398)** (dormant; production HTTP behavior byte-identical to `main`). B as designed is superseded; C/D remain unimplemented; final activation remains E. Deferred: 086H4 diagnostics + panel no-op wording, legacy-row migration. Nothing activated yet. **086H3B superseded (2026-07 audit):** the revision/status-authority branch is frozen as reference and NOT merged (game stats are reconstructible provider projections; permanent lineage/revision/repair defend a scenario this app cannot have). It is replaced by a small **fenced legacy writer** — **merged into `main` (PR #399)** (serialized partition write gated on a durable `game-stats-writer-control` record; initialize the row before deploy — `npm run init:writer-control`); C/D/E are redefined without lineage/revision/repair. See `docs/ai/game-stats-writer-fence.md`.
+- **PLATFORM-086H — game-stats recovery (production active; broader follow-ups deferred).** The staged H1/H2/H3 sequence is merged and the reviewed code-bearing artifact (`a161e33`) is active in production with writer control durably `active`; the 15-minute QStash trigger is provisioned, exact-auth delivery was proven provider-free with both automation gates closed, and the gates are now open. A final live no-target delivery observation remains activation closeout, not an H3 correctness blocker. Broader presentation/copy work (086H4) and legacy-row migration remain deferred.
 - **PLATFORM-086I — settings feedback (planned).** Render stored pause/toggle mutation errors beside their controls.
 - **PLATFORM-086B — live-score polling (planned).** Schedule-armed ~3-minute polling only; never bundled with Odds.
 - **PLATFORM-086C — Odds polling (planned).** ~6-hour baseline with modest pre-kickoff priority; separate from live scores.
 - **PLATFORM-086E1 / 086E2 — slow jobs (planned, separate PRs).** Weekly active-season schedule refresh with an **operation-aware** settings gate: general weekly maintenance is noncritical (honors the global pause and schedule toggle), while the postseason/championship-slate refresh that establishes a trustworthy season-rollover boundary is **lifecycle-critical and exempt** — like the season-transition/rollover operations themselves — so rollover never depends solely on data operators can pause, proceeds only from an authoritative championship boundary, and an empty/partial postseason slate never authorizes it; rankings publication refresh (AP/Coaches Sundays 22:00 UTC, CFP Wednesdays 04:00 UTC — cadence fixed in code/`vercel.json`, never admin-editable).
-- **PLATFORM-086F — admin diagnostics information-architecture redesign (planned, last).** After the real automation jobs exist.
+- **PLATFORM-086F — admin diagnostics information-architecture redesign (planned, last).** Begin with a bounded game-stats cron-execution observability slice: one secret-safe structured log per scheduled run, without creating provider-refresh attempts for harmless skips; an independent last-scheduler-check heartbeat is an optional panel enhancement. Continue with the broader dashboard redesign after the real automation jobs exist.
 - **PLATFORM-086D — absorbed into 086A (retired).** Operator controls shipped with 086A; only the 086I error-rendering remnant remains.
 - **Conferences remain manual** — no automation task.
 
@@ -294,7 +294,7 @@ Audit server-side routes that fetch their own API endpoints (e.g. `/league/[slug
 - `SeasonRolloverPanel` in `/admin/data/cache` — two-phase preview/execute flow with per-league champion + top 3 display and destructive confirm guard
 - `GET /api/cron/season-rollover` — daily cron triggers when `championshipDate + 7 days` has passed, archives all non-test season-state leagues and transitions them to offseason
 - TSC successfully rolled over via the new panel
-- `vercel.json` now has three cron jobs: season-transition, game-stats, season-rollover
+- `vercel.json` carries the two daily (00:00 UTC) lifecycle cron jobs: season-transition and season-rollover. _(Historical note: this section originally added a third `game-stats` cron here; under PLATFORM-086H3E that 15-minute game-stats poll was moved off Vercel crons — Vercel Hobby rejects sub-daily cron expressions — and is now triggered externally by the QStash schedule `turfwar-game-stats-15m` calling the unchanged route, so `vercel.json` no longer declares a game-stats cron.)_
 - See `docs/completed-work.md` for full detail.
 
 #### Clerk Production Instance Migration ✓ Complete

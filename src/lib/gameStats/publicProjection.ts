@@ -24,7 +24,7 @@ import {
 import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
 
 /**
- * PLATFORM-086H3C1 — schema-safe public + analytics projections (DORMANT).
+ * PLATFORM-086H3C1 — schema-safe public + analytics projections (ACTIVE).
  *
  * Both projections consume the SAME evidence decision that coverage computes, so
  * the winner and conflict classification can never diverge across surfaces —
@@ -32,7 +32,9 @@ import type { GameStats, TeamGameStats, WeeklyGameStats } from './types.ts';
  * envelope, game, team, and recognized-raw-category allowlists; a persisted
  * object is never spread onto the wire, and internal persistence metadata
  * (schema version, observation fence, transaction/recovery state) never leaks.
- * This projection is not wired to the live `/api/game-stats` response.
+ * Since the PLATFORM-086H3E activation the public projector backs the live
+ * `/api/game-stats` and cron responses, and the analytics projector backs the
+ * Insights/owner/history/career analytics path.
  */
 
 // === Public wire (allowlisted) ===
@@ -240,10 +242,10 @@ export type EnvelopeValidation =
 
 /**
  * The ONE durable-envelope validation authority (PLATFORM-086H3E2 export):
- * every dormant consumer of a committed `WeeklyGameStats` read — the public
- * projection below and the polling-target derivation — validates the untyped
- * stored value through this exact function, so envelope identity/shape policy
- * can never fork.
+ * every consumer of a committed `WeeklyGameStats` read — the public projection
+ * below, the polling-target derivation, and provider-data diagnostics —
+ * validates the untyped stored value through this exact function, so envelope
+ * identity/shape policy can never fork.
  */
 export function validateGameStatsEnvelope(
   value: unknown,

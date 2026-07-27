@@ -14,11 +14,11 @@ import {
  * carries the slate derived from the EXACT canonical build that produced its
  * `games`/`scoresByKey`, so an archive consumer never rebuilds a live slate
  * and pairs it with archived scores (cross-provenance mixing). This module is
- * the single permitted production crossing of the dormant game-stats boundary
- * (the slate derive-from-build entry only), enforced by the dormant-boundary
+ * the single permitted season-archive crossing into the game-stats slate layer
+ * (the slate derive-from-build entry only), enforced by the activation-invariant
  * guard's exact allowlist — which permits that name solely in the static
  * import statement and in direct call position, so this file cannot re-export
- * or alias dormant capability onward.
+ * or alias that capability onward.
  *
  * The persisted schema is a MINIMAL STRICT ALLOWLIST — exactly the fields the
  * analytics projection consumes (association id, attachment key, partition,
@@ -28,9 +28,10 @@ import {
  * independent of the build instant: the expected/pending split (a 6-hour
  * kickoff-age concept) collapses because both classes persist identically.
  *
- * Consumers activate in E3. Absent or malformed snapshots FAIL CLOSED there
- * (distinct unavailable reason, no live rebuild); the only repair is the
- * established preview/confirm archive backfill.
+ * Consumers are live since the PLATFORM-086H3E (E3) activation. Absent or
+ * malformed snapshots FAIL CLOSED in the analytics provenance path (distinct
+ * unavailable reason, no live rebuild); the only repair is the established
+ * preview/confirm archive backfill.
  */
 
 export const GAME_STAT_SLATE_SNAPSHOT_VERSION = 1 as const;
@@ -123,9 +124,9 @@ export function buildGameStatSlateSnapshot(input: {
 }
 
 // Positive-safe-integer predicate, intentionally local: the canonical form
-// lives in the DORMANT `contract.ts` (`isValidProviderGameId`), which this
-// production-scanned module must not import. A one-line numeric primitive is
-// duplicated rather than widening the dormant-boundary allowlist.
+// lives in `contract.ts` (`isValidProviderGameId`); this module deliberately
+// keeps a one-line local copy instead of importing the game-stats contract into
+// the season-archive path.
 function isPositiveSafeInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }

@@ -1,7 +1,7 @@
 # Auth & Privacy
 
 Status: Current
-Last verified: 2026-07-09
+Last verified: 2026-07-26
 Owner: Project documentation
 Canonical for: Clerk identity/roles, platform-admin route/API gating, ADMIN_API_TOKEN fallback, league-password privacy gate, cron auth
 Supersedes: (none — complements `AGENTS.md` → Auth Architecture Invariants; the deployment-runbook's auth summary is the operator-facing companion)
@@ -34,13 +34,15 @@ Route-level auth lives in exactly one place — the Clerk middleware (`src/middl
 
 `/api/debug/*` stays **route-gated** by `requireAdminAuth` (not the page middleware) precisely so the `ADMIN_API_TOKEN` fallback — which middleware can't express — keeps working for machine callers.
 
+The game-stats data route **`/api/game-stats` is admin-only** (`src/lib/server/adminAuth`, authenticated BEFORE any query parsing or provider access, PLATFORM-086H3E). It is an operator/admin surface — cache-only projector reads unless an authorized `bypassCache=1` repair is requested — and is distinct from the QStash-triggered `/api/cron/game-stats` covered below.
+
 **`ADMIN_API_TOKEN` is a transitional fallback** (Auth Invariant #5), retained for backward compatibility until the Phase 8 multi-tenant commissioner signup replaces it with commissioner-scoped Clerk roles. Do not build new flows that depend on it. (Note: when no token is configured, non-production environments treat requests as authorized for local dev convenience — production must set real auth.)
 
 Never hardcode `publicMetadata.role` checks in components or handlers; all role assertions go through the middleware and `requireAdminAuth`. Draft admin gates go through `src/lib/server/canAccessDraftBoard.ts`.
 
 ## Cron auth (`CRON_SECRET`)
 
-Scheduled cron routes (`/api/cron/*`) authenticate separately via `verifyCronSecret(req)`: the request's `Authorization` header must equal `Bearer ${CRON_SECRET}`. This is independent of `requireAdminAuth`/`ADMIN_API_TOKEN`. The cron routes **fail closed** — a missing/unset `CRON_SECRET` makes every scheduled run return `401`, silently stopping automated season transition, rollover, and weekly game-stats ingestion.
+Scheduled cron routes (`/api/cron/*`) authenticate separately via `verifyCronSecret(req)`: the request's `Authorization` header must equal `Bearer ${CRON_SECRET}`. This is independent of `requireAdminAuth`/`ADMIN_API_TOKEN`. The season-transition and season-rollover crons are Vercel-scheduled (`vercel.json`, daily 00:00 UTC). The **game-stats cron is triggered externally by the QStash schedule `turfwar-game-stats-15m`** (every 15 minutes), which forwards the same `Bearer ${CRON_SECRET}` header to the unchanged route — so route authentication is identical whether the trigger is Vercel or QStash — and `/api/cron/game-stats` is intentionally **absent from `vercel.json`** (Vercel Hobby rejects sub-daily crons; PLATFORM-086H3E). The cron routes **fail closed** — a missing/unset `CRON_SECRET` makes every scheduled run return `401`, silently stopping automated season transition, rollover, and game-stats ingestion.
 
 ## League-password privacy gate (`LEAGUE_AUTH_SECRET`)
 

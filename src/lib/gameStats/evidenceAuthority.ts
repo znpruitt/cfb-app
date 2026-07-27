@@ -10,7 +10,7 @@ import type { GameStats, TeamGameStats } from './types.ts';
 
 /**
  * PLATFORM-086H3C1 — the single, schedule-aware, row-level evidence authority
- * (DORMANT).
+ * (ACTIVE).
  *
  * Authority model (PLATFORM-086H3C1-SIMPLIFICATION-v1 + PLATFORM-086H3C5): a
  * UNIQUE canonical CFBD game id, plus partition agreement, establishes
@@ -55,8 +55,8 @@ import type { GameStats, TeamGameStats } from './types.ts';
  *   6. collapse equivalent candidates; divergent same-class candidates conflict.
  *
  * Evidence selection is row-level: read-time field composition across rows is
- * forbidden. Component-level composition stays with the dormant durable merge
- * service, which C1 never activates or calls.
+ * forbidden. Component-level composition stays with the durable merge service
+ * (the write path); this read-model authority never calls it.
  */
 
 // === Result contract ===

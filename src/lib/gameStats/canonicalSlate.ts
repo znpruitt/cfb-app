@@ -14,13 +14,15 @@ import type { AliasMap } from '../teamNames.ts';
 import { isValidProviderGameId } from './contract.ts';
 
 /**
- * PLATFORM-086H3C1 — canonical game-stats slate/context (DORMANT).
+ * PLATFORM-086H3C1 — canonical game-stats slate/context (ACTIVE).
  *
- * The schedule-authoritative expectation layer for the C1 evidence read model:
+ * The schedule-authoritative expectation layer for the evidence read model:
  * it decides WHICH games each weekly partition expects, WHICH canonical
  * participants belong to each game, and the resolver used to validate a stored
- * row's participants. It never fetches a provider, never writes, and is wired
- * into no live consumer (the recursive dormant-boundary guard enforces this).
+ * row's participants. It never fetches a provider and never writes. Since the
+ * PLATFORM-086H3E activation it is live: the admin route, the game-stats cron,
+ * and provider-data diagnostics all load the slate through
+ * `loadCanonicalGameStatsSlate`.
  *
  * Design invariants (see the C1 handoff doc):
  *   - Canonical games are built ONLY through `buildScheduleFromApi`; schedule
@@ -275,9 +277,10 @@ export function buildCanonicalGameStatsSlate(input: {
  * `scheduleItems` the exact wire rows fed to that same invocation: the slate
  * then inherits that build's keys, aliases, overrides, and exclusions, so a
  * consumer pairing it with scores attached to the SAME build can never mix
- * provenance across builds. The only production caller outside the dormant
- * boundary is the archive snapshot seam (`slateSnapshot.ts`), enforced by the
- * dormant-boundary guard's exact allowlist.
+ * provenance across builds. Its production callers are the archive snapshot
+ * seam (`slateSnapshot.ts`) and the analytics provenance assembler
+ * (`analyticsProvenance.ts`) — each pairs the slate with scores from the SAME
+ * build, per the activation-invariant guard's provenance rule.
  */
 export function deriveCanonicalGameStatsSlateFromBuild(input: {
   year: number;

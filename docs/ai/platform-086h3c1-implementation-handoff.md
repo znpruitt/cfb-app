@@ -1,5 +1,8 @@
 # PLATFORM-086H3C1 — Canonical Game-Stats Evidence Read Model
 
+Status: Historical (point-in-time) — the C1 implementation handoff for a shipped slice; NOT current authority.
+Current authority: [`game-stats-writer-fence.md`](game-stats-writer-fence.md) and `AGENTS.md`.
+
 > **SIMPLIFIED — PLATFORM-086H3C1-SIMPLIFICATION-v1.** C1 is scoped to the
 > evidence authority that is meaningful with today's persisted data. The **unique
 > canonical CFBD game ID + partition agreement is the whole association

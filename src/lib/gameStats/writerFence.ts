@@ -15,7 +15,7 @@
  * `legacy` constructor. It performs NO transition orchestration, repair, lineage,
  * revision allocation, restoration witness, evidence/status/recovery mutation, or
  * any HTTP/admin operation — the strict transition authority lives in
- * `writerControlTransition.ts` (PLATFORM-086H3D, dormant, operator-CLI-only), and
+ * `writerControlTransition.ts` (PLATFORM-086H3D, operator-CLI-only), and
  * everything else is intentionally absent so this record can never become a
  * repair surface.
  */
@@ -25,8 +25,8 @@ export const WRITER_CONTROL_SCOPE = 'game-stats-writer-control';
 export const WRITER_CONTROL_KEY = 'state';
 
 /**
- * The only supported record version. Named `recordVersion` (not the dormant per-row
- * version field) so the writer-control record is never conflated with game-stats row
+ * The only supported record version. Named `recordVersion` (not the per-row
+ * schema-version field) so the writer-control record is never conflated with game-stats row
  * schema metadata.
  */
 export const WRITER_CONTROL_RECORD_VERSION = 1 as const;
