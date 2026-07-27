@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 
 import { GET as cronGet } from '../route';
 import {
@@ -447,11 +450,16 @@ test('an unexpected throw still emits one failure/unexpected-error event and pro
   __setAppStateReadFailureForTests(new Error('settings read boom'), 'provider-refresh-settings');
 
   const cap = installLogCapture();
-  await assert.rejects(async () => {
-    await cronGet(cronRequest());
-  });
-  cap.restore();
-  __setAppStateReadFailureForTests(null);
+  try {
+    await assert.rejects(async () => {
+      await cronGet(cronRequest());
+    });
+  } finally {
+    // Restore in a finally so a failed rejection assertion can never leak the
+    // console.log override (which beforeEach does not restore) into later tests.
+    cap.restore();
+    __setAppStateReadFailureForTests(null);
+  }
 
   const events = parseCronEvents(cap.raw);
   assert.equal(events.length, 1, 'exactly one event even on an unhandled throw');
@@ -540,4 +548,73 @@ test('events are schema-clean and never leak credentials, auth, provider errors,
       `no serialized event leaks ${marker}`
     );
   }
+});
+
+// 13. Canonical context unavailable → one skipped/canonical-context-unavailable
+//     event, no attempt, no call, and the underlying free-form reason is NOT
+//     logged. A `schedule`-scope read failure makes loadCanonicalGameStatsSlate
+//     resolve `schedule-load-failed` → the route's context-unavailable skip.
+test('a canonical-context-unavailable resolution logs skipped/canonical-context-unavailable', async () => {
+  await seedWindowGame(3, 'regular');
+  // Fail ONLY the schedule read so the pause gate (settings scope) still passes
+  // and target resolution loads the slate, which then fails unavailable.
+  __setAppStateReadFailureForTests(new Error('schedule read boom'), 'schedule');
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return new Response('[]', { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const { res, event } = await runCron();
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { skipped?: string };
+    assert.match(body.skipped ?? '', /canonical context unavailable/);
+
+    assert.equal(event.result, 'skipped');
+    assert.equal(event.reason, 'canonical-context-unavailable');
+    assert.equal(event.week, null);
+    assert.equal(event.seasonType, null);
+    assert.equal(event.quotaChecked, false);
+    assert.equal(event.providerCallAttempted, false);
+    assert.equal(event.committedGames, 0);
+    // The free-form slate reason (`schedule-load-failed`) must never leak into
+    // the structured event — only the stable vocabulary is logged.
+    assert.ok(
+      eventOmits(event, 'schedule-load-failed'),
+      'the free-form slate reason is not logged'
+    );
+    assert.equal(fetchCalls, 0, 'no usage or provider call once context is unavailable');
+
+    const week = await getProviderRefreshStatus(
+      'game-stats',
+      weekPartitionScope(YEAR, 3, 'regular')
+    );
+    assert.equal(week.latestAttemptOutcome, null, 'context-unavailable precedes any attempt');
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
+});
+
+/** True when the serialized event carries no occurrence of `needle`. */
+function eventOmits(event: GameStatsCronExecutionEvent, needle: string): boolean {
+  return !JSON.stringify(event).includes(needle);
+}
+
+// 14. Defensive branch event mappings — `cfbd-api-key-missing` and the raw
+//     `ingestion-failed` catch guard states that no valid provider outcome can
+//     reach at runtime: the quota gate short-circuits an unreadable key
+//     (fetchCfbdUsage throws → usage-unavailable refusal before the credential
+//     check), and H2 funnels every EXPECTED ingestion fault into a typed
+//     interpreter outcome (surfaced on the normal path). Fabricating those
+//     states would contradict the production contract, so — exactly as
+//     coverage.test.ts pins the same defensive branches — a static source-pin
+//     guards their event mappings against silent drift.
+test('the route pins the defensive cfbd-api-key-missing and ingestion-failed event mappings', () => {
+  const routeSrc = readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'route.ts'),
+    'utf8'
+  );
+  assert.match(routeSrc, /exec\.reason = 'cfbd-api-key-missing'/);
+  assert.match(routeSrc, /exec\.reason = 'ingestion-failed'/);
 });

@@ -91,11 +91,10 @@ export function createCronExecutionState(year: number): GameStatsCronExecutionSt
  */
 export function emitGameStatsCronExecutionEvent(
   state: GameStatsCronExecutionState,
-  startedAtMs: number,
-  nowMs: number = Date.now()
+  startedAtMs: number
 ): void {
   try {
-    const durationMs = Math.max(0, Math.round(nowMs - startedAtMs));
+    const durationMs = Math.max(0, Math.round(Date.now() - startedAtMs));
     const event: GameStatsCronExecutionEvent = {
       event: 'game-stats-cron',
       result: state.result,
