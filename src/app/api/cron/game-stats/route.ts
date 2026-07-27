@@ -18,6 +18,10 @@ import {
 import { projectPublicPartition } from '@/lib/gameStats/publicProjection';
 import { evaluateAutomationQuota, type CfbdUsageSnapshot } from '@/lib/gameStats/quotaPolicy';
 import { interpretGameStatsRefreshOutcome } from '@/lib/gameStats/refreshOutcome';
+import {
+  createCronExecutionState,
+  emitGameStatsCronExecutionEvent,
+} from '@/lib/gameStats/cronExecutionLog';
 import { getAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
 import { weekPartitionScope } from '@/lib/providerRefreshScope';
@@ -189,220 +193,271 @@ async function projectDurableBlock(
 }
 
 export async function GET(req: Request) {
-  // CRON_SECRET first — fail closed with distinct configuration errors.
-  const auth = verifyCronSecret(req);
-  if (auth !== 'ok') {
-    return NextResponse.json(
-      {
-        error:
-          auth === 'not-configured'
-            ? 'CRON_SECRET is not configured; scheduled game-stats refresh is disabled'
-            : 'invalid cron authorization',
-      },
-      { status: 401 }
-    );
-  }
-
+  // PLATFORM-086F1 — one secret-safe structured event per invocation. The start
+  // instant, season year, and pessimistic `failure / unexpected-error` tracker
+  // are captured at entry (year from the SAME instant so an auth failure still
+  // logs its year), and the single `finally` below is the ONLY emission point —
+  // guaranteeing at most one event for skips, every outcome, and any throw.
+  const startedAtMs = Date.now();
   const now = new Date();
   const year = seasonYearForToday(now);
-
-  // Operator pause — before target selection, so no scoped attempt exists.
-  if (!(await isAutoRefreshAllowed('game-stats'))) {
-    return NextResponse.json(
-      skippedResult(year, 'automatic game-stats refresh is paused or disabled')
-    );
-  }
-
-  // Resolve the exact target BEFORE any credential/usage/provider concern.
-  const resolution = await resolvePollingTarget(year, now);
-  if (resolution.status === 'context-unavailable') {
-    return NextResponse.json(
-      skippedResult(year, `canonical context unavailable: ${resolution.reason}`)
-    );
-  }
-  if (resolution.target === null) {
-    // No exact target → no scoped attempt, no usage check, no provider call.
-    return NextResponse.json(skippedResult(year, 'no partition inside the polling window'));
-  }
-
-  const { week, seasonType } = resolution.target;
-  const weekScope = weekPartitionScope(year, week, seasonType);
-  const attempt = await beginProviderRefreshAttempt('game-stats', weekScope, {
-    startedAt: new Date().toISOString(),
-  });
-
-  // Quota reserve (PLATFORM-086H3E2 policy): provider-reported usage only,
-  // checked ONLY once a target exists. Unknown or below-reserve usage resolves
-  // the attempt as a truthful failure — never fabricated either direction.
-  let usageSnapshot: CfbdUsageSnapshot;
-  try {
-    // FRESH usage for the quota gate — a cached snapshot must never let a
-    // burst of refreshes reuse pre-spend remaining counts.
-    const usage = await fetchCfbdUsage({ fresh: true });
-    usageSnapshot = { remainingCalls: usage.remaining, monthlyLimit: usage.limit };
-  } catch {
-    usageSnapshot = { remainingCalls: null };
-  }
-  const quota = evaluateAutomationQuota(usageSnapshot);
-  if (quota.kind === 'refused') {
-    await recordProviderRefreshFailure('game-stats', weekScope, {
-      attempt,
-      error: `scheduled refresh refused by quota policy: ${quota.reason}`,
-      code: `game-stats-quota-${quota.reason}`,
-    });
-    return NextResponse.json({
-      year,
-      week,
-      seasonType,
-      outcome: 'failure',
-      reason: `quota-${quota.reason}`,
-      committedGames: 0,
-      remaining: quota.remaining,
-      durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
-    } satisfies CronResult & { remaining: number | null; durable: unknown });
-  }
-
-  // Credential validation after target + quota, before provider access.
-  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
-  if (!cfbdApiKey) {
-    await recordProviderRefreshFailure('game-stats', weekScope, {
-      attempt,
-      error: 'CFBD_API_KEY not configured',
-      code: 'cfbd-api-key-missing',
-      status: 500,
-    });
-    return NextResponse.json(
-      {
-        year,
-        week,
-        seasonType,
-        outcome: 'failure',
-        reason: 'cfbd-api-key-missing',
-        committedGames: 0,
-        error: 'CFBD_API_KEY not configured',
-        durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
-      } satisfies CronResult & { durable: unknown },
-      { status: 500 }
-    );
-  }
-
-  // Observation fence before provider access; at most ONE partition fetch. The
-  // provider transport and the downstream ingestion/interpretation are fenced
-  // into SEPARATE try blocks so their failures classify distinctly — a
-  // transport error is `provider-fetch-failed`, a throw from ingestion (with
-  // INDETERMINATE durability) is `ingestion-failed` — and BOTH carry the
-  // durable reread so the report never mislabels one as the other or reads as
-  // lost prior-good evidence.
-  const fetchStartedAt = new Date().toISOString();
-  let payload: unknown;
-  try {
-    const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
-    payload = await fetchUpstreamJson<unknown>(cfbdUrl.toString(), {
-      cache: 'no-store',
-      timeoutMs: 12_000,
-      headers: { Authorization: `Bearer ${cfbdApiKey}` },
-      retry: RETRY_POLICY,
-      pacing: PACING_POLICY,
-    });
-  } catch (error) {
-    await recordProviderRefreshFailure('game-stats', weekScope, {
-      attempt,
-      error: error instanceof Error ? error.message : 'unknown error',
-      code: 'game-stats-provider-fetch-failed',
-      status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 500,
-    });
-    return NextResponse.json(
-      {
-        year,
-        week,
-        seasonType,
-        outcome: 'failure',
-        reason: 'provider-fetch-failed',
-        committedGames: 0,
-        error: error instanceof Error ? error.message : 'unknown error',
-        durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
-      } satisfies CronResult & { durable: unknown },
-      { status: 500 }
-    );
-  }
+  const exec = createCronExecutionState(year);
 
   try {
-    const result = await ingestGameStatsPartitionResponse({
-      year,
-      week,
-      seasonType,
-      fetchStartedAt,
-      payload,
-    });
-    const interpretation = interpretGameStatsRefreshOutcome(result);
-
-    let committedGames = 0;
-    if (interpretation.advanceLastSuccess) {
-      const merge = result.kind === 'merge-result' ? result.merge : null;
-      committedGames = merge
-        ? merge.inserted.length + merge.updated.length + merge.refreshed.length
-        : 0;
-      await recordProviderRefreshSuccess('game-stats', weekScope, {
-        attempt,
-        committedAt: new Date().toISOString(),
-        commitSeq: nextProviderCommitSeq(),
-        source: 'cfbd',
-        rowsCommitted: committedGames,
-        ...(interpretation.partialFailure ? { partialFailure: true } : {}),
-      });
-    } else if (interpretation.kind === 'no-op') {
-      await recordProviderRefreshNoop('game-stats', weekScope, { attempt, source: 'cfbd' });
-    } else {
-      await recordProviderRefreshFailure('game-stats', weekScope, {
-        attempt,
-        error: `scheduled game-stats refresh failed: ${interpretation.reason}`,
-        code: `game-stats-${interpretation.reason}`,
-        status: interpretation.httpStatus,
-      });
+    // CRON_SECRET first — fail closed with distinct configuration errors.
+    const auth = verifyCronSecret(req);
+    if (auth !== 'ok') {
+      exec.result = 'failure';
+      exec.reason =
+        auth === 'not-configured' ? 'cron-secret-not-configured' : 'cron-authorization-invalid';
+      return NextResponse.json(
+        {
+          error:
+            auth === 'not-configured'
+              ? 'CRON_SECRET is not configured; scheduled game-stats refresh is disabled'
+              : 'invalid cron authorization',
+        },
+        { status: 401 }
+      );
     }
 
-    // Durable REREAD — downstream truth is the durable partition, never the
-    // payload or an assumed merge result. The run report's availability comes
-    // from projecting the reread; no success inference, no same-run retry
-    // (indeterminate stays a failure until a later run observes it).
-    return NextResponse.json(
-      {
-        year,
-        week,
-        seasonType,
-        outcome: interpretation.kind,
-        reason: interpretation.reason,
-        committedGames,
-        durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
-      } satisfies CronResult & { durable: unknown },
-      { status: interpretation.kind === 'failure' ? interpretation.httpStatus : 200 }
-    );
-  } catch (error) {
-    // Defensive: H2 funnels every EXPECTED ingestion fault (write failure,
-    // conflict, stale, indeterminate commit) into a typed outcome handled on
-    // the normal path above. A throw reaching HERE is an unexpected
-    // ingestion/interpretation defect with INDETERMINATE durability — never a
-    // provider-transport failure. Record it distinctly (never advancing
-    // last-success) and reread the durable partition so the report reflects the
-    // true prior-good (or partially-applied) state.
-    await recordProviderRefreshFailure('game-stats', weekScope, {
-      attempt,
-      error: error instanceof Error ? error.message : 'unknown error',
-      code: 'game-stats-ingestion-failed',
-      status: 500,
+    // Operator pause — before target selection, so no scoped attempt exists.
+    if (!(await isAutoRefreshAllowed('game-stats'))) {
+      exec.result = 'skipped';
+      exec.reason = 'automation-paused-or-disabled';
+      return NextResponse.json(
+        skippedResult(year, 'automatic game-stats refresh is paused or disabled')
+      );
+    }
+
+    // Resolve the exact target BEFORE any credential/usage/provider concern.
+    const resolution = await resolvePollingTarget(year, now);
+    if (resolution.status === 'context-unavailable') {
+      // The underlying free-form reason is intentionally NOT logged (secret-safe).
+      exec.result = 'skipped';
+      exec.reason = 'canonical-context-unavailable';
+      return NextResponse.json(
+        skippedResult(year, `canonical context unavailable: ${resolution.reason}`)
+      );
+    }
+    if (resolution.target === null) {
+      // No exact target → no scoped attempt, no usage check, no provider call.
+      exec.result = 'skipped';
+      exec.reason = 'no-polling-target';
+      return NextResponse.json(skippedResult(year, 'no partition inside the polling window'));
+    }
+
+    const { week, seasonType } = resolution.target;
+    // Partition fields are known only now that an exact target is resolved.
+    exec.week = week;
+    exec.seasonType = seasonType;
+    const weekScope = weekPartitionScope(year, week, seasonType);
+    const attempt = await beginProviderRefreshAttempt('game-stats', weekScope, {
+      startedAt: new Date().toISOString(),
     });
-    return NextResponse.json(
-      {
+
+    // Quota reserve (PLATFORM-086H3E2 policy): provider-reported usage only,
+    // checked ONLY once a target exists. Unknown or below-reserve usage resolves
+    // the attempt as a truthful failure — never fabricated either direction.
+    let usageSnapshot: CfbdUsageSnapshot;
+    // The `/info` quota probe is about to run — mark it checked (stays true even
+    // if the probe throws or yields untrustworthy usage). This is NOT a billed
+    // game-stats provider call, so `providerCallAttempted` stays false here.
+    exec.quotaChecked = true;
+    try {
+      // FRESH usage for the quota gate — a cached snapshot must never let a
+      // burst of refreshes reuse pre-spend remaining counts.
+      const usage = await fetchCfbdUsage({ fresh: true });
+      usageSnapshot = { remainingCalls: usage.remaining, monthlyLimit: usage.limit };
+    } catch {
+      usageSnapshot = { remainingCalls: null };
+    }
+    const quota = evaluateAutomationQuota(usageSnapshot);
+    if (quota.kind === 'refused') {
+      await recordProviderRefreshFailure('game-stats', weekScope, {
+        attempt,
+        error: `scheduled refresh refused by quota policy: ${quota.reason}`,
+        code: `game-stats-quota-${quota.reason}`,
+      });
+      exec.result = 'failure';
+      exec.reason = `quota-${quota.reason}`;
+      return NextResponse.json({
         year,
         week,
         seasonType,
         outcome: 'failure',
-        reason: 'ingestion-failed',
+        reason: `quota-${quota.reason}`,
         committedGames: 0,
-        error: error instanceof Error ? error.message : 'unknown error',
+        remaining: quota.remaining,
         durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
-      } satisfies CronResult & { durable: unknown },
-      { status: 500 }
-    );
+      } satisfies CronResult & { remaining: number | null; durable: unknown });
+    }
+
+    // Credential validation after target + quota, before provider access.
+    const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
+    if (!cfbdApiKey) {
+      await recordProviderRefreshFailure('game-stats', weekScope, {
+        attempt,
+        error: 'CFBD_API_KEY not configured',
+        code: 'cfbd-api-key-missing',
+        status: 500,
+      });
+      exec.result = 'failure';
+      exec.reason = 'cfbd-api-key-missing';
+      return NextResponse.json(
+        {
+          year,
+          week,
+          seasonType,
+          outcome: 'failure',
+          reason: 'cfbd-api-key-missing',
+          committedGames: 0,
+          error: 'CFBD_API_KEY not configured',
+          durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
+        } satisfies CronResult & { durable: unknown },
+        { status: 500 }
+      );
+    }
+
+    // Observation fence before provider access; at most ONE partition fetch. The
+    // provider transport and the downstream ingestion/interpretation are fenced
+    // into SEPARATE try blocks so their failures classify distinctly — a
+    // transport error is `provider-fetch-failed`, a throw from ingestion (with
+    // INDETERMINATE durability) is `ingestion-failed` — and BOTH carry the
+    // durable reread so the report never mislabels one as the other or reads as
+    // lost prior-good evidence.
+    const fetchStartedAt = new Date().toISOString();
+    let payload: unknown;
+    // The billed CFBD `/games/teams` request is about to run.
+    exec.providerCallAttempted = true;
+    try {
+      const cfbdUrl = buildCfbdGameTeamStatsUrl({ year, week, seasonType });
+      payload = await fetchUpstreamJson<unknown>(cfbdUrl.toString(), {
+        cache: 'no-store',
+        timeoutMs: 12_000,
+        headers: { Authorization: `Bearer ${cfbdApiKey}` },
+        retry: RETRY_POLICY,
+        pacing: PACING_POLICY,
+      });
+    } catch (error) {
+      await recordProviderRefreshFailure('game-stats', weekScope, {
+        attempt,
+        error: error instanceof Error ? error.message : 'unknown error',
+        code: 'game-stats-provider-fetch-failed',
+        status: error instanceof UpstreamFetchError ? (error.details.status ?? 502) : 500,
+      });
+      // Only the stable generic reason is logged — never the thrown message.
+      exec.result = 'failure';
+      exec.reason = 'provider-fetch-failed';
+      return NextResponse.json(
+        {
+          year,
+          week,
+          seasonType,
+          outcome: 'failure',
+          reason: 'provider-fetch-failed',
+          committedGames: 0,
+          error: error instanceof Error ? error.message : 'unknown error',
+          durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
+        } satisfies CronResult & { durable: unknown },
+        { status: 500 }
+      );
+    }
+
+    try {
+      const result = await ingestGameStatsPartitionResponse({
+        year,
+        week,
+        seasonType,
+        fetchStartedAt,
+        payload,
+      });
+      const interpretation = interpretGameStatsRefreshOutcome(result);
+
+      let committedGames = 0;
+      if (interpretation.advanceLastSuccess) {
+        const merge = result.kind === 'merge-result' ? result.merge : null;
+        committedGames = merge
+          ? merge.inserted.length + merge.updated.length + merge.refreshed.length
+          : 0;
+        await recordProviderRefreshSuccess('game-stats', weekScope, {
+          attempt,
+          committedAt: new Date().toISOString(),
+          commitSeq: nextProviderCommitSeq(),
+          source: 'cfbd',
+          rowsCommitted: committedGames,
+          ...(interpretation.partialFailure ? { partialFailure: true } : {}),
+        });
+      } else if (interpretation.kind === 'no-op') {
+        await recordProviderRefreshNoop('game-stats', weekScope, { attempt, source: 'cfbd' });
+      } else {
+        await recordProviderRefreshFailure('game-stats', weekScope, {
+          attempt,
+          error: `scheduled game-stats refresh failed: ${interpretation.reason}`,
+          code: `game-stats-${interpretation.reason}`,
+          status: interpretation.httpStatus,
+        });
+      }
+
+      // The interpreter's exact kind + reason are preserved (never collapsed);
+      // `committedGames` is the confirmed durable-commit count (0 on no-op/
+      // failure). `partial` therefore stays a first-class truthful outcome.
+      exec.result = interpretation.kind;
+      exec.reason = interpretation.reason;
+      exec.committedGames = committedGames;
+
+      // Durable REREAD — downstream truth is the durable partition, never the
+      // payload or an assumed merge result. The run report's availability comes
+      // from projecting the reread; no success inference, no same-run retry
+      // (indeterminate stays a failure until a later run observes it).
+      return NextResponse.json(
+        {
+          year,
+          week,
+          seasonType,
+          outcome: interpretation.kind,
+          reason: interpretation.reason,
+          committedGames,
+          durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
+        } satisfies CronResult & { durable: unknown },
+        { status: interpretation.kind === 'failure' ? interpretation.httpStatus : 200 }
+      );
+    } catch (error) {
+      // Defensive: H2 funnels every EXPECTED ingestion fault (write failure,
+      // conflict, stale, indeterminate commit) into a typed outcome handled on
+      // the normal path above. A throw reaching HERE is an unexpected
+      // ingestion/interpretation defect with INDETERMINATE durability — never a
+      // provider-transport failure. Record it distinctly (never advancing
+      // last-success) and reread the durable partition so the report reflects the
+      // true prior-good (or partially-applied) state.
+      await recordProviderRefreshFailure('game-stats', weekScope, {
+        attempt,
+        error: error instanceof Error ? error.message : 'unknown error',
+        code: 'game-stats-ingestion-failed',
+        status: 500,
+      });
+      // Only the stable generic reason is logged — never the thrown message.
+      exec.result = 'failure';
+      exec.reason = 'ingestion-failed';
+      return NextResponse.json(
+        {
+          year,
+          week,
+          seasonType,
+          outcome: 'failure',
+          reason: 'ingestion-failed',
+          committedGames: 0,
+          error: error instanceof Error ? error.message : 'unknown error',
+          durable: await projectDurableBlock(resolution.slateResult, year, week, seasonType),
+        } satisfies CronResult & { durable: unknown },
+        { status: 500 }
+      );
+    }
+  } finally {
+    // The ONLY emission point — runs after the return value is built and before
+    // it is returned, and on any propagating throw (tracker still `failure /
+    // unexpected-error`). Best-effort inside the helper; cannot alter the
+    // response or mask a thrown error.
+    emitGameStatsCronExecutionEvent(exec, startedAtMs);
   }
 }
