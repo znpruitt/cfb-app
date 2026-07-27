@@ -1809,6 +1809,16 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F1 — Game-Stats Cron Execution Logging — Complete
+
+- **Status:** Implemented; independent review clean (Claude foreground 10-angle, no findings; Codex cycle 1 clean). Shipping via PR #414 (`platform/086f1-game-stats-cron-logging`); this documentation closeout is included in the PR — merge commit recorded on merge. First bounded slice of the former PLATFORM-086F, now formally split (F1 = logging; F2 = the parked admin-diagnostics IA redesign).
+- **PROMPT_ID(s):** `PLATFORM-086F1-GAME-STATS-CRON-EXECUTION-LOGGING-v1`.
+- **Goals completed:** `GET /api/cron/game-stats` now emits exactly ONE secret-safe, single-line JSON `game-stats-cron` event per invocation — `console.log(JSON.stringify(event))`, observed in Vercel Runtime Logs — from a single outer `finally`, so skips, every interpreter outcome (including `partial`), authentication failures, and unexpected exceptions each produce one line. The event carries only allowlisted operational primitives (`result`, stable `reason`, `year`, nullable `week`/`seasonType`, `quotaChecked`, `providerCallAttempted`, `committedGames`, `durationMs`) — never a request/response object, thrown message, provider payload, env value, URL, credential, authorization header, or the free-form canonical-context reason. `quotaChecked` flips before the `/info` probe; `providerCallAttempted` flips only before the billed `/games/teams` request; `committedGames` is the confirmed durable-commit count; `partial` stays first-class.
+- **Key outcomes:** A harmless scheduler skip (e.g. `no-polling-target`) is now visible in Vercel Runtime Logs with a stable reason instead of being buried. Runtime-only: no durable heartbeat, AppStateStore record, admin-panel card, or `vercel.json`/cadence/provider/HTTP-response/refresh-status change, and — critically — no fabricated provider-refresh attempt (paused/no-context/no-target still exit before quota/provider/attempt work). Emission is best-effort, so a logging fault never alters the response or masks a thrown error. New `src/lib/gameStats/cronExecutionLog.ts` (owns the logging policy so the ~400-line route does not) + route instrumentation + a new console-capture suite. Validation: focused suite 36/36, full `npm test` 2181/2181, `tsc`/`lint:all` clean, `npm run build` OK; no provider quota spent.
+- **Optional follow-up debt (non-blocking):** none. `cfbd-api-key-missing` and the defensive `ingestion-failed` catch are unreachable at runtime, so their event mappings are guarded by a static source-pin (matching `coverage.test.ts`). The broader admin-diagnostics information-architecture redesign + optional last-scheduler-check heartbeat remain PLATFORM-086F2 (parked, last). Next in campaign order: PLATFORM-086B (live-score polling).
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone:
