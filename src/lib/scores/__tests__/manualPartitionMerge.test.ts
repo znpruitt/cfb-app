@@ -164,6 +164,26 @@ test('an authoritative manual FINAL overrides a newer live in-progress row (Code
   assert.equal(merged.pendingFinalConfirmationIds, undefined);
 });
 
+test('a DIFFERING manual /games final does not override a newer live final and RETAINS its pending (Codex round 4, P2)', () => {
+  // The live final is newer; the manual /games returns a DIFFERENT final score. We
+  // cannot tell whether the manual observation (older) or the live scoreboard
+  // (newer) is right, so the newer live final is kept but pending is retained for
+  // the live engine's fresh reconciliation — never falsely marked confirmed.
+  const prior = entry({
+    at: 9000,
+    items: [pack('a', 'final', 24, 21)],
+    itemUpdatedAtById: { a: 9000 },
+    pendingFinalConfirmationIds: ['a'],
+  });
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'final', 24, 17)], // differing/corrected score
+    prior,
+    now: 5000,
+  });
+  assert.equal(merged.items[0]!.away.score, 21); // newer live final preserved (not the stale manual 17)
+  assert.deepEqual(merged.pendingFinalConfirmationIds, ['a']); // retained, not falsely confirmed
+});
+
 test('a manual /games final clears pending on a protected newer live final it confirms (Codex round 2, P2)', () => {
   // The live row is itself final and newer, so it is PRESERVED — but the manual
   // /games complete final IS its authoritative confirmation, so pending clears.

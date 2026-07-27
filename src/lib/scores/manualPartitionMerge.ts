@@ -101,13 +101,22 @@ export function mergeManualPartition(params: {
   for (const [id, { item, at, source }] of byId) {
     items.push(item);
     itemUpdatedAtById[id] = at;
-    // A preserved live row keeps its pending status ONLY while still unconfirmed:
-    // a manual `/games` complete final for that game IS its authoritative
-    // confirmation and clears it. Manual rows (including terminal-final overrides)
-    // are authoritatively resolved by the response, so they are never pending.
+    // A preserved live final's pending marker clears ONLY when the manual `/games`
+    // complete final CONFIRMS THE SAME score. A DIFFERING `/games` final is a
+    // discrepancy we cannot safely resolve here — this manual observation predates
+    // the newer live final and may be stale (a scoreboard correction the manual
+    // fetch missed), so the (newer) live final is kept but pending is RETAINED,
+    // leaving the live engine's own fresh reconciliation to resolve it rather than
+    // marking a possibly-wrong score confirmed. Manual rows (including terminal-final
+    // overrides of a non-final live row) are authoritatively resolved and never pending.
     if (source === 'live-protected' && priorPending.has(id)) {
       const manualItem = manualById.get(id);
-      if (!(manualItem && isCompleteFinal(manualItem))) nextPending.add(id);
+      const confirmsSameFinal =
+        manualItem != null &&
+        isCompleteFinal(manualItem) &&
+        manualItem.home.score === item.home.score &&
+        manualItem.away.score === item.away.score;
+      if (!confirmsSameFinal) nextPending.add(id);
     }
   }
 

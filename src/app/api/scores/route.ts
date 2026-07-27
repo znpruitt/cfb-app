@@ -322,18 +322,33 @@ async function refreshScorePartition(params: {
     }
 
     const items: ScorePack[] = [];
+    let sawIdlessRow = false;
     for (const game of rawGames) {
       const pack = toScorePackFromCfbd(game);
-      // A row without a provider game id is unusable for the id-keyed locked
-      // partition merge (PLATFORM-086B2A) — it cannot dedup against or protect a
-      // concurrent keyed live row. Drop it here so an all-id-less response
-      // normalizes to zero rows and is classified as schema drift below.
-      if (pack && pack.id?.trim()) items.push(pack);
+      if (!pack) continue;
+      if (!pack.id?.trim()) {
+        sawIdlessRow = true;
+        continue;
+      }
+      items.push(pack);
     }
 
     if (rawGames.length > 0 && items.length === 0) {
       throw new Error(
         `scores ${seasonType} ${year}: provider returned ${rawGames.length} rows but none normalized to a valid score (schema drift)`
+      );
+    }
+
+    // A row that normalized but carries NO provider game id makes the partition
+    // unaddressable for the id-keyed locked merge (PLATFORM-086B2A). Dropping only
+    // that row and committing the rest would be an INCOMPLETE authoritative
+    // replacement that silently DELETES the prior-good score for the dropped game.
+    // Treat ANY id-less normalized row as partition uncertainty (schema drift),
+    // preserving all prior-good data rather than publishing an incomplete replacement.
+    if (sawIdlessRow) {
+      throw new Error(
+        `scores ${seasonType} ${year}: provider returned a normalized row without a game id ` +
+          `(partition uncertainty); prior-good data retained`
       );
     }
 

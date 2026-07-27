@@ -242,6 +242,46 @@ test('an all-id-less /games response is a schema-drift failure and preserves pri
   assert.equal(entry!.items.length, 1);
 });
 
+test('a MIXED /games payload with an id-less row is schema drift and preserves ALL prior-good (Codex round 4, P2)', async () => {
+  await setAppState('scores', '2026-3-regular', {
+    at: 1000,
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+    items: [livePack('401001', 'final', 27, 24), livePack('401002', 'final', 30, 27)],
+    itemUpdatedAtById: { '401001': 1000, '401002': 1000 },
+  } satisfies CacheEntry);
+
+  // A valid keyed row for 401001 PLUS an id-less row for another game. Dropping only
+  // the id-less row and committing the rest would delete 401002's prior-good score.
+  stubGames([
+    {
+      id: 401001,
+      week: 3,
+      home_team: 'Alabama',
+      away_team: 'Georgia',
+      home_points: 99,
+      away_points: 0,
+      status: 'final',
+    },
+    {
+      week: 3,
+      home_team: 'Ohio State',
+      away_team: 'Michigan',
+      home_points: 14,
+      away_points: 10,
+      status: 'final',
+    }, // no id
+  ]);
+  const res = await GET(refreshRequest());
+  assert.notEqual(res.status, 200); // partition uncertainty → schema drift, nothing committed
+
+  const entry = await readPartition();
+  const byId = new Map(entry!.items.map((i) => [i.id, i]));
+  assert.equal(entry!.items.length, 2); // nothing replaced
+  assert.equal(byId.get('401001')!.home.score, 27); // NOT overwritten with 99
+  assert.equal(byId.get('401002')!.home.score, 30); // NOT deleted by an incomplete replacement
+});
+
 // ---- Transaction failure has no side effects ----------------------------------
 
 test('a durable transaction failure preserves prior-good data and records a failed attempt (no success)', async () => {
