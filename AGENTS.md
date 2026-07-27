@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Status: Current
-Last verified: 2026-07-26
+Last verified: 2026-07-27
 Owner: Project documentation
 Canonical for: binding engineering, architecture, implementation, review, and documentation-timing rules; agent operating rules
 Supersedes: docs/archive/governance/cfb-engineering-operating-instructions.md (original prompt-governance model; jointly with CLAUDE.md)
@@ -268,6 +268,26 @@ When completing work, report clearly:
 6. Any known unrelated failures
 
 Be explicit and accurate.
+
+---
+
+## Automatic review/remediation convergence
+
+Implementation prompts should normally automate the review/remediation cycle instead of requiring the user to relay each review result. Unless a prompt explicitly opts out for trivial or documentation-only work, use this sequence:
+
+1. The implementer completes the scoped work and verification, then runs one self-review.
+2. An independent Codex review examines the complete implementation diff.
+3. The implementer evaluates every finding before changing code; a reviewer label alone does not make a finding actionable.
+4. After accepted remediations, Codex reviews the complete final diff again. Repeat only when the preceding round produced an accepted remediation; do not rerun an unchanged diff merely to seek a literal “clean” verdict.
+
+The convergence gate is evidence- and scope-based:
+
+- Fix findings attributable to the current change that are P0/P1, or that concretely demonstrate an acceptance-contract, binding-invariant, security, data-integrity, or user-visible behavioral regression.
+- Fix remediation-caused regressions under the same standard.
+- Defer P3/nits, speculative hardening without a reachable failure, unrelated or pre-existing findings, and changes that would materially expand the approved scope. Record meaningful deferrals in the appropriate active queue; do not silently discard them.
+- A literal reviewer verdict of “clean” is not required. Review is resolved when no actionable in-scope findings remain.
+
+Up to three independent Codex review/remediation cycles may run automatically. The loop may converge earlier whenever no actionable findings remain. After the third Codex review, stop automatic remediation: any credible P0, P1, or P2 findings require user evaluation before more code changes or another review round. Present the finding, evidence, impact, and a fix/defer recommendation; do not treat the severity label alone as proof. P3/nits and other non-actionable findings remain follow-ups and do not require an additional round. Any work beyond round three requires explicit user authorization. Documentation closeout begins only after review converges or the user resolves the post-round-three evaluation.
 
 ---
 
