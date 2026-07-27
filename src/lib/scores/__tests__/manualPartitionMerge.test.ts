@@ -107,6 +107,42 @@ test('a pure manual refresh over an older prior stamps `at` at the observation t
   assert.equal(merged.at, 5000); // prior (1000) is older, so no version bump is needed
 });
 
+test('an authoritative manual FINAL overrides a newer live in-progress row (Codex round 2, P2)', () => {
+  // A live poll committed X in-progress AFTER the manual request began; the manual
+  // /games returns X as a complete final. A game cannot progress past a confirmed
+  // final, so the terminal manual final overrides the newer live in-progress row.
+  const prior = entry({
+    at: 9000,
+    items: [pack('a', 'Q4 0:30', 24, 21)],
+    itemUpdatedAtById: { a: 9000 }, // newer than the manual observation 5000
+  });
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'final', 24, 21)],
+    prior,
+    now: 5000,
+  });
+  assert.equal(merged.items[0]!.status, 'final'); // terminal final won over the live in-progress
+  assert.equal(merged.pendingFinalConfirmationIds, undefined);
+});
+
+test('a manual /games final clears pending on a protected newer live final it confirms (Codex round 2, P2)', () => {
+  // The live row is itself final and newer, so it is PRESERVED — but the manual
+  // /games complete final IS its authoritative confirmation, so pending clears.
+  const prior = entry({
+    at: 9000,
+    items: [pack('a', 'final', 24, 21)],
+    itemUpdatedAtById: { a: 9000 },
+    pendingFinalConfirmationIds: ['a'],
+  });
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'final', 24, 21)],
+    prior,
+    now: 5000,
+  });
+  assert.equal(merged.itemUpdatedAtById!['a'], 9000); // newer live final preserved
+  assert.equal(merged.pendingFinalConfirmationIds, undefined); // manual /games confirmed → cleared
+});
+
 test('pending metadata: a protected newer live final keeps pending; a manual-covered id is cleared', () => {
   const prior = entry({
     at: 1000,
