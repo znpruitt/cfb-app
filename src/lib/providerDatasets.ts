@@ -87,7 +87,7 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     hasActiveAutomation: false,
     currentAutomation: 'Manual admin refresh only — no automatic job today.',
     plannedPolicy:
-      'Planned (PLATFORM-086B): schedule-armed ~3-minute polling while expected games remain unresolved.',
+      'The schedule-armed live-score polling ENGINE shipped in PLATFORM-086B1 but is dormant: no scheduler invokes it. PLATFORM-086B2 activates it (QStash schedule + cache-only browser refresh) — schedule-armed polling while kickoff-window games remain unresolved.',
     lifecycleCritical: false,
     autoRefreshSettingConsumed: false,
     // Near-live during a slate; 2 days tolerates the offseason gap without holding

@@ -128,7 +128,7 @@ async function aggregateSeasonScoresResponse(params: {
     getScopedAliasMap('', year),
   ]);
 
-  const { items, newest } = await loadReconciledSeasonScores({
+  const { items, newest, newestEffectiveAt } = await loadReconciledSeasonScores({
     year,
     seasonType,
     teams,
@@ -149,7 +149,14 @@ async function aggregateSeasonScoresResponse(params: {
     });
   }
 
-  const isFresh = now - newest.at < CACHE_TTL_MS;
+  // Freshness tracks the newest EFFECTIVE contributing-row timestamp
+  // (PLATFORM-086B1), so a live merge that only preserved untouched rows or
+  // cleared confirmation metadata (advancing the entry's `at` but changing no
+  // served row) does not report the response as freshly updated. Falls back to
+  // the entry `at` only when rows exist but carry no effective stamp — legacy
+  // entries where `newestEffectiveAt === newest.at` anyway.
+  const freshnessAt = newestEffectiveAt ?? newest.at;
+  const isFresh = now - freshnessAt < CACHE_TTL_MS;
   if (isFresh) {
     recordRouteCacheHit('scores');
   } else {
@@ -159,7 +166,7 @@ async function aggregateSeasonScoresResponse(params: {
     source: newest.source,
     cache: isFresh ? 'hit' : 'stale',
     fallbackUsed: newest.source === 'espn',
-    generatedAt: new Date(newest.at).toISOString(),
+    generatedAt: new Date(freshnessAt).toISOString(),
     cfbdFallbackReason: newest.cfbdFallbackReason,
   });
 }

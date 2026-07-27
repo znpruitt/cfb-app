@@ -1,3 +1,4 @@
+import { classifyScorePackStatus } from './gameStatus.ts';
 import type { AppGame } from './schedule.ts';
 import type { ScorePack } from './scores.ts';
 
@@ -22,12 +23,19 @@ export function gameStateFromScore(
   score?: ScorePack
 ): 'final' | 'inprogress' | 'scheduled' | 'unknown' {
   if (!score) return 'unknown';
-  const s = (score.status || '').toLowerCase();
-  if (s.includes('final') || s.includes('post')) return 'final';
-  if (s.includes('in ') || s.includes(' q') || s.includes('quarter') || s.includes('half'))
-    return 'inprogress';
-  if (s.includes('sched') || s.includes('pregame')) return 'scheduled';
-  return 'unknown';
+  // Preserve the "no status information" signal: a score row with an empty /
+  // whitespace status stays 'unknown' (not 'scheduled'), so callers that
+  // distinguish a data-less score keep their behavior. A non-empty label routes
+  // through the SINGLE central status classifier (`classifyScorePackStatus`),
+  // so live labels this loose substring matcher used to miss — `Q3 8:14`, `OT`,
+  // `In Progress` — are recognized as in-progress consistently with every other
+  // status consumer (PLATFORM-086B1). Disrupted labels (postponed/canceled/
+  // suspended/delayed) present as 'scheduled', matching the classifier's buckets.
+  if (!(score.status ?? '').trim()) return 'unknown';
+  const bucket = classifyScorePackStatus(score);
+  if (bucket === 'final') return 'final';
+  if (bucket === 'inprogress') return 'inprogress';
+  return 'scheduled';
 }
 
 export function statusClasses(

@@ -5,7 +5,7 @@ import {
   type TeamCatalogItem,
   type TeamIdentityResolver,
 } from '../teamIdentity.ts';
-import type { CacheEntry } from '../scores/cache.ts';
+import { effectiveRowTimestamp, type CacheEntry } from '../scores/cache.ts';
 import type { ScorePack, SeasonType } from '../scores/types.ts';
 import { getAppStateEntries } from './appStateStore.ts';
 
@@ -39,10 +39,30 @@ export type ReconciledSeasonScores = {
   /**
    * The newest cache entry that contributed rows (or, if none contributed rows,
    * the newest matching entry overall). `null` only when nothing is cached
-   * (`contributorCount === 0`). Callers use its `at`/`source`/`cfbdFallbackReason`
-   * for freshness/source reporting.
+   * (`contributorCount === 0`). Callers use its `source`/`cfbdFallbackReason` for
+   * source reporting. Prefer {@link newestEffectiveAt} for freshness — the
+   * entry's `at` can be newer than any row it actually changed once a live merge
+   * preserves untouched rows.
    */
   newest: CacheEntry | null;
+  /**
+   * The newest EFFECTIVE (per-row) timestamp among the winning deduped rows
+   * (PLATFORM-086B1). This is the correct freshness signal for served scores: a
+   * live merge that rewrites an entry only to preserve prior-good rows or clear
+   * confirmation metadata advances the entry's `at` but changes no row, so this
+   * value stays put and freshness does not become artificially fresh. `null`
+   * exactly when no row contributed (every contributing entry was empty, or
+   * nothing is cached).
+   */
+  newestEffectiveAt: number | null;
+  /**
+   * The EFFECTIVE timestamp of each winning row that carries a provider game id,
+   * keyed by that id (PLATFORM-086B1). Lets a downstream durable merge know how
+   * fresh the currently-served value for a game is — so its monotonic/null
+   * protection references the reconciled winner (which may live in the
+   * season-wide aggregate) rather than a possibly-staler exact child row.
+   */
+  effectiveAtById: Record<string, number>;
   /** Number of matching cache entries found (including empty ones). */
   contributorCount: number;
 };
@@ -101,7 +121,13 @@ function reconcileContributors(
   aliasMap: AliasMap
 ): ReconciledSeasonScores {
   if (contributors.length === 0) {
-    return { items: [], newest: null, contributorCount: 0 };
+    return {
+      items: [],
+      newest: null,
+      newestEffectiveAt: null,
+      effectiveAtById: {},
+      contributorCount: 0,
+    };
   }
 
   // Build a canonical team-identity resolver over every label observed across
@@ -119,25 +145,64 @@ function reconcileContributors(
     observedNames: [...observedNames],
   });
 
-  // Dedupe rows by canonical game identity, newest cache entry winning. Process
-  // oldest-first so a fresher entry's row overwrites an older one for the same
-  // game (empty entries contribute nothing and thus cannot mask populated rows).
+  // Dedupe rows by canonical game identity, newest EFFECTIVE (per-row) timestamp
+  // winning. Process oldest-entry-first and keep a row on a `>=` effective
+  // comparison so that, on a tie, the later-iterated (newer enclosing entry)
+  // wins — exactly the pre-per-row newest-entry-wins behavior for legacy entries
+  // whose rows all fall back to `at`. Comparing the per-row effective timestamp
+  // (not the enclosing `at`) is the fix: a preserved untouched row carries its
+  // OLD effective timestamp, so it can no longer out-rank a genuinely newer copy
+  // of the same game in another entry. Empty entries contribute nothing.
   const oldestFirst = [...contributors].sort((a, b) => a.at - b.at);
-  const byIdentity = new Map<string, ScorePack>();
+  const byIdentity = new Map<string, { item: ScorePack; effectiveAt: number }>();
   for (const entry of oldestFirst) {
     for (const item of entry.items) {
-      byIdentity.set(scoreIdentityKey(resolver, item), item);
+      const key = scoreIdentityKey(resolver, item);
+      const effectiveAt = effectiveRowTimestamp(entry, item);
+      const existing = byIdentity.get(key);
+      if (!existing || effectiveAt >= existing.effectiveAt) {
+        byIdentity.set(key, { item, effectiveAt });
+      }
     }
   }
 
-  // Freshness/source come from the newest entry that actually contributed rows,
-  // so an empty-but-newer fallback does not report a misleading source/time.
+  const winners = [...byIdentity.values()];
+  // Served-score freshness comes from the newest EFFECTIVE contributing-row
+  // timestamp, never the enclosing entry's `at` — see `newestEffectiveAt`. Null
+  // only when no row contributed (every contributing entry was empty).
+  const newestEffectiveAt =
+    winners.length > 0
+      ? winners.reduce(
+          (max, w) => (w.effectiveAt > max ? w.effectiveAt : max),
+          Number.NEGATIVE_INFINITY
+        )
+      : null;
+
+  // Per-provider-game effective timestamp of each winning row, so a downstream
+  // merge can compare a game's served freshness against its own child row.
+  const effectiveAtById: Record<string, number> = {};
+  for (const { item, effectiveAt } of winners) {
+    const id = item.id?.trim();
+    if (!id) continue;
+    const existing = effectiveAtById[id];
+    if (existing === undefined || effectiveAt > existing) effectiveAtById[id] = effectiveAt;
+  }
+
+  // `newest` (the enclosing entry) still carries source/cfbdFallbackReason. Take
+  // the newest entry that actually contributed rows so an empty-but-newer
+  // fallback does not report a misleading source.
   const withRows = contributors.filter((entry) => entry.items.length > 0);
   const newest = (withRows.length > 0 ? withRows : contributors).reduce((a, b) =>
     b.at >= a.at ? b : a
   );
 
-  return { items: [...byIdentity.values()], newest, contributorCount: contributors.length };
+  return {
+    items: winners.map((w) => w.item),
+    newest,
+    newestEffectiveAt,
+    effectiveAtById,
+    contributorCount: contributors.length,
+  };
 }
 
 /**
