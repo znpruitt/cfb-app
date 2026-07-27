@@ -212,6 +212,36 @@ test('a manual /games final clears prior pending-final confirmation metadata it 
   assert.equal(entry!.pendingFinalConfirmationIds, undefined); // authoritatively confirmed → cleared
 });
 
+// ---- ID-less /games rows are unusable ----------------------------------------
+
+test('an all-id-less /games response is a schema-drift failure and preserves prior-good (Codex round 3, P2)', async () => {
+  await setAppState('scores', '2026-3-regular', {
+    at: 1000,
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+    items: [livePack('401001', 'Q1 10:00', 3, 0)],
+    itemUpdatedAtById: { '401001': 1000 },
+  } satisfies CacheEntry);
+
+  // Rows carry team names but NO provider id — unusable for the locked merge.
+  stubGames([
+    {
+      week: 3,
+      home_team: 'Alabama',
+      away_team: 'Georgia',
+      home_points: 24,
+      away_points: 17,
+      status: 'final',
+    },
+  ]);
+  const res = await GET(refreshRequest());
+  assert.notEqual(res.status, 200); // normalizes to zero usable rows → schema drift
+
+  const entry = await readPartition();
+  assert.equal(entry!.items[0]!.status, 'Q1 10:00'); // prior-good untouched
+  assert.equal(entry!.items.length, 1);
+});
+
 // ---- Transaction failure has no side effects ----------------------------------
 
 test('a durable transaction failure preserves prior-good data and records a failed attempt (no success)', async () => {

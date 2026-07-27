@@ -75,6 +75,45 @@ test('a prior row NEWER than the observation is a live update and is PRESERVED o
   assert.equal(merged.itemUpdatedAtById!['a'], 9000); // keeps its effective timestamp
 });
 
+test('a live row whose effective timestamp TIES the manual observation is preserved (Codex round 3, P2)', () => {
+  // The lock serializes commits but not same-millisecond observation timestamps.
+  // On a tie the live row (committed first) must be preserved, not regressed.
+  const prior = entry({
+    at: 5000,
+    items: [pack('a', 'Q2 5:00', 14, 7)],
+    itemUpdatedAtById: { a: 5000 },
+  });
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'scheduled', null, null)],
+    prior,
+    now: 5000, // ties the live row's effective timestamp
+  });
+  assert.equal(merged.items[0]!.status, 'Q2 5:00'); // preserved, not regressed to scheduled
+  assert.equal(merged.items[0]!.home.score, 14);
+});
+
+test('an id-less manual row is dropped (unusable for the id-keyed locked merge) (Codex round 3, P2)', () => {
+  const prior = entry({
+    at: 9000,
+    items: [pack('keyed', 'Q4 2:00', 28, 21)],
+    itemUpdatedAtById: { keyed: 9000 },
+  });
+  const idless: ScorePack = {
+    id: null,
+    seasonType: 'regular',
+    startDate: null,
+    week: 3,
+    status: 'final',
+    home: { team: 'Xavier', score: 10 },
+    away: { team: 'Yale', score: 7 },
+    time: null,
+  };
+  const merged = mergeManualPartition({ manualItems: [idless], prior, now: 5000 });
+  // The id-less row never lands; only the protected keyed live row remains.
+  assert.equal(merged.items.length, 1);
+  assert.equal(merged.items[0]!.id, 'keyed');
+});
+
 test('the merged entry `at` is monotonic — never older than the prior entry it merged over (Codex round 1, P1)', () => {
   // A live merge already advanced this key to at=5000; a slow manual request whose
   // observation is 3000 must NOT reset `at` backward (the week-scoped reader selects

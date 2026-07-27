@@ -47,17 +47,18 @@ export function mergeManualPartition(params: {
   type MergedRow = { item: ScorePack; at: number; source: 'manual' | 'live-protected' };
   const manualById = new Map<string, ScorePack>();
   const byId = new Map<string, MergedRow>();
-  const unkeyed: ScorePack[] = [];
 
   // The manual response is the authoritative base, stamped at the observation time.
+  // A row without a provider game id is UNUSABLE for this id-keyed locked merge: it
+  // cannot dedup against or protect a keyed live row, and (having no per-row stamp)
+  // would fall back to the bumped entry `at` and outrank a protected live row in
+  // reconciliation. Such rows are rejected upstream in the manual normalization, and
+  // dropped defensively here.
   for (const item of manualItems) {
     const id = item.id?.trim();
-    if (id) {
-      manualById.set(id, item);
-      byId.set(id, { item, at: now, source: 'manual' });
-    } else {
-      unkeyed.push(item);
-    }
+    if (!id) continue;
+    manualById.set(id, item);
+    byId.set(id, { item, at: now, source: 'manual' });
   }
 
   const priorPending = new Set(
@@ -76,7 +77,12 @@ export function mergeManualPartition(params: {
       const id = priorItem.id?.trim();
       if (!id) continue;
       const priorEffective = effectiveRowTimestamp(prior, priorItem);
-      if (priorEffective <= now) continue; // not newer than the manual observation
+      // Protect a live row at least as new as the manual observation. The `>=`
+      // (not `>`) is deliberate: the advisory lock serializes commits but not
+      // same-millisecond observation timestamps, so on a tie the live row (which
+      // committed first) is preserved rather than letting a stale manual snapshot
+      // regress it (e.g. in-progress → scheduled).
+      if (priorEffective < now) continue; // strictly older → manual is authoritative
       const manualItem = manualById.get(id);
       const liveIsFinal = classifyScorePackStatus(priorItem) === 'final';
       if (manualItem && !liveIsFinal && isCompleteFinal(manualItem)) {
@@ -104,7 +110,6 @@ export function mergeManualPartition(params: {
       if (!(manualItem && isCompleteFinal(manualItem))) nextPending.add(id);
     }
   }
-  for (const item of unkeyed) items.push(item);
 
   return {
     // Monotonic entry VERSION (PLATFORM-086B2A). The week-scoped `/api/scores`

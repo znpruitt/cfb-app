@@ -324,7 +324,11 @@ async function refreshScorePartition(params: {
     const items: ScorePack[] = [];
     for (const game of rawGames) {
       const pack = toScorePackFromCfbd(game);
-      if (pack) items.push(pack);
+      // A row without a provider game id is unusable for the id-keyed locked
+      // partition merge (PLATFORM-086B2A) — it cannot dedup against or protect a
+      // concurrent keyed live row. Drop it here so an all-id-less response
+      // normalizes to zero rows and is classified as schema drift below.
+      if (pack && pack.id?.trim()) items.push(pack);
     }
 
     if (rawGames.length > 0 && items.length === 0) {
