@@ -70,6 +70,29 @@ The event carries ONLY this allowlisted operational shape (`src/lib/gameStats/cr
 
 Emission is best-effort (a serialization or console failure never alters the HTTP response or masks a thrown error) and happens exactly once, from a single `finally`. `cfbd-api-key-missing` and the defensive `ingestion-failed` catch are unreachable at runtime (an unreadable key makes the quota gate refuse first with `usage-unavailable`; H2 funnels every expected ingestion fault into a typed outcome), so their mappings are guarded by a static source-pin rather than fabricated states. The broader admin-diagnostics information-architecture redesign — and the optional independent “last scheduler check” heartbeat — remain **PLATFORM-086F2** (parked, last); if added, a heartbeat must stay distinct from provider-refresh status so harmless scheduler checks never fabricate provider activity.
 
+### Live-score scheduler execution logging (PLATFORM-086B1)
+
+**PLATFORM-086B1** adds the same runtime-event contract to the (still **dormant**) live-score polling engine: `GET /api/cron/live-scores` emits exactly ONE secret-safe, single-line JSON event per invocation — `console.log(JSON.stringify(event))`, observed in **Vercel Runtime Logs** — for skips, every polling outcome (including `partial`), authentication failures, and unexpected exceptions alike. The route is production-capable but **no scheduler invokes it**; PLATFORM-086B2 activates the QStash schedule and browser refresh. The event is runtime-only: no durable heartbeat, no AppStateStore record, no admin-panel card, and **no provider-refresh attempt is ever fabricated** (auth failure, pause, unavailable context, and no-target all exit before any scoped attempt, quota probe, or provider call).
+
+The event carries ONLY this allowlisted shape (`src/lib/liveScores/cronExecutionLog.ts`), never a request/response object, thrown error, provider payload, environment value, URL, credential, or authorization header:
+
+- `event`: always `"live-scores-cron"`.
+- `result`: `skipped` | `success` | `partial` | `no-op` | `failure`.
+- `reason`: a stable machine reason — `cron-secret-not-configured` / `cron-authorization-invalid` (auth), `automation-paused-or-disabled` / `canonical-context-unavailable` / `no-polling-target` (skips), `quota-<usage-unavailable|usage-untrustworthy|below-reserve>` (quota refusal), `cfbd-api-key-missing`, `provider-fetch-failed`, `durable-commit-failed`, `unexpected-error`, one of the scoreboard classifications (`scoreboard-invalid-payload`, `scoreboard-schema-drift`, `scoreboard-empty-unexpected`, `scoreboard-no-target-matches`, `scoreboard-targets-missing`, `scoreboard-unchanged-clean`, `scoreboard-written-clean`, `scoreboard-written-partial`), or one of the final-reconciliation classifications (`final-reconciliation-confirmed`, `final-reconciliation-partial`, `final-reconciliation-not-confirmed`, `final-reconciliation-invalid-payload`, `final-reconciliation-empty-unexpected`).
+- `year`: the season year (resolved from the same start instant as an auth failure, so it is always present).
+- `mode`: `scoreboard` | `final-reconciliation` | `null` (null before a target resolves).
+- `targetGames`, `targetPartitions`: the count of targeted canonical games and exact week partitions this run (0 outside a resolved target).
+- `quotaChecked`: true once the CFBD `/info` quota probe runs (stays true even if it throws or yields untrustworthy usage; a skip before target resolution never sets it).
+- `providerCallAttempted`: true only for the ONE billed CFBD `/scoreboard` or `/games` data request — never the `/info` probe.
+- `committedGames`: confirmed durable score/status changes (0 on skip/no-op/failure and on a metadata-only confirmation clear; nonzero only when a served score actually changed).
+- `durationMs`: whole-invocation duration, a nonnegative integer.
+
+Exact scoped-status behavior to know when reading it:
+
+- **Every targeted week partition gets its OWN scoped provider-refresh attempt** (`weekPartitionScope(year, providerWeek, seasonType)`), begun BEFORE any quota, credential, or provider work and resolved exactly once — `succeeded` (durable change, all targeted games present), `partial` (a durable change with some targeted games missing from the response — recorded via `partialFailure: true`, which the status store writes as `latestAttemptOutcome: 'partial'`, not `succeeded`), `no-op` (valid response, no change), or `failed` (provider/validation/durable failure, or a partition with targeted games missing and NO durable change, prior-good retained). A live run **never writes the selected-year aggregate score status** (`year` rollup) — that scope stays owned by the manual/aggregate `/api/scores` refresh, so a per-partition live poll can never advance or clear the year-level status.
+- **One global `/scoreboard` call can touch several partitions**, but each partition keeps its own attempt and outcome; a single quota refusal or provider-fetch failure resolves ALL begun partition attempts as truthful failures.
+- **Scoreboard finals are written immediately but recorded pending a `/games` confirmation** (`pendingFinalConfirmationIds` on the exact child cache entry); a later final-reconciliation run confirms them against `/games` and clears the metadata (a same-score confirmation is a metadata-only change: `committedGames: 0`, standings not invalidated). Monotonic protection (`scheduled ↛ in-progress ↛ final`) and per-row freshness stamps run against the reconciled prior score (child + season-wide aggregate), so a transient row can never regress a better cached score, and served-score freshness is never fabricated.
+
 Panel behavior to know when reading it:
 
 - **The newest attempt's state is explicit.** The state line reads the durable `latestAttemptOutcome`, not an inference from the last success/error — so an in-flight, interrupted, or valid-no-op probe shows its true state instead of a leftover "succeeded"/"failed."
