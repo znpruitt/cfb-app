@@ -1,7 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { fetchUpstreamResponse, UpstreamFetchError } from '../../../lib/api/fetchUpstream.ts';
 import { getOddsQuotaGuardState, type OddsUsageSnapshot } from '../../../lib/api/oddsUsage.ts';
 import {
   selectOddsForGame,
@@ -15,11 +14,7 @@ import {
 } from '../../../lib/schedule.ts';
 import type { CfbdConferenceRecord } from '../../../lib/conferenceSubdivision.ts';
 import { getDurableOddsStore } from '../../../lib/server/durableOddsStore.ts';
-import {
-  captureOddsUsageSnapshot,
-  getLatestKnownOddsUsage,
-  setLatestKnownOddsUsage,
-} from '../../../lib/server/oddsUsageStore.ts';
+import { getLatestKnownOddsUsage } from '../../../lib/server/oddsUsageStore.ts';
 import {
   recordRouteCacheHit,
   recordRouteCacheMiss,
@@ -30,19 +25,12 @@ import {
   type TeamCatalogItem,
   type TeamIdentityResolver,
 } from '../../../lib/teamIdentity.ts';
-import { getAppState, withAppStateKeyTransaction } from '../../../lib/server/appStateStore.ts';
+import { getAppState } from '../../../lib/server/appStateStore.ts';
 import {
   beginProviderRefreshAttempt,
   recordProviderRefreshFailure,
-  recordProviderRefreshNoop,
-  recordProviderRefreshSuccess,
   type ProviderRefreshAttempt,
 } from '../../../lib/server/providerRefreshStatus.ts';
-import {
-  classifyEmptyOddsResponse,
-  type OddsScheduleEvidenceItem,
-} from '../../../lib/odds/emptyOddsClassifier.ts';
-import { loadCachedScheduleItems } from '../../../lib/server/canonicalScheduleCache.ts';
 import { oddsTargetScope, type ProviderRefreshScope } from '../../../lib/providerRefreshScope.ts';
 import { getScopedAliasMap } from '../../../lib/server/globalAliasStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
@@ -51,19 +39,11 @@ import {
   releaseOddsRefreshLease,
 } from '../../../lib/odds/refreshLease.ts';
 import type { OddsRefreshLeaseResolution } from '../../../lib/odds/refreshResult.ts';
-import {
-  buildNextOddsStore,
-  commitCanonicalOddsRefresh,
-  commitFilteredOddsRefresh,
-  maintainCanonicalClosingLines,
-} from '../../../lib/odds/oddsCommit.ts';
+import { buildNextOddsStore, maintainCanonicalClosingLines } from '../../../lib/odds/oddsCommit.ts';
+import { executeOddsRefresh } from '../../../lib/odds/oddsRefreshExecutor.ts';
 import {
   createOddsCacheKey,
-  effectiveOddsObservationMs,
-  isStructurallyValidUpstreamOddsEvent,
-  normalizeUpstreamOddsEvent,
   oddsCache,
-  ODDS_CACHE_SCOPE,
   ODDS_DEFAULT_BOOKMAKERS,
   ODDS_DEFAULT_MARKETS,
   ODDS_DEFAULT_REGIONS,
@@ -71,7 +51,6 @@ import {
   resolveDefaultSeason,
   type NormalizedOddsEvent,
   type SharedOddsCacheEntry,
-  type UpstreamOddsEvent,
 } from './routeInternals.ts';
 
 export const revalidate = 120;
@@ -87,9 +66,9 @@ type OddsMeta = {
   /**
    * Capture time of the odds cache entry actually SERVED for this season (its
    * `lastFetch`), or null when nothing is cached. This — not the global odds
-   * quota-usage snapshot — is the honest freshness timestamp for the served odds
-   * (rereview finding #2): it is tied to the served cache entry for THIS season,
-   * so a historical/cold-cache season cannot inherit another season's recency.
+   * quota-usage snapshot — is the honest freshness timestamp for the served odds:
+   * it is tied to the served cache entry for THIS season, so a historical/cold
+   * season cannot inherit another season's recency.
    */
   snapshotCapturedAt: string | null;
 };
@@ -99,13 +78,14 @@ type OddsResponse = {
   meta: OddsMeta;
 };
 
-const ODDS_API = 'https://api.the-odds-api.com/v4/sports/americanfootball_ncaaf/odds';
 // The canonical/default filter sets and cache-key builder live in routeInternals so
 // diagnostics can derive the exact same DEFAULT cache key without duplicating them.
 const BOOKMAKERS = ODDS_DEFAULT_BOOKMAKERS;
 const MARKETS = ODDS_DEFAULT_MARKETS;
 const REGIONS = ODDS_DEFAULT_REGIONS;
 
+// The MANUAL provider-request retry/pacing policy (unchanged). The automatic cron
+// uses a one-attempt no-retry policy of its own.
 const ODDS_RETRY_POLICY = {
   maxAttempts: 3,
   baseDelayMs: 300,
@@ -140,28 +120,6 @@ function isFreshOddsCacheEntry(entry: SharedOddsCacheEntry | undefined, now: num
   return Boolean(entry && now - entry.lastFetch < ODDS_CACHE_TTL_MS);
 }
 
-/**
- * A provider payload that must be REJECTED before any durable commit
- * (PLATFORM-086G2 finding #4): non-array, schema drift, or an unexpectedly
- * empty response over target-scoped evidence. Carries the stable diagnostic
- * code the provider-refresh failure record and the HTTP error body both report.
- * Thrown from the refresh branch only — the shared catch records exactly one
- * truthful failure for the exact odds scope, and because it is thrown before
- * any durable commit, prior-good data is untouched and no downstream
- * invalidation fires.
- */
-class OddsPayloadError extends Error {
-  readonly code: string;
-  readonly status: number;
-
-  constructor(code: string, message: string, status = 502) {
-    super(message);
-    this.name = 'OddsPayloadError';
-    this.code = code;
-    this.status = status;
-  }
-}
-
 function responseFrom(items: CanonicalOddsItem[], meta: OddsMeta, status = 200): Response {
   return new Response(JSON.stringify({ items, meta } satisfies OddsResponse), {
     status,
@@ -190,12 +148,7 @@ function parseValidatedCsvParam(
 
   const values = parseCsvList(raw);
   if (!values) {
-    return {
-      ok: false,
-      field,
-      value: raw,
-      error: `${field} must be a comma-separated list`,
-    };
+    return { ok: false, field, value: raw, error: `${field} must be a comma-separated list` };
   }
 
   const invalid = values.find((value) => !allowed.includes(value));
@@ -218,12 +171,7 @@ function parseRequestedSeason(raw: string | null): ParsedSeasonResult {
 
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed < 2000 || parsed > 3000) {
-    return {
-      ok: false,
-      field: 'year',
-      value: raw,
-      error: 'year must be a valid YYYY season',
-    };
+    return { ok: false, field: 'year', value: raw, error: 'year must be a valid YYYY season' };
   }
 
   return { ok: true, season: parsed };
@@ -312,12 +260,11 @@ function isCanonicalDurableQuery(query: ParsedOddsQuery): boolean {
 }
 
 /**
- * Build the canonical games + shared identity resolver for a season. Fetches the
- * schedule + conferences from the internal endpoints (the authorized MANUAL path
- * is allowed to read internal data; the DORMANT automatic C2 context is the
- * cache-only variant). The resolver seeds observed names from the built canonical
- * participants AND the odds-event labels so both attachment and snapshot building
- * resolve every label they encounter.
+ * Build the canonical games + shared identity resolver for a season. The
+ * authorized MANUAL path is allowed to read the internal schedule/conferences
+ * endpoints; the DORMANT automatic C2 cron uses the cache-only canonical context.
+ * The resolver seeds observed names from the built canonical participants AND the
+ * odds-event labels so attachment resolves every label it encounters.
  */
 async function loadCanonicalBuildInputs(
   req: Request,
@@ -327,9 +274,6 @@ async function loadCanonicalBuildInputs(
   const [scheduleItems, teams, aliasMap, conferenceRecords] = await Promise.all([
     fetchCanonicalSchedule(req, season),
     readTeamsCatalog(),
-    // Canonical effective resolution (stored global > year > SEED_ALIASES). Odds
-    // are league-agnostic (the /api/odds request carries no league), so the empty
-    // slug yields global > year > seed — matching schedule/standings identity.
     getScopedAliasMap('', season),
     readConferenceRecords(req),
   ]);
@@ -367,154 +311,11 @@ function selectCanonicalOddsItems(
   return items;
 }
 
-/**
- * Best-effort, cache-only SCHEDULE evidence for classifying an EMPTY Odds payload
- * (PLATFORM-086G2 finding #4): the canonical schedule for the season and — when a
- * nonempty slate loaded — the identity-resolver inputs (bundled teams catalog +
- * scoped alias map). Sources resolve INDEPENDENTLY — a failed read makes only THAT
- * source unavailable (contributing no evidence) and never discards what another
- * source returned. The prior-good raw entry is read INSIDE the commit transaction
- * (transaction-fresh), not here, so the empty classification and the conditional
- * empty write are atomic against a concurrent nonempty commit.
- */
-async function gatherEmptyOddsScheduleEvidence(season: number): Promise<{
-  scheduleItems: OddsScheduleEvidenceItem[] | null;
-  resolver: TeamIdentityResolver | null;
-}> {
-  let scheduleItems: OddsScheduleEvidenceItem[] | null = null;
-  try {
-    scheduleItems = await loadCachedScheduleItems(season);
-  } catch {
-    scheduleItems = null;
-  }
-
-  // Identity-resolver inputs back BOTH classifier uses of the slate — prior event
-  // reconciliation and positive near-horizon expectation. Load them only when a
-  // nonempty slate loaded (empty payloads are rare). A failed load leaves
-  // `resolver` null: prior evidence falls back to the conservative cached-commence
-  // rule and the schedule creates no positive expectation. Deliberately NO
-  // observedNames seeding — this evidence resolver must recognize ONLY catalog-
-  // and alias-resolved teams so placeholder text never blesses a bogus identity.
-  let resolver: TeamIdentityResolver | null = null;
-  if (scheduleItems !== null && scheduleItems.length > 0) {
-    const [teamsRead, aliasRead] = await Promise.allSettled([
-      readTeamsCatalog(),
-      getScopedAliasMap('', season),
-    ]);
-    if (teamsRead.status === 'fulfilled' && aliasRead.status === 'fulfilled') {
-      resolver = createTeamIdentityResolver({
-        aliasMap: aliasRead.value,
-        teams: teamsRead.value,
-      });
-    }
-  }
-
-  return { scheduleItems, resolver };
-}
-
-/**
- * Classify + conditionally commit an EMPTY provider payload for one exact target,
- * transacting on that target's raw `odds-cache` key so the prior-entry evidence
- * read and any empty write are atomic against a concurrent nonempty commit (which
- * takes the same `odds-cache` advisory lock as its secondary). Throws
- * `OddsPayloadError('odds-empty-unexpected')` when odds are still expected; on a
- * valid absence it commits the empty entry only when it replaces NOTHING of value
- * (cold target, or every prior row proven obsolete), else preserves prior-good.
- * A store failure throws a typed transaction error (route catch → truthful
- * failure, prior-good retained).
- */
-async function commitEmptyOddsRefresh(params: {
-  seasonScopedKey: string;
-  season: number;
-  isCanonical: boolean;
-  usage: OddsUsageSnapshot | null;
-  observationAt: string;
-}): Promise<SharedOddsCacheEntry | undefined> {
-  const { seasonScopedKey, season, isCanonical, usage, observationAt } = params;
-  const evidence = await gatherEmptyOddsScheduleEvidence(season);
-  const result = await withAppStateKeyTransaction<{
-    wrote: boolean;
-    entry: SharedOddsCacheEntry | undefined;
-  }>(ODDS_CACHE_SCOPE, seasonScopedKey, async (txn) => {
-    const memoryEntry = oddsCache.entries[seasonScopedKey];
-    const priorStored = (await txn.read<SharedOddsCacheEntry>())?.value;
-    const priorEntry = pickFreshestOddsFallback(memoryEntry, priorStored);
-    // Observation ordering (review remediation): a prior raw entry whose effective
-    // observation is at/after this refresh's provider observation WINS — a stale
-    // empty (e.g. an expired-lease refresh resuming after a newer refresh
-    // committed) must never overwrite newer raw odds, on a filtered target or the
-    // canonical one. This must be judged by OBSERVATION, not `lastFetch`: the
-    // freshest-`lastFetch` entry (`pickFreshestOddsFallback`) can carry an OLDER
-    // observation than the durable entry that would actually be overwritten, so we
-    // compare against the freshest OBSERVATION across BOTH the memory entry and the
-    // transaction-fresh durable entry, and serve that observation-newest entry.
-    const incomingObservationMs = Date.parse(observationAt);
-    const observationNewestPrior = [memoryEntry, priorStored]
-      .filter((e): e is SharedOddsCacheEntry => Boolean(e))
-      .reduce<
-        SharedOddsCacheEntry | undefined
-      >((best, e) => (best === undefined || effectiveOddsObservationMs(e) > effectiveOddsObservationMs(best) ? e : best), undefined);
-    if (
-      observationNewestPrior &&
-      Number.isFinite(incomingObservationMs) &&
-      effectiveOddsObservationMs(observationNewestPrior) >= incomingObservationMs
-    ) {
-      return { wrote: false, entry: observationNewestPrior };
-    }
-    const classification = classifyEmptyOddsResponse({
-      priorEvents: priorEntry?.data ?? [],
-      scheduleItems: evidence.scheduleItems,
-      resolver: evidence.resolver,
-      // Positive schedule expectation is canonical-only; the schedule still
-      // exculpates stale prior events for filtered targets.
-      includeScheduleExpectation: isCanonical,
-      now: Date.now(),
-    });
-    if (classification.kind === 'unexpected-empty') {
-      throw new OddsPayloadError(
-        'odds-empty-unexpected',
-        `odds ${season}: provider returned 0 events but odds are expected for this target ` +
-          `(prior upcoming events: ${classification.priorUpcomingEventCount}, ` +
-          `schedule games within 7 days: ${classification.nearHorizonGameCount}); ` +
-          `prior-good data retained`
-      );
-    }
-
-    const priorHasData = (priorEntry?.data.length ?? 0) > 0;
-    const replaceProvablyObsoleteRows = priorHasData && classification.priorRowsProvablyObsolete;
-    // The txn read SUCCEEDED to reach here (a read failure would have thrown and
-    // rolled the transaction back), so committing an empty entry never overwrites
-    // an unreadable durable entry.
-    if (!priorHasData || replaceProvablyObsoleteRows) {
-      const emptyEntry: SharedOddsCacheEntry = {
-        data: [],
-        lastFetch: Date.now(),
-        usage,
-        observedAt: observationAt,
-      };
-      await txn.write(emptyEntry);
-      return { wrote: true, entry: emptyEntry };
-    }
-    return { wrote: false, entry: priorEntry ?? oddsCache.entries[seasonScopedKey] };
-  });
-
-  // Publish the process cache ONLY after the confirmed commit (mirrors the
-  // canonical/filtered commit functions): a finalize failure that rolled the
-  // durable write back must never leave the process cache serving a "fresh"
-  // empty entry that no instance can durably reproduce (review remediation).
-  if (result.wrote && result.entry) {
-    oddsCache.entries[seasonScopedKey] = result.entry;
-  }
-  return result.entry;
-}
-
 export async function GET(req: Request): Promise<Response> {
   recordRouteRequest('odds');
-  // Provider-refresh observability (PLATFORM-086A). Hoisted above the try so the
-  // shared catch can attribute a failure to the odds refresh ONLY when a refresh
-  // was actually attempted (never for a public cache-only read that happens to
-  // throw). `oddsAttemptResolved` prevents a post-resolution throw from
-  // double-writing a failure over an already-recorded success or no-op.
+  // Provider-refresh observability. The shared executor RESOLVES the begun
+  // attempt exactly once; the catch below only attributes a failure for a truly
+  // unexpected throw that left the attempt unresolved.
   let oddsAttempt: ProviderRefreshAttempt | null = null;
   let oddsScope: ProviderRefreshScope | null = null;
   let oddsAttemptResolved = false;
@@ -523,8 +324,8 @@ export async function GET(req: Request): Promise<Response> {
   let leaseToken: string | null = null;
   let leaseSeasonScopedKey: string | null = null;
   let leaseResolution: OddsRefreshLeaseResolution = 'release-only';
-  // Whether the billed `/odds` request was actually issued — drives the billed vs
-  // non-billed lease resolution on failure.
+  // Whether the billed `/odds` request was issued — drives the billed vs
+  // non-billed lease resolution on an unexpected throw.
   let providerCallAttempted = false;
   try {
     const parsedQuery = parseOddsQuery(new URL(req.url));
@@ -535,10 +336,7 @@ export async function GET(req: Request): Promise<Response> {
           field: parsedQuery.field,
           value: parsedQuery.value,
         }),
-        {
-          status: 400,
-          headers: { 'Content-Type': 'application/json' },
-        }
+        { status: 400, headers: { 'Content-Type': 'application/json' } }
       );
     }
 
@@ -553,12 +351,8 @@ export async function GET(req: Request): Promise<Response> {
     }
 
     const cacheKey = createOddsCacheKey(query);
-    // In-memory and durable entries share the same season-scoped key so odds for
-    // different seasons can never collide in the process cache.
     const seasonScopedKey = `${query.season}:${cacheKey}`;
     const isCanonicalQuery = isCanonicalDurableQuery(query);
-    // Odds status uses the SAME canonical target identity as the durable Odds cache
-    // (the season-scoped cache key), distinguishing canonical/default from filtered.
     oddsScope = oddsTargetScope(
       query.season,
       isCanonicalQuery ? 'canonical' : 'filtered',
@@ -571,18 +365,15 @@ export async function GET(req: Request): Promise<Response> {
     let quotaSuppressed = false;
     let suppressedUsage: OddsUsageSnapshot | null = null;
     let servedStaleFallback = false;
-    // The usage snapshot captured from THIS request's provider headers (refresh
-    // path only). A retained-data no-op serves the PRIOR cache entry, whose
-    // embedded `usage` predates this refresh — the response must still report the
-    // current quota. Null on genuine cache-only reads.
+    // Usage captured from THIS request's provider headers (refresh path only).
     let refreshCapturedUsage: OddsUsageSnapshot | null = null;
-    // When a canonical refresh commits, the built games + committed store are
-    // carried into the final selection so the schedule is not rebuilt.
+    // A canonical refresh returns the built games + committed store so the final
+    // selection does not rebuild the schedule.
     let canonicalRefreshGames: AppGame[] | null = null;
     let committedCanonicalStore: Record<string, DurableOddsRecord> | null = null;
 
     if (!refreshRequested) {
-      // ---- Public/anonymous path: never spends upstream quota (PLATFORM-075) ----
+      // ---- Public/anonymous path: never spends upstream quota, never writes ----
       if (isFreshOddsCacheEntry(cachedEntry, now)) {
         recordRouteCacheHit('odds');
       } else {
@@ -593,15 +384,9 @@ export async function GET(req: Request): Promise<Response> {
           responseEntry = storedValue;
           recordRouteCacheHit('odds');
         } else {
-          // No fresh cache. Serve the freshest STALE fallback (in-memory or
-          // durable) without any upstream call; if nothing is cached, serve empty
-          // odds. Anonymous callers never trigger a cold-cache fetch.
           recordRouteCacheMiss('odds');
           responseEntry = pickFreshestOddsFallback(cachedEntry, storedValue);
           servedStaleFallback = true;
-          // Surface the current (low) usage snapshot when the saved quota guard is
-          // tripped so the client can self-throttle its own manual refresh. Read
-          // through durable storage so the decision is not made from a stale memo.
           const latestKnownUsage = await getLatestKnownOddsUsage({ forceRefresh: true });
           if (getOddsQuotaGuardState(latestKnownUsage?.remaining).disableAutoRefresh) {
             quotaSuppressed = true;
@@ -614,14 +399,9 @@ export async function GET(req: Request): Promise<Response> {
       recordRouteCacheMiss('odds');
 
       // Acquire the shared durable lease BEFORE any provider/status work. A
-      // nonexpired lease means a concurrent refresh already holds this target:
-      // return a truthful 409 with NO provider call and NO fabricated attempt.
-      // Manual refresh IGNORES the automatic backoff (it still needs the lease).
-      const lease = await acquireOddsRefreshLease({
-        seasonScopedKey,
-        owner: 'manual',
-        now,
-      });
+      // nonexpired lease → truthful 409 with NO provider call and NO fabricated
+      // attempt. Manual refresh IGNORES the automatic backoff (still needs the lease).
+      const lease = await acquireOddsRefreshLease({ seasonScopedKey, owner: 'manual', now });
       if (!lease.acquired) {
         if (lease.reason === 'refresh-in-progress') {
           return new Response(
@@ -632,7 +412,6 @@ export async function GET(req: Request): Promise<Response> {
             { status: 409, headers: { 'Content-Type': 'application/json' } }
           );
         }
-        // Lease store unavailable — fail safely with no provider work.
         return new Response(
           JSON.stringify({
             error: 'odds refresh lease store unavailable',
@@ -650,9 +429,8 @@ export async function GET(req: Request): Promise<Response> {
 
       const oddsApiKey = process.env.ODDS_API_KEY?.trim();
       if (!oddsApiKey) {
-        // Attempt already recorded; record the matching failure here (this early
-        // return bypasses the catch). Missing credentials are NOT a billed failure,
-        // so the lease resolves `release-only` (no backoff advance).
+        // Attempt already recorded; record the matching failure here. Missing
+        // credentials are NOT a billed failure → lease resolves `release-only`.
         await recordProviderRefreshFailure('odds', oddsScope, {
           attempt: oddsAttempt,
           error: 'ODDS_API_KEY missing',
@@ -666,235 +444,66 @@ export async function GET(req: Request): Promise<Response> {
         });
       }
 
-      // Capture the provider observation time IMMEDIATELY before the request; it
-      // orders the raw cache and stamps every generated snapshot's `capturedAt`.
+      // Observation captured IMMEDIATELY before the request (orders the raw cache
+      // + stamps every generated snapshot). The shared executor owns the rest.
       const observationAt = new Date().toISOString();
-
-      const url = new URL(ODDS_API);
-      url.searchParams.set('regions', query.regions.join(','));
-      url.searchParams.set('oddsFormat', 'american');
-      url.searchParams.set('dateFormat', 'iso');
-      url.searchParams.set('bookmakers', query.bookmakers.join(','));
-      url.searchParams.set('markets', query.markets.join(','));
-      url.searchParams.set('apiKey', oddsApiKey);
-
       providerCallAttempted = true;
-      const upstreamRes = await fetchUpstreamResponse(url.toString(), {
-        cache: 'no-store',
-        timeoutMs: 12000,
+      const execution = await executeOddsRefresh({
+        mode: 'manual',
+        season: query.season,
+        seasonScopedKey,
+        isCanonical: isCanonicalQuery,
+        scope: oddsScope,
+        attempt: oddsAttempt,
+        apiKey: oddsApiKey,
+        query: { bookmakers: query.bookmakers, markets: query.markets, regions: query.regions },
+        observationAt,
+        now: new Date().toISOString(),
         retry: ODDS_RETRY_POLICY,
         pacing: ODDS_PACING_POLICY,
-        throwOnHttpError: false,
+        resolveCanonicalInputs: async (events) => {
+          try {
+            const inputs = await loadCanonicalBuildInputs(req, query.season, events);
+            return { available: true, games: inputs.games, resolver: inputs.resolver };
+          } catch {
+            return { available: false };
+          }
+        },
       });
+      // The executor resolved the attempt exactly once and recorded status.
+      oddsAttemptResolved = true;
+      fetchedFromUpstream = true;
+      refreshCapturedUsage = execution.usage;
+      leaseResolution = execution.leaseResolution;
+      if (execution.rawEntry !== undefined) responseEntry = execution.rawEntry;
+      committedCanonicalStore = execution.canonicalStore;
+      canonicalRefreshGames = execution.canonicalGames;
 
-      if (!upstreamRes.ok) {
-        const usage = await captureOddsUsageSnapshot(upstreamRes.headers, {
-          sportKey: 'americanfootball_ncaaf',
-          markets: query.markets,
-          regions: query.regions,
-          endpointType: 'odds',
-          cacheStatus: 'miss',
-        });
-
-        if (
-          (upstreamRes.status === 402 || upstreamRes.status === 429) &&
-          (!usage || usage.remaining > 0)
-        ) {
-          await setLatestKnownOddsUsage({
-            used: usage?.limit ?? 500,
-            remaining: 0,
-            lastCost: usage?.lastCost ?? 0,
-            limit: usage?.limit ?? 500,
-            capturedAt: new Date().toISOString(),
-            source: 'quota-error-fallback',
-            sportKey: 'americanfootball_ncaaf',
-            markets: query.markets,
-            regions: query.regions,
-            endpointType: 'odds',
-            cacheStatus: 'miss',
-          });
+      if (execution.result.status === 'failure') {
+        if (execution.result.reason === 'provider-fetch-failed') {
+          // Allowlisted, credential-safe upstream detail (no raw body/URL). The
+          // manual response surfaces the ORIGINAL upstream HTTP status (e.g.
+          // 402/429) when present, else 502 for a transport/timeout failure.
+          return new Response(
+            JSON.stringify({ error: 'upstream error', detail: execution.providerErrorDetail }),
+            {
+              status: execution.providerErrorDetail?.status ?? execution.result.httpStatus,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          );
         }
-
-        const responseBody = await upstreamRes.text().catch(() => '');
-        throw new UpstreamFetchError({
-          kind: 'http',
-          message: `Upstream request failed with status ${upstreamRes.status}${upstreamRes.statusText ? ` (${upstreamRes.statusText})` : ''}`,
-          status: upstreamRes.status,
-          statusText: upstreamRes.statusText,
-          url: url.toString(),
-          responseBody,
-        });
-      }
-
-      // Capture and persist quota headers BEFORE parsing the body: the request
-      // consumed provider credits regardless of body validity, so the usage
-      // snapshot must survive a malformed payload.
-      const usage = await captureOddsUsageSnapshot(upstreamRes.headers, {
-        sportKey: 'americanfootball_ncaaf',
-        markets: query.markets,
-        regions: query.regions,
-        endpointType: 'odds',
-        cacheStatus: 'miss',
-      });
-      refreshCapturedUsage = usage;
-
-      let upstreamData: unknown;
-      try {
-        upstreamData = await upstreamRes.json();
-      } catch {
-        throw new OddsPayloadError(
-          'odds-invalid-payload',
-          `odds ${query.season}: provider returned a 200 response with an invalid or empty JSON body — nothing committed; prior-good odds retained`
+        return new Response(
+          JSON.stringify({
+            error: `odds ${query.season}: ${execution.result.reason}`,
+            code: execution.result.reason,
+          }),
+          { status: execution.result.httpStatus, headers: { 'Content-Type': 'application/json' } }
         );
       }
-
-      // ---- Payload classification BEFORE any durable commit (086G2 #4) ----
-      if (!Array.isArray(upstreamData)) {
-        throw new OddsPayloadError(
-          'odds-invalid-payload',
-          `odds ${query.season}: provider returned a non-array payload — nothing committed; prior-good odds retained`
-        );
-      }
-      const malformedRowCount = upstreamData.filter(
-        (row) => !isStructurallyValidUpstreamOddsEvent(row)
-      ).length;
-      if (malformedRowCount > 0) {
-        throw new OddsPayloadError(
-          'odds-schema-drift',
-          `odds ${query.season}: ${malformedRowCount} of ${upstreamData.length} provider event(s) are structurally malformed (schema drift) — nothing committed; prior-good odds retained`
-        );
-      }
-      const normalizedEvents = (upstreamData as UpstreamOddsEvent[])
-        .map(normalizeUpstreamOddsEvent)
-        .filter((event): event is NormalizedOddsEvent => Boolean(event));
-      if (upstreamData.length > 0 && normalizedEvents.length === 0) {
-        throw new OddsPayloadError(
-          'odds-schema-drift',
-          `odds ${query.season}: provider returned ${upstreamData.length} event(s) but none normalized to a usable odds event (schema drift) — nothing committed; prior-good odds retained`
-        );
-      }
-
-      if (normalizedEvents.length === 0) {
-        // Genuinely empty provider array — classify against transaction-fresh
-        // target-scoped evidence and conditionally write, atomically.
-        responseEntry = await commitEmptyOddsRefresh({
-          seasonScopedKey,
-          season: query.season,
-          isCanonical: isCanonicalQuery,
-          usage,
-          observationAt,
-        });
-        fetchedFromUpstream = true;
-        await recordProviderRefreshNoop('odds', oddsScope, {
-          attempt: oddsAttempt ?? undefined,
-          source: 'odds-api',
-        });
-        oddsAttemptResolved = true;
-        leaseResolution = 'no-op';
-      } else {
-        const rawEntry: SharedOddsCacheEntry = {
-          data: normalizedEvents,
-          lastFetch: Date.now(),
-          usage,
-          observedAt: observationAt,
-        };
-        if (isCanonicalQuery) {
-          // ---- Canonical: raw cache + durable per-game store commit atomically ----
-          const inputs = await loadCanonicalBuildInputs(req, query.season, normalizedEvents);
-          const commit = await commitCanonicalOddsRefresh({
-            season: query.season,
-            seasonScopedKey,
-            rawEntry,
-            games: inputs.games,
-            oddsEvents: normalizedEvents,
-            resolver: inputs.resolver,
-            observationAt,
-            now: new Date().toISOString(),
-          });
-          if (commit.kind === 'store-unavailable') {
-            throw new OddsPayloadError(
-              'durable-commit-failed',
-              `odds ${query.season}: durable commit failed — nothing committed; prior-good odds retained`,
-              503
-            );
-          }
-          fetchedFromUpstream = true;
-          canonicalRefreshGames = inputs.games;
-          committedCanonicalStore = commit.store;
-          if (commit.kind === 'stale-observation') {
-            // A fresher observation already committed: truthful no-op, serve
-            // prior-good, never report provider-refresh success.
-            responseEntry = commit.rawEntry ?? oddsCache.entries[seasonScopedKey];
-            await recordProviderRefreshNoop('odds', oddsScope, {
-              attempt: oddsAttempt ?? undefined,
-              source: 'odds-api',
-            });
-            leaseResolution = 'no-op';
-          } else {
-            responseEntry = rawEntry;
-            await recordProviderRefreshSuccess('odds', oddsScope, {
-              attempt: oddsAttempt ?? undefined,
-              committedAt: commit.committedAt,
-              commitSeq: commit.commitSeq,
-              source: 'odds-api',
-              rowsCommitted: commit.rowsCommitted,
-              usage: usage
-                ? {
-                    used: usage.used,
-                    remaining: usage.remaining,
-                    limit: usage.limit,
-                    lastCost: usage.lastCost,
-                  }
-                : undefined,
-            });
-            leaseResolution = 'success';
-          }
-          oddsAttemptResolved = true;
-        } else {
-          // ---- Filtered: commit ONLY the exact raw odds-cache key ----
-          const commit = await commitFilteredOddsRefresh({ seasonScopedKey, rawEntry });
-          if (commit.kind === 'store-unavailable') {
-            throw new OddsPayloadError(
-              'durable-commit-failed',
-              `odds ${query.season}: durable commit failed — nothing committed; prior-good odds retained`,
-              503
-            );
-          }
-          fetchedFromUpstream = true;
-          if (commit.kind === 'stale-observation') {
-            responseEntry = commit.rawEntry ?? oddsCache.entries[seasonScopedKey];
-            await recordProviderRefreshNoop('odds', oddsScope, {
-              attempt: oddsAttempt ?? undefined,
-              source: 'odds-api',
-            });
-            leaseResolution = 'no-op';
-          } else {
-            responseEntry = rawEntry;
-            await recordProviderRefreshSuccess('odds', oddsScope, {
-              attempt: oddsAttempt ?? undefined,
-              committedAt: commit.committedAt,
-              commitSeq: commit.commitSeq,
-              source: 'odds-api',
-              rowsCommitted: rawEntry.data.length,
-              usage: usage
-                ? {
-                    used: usage.used,
-                    remaining: usage.remaining,
-                    limit: usage.limit,
-                    lastCost: usage.lastCost,
-                  }
-                : undefined,
-            });
-            leaseResolution = 'success';
-          }
-          oddsAttemptResolved = true;
-        }
-      }
+      // success / no-op → fall through to item building + 200 response.
     }
 
     const requestTime = new Date().toISOString();
-    // Honest served-snapshot time for the user-facing freshness label: null when
-    // NOTHING is cached for this season, so a cold-cache season shows no timestamp.
     const servedSnapshotAt =
       responseEntry?.lastFetch != null ? new Date(responseEntry.lastFetch).toISOString() : null;
 
@@ -908,19 +517,16 @@ export async function GET(req: Request): Promise<Response> {
           requestTime
         );
       } else {
-        // Public canonical read (or a canonical empty refresh): build games and
-        // resolve the durable store. The observation time for re-applied cached
-        // events is the served entry's own observation, so re-application is an
-        // idempotent no-op and only genuine kickoff freeze/reopen registers.
         const inputs = await loadCanonicalBuildInputs(req, query.season, responseEntry?.data ?? []);
         const observationAt =
           responseEntry?.observedAt ??
           (responseEntry?.lastFetch != null
             ? new Date(responseEntry.lastFetch).toISOString()
             : requestTime);
-        if (!servedStaleFallback) {
-          // Fresh canonical hit / empty refresh → closing maintenance through the
-          // durable-store advisory transaction (skips the write when unchanged).
+        if (refreshRequested && !servedStaleFallback) {
+          // Authorized manual EMPTY canonical refresh → closing maintenance through
+          // the durable-store transaction (preserves current behavior; the cron
+          // owns automatic maintenance).
           const maintained = await maintainCanonicalClosingLines({
             season: query.season,
             games: inputs.games,
@@ -935,7 +541,9 @@ export async function GET(req: Request): Promise<Response> {
               : await getDurableOddsStore(query.season);
           items = selectCanonicalOddsItems(inputs.games, store, requestTime);
         } else {
-          // Stale served fallback → derive in-memory only; NEVER downgrade durable.
+          // PUBLIC read (fresh, stale, or cold) → READ-ONLY (PLATFORM-086C2 §10):
+          // derive freeze/reopen in-memory for display but NEVER write the durable
+          // store. Cross-instance cron commits become visible via the bounded memo.
           const prior = await getDurableOddsStore(query.season);
           const { store } = buildNextOddsStore(prior, {
             games: inputs.games,
@@ -982,28 +590,16 @@ export async function GET(req: Request): Promise<Response> {
       snapshotCapturedAt: servedSnapshotAt,
     });
   } catch (e) {
-    // A provider/payload/durable-commit failure is a BILLED-provider failure and
-    // advances the automatic backoff; a failure before the `/odds` call is not.
-    // Only reclassify when the attempt was NOT already resolved as success/no-op:
-    // a post-commit throw on the response-building tail (e.g. schedule build for
-    // item selection after an empty/filtered attempt already committed) must not
-    // overwrite a recorded success/no-op with a billed failure (review remediation).
+    // The shared executor resolves the attempt itself, so this handles only a
+    // truly unexpected throw (e.g. the response-building tail). A billed provider
+    // request that had NOT resolved advances the automatic backoff.
     if (providerCallAttempted && !oddsAttemptResolved) leaseResolution = 'billed-failure';
-    // Attribute the failure to the odds refresh only when a refresh was actually
-    // attempted and no success/no-op was recorded (PLATFORM-086A). Public
-    // cache-only reads that throw are not refresh attempts.
     if (oddsAttempt && oddsScope && !oddsAttemptResolved) {
       const latestUsage = await getLatestKnownOddsUsage().catch(() => null);
       await recordProviderRefreshFailure('odds', oddsScope, {
         attempt: oddsAttempt,
         error: e instanceof Error ? e.message : 'internal error',
-        code: e instanceof OddsPayloadError ? e.code : undefined,
-        status:
-          e instanceof OddsPayloadError
-            ? e.status
-            : e instanceof UpstreamFetchError
-              ? (e.details.status ?? 502)
-              : 500,
+        status: 500,
         usage: latestUsage
           ? {
               used: latestUsage.used,
@@ -1014,18 +610,6 @@ export async function GET(req: Request): Promise<Response> {
           : undefined,
       });
     }
-    if (e instanceof OddsPayloadError) {
-      return new Response(JSON.stringify({ error: e.message, code: e.code }), {
-        status: e.status,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    if (e instanceof UpstreamFetchError) {
-      return new Response(JSON.stringify({ error: 'upstream error', detail: e.details }), {
-        status: e.details.status ?? 502,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
 
     const msg = e instanceof Error ? e.message : 'internal error';
     return new Response(JSON.stringify({ error: msg }), {
@@ -1033,9 +617,6 @@ export async function GET(req: Request): Promise<Response> {
       headers: { 'Content-Type': 'application/json' },
     });
   } finally {
-    // Release the lease with the resolution set along the primary path. Best-effort
-    // and token-checked inside — it never masks the primary response/error, and an
-    // older holder can never clear a newer lease.
     if (leaseToken && leaseSeasonScopedKey) {
       await releaseOddsRefreshLease({
         seasonScopedKey: leaseSeasonScopedKey,
