@@ -259,11 +259,17 @@ export async function GET(req: Request): Promise<Response> {
     const requestCost = estimateOddsRequestCost(ODDS_DEFAULT_MARKETS, ODDS_DEFAULT_BOOKMAKERS);
     exec.requestCost = requestCost;
 
-    // Acquire the exact-target lease as owner `automatic`.
+    // Acquire the exact-target lease as owner `automatic`. Timestamp it with a
+    // FRESH clock read (not the handler-entry `nowMs`): context load + closing-line
+    // maintenance may have waited on storage contention, and measuring the 5-minute
+    // lease window from a stale `nowMs` could hand back an already-shortened (or
+    // expired) lease that a concurrent manual refresh reclaims mid-request, causing
+    // a duplicate billed request (review remediation).
+    const acquireNowMs = Date.now();
     const lease = await acquireOddsRefreshLease({
       seasonScopedKey,
       owner: 'automatic',
-      now: nowMs,
+      now: acquireNowMs,
     });
     if (!lease.acquired) {
       if (lease.reason === 'refresh-in-progress') {
@@ -301,7 +307,7 @@ export async function GET(req: Request): Promise<Response> {
       games: context.pollingGames,
       control: lease.control,
       rawObservationMs: recheckObservationMs,
-      now: nowMs,
+      now: acquireNowMs,
     });
     if (!recheck.due) {
       leaseResolution = 'release-only';

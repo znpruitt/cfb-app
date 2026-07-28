@@ -385,21 +385,33 @@ export async function executeOddsRefresh(params: {
 
   if (!upstreamRes.ok) {
     usageFromHeaders = usageHeadersTrustworthy(upstreamRes.headers);
-    usage = await captureOddsUsageSnapshot(upstreamRes.headers, usageContext);
-    if (
-      (upstreamRes.status === 402 || upstreamRes.status === 429) &&
-      (!usage || usage.remaining > 0)
-    ) {
-      await setLatestKnownOddsUsage({
-        used: usage?.limit ?? 500,
-        remaining: 0,
-        lastCost: usage?.lastCost ?? 0,
-        limit: usage?.limit ?? 500,
-        capturedAt: new Date().toISOString(),
-        source: 'quota-error-fallback',
-        ...usageContext,
-      });
-      wroteQuotaErrorFallback = true;
+    // Only trust RESPONSE-DERIVED usage when the headers are trustworthy. Otherwise
+    // captureOddsUsageSnapshot returns the cached pre-probe balance, which would be
+    // reported as this billed request's post-call usage (review remediation).
+    usage = usageFromHeaders
+      ? await captureOddsUsageSnapshot(upstreamRes.headers, usageContext)
+      : null;
+    if (upstreamRes.status === 402 || upstreamRes.status === 429) {
+      // Quota-exhaustion signal. TRUSTWORTHY headers are authoritative and kept
+      // as-is (even an explicit `remaining: 0` — its real `lastCost`/source). Only
+      // when the headers are missing/malformed do we author the zero fallback AND
+      // adopt it as this request's usage, so the event + committed entry report the
+      // true 0 (not a stale pre-probe balance) and quota accounting can never
+      // restore an overstated balance from untrustworthy headers (remediation).
+      if (!usageFromHeaders) {
+        const zero: OddsUsageSnapshot = {
+          used: usage?.limit ?? 500,
+          remaining: 0,
+          lastCost: usage?.lastCost ?? 0,
+          limit: usage?.limit ?? 500,
+          capturedAt: new Date().toISOString(),
+          source: 'quota-error-fallback',
+          ...usageContext,
+        };
+        await setLatestKnownOddsUsage(zero);
+        usage = zero;
+        wroteQuotaErrorFallback = true;
+      }
     }
     // Never read/return the raw response body.
     const detail: SafeUpstreamDetail = {
@@ -420,8 +432,15 @@ export async function executeOddsRefresh(params: {
   }
 
   // Capture + persist usage BEFORE parsing (the request spent credits regardless).
+  // Only trustworthy headers become this request's usage; otherwise
+  // captureOddsUsageSnapshot would return the cached pre-probe balance and commit
+  // that PRE-SPEND value into the raw cache (which public `/api/odds` prefers). A
+  // null here keeps the committed entry from advertising a stale balance; the
+  // automatic caller applies a conservative global estimate instead (remediation).
   usageFromHeaders = usageHeadersTrustworthy(upstreamRes.headers);
-  usage = await captureOddsUsageSnapshot(upstreamRes.headers, usageContext);
+  usage = usageFromHeaders
+    ? await captureOddsUsageSnapshot(upstreamRes.headers, usageContext)
+    : null;
 
   let upstreamData: unknown;
   try {

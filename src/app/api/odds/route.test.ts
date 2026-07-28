@@ -247,6 +247,35 @@ test('429 without usable usage headers persists fallback-labeled depleted snapsh
   }
 });
 
+test('402 with MALFORMED usage headers persists the authoritative zero fallback', async () => {
+  // A 402 whose usage headers are present but malformed (remaining: -1) is
+  // untrustworthy; it must author the depleted quota-error fallback, never trust
+  // the malformed value or skip the fallback (review remediation).
+  const originalFetch = global.fetch;
+  global.fetch = (async () =>
+    new Response(JSON.stringify({ message: 'payment required' }), {
+      status: 402,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-requests-used': '500',
+        'x-requests-remaining': '-1',
+        'x-requests-last': '3',
+      },
+    })) as typeof fetch;
+
+  try {
+    const res = await GET(new Request('http://localhost/api/odds?markets=totals&refresh=1'));
+    assert.equal(res.status, 402);
+
+    const usage = await getLatestKnownOddsUsage();
+    assert.equal(usage?.source, 'quota-error-fallback');
+    assert.equal(usage?.remaining, 0);
+    assert.equal(usage?.limit, 500);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('filtered odds requests do not overwrite the shared durable store with partial markets', async () => {
   const originalFetch = global.fetch;
 

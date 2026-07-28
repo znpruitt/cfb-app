@@ -693,3 +693,60 @@ test('remediation R3: an expected empty is classified from the loaded context ev
   const control = await readOddsRefreshControl(SEASON_KEY);
   assert.equal(control?.automaticFailureCount, 1); // NOT reset to a benign no-op
 });
+
+// ---- Cycle-4 review remediation ----
+
+test('remediation R4: a 402 with MALFORMED usage headers records an authoritative zero, never a positive estimate', async () => {
+  // Finding ②: a 402/429 whose usage headers are malformed (e.g. remaining: -1) is
+  // untrustworthy. It must author the authoritative zero fallback (NOT skip it and
+  // let quota accounting restore a positive estimate from the pre-probe balance).
+  await seedSchedule(Date.now() + 2 * DAY);
+  const counts = installFetch({
+    sports: {
+      headers: { 'x-requests-used': '20', 'x-requests-remaining': '480', 'x-requests-last': '0' },
+    },
+    odds: {
+      status: 402,
+      headers: {
+        'content-type': 'application/json',
+        'x-requests-used': '500',
+        'x-requests-remaining': '-1', // malformed → untrustworthy
+        'x-requests-last': '3',
+      },
+    },
+  });
+  const { res, event } = await runCron();
+  assert.equal(res.status, 502);
+  assert.equal(event.result, 'failure');
+  assert.equal(event.reason, 'provider-fetch-failed');
+  assert.equal(counts.oddsCalls, 1);
+  // The authoritative zero is reported + persisted — NOT a positive estimate.
+  assert.equal(event.quotaRemainingAfter, 0);
+  const usage = await getLatestKnownOddsUsage();
+  assert.equal(usage?.remaining, 0);
+  assert.equal(usage?.source, 'quota-error-fallback');
+});
+
+test('remediation R4: a successful refresh with MISSING usage headers never commits a pre-spend balance', async () => {
+  // Finding ③: a successful `/odds` without usage headers must NOT embed the cached
+  // pre-probe balance into the committed raw cache (public `/api/odds` prefers that
+  // entry's usage). The committed entry carries null usage; the automatic caller
+  // applies a conservative global estimate separately.
+  await seedSchedule(Date.now() + 2 * DAY);
+  const counts = installFetch({
+    sports: {
+      headers: { 'x-requests-used': '20', 'x-requests-remaining': '480', 'x-requests-last': '0' },
+    },
+    // A nonempty success payload with NO x-requests-* headers.
+    odds: { status: 200, headers: { 'content-type': 'application/json' } },
+  });
+  const { res, event } = await runCron();
+  assert.equal(res.status, 200);
+  assert.equal(event.result, 'success');
+  assert.equal(counts.oddsCalls, 1);
+  // The committed raw cache entry does NOT advertise the pre-spend probe balance.
+  const rawEntry = await getAppState<{ usage: unknown }>('odds-cache', SEASON_KEY);
+  assert.equal(rawEntry?.value.usage, null);
+  // The global estimate still deducts the request cost (480 - 3 = 477).
+  assert.equal(event.quotaRemainingAfter, 477);
+});
