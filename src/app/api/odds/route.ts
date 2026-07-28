@@ -25,6 +25,7 @@ import {
   type TeamCatalogItem,
   type TeamIdentityResolver,
 } from '../../../lib/teamIdentity.ts';
+import type { AliasMap } from '../../../lib/teamNames.ts';
 import { getAppState } from '../../../lib/server/appStateStore.ts';
 import {
   beginProviderRefreshAttempt,
@@ -266,25 +267,41 @@ function isCanonicalDurableQuery(query: ParsedOddsQuery): boolean {
  * The resolver seeds observed names from the built canonical participants AND the
  * odds-event labels so attachment resolves every label it encounters.
  */
-async function loadCanonicalBuildInputs(
+/**
+ * Load the canonical schedule inputs — games + the identity inputs — WITHOUT the
+ * event-dependent resolver. This is the fallible I/O (schedule/conferences fetch +
+ * `buildScheduleFromApi`); a manual canonical refresh runs it BEFORE the billed
+ * `/odds` request so a context failure is classified before any credit is spent
+ * (review remediation), and the pure `buildOddsResolver` finishes the attachment
+ * inputs afterward with no further I/O.
+ */
+async function loadCanonicalScheduleInputs(
   req: Request,
-  season: number,
-  oddsEvents: NormalizedOddsEvent[]
-): Promise<{ games: AppGame[]; resolver: TeamIdentityResolver }> {
+  season: number
+): Promise<{ games: AppGame[]; teams: TeamCatalogItem[]; aliasMap: AliasMap }> {
   const [scheduleItems, teams, aliasMap, conferenceRecords] = await Promise.all([
     fetchCanonicalSchedule(req, season),
     readTeamsCatalog(),
     getScopedAliasMap('', season),
     readConferenceRecords(req),
   ]);
-  const builtSchedule = buildScheduleFromApi({
+  const games = buildScheduleFromApi({
     scheduleItems,
     teams,
     aliasMap,
     season,
     conferenceRecords,
-  });
-  const games = builtSchedule.games;
+  }).games;
+  return { games, teams, aliasMap };
+}
+
+/** Build the odds attachment resolver (pure — no I/O). */
+function buildOddsResolver(
+  teams: TeamCatalogItem[],
+  aliasMap: AliasMap,
+  games: AppGame[],
+  oddsEvents: NormalizedOddsEvent[]
+): TeamIdentityResolver {
   const observedNames = Array.from(
     new Set(
       [
@@ -293,8 +310,19 @@ async function loadCanonicalBuildInputs(
       ].filter(Boolean)
     )
   );
-  const resolver = createTeamIdentityResolver({ aliasMap, teams, observedNames });
-  return { games, resolver };
+  return createTeamIdentityResolver({ aliasMap, teams, observedNames });
+}
+
+async function loadCanonicalBuildInputs(
+  req: Request,
+  season: number,
+  oddsEvents: NormalizedOddsEvent[]
+): Promise<{ games: AppGame[]; resolver: TeamIdentityResolver }> {
+  const inputs = await loadCanonicalScheduleInputs(req, season);
+  return {
+    games: inputs.games,
+    resolver: buildOddsResolver(inputs.teams, inputs.aliasMap, inputs.games, oddsEvents),
+  };
 }
 
 function selectCanonicalOddsItems(
@@ -444,6 +472,37 @@ export async function GET(req: Request): Promise<Response> {
         });
       }
 
+      // Preload the canonical schedule inputs BEFORE the billed request (canonical
+      // target only), so a schedule/conference build failure is a truthful
+      // pre-billing `canonical-context-unavailable` (release-only) rather than a
+      // billed request whose post-fetch context failure the shared mapping would
+      // mis-bill (review remediation). The resolver is then finished purely below.
+      let preloadedInputs: {
+        games: AppGame[];
+        teams: TeamCatalogItem[];
+        aliasMap: AliasMap;
+      } | null = null;
+      if (isCanonicalQuery) {
+        try {
+          preloadedInputs = await loadCanonicalScheduleInputs(req, query.season);
+        } catch {
+          await recordProviderRefreshFailure('odds', oddsScope, {
+            attempt: oddsAttempt,
+            error: `odds ${query.season}: canonical context unavailable`,
+            code: 'canonical-context-unavailable',
+            status: 503,
+          });
+          oddsAttemptResolved = true; // no `/odds` spent → lease stays release-only
+          return new Response(
+            JSON.stringify({
+              error: `odds ${query.season}: canonical-context-unavailable`,
+              code: 'canonical-context-unavailable',
+            }),
+            { status: 503, headers: { 'Content-Type': 'application/json' } }
+          );
+        }
+      }
+
       // Observation captured IMMEDIATELY before the request (orders the raw cache
       // + stamps every generated snapshot). The shared executor owns the rest.
       const observationAt = new Date().toISOString();
@@ -461,13 +520,19 @@ export async function GET(req: Request): Promise<Response> {
         now: new Date().toISOString(),
         retry: ODDS_RETRY_POLICY,
         pacing: ODDS_PACING_POLICY,
+        // Pure now — the fallible schedule I/O already ran above.
         resolveCanonicalInputs: async (events) => {
-          try {
-            const inputs = await loadCanonicalBuildInputs(req, query.season, events);
-            return { available: true, games: inputs.games, resolver: inputs.resolver };
-          } catch {
-            return { available: false };
-          }
+          if (!preloadedInputs) return { available: false };
+          return {
+            available: true,
+            games: preloadedInputs.games,
+            resolver: buildOddsResolver(
+              preloadedInputs.teams,
+              preloadedInputs.aliasMap,
+              preloadedInputs.games,
+              events
+            ),
+          };
         },
       });
       // The executor resolved the attempt exactly once and recorded status.

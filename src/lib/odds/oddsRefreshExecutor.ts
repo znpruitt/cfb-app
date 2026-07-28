@@ -227,6 +227,21 @@ async function commitEmptyOddsRefresh(params: {
   return result;
 }
 
+/**
+ * Whether the response's usage headers are TRUSTWORTHY — present AND every value
+ * is a nonnegative safe integer (the same fail-closed bar the `/sports` probe
+ * applies). Used for BOTH the success and the non-2xx path so the automatic
+ * caller trusts authoritative provider usage (e.g. a 429's `remaining: 0`) instead
+ * of overwriting it with a conservative estimate (review remediation).
+ */
+function usageHeadersTrustworthy(headers: Headers): boolean {
+  const parsed = parseOddsUsageHeaders(headers);
+  return (
+    parsed !== null &&
+    [parsed.used, parsed.remaining, parsed.lastCost].every((v) => Number.isSafeInteger(v) && v >= 0)
+  );
+}
+
 function safeDetailFromUpstream(error: UpstreamFetchError): SafeUpstreamDetail {
   return {
     kind: error.details.kind,
@@ -236,11 +251,6 @@ function safeDetailFromUpstream(error: UpstreamFetchError): SafeUpstreamDetail {
     // fetchUpstream already sanitizes details.url; sanitize again defensively.
     url: sanitizeUpstreamUrl(error.details.url),
   };
-}
-
-/** Whether an error is a store-unavailable/transaction fault (not a bug). */
-function isTransactionError(error: unknown): boolean {
-  return error instanceof Error && error.name.startsWith('AppState');
 }
 
 export type OddsRefreshMode = 'manual' | 'automatic';
@@ -342,6 +352,7 @@ export async function executeOddsRefresh(params: {
   }
 
   if (!upstreamRes.ok) {
+    usageFromHeaders = usageHeadersTrustworthy(upstreamRes.headers);
     usage = await captureOddsUsageSnapshot(upstreamRes.headers, usageContext);
     if (
       (upstreamRes.status === 402 || upstreamRes.status === 429) &&
@@ -376,7 +387,7 @@ export async function executeOddsRefresh(params: {
   }
 
   // Capture + persist usage BEFORE parsing (the request spent credits regardless).
-  usageFromHeaders = parseOddsUsageHeaders(upstreamRes.headers) !== null;
+  usageFromHeaders = usageHeadersTrustworthy(upstreamRes.headers);
   usage = await captureOddsUsageSnapshot(upstreamRes.headers, usageContext);
 
   let upstreamData: unknown;
@@ -422,8 +433,7 @@ export async function executeOddsRefresh(params: {
         usage,
         observationAt,
       });
-    } catch (error) {
-      if (!isTransactionError(error)) throw error;
+    } catch {
       const result = oddsRefreshResult('failure', 'durable-commit-failed', 503);
       await recordProviderRefreshFailure('odds', scope, {
         attempt,
@@ -480,8 +490,7 @@ export async function executeOddsRefresh(params: {
         observationAt,
         now,
       });
-    } catch (error) {
-      if (!isTransactionError(error)) throw error;
+    } catch {
       commit = { kind: 'store-unavailable' as const };
     }
     if (commit.kind === 'store-unavailable') {
@@ -534,8 +543,7 @@ export async function executeOddsRefresh(params: {
   let filtered;
   try {
     filtered = await commitFilteredOddsRefresh({ seasonScopedKey, rawEntry });
-  } catch (error) {
-    if (!isTransactionError(error)) throw error;
+  } catch {
     filtered = { kind: 'store-unavailable' as const };
   }
   if (filtered.kind === 'store-unavailable') {

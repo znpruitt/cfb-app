@@ -228,12 +228,23 @@ test('convergence #6: a filtered refresh never seeds the canonical durable store
 test('remediation: a post-commit failure after a valid no-op does not bill the lease backoff', async () => {
   const originalFetch = global.fetch;
   const seasonScopedKey = defaultOddsCacheKey(SEASON);
-  // The provider returns a valid EMPTY payload (a no-op commit), then the
-  // response-building schedule fetch (after the empty commit) fails — a throw on
-  // the tail AFTER the attempt already resolved as a no-op.
+  // The canonical PRELOAD schedule fetch succeeds (context available BEFORE the
+  // billed request), the provider returns a valid EMPTY payload (a no-op commit),
+  // then the RESPONSE-BUILDING schedule rebuild (after the empty commit resolved
+  // the attempt) fails — a throw on the tail AFTER the attempt already resolved as
+  // a no-op. The preload/tail split means the schedule endpoint is hit twice: the
+  // first call (preload) must succeed, the second (tail) fails.
+  let scheduleCalls = 0;
   global.fetch = (async (input: RequestInfo | URL) => {
     const url = new URL(typeof input === 'string' ? input : input.toString());
     if (url.pathname === '/api/schedule') {
+      scheduleCalls += 1;
+      if (scheduleCalls === 1) {
+        return new Response(JSON.stringify({ items: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       return new Response('boom', { status: 500 });
     }
     if (url.pathname === '/api/conferences') {
@@ -254,12 +265,56 @@ test('remediation: a post-commit failure after a valid no-op does not bill the l
   }) as typeof fetch;
   try {
     const res = await GET(new Request(`http://localhost/api/odds?year=${SEASON}&refresh=1`));
-    assert.equal(res.status, 500); // the tail schedule fetch failed
+    assert.equal(res.status, 500); // the tail schedule rebuild failed
+    assert.ok(scheduleCalls >= 2); // preload succeeded, tail failed
     // The lease resolved as the recorded no-op — backoff RESET, completed-check
     // recorded — NOT reclassified to a billed failure by the catch.
     const control = await readOddsRefreshControl(seasonScopedKey);
     assert.equal(control?.automaticFailureCount, 0);
     assert.ok(control?.lastCompletedCheckAt);
+    assert.equal(control?.lease, null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('remediation F4: a canonical PRELOAD failure fails before billing (release-only, no /odds)', async () => {
+  const originalFetch = global.fetch;
+  const seasonScopedKey = defaultOddsCacheKey(SEASON);
+  // The canonical schedule preload fails — this happens BEFORE the billed `/odds`
+  // request, so no credit is spent and the lease must resolve release-only (backoff
+  // NOT advanced), not as a billed failure. The odds provider must never be called.
+  let oddsProviderCalls = 0;
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.hostname === 'api.the-odds-api.com') {
+      oddsProviderCalls += 1;
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.pathname === '/api/schedule') {
+      return new Response('boom', { status: 500 });
+    }
+    if (url.pathname === '/api/conferences') {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+  try {
+    const res = await GET(new Request(`http://localhost/api/odds?year=${SEASON}&refresh=1`));
+    assert.equal(res.status, 503);
+    const body = (await res.json()) as { code?: string };
+    assert.equal(body.code, 'canonical-context-unavailable');
+    assert.equal(oddsProviderCalls, 0); // never billed the provider
+    // release-only: the automatic backoff is NOT advanced by a pre-billing context
+    // failure, and no completed-check is recorded (nothing actually refreshed).
+    const control = await readOddsRefreshControl(seasonScopedKey);
+    assert.equal(control?.automaticFailureCount, 0);
     assert.equal(control?.lease, null);
   } finally {
     global.fetch = originalFetch;

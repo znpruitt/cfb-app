@@ -247,10 +247,12 @@ function toUpstreamFetchError(params: {
     });
   }
 
-  const message = error instanceof Error ? error.message : 'Unknown network error';
+  // A FIXED message — never the raw `error.message`, which (in some environments)
+  // can embed the requested URL and therefore a credential query parameter
+  // (PLATFORM-086C2 security remediation). The `url` here is already sanitized.
   return new UpstreamFetchError({
     kind: 'network',
-    message,
+    message: 'Upstream network error',
     url,
   });
 }

@@ -5,9 +5,10 @@ import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
 import {
   beginProviderRefreshAttempt,
   recordProviderRefreshFailure,
+  type ProviderRefreshAttempt,
 } from '@/lib/server/providerRefreshStatus';
 import { setLatestKnownOddsUsage } from '@/lib/server/oddsUsageStore';
-import { oddsTargetScope } from '@/lib/providerRefreshScope';
+import { oddsTargetScope, type ProviderRefreshScope } from '@/lib/providerRefreshScope';
 import { createTeamIdentityResolver } from '@/lib/teamIdentity';
 import { loadCanonicalOddsContext } from '@/lib/odds/canonicalOddsContext';
 import {
@@ -155,6 +156,15 @@ export async function GET(req: Request): Promise<Response> {
   let leaseToken: string | null = null;
   let leaseSeasonScopedKey: string | null = null;
   let leaseResolution: OddsRefreshLeaseResolution = 'release-only';
+  // The begun provider-refresh attempt, hoisted so the catch can RESOLVE it once
+  // if an unexpected exception escapes after the billed `/odds` request — the
+  // executor resolves reachable store/usage faults itself, but this backstop
+  // ensures a propagated defect never strands the attempt in-progress or skips
+  // the billed automatic backoff (review remediation).
+  let providerAttempt: ProviderRefreshAttempt | null = null;
+  let attemptScope: ProviderRefreshScope | null = null;
+  let providerCallAttempted = false;
+  let attemptResolved = false;
 
   try {
     // CRON_SECRET first — fail closed. No settings/context/status/lease/quota/
@@ -189,28 +199,25 @@ export async function GET(req: Request): Promise<Response> {
     const context = contextResult.context;
     const seasonScopedKey = context.seasonScopedKey;
 
-    // Durable-trusted polling state: the observation-freshest raw entry across
-    // process + durable, and the durable refresh-control record. A durable read
-    // failure or an unreadable control is polling-state-unavailable — never a cold
-    // cache — and no provider work follows.
+    // Read the observation-freshest raw entry across process + durable. TOLERATE a
+    // durable read failure here — cache-only closing maintenance must still run
+    // (review remediation); the provider cadence below fails closed instead.
     let rawEntry: SharedOddsCacheEntry | undefined;
+    let pollingStateOk = true;
     try {
       const durable = await getAppState<SharedOddsCacheEntry>('odds-cache', seasonScopedKey);
       rawEntry = observationFreshestRaw(oddsCache.entries[seasonScopedKey], durable?.value);
     } catch {
-      return finalize(exec, 'failure', 'polling-state-unavailable');
-    }
-    const control = await readOddsRefreshControl(seasonScopedKey);
-    if (control === null) {
-      return finalize(exec, 'failure', 'polling-state-unavailable');
+      pollingStateOk = false;
     }
     const rawObservationMs = rawEntry ? effectiveOddsObservationMs(rawEntry) : null;
     const rawObservationAt = rawEntry
       ? (rawEntry.observedAt ?? new Date(rawEntry.lastFetch).toISOString())
       : nowIso;
 
-    // Cache-only closing-line maintenance — runs even when no provider target is
-    // due; never spends quota; writes only when changed.
+    // Cache-only closing-line maintenance — runs even when the polling state is
+    // untrusted or no provider target is due; never spends quota; writes only when
+    // changed. A game that has kicked off must still get its closing line frozen.
     const cachedEvents: NormalizedOddsEvent[] = rawEntry?.data ?? [];
     const maintained = await maintainCanonicalClosingLines({
       season: context.year,
@@ -224,6 +231,14 @@ export async function GET(req: Request): Promise<Response> {
       return finalize(exec, 'failure', 'closing-maintenance-failed');
     }
     exec.closingStoreChanged = maintained.wroteStore;
+
+    // The provider cadence requires TRUSTED durable polling state — a raw-cache
+    // read failure or an unreadable refresh-control record fails closed AFTER
+    // maintenance (never a cold-cache assumption, no provider work follows).
+    const control = await readOddsRefreshControl(seasonScopedKey);
+    if (!pollingStateOk || control === null) {
+      return finalize(exec, 'failure', 'polling-state-unavailable');
+    }
 
     // Pure cadence decision.
     exec.eligibleGames = collectEligibleOddsGames(context.pollingGames, nowMs).length;
@@ -311,6 +326,9 @@ export async function GET(req: Request): Promise<Response> {
 
     // Begin the exact attempt, then issue AT MOST ONE `/odds` request.
     const attempt = await beginProviderRefreshAttempt('odds', scope, { startedAt: nowIso });
+    providerAttempt = attempt;
+    attemptScope = scope;
+    providerCallAttempted = true;
     exec.providerCallAttempted = true;
     const observationAt = new Date().toISOString();
     const execution = await executeOddsRefresh({
@@ -348,14 +366,24 @@ export async function GET(req: Request): Promise<Response> {
         return { available: true, games: context.games, resolver };
       },
     });
+    // The executor resolved the begun attempt exactly once.
+    attemptResolved = true;
     leaseResolution = execution.leaseResolution;
     exec.rowsCommitted =
       execution.result.status === 'success' ? (execution.result.rowsCommitted ?? 0) : 0;
 
-    // Automatic post-call usage accounting: when the `/odds` response omitted
-    // usage headers, an exact-empty result cost zero (preserve the pre-probe
-    // balance) and any uncertain billed outcome conservatively deducts the max.
-    if (execution.usageFromHeaders) {
+    // Automatic post-call usage accounting. On a SUCCESS/NO-OP, prefer
+    // trustworthy `/odds` headers, else a conservative estimate (exact-empty
+    // preserves the pre-probe balance; an uncertain billed outcome deducts the
+    // max). On a FAILURE, the executor already accounted for usage (a 402/429
+    // quota-error fallback recorded `remaining: 0`, or a transport failure left it
+    // untouched), so NEVER re-derive/persist an estimate that would overwrite an
+    // authoritative `remaining: 0` (review remediation).
+    if (execution.result.status === 'failure') {
+      exec.quotaRemainingAfter = execution.usageFromHeaders
+        ? (execution.usage?.remaining ?? null)
+        : null;
+    } else if (execution.usageFromHeaders) {
       exec.quotaRemainingAfter = execution.usage?.remaining ?? null;
     } else {
       const estimate = estimatePostOddsUsage({
@@ -376,10 +404,21 @@ export async function GET(req: Request): Promise<Response> {
     }
 
     return finalize(exec, execution.result.status, execution.result.reason);
-  } catch (error) {
-    // The executor resolves its own attempt; this handles only an unexpected
-    // throw. `exec` still holds `failure / unexpected-error` unless corrected.
-    void error;
+  } catch {
+    // An unexpected exception escaped (the executor resolves reachable faults
+    // itself). RESOLVE the begun attempt once as a BILLED failure so a propagated
+    // defect after the `/odds` request never strands the attempt in-progress or
+    // skips the automatic backoff. A generic message only — never the raw error.
+    if (providerCallAttempted && !attemptResolved) leaseResolution = 'billed-failure';
+    if (providerAttempt && attemptScope && !attemptResolved) {
+      attemptResolved = true;
+      await recordProviderRefreshFailure('odds', attemptScope, {
+        attempt: providerAttempt,
+        error: 'odds cron unexpected error',
+        code: 'unexpected-error',
+        status: 500,
+      }).catch(() => undefined);
+    }
     return jsonResponse(exec);
   } finally {
     if (leaseToken && leaseSeasonScopedKey) {

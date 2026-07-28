@@ -72,6 +72,33 @@ test('#10: fetch uses the REAL credential URL while UpstreamFetchError.details.u
   }
 });
 
+test('a transport error whose message embeds the credential URL is not leaked in details.message', async () => {
+  const originalFetch = globalThis.fetch;
+  // Some runtimes embed the requested URL (with its `apiKey`) in the thrown
+  // network error's message (e.g. `fetch failed: ...?apiKey=SECRET`). The
+  // normalized UpstreamFetchError must use a FIXED message and a sanitized url —
+  // never the raw thrown message (PLATFORM-086C2 security remediation).
+  const url = `https://api.the-odds-api.com/v4/sports/x/odds?apiKey=${ODDS_KEY_MARKER}`;
+  globalThis.fetch = (async () => {
+    throw new TypeError(`fetch failed for ${url}`);
+  }) as typeof fetch;
+  try {
+    await assert.rejects(
+      fetchUpstreamResponse(url, { retry: { maxAttempts: 1 } }),
+      (err: unknown) => {
+        assert.ok(err instanceof UpstreamFetchError);
+        assert.equal(err.details.kind, 'network');
+        assert.ok(!err.details.message.includes(ODDS_KEY_MARKER), 'message leaked the key');
+        assert.ok(!err.details.url.includes(ODDS_KEY_MARKER), 'url leaked the key');
+        assert.equal(err.message, err.details.message); // superclass message matches
+        return true;
+      }
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test('#6: upstream debug logging never prints the credential', async () => {
   const originalFetch = globalThis.fetch;
   const originalDebug = process.env.DEBUG_UPSTREAM;
