@@ -146,6 +146,39 @@ test('a pure manual refresh over an older prior stamps `at` at the observation t
   assert.equal(merged.at, 5000); // prior (1000) is older, so no version bump is needed
 });
 
+test('an authoritative manual IN-PROGRESS overrides a newer live SCHEDULED row — monotonic advance (Codex round 5, P2)', () => {
+  // A game's state only advances. A live scoreboard committed `scheduled` (behind)
+  // after the manual request began, but /games authoritatively reports in-progress —
+  // a scheduled state cannot be more current than an in-progress one, so the manual
+  // advance overrides the newer-by-timestamp live scheduled row.
+  const prior = entry({
+    at: 9000,
+    items: [pack('a', 'scheduled', null, null)],
+    itemUpdatedAtById: { a: 9000 }, // newer than the manual observation 5000
+  });
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'in progress', 7, 0)],
+    prior,
+    now: 5000,
+  });
+  assert.equal(merged.items[0]!.status, 'in progress'); // advanced, not left scheduled
+  assert.equal(merged.items[0]!.home.score, 7);
+});
+
+test('a manual SCHEDULED never overrides a newer live IN-PROGRESS (no regression) (Codex round 5, P2)', () => {
+  const prior = entry({
+    at: 9000,
+    items: [pack('a', 'Q2 5:00', 14, 7)],
+    itemUpdatedAtById: { a: 9000 },
+  });
+  const merged = mergeManualPartition({
+    manualItems: [pack('a', 'scheduled', null, null)],
+    prior,
+    now: 5000,
+  });
+  assert.equal(merged.items[0]!.status, 'Q2 5:00'); // preserved — a lower state is not an advance
+});
+
 test('an authoritative manual FINAL overrides a newer live in-progress row (Codex round 2, P2)', () => {
   // A live poll committed X in-progress AFTER the manual request began; the manual
   // /games returns X as a complete final. A game cannot progress past a confirmed

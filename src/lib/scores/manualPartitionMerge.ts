@@ -12,6 +12,24 @@ function isCompleteFinal(pack: ScorePack): boolean {
 }
 
 /**
+ * Rank along the linear game-state progression scheduled(0) → in-progress(1) →
+ * final(2). Disrupted (canceled/postponed) is NOT part of the linear advance and
+ * returns null, so it never drives an override in either direction.
+ */
+function monotonicRank(pack: ScorePack): 0 | 1 | 2 | null {
+  switch (classifyScorePackStatus(pack)) {
+    case 'scheduled':
+      return 0;
+    case 'inprogress':
+      return 1;
+    case 'final':
+      return 2;
+    default:
+      return null;
+  }
+}
+
+/**
  * PLATFORM-086B2A — merge an authorized manual `/games` partition refresh onto the
  * prior-good durable entry, to be committed under the SAME advisory-locked
  * transaction the live-score engine (PLATFORM-086B1) uses. Placing both writers
@@ -25,12 +43,16 @@ function isCompleteFinal(pack: ScorePack): boolean {
  * POST-DATES the manual request's observation/start time is a live update that
  * landed after this manual request began, so it is PRESERVED — a slow manual
  * request never overwrites a later live update. The exception to THAT exception is
- * a terminal authority: a game cannot progress past a confirmed final, so when the
- * authoritative `/games` response returns a COMPLETE FINAL for a game whose newer
- * live row is NOT yet final, the manual final overrides the live row (otherwise the
- * game would read as falsely still-in-progress). Accepted manual rows are stamped
- * with the observation time (a final override is stamped at least as fresh as the
- * live row it supersedes); preserved live rows keep their effective timestamp.
+ * monotonic state authority: a game's state only ADVANCES (scheduled → in-progress
+ * → final), so when the authoritative `/games` response reports a strictly HIGHER
+ * state than a newer live row (e.g. `/games` in-progress over a live scheduled, or a
+ * complete final over a live in-progress), the manual row overrides the live row —
+ * the live scoreboard is simply behind, and a higher state cannot be stale relative
+ * to a lower one regardless of timestamp. A final override additionally requires
+ * both scores (an incomplete final is not a usable authoritative final); disrupted
+ * states do not participate in the linear progression and never trigger an override.
+ * Accepted manual rows are stamped with the observation time (an override is stamped
+ * at least as fresh as the live row it supersedes); preserved live rows keep theirs.
  * Pending-final confirmation metadata survives for a protected newer live row ONLY
  * while it is still unconfirmed — a manual `/games` complete final for that game IS
  * its authoritative confirmation and clears it (spec point 7); every id the manual
@@ -84,11 +106,20 @@ export function mergeManualPartition(params: {
       // regress it (e.g. in-progress → scheduled).
       if (priorEffective < now) continue; // strictly older → manual is authoritative
       const manualItem = manualById.get(id);
-      const liveIsFinal = classifyScorePackStatus(priorItem) === 'final';
-      if (manualItem && !liveIsFinal && isCompleteFinal(manualItem)) {
-        // Terminal-final override — stamp at least as fresh as the live row it
-        // supersedes so the reconciler serves the authoritative final.
-        byId.set(id, { item: manualItem, at: Math.max(now, priorEffective), source: 'manual' });
+      const liveRank = monotonicRank(priorItem);
+      const manualRank = manualItem ? monotonicRank(manualItem) : null;
+      // Override only on a strict monotonic ADVANCE (a game cannot regress), and a
+      // final advance must carry both scores. Neither side being disrupted (null
+      // rank) participates, so the newer live row is preserved.
+      const manualAdvances =
+        manualRank !== null &&
+        liveRank !== null &&
+        manualRank > liveRank &&
+        (manualRank !== 2 || isCompleteFinal(manualItem!));
+      if (manualAdvances) {
+        // Stamp at least as fresh as the live row it supersedes so the reconciler
+        // serves the authoritative advanced state.
+        byId.set(id, { item: manualItem!, at: Math.max(now, priorEffective), source: 'manual' });
       } else {
         byId.set(id, { item: priorItem, at: priorEffective, source: 'live-protected' });
       }
