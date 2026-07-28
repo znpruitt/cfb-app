@@ -26,7 +26,11 @@ import { getProviderRefreshStatus } from '../../../../lib/server/providerRefresh
 import { oddsTargetScope } from '../../../../lib/providerRefreshScope.ts';
 import { PROVIDER_DATASET_DESCRIPTORS } from '../../../../lib/providerDatasets.ts';
 import { GET } from '../route.ts';
-import { __resetOddsRouteCacheForTests, defaultOddsCacheKey } from '../routeInternals.ts';
+import {
+  __resetOddsRouteCacheForTests,
+  defaultOddsCacheKey,
+  oddsCache,
+} from '../routeInternals.ts';
 
 const SEASON = 2026;
 
@@ -303,6 +307,55 @@ test('remediation F1: a stale empty refresh never overwrites newer raw odds', as
     );
     assert.equal(durable?.value.data.length, 1);
     assert.equal(durable?.value.observedAt, futureObs);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('remediation F1b: the empty guard judges by observation, not lastFetch (split-brain)', async () => {
+  const originalFetch = global.fetch;
+  const seasonScopedKey = defaultOddsCacheKey(SEASON);
+  const now = Date.now();
+  // Durable holds the OBSERVATION-newest entry but with an OLD lastFetch; the
+  // process memo holds an older observation but a NEWER lastFetch. A lastFetch-based
+  // guard would pick the memo (older observation) and wrongly permit an overwrite.
+  await setAppState('odds-cache', seasonScopedKey, {
+    data: [
+      {
+        homeTeam: 'Georgia Bulldogs',
+        awayTeam: 'Clemson Tigers',
+        commenceTime: '2026-09-05T19:30:00.000Z',
+        bookmakers: [],
+      },
+    ],
+    lastFetch: now - 2 * 60 * 60 * 1000,
+    usage: null,
+    observedAt: new Date(now + 60 * 60 * 1000).toISOString(), // newest observation
+  });
+  oddsCache.entries[seasonScopedKey] = {
+    data: [],
+    lastFetch: now + 2 * 60 * 60 * 1000, // newest lastFetch
+    usage: null,
+    observedAt: new Date(now - 60 * 60 * 1000).toISOString(), // older observation
+  };
+  installFetch(
+    () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '5',
+          'x-requests-remaining': '495',
+          'x-requests-last': '0',
+        },
+      })
+  );
+  try {
+    const res = await GET(new Request(`http://localhost/api/odds?year=${SEASON}&refresh=1`));
+    assert.equal(res.status, 200);
+    // The observation-newer DURABLE entry was NOT overwritten with an empty entry.
+    const durable = await getAppState<{ data: unknown[] }>('odds-cache', seasonScopedKey);
+    assert.equal(durable?.value.data.length, 1);
   } finally {
     global.fetch = originalFetch;
   }

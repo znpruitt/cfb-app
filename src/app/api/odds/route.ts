@@ -436,20 +436,30 @@ async function commitEmptyOddsRefresh(params: {
     wrote: boolean;
     entry: SharedOddsCacheEntry | undefined;
   }>(ODDS_CACHE_SCOPE, seasonScopedKey, async (txn) => {
+    const memoryEntry = oddsCache.entries[seasonScopedKey];
     const priorStored = (await txn.read<SharedOddsCacheEntry>())?.value;
-    const priorEntry = pickFreshestOddsFallback(oddsCache.entries[seasonScopedKey], priorStored);
+    const priorEntry = pickFreshestOddsFallback(memoryEntry, priorStored);
     // Observation ordering (review remediation): a prior raw entry whose effective
     // observation is at/after this refresh's provider observation WINS — a stale
     // empty (e.g. an expired-lease refresh resuming after a newer refresh
     // committed) must never overwrite newer raw odds, on a filtered target or the
-    // canonical one. Bail as a no-op that serves the prior-good entry.
+    // canonical one. This must be judged by OBSERVATION, not `lastFetch`: the
+    // freshest-`lastFetch` entry (`pickFreshestOddsFallback`) can carry an OLDER
+    // observation than the durable entry that would actually be overwritten, so we
+    // compare against the freshest OBSERVATION across BOTH the memory entry and the
+    // transaction-fresh durable entry, and serve that observation-newest entry.
     const incomingObservationMs = Date.parse(observationAt);
+    const observationNewestPrior = [memoryEntry, priorStored]
+      .filter((e): e is SharedOddsCacheEntry => Boolean(e))
+      .reduce<
+        SharedOddsCacheEntry | undefined
+      >((best, e) => (best === undefined || effectiveOddsObservationMs(e) > effectiveOddsObservationMs(best) ? e : best), undefined);
     if (
-      priorEntry &&
+      observationNewestPrior &&
       Number.isFinite(incomingObservationMs) &&
-      effectiveOddsObservationMs(priorEntry) >= incomingObservationMs
+      effectiveOddsObservationMs(observationNewestPrior) >= incomingObservationMs
     ) {
-      return { wrote: false, entry: priorEntry };
+      return { wrote: false, entry: observationNewestPrior };
     }
     const classification = classifyEmptyOddsResponse({
       priorEvents: priorEntry?.data ?? [],
