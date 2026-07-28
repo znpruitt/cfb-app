@@ -7,6 +7,7 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateKeyLockFailureForTests,
+  __setAppStateWriteFailureForTests,
   getAppState,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
@@ -356,6 +357,52 @@ test('remediation F1b: the empty guard judges by observation, not lastFetch (spl
     // The observation-newer DURABLE entry was NOT overwritten with an empty entry.
     const durable = await getAppState<{ data: unknown[] }>('odds-cache', seasonScopedKey);
     assert.equal(durable?.value.data.length, 1);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('compatibility #46: a public read performs zero durable writes', async () => {
+  const originalFetch = global.fetch;
+  installFetch(oddsOk);
+  // Any durable write throws — a public read must not perform one.
+  __setAppStateWriteFailureForTests(new Error('no writes on a public read'));
+  try {
+    const res = await GET(new Request(`http://localhost/api/odds?year=${SEASON}`));
+    assert.equal(res.status, 200);
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+    global.fetch = originalFetch;
+  }
+});
+
+test('security #7: a manual upstream error returns no raw body and no credential', async () => {
+  const originalFetch = global.fetch;
+  const BODY_MARKER = 'PROVIDER-BODY-SECRET';
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.pathname === '/api/schedule') {
+      return new Response(JSON.stringify({ items: [scheduleItem()] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.pathname === '/api/conferences') {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    // 403 is not retried, so this resolves fast to a single provider-fetch failure.
+    return new Response(`{"message":"${BODY_MARKER}"}`, { status: 403, statusText: 'Forbidden' });
+  }) as typeof fetch;
+  try {
+    const res = await GET(new Request(`http://localhost/api/odds?year=${SEASON}&refresh=1`));
+    assert.equal(res.status, 403);
+    const text = await res.text();
+    assert.ok(!text.includes(BODY_MARKER), 'raw provider body must not be returned');
+    assert.ok(!text.includes('test-key'), 'credential must not be returned');
+    assert.ok(!text.includes('apiKey=test'), 'credential-bearing url must not be returned');
   } finally {
     global.fetch = originalFetch;
   }
