@@ -36,13 +36,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import {
-  AppStateKeyLockAcquireError,
-  AppStateTxnCleanupError,
-  AppStateTxnFinalizeError,
-  getAppState,
-  withAppStateKeyTransaction,
-} from '../server/appStateStore.ts';
+import { getAppState, withAppStateKeyTransaction } from '../server/appStateStore.ts';
 import type { OddsRefreshLeaseResolution } from './refreshResult.ts';
 
 export const ODDS_REFRESH_CONTROL_SCOPE = 'odds-refresh-control';
@@ -180,19 +174,15 @@ export async function acquireOddsRefreshLease(params: {
         return { acquired: true, token, control: next };
       }
     );
-  } catch (error) {
-    // Every store failure — lock acquisition, a failed read/write with confirmed
-    // rollback, or a finalize/cleanup whose durability is UNKNOWN — fails safe:
-    // no confirmed token, so the caller performs no provider work. A lease that
-    // may have become durable expires within five minutes.
-    if (
-      error instanceof AppStateKeyLockAcquireError ||
-      error instanceof AppStateTxnFinalizeError ||
-      error instanceof AppStateTxnCleanupError
-    ) {
-      return { acquired: false, reason: 'store-unavailable' };
-    }
-    throw error;
+  } catch {
+    // EVERY transaction failure fails safe: no confirmed token, so the caller
+    // performs no provider work, and a lease that may have become durable expires
+    // within five minutes. This deliberately catches ALL errors — the typed
+    // lock/finalize/cleanup wrappers AND a rethrown raw read/write statement
+    // failure alike — because this callback's only fallible operations are the
+    // transaction's own store reads/writes (the control normalize + expiry check
+    // are pure); there is no non-store logic here to mask (review remediation).
+    return { acquired: false, reason: 'store-unavailable' };
   }
 }
 

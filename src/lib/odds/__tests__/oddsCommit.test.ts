@@ -313,11 +313,30 @@ test('convergence #6: a filtered commit writes only its raw key, never the durab
     rawEntry: rawEntry(T2, [oddsEvent(-3.5)]),
   });
   assert.equal(result.kind, 'committed');
+  // Commit ordering is captured for same-millisecond success tie-breaking (F6).
+  if (result.kind === 'committed') {
+    assert.equal(typeof result.committedAt, 'string');
+    assert.equal(typeof result.commitSeq, 'number');
+  }
   const durableRaw = await getAppState<SharedOddsCacheEntry>('odds-cache', KEY);
   assert.equal(durableRaw?.value.observedAt, T2);
   // The canonical durable per-game store was never seeded.
   const store = await getAppState<Record<string, unknown>>('durable-odds:2026', 'store');
   assert.equal(store, null);
+});
+
+test('convergence F6b: a filtered stale-observation never rewrites the raw key', async () => {
+  await commitFilteredOddsRefresh({
+    seasonScopedKey: KEY,
+    rawEntry: rawEntry(T2, [oddsEvent(-3.5)]),
+  });
+  const stale = await commitFilteredOddsRefresh({
+    seasonScopedKey: KEY,
+    rawEntry: rawEntry(T1, [oddsEvent(-7)]),
+  });
+  assert.equal(stale.kind, 'stale-observation');
+  const durableRaw = await getAppState<SharedOddsCacheEntry>('odds-cache', KEY);
+  assert.equal(durableRaw?.value.observedAt, T2);
 });
 
 test('convergence #8: public maintenance with no change performs no durable write', async () => {

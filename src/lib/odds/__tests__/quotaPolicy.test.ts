@@ -53,6 +53,21 @@ test('quota #35: a probe with absent usage headers is quota-usage-untrustworthy'
   assert.deepEqual(result, { kind: 'quota-usage-untrustworthy' });
 });
 
+test('quota #35b: a probe with out-of-range (negative) headers fails closed', async () => {
+  // A valid `remaining` alongside a malformed `-1` used/last must NOT permit an
+  // automatic request (review remediation F7).
+  const result = await probeOddsQuota({
+    apiKey: 'k',
+    fetchImpl: async () =>
+      usageResponse({
+        'x-requests-remaining': '53',
+        'x-requests-used': '-1',
+        'x-requests-last': '-1',
+      }),
+  });
+  assert.deepEqual(result, { kind: 'quota-usage-untrustworthy' });
+});
+
 test('quota #36: a /sports transport or HTTP failure is quota-probe-failed', async () => {
   const transport = await probeOddsQuota({
     apiKey: 'k',

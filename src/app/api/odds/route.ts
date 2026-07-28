@@ -59,6 +59,7 @@ import {
 } from '../../../lib/odds/oddsCommit.ts';
 import {
   createOddsCacheKey,
+  effectiveOddsObservationMs,
   isStructurallyValidUpstreamOddsEvent,
   normalizeUpstreamOddsEvent,
   oddsCache,
@@ -437,6 +438,19 @@ async function commitEmptyOddsRefresh(params: {
   }>(ODDS_CACHE_SCOPE, seasonScopedKey, async (txn) => {
     const priorStored = (await txn.read<SharedOddsCacheEntry>())?.value;
     const priorEntry = pickFreshestOddsFallback(oddsCache.entries[seasonScopedKey], priorStored);
+    // Observation ordering (review remediation): a prior raw entry whose effective
+    // observation is at/after this refresh's provider observation WINS — a stale
+    // empty (e.g. an expired-lease refresh resuming after a newer refresh
+    // committed) must never overwrite newer raw odds, on a filtered target or the
+    // canonical one. Bail as a no-op that serves the prior-good entry.
+    const incomingObservationMs = Date.parse(observationAt);
+    if (
+      priorEntry &&
+      Number.isFinite(incomingObservationMs) &&
+      effectiveOddsObservationMs(priorEntry) >= incomingObservationMs
+    ) {
+      return { wrote: false, entry: priorEntry };
+    }
     const classification = classifyEmptyOddsResponse({
       priorEvents: priorEntry?.data ?? [],
       scheduleItems: evidence.scheduleItems,
@@ -848,7 +862,8 @@ export async function GET(req: Request): Promise<Response> {
             responseEntry = rawEntry;
             await recordProviderRefreshSuccess('odds', oddsScope, {
               attempt: oddsAttempt ?? undefined,
-              committedAt: new Date().toISOString(),
+              committedAt: commit.committedAt,
+              commitSeq: commit.commitSeq,
               source: 'odds-api',
               rowsCommitted: rawEntry.data.length,
               usage: usage

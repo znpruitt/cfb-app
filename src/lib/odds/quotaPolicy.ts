@@ -111,6 +111,17 @@ export async function probeOddsQuota(params: {
   if (!response.ok) return { kind: 'quota-probe-failed' };
   const parsed = parseOddsUsageHeaders(response.headers);
   if (!parsed) return { kind: 'quota-usage-untrustworthy' };
+  // Fail CLOSED on out-of-range values: the shared header parser accepts any
+  // finite number, but a negative or non-integer credit count is malformed usage
+  // that must never be trusted as quota (review remediation) — e.g. a valid
+  // `remaining` alongside a `-1` used/last must not permit an automatic request.
+  if (
+    ![parsed.used, parsed.remaining, parsed.lastCost].every(
+      (v) => Number.isSafeInteger(v) && v >= 0
+    )
+  ) {
+    return { kind: 'quota-usage-untrustworthy' };
+  }
   return {
     kind: 'usage',
     used: parsed.used,

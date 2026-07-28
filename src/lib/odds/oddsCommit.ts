@@ -275,10 +275,11 @@ export async function commitCanonicalOddsRefresh(params: {
   }
 
   if (outcome.kind === 'stale-observation') {
-    // Publish the confirmed-durable prior store to the memo (it reflects durable
-    // truth); the raw process cache is left untouched — the prior winner already
-    // holds it or something fresher does.
-    primeDurableOddsStoreMemory(season, outcome.store);
+    // A stale no-op committed NOTHING, so it publishes NOTHING to either process
+    // cache (review remediation): priming the memo with this transaction's read
+    // snapshot could regress it below a fresher commit another instance made after
+    // our read released the lock. The read snapshot is returned only to serve
+    // THIS response's prior-good selection.
     return { kind: 'stale-observation', store: outcome.store, rawEntry: outcome.rawEntry };
   }
 
@@ -300,7 +301,7 @@ export async function commitCanonicalOddsRefresh(params: {
 }
 
 export type FilteredOddsCommitOutcome =
-  | { kind: 'committed'; rawEntry: SharedOddsCacheEntry }
+  | { kind: 'committed'; rawEntry: SharedOddsCacheEntry; committedAt: string; commitSeq: number }
   | { kind: 'stale-observation'; rawEntry: SharedOddsCacheEntry | undefined }
   | { kind: 'store-unavailable' };
 
@@ -310,7 +311,9 @@ export type FilteredOddsCommitOutcome =
  * durable per-game store, preserving filtered-response isolation. Observation
  * ordering still applies: a prior raw entry captured at/after the incoming one
  * wins (`stale-observation`, nothing rewritten). The raw process cache publishes
- * only after the confirmed commit.
+ * only after the confirmed commit, and `committedAt`/`commitSeq` are captured
+ * immediately after it so success-status ordering breaks a same-millisecond tie
+ * exactly as the canonical commit does (review remediation).
  */
 export async function commitFilteredOddsRefresh(params: {
   seasonScopedKey: string;
@@ -318,24 +321,28 @@ export async function commitFilteredOddsRefresh(params: {
 }): Promise<FilteredOddsCommitOutcome> {
   const { seasonScopedKey, rawEntry } = params;
   try {
-    const outcome = await withAppStateKeyTransaction<FilteredOddsCommitOutcome>(
-      ODDS_CACHE_SCOPE,
-      seasonScopedKey,
-      async (txn) => {
-        const priorValue = (await txn.read<unknown>())?.value;
-        const priorRaw = isRawEntry(priorValue) ? priorValue : undefined;
-        if (
-          priorRaw &&
-          effectiveOddsObservationMs(priorRaw) >= effectiveOddsObservationMs(rawEntry)
-        ) {
-          return { kind: 'stale-observation', rawEntry: priorRaw };
-        }
-        await txn.write(rawEntry);
-        return { kind: 'committed', rawEntry };
+    const outcome = await withAppStateKeyTransaction<
+      | { kind: 'committed' }
+      | { kind: 'stale-observation'; rawEntry: SharedOddsCacheEntry | undefined }
+    >(ODDS_CACHE_SCOPE, seasonScopedKey, async (txn) => {
+      const priorValue = (await txn.read<unknown>())?.value;
+      const priorRaw = isRawEntry(priorValue) ? priorValue : undefined;
+      if (
+        priorRaw &&
+        effectiveOddsObservationMs(priorRaw) >= effectiveOddsObservationMs(rawEntry)
+      ) {
+        return { kind: 'stale-observation', rawEntry: priorRaw };
       }
-    );
-    if (outcome.kind === 'committed') oddsCache.entries[seasonScopedKey] = rawEntry;
-    return outcome;
+      await txn.write(rawEntry);
+      return { kind: 'committed' };
+    });
+    if (outcome.kind === 'stale-observation') return outcome;
+    // Capture commit ordering immediately after the confirmed transaction, then
+    // publish the raw process cache.
+    const committedAt = new Date().toISOString();
+    const commitSeq = nextProviderCommitSeq();
+    oddsCache.entries[seasonScopedKey] = rawEntry;
+    return { kind: 'committed', rawEntry, committedAt, commitSeq };
   } catch (error) {
     if (isStoreUnavailable(error)) return { kind: 'store-unavailable' };
     throw error;

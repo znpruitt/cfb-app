@@ -8,6 +8,7 @@ import {
   __resetAppStateForTests,
   __setAppStateKeyLockFailureForTests,
   getAppState,
+  setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 import {
   __deleteDurableOddsStoreFileForTests,
@@ -255,6 +256,53 @@ test('remediation: a post-commit failure after a valid no-op does not bill the l
     assert.equal(control?.automaticFailureCount, 0);
     assert.ok(control?.lastCompletedCheckAt);
     assert.equal(control?.lease, null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('remediation F1: a stale empty refresh never overwrites newer raw odds', async () => {
+  const originalFetch = global.fetch;
+  const seasonScopedKey = defaultOddsCacheKey(SEASON);
+  // A newer refresh already committed a populated raw entry (observation in the
+  // future relative to this refresh's `now`).
+  const futureObs = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  await setAppState('odds-cache', seasonScopedKey, {
+    data: [
+      {
+        homeTeam: 'Georgia Bulldogs',
+        awayTeam: 'Clemson Tigers',
+        commenceTime: '2026-09-05T19:30:00.000Z',
+        bookmakers: [],
+      },
+    ],
+    lastFetch: Date.now() + 60 * 60 * 1000,
+    usage: null,
+    observedAt: futureObs,
+  });
+  // This refresh gets an empty provider payload.
+  installFetch(
+    () =>
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/json',
+          'x-requests-used': '5',
+          'x-requests-remaining': '495',
+          'x-requests-last': '0',
+        },
+      })
+  );
+  try {
+    const res = await GET(new Request(`http://localhost/api/odds?year=${SEASON}&refresh=1`));
+    assert.equal(res.status, 200); // a stale no-op serves prior-good
+    // The newer populated raw entry was NOT overwritten with an empty entry.
+    const durable = await getAppState<{ data: unknown[]; observedAt: string }>(
+      'odds-cache',
+      seasonScopedKey
+    );
+    assert.equal(durable?.value.data.length, 1);
+    assert.equal(durable?.value.observedAt, futureObs);
   } finally {
     global.fetch = originalFetch;
   }
