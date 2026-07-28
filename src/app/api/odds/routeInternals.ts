@@ -115,11 +115,44 @@ export function normalizeUpstreamOddsEvent(event: UpstreamOddsEvent): Normalized
   return { homeTeam, awayTeam, commenceTime, bookmakers };
 }
 
+/**
+ * The durable app-state scope holding raw odds cache entries, keyed by the
+ * season-scoped cache key. Exported (PLATFORM-086C1) so the atomic canonical
+ * commit and the filtered/empty raw writers all lock and write the EXACT same
+ * record identity.
+ */
+export const ODDS_CACHE_SCOPE = 'odds-cache';
+
 export type SharedOddsCacheEntry = {
   data: NormalizedOddsEvent[];
   lastFetch: number;
   usage: OddsUsageSnapshot | null;
+  /**
+   * The provider OBSERVATION time (PLATFORM-086C1) — captured immediately before
+   * the `/odds` request that produced `data`, distinct from `lastFetch` (the
+   * commit/TTL clock). It is the single ordering key for raw-cache merge: a prior
+   * entry whose effective observation is >= an incoming observation wins, so a
+   * slow older refresh can never overwrite a fresher one that committed first.
+   * OPTIONAL for backward compatibility — entries written before C1 have none, and
+   * `effectiveOddsObservationMs` falls back to `lastFetch` for them.
+   */
+  observedAt?: string;
 };
+
+/**
+ * The EFFECTIVE observation time of a raw odds cache entry in epoch ms
+ * (PLATFORM-086C1). Prefers the explicit `observedAt` (the pre-`/odds` capture);
+ * falls back to `lastFetch` for pre-C1 entries that never recorded one. Used only
+ * for observation-ordered merge, never for the public freshness TTL (which stays
+ * on `lastFetch`).
+ */
+export function effectiveOddsObservationMs(entry: SharedOddsCacheEntry): number {
+  if (typeof entry.observedAt === 'string') {
+    const parsed = Date.parse(entry.observedAt);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return entry.lastFetch;
+}
 
 type OddsCache = {
   entries: Record<string, SharedOddsCacheEntry>;

@@ -227,6 +227,21 @@ export function applyPregameOddsSnapshot(params: {
     return freezeClosingSnapshotIfNeeded({ record, kickoff, now });
   }
 
+  // Observation ordering (PLATFORM-086C1): the snapshot's `capturedAt` IS the
+  // shared provider observation time. A prior latest snapshot captured at or
+  // after this one wins, so a stale/out-of-order observation can never regress a
+  // fresher per-game line and an equal-timestamp re-application (e.g. public
+  // closing maintenance re-deriving the same cached events) is an idempotent
+  // no-op. Every caller of this helper receives the rule. An unparseable prior
+  // timestamp cannot prove priority, so it does not block the newer snapshot.
+  if (record.latestSnapshot) {
+    const priorMs = Date.parse(record.latestSnapshot.capturedAt);
+    const incomingMs = Date.parse(snapshot.capturedAt);
+    if (Number.isFinite(priorMs) && Number.isFinite(incomingMs) && priorMs >= incomingMs) {
+      return record;
+    }
+  }
+
   return {
     ...record,
     latestSnapshot: snapshot,
