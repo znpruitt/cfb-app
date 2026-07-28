@@ -51,7 +51,13 @@ export type OddsRefreshReason =
   | 'stale-observation' // this observation lost to a fresher committed one
   | 'unchanged-clean' // recomputed durable state equals prior-good
   // ---- success ----
-  | 'written-clean'; // a fresh payload was durably committed
+  | 'written-clean' // a fresh payload was durably committed
+  // ---- automatic cron flow (PLATFORM-086C2) ----
+  | 'automation-paused-or-disabled' // global pause on or Odds dataset toggle off (skipped)
+  | 'polling-state-unavailable' // durable raw-cache/refresh-control read failed (failure)
+  | 'refresh-control-unavailable' // lease/control store unavailable at acquire (failure)
+  | 'closing-maintenance' // a closing-only durable change with no provider refresh due (success)
+  | 'closing-maintenance-failed'; // the cache-only closing maintenance store write failed (failure)
 
 /**
  * A billed-provider outcome is one that resolves the AUTOMATIC failure backoff:

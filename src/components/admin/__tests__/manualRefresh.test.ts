@@ -316,10 +316,11 @@ test('combineOutcomes: any failure makes the whole action a failure', () => {
 
 // ---- Finding #7: controls are interactive only when consumed ----
 
-test('datasetControlMode: consumed datasets are interactive (game-stats, scores)', () => {
+test('datasetControlMode: consumed datasets are interactive (game-stats, scores, odds)', () => {
   // scores joined game-stats as a consumed dataset via its live-score cron
-  // (PLATFORM-086B2B), so its toggle is now interactive.
-  for (const dataset of ['game-stats', 'scores'] as const) {
+  // (PLATFORM-086B2B), and odds via its Odds cron (PLATFORM-086C2), so their
+  // toggles are now interactive.
+  for (const dataset of ['game-stats', 'scores', 'odds'] as const) {
     assert.equal(datasetControlMode(getProviderDatasetDescriptor(dataset)), 'interactive');
   }
 });
@@ -329,7 +330,7 @@ test('datasetControlMode: schedule is lifecycle-exempt', () => {
 });
 
 test('datasetControlMode: planned datasets are not interactive', () => {
-  for (const dataset of ['odds', 'rankings', 'conferences'] as const) {
+  for (const dataset of ['rankings', 'conferences'] as const) {
     assert.equal(datasetControlMode(getProviderDatasetDescriptor(dataset)), 'planned');
   }
 });

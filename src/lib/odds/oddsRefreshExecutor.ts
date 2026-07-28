@@ -26,7 +26,7 @@ import {
   type UpstreamPacingPolicy,
   type UpstreamRetryPolicy,
 } from '../api/fetchUpstream.ts';
-import type { OddsUsageSnapshot } from '../api/oddsUsage.ts';
+import { parseOddsUsageHeaders, type OddsUsageSnapshot } from '../api/oddsUsage.ts';
 import { captureOddsUsageSnapshot, setLatestKnownOddsUsage } from '../server/oddsUsageStore.ts';
 import type { DurableOddsRecord } from '../odds.ts';
 import type { AppGame } from '../schedule.ts';
@@ -108,6 +108,12 @@ export type OddsRefreshExecution = {
   commitSeq: number | null;
   /** Present only on a provider-fetch failure — safe to surface to the caller. */
   providerErrorDetail?: SafeUpstreamDetail;
+  /**
+   * True when the `/odds` response carried usable usage headers. When false after
+   * a billed request, the automatic caller applies a conservative post-call usage
+   * estimate (the manual caller relies on its retry/pacing instead).
+   */
+  usageFromHeaders: boolean;
   /** The lease resolution implied by the result (backoff advance/reset/none). */
   leaseResolution: OddsRefreshLeaseResolution;
 };
@@ -292,6 +298,7 @@ export async function executeOddsRefresh(params: {
   };
 
   let usage: OddsUsageSnapshot | null = null;
+  let usageFromHeaders = false;
   const base = (
     result: OddsRefreshResult,
     over: Partial<OddsRefreshExecution> = {}
@@ -303,6 +310,7 @@ export async function executeOddsRefresh(params: {
     canonicalGames: null,
     committedAt: null,
     commitSeq: null,
+    usageFromHeaders,
     leaseResolution: leaseResolutionForResult(result),
     ...over,
   });
@@ -368,6 +376,7 @@ export async function executeOddsRefresh(params: {
   }
 
   // Capture + persist usage BEFORE parsing (the request spent credits regardless).
+  usageFromHeaders = parseOddsUsageHeaders(upstreamRes.headers) !== null;
   usage = await captureOddsUsageSnapshot(upstreamRes.headers, usageContext);
 
   let upstreamData: unknown;

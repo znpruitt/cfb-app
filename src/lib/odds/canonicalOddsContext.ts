@@ -44,6 +44,10 @@ export type CanonicalOddsContext = {
   pollingGames: OddsCanonicalGame[];
   /** Shared identity resolver for Odds attachment. */
   resolver: TeamIdentityResolver;
+  /** Identity inputs, so the automatic caller can rebuild a resolver that also
+   * observes the provider event labels (parity with the manual attachment). */
+  teams: TeamCatalogItem[];
+  aliasMap: AliasMap;
 };
 
 export type CanonicalOddsContextResult =
@@ -126,6 +130,6 @@ export async function loadCanonicalOddsContext(input: {
 
   return {
     status: 'available',
-    context: { year, seasonScopedKey, games, pollingGames, resolver },
+    context: { year, seasonScopedKey, games, pollingGames, resolver, teams, aliasMap },
   };
 }

@@ -392,16 +392,18 @@ test('compatibility #46: an authorized manual refresh returns the compatible 200
   }
 });
 
-test('compatibility #47: the route does not import the dormant automatic modules', async () => {
+test('compatibility #47: the manual route does not import the automatic-cadence modules', async () => {
+  // The MANUAL route stays free of the polling/quota/context cadence modules; the
+  // C2 cron route (a separate file) owns those.
   const routeSrc = await fs.readFile(path.join(process.cwd(), 'src/app/api/odds/route.ts'), 'utf8');
-  for (const dormant of ['pollingPolicy', 'quotaPolicy', 'canonicalOddsContext']) {
-    assert.ok(!routeSrc.includes(dormant), `route imports dormant module ${dormant}`);
+  for (const cadence of ['pollingPolicy', 'quotaPolicy', 'canonicalOddsContext']) {
+    assert.ok(!routeSrc.includes(cadence), `manual route imports cadence module ${cadence}`);
   }
-  // There is no odds cron route in C1.
-  await assert.rejects(fs.access(path.join(process.cwd(), 'src/app/api/cron/odds')));
+  // The C2 Odds cron route exists.
+  await assert.doesNotReject(fs.access(path.join(process.cwd(), 'src/app/api/cron/odds/route.ts')));
 });
 
-test('compatibility #48: the Odds provider descriptor stays inactive and setting-unconsumed', () => {
-  assert.equal(PROVIDER_DATASET_DESCRIPTORS.odds.hasActiveAutomation, false);
-  assert.equal(PROVIDER_DATASET_DESCRIPTORS.odds.autoRefreshSettingConsumed, false);
+test('compatibility #48: the Odds provider descriptor is active and setting-consumed (C2)', () => {
+  assert.equal(PROVIDER_DATASET_DESCRIPTORS.odds.hasActiveAutomation, true);
+  assert.equal(PROVIDER_DATASET_DESCRIPTORS.odds.autoRefreshSettingConsumed, true);
 });
