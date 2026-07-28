@@ -4,7 +4,10 @@ export type OddsUsageSnapshot = {
   lastCost: number;
   limit: number;
   capturedAt: string;
-  source: 'odds-response-headers' | 'quota-error-fallback';
+  // `odds-automation-estimate` (PLATFORM-086C1) is a conservative post-`/odds`
+  // estimate written by the DORMANT automatic path when the provider response
+  // omitted usage headers; a later zero-cost `/sports` probe corrects it.
+  source: 'odds-response-headers' | 'quota-error-fallback' | 'odds-automation-estimate';
   sportKey?: string;
   markets?: string[];
   regions?: string[];

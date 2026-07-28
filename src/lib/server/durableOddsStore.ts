@@ -26,8 +26,20 @@ async function runSeasonScopedMutation<T>(season: number, task: () => Promise<T>
   }
 }
 
-function durableOddsScope(season: number): string {
+/**
+ * The durable app-state scope + key holding one season's per-game Odds store.
+ * Exported (PLATFORM-086C1) so the atomic canonical commit and public
+ * closing-line maintenance can root their `withAppStateKeyTransaction` on the
+ * EXACT same record every reader/writer uses — the single advisory-locked
+ * durable Odds target.
+ */
+export function durableOddsStoreScope(season: number): string {
   return `durable-odds:${season}`;
+}
+export const DURABLE_ODDS_STORE_KEY = 'store';
+
+function durableOddsScope(season: number): string {
+  return durableOddsStoreScope(season);
 }
 
 async function readStoreFile(season: number): Promise<Record<string, DurableOddsRecord>> {
@@ -112,6 +124,23 @@ export async function upsertDurableOddsRecords(
 
     return next;
   });
+}
+
+/**
+ * Publish an already-durably-committed store to the process-local memo
+ * (PLATFORM-086C1). The atomic canonical Odds commit and the public
+ * closing-line maintenance run their own `withAppStateKeyTransaction` on
+ * `durable-odds:<season>/store`; after that transaction CONFIRMS commit they
+ * call this to update the memo so process caches publish ONLY after durable
+ * success. It performs NO durable write — the durable write already happened
+ * inside the transaction — so it can never publish a value other instances
+ * cannot read.
+ */
+export function primeDurableOddsStoreMemory(
+  season: number,
+  store: Record<string, DurableOddsRecord>
+): void {
+  memoryStore.set(season, store);
 }
 
 export function __resetDurableOddsStoreForTests(): void {
