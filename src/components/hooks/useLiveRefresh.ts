@@ -8,18 +8,20 @@ import {
   type ScoreHydrationState,
 } from '../../lib/scoreHydration';
 import { decideRefresh } from '../../lib/refreshDecision';
+import { LIVE_MANUAL_COOLDOWN_MS, type RefreshPlan } from '../../lib/refreshPolicy';
 import {
-  LIVE_MANUAL_COOLDOWN_MS,
-  SCORES_AUTO_REFRESH_MS,
-  type RefreshPlan,
-} from '../../lib/refreshPolicy';
+  LIVE_SCORE_POLL_INTERVAL_MS,
+  deriveLiveScorePartitions,
+  selectLiveScorePollGames,
+  type LiveScorePartition,
+} from '../../lib/liveScores/browserPolling';
 import { getOddsQuotaGuardState } from '../../lib/api/oddsUsage';
 import { fetchTeamsCatalog } from '../../lib/teamsCatalog';
 import { requireAdminAuthHeaders } from '../../lib/adminAuth';
 import { buildOddsLookup, type CanonicalOddsItem, type CombinedOdds } from '../../lib/odds';
 import { fetchScoresByGame, type ScorePack } from '../../lib/scores';
 import { classifyScorePackStatus } from '../../lib/gameStatus';
-import { isLiveIssue } from '../../lib/cfbScheduleAppHelpers';
+import { isLiveIssue, isLiveOddsIssue } from '../../lib/cfbScheduleAppHelpers';
 import type { AliasMap } from '../../lib/teamNames';
 import type { AppGame } from '../../lib/schedule';
 import type { OddsUsageSnapshot } from '../../lib/apiUsage';
@@ -33,6 +35,13 @@ type UseLiveRefreshParams = {
   games: AppGame[];
   visibleGames: AppGame[];
   scoreScopeGames: AppGame[];
+  /**
+   * Current per-game score cache (PLATFORM-086B2B). Read only to re-evaluate
+   * browser live-poll eligibility each tick — a resolved-final or canceled game
+   * drops out of the poll set. Not a write path; the hook still owns updates via
+   * `setScoresByKey`.
+   */
+  scoresByKey: Record<string, ScorePack>;
   aliasMap: AliasMap;
   oddsUsage: OddsUsageSnapshot | null;
   refreshPlan: RefreshPlan;
@@ -49,55 +58,97 @@ type UseLiveRefreshParams = {
    * recency; null when nothing is cached for the season.
    */
   setOddsSnapshotAt: Dispatch<SetStateAction<string | null>>;
-  setLastScoresRefreshAt: Dispatch<SetStateAction<string>>;
+  /**
+   * Set the served-freshness timestamp of the scores cache (PLATFORM-086B2B):
+   * the durable `meta.generatedAt` of the contributing partitions, NOT the client
+   * poll time. `null` is only the initial/reset value — a failed or empty read
+   * preserves the prior value rather than clearing it (the last known freshness
+   * still holds), so the caller never sees freshness regress to null on a miss.
+   */
+  setScoresSnapshotAt: Dispatch<SetStateAction<string | null>>;
+  /**
+   * Set the last successful-observation timestamp (client poll time of a CLEAN
+   * poll — PLATFORM-086B2B). This, NOT the durable snapshot, drives live-overlay
+   * staleness: a poll that succeeds with an unchanged score (halftime, delay) is a
+   * fresh observation even though the snapshot does not advance. A failed/partial
+   * poll preserves the prior value so the overlay still ages toward stale.
+   */
+  setScoresObservedAt: Dispatch<SetStateAction<string | null>>;
   loadingLive: boolean;
   setLoadingLive: Dispatch<SetStateAction<boolean>>;
   isDebug: boolean;
   /**
-   * Called once when a live poll observes a real non-final → final game
-   * transition (PLATFORM-080). Consumers wire this to `router.refresh()` so the
-   * server `canonicalStandings` snapshot recomputes and records/ranks update.
+   * Called once per poll when a live poll observes a real non-final → final game
+   * transition (PLATFORM-080) OR a material final → final score correction from
+   * `/games` reconciliation (PLATFORM-086B2B). Consumers wire this to
+   * `router.refresh()` so the server `canonicalStandings` snapshot recomputes and
+   * records/ranks update.
    */
   onGamesFinalized?: () => void;
 };
 
 /**
- * Transition-aware finalization detector (PLATFORM-080). Given a poll's fetched
- * scores, the keys of the games actually watched this poll (the score request
- * scope), and the caller-held memory of previously-observed and already-final
- * game keys, returns true iff at least one game made a REAL non-final → final
- * transition this poll — i.e. a game watched in an earlier poll is now final. It
- * deliberately does NOT fire for:
+ * The material scoring signature of a final pack — the two team scores, which are
+ * what canonical standings (records/points/ranks) depend on. A final→final change
+ * in this signature is a `/games` reconciliation CORRECTION worth a canonical
+ * refresh; a status-label-only change (e.g. `Final` → `Final/OT`) is not.
+ */
+function finalScoreSignature(score: ScorePack): string {
+  return `${score.away.score ?? '∅'}~${score.home.score ?? '∅'}`;
+}
+
+/**
+ * Transition-aware finalization detector (PLATFORM-080; correction-aware in
+ * PLATFORM-086B2B). Given a poll's fetched scores, the keys of the games actually
+ * watched this poll (the score request scope), and the caller-held memory of
+ * previously-observed keys and each already-final game's last scoring signature,
+ * returns true iff at least one game this poll either:
+ *   - made a REAL non-final → final transition (a game watched in an earlier poll
+ *     is now final), OR
+ *   - was already final but had its SCORE materially corrected (a scoreboard
+ *     provisional final later revised by `/games` reconciliation) — because the
+ *     browser now keeps polling in-window finals for exactly this correction, and
+ *     the corrected score must reach canonical standings, not just the game card.
+ * It deliberately does NOT fire for:
  *   - a game observed for the first time that is already final (initial payload,
- *     or a game entering the score scope already final) — that is not a
- *     transition and canonical already reflects it (or navigation will),
- *   - a game that was already counted as final on a previous poll (no repeat).
+ *     or a game entering the score scope already final) — canonical already
+ *     reflects it (or navigation will); its signature is recorded so a LATER
+ *     correction is still caught,
+ *   - an already-final game whose score is unchanged (no repeat refresh),
+ *   - a status-label-only change on a final (same scores).
  *
  * `observedKeys` is seeded from the watched SCOPE, not the score payload, so a
  * scheduled game that carried no attached score row on earlier polls (cold/stale
  * public cache, or a failed attach) still counts as observed — otherwise its
  * later finalization would be misread as a first-seen final and suppress the
- * refresh, leaving standings stale (the very bug this fixes). The
- * `observedKeys` / `finalKeys` sets are mutated in place to carry memory forward.
- * Callers use the result to trigger exactly one RSC refresh so server
- * `canonicalStandings` recomputes; no client standings derivation is involved.
+ * refresh, leaving standings stale. `observedKeys` and `finalScores` are mutated
+ * in place to carry memory forward. Callers use the result to trigger exactly one
+ * RSC refresh so server `canonicalStandings` recomputes; no client standings
+ * derivation is involved.
  */
 export function detectScoreFinalizations(params: {
   nextScores: Record<string, ScorePack>;
   scopeGameKeys: Iterable<string>;
   observedKeys: Set<string>;
-  finalKeys: Set<string>;
+  finalScores: Map<string, string>;
 }): boolean {
-  const { nextScores, scopeGameKeys, observedKeys, finalKeys } = params;
+  const { nextScores, scopeGameKeys, observedKeys, finalScores } = params;
   let transitioned = false;
 
   for (const [key, score] of Object.entries(nextScores)) {
     if (classifyScorePackStatus(score) !== 'final') continue;
-    if (finalKeys.has(key)) continue; // already counted final — no repeat refresh
+    const signature = finalScoreSignature(score);
+    if (finalScores.has(key)) {
+      // Already final on an earlier poll: fire only on a material score CHANGE
+      // (a `/games` reconciliation correction), not a repeat of the same score.
+      if (finalScores.get(key) !== signature) transitioned = true;
+      finalScores.set(key, signature);
+      continue;
+    }
     // First time this key is final. A refresh is warranted only if we had
     // already watched the game on an earlier poll (necessarily as non-final).
     if (observedKeys.has(key)) transitioned = true;
-    finalKeys.add(key);
+    finalScores.set(key, signature);
   }
 
   // Record every game watched this poll (whether or not it had a score row) so a
@@ -126,6 +177,12 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     manual?: boolean;
     includeOdds?: boolean;
     scoreScopeGamesOverride?: AppGame[];
+    /**
+     * Exact `(providerWeek, seasonType)` partitions to read cache-only
+     * (PLATFORM-086B2B auto ticks). When present, scores are fetched from only
+     * these partitions via week-scoped URLs — never season-wide, never a refresh.
+     */
+    scorePartitions?: LiveScorePartition[];
   }) => Promise<void>;
 } {
   const {
@@ -137,6 +194,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     games,
     visibleGames,
     scoreScopeGames,
+    scoresByKey,
     aliasMap,
     oddsUsage,
     refreshPlan,
@@ -147,7 +205,8 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     setScoresByKey,
     setOddsUsage,
     setOddsSnapshotAt,
-    setLastScoresRefreshAt,
+    setScoresSnapshotAt,
+    setScoresObservedAt,
     loadingLive,
     setLoadingLive,
     isDebug,
@@ -163,7 +222,17 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
   // counted final, so we fire an RSC refresh only on a real non-final → final
   // transition (see detectScoreFinalizations).
   const observedScoreKeysRef = useRef<Set<string>>(new Set());
-  const finalizedScoreKeysRef = useRef<Set<string>>(new Set());
+  // key → last-seen final scoring signature; carries memory of already-final games
+  // AND their scores so a later `/games` correction (final→final score change) is
+  // detected, not just the initial non-final → final transition (PLATFORM-086B2B).
+  const finalizedScoreKeysRef = useRef<Map<string, string>>(new Map());
+
+  // Latest eligibility inputs for the visible-tab live-score timer
+  // (PLATFORM-086B2B). Held in a ref so the 3-minute interval reads fresh
+  // games/scores/season on each tick without the timer resetting on every score
+  // update (the effect depends only on the memoized refreshLiveData).
+  const liveScoreInputsRef = useRef({ games, scoresByKey, selectedSeason });
+  liveScoreInputsRef.current = { games, scoresByKey, selectedSeason };
 
   useEffect(() => {
     // Keep the bootstrap gate tied to scheduleLoaded transitions only.
@@ -178,6 +247,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       manual?: boolean;
       includeOdds?: boolean;
       scoreScopeGamesOverride?: AppGame[];
+      scorePartitions?: LiveScorePartition[];
     }): Promise<void> => {
       const manual = options?.manual ?? false;
       if (liveRefreshInFlightRef.current) return;
@@ -199,12 +269,30 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
         return;
       }
 
-      setIssues((prev) => prev.filter((issue) => !isLiveIssue(issue)));
+      // Clear this poll's transient live issues before re-deriving them — but a
+      // score-only tick (`!shouldFetchOdds`) must NOT wipe an unresolved odds
+      // failure it will not retry, or the user would silently lose the warning
+      // that displayed odds are stale/unavailable (PLATFORM-086B2B).
+      setIssues((prev) =>
+        prev.filter((issue) => {
+          if (!isLiveIssue(issue)) return true;
+          if (!shouldFetchOdds && isLiveOddsIssue(issue)) return true;
+          return false;
+        })
+      );
 
       liveRefreshInFlightRef.current = true;
       setLoadingLive(true);
       if (manual) {
         lastManualLiveRefreshMsRef.current = nowMs;
+      } else {
+        // Stamp the auto-poll throttle at poll INITIATION, not completion. The
+        // 3-minute timer's throttle threshold equals its interval, so stamping at
+        // completion would offset the mark by the fetch latency and make every
+        // other tick fall a few ms short of the threshold — silently halving the
+        // cadence to ~6 minutes. Anchoring to `nowMs` keeps consecutive ticks
+        // exactly one interval apart.
+        lastAutoScoresRefreshMsRef.current = nowMs;
       }
 
       try {
@@ -270,6 +358,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
           const {
             scoresByKey: nextScores,
             issues: scoreIssues,
+            snapshotAt,
             debugSnapshot,
           } = await fetchScoresByGame({
             games,
@@ -285,6 +374,9 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
             // was removed, but the authorized-refresh capability is preserved.
             refresh: manual,
             authHeaders: manual ? requireAdminAuthHeaders() : undefined,
+            // Auto ticks read only the exact kickoff-window partitions cache-only;
+            // omitted (season-wide) for hydration and manual refresh.
+            partitions: options?.scorePartitions,
           });
 
           if (isDebug) {
@@ -351,18 +443,38 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
             // later finalization triggers the refresh.
             scopeGameKeys: scoreScopeForRequest.map((g) => g.key),
             observedKeys: observedScoreKeysRef.current,
-            finalKeys: finalizedScoreKeysRef.current,
+            finalScores: finalizedScoreKeysRef.current,
           });
           if (observedFinalization) onGamesFinalized?.();
 
-          setLastScoresRefreshAt(new Date().toLocaleString());
-          const loadedSeasonTypes = getHydrationSeasonTypes(scoreScopeForRequest);
-          if (loadedSeasonTypes.length > 0) {
-            setScoreHydrationState((prev) => markScoreHydrationLoaded(prev, loadedSeasonTypes));
+          // Two DISTINCT freshness signals (PLATFORM-086B2B):
+          //  1. `scoresSnapshotAt` (durable served-snapshot = last time a row
+          //     materially changed) drives the "Scores updated …" data-freshness
+          //     label. Null (empty/suppressed) preserves the prior value.
+          //  2. `scoresObservedAt` (client time of a CLEAN successful poll) drives
+          //     the live-overlay staleness. It must NOT be the data-change time:
+          //     during a halftime/delay a poll succeeds with an unchanged row, so
+          //     the overlay stays fresh (we are observing) even though the snapshot
+          //     does not advance. Only a clean poll (no partition read failures)
+          //     counts as an observation; a failed/partial poll preserves the prior
+          //     value so the overlay ages honestly toward stale.
+          if (snapshotAt) setScoresSnapshotAt(snapshotAt);
+          if (scoreIssues.length === 0) setScoresObservedAt(new Date().toISOString());
+          // Only a HYDRATION request (season-wide bootstrap / lazy full-tab load)
+          // may mark a season type hydrated. An exact-partition auto tick
+          // (`scorePartitions` present) reads only a subset of a season type's
+          // partitions, so marking the whole type hydrated would let
+          // `getLazyScoreHydrationGames` skip the real full load — leaving other
+          // partitions' scores absent (e.g. one in-window bowl marking all of
+          // postseason hydrated). Targeted ticks never complete hydration.
+          if (!options?.scorePartitions) {
+            const loadedSeasonTypes = getHydrationSeasonTypes(scoreScopeForRequest);
+            if (loadedSeasonTypes.length > 0) {
+              setScoreHydrationState((prev) => markScoreHydrationLoaded(prev, loadedSeasonTypes));
+            }
           }
-          if (!manual) {
-            lastAutoScoresRefreshMsRef.current = Date.now();
-          }
+          // The auto-poll throttle was stamped at poll initiation (above), not here,
+          // so the timer's cadence is not offset by fetch latency.
         } catch (err) {
           setIssues((p) => [...p, `Scores fetch failed: ${(err as Error).message}`]);
         }
@@ -383,7 +495,8 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       selectedTab,
       selectedWeek,
       setIssues,
-      setLastScoresRefreshAt,
+      setScoresSnapshotAt,
+      setScoresObservedAt,
       setOddsByKey,
       setOddsUsage,
       setOddsSnapshotAt,
@@ -393,6 +506,14 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       weeks,
     ]
   );
+
+  // Latest `refreshLiveData` for the visible-tab timer (PLATFORM-086B2B). The
+  // callback's identity changes on every navigation (games/visibleGames/tab/week/
+  // season are in its deps); reading it through a ref keeps the 3-minute interval
+  // effect stable so navigation cannot tear down and re-arm the interval — which
+  // would restart its countdown and starve the auto-poll under active clicking.
+  const refreshLiveDataRef = useRef(refreshLiveData);
+  refreshLiveDataRef.current = refreshLiveData;
 
   useEffect(() => {
     if (!scheduleLoaded || hasAutoBootstrappedLiveRef.current) return;
@@ -415,26 +536,78 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     });
   }, [games, refreshLiveData, refreshPlan.odds.fetchOnStartup, scheduleLoaded, selectedTab]);
 
+  // Visible-tab live-score polling (PLATFORM-086B2B): a self-rescheduling 3-minute
+  // timer that re-evaluates eligibility every tick AND whenever the tab gains
+  // focus/becomes visible, so a page opened before kickoff arms itself as the
+  // window opens without any re-render. Eligible games are read cache-only from
+  // just their `(providerWeek, seasonType)` partitions.
+  //
+  // The next tick is always scheduled ONE interval after the LAST attempt rather
+  // than on a fixed wall-clock grid: a `setInterval` grid desyncs from the
+  // last-poll throttle, so an off-grid focus/visibility poll would leave the next
+  // grid tick throttled out and stretch the effective cadence to ~2 intervals. A
+  // rescheduling timeout keeps every gap between polls at ~one interval. Polls
+  // fire only while visible; the throttle dedupes rapid focus/visibility events.
   useEffect(() => {
-    if (!scheduleLoaded || !refreshPlan.scores.allowAutoOnFocus) return;
+    if (!scheduleLoaded) return;
 
-    const tryRefresh = () => {
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    const attemptPoll = (): void => {
       if (document.visibilityState !== 'visible') return;
-      if (Date.now() - lastAutoScoresRefreshMsRef.current < SCORES_AUTO_REFRESH_MS) return;
-      void refreshLiveData({ manual: false, includeOdds: false });
+      if (Date.now() - lastAutoScoresRefreshMsRef.current < LIVE_SCORE_POLL_INTERVAL_MS) return;
+      const {
+        games: currentGames,
+        scoresByKey: currentScores,
+        selectedSeason: currentSeason,
+      } = liveScoreInputsRef.current;
+      const eligibleGames = selectLiveScorePollGames({
+        games: currentGames,
+        scoresByKey: currentScores,
+        season: currentSeason,
+      });
+      if (eligibleGames.length === 0) return;
+      // `lastAutoScoresRefreshMsRef` is stamped at poll initiation inside
+      // refreshLiveData, so `reschedule()` below lands the next tick one interval
+      // after this poll starts.
+      void refreshLiveDataRef.current({
+        manual: false,
+        includeOdds: false,
+        scoreScopeGamesOverride: eligibleGames,
+        scorePartitions: deriveLiveScorePartitions(eligibleGames),
+      });
     };
 
-    const onFocus = () => {
-      tryRefresh();
+    // Always re-arm one interval out; the throttle inside attemptPoll bounds the
+    // real poll rate, and re-arming after event polls keeps the cadence steady.
+    const reschedule = (): void => {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        attemptPoll();
+        reschedule();
+      }, LIVE_SCORE_POLL_INTERVAL_MS);
     };
 
-    window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onFocus);
+    const onVisible = (): void => {
+      const before = lastAutoScoresRefreshMsRef.current;
+      attemptPoll();
+      // If this event actually polled, restart the countdown from it so the next
+      // tick is one interval away (not left on the previous, now-stale schedule).
+      if (lastAutoScoresRefreshMsRef.current !== before) reschedule();
+    };
+
+    reschedule();
+    window.addEventListener('focus', onVisible);
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
-      window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onFocus);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+      window.removeEventListener('focus', onVisible);
+      document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [refreshLiveData, refreshPlan.scores.allowAutoOnFocus, scheduleLoaded]);
+    // Intentionally NOT depending on `refreshLiveData` — it is read via a ref so
+    // the timer survives navigation (see refreshLiveDataRef above). The timer arms
+    // once per loaded schedule and reads fresh inputs each tick.
+  }, [scheduleLoaded]);
 
   useEffect(() => {
     if (selectedTab !== 'postseason') {

@@ -1,8 +1,30 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { deriveScheduleLoadApplicationResult } from '../cfbScheduleAppHelpers.ts';
+import {
+  deriveScheduleLoadApplicationResult,
+  isLiveIssue,
+  isLiveOddsIssue,
+} from '../cfbScheduleAppHelpers.ts';
 import type { BuiltSchedule, AppGame } from '../schedule.ts';
+
+test('isLiveOddsIssue matches only odds live issues, and stays a subset of isLiveIssue', () => {
+  for (const odds of ['Odds error 402: quota', 'Odds fetch failed: network down']) {
+    assert.equal(isLiveOddsIssue(odds), true, odds);
+    assert.equal(isLiveIssue(odds), true, odds);
+  }
+  // Score-side and generic live issues are NOT odds issues (a score-only tick may
+  // clear these while leaving an unresolved odds warning intact).
+  for (const nonOdds of [
+    'Scores fetch failed: boom',
+    'Scores week 3 (regular): 502',
+    'missing-score-match:g1',
+    'No games loaded. CFBD schedule load may have failed.',
+    'some unrelated issue',
+  ]) {
+    assert.equal(isLiveOddsIssue(nonOdds), false, nonOdds);
+  }
+});
 
 function game(overrides: Partial<AppGame>): AppGame {
   return {

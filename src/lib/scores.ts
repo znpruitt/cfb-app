@@ -134,33 +134,131 @@ function parseScorePayload(payload: unknown): Array<WireFlat | WireObj> {
   return [];
 }
 
+/**
+ * The durable `meta.generatedAt` (ms) of a `/api/scores` response, or `null` when
+ * it carries none or an unparseable one (PLATFORM-086B2B). The caller decides
+ * whether to trust it — an empty `upstream-suppressed` response stamps its meta
+ * with request-time, which is NOT freshness, so only nonempty responses count.
+ */
+function extractMetaGeneratedAtMs(payload: unknown): number | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const meta = (payload as { meta?: unknown }).meta;
+  if (!meta || typeof meta !== 'object') return null;
+  const generatedAt = (meta as { generatedAt?: unknown }).generatedAt;
+  if (typeof generatedAt !== 'string') return null;
+  const ms = Date.parse(generatedAt);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+type ScoreFetchMode =
+  | { kind: 'season'; weeks: number[]; seasonTypes: Array<'regular' | 'postseason'> }
+  | {
+      // Exact-partition cache-read mode (PLATFORM-086B2B auto ticks): fetch only
+      // the given `(providerWeek, seasonType)` partitions via week-scoped URLs.
+      // Never season-wide, never `refresh=1`, never admin credentials.
+      kind: 'partitions';
+      partitions: Array<{ providerWeek: number; seasonType: 'regular' | 'postseason' }>;
+    };
+
 // Invariant: internal score fetches must always propagate explicit season type scope
 // derived from canonical schedule games. Relying on /api/scores default seasonType=regular
 // can silently exclude postseason rows from the attachment pipeline.
 async function fetchScoreRows(params: {
   season: number;
-  weeks: number[];
-  seasonTypes: Array<'regular' | 'postseason'>;
+  mode: ScoreFetchMode;
   issues: string[];
   apiBaseUrl?: string;
   refresh?: boolean;
   authHeaders?: HeadersInit;
-}): Promise<{ rows: ScoreRow[]; requestUrls: string[] }> {
-  const { season, weeks, seasonTypes, issues, apiBaseUrl, refresh = false, authHeaders } = params;
+}): Promise<{ rows: ScoreRow[]; requestUrls: string[]; snapshotAt: string | null }> {
+  const { season, mode, issues, apiBaseUrl, refresh = false, authHeaders } = params;
+
+  // Exact-partition (auto) reads are strictly cache-only: no refresh, no admin
+  // credentials, no season-wide call — regardless of what the caller passed.
+  const isPartitionMode = mode.kind === 'partitions';
 
   // Only an authorized (admin) refresh may spend CFBD quota (PLATFORM-075).
   // The public path omits refresh and reads cache only; the admin manual refresh
   // propagates refresh=1 + admin credentials so scores still update upstream.
-  const refreshSuffix = refresh ? '&refresh=1' : '';
+  const refreshSuffix = refresh && !isPartitionMode ? '&refresh=1' : '';
   const fetchInit: RequestInit = {
     cache: 'no-store',
-    ...(authHeaders ? { headers: authHeaders } : {}),
+    ...(authHeaders && !isPartitionMode ? { headers: authHeaders } : {}),
   };
 
   const rows: ScoreRow[] = [];
   const requestUrls: string[] = [];
 
-  for (const seasonType of seasonTypes) {
+  // Served-freshness floor: the OLDEST durable `meta.generatedAt` across the
+  // nonempty responses that contributed rows. An empty response (nothing to
+  // display) never sets freshness — its request-time meta would fake it.
+  //
+  // KNOWN LIMITATION (deferred, PLATFORM-086B2B): this is a per-PARTITION floor,
+  // not per-GAME. A partition's `meta.generatedAt` is its NEWEST effective row, so
+  // a freshly-updated game can ride over a stale sibling in the same partition
+  // (e.g. one game the live cron kept updating while another dropped out of the
+  // scoreboard). The global `isStale` overlay flag can then read fresh for that
+  // stale game. This is strictly better than the pre-086B2B behavior (client poll
+  // time reported every game fresh after any poll); true per-game freshness needs
+  // per-game timestamps threaded to a per-game overlay staleness model — a
+  // separate follow-up, not this activation slice.
+  let oldestSnapshotMs: number | null = null;
+  const noteSnapshot = (payload: unknown, itemCount: number): void => {
+    if (itemCount <= 0) return;
+    const ms = extractMetaGeneratedAtMs(payload);
+    if (ms === null) return;
+    if (oldestSnapshotMs === null || ms < oldestSnapshotMs) oldestSnapshotMs = ms;
+  };
+
+  if (isPartitionMode) {
+    // Any requested partition that fails to read means the served set is
+    // incomplete: retained prior rows for that partition are stale, so freshness
+    // must NOT advance globally (a single successful sibling would otherwise mark
+    // the whole overlay fresh). One failure suppresses the snapshot entirely, so
+    // the client keeps its prior (older) freshness and the overlay ages honestly.
+    let partitionReadFailed = false;
+    for (const { providerWeek, seasonType } of mode.partitions) {
+      // `live=1` is a cache-only hint (NOT a refresh): it tells the route to
+      // consult DURABLE app-state rather than serve a per-instance in-process
+      // copy that can lag a cross-instance cron write by up to its TTL — so a
+      // 3-minute poll actually reflects the latest merged scores. No provider
+      // call, no credentials, no `refresh=1`.
+      const url = buildApiUrl(
+        `/api/scores?week=${providerWeek}&year=${season}&seasonType=${seasonType}&live=1`,
+        apiBaseUrl
+      );
+      requestUrls.push(url);
+      const res = await fetch(url, fetchInit);
+      if (!res.ok) {
+        const err = await res.text().catch(() => '');
+        issues.push(`Scores week ${providerWeek} (${seasonType}): ${res.status} ${err}`);
+        partitionReadFailed = true;
+        continue;
+      }
+      const json = await res.json();
+      const raw = parseScorePayload(json);
+      for (const row of raw) {
+        const parsed = extractRow(row);
+        rows.push({
+          ...parsed,
+          seasonType: parsed.seasonType ?? seasonType,
+          week: parsed.week ?? providerWeek,
+        });
+      }
+      noteSnapshot(json, raw.length);
+    }
+
+    return {
+      rows,
+      requestUrls,
+      snapshotAt:
+        partitionReadFailed || oldestSnapshotMs === null
+          ? null
+          : new Date(oldestSnapshotMs).toISOString(),
+    };
+  }
+
+  for (const seasonType of mode.seasonTypes) {
     let seasonTypeRowCount = 0;
     const seasonUrl = buildApiUrl(
       `/api/scores?year=${season}&seasonType=${seasonType}${refreshSuffix}`,
@@ -169,19 +267,21 @@ async function fetchScoreRows(params: {
     requestUrls.push(seasonUrl);
     const seasonRes = await fetch(seasonUrl, fetchInit);
     if (seasonRes.ok) {
-      const seasonRaw = parseScorePayload(await seasonRes.json());
+      const seasonJson = await seasonRes.json();
+      const seasonRaw = parseScorePayload(seasonJson);
       const parsedSeasonRows = seasonRaw
         .map(extractRow)
         .map((row) => ({ ...row, seasonType: row.seasonType ?? seasonType }));
       seasonTypeRowCount += parsedSeasonRows.length;
       rows.push(...parsedSeasonRows);
+      noteSnapshot(seasonJson, parsedSeasonRows.length);
       continue;
     }
 
     const seasonErr = await seasonRes.text().catch(() => '');
     const seasonFallbackIssue = `Scores season ${season} (${seasonType}): ${seasonRes.status} ${seasonErr}`;
 
-    for (const w of weeks) {
+    for (const w of mode.weeks) {
       const weekUrl = buildApiUrl(
         `/api/scores?week=${w}&year=${season}&seasonType=${seasonType}${refreshSuffix}`,
         apiBaseUrl
@@ -194,7 +294,8 @@ async function fetchScoreRows(params: {
         continue;
       }
 
-      const raw = parseScorePayload(await weekRes.json());
+      const weekJson = await weekRes.json();
+      const raw = parseScorePayload(weekJson);
       for (const row of raw) {
         const parsed = extractRow(row);
         rows.push({
@@ -204,6 +305,7 @@ async function fetchScoreRows(params: {
         });
         seasonTypeRowCount += 1;
       }
+      noteSnapshot(weekJson, raw.length);
     }
 
     if (seasonTypeRowCount === 0) {
@@ -211,7 +313,11 @@ async function fetchScoreRows(params: {
     }
   }
 
-  return { rows, requestUrls };
+  return {
+    rows,
+    requestUrls,
+    snapshotAt: oldestSnapshotMs === null ? null : new Date(oldestSnapshotMs).toISOString(),
+  };
 }
 
 function seasonTypeFromStage(stage?: GameLike['stage']): 'regular' | 'postseason' {
@@ -252,10 +358,25 @@ export async function fetchScoresByGame(params: {
   // so scores update upstream. Omitted on the public/auto path (cache-only).
   refresh?: boolean;
   authHeaders?: HeadersInit;
+  /**
+   * Exact-partition cache-read mode (PLATFORM-086B2B auto ticks). When provided,
+   * only these `(providerWeek, seasonType)` partitions are read via week-scoped
+   * URLs — no season-wide call, and `refresh`/`authHeaders` are ignored (the auto
+   * path is strictly cache-only). Omit for season-wide hydration and manual
+   * refresh, which keep the season-wide-first behavior.
+   */
+  partitions?: Array<{ providerWeek: number; seasonType: 'regular' | 'postseason' }>;
 }): Promise<{
   scoresByKey: Record<string, ScorePack>;
   issues: string[];
   diag: ScoresDiagEntry[];
+  /**
+   * The served-freshness timestamp of the contributing cache partitions (oldest
+   * durable `meta.generatedAt` across nonempty responses), or `null` when nothing
+   * durable contributed. Used to drive the client freshness label; never derived
+   * from an empty/suppressed response's request-time.
+   */
+  snapshotAt: string | null;
   debugSnapshot?: {
     providerRowCount: number;
     attachedCount: number;
@@ -276,11 +397,12 @@ export async function fetchScoresByGame(params: {
     fallbackScopeGames,
     refresh = false,
     authHeaders,
+    partitions,
   } = params;
   const issues: string[] = [];
 
   if (games.length === 0) {
-    return { scoresByKey: {}, issues, diag: [] };
+    return { scoresByKey: {}, issues, diag: [], snapshotAt: null };
   }
   const diag: ScoresDiagEntry[] = [];
 
@@ -291,12 +413,26 @@ export async function fetchScoresByGame(params: {
   const resolver = createTeamIdentityResolver({ aliasMap, teams, observedNames });
 
   const fallbackGames = fallbackScopeGames ?? games;
-  const loadedWeeks = Array.from(
+  const seasonWeeks = Array.from(
     new Set<number>(fallbackGames.flatMap((g) => [g.week, g.providerWeek ?? g.week]))
   ).sort((a, b) => a - b);
-  const loadedSeasonTypes = Array.from(
+  const seasonSeasonTypes = Array.from(
     new Set(fallbackGames.map((g) => seasonTypeFromStage(g.stage)))
   );
+
+  const mode: ScoreFetchMode =
+    partitions && partitions.length > 0
+      ? { kind: 'partitions', partitions }
+      : { kind: 'season', weeks: seasonWeeks, seasonTypes: seasonSeasonTypes };
+
+  const loadedWeeks =
+    mode.kind === 'partitions'
+      ? Array.from(new Set(mode.partitions.map((p) => p.providerWeek))).sort((a, b) => a - b)
+      : seasonWeeks;
+  const loadedSeasonTypes =
+    mode.kind === 'partitions'
+      ? Array.from(new Set(mode.partitions.map((p) => p.seasonType)))
+      : seasonSeasonTypes;
   const scheduleIndexGames: ScheduleGameForIndex[] = games.map((game) => ({
     key: game.key,
     week: game.week,
@@ -314,10 +450,9 @@ export async function fetchScoresByGame(params: {
   }));
   const scheduleIndex = buildScheduleIndex(scheduleIndexGames, resolver);
 
-  const { rows, requestUrls } = await fetchScoreRows({
+  const { rows, requestUrls, snapshotAt } = await fetchScoreRows({
     season,
-    weeks: loadedWeeks,
-    seasonTypes: loadedSeasonTypes,
+    mode,
     issues,
     apiBaseUrl,
     refresh,
@@ -366,6 +501,7 @@ export async function fetchScoresByGame(params: {
     scoresByKey: attached.scoresByKey,
     issues,
     diag,
+    snapshotAt,
     debugSnapshot: debugTrace
       ? {
           providerRowCount: scopedRows.length,

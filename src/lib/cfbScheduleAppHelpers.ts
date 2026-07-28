@@ -24,11 +24,20 @@ export function isTransientScheduleIssue(issue: string): boolean {
   return issue.startsWith('out-of-scope-postseason-row:');
 }
 
+/**
+ * Odds-specific live issues (a failed or errored odds fetch). Split out so a
+ * score-only live poll can clear its own transient issues WITHOUT wiping an
+ * unresolved odds-failure warning it is not retrying (PLATFORM-086B2B): a
+ * `includeOdds: false` tick must not silently hide that displayed odds are stale.
+ */
+export function isLiveOddsIssue(issue: string): boolean {
+  return issue.startsWith('Odds error ') || issue.startsWith('Odds fetch failed:');
+}
+
 export function isLiveIssue(issue: string): boolean {
   return (
     issue.startsWith('No games loaded. CFBD schedule load may have failed.') ||
-    issue.startsWith('Odds error ') ||
-    issue.startsWith('Odds fetch failed:') ||
+    isLiveOddsIssue(issue) ||
     issue.startsWith('Scores fetch failed:') ||
     issue.startsWith('Scores season ') ||
     issue.startsWith('Scores week ') ||

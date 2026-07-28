@@ -22,11 +22,19 @@ import {
   recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
-import { loadReconciledSeasonScores } from '@/lib/server/scoreCacheReader';
+import {
+  loadReconciledSeasonScores,
+  loadReconciledWeekScores,
+} from '@/lib/server/scoreCacheReader';
 import { getApplicableScoreSeasonTypes } from '@/lib/server/scoreApplicability';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
-import { pruneScoresCache, type CacheEntry, type CacheKey } from '@/lib/scores/cache';
+import {
+  newestEffectiveRowTimestamp,
+  pruneScoresCache,
+  type CacheEntry,
+  type CacheKey,
+} from '@/lib/scores/cache';
 import {
   classifyEmptyScoresResponse,
   type ScheduleScoreEvidenceItem,
@@ -156,6 +164,59 @@ async function aggregateSeasonScoresResponse(params: {
   // served row) does not report the response as freshly updated. Falls back to
   // the entry `at` only when rows exist but carry no effective stamp — legacy
   // entries where `newestEffectiveAt === newest.at` anyway.
+  const freshnessAt = newestEffectiveAt ?? newest.at;
+  const isFresh = now - freshnessAt < CACHE_TTL_MS;
+  if (isFresh) {
+    recordRouteCacheHit('scores');
+  } else {
+    recordRouteCacheMiss('scores');
+  }
+  return responseFrom(items, {
+    source: newest.source,
+    cache: isFresh ? 'hit' : 'stale',
+    fallbackUsed: newest.source === 'espn',
+    generatedAt: new Date(freshnessAt).toISOString(),
+    cfbdFallbackReason: newest.cfbdFallbackReason,
+  });
+}
+
+/**
+ * Live browser week read (PLATFORM-086B2B): serve the RECONCILED winner for one
+ * week (its child cache reconciled with the `${year}-all-${seasonType}` aggregate)
+ * instead of the raw week child, so a 3-minute poll can neither overwrite nor miss
+ * an admin score correction that landed only in the aggregate — the served rows
+ * match the reconciled view standings use. Cache-only; no provider call.
+ */
+async function reconciledLiveWeekResponse(params: {
+  year: number;
+  week: number;
+  seasonType: SeasonType;
+  now: number;
+}) {
+  const { year, week, seasonType, now } = params;
+
+  const [teams, aliasMap] = await Promise.all([readTeamsCatalog(), getScopedAliasMap('', year)]);
+  const { items, newest, newestEffectiveAt } = await loadReconciledWeekScores({
+    year,
+    week,
+    seasonType,
+    teams,
+    aliasMap,
+  });
+
+  // No rows for this week across either partition → controlled empty (200) so the
+  // client treats it as resolved and its retention keeps any prior score.
+  if (!newest || items.length === 0) {
+    recordRouteCacheMiss('scores');
+    return responseFrom([], {
+      source: 'cfbd',
+      cache: 'stale',
+      fallbackUsed: false,
+      generatedAt: new Date(now).toISOString(),
+      cfbdFallbackReason: 'upstream-suppressed',
+    });
+  }
+
   const freshnessAt = newestEffectiveAt ?? newest.at;
   const isFresh = now - freshnessAt < CACHE_TTL_MS;
   if (isFresh) {
@@ -695,6 +756,15 @@ export async function GET(req: Request) {
   const cacheKey: CacheKey = `${year}-${week ?? 'all'}-${seasonType}`;
   const now = Date.now();
 
+  // `live=1` (PLATFORM-086B2B): a cache-only accuracy hint for browser live-score
+  // polls. It NEVER spends quota or reads a provider. For a week-scoped read it
+  // serves the RECONCILED week view (week child reconciled with the `-all-`
+  // aggregate) straight from durable app-state — bypassing the per-instance
+  // in-process cache (which can lag a cross-instance cron write by up to the TTL)
+  // and the raw-week-child read (which can diverge from the reconciled standings
+  // view). Ignored for season-wide reads, which already reconcile.
+  const liveRead = url.searchParams.get('live') === '1';
+
   // Only an authorized admin refresh may spend upstream CFBD quota
   // (PLATFORM-075). Public/anonymous traffic is a pure cache reader below and
   // can never trigger a cold-cache provider fetch.
@@ -715,6 +785,15 @@ export async function GET(req: Request) {
       return await aggregateSeasonScoresResponse({ year, seasonType, now });
     }
 
+    // Live browser week poll: serve the RECONCILED week view (week child +
+    // `-all-` aggregate) directly from durable storage — never the per-instance
+    // in-process cache (which can lag a cross-instance cron write by up to the
+    // TTL) and never the raw week child alone (which would diverge from the
+    // reconciled standings view). Cache-only; no provider call.
+    if (liveRead) {
+      return await reconciledLiveWeekResponse({ year, week, seasonType, now });
+    }
+
     // Week-scoped read: a leaf request (no downstream fan-out).
     const memoryHit = SCORES_CACHE[cacheKey];
     if (memoryHit && now - memoryHit.at < CACHE_TTL_MS) {
@@ -723,7 +802,10 @@ export async function GET(req: Request) {
         source: memoryHit.source,
         cache: 'hit',
         fallbackUsed: memoryHit.source === 'espn',
-        generatedAt: new Date(memoryHit.at).toISOString(),
+        // Served freshness comes from the newest effective ROW timestamp, never the
+        // enclosing entry version (PLATFORM-086B2B) — a B2A metadata-only rewrite or
+        // monotonic `at` bump must not read as freshly-updated scores.
+        generatedAt: new Date(newestEffectiveRowTimestamp(memoryHit) ?? memoryHit.at).toISOString(),
         cfbdFallbackReason: memoryHit.cfbdFallbackReason,
       });
     }
@@ -738,7 +820,9 @@ export async function GET(req: Request) {
         source: storedValue.source,
         cache: 'hit',
         fallbackUsed: storedValue.source === 'espn',
-        generatedAt: new Date(storedValue.at).toISOString(),
+        generatedAt: new Date(
+          newestEffectiveRowTimestamp(storedValue) ?? storedValue.at
+        ).toISOString(),
         cfbdFallbackReason: storedValue.cfbdFallbackReason,
       });
     }
@@ -756,7 +840,9 @@ export async function GET(req: Request) {
         source: staleEntry.source,
         cache: 'stale',
         fallbackUsed: staleEntry.source === 'espn',
-        generatedAt: new Date(staleEntry.at).toISOString(),
+        generatedAt: new Date(
+          newestEffectiveRowTimestamp(staleEntry) ?? staleEntry.at
+        ).toISOString(),
         cfbdFallbackReason: staleEntry.cfbdFallbackReason,
       });
     }

@@ -52,6 +52,23 @@ export function effectiveRowTimestamp(entry: CacheEntry, item: Pick<ScorePack, '
   return entry.at;
 }
 
+/**
+ * The newest EFFECTIVE row timestamp in a single entry, or null when it holds no
+ * rows (PLATFORM-086B2B). This is the correct served-freshness signal for a
+ * week-scoped `/api/scores` read: the enclosing `at` is a monotonic VERSION (a
+ * B2A metadata-only rewrite or version bump advances it without changing any
+ * row), so reporting `at` as `generatedAt` would fabricate freshness. The season
+ * reconciler already exposes the equivalent `newestEffectiveAt`.
+ */
+export function newestEffectiveRowTimestamp(entry: CacheEntry): number | null {
+  let newest: number | null = null;
+  for (const item of entry.items) {
+    const ts = effectiveRowTimestamp(entry, item);
+    if (newest === null || ts > newest) newest = ts;
+  }
+  return newest;
+}
+
 export function pruneScoresCache(
   cache: Record<CacheKey, CacheEntry>,
   maxEntries: number,

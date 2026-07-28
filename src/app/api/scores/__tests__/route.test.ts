@@ -224,6 +224,171 @@ test('an empty CFBD payload over populated prior-good target data is an unexpect
   assert.equal(anonJson.items[0].home.score, 30);
 });
 
+test('a live=1 week read consults durable app-state, bypassing a stale in-process copy (PLATFORM-086B2B)', async () => {
+  const key = '2025-9-regular';
+  const base = Date.now();
+  const row = (score: number, time: string) => ({
+    id: 'g',
+    week: 9,
+    status: 'STATUS_IN_PROGRESS',
+    startDate: '2025-11-01T18:00:00Z',
+    home: { team: 'Alabama', score },
+    away: { team: 'Georgia', score: 7 },
+    time,
+  });
+
+  // v1 is what a warm serving instance will cache in-process.
+  await setAppState('scores', key, {
+    at: base - 1000,
+    items: [row(10, 'Q3')],
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+  });
+  setMockFetch(async () => new Response('[]', { status: 200 }));
+
+  // First public read populates the route's in-process SCORES_CACHE with v1.
+  const warm = await GET(
+    new Request('http://localhost/api/scores?year=2025&week=9&seasonType=regular')
+  );
+  assert.equal((await warm.json()).items[0].home.score, 10);
+
+  // A cross-instance cron writes a newer v2 to DURABLE only; the serving instance's
+  // in-process copy is untouched.
+  await setAppState('scores', key, {
+    at: base,
+    items: [row(21, 'Q4')],
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+  });
+
+  // A normal read still serves the stale in-process copy (the bug this guards)...
+  const stale = await GET(
+    new Request('http://localhost/api/scores?year=2025&week=9&seasonType=regular')
+  );
+  assert.equal(
+    (await stale.json()).items[0].home.score,
+    10,
+    'a normal read serves the warm in-process copy'
+  );
+
+  // ...but a live read consults durable and reflects the newer merged score.
+  const live = await GET(
+    new Request('http://localhost/api/scores?year=2025&week=9&seasonType=regular&live=1')
+  );
+  assert.equal(
+    (await live.json()).items[0].home.score,
+    21,
+    'a live read reflects the cross-instance durable write'
+  );
+});
+
+test('a live=1 week read reconciles the week child with the -all- aggregate, so an admin correction wins over a stale child (PLATFORM-086B2B)', async () => {
+  const base = Date.now();
+  const gameRow = (score: number, stampedAt: number) => ({
+    at: stampedAt,
+    items: [
+      {
+        id: 'G',
+        week: 11,
+        status: 'STATUS_FINAL',
+        startDate: '2025-11-01T18:00:00Z',
+        home: { team: 'Alabama', score },
+        away: { team: 'Georgia', score: 7 },
+        time: 'Final',
+      },
+    ],
+    itemUpdatedAtById: { G: stampedAt },
+    source: 'cfbd' as const,
+    cfbdFallbackReason: 'none' as const,
+  });
+
+  // The live cron wrote a provisional final of 14-7 to the week child (older)...
+  await setAppState('scores', '2025-11-regular', gameRow(14, base - 5000));
+  // ...and an admin `refresh=1&aggregate=1` later CORRECTED it to 21-7 in the
+  // season aggregate (newer effective timestamp).
+  await setAppState('scores', '2025-all-regular', gameRow(21, base));
+  setMockFetch(async () => new Response('[]', { status: 200 }));
+
+  // A plain (non-live) week read serves only the stale week child — the bug's
+  // baseline...
+  const plain = await GET(
+    new Request('http://localhost/api/scores?year=2025&week=11&seasonType=regular')
+  );
+  assert.equal(
+    (await plain.json()).items[0].home.score,
+    14,
+    'a plain week read is the stale child'
+  );
+
+  // ...but a live read reconciles with the aggregate and serves the correction.
+  const live = await GET(
+    new Request('http://localhost/api/scores?year=2025&week=11&seasonType=regular&live=1')
+  );
+  const body = await live.json();
+  assert.equal(body.items.length, 1);
+  assert.equal(
+    body.items[0].home.score,
+    21,
+    'the admin aggregate correction wins over the stale week child'
+  );
+
+  // And the reverse: a fresher week child (the live cron caught up) wins over an
+  // older aggregate row.
+  await setAppState('scores', '2025-11-regular', gameRow(28, base + 5000));
+  const live2 = await GET(
+    new Request('http://localhost/api/scores?year=2025&week=11&seasonType=regular&live=1')
+  );
+  assert.equal(
+    (await live2.json()).items[0].home.score,
+    28,
+    'the fresher week child wins over the older aggregate'
+  );
+});
+
+test('a live=1 week read reconciles a canonical-week ALIAS child (postseason provider week 1 cached under canonical week 16) (PLATFORM-086B2B)', async () => {
+  const base = Date.now();
+  // A postseason game carries PROVIDER week 1; its row's `week` field is 1
+  // regardless of which key stored it.
+  const bowlRow = (score: number, stampedAt: number) => ({
+    at: stampedAt,
+    items: [
+      {
+        id: 'BOWL',
+        week: 1,
+        seasonType: 'postseason',
+        status: 'STATUS_IN_PROGRESS',
+        startDate: '2026-01-01T01:00:00Z',
+        home: { team: 'Alabama', score },
+        away: { team: 'Georgia', score: 3 },
+        time: 'Q3',
+      },
+    ],
+    itemUpdatedAtById: { BOWL: stampedAt },
+    source: 'cfbd' as const,
+    cfbdFallbackReason: 'none' as const,
+  });
+
+  // An OLDER copy under the provider-week child (what a 2-key read would serve)...
+  await setAppState('scores', '2026-1-postseason', bowlRow(7, base - 5000));
+  // ...and a FRESHER copy under the canonical-week alias child (week 16), which the
+  // season reconciler includes but a provider-week-only read would miss.
+  await setAppState('scores', '2026-16-postseason', bowlRow(14, base));
+  setMockFetch(async () => new Response('[]', { status: 200 }));
+
+  // The browser polls the provider week (1); the reconciled read must still find
+  // the fresher alias-child row.
+  const live = await GET(
+    new Request('http://localhost/api/scores?year=2026&week=1&seasonType=postseason&live=1')
+  );
+  const body = await live.json();
+  assert.equal(body.items.length, 1, 'the aliased game is found, not dropped');
+  assert.equal(
+    body.items[0].home.score,
+    14,
+    'the fresher canonical-week alias child wins — no divergence from the season view'
+  );
+});
+
 test('an empty CFBD payload when the canonical schedule shows started games is an unexpected-empty FAILURE', async () => {
   const startedKickoff = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
   await setAppState('schedule', '2026-all-all', {

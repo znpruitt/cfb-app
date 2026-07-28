@@ -199,8 +199,12 @@ test('pause/disabled are NOT shown for a non-consumed dataset (would imply a run
     latestAttemptOutcome: 'succeeded',
     lastSuccessAt: new Date(NOW).toISOString(),
   });
-  // scores is a planned/unconsumed dataset: a global pause must not relabel it.
-  assert.equal(summarize(s, { globalPause: true }).label, 'Successfully refreshed');
+  // conferences is a planned/unconsumed dataset: a global pause must not relabel
+  // it. (scores now DOES consume the toggle — PLATFORM-086B2B — so it would.)
+  assert.equal(
+    summarize(s, { globalPause: true, descriptor: conferences }).label,
+    'Successfully refreshed'
+  );
 });
 
 test('the stale window is per-dataset: a 5-day-old success is stale for scores but fresh for conferences (finding #8)', () => {

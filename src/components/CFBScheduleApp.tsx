@@ -232,10 +232,11 @@ export function resolveHighlightDrilldownNavigation(params: {
  *
  * Extracted as a pure predicate so it is unit-testable (the section itself only
  * mounts under effect-populated client state, which static rendering never
- * exercises). It intentionally includes `oddsSnapshotAt`: in the normal clean
- * state — scores complete, every game has odds, no issues — the section would
- * otherwise stay unmounted and the served-odds freshness label would never show
- * despite a valid timestamp (4th-review finding #5).
+ * exercises). It intentionally includes `oddsSnapshotAt` and `scoresSnapshotAt`:
+ * in the normal clean state — scores complete, every game has odds, no issues —
+ * the section would otherwise stay unmounted and a served-data freshness label
+ * would never show despite a valid timestamp (odds: 4th-review finding #5;
+ * scores: PLATFORM-086B2B).
  */
 export function shouldRenderLiveStatusSection(input: {
   loadingSchedule: boolean;
@@ -245,6 +246,7 @@ export function shouldRenderLiveStatusSection(input: {
   visibleScoresCount: number;
   oddsAvailabilitySummary: string | null;
   oddsSnapshotAt: string | null;
+  scoresSnapshotAt: string | null;
   userFacingLiveIssuesCount: number;
 }): boolean {
   return (
@@ -255,6 +257,7 @@ export function shouldRenderLiveStatusSection(input: {
       input.visibleScoresCount < input.visibleGames) ||
     (!input.loadingLive && input.oddsAvailabilitySummary != null) ||
     (!input.loadingLive && input.oddsSnapshotAt != null) ||
+    (!input.loadingLive && input.scoresSnapshotAt != null) ||
     input.userFacingLiveIssuesCount > 0
   );
 }
@@ -309,7 +312,23 @@ export default function CFBScheduleApp({
   const [loadingLive, setLoadingLive] = useState<boolean>(false);
   const [loadingSchedule, setLoadingSchedule] = useState<boolean>(false);
   const [issues, setIssues] = useState<string[]>(initialIssues);
-  const [lastScoresRefreshAt, setLastScoresRefreshAt] = useState<string>('');
+  // Two DISTINCT scores freshness signals (PLATFORM-086B2B):
+  //  - `scoresSnapshotAt`: durable `meta.generatedAt` of the contributing
+  //    partitions (last time a row materially changed). Drives the "Scores
+  //    updated …" data-freshness label. Null only at init/reset; a failed/empty
+  //    read preserves the prior value so it never regresses.
+  //  - `scoresObservedAt`: client time of the last CLEAN successful poll. Drives
+  //    live-overlay staleness — a poll that succeeds with an unchanged score
+  //    (halftime, delay) keeps the overlay fresh even though the snapshot does not
+  //    advance. Using the snapshot here would false-dim the overlay every halftime.
+  const [scoresSnapshotAt, setScoresSnapshotAt] = useState<string | null>(null);
+  const [scoresObservedAt, setScoresObservedAt] = useState<string | null>(null);
+  // Periodically-updated clock so the live overlay's time-based staleness
+  // re-evaluates even when scores/inputs are static (e.g. a network outage that
+  // leaves `scoresObservedAt` unchanged) — otherwise a fresh overlay would never
+  // flip stale (PLATFORM-086B2B). `0` until the client effect below arms it, which
+  // makes `useLiveDelta` fall back to `Date.now()` (SSR/first-render safe).
+  const [liveStaleClock, setLiveStaleClock] = useState<number>(0);
   const [oddsUsage, setOddsUsage] = useState<OddsUsageSnapshot | null>(null);
   // Freshness of the odds cache entry actually SERVED for the selected season
   // (rereview finding #2). Sourced from the odds response's own served-snapshot
@@ -365,7 +384,8 @@ export default function CFBScheduleApp({
     setOddsByKey({});
     setScoresByKey({});
     setIssues([]);
-    setLastScoresRefreshAt('');
+    setScoresSnapshotAt(null);
+    setScoresObservedAt(null);
     setOddsUsage(null);
     setOddsSnapshotAt(null);
     setRankings(null);
@@ -766,6 +786,18 @@ export default function CFBScheduleApp({
     ]
   );
 
+  // Heartbeat so the live overlay's time-based staleness re-evaluates even when
+  // scores/inputs are static — e.g. a network outage that stops updating
+  // `scoresObservedAt` must still let `isStale` flip after the threshold, not
+  // leave the overlay marked fresh forever (PLATFORM-086B2B). Client-only; armed
+  // once per loaded schedule; `0` until then so useLiveDelta uses Date.now().
+  useEffect(() => {
+    if (!scheduleLoaded) return;
+    setLiveStaleClock(Date.now());
+    const id = window.setInterval(() => setLiveStaleClock(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, [scheduleLoaded]);
+
   const liveDeltaWeekKey = `${selectedSeason}:${selectedWeek ?? 'all'}`;
   const liveDelta = useLiveDelta({
     canonical: canonicalStandings ?? null,
@@ -773,7 +805,11 @@ export default function CFBScheduleApp({
     games,
     rosterByTeam,
     currentWeekKey: liveDeltaWeekKey,
-    lastScoresFetchedAt: lastScoresRefreshAt || null,
+    // Overlay staleness is driven by the last successful OBSERVATION, not the
+    // durable snapshot (which would false-dim during halftime/delays).
+    lastScoresFetchedAt: scoresObservedAt,
+    // Ticking clock (0 → Date.now() fallback) so staleness re-evaluates over time.
+    nowTick: liveStaleClock || undefined,
   });
 
   const selectedRankingsWeek = useMemo(
@@ -1001,6 +1037,7 @@ export default function CFBScheduleApp({
     games,
     visibleGames,
     scoreScopeGames,
+    scoresByKey,
     // Effective resolver map so live score/odds attachment matches server
     // canonical identity (the stored league map drives the editor only).
     aliasMap: effectiveAliasMap,
@@ -1013,7 +1050,8 @@ export default function CFBScheduleApp({
     setScoresByKey,
     setOddsUsage,
     setOddsSnapshotAt,
-    setLastScoresRefreshAt,
+    setScoresSnapshotAt,
+    setScoresObservedAt,
     loadingLive,
     setLoadingLive,
     isDebug: IS_DEBUG,
@@ -1570,6 +1608,7 @@ export default function CFBScheduleApp({
             visibleScoresCount,
             oddsAvailabilitySummary,
             oddsSnapshotAt,
+            scoresSnapshotAt,
             userFacingLiveIssuesCount: userFacingLiveIssues.length,
           }) ? (
             <section className="space-y-1">
@@ -1595,6 +1634,17 @@ export default function CFBScheduleApp({
                   <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
                     {oddsAvailabilitySummary}
                   </span>
+                ) : null}
+                {!loadingLive && scoresSnapshotAt ? (
+                  // Subtle scores data-freshness (PLATFORM-086B2B): the served
+                  // scores cache's last materially-changed timestamp. This is the
+                  // DATA-freshness signal (distinct from the live-overlay staleness,
+                  // which tracks successful observation) — honest "as of" recency.
+                  <FreshnessLabel
+                    timestamp={scoresSnapshotAt}
+                    label="Scores"
+                    className="self-center"
+                  />
                 ) : null}
                 {!loadingLive && oddsSnapshotAt ? (
                   // Subtle, dataset-specific freshness (PLATFORM-086A): the SERVED

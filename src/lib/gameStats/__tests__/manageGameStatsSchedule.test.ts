@@ -632,11 +632,14 @@ test('inspect/upsert/pause/resume touch only /v2/schedules management endpoints'
 });
 
 test('the CLI never mints a delete request', () => {
-  // There is deliberately no buildDeleteRequest export and no DELETE method used.
-  const src = readFileSync(
-    path.join(REPO_ROOT, 'scripts', 'manage-game-stats-schedule.ts'),
-    'utf8'
-  );
-  assert.ok(!/method:\s*'DELETE'/.test(src), 'no DELETE mutation');
-  assert.ok(!/buildDeleteRequest/.test(src), 'no delete action');
+  // There is deliberately no buildDeleteRequest export and no DELETE method used —
+  // neither in the job script nor in the shared policy module it binds.
+  for (const rel of [
+    ['scripts', 'manage-game-stats-schedule.ts'],
+    ['scripts', 'lib', 'qstashSchedule.ts'],
+  ]) {
+    const src = readFileSync(path.join(REPO_ROOT, ...rel), 'utf8');
+    assert.ok(!/method:\s*'DELETE'/.test(src), `no DELETE mutation in ${rel.join('/')}`);
+    assert.ok(!/buildDeleteRequest/.test(src), `no delete action in ${rel.join('/')}`);
+  }
 });

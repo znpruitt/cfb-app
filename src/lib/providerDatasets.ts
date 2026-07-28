@@ -63,9 +63,10 @@ export type ProviderDatasetDescriptor = {
   lifecycleCritical: boolean;
   /**
    * Whether an EXISTING automatic job consumes this dataset's auto-refresh
-   * enable/disable setting in this task. Only `game-stats` does today; the
-   * others persist a setting that future 086B–086E jobs will consume. The panel
-   * uses this to avoid implying a toggle has an effect it does not yet have.
+   * enable/disable setting in this task. `game-stats` and `scores` (its live-score
+   * cron, PLATFORM-086B2B) do today; the others persist a setting that future
+   * 086C–086E jobs will consume. The panel uses this to avoid implying a toggle
+   * has an effect it does not yet have.
    */
   autoRefreshSettingConsumed: boolean;
   /**
@@ -84,14 +85,16 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     dataset: 'scores',
     label: 'Scores',
     provider: 'CFBD',
-    hasActiveAutomation: false,
-    currentAutomation: 'Manual admin refresh only — no automatic job today.',
+    hasActiveAutomation: true,
+    currentAutomation:
+      'Every 3 minutes (QStash `turfwar-live-scores-3m` → GET /api/cron/live-scores): schedule-armed, polling only kickoff-window games (~15 min before kickoff through 24 h after) while they remain unresolved — at most ONE billed CFBD /scoreboard or /games request per run, above the 1,000-call monthly reserve, honoring the global pause and the Scores auto-refresh toggle. Visible browser tabs refresh scores cache-only on the same 3-minute cadence while a live game is in window.',
     plannedPolicy:
-      'The schedule-armed live-score polling ENGINE shipped in PLATFORM-086B1 but is dormant: no scheduler invokes it. PLATFORM-086B2 activates it (QStash schedule + cache-only browser refresh) — schedule-armed polling while kickoff-window games remain unresolved.',
+      'Active (PLATFORM-086B2B): fixed 3-minute schedule-armed cadence — the QStash schedule + browser refresh are version-controlled, not admin-editable; the auto-refresh toggle pauses/resumes the polling.',
     lifecycleCritical: false,
-    autoRefreshSettingConsumed: false,
+    autoRefreshSettingConsumed: true,
     // Near-live during a slate; 2 days tolerates the offseason gap without holding
-    // an in-season stall fresh for long.
+    // an in-season stall fresh for long. (The admin card's canonical status surface
+    // stays year-scoped pending PLATFORM-086F2, so this broad threshold is retained.)
     staleAfterMs: 2 * DAY_MS,
   },
   schedule: {

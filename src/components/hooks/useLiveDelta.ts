@@ -18,6 +18,15 @@ export type UseLiveDeltaInput = {
   /** ISO timestamp (or any `Date`-parseable string) of the last successful
    *  scores fetch. `null` when scores have not yet been fetched. */
   lastScoresFetchedAt: string | null;
+  /**
+   * A periodically-updated `Date.now()` sample (PLATFORM-086B2B). `selectLiveDelta`
+   * derives `isStale` from `now - lastFetchedAt`, but the memo below recomputes
+   * only when its inputs change — so with static scores (e.g. a network outage
+   * that leaves `lastScoresFetchedAt` and scores unchanged) `isStale` would never
+   * flip. Passing a ticking `now` re-evaluates staleness over time. Omit (or `0`)
+   * to fall back to `Date.now()` at memo time (non-reactive).
+   */
+  nowTick?: number;
 };
 
 /**
@@ -36,6 +45,8 @@ export function useLiveDelta(input: UseLiveDeltaInput): LiveDelta {
         rosterByTeam: input.rosterByTeam,
         weekKey: input.currentWeekKey,
         lastFetchedAt: input.lastScoresFetchedAt,
+        // `undefined` (no tick yet) lets selectLiveDelta fall back to Date.now().
+        now: input.nowTick,
       }),
     [
       input.canonical,
@@ -44,6 +55,7 @@ export function useLiveDelta(input: UseLiveDeltaInput): LiveDelta {
       input.rosterByTeam,
       input.currentWeekKey,
       input.lastScoresFetchedAt,
+      input.nowTick,
     ]
   );
 }

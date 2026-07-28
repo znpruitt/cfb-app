@@ -158,22 +158,28 @@ test('POST set-global-pause persists and is reflected on the next GET', async ()
   assert.equal(body.globalPause, true);
 });
 
-test('POST set-dataset-enabled persists for a CONSUMED dataset (game-stats)', async () => {
-  const postRes = await POST(
-    postRequest({ action: 'set-dataset-enabled', dataset: 'game-stats', enabled: false })
-  );
-  assert.equal(postRes.status, 200, await postRes.text());
+test('POST set-dataset-enabled persists for CONSUMED datasets (game-stats, scores)', async () => {
+  // Both datasets with an EXISTING automatic job that consumes the toggle:
+  // game-stats (PLATFORM-086H3E) and scores (PLATFORM-086B2B live-score cron).
+  for (const dataset of ['game-stats', 'scores']) {
+    const postRes = await POST(
+      postRequest({ action: 'set-dataset-enabled', dataset, enabled: false })
+    );
+    assert.equal(postRes.status, 200, await postRes.text());
 
-  const getRes = await GET(getRequest());
-  const body = (await getRes.json()) as {
-    datasets: Array<{ dataset: string; setting: { enabled: boolean } }>;
-  };
-  const gameStats = body.datasets.find((d) => d.dataset === 'game-stats');
-  assert.equal(gameStats?.setting.enabled, false);
+    const getRes = await GET(getRequest());
+    const body = (await getRes.json()) as {
+      datasets: Array<{ dataset: string; setting: { enabled: boolean } }>;
+    };
+    const row = body.datasets.find((d) => d.dataset === dataset);
+    assert.equal(row?.setting.enabled, false, dataset);
+  }
 });
 
 test('POST set-dataset-enabled is REJECTED for a planned/unconsumed dataset (finding #7)', async () => {
-  for (const dataset of ['scores', 'odds', 'rankings', 'conferences']) {
+  // `scores` is no longer here — its live-score cron (PLATFORM-086B2B) now
+  // consumes the toggle, so it is exercised by the CONSUMED-dataset test above.
+  for (const dataset of ['odds', 'rankings', 'conferences']) {
     const res = await POST(postRequest({ action: 'set-dataset-enabled', dataset, enabled: false }));
     assert.equal(res.status, 400, `${dataset} toggle must be rejected as not-yet-active`);
     const body = (await res.json()) as { error: string };
