@@ -17,7 +17,10 @@ import {
   __deleteOddsUsageStoreFileForTests,
   __resetOddsUsageStoreForTests,
 } from '../../../../lib/server/oddsUsageStore.ts';
-import { acquireOddsRefreshLease } from '../../../../lib/odds/refreshLease.ts';
+import {
+  acquireOddsRefreshLease,
+  readOddsRefreshControl,
+} from '../../../../lib/odds/refreshLease.ts';
 import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
 import { oddsTargetScope } from '../../../../lib/providerRefreshScope.ts';
 import { PROVIDER_DATASET_DESCRIPTORS } from '../../../../lib/providerDatasets.ts';
@@ -211,6 +214,47 @@ test('convergence #6: a filtered refresh never seeds the canonical durable store
     assert.equal(res.status, 200);
     // The canonical durable per-game store must remain untouched by a filtered refresh.
     assert.equal(await getAppState('durable-odds:2026', 'store'), null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('remediation: a post-commit failure after a valid no-op does not bill the lease backoff', async () => {
+  const originalFetch = global.fetch;
+  const seasonScopedKey = defaultOddsCacheKey(SEASON);
+  // The provider returns a valid EMPTY payload (a no-op commit), then the
+  // response-building schedule fetch (after the empty commit) fails — a throw on
+  // the tail AFTER the attempt already resolved as a no-op.
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.pathname === '/api/schedule') {
+      return new Response('boom', { status: 500 });
+    }
+    if (url.pathname === '/api/conferences') {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify([]), {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-requests-used': '5',
+        'x-requests-remaining': '495',
+        'x-requests-last': '0',
+      },
+    });
+  }) as typeof fetch;
+  try {
+    const res = await GET(new Request(`http://localhost/api/odds?year=${SEASON}&refresh=1`));
+    assert.equal(res.status, 500); // the tail schedule fetch failed
+    // The lease resolved as the recorded no-op — backoff RESET, completed-check
+    // recorded — NOT reclassified to a billed failure by the catch.
+    const control = await readOddsRefreshControl(seasonScopedKey);
+    assert.equal(control?.automaticFailureCount, 0);
+    assert.ok(control?.lastCompletedCheckAt);
+    assert.equal(control?.lease, null);
   } finally {
     global.fetch = originalFetch;
   }

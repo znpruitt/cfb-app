@@ -431,50 +431,57 @@ async function commitEmptyOddsRefresh(params: {
 }): Promise<SharedOddsCacheEntry | undefined> {
   const { seasonScopedKey, season, isCanonical, usage, observationAt } = params;
   const evidence = await gatherEmptyOddsScheduleEvidence(season);
-  return withAppStateKeyTransaction<SharedOddsCacheEntry | undefined>(
-    ODDS_CACHE_SCOPE,
-    seasonScopedKey,
-    async (txn) => {
-      const priorStored = (await txn.read<SharedOddsCacheEntry>())?.value;
-      const priorEntry = pickFreshestOddsFallback(oddsCache.entries[seasonScopedKey], priorStored);
-      const classification = classifyEmptyOddsResponse({
-        priorEvents: priorEntry?.data ?? [],
-        scheduleItems: evidence.scheduleItems,
-        resolver: evidence.resolver,
-        // Positive schedule expectation is canonical-only; the schedule still
-        // exculpates stale prior events for filtered targets.
-        includeScheduleExpectation: isCanonical,
-        now: Date.now(),
-      });
-      if (classification.kind === 'unexpected-empty') {
-        throw new OddsPayloadError(
-          'odds-empty-unexpected',
-          `odds ${season}: provider returned 0 events but odds are expected for this target ` +
-            `(prior upcoming events: ${classification.priorUpcomingEventCount}, ` +
-            `schedule games within 7 days: ${classification.nearHorizonGameCount}); ` +
-            `prior-good data retained`
-        );
-      }
-
-      const priorHasData = (priorEntry?.data.length ?? 0) > 0;
-      const replaceProvablyObsoleteRows = priorHasData && classification.priorRowsProvablyObsolete;
-      // The txn read SUCCEEDED to reach here (a read failure would have thrown and
-      // rolled the transaction back), so committing an empty entry never overwrites
-      // an unreadable durable entry.
-      if (!priorHasData || replaceProvablyObsoleteRows) {
-        const emptyEntry: SharedOddsCacheEntry = {
-          data: [],
-          lastFetch: Date.now(),
-          usage,
-          observedAt: observationAt,
-        };
-        await txn.write(emptyEntry);
-        oddsCache.entries[seasonScopedKey] = emptyEntry;
-        return emptyEntry;
-      }
-      return priorEntry ?? oddsCache.entries[seasonScopedKey];
+  const result = await withAppStateKeyTransaction<{
+    wrote: boolean;
+    entry: SharedOddsCacheEntry | undefined;
+  }>(ODDS_CACHE_SCOPE, seasonScopedKey, async (txn) => {
+    const priorStored = (await txn.read<SharedOddsCacheEntry>())?.value;
+    const priorEntry = pickFreshestOddsFallback(oddsCache.entries[seasonScopedKey], priorStored);
+    const classification = classifyEmptyOddsResponse({
+      priorEvents: priorEntry?.data ?? [],
+      scheduleItems: evidence.scheduleItems,
+      resolver: evidence.resolver,
+      // Positive schedule expectation is canonical-only; the schedule still
+      // exculpates stale prior events for filtered targets.
+      includeScheduleExpectation: isCanonical,
+      now: Date.now(),
+    });
+    if (classification.kind === 'unexpected-empty') {
+      throw new OddsPayloadError(
+        'odds-empty-unexpected',
+        `odds ${season}: provider returned 0 events but odds are expected for this target ` +
+          `(prior upcoming events: ${classification.priorUpcomingEventCount}, ` +
+          `schedule games within 7 days: ${classification.nearHorizonGameCount}); ` +
+          `prior-good data retained`
+      );
     }
-  );
+
+    const priorHasData = (priorEntry?.data.length ?? 0) > 0;
+    const replaceProvablyObsoleteRows = priorHasData && classification.priorRowsProvablyObsolete;
+    // The txn read SUCCEEDED to reach here (a read failure would have thrown and
+    // rolled the transaction back), so committing an empty entry never overwrites
+    // an unreadable durable entry.
+    if (!priorHasData || replaceProvablyObsoleteRows) {
+      const emptyEntry: SharedOddsCacheEntry = {
+        data: [],
+        lastFetch: Date.now(),
+        usage,
+        observedAt: observationAt,
+      };
+      await txn.write(emptyEntry);
+      return { wrote: true, entry: emptyEntry };
+    }
+    return { wrote: false, entry: priorEntry ?? oddsCache.entries[seasonScopedKey] };
+  });
+
+  // Publish the process cache ONLY after the confirmed commit (mirrors the
+  // canonical/filtered commit functions): a finalize failure that rolled the
+  // durable write back must never leave the process cache serving a "fresh"
+  // empty entry that no instance can durably reproduce (review remediation).
+  if (result.wrote && result.entry) {
+    oddsCache.entries[seasonScopedKey] = result.entry;
+  }
+  return result.entry;
 }
 
 export async function GET(req: Request): Promise<Response> {
@@ -952,7 +959,11 @@ export async function GET(req: Request): Promise<Response> {
   } catch (e) {
     // A provider/payload/durable-commit failure is a BILLED-provider failure and
     // advances the automatic backoff; a failure before the `/odds` call is not.
-    if (providerCallAttempted) leaseResolution = 'billed-failure';
+    // Only reclassify when the attempt was NOT already resolved as success/no-op:
+    // a post-commit throw on the response-building tail (e.g. schedule build for
+    // item selection after an empty/filtered attempt already committed) must not
+    // overwrite a recorded success/no-op with a billed failure (review remediation).
+    if (providerCallAttempted && !oddsAttemptResolved) leaseResolution = 'billed-failure';
     // Attribute the failure to the odds refresh only when a refresh was actually
     // attempted and no success/no-op was recorded (PLATFORM-086A). Public
     // cache-only reads that throw are not refresh attempts.
