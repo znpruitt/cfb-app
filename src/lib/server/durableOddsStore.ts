@@ -1,7 +1,18 @@
 import type { DurableOddsRecord } from '../odds.ts';
 import { deleteAppState, getAppState, setAppState } from './appStateStore.ts';
 
-let memoryStore = new Map<number, Record<string, DurableOddsRecord> | undefined>();
+/**
+ * The process memo is BOUNDED (PLATFORM-086C2): each season's cached store carries
+ * the time it was cached, and a read older than {@link ODDS_MEMO_TTL_MS} re-reads
+ * durable storage. This closes the C1 best-effort limitation so a cross-instance
+ * cron commit becomes visible to a public reader on another Vercel instance within
+ * the same 120-second window the raw odds cache already revalidates on — without
+ * any provider request or durable write.
+ */
+export const ODDS_MEMO_TTL_MS = 120_000;
+
+type OddsMemoEntry = { store: Record<string, DurableOddsRecord>; at: number };
+let memoryStore = new Map<number, OddsMemoEntry>();
 let seasonWriteQueue = new Map<number, Promise<void>>();
 
 async function runSeasonScopedMutation<T>(season: number, task: () => Promise<T>): Promise<T> {
@@ -59,13 +70,20 @@ async function writeStoreFile(
 }
 
 export async function getDurableOddsStore(
-  season: number
+  season: number,
+  opts: { forceDurableRead?: boolean; now?: number } = {}
 ): Promise<Record<string, DurableOddsRecord>> {
+  const now = opts.now ?? Date.now();
   const cached = memoryStore.get(season);
-  if (cached !== undefined) return cached;
-
+  // A fresh memo is the fast path; a memo older than the TTL (or an explicit
+  // forced read, used when the caller already knows its raw entry was durably
+  // refreshed) re-reads durable so a cross-instance write cannot be masked
+  // indefinitely. A durable read FAILURE propagates — never treated as absence.
+  if (!opts.forceDurableRead && cached !== undefined && now - cached.at < ODDS_MEMO_TTL_MS) {
+    return cached.store;
+  }
   const loaded = await readStoreFile(season);
-  memoryStore.set(season, loaded);
+  memoryStore.set(season, { store: loaded, at: now });
   return loaded;
 }
 
@@ -78,7 +96,7 @@ export async function setDurableOddsStore(
     // memoryStore so a failed durable write leaves memory reflecting the last
     // durable state, never a process-only version other instances can't read.
     await writeStoreFile(season, store);
-    memoryStore.set(season, store);
+    memoryStore.set(season, { store, at: Date.now() });
   });
 }
 
@@ -99,14 +117,14 @@ export async function updateDurableOddsStore(
   return await runSeasonScopedMutation(season, async () => {
     const current = await readStoreFile(season);
     // Cache the freshly-read durable value; safe because it equals durable.
-    memoryStore.set(season, current);
+    memoryStore.set(season, { store: current, at: Date.now() });
 
     const next = await updater({ ...current });
     // Durable-first (PLATFORM-085A): commit `next` durably BEFORE publishing it
     // to the process memoryStore. If the write throws, memory still holds
     // `current` (the last durable state) rather than an unpersisted `next`.
     await writeStoreFile(season, next);
-    memoryStore.set(season, next);
+    memoryStore.set(season, { store: next, at: Date.now() });
     return next;
   });
 }
@@ -138,13 +156,14 @@ export async function upsertDurableOddsRecords(
  */
 export function primeDurableOddsStoreMemory(
   season: number,
-  store: Record<string, DurableOddsRecord>
+  store: Record<string, DurableOddsRecord>,
+  now: number = Date.now()
 ): void {
-  memoryStore.set(season, store);
+  memoryStore.set(season, { store, at: now });
 }
 
 export function __resetDurableOddsStoreForTests(): void {
-  memoryStore = new Map<number, Record<string, DurableOddsRecord> | undefined>();
+  memoryStore = new Map<number, OddsMemoEntry>();
   seasonWriteQueue = new Map<number, Promise<void>>();
 }
 
