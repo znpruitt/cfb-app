@@ -13,7 +13,7 @@ import {
   recordRouteCacheMiss,
   recordRouteRequest,
 } from '@/lib/server/apiUsageBudget';
-import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { getAppState, withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 import { scoresAggregateScope, scoresPartitionScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
@@ -31,6 +31,7 @@ import {
   classifyEmptyScoresResponse,
   type ScheduleScoreEvidenceItem,
 } from '@/lib/scores/emptyScoresClassifier';
+import { mergeManualPartition } from '@/lib/scores/manualPartitionMerge';
 import { seasonYearForToday, toScorePackFromCfbd } from '@/lib/scores/normalizers';
 import { loadCachedScheduleItems } from '@/lib/server/canonicalScheduleCache';
 import type {
@@ -321,14 +322,33 @@ async function refreshScorePartition(params: {
     }
 
     const items: ScorePack[] = [];
+    let sawIdlessRow = false;
     for (const game of rawGames) {
       const pack = toScorePackFromCfbd(game);
-      if (pack) items.push(pack);
+      if (!pack) continue;
+      if (!pack.id?.trim()) {
+        sawIdlessRow = true;
+        continue;
+      }
+      items.push(pack);
     }
 
     if (rawGames.length > 0 && items.length === 0) {
       throw new Error(
         `scores ${seasonType} ${year}: provider returned ${rawGames.length} rows but none normalized to a valid score (schema drift)`
+      );
+    }
+
+    // A row that normalized but carries NO provider game id makes the partition
+    // unaddressable for the id-keyed locked merge (PLATFORM-086B2A). Dropping only
+    // that row and committing the rest would be an INCOMPLETE authoritative
+    // replacement that silently DELETES the prior-good score for the dropped game.
+    // Treat ANY id-less normalized row as partition uncertainty (schema drift),
+    // preserving all prior-good data rather than publishing an incomplete replacement.
+    if (sawIdlessRow) {
+      throw new Error(
+        `scores ${seasonType} ${year}: provider returned a normalized row without a game id ` +
+          `(partition uncertainty); prior-good data retained`
       );
     }
 
@@ -393,19 +413,29 @@ async function refreshScorePartition(params: {
       return { kind: 'noop', seasonType };
     }
 
-    const nextEntry: CacheEntry = {
-      at: now,
-      items,
-      source: 'cfbd',
-      cfbdFallbackReason: 'none',
-    };
-    // Durable-first commit order (PLATFORM-085A): persist BEFORE the process cache
-    // and standings invalidation; a failed durable write returns a failure below
-    // and preserves prior-good data.
-    await setAppState('scores', cacheKey, nextEntry);
+    // Durable-first commit (PLATFORM-085A) — now under the SAME per-key advisory
+    // transaction the live-score engine uses (PLATFORM-086B2A), so a manual repair
+    // and a concurrent live merge on this exact `scores/<cacheKey>` can no longer
+    // clobber each other. The CFBD fetch/normalization above ran OUTSIDE the
+    // transaction (no lock held during network work); inside it we read the prior
+    // partition and merge with authoritative-replacement semantics, preserving only
+    // rows a later live update already committed (effective timestamp > this
+    // request's observation `now`). A transaction failure THROWS and is caught
+    // below as a refresh failure — the process cache, standings, and success
+    // metadata are updated ONLY after the durable commit succeeds.
+    const committedEntry = await withAppStateKeyTransaction<CacheEntry>(
+      'scores',
+      cacheKey,
+      async (txn) => {
+        const prior = (await txn.read<CacheEntry>())?.value ?? null;
+        const merged = mergeManualPartition({ manualItems: items, prior, now });
+        await txn.write(merged);
+        return merged;
+      }
+    );
     const committedAt = new Date().toISOString();
     const commitSeq = nextProviderCommitSeq();
-    SCORES_CACHE[cacheKey] = nextEntry;
+    SCORES_CACHE[cacheKey] = committedEntry;
     await invalidateStandingsForYear(year);
     pruneScoresCache(SCORES_CACHE, MAX_CACHE_ENTRIES, (evicted, cacheSize) => {
       if (IS_DEBUG) {
@@ -417,7 +447,7 @@ async function refreshScorePartition(params: {
         });
       }
     });
-    return { kind: 'success', seasonType, items, committedAt, commitSeq };
+    return { kind: 'success', seasonType, items: committedEntry.items, committedAt, commitSeq };
   } catch (error) {
     const cfbdFallbackReason = mapCfbdErrorToReason(error);
     if (error instanceof UpstreamFetchError) {

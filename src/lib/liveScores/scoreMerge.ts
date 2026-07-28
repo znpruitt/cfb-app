@@ -33,15 +33,15 @@ import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
  * and freshness is never fabricated. Nothing is written when neither a score nor
  * the confirmation metadata changed, and an empty replacement is never published.
  *
- * KNOWN DEFERRAL (PLATFORM-086B2): this transaction serializes against OTHER
- * `withAppStateKeyTransaction` writers of the same child key, but NOT against the
- * `/api/scores?refresh=1` manual-repair path, which still writes the partition via
- * a plain `setAppState` upsert that does not honor the advisory lock. A manual
- * week-specific repair overlapping live polling could therefore interleave and
- * drop the other writer's rows. The race is inert while this engine is dormant
- * (no scheduler) and self-heals on the next poll/refresh; unifying every scores
- * writer onto the locked protocol is deferred to the B2 activation slice so B1
- * leaves the manual-refresh behavior unchanged.
+ * Writer convergence (PLATFORM-086B2A): every production writer of a
+ * `scores/<year>-<week>-<seasonType>` key now participates in THIS same per-key
+ * advisory transaction — the `/api/scores?refresh=1` manual repair commits through
+ * `mergeManualPartition` under `withAppStateKeyTransaction` too, so a manual repair
+ * and a live merge can no longer clobber each other on a shared key. The two paths
+ * keep DIFFERENT merge policies (the manual path is authoritative partition
+ * replacement, protecting only rows a later live update already committed; the live
+ * path here preserves prior-good rows and applies monotonic protection) but share
+ * the same lock and the same per-row effective-timestamp ordering.
  */
 
 export type ScoreUpdate = {

@@ -1,0 +1,174 @@
+import { classifyScorePackStatus } from '../gameStatus.ts';
+import { effectiveRowTimestamp, type CacheEntry } from './cache.ts';
+import type { ScorePack } from './types.ts';
+
+/** A complete, terminal final: classified `final` with BOTH scores present. */
+function isCompleteFinal(pack: ScorePack): boolean {
+  return (
+    classifyScorePackStatus(pack) === 'final' &&
+    pack.home.score !== null &&
+    pack.away.score !== null
+  );
+}
+
+/**
+ * Rank along the linear game-state progression scheduled(0) → in-progress(1) →
+ * final(2). Disrupted (canceled/postponed) is NOT part of the linear advance and
+ * returns null, so it never drives an override in either direction.
+ */
+function monotonicRank(pack: ScorePack): 0 | 1 | 2 | null {
+  switch (classifyScorePackStatus(pack)) {
+    case 'scheduled':
+      return 0;
+    case 'inprogress':
+      return 1;
+    case 'final':
+      return 2;
+    default:
+      return null;
+  }
+}
+
+/**
+ * PLATFORM-086B2A — merge an authorized manual `/games` partition refresh onto the
+ * prior-good durable entry, to be committed under the SAME advisory-locked
+ * transaction the live-score engine (PLATFORM-086B1) uses. Placing both writers
+ * on the shared `scores/<year>-<week>-<seasonType>` lock closes the B1-deferred
+ * concurrency gap where a plain `setAppState` upsert could clobber (or be
+ * clobbered by) a concurrent live merge.
+ *
+ * Merge policy — the manual `/games` response is AUTHORITATIVE partition
+ * replacement; it is NOT converted into the live engine's preserve-missing-rows
+ * merge. The concurrency exception: a prior row whose EFFECTIVE per-row timestamp
+ * POST-DATES the manual request's observation/start time is a live update that
+ * landed after this manual request began, so it is PRESERVED — a slow manual
+ * request never overwrites a later live update. The exception to THAT exception is
+ * monotonic state authority: a game's state only ADVANCES (scheduled → in-progress
+ * → final), so when the authoritative `/games` response reports a strictly HIGHER
+ * state than a newer live row (e.g. `/games` in-progress over a live scheduled, or a
+ * complete final over a live in-progress), the manual row overrides the live row —
+ * the live scoreboard is simply behind, and a higher state cannot be stale relative
+ * to a lower one regardless of timestamp. A final override additionally requires
+ * both scores (an incomplete final is not a usable authoritative final); disrupted
+ * states do not participate in the linear progression and never trigger an override.
+ * Accepted manual rows are stamped with the observation time (an override is stamped
+ * at least as fresh as the live row it supersedes); preserved live rows keep theirs.
+ * Pending-final confirmation metadata survives for a protected newer live row ONLY
+ * while it is still unconfirmed — a manual `/games` complete final for that game IS
+ * its authoritative confirmation and clears it (spec point 7); every id the manual
+ * response resolves directly is likewise never pending.
+ */
+export function mergeManualPartition(params: {
+  manualItems: ScorePack[];
+  prior: CacheEntry | null;
+  /** The manual request's observation/start time (ms). */
+  now: number;
+}): CacheEntry {
+  const { manualItems, prior, now } = params;
+
+  type MergedRow = { item: ScorePack; at: number; source: 'manual' | 'live-protected' };
+  const manualById = new Map<string, ScorePack>();
+  const byId = new Map<string, MergedRow>();
+
+  // The manual response is the authoritative base, stamped at the observation time.
+  // A row without a provider game id is UNUSABLE for this id-keyed locked merge: it
+  // cannot dedup against or protect a keyed live row, and (having no per-row stamp)
+  // would fall back to the bumped entry `at` and outrank a protected live row in
+  // reconciliation. Such rows are rejected upstream in the manual normalization, and
+  // dropped defensively here.
+  for (const item of manualItems) {
+    const id = item.id?.trim();
+    if (!id) continue;
+    manualById.set(id, item);
+    byId.set(id, { item, at: now, source: 'manual' });
+  }
+
+  const priorPending = new Set(
+    (prior?.pendingFinalConfirmationIds ?? []).filter(
+      (value): value is string => typeof value === 'string' && value.trim().length > 0
+    )
+  );
+
+  // Protect newer live rows: a prior row whose effective timestamp post-dates the
+  // manual observation is a later live update and overrides the manual row —
+  // UNLESS the authoritative `/games` response reports a complete final for a live
+  // row that has not itself reached final (a terminal state a live poll cannot
+  // supersede), in which case the manual final wins.
+  if (prior) {
+    for (const priorItem of prior.items) {
+      const id = priorItem.id?.trim();
+      if (!id) continue;
+      const priorEffective = effectiveRowTimestamp(prior, priorItem);
+      // Protect a live row at least as new as the manual observation. The `>=`
+      // (not `>`) is deliberate: the advisory lock serializes commits but not
+      // same-millisecond observation timestamps, so on a tie the live row (which
+      // committed first) is preserved rather than letting a stale manual snapshot
+      // regress it (e.g. in-progress → scheduled).
+      if (priorEffective < now) continue; // strictly older → manual is authoritative
+      const manualItem = manualById.get(id);
+      const liveRank = monotonicRank(priorItem);
+      const manualRank = manualItem ? monotonicRank(manualItem) : null;
+      // Override only on a strict monotonic ADVANCE (a game cannot regress), and a
+      // final advance must carry both scores. Neither side being disrupted (null
+      // rank) participates, so the newer live row is preserved.
+      const manualAdvances =
+        manualRank !== null &&
+        liveRank !== null &&
+        manualRank > liveRank &&
+        (manualRank !== 2 || isCompleteFinal(manualItem!));
+      if (manualAdvances) {
+        // Stamp at least as fresh as the live row it supersedes so the reconciler
+        // serves the authoritative advanced state.
+        byId.set(id, { item: manualItem!, at: Math.max(now, priorEffective), source: 'manual' });
+      } else {
+        byId.set(id, { item: priorItem, at: priorEffective, source: 'live-protected' });
+      }
+    }
+  }
+
+  const items: ScorePack[] = [];
+  const itemUpdatedAtById: Record<string, number> = {};
+  const nextPending = new Set<string>();
+  for (const [id, { item, at, source }] of byId) {
+    items.push(item);
+    itemUpdatedAtById[id] = at;
+    // A preserved live final's pending marker clears ONLY when the manual `/games`
+    // complete final CONFIRMS THE SAME score. A DIFFERING `/games` final is a
+    // discrepancy we cannot safely resolve here — this manual observation predates
+    // the newer live final and may be stale (a scoreboard correction the manual
+    // fetch missed), so the (newer) live final is kept but pending is RETAINED,
+    // leaving the live engine's own fresh reconciliation to resolve it rather than
+    // marking a possibly-wrong score confirmed. Manual rows (including terminal-final
+    // overrides of a non-final live row) are authoritatively resolved and never pending.
+    if (source === 'live-protected' && priorPending.has(id)) {
+      const manualItem = manualById.get(id);
+      const confirmsSameFinal =
+        manualItem != null &&
+        isCompleteFinal(manualItem) &&
+        manualItem.home.score === item.home.score &&
+        manualItem.away.score === item.away.score;
+      if (!confirmsSameFinal) nextPending.add(id);
+    }
+  }
+
+  return {
+    // Monotonic entry VERSION (PLATFORM-086B2A). The week-scoped `/api/scores`
+    // reader selects between a process-cached and a durable entry SOLELY by `at`,
+    // so the enclosing `at` must never move BACKWARD past a prior entry this merge
+    // read over. When a live merge committed after the manual request began, the
+    // prior durable entry's `at` is newer than the manual observation `now`; using
+    // `now` here would let another instance holding that newer live entry keep
+    // serving pre-manual values indefinitely (past TTL, the `pickFreshestScoresEntry`
+    // comparison would prefer the cached live copy). Bump strictly past the prior
+    // entry's `at`. The per-row `itemUpdatedAtById` stamps still drive the season
+    // reconciler (accepted manual rows keep their observation time), so this version
+    // bump never fabricates row-level freshness; the invariant `entry.at >= every
+    // row stamp` (held by both writers) keeps `at` at least as new as its content.
+    at: prior ? Math.max(now, prior.at + 1) : now,
+    items,
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+    itemUpdatedAtById,
+    ...(nextPending.size > 0 ? { pendingFinalConfirmationIds: [...nextPending].sort() } : {}),
+  };
+}
