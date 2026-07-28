@@ -67,8 +67,10 @@ const CACHE_STATES: Record<ProviderDataset, 'unknown'> = {
   'game-stats': 'unknown',
 };
 
-// Feed with the interactive Game Stats card plus a read-only (planned) Scores
+// Feed with the interactive Game Stats card plus a read-only (planned) Odds
 // card, so "renders only on the Game Stats card" is a real assertion, not vacuous.
+// (Odds stays planned/read-only; scores is no longer read-only — its live-score
+// cron consumes the toggle now (PLATFORM-086B2B) — so it would add a 2nd toggle.)
 function makeFeed({
   globalPause = false,
   gameStatsEnabled = true,
@@ -86,8 +88,8 @@ function makeFeed({
         diagnostics: [],
       },
       {
-        dataset: 'scores',
-        descriptor: PROVIDER_DATASET_DESCRIPTORS.scores,
+        dataset: 'odds',
+        descriptor: PROVIDER_DATASET_DESCRIPTORS.odds,
         status: makeStatus({ kind: 'year', year: YEAR }),
         setting: { enabled: false },
         diagnostics: [],

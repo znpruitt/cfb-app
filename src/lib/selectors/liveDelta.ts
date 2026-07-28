@@ -6,11 +6,12 @@ import { NO_CLAIM_OWNER } from '../standings.ts';
 import type { CanonicalStandings } from './leagueStandings.ts';
 
 /**
- * Default isStale threshold: 16 minutes. Scores poll on a 15-minute cadence;
- * one extra minute of slack absorbs request latency before a refresh is
- * flagged as stale.
+ * Default isStale threshold: 7 minutes (PLATFORM-086B2B). Live scores now poll on
+ * a 3-minute visible-tab cadence, so two missed ticks plus request-latency slack
+ * flag the overlay stale — tighter than the previous 16-minute (15-minute-cadence)
+ * bound, so a stale live overlay is caught roughly twice as fast.
  */
-export const DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS = 16 * 60 * 1000;
+export const DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS = 7 * 60 * 1000;
 
 export type LiveGameStatus = 'scheduled' | 'inprogress' | 'final' | 'unknown';
 

@@ -231,6 +231,68 @@ export async function loadReconciledSeasonScores(params: {
 }
 
 /**
+ * Reconcile ONE week's scores, then restrict to it (PLATFORM-086B2B). It
+ * reconciles EVERY cached entry for the season type — the season aggregate
+ * `${year}-all-${seasonType}` AND every per-week child, including canonical-week
+ * ALIASES (a postseason game with provider week 1 may be cached under canonical
+ * week 16) — exactly like `loadReconciledSeasonScores`, then keeps only rows whose
+ * PROVIDER week matches `week`. Reconciling only the `${year}-${week}-` child +
+ * aggregate would miss such an alias child and let a browser live poll regress the
+ * displayed score below what hydration/standings selected. So this is the true
+ * week-scoped analogue of the season reconciler — a live poll can never diverge
+ * from the season/standings view. Cache-only; a store-read failure propagates
+ * unchanged. `week` matches the row's provider week.
+ */
+export async function loadReconciledWeekScores(params: {
+  year: number;
+  week: number;
+  seasonType: SeasonType;
+  teams: TeamCatalogItem[];
+  aliasMap: AliasMap;
+}): Promise<ReconciledSeasonScores> {
+  const { year, week, seasonType, teams, aliasMap } = params;
+
+  // Same read + season-type filter as loadReconciledSeasonScores (all `${year}-`
+  // entries), so provider-week / canonical-week alias children both contribute.
+  const records = await getAppStateEntries<CacheEntry>('scores', `${year}-`);
+  const contributors: CacheEntry[] = [];
+  for (const record of records) {
+    if (!record.value) continue;
+    if (isScoresKeyForSeason(record.key, year, seasonType)) contributors.push(record.value);
+  }
+
+  const reconciled = reconcileContributors(contributors, teams, aliasMap);
+
+  // Reconciled rows carry each game's PROVIDER week regardless of which key stored
+  // them; restrict to the requested week. A row without a week is not attributable
+  // to a week and is dropped.
+  const items = reconciled.items.filter((item) => item.week === week);
+
+  // Week freshness = the newest EFFECTIVE timestamp among the week's winning
+  // rows (from the reconciled per-game map), not the whole-season newest — a
+  // fresher other-week row must not overstate this week's served freshness.
+  let newestEffectiveAt: number | null = null;
+  for (const item of items) {
+    const id = item.id?.trim();
+    const effective =
+      id && reconciled.effectiveAtById[id] !== undefined
+        ? reconciled.effectiveAtById[id]
+        : (reconciled.newest?.at ?? null);
+    if (effective !== null && (newestEffectiveAt === null || effective > newestEffectiveAt)) {
+      newestEffectiveAt = effective;
+    }
+  }
+
+  return {
+    items,
+    newest: reconciled.newest,
+    newestEffectiveAt,
+    effectiveAtById: reconciled.effectiveAtById,
+    contributorCount: reconciled.contributorCount,
+  };
+}
+
+/**
  * Reconcile BOTH the regular and postseason season score views from a SINGLE
  * `${year}-` prefix read, partitioning the entries in memory. Canonical
  * standings and the season-rollover archive build need both season types, so

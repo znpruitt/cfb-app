@@ -1,27 +1,31 @@
-// Operator CLI for the EXTERNAL game-stats trigger schedule (PLATFORM-086H3E).
+// Operator CLI for the EXTERNAL live-scores trigger schedule (PLATFORM-086B2B).
 //
-// The 15-minute game-stats poll no longer runs from a Vercel cron (Vercel's
-// Hobby plan rejects sub-daily cron expressions at deploy time). Instead an
-// external QStash schedule calls the UNCHANGED route
+// The 3-minute live-score poll runs from an external QStash schedule (Vercel's
+// Hobby plan rejects sub-daily cron expressions at deploy time) that calls the
+// UNCHANGED, dormant-capable route
 //
-//   GET https://turfwar.games/api/cron/game-stats
+//   GET https://turfwar.games/api/cron/live-scores
 //     Authorization: Bearer <CRON_SECRET>   (forwarded by QStash)
 //
-// every 15 minutes. All schedule policy — the fixed message contract, the
-// inspect-first/apply-gated safety, fail-closed behavior, redaction, exit codes,
-// and the guarantee that only QStash management endpoints are ever hit — lives
-// in the shared, contract-parameterized `scripts/lib/qstashSchedule.ts`
-// (PLATFORM-086B2B). This file only binds the game-stats CONTRACT into it and
-// re-exports the bound helpers, so its runtime behavior is byte-identical to
-// before the extraction. It carries NO QStash runtime dependency (plain fetch),
-// never deletes, and treats the schedule's identity/destination/message contract
-// as FIXED constants.
+// every 3 minutes. All schedule policy — the fixed message contract, the
+// inspect-first/apply-gated safety, fail-closed behavior, provider-side
+// Authorization redaction, exit codes, and the guarantee that only QStash
+// management endpoints are ever hit — lives in the shared, contract-parameterized
+// `scripts/lib/qstashSchedule.ts`; this file only binds the live-scores CONTRACT
+// into it. It carries NO QStash runtime dependency (plain fetch), NEVER deletes,
+// and treats the schedule's identity/destination/message contract as FIXED
+// constants.
+//
+// This CLI PROVISIONS/controls the schedule; it does NOT itself activate score
+// automation. Activation (creating the schedule against production) is the
+// separate, operator-run post-merge step in the deployment runbook (§8e); until
+// then the route stays dormant and no schedule exists.
 //
 // Usage:
-//   tsx scripts/manage-game-stats-schedule.ts [inspect]          # READ-ONLY: read back + verify the contract
-//   tsx scripts/manage-game-stats-schedule.ts upsert --apply     # create/overwrite the fixed schedule
-//   tsx scripts/manage-game-stats-schedule.ts pause  --apply     # pause deliveries
-//   tsx scripts/manage-game-stats-schedule.ts resume --apply     # resume deliveries
+//   tsx scripts/manage-live-scores-schedule.ts [inspect]          # READ-ONLY: read back + verify the contract
+//   tsx scripts/manage-live-scores-schedule.ts upsert --apply     # create/overwrite the fixed schedule
+//   tsx scripts/manage-live-scores-schedule.ts pause  --apply     # pause deliveries
+//   tsx scripts/manage-live-scores-schedule.ts resume --apply     # resume deliveries
 //
 // Default execution (and any action WITHOUT `--apply`) is read-only: `inspect`
 // only reads; `upsert`/`pause`/`resume` refuse unless `--apply` is present.
@@ -29,6 +33,8 @@
 // Secrets: `QSTASH_TOKEN` (management auth) and `CRON_SECRET` (the value QStash
 // forwards to the route) are read from the environment and are NEVER printed.
 // `QSTASH_TOKEN` is management-only and must live outside Vercel and the repo.
+// Rotating `CRON_SECRET` requires pausing then re-upserting BOTH the game-stats
+// and live-scores schedules before the new secret is re-enabled on the route.
 
 import { pathToFileURL } from 'node:url';
 
@@ -53,17 +59,17 @@ import {
 } from './lib/qstashSchedule.ts';
 
 // === The FIXED schedule contract (never operator-tunable) ===
-export const SCHEDULE_ID = 'turfwar-game-stats-15m';
-export const DESTINATION = 'https://turfwar.games/api/cron/game-stats';
-export const CRON = '*/15 * * * *';
+export const SCHEDULE_ID = 'turfwar-live-scores-3m';
+export const DESTINATION = 'https://turfwar.games/api/cron/live-scores';
+export const CRON = '*/3 * * * *';
 export const METHOD = 'GET';
 export const RETRIES = 0;
 export { DEFAULT_QSTASH_BASE };
 export type { FetchLike, RunDeps, ScheduleReadback } from './lib/qstashSchedule.ts';
 
 const USAGE =
-  'usage: tsx scripts/manage-game-stats-schedule.ts [inspect]\n' +
-  '       tsx scripts/manage-game-stats-schedule.ts <upsert|pause|resume> --apply';
+  'usage: tsx scripts/manage-live-scores-schedule.ts [inspect]\n' +
+  '       tsx scripts/manage-live-scores-schedule.ts <upsert|pause|resume> --apply';
 
 const CONTRACT: ScheduleContract = {
   scheduleId: SCHEDULE_ID,
@@ -72,17 +78,15 @@ const CONTRACT: ScheduleContract = {
   method: METHOD,
   retries: RETRIES,
   usage: USAGE,
-  debugEnvVar: 'MANAGE_GAME_STATS_SCHEDULE_DEBUG',
-  failureTag: 'manage-game-stats-schedule-failed',
-  authProofRef: '§8e',
+  debugEnvVar: 'MANAGE_LIVE_SCORES_SCHEDULE_DEBUG',
+  failureTag: 'manage-live-scores-schedule-failed',
+  authProofRef: '§8f step 5',
 };
 
 // Contract-independent policy is re-exported straight through.
 export { parseScheduleArgs, redactHeaderNames, resolveQstashBase, scrubSecrets };
 
-// Contract-dependent helpers, bound to the game-stats contract so their public
-// signatures (and thus runtime behavior) are exactly what they were before the
-// shared extraction.
+// Contract-dependent helpers, bound to the live-scores contract.
 export const buildUpsertRequest = (params: {
   base: string;
   qstashToken: string;

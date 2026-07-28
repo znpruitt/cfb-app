@@ -541,6 +541,7 @@ const cleanLiveStatusInput = {
   visibleScoresCount: 5, // scores complete
   oddsAvailabilitySummary: null, // every game has odds
   oddsSnapshotAt: null,
+  scoresSnapshotAt: null,
   userFacingLiveIssuesCount: 0, // no issues
 };
 
@@ -559,6 +560,15 @@ test('live-status section renders in the clean state when an odds snapshot exist
     }),
     true,
     'a valid odds snapshot alone mounts the section so the freshness label shows'
+  );
+  // Same reasoning for the scores freshness label (PLATFORM-086B2B).
+  assert.equal(
+    shouldRenderLiveStatusSection({
+      ...cleanLiveStatusInput,
+      scoresSnapshotAt: '2026-10-15T12:00:00.000Z',
+    }),
+    true,
+    'a valid scores snapshot alone mounts the section so the scores freshness label shows'
   );
 });
 

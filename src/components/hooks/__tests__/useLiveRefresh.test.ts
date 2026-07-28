@@ -13,6 +13,15 @@ function score(status: string): ScorePack {
   };
 }
 
+function scoreWith(status: string, home: number, away: number): ScorePack {
+  return {
+    status,
+    home: { team: 'Home', score: home },
+    away: { team: 'Away', score: away },
+    time: null,
+  };
+}
+
 test('initial loaded state can bootstrap and arms guard', () => {
   const next = nextBootstrapGuardState({
     current: false,
@@ -60,7 +69,7 @@ test('continuous loaded state without bootstrap keeps guard stable', () => {
 // PLATFORM-080 — transition-aware finalization detection.
 test('non-final → final transition triggers exactly one finalization signal', () => {
   const observedKeys = new Set<string>();
-  const finalKeys = new Set<string>();
+  const finalScores = new Map<string, string>();
 
   // Poll 1: game in progress — observed, not final, no signal.
   assert.equal(
@@ -68,7 +77,7 @@ test('non-final → final transition triggers exactly one finalization signal', 
       nextScores: { g1: score('in_progress') },
       scopeGameKeys: ['g1'],
       observedKeys,
-      finalKeys,
+      finalScores,
     }),
     false
   );
@@ -78,7 +87,7 @@ test('non-final → final transition triggers exactly one finalization signal', 
       nextScores: { g1: score('Final') },
       scopeGameKeys: ['g1'],
       observedKeys,
-      finalKeys,
+      finalScores,
     }),
     true
   );
@@ -86,20 +95,20 @@ test('non-final → final transition triggers exactly one finalization signal', 
 
 test('repeated polls with the same final game do not repeatedly signal', () => {
   const observedKeys = new Set<string>();
-  const finalKeys = new Set<string>();
+  const finalScores = new Map<string, string>();
 
   detectScoreFinalizations({
     nextScores: { g1: score('in_progress') },
     scopeGameKeys: ['g1'],
     observedKeys,
-    finalKeys,
+    finalScores,
   });
   assert.equal(
     detectScoreFinalizations({
       nextScores: { g1: score('Final') },
       scopeGameKeys: ['g1'],
       observedKeys,
-      finalKeys,
+      finalScores,
     }),
     true
   );
@@ -109,7 +118,7 @@ test('repeated polls with the same final game do not repeatedly signal', () => {
       nextScores: { g1: score('Final') },
       scopeGameKeys: ['g1'],
       observedKeys,
-      finalKeys,
+      finalScores,
     }),
     false
   );
@@ -118,7 +127,7 @@ test('repeated polls with the same final game do not repeatedly signal', () => {
       nextScores: { g1: score('Final') },
       scopeGameKeys: ['g1'],
       observedKeys,
-      finalKeys,
+      finalScores,
     }),
     false
   );
@@ -126,7 +135,7 @@ test('repeated polls with the same final game do not repeatedly signal', () => {
 
 test('initial payload with already-final games does not signal', () => {
   const observedKeys = new Set<string>();
-  const finalKeys = new Set<string>();
+  const finalScores = new Map<string, string>();
 
   // First time these games are seen and they are already final (initial load,
   // or a game entering scope already final): canonical already reflects them.
@@ -135,7 +144,7 @@ test('initial payload with already-final games does not signal', () => {
       nextScores: { g1: score('Final'), g2: score('Final') },
       scopeGameKeys: ['g1', 'g2'],
       observedKeys,
-      finalKeys,
+      finalScores,
     }),
     false
   );
@@ -143,13 +152,13 @@ test('initial payload with already-final games does not signal', () => {
 
 test('in-progress score updates do not signal a finalization', () => {
   const observedKeys = new Set<string>();
-  const finalKeys = new Set<string>();
+  const finalScores = new Map<string, string>();
 
   detectScoreFinalizations({
     nextScores: { g1: score('1st Quarter') },
     scopeGameKeys: ['g1'],
     observedKeys,
-    finalKeys,
+    finalScores,
   });
   // Score changes but stays in progress — no finalization.
   assert.equal(
@@ -157,7 +166,7 @@ test('in-progress score updates do not signal a finalization', () => {
       nextScores: { g1: score('4th Quarter') },
       scopeGameKeys: ['g1'],
       observedKeys,
-      finalKeys,
+      finalScores,
     }),
     false
   );
@@ -169,7 +178,7 @@ test('scheduled game with no prior score row still signals when it later finaliz
   // absent from nextScores. Because observed is seeded from the scope, its later
   // finalization is a real transition — not a first-seen final — and signals.
   const observedKeys = new Set<string>();
-  const finalKeys = new Set<string>();
+  const finalScores = new Map<string, string>();
 
   // Poll 1: g1 watched but no score row yet.
   assert.equal(
@@ -177,7 +186,7 @@ test('scheduled game with no prior score row still signals when it later finaliz
       nextScores: {},
       scopeGameKeys: ['g1'],
       observedKeys,
-      finalKeys,
+      finalScores,
     }),
     false
   );
@@ -187,8 +196,66 @@ test('scheduled game with no prior score row still signals when it later finaliz
       nextScores: { g1: score('Final') },
       scopeGameKeys: ['g1'],
       observedKeys,
-      finalKeys,
+      finalScores,
     }),
     true
+  );
+});
+
+// PLATFORM-086B2B — the browser keeps polling in-window finals so a `/games`
+// reconciliation correction reaches canonical standings, not just the game card.
+test('a material final → final score correction signals a canonical refresh', () => {
+  const observedKeys = new Set<string>();
+  const finalScores = new Map<string, string>();
+
+  // Provisional scoreboard final (21-14).
+  detectScoreFinalizations({
+    nextScores: { g1: scoreWith('Final', 21, 14) },
+    scopeGameKeys: ['g1'],
+    observedKeys,
+    finalScores,
+  });
+  // `/games` reconciliation revises the score (24-14) — must signal so canonical
+  // standings/records recompute, even though g1 was already final.
+  assert.equal(
+    detectScoreFinalizations({
+      nextScores: { g1: scoreWith('Final', 24, 14) },
+      scopeGameKeys: ['g1'],
+      observedKeys,
+      finalScores,
+    }),
+    true
+  );
+  // A repeat of the corrected score does not re-signal.
+  assert.equal(
+    detectScoreFinalizations({
+      nextScores: { g1: scoreWith('Final', 24, 14) },
+      scopeGameKeys: ['g1'],
+      observedKeys,
+      finalScores,
+    }),
+    false
+  );
+});
+
+test('a status-label-only change on a final with unchanged scores does not signal', () => {
+  const observedKeys = new Set<string>();
+  const finalScores = new Map<string, string>();
+
+  detectScoreFinalizations({
+    nextScores: { g1: scoreWith('Final', 21, 14) },
+    scopeGameKeys: ['g1'],
+    observedKeys,
+    finalScores,
+  });
+  // Same scores, different label (e.g. Final → Final/OT) — not a material change.
+  assert.equal(
+    detectScoreFinalizations({
+      nextScores: { g1: scoreWith('Final/OT', 21, 14) },
+      scopeGameKeys: ['g1'],
+      observedKeys,
+      finalScores,
+    }),
+    false
   );
 });
