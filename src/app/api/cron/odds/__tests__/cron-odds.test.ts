@@ -16,6 +16,7 @@ import {
 import {
   __deleteOddsUsageStoreFileForTests,
   __resetOddsUsageStoreForTests,
+  getLatestKnownOddsUsage,
 } from '../../../../../lib/server/oddsUsageStore.ts';
 import {
   setDatasetAutoRefreshEnabled,
@@ -576,4 +577,119 @@ test('#19: closing-maintenance store failure → 503 / closing-maintenance-faile
   assert.equal(res.status, 503);
   assert.equal(event.reason, 'closing-maintenance-failed');
   assert.equal(counts.oddsCalls, 0);
+});
+
+// ---- Cycle-2 review remediation ----
+
+test('remediation R1: a due target re-checks cadence with the acquired control and still commits', async () => {
+  // Finding 1: after acquiring the lease, the cron re-evaluates cadence against the
+  // transaction-fresh control the acquire returns (+ a fresh raw observation) to
+  // close the manual-then-cron race. This exercises the re-check with a REAL
+  // (non-cold) due control: an old completed-check keeps it due, so exactly one
+  // billed `/odds` still issues (the re-check agrees) — a regression guard that the
+  // re-check neither double-issues nor spuriously skips a genuinely-due target.
+  await seedSchedule(Date.now() + 2 * DAY);
+  await setAppState('odds-refresh-control', SEASON_KEY, {
+    lease: null,
+    lastCompletedCheckAt: new Date(Date.now() - 12 * H).toISOString(), // 12h old → due
+    automaticFailureCount: 0,
+    automaticNotBefore: null,
+  });
+  const counts = installFetch({
+    sports: {
+      headers: { 'x-requests-used': '447', 'x-requests-remaining': '53', 'x-requests-last': '0' },
+    },
+  });
+  const { res, event } = await runCron();
+  assert.equal(res.status, 200);
+  assert.equal(event.result, 'success');
+  assert.equal(counts.oddsCalls, 1); // re-check agreed the target is due; one request
+  const control = await readOddsRefreshControl(SEASON_KEY);
+  assert.equal(control?.lease, null); // released
+  assert.ok(control?.lastCompletedCheckAt);
+});
+
+test('remediation R2: a billed failure with untrusted usage headers persists a conservative estimate', async () => {
+  // Finding 2: a billed `/odds` failure whose response carried NO trustworthy usage
+  // headers (and no 402/429 authoritative zero fallback) previously left the durable
+  // balance at the pre-probe value, overstating remaining quota. It must now deduct
+  // the estimated request cost so the reserve gate is not later fooled.
+  await seedSchedule(Date.now() + 2 * DAY);
+  const counts = installFetch({
+    sports: {
+      headers: { 'x-requests-used': '20', 'x-requests-remaining': '480', 'x-requests-last': '0' },
+    },
+    // Schema-drift body (a failure) with NO x-requests-* headers → untrusted usage.
+    odds: {
+      status: 200,
+      body: [{ home_team: 5 }],
+      headers: { 'content-type': 'application/json' },
+    },
+  });
+  const { res, event } = await runCron();
+  assert.equal(res.status, 502);
+  assert.equal(event.result, 'failure');
+  assert.equal(event.reason, 'odds-schema-drift');
+  assert.equal(counts.oddsCalls, 1);
+  // Pre-probe remaining 480 minus the estimated request cost (3) = 477.
+  assert.equal(event.requestCost, 3);
+  assert.equal(event.quotaRemainingAfter, 477);
+  const usage = await getLatestKnownOddsUsage();
+  assert.equal(usage?.remaining, 477); // durable balance conservatively deducted
+  const control = await readOddsRefreshControl(SEASON_KEY);
+  assert.equal(control?.automaticFailureCount, 1); // billed failure advances backoff
+});
+
+test('remediation R3: an expected empty is classified from the loaded context even if a re-read would fail', async () => {
+  // Finding 3: the automatic empty path must classify against the ALREADY-LOADED
+  // canonical context, never a second schedule re-read. Here the schedule cache
+  // read is broken PRECISELY when the `/odds` response arrives (after the context
+  // loaded): without the fix the empty-classification re-read would fail, lose the
+  // near-horizon expectation, and misclassify an EXPECTED empty as a benign no-op
+  // (reset backoff). With the fix it uses the loaded context → `odds-empty-unexpected`
+  // (a failure that advances backoff).
+  await seedSchedule(Date.now() + 2 * DAY); // near-horizon eligible game → odds expected
+  const counts = { sportsCalls: 0, oddsCalls: 0 };
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    if (url.startsWith(ODDS_URL)) {
+      counts.oddsCalls += 1;
+      // Break the schedule cache re-read exactly at `/odds` response time — AFTER
+      // the context has already loaded successfully.
+      __setAppStateReadFailureForTests(new Error('schedule re-read down'), 'schedule');
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: {
+          'content-type': 'application/json',
+          'x-requests-used': '20',
+          'x-requests-remaining': '480',
+          'x-requests-last': '0',
+        },
+      });
+    }
+    if (url.startsWith(SPORTS_URL)) {
+      counts.sportsCalls += 1;
+      return new Response(JSON.stringify([{ key: 'americanfootball_ncaaf' }]), {
+        status: 200,
+        headers: {
+          'content-type': 'application/json',
+          'x-requests-used': '20',
+          'x-requests-remaining': '480',
+          'x-requests-last': '0',
+        },
+      });
+    }
+    throw new Error(`unexpected url ${url}`);
+  }) as typeof fetch;
+  let event: OddsCronExecutionEvent;
+  try {
+    ({ event } = await runCron());
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
+  assert.equal(counts.oddsCalls, 1);
+  assert.equal(event.result, 'failure');
+  assert.equal(event.reason, 'odds-empty-unexpected'); // correct despite the broken re-read
+  const control = await readOddsRefreshControl(SEASON_KEY);
+  assert.equal(control?.automaticFailureCount, 1); // NOT reset to a benign no-op
 });

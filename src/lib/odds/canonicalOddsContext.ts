@@ -40,6 +40,13 @@ export type CanonicalOddsContext = {
   seasonScopedKey: string;
   /** The built canonical games (one `buildScheduleFromApi` output). */
   games: AppGame[];
+  /**
+   * The successfully-loaded raw schedule rows, carried so the automatic caller can
+   * supply them as empty-classification evidence WITHOUT the executor re-reading
+   * the cache a second time (a transient re-read could misclassify an expected
+   * empty). `ScheduleWireItem` is structurally an `OddsScheduleEvidenceItem`.
+   */
+  scheduleItems: ScheduleWireItem[];
   /** Per-game polling signals (resolved participants, kickoff, raw status). */
   pollingGames: OddsCanonicalGame[];
   /** Shared identity resolver for Odds attachment. */
@@ -130,6 +137,15 @@ export async function loadCanonicalOddsContext(input: {
 
   return {
     status: 'available',
-    context: { year, seasonScopedKey, games, pollingGames, resolver, teams, aliasMap },
+    context: {
+      year,
+      seasonScopedKey,
+      games,
+      scheduleItems,
+      pollingGames,
+      resolver,
+      teams,
+      aliasMap,
+    },
   };
 }

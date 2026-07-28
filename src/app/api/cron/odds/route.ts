@@ -273,6 +273,42 @@ export async function GET(req: Request): Promise<Response> {
     }
     leaseToken = lease.token;
     leaseSeasonScopedKey = seasonScopedKey;
+
+    // Cadence RE-CHECK against the transaction-fresh control the acquire returned
+    // and a fresh raw observation. This closes the TOCTOU race where a manual
+    // refresh (or another instance) completed AFTER the pre-lease control read but
+    // BEFORE this acquisition: its `lastCompletedCheckAt` / newer raw odds would
+    // otherwise be invisible and the cron would issue a redundant billed request
+    // immediately after the just-completed refresh (review remediation). Not-due
+    // now ⇒ release WITHOUT a provider request (release-only; backoff untouched).
+    let recheckRawEntry: SharedOddsCacheEntry | undefined;
+    try {
+      const durableNow = await getAppState<SharedOddsCacheEntry>('odds-cache', seasonScopedKey);
+      recheckRawEntry = observationFreshestRaw(
+        oddsCache.entries[seasonScopedKey],
+        durableNow?.value
+      );
+    } catch {
+      // A fresh raw re-read failure ⇒ never issue a provider request on unverified
+      // freshness. release-only (no provider work happened).
+      leaseResolution = 'release-only';
+      return finalize(exec, 'failure', 'polling-state-unavailable');
+    }
+    const recheckObservationMs = recheckRawEntry
+      ? effectiveOddsObservationMs(recheckRawEntry)
+      : null;
+    const recheck = selectOddsPollingDecision({
+      games: context.pollingGames,
+      control: lease.control,
+      rawObservationMs: recheckObservationMs,
+      now: nowMs,
+    });
+    if (!recheck.due) {
+      leaseResolution = 'release-only';
+      return finalize(exec, 'skipped', recheck.reason);
+    }
+    exec.cadence = recheck.cadence as OddsCronCadence;
+
     const scope = oddsTargetScope(context.year, 'canonical', seasonScopedKey);
 
     // Credential validation — missing key is a config FAILURE (a begun attempt
@@ -347,6 +383,13 @@ export async function GET(req: Request): Promise<Response> {
       observationAt,
       now: new Date().toISOString(),
       retry: NO_RETRY,
+      // The context already loaded schedule/catalog/aliases successfully; supply it
+      // as empty-classification evidence so the executor never re-reads (a transient
+      // re-read failure could misclassify an EXPECTED empty as a benign no-op).
+      emptyClassificationEvidence: {
+        scheduleItems: context.scheduleItems,
+        resolver: context.resolver,
+      },
       resolveCanonicalInputs: async (events) => {
         // Rebuild the resolver observing BOTH the canonical participants and the
         // provider event labels — parity with the manual attachment.
@@ -366,44 +409,61 @@ export async function GET(req: Request): Promise<Response> {
         return { available: true, games: context.games, resolver };
       },
     });
-    // The executor resolved the begun attempt exactly once.
+    // The executor resolved the begun attempt exactly once. Record the truthful
+    // result NOW, before the best-effort usage bookkeeping below, so a usage-store
+    // write failure there can never mask a durably-committed refresh as an
+    // unexpected 500 (parity with the executor's store-fault tolerance).
     attemptResolved = true;
     leaseResolution = execution.leaseResolution;
+    exec.result = execution.result.status;
+    exec.reason = execution.result.reason;
     exec.rowsCommitted =
       execution.result.status === 'success' ? (execution.result.rowsCommitted ?? 0) : 0;
 
-    // Automatic post-call usage accounting. On a SUCCESS/NO-OP, prefer
-    // trustworthy `/odds` headers, else a conservative estimate (exact-empty
-    // preserves the pre-probe balance; an uncertain billed outcome deducts the
-    // max). On a FAILURE, the executor already accounted for usage (a 402/429
-    // quota-error fallback recorded `remaining: 0`, or a transport failure left it
-    // untouched), so NEVER re-derive/persist an estimate that would overwrite an
-    // authoritative `remaining: 0` (review remediation).
-    if (execution.result.status === 'failure') {
-      exec.quotaRemainingAfter = execution.usageFromHeaders
-        ? (execution.usage?.remaining ?? null)
-        : null;
-    } else if (execution.usageFromHeaders) {
-      exec.quotaRemainingAfter = execution.usage?.remaining ?? null;
-    } else {
-      const estimate = estimatePostOddsUsage({
-        preProbe: { used: probe.used, remaining: probe.remaining },
-        outcome:
-          execution.result.reason === 'empty-response' ? 'empty-zero-cost' : 'uncertain-billed',
-        requestCost,
-        context: {
-          sportKey: 'americanfootball_ncaaf',
-          markets: ODDS_DEFAULT_MARKETS,
-          regions: ODDS_DEFAULT_REGIONS,
-          endpointType: 'odds',
-          cacheStatus: 'miss',
-        },
-      });
-      await setLatestKnownOddsUsage(estimate);
-      exec.quotaRemainingAfter = estimate.remaining;
+    // Automatic post-call usage accounting — BEST-EFFORT: a usage-store write
+    // failure must not fail an already-committed refresh (it self-heals on the next
+    // run's `/sports` probe, which overwrites the snapshot with the true balance).
+    //   - Trustworthy `/odds` headers (any status) are authoritative.
+    //   - A billed FAILURE whose authoritative usage the executor already persisted
+    //     (the 402/429 zero fallback) is trusted as-is — NEVER overwritten by an
+    //     estimate that would restore an overstated balance (review remediation).
+    //   - Otherwise (success/no-op with missing headers, OR a billed failure with
+    //     untrusted headers and no fallback) persist a conservative estimate: an
+    //     exact-empty response spent ZERO credits (preserve the balance); anything
+    //     else deducts the max estimated cost so the reserve gate is never fooled by
+    //     an overstated balance (review remediation — a billed schema-drift/invalid
+    //     payload without usage headers previously left the balance unchanged). A
+    //     later `/sports` probe corrects any over-deduction on the next run.
+    const wasEmptyResponse =
+      execution.result.reason === 'empty-response' ||
+      execution.result.reason === 'odds-empty-unexpected';
+    try {
+      if (execution.usageFromHeaders) {
+        exec.quotaRemainingAfter = execution.usage?.remaining ?? null;
+      } else if (execution.result.status === 'failure' && execution.authoritativeUsagePersisted) {
+        exec.quotaRemainingAfter = execution.usage?.remaining ?? null;
+      } else {
+        const estimate = estimatePostOddsUsage({
+          preProbe: { used: probe.used, remaining: probe.remaining },
+          outcome: wasEmptyResponse ? 'empty-zero-cost' : 'uncertain-billed',
+          requestCost,
+          context: {
+            sportKey: 'americanfootball_ncaaf',
+            markets: ODDS_DEFAULT_MARKETS,
+            regions: ODDS_DEFAULT_REGIONS,
+            endpointType: 'odds',
+            cacheStatus: 'miss',
+          },
+        });
+        await setLatestKnownOddsUsage(estimate);
+        exec.quotaRemainingAfter = estimate.remaining;
+      }
+    } catch {
+      // Best-effort: leave `quotaRemainingAfter` unset; the committed refresh's true
+      // result and event are already recorded above.
     }
 
-    return finalize(exec, execution.result.status, execution.result.reason);
+    return jsonResponse(exec);
   } catch {
     // An unexpected exception escaped (the executor resolves reachable faults
     // itself). RESOLVE the begun attempt once as a BILLED failure so a propagated

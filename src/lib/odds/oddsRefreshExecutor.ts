@@ -114,15 +114,27 @@ export type OddsRefreshExecution = {
    * estimate (the manual caller relies on its retry/pacing instead).
    */
   usageFromHeaders: boolean;
+  /**
+   * True when this execution PERSISTED an authoritative usage snapshot for the
+   * billed request — either trustworthy `/odds` headers (`usageFromHeaders`) OR the
+   * 402/429 quota-error zero fallback. The automatic caller uses this to decide
+   * whether a billed FAILURE with untrusted headers still needs a conservative
+   * estimate: when this is false after a failure, no authoritative usage was
+   * recorded, so the balance would otherwise stay overstated (review remediation).
+   */
+  authoritativeUsagePersisted: boolean;
   /** The lease resolution implied by the result (backoff advance/reset/none). */
   leaseResolution: OddsRefreshLeaseResolution;
 };
 
-/** Cache-only schedule evidence for empty classification (both callers). */
-async function gatherEmptyOddsScheduleEvidence(season: number): Promise<{
-  scheduleItems: OddsScheduleEvidenceItem[] | null;
+/** Schedule + resolver evidence used to classify an empty Odds payload. */
+export type EmptyOddsScheduleEvidence = {
+  scheduleItems: readonly OddsScheduleEvidenceItem[] | null;
   resolver: TeamIdentityResolver | null;
-}> {
+};
+
+/** Cache-only schedule evidence for empty classification (both callers). */
+async function gatherEmptyOddsScheduleEvidence(season: number): Promise<EmptyOddsScheduleEvidence> {
   let scheduleItems: OddsScheduleEvidenceItem[] | null = null;
   try {
     scheduleItems = await loadCachedScheduleItems(season);
@@ -169,9 +181,18 @@ async function commitEmptyOddsRefresh(params: {
   isCanonical: boolean;
   usage: OddsUsageSnapshot | null;
   observationAt: string;
+  /**
+   * Caller-supplied empty-classification evidence. The automatic caller passes the
+   * ALREADY-LOADED canonical context here so classification never re-reads
+   * schedule/catalog/aliases a second time — a transient failure of that re-read
+   * would otherwise misclassify an EXPECTED empty (odds due for an in-window game)
+   * as a benign no-op, reset backoff, and delay the next request for hours (review
+   * remediation). Absent (manual path) ⇒ gather cache-only evidence as before.
+   */
+  providedEvidence?: EmptyOddsScheduleEvidence;
 }): Promise<EmptyCommitOutcome> {
-  const { seasonScopedKey, season, isCanonical, usage, observationAt } = params;
-  const evidence = await gatherEmptyOddsScheduleEvidence(season);
+  const { seasonScopedKey, season, isCanonical, usage, observationAt, providedEvidence } = params;
+  const evidence = providedEvidence ?? (await gatherEmptyOddsScheduleEvidence(season));
   const result = await withAppStateKeyTransaction<EmptyCommitOutcome>(
     ODDS_CACHE_SCOPE,
     seasonScopedKey,
@@ -283,6 +304,12 @@ export async function executeOddsRefresh(params: {
   retry: UpstreamRetryPolicy;
   pacing?: UpstreamPacingPolicy;
   resolveCanonicalInputs: CanonicalInputsResolver;
+  /**
+   * Pre-loaded empty-classification evidence (automatic caller). When supplied, the
+   * empty path uses it INSTEAD of re-reading schedule/catalog/aliases, so a
+   * transient re-read failure can never misclassify an expected empty (finding 3).
+   */
+  emptyClassificationEvidence?: EmptyOddsScheduleEvidence;
 }): Promise<OddsRefreshExecution> {
   const {
     season,
@@ -297,6 +324,7 @@ export async function executeOddsRefresh(params: {
     retry,
     pacing,
     resolveCanonicalInputs,
+    emptyClassificationEvidence,
   } = params;
 
   const usageContext = {
@@ -309,6 +337,9 @@ export async function executeOddsRefresh(params: {
 
   let usage: OddsUsageSnapshot | null = null;
   let usageFromHeaders = false;
+  // Set true when the executor writes the authoritative 402/429 zero fallback, so
+  // `authoritativeUsagePersisted` reflects it even though headers were untrusted.
+  let wroteQuotaErrorFallback = false;
   const base = (
     result: OddsRefreshResult,
     over: Partial<OddsRefreshExecution> = {}
@@ -321,6 +352,7 @@ export async function executeOddsRefresh(params: {
     committedAt: null,
     commitSeq: null,
     usageFromHeaders,
+    authoritativeUsagePersisted: usageFromHeaders || wroteQuotaErrorFallback,
     leaseResolution: leaseResolutionForResult(result),
     ...over,
   });
@@ -367,6 +399,7 @@ export async function executeOddsRefresh(params: {
         source: 'quota-error-fallback',
         ...usageContext,
       });
+      wroteQuotaErrorFallback = true;
     }
     // Never read/return the raw response body.
     const detail: SafeUpstreamDetail = {
@@ -432,6 +465,7 @@ export async function executeOddsRefresh(params: {
         isCanonical,
         usage,
         observationAt,
+        providedEvidence: emptyClassificationEvidence,
       });
     } catch {
       const result = oddsRefreshResult('failure', 'durable-commit-failed', 503);
