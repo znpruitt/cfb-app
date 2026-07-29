@@ -347,12 +347,12 @@ export default function CFBScheduleApp({
   >({});
 
   const [scheduleLoaded, setScheduleLoaded] = useState<boolean>(false);
-  // Monotonic counter bumped on every real rebuild of `games` (a full schedule
-  // (re)load, or a postseason-override apply that can change canonical keys). It is
-  // the re-arm signal for `useOddsHydration` (PLATFORM-086C3 review remediation): a
-  // successful in-place reload of an already-loaded schedule leaves `scheduleLoaded`
-  // and the has-games flag unchanged, so odds would otherwise stay keyed to stale
-  // schedule data — a generation change forces a fresh cache-only hydration.
+  // Monotonic counter bumped on every full schedule (re)build (`loadScheduleFromApi`
+  // success). It is the re-arm signal for `useOddsHydration` (PLATFORM-086C3 review
+  // remediation): a successful in-place reload of an already-loaded schedule leaves
+  // `scheduleLoaded` and the has-games flag unchanged, so odds would otherwise stay
+  // keyed to stale schedule data — a generation change forces a fresh cache-only
+  // hydration against the rebuilt (identity-recomputed) games.
   const [scheduleGeneration, setScheduleGeneration] = useState<number>(0);
   const [scoreHydrationState, setScoreHydrationState] = useState<ScoreHydrationState>(
     EMPTY_SCORE_HYDRATION_STATE
@@ -1170,12 +1170,16 @@ export default function CFBScheduleApp({
 
         const override = next[eventId];
         if (override) {
+          // Optimistic in-place patch only — this keeps each game's existing
+          // canonical `key` (it does not recompute identity), so it does NOT bump
+          // `scheduleGeneration`: the authoritative re-hydration for a key-changing
+          // override happens on the next `loadScheduleFromApi` rebuild (which
+          // recomputes keys from the overridden participants and bumps generation).
+          // Bumping here would only trigger a redundant cache read against unchanged
+          // keys (PLATFORM-086C3 review remediation).
           setGames((prevGames) =>
             prevGames.map((g) => (g.eventId === eventId ? applyOverride(g, override) : g))
           );
-          // A postseason override can change a game's canonical identity, so bump
-          // the schedule generation to re-hydrate Odds against the new keys.
-          setScheduleGeneration((n) => n + 1);
         }
 
         return next;

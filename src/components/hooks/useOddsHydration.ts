@@ -25,9 +25,9 @@ export { ODDS_HYDRATION_ISSUE };
  * quota or trigger an upstream fetch (the public Odds route is a pure cache reader
  * under PLATFORM-075/086C2). It runs when the selected season's schedule has loaded
  * with games and re-arms when the season changes OR the schedule is rebuilt (the
- * `scheduleGeneration` bump — a full (re)load or a postseason-override apply that
- * can change canonical keys, since a with-games in-place reload leaves
- * `scheduleLoaded`/`hasGames` unchanged). Week/tab/subview navigation, focus,
+ * `scheduleGeneration` bump on a full `loadScheduleFromApi` (re)build — since a
+ * with-games in-place reload leaves `scheduleLoaded`/`hasGames` unchanged, and the
+ * rebuild is what recomputes canonical keys). Week/tab/subview navigation, focus,
  * visibility, and the live-score timer never re-trigger it (their inputs are not in
  * this hook's dependency list).
  */
