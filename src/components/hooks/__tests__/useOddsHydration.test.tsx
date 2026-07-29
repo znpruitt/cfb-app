@@ -351,3 +351,30 @@ test('#10: a schedule rebuild (generation bump) re-hydrates against the new sche
   await waitFor(() => assert.equal(oddsCalls().length, 2));
   await waitFor(() => assert.ok(state.oddsByKey['gen-2']));
 });
+
+test('#11: a successful re-hydration clears the prior failure warning', async () => {
+  // The first hydration fails (issue raised); a schedule rebuild re-arms the hook
+  // and the retry succeeds — the stale "odds unavailable" warning must be cleared,
+  // since score-only live ticks preserve odds issues by design and would otherwise
+  // leave it up forever (PLATFORM-086C3 review remediation).
+  let call = 0;
+  installOddsFetch(() => {
+    call += 1;
+    if (call === 1) return new Response('boom', { status: 500 });
+    return oddsResponse({ items: [{ canonicalGameId: 'recovered', odds: combinedOdds() }] });
+  });
+  const { state, props } = makeHarness({
+    selectedSeason: 2026,
+    scheduleLoaded: true,
+    hasGames: true,
+    scheduleGeneration: 1,
+  });
+
+  const view = renderHook((p) => useOddsHydration(p), { initialProps: props });
+  await waitFor(() => assert.ok(state.issues.includes(ODDS_HYDRATION_ISSUE)));
+
+  // Schedule rebuild → retry succeeds → odds applied AND the warning cleared.
+  view.rerender({ ...props, scheduleGeneration: 2 });
+  await waitFor(() => assert.ok(state.oddsByKey['recovered']));
+  assert.ok(!state.issues.includes(ODDS_HYDRATION_ISSUE), 'stale warning cleared on recovery');
+});

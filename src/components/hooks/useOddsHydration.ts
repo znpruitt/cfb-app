@@ -85,6 +85,15 @@ export function useOddsHydration(params: {
         // snapshot — the season simply has no cached lines yet. The shared applier
         // decodes the response and merges usage freshness-aware.
         applyOddsResponse(payload, { setOddsByKey, setOddsSnapshotAt, setOddsUsage });
+        // A successful hydration CLEARS any prior hydration-failure warning: once the
+        // `scheduleGeneration` retry recovers, score-only live ticks preserve odds
+        // issues by design, so the stale "odds unavailable" warning would otherwise
+        // never clear on its own (PLATFORM-086C3 review remediation).
+        setIssues((prev) =>
+          prev.includes(ODDS_HYDRATION_ISSUE)
+            ? prev.filter((issue) => issue !== ODDS_HYDRATION_ISSUE)
+            : prev
+        );
       } catch {
         // An abort (stale/unmount) is expected and not a failure; a genuine failure
         // preserves prior-good client Odds and surfaces one generic, body-free issue.
