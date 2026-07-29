@@ -542,3 +542,65 @@ test('season-transition does not flip a league off a failed refresh even past th
     []
   );
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086E1B1 — pin the season-transition `shouldFetch` policy the weekly
+// route's preseason handoff mirrors: the DAILY transition cron fetches when the
+// probe is unarmed (`!baseCachedAt`), the first game is unknown
+// (`!firstGameDate`), or `now >= firstGameDate − 7d` — and does NOT fetch in
+// cache-armed early preseason (that window is E1B's ordinary weekly maintenance).
+// ---------------------------------------------------------------------------
+
+test('shouldFetch pins: unarmed probe, unknown first game, and final-week all fetch; early preseason does not', async () => {
+  const cases: Array<{
+    name: string;
+    probe: { baseCachedAt: string | null; firstGameDate: string | null } | null;
+    probed: boolean;
+  }> = [
+    { name: 'no probe record', probe: null, probed: true },
+    {
+      name: 'missing baseCachedAt',
+      probe: { baseCachedAt: null, firstGameDate: '2099-08-28T16:00:00.000Z' },
+      probed: true,
+    },
+    {
+      name: 'missing firstGameDate',
+      probe: { baseCachedAt: '2023-01-01T00:00:00.000Z', firstGameDate: null },
+      probed: true,
+    },
+    {
+      name: 'inside the final seven days',
+      probe: {
+        baseCachedAt: '2023-01-01T00:00:00.000Z',
+        // 3 days from the real clock → now >= firstGame − 7d.
+        firstGameDate: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
+      },
+      probed: true,
+    },
+    {
+      name: 'cache-armed early preseason (E1B-owned window)',
+      probe: {
+        baseCachedAt: '2023-01-01T00:00:00.000Z',
+        firstGameDate: '2099-08-28T16:00:00.000Z', // far future → > 7 days away
+      },
+      probed: false,
+    },
+  ];
+
+  for (const { name, probe, probed } of cases) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    await setAppState('leagues', 'registry', [
+      makeLeague('alpha', { state: 'preseason', year: YEAR }),
+    ]);
+    if (probe) {
+      await setAppState('schedule-probe', String(YEAR), { year: YEAR, ...probe });
+    }
+    stubFetchEmptySchedule();
+
+    const res = await GET(cronRequest());
+    const body = (await res.json()) as { years: Array<{ probed: boolean }> };
+    assert.equal(res.status, 200, name);
+    assert.equal(body.years[0]?.probed, probed, `shouldFetch pin: ${name}`);
+  }
+});
