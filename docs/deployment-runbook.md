@@ -417,9 +417,9 @@ The **server-side** automation — the QStash `turfwar-odds-hourly` schedule tha
 
    **Coordinated `CRON_SECRET` rotation now spans all FOUR schedules** (they share the secret) — see §8h for the full four-schedule rotation order (`turfwar-game-stats-15m`, `turfwar-live-scores-3m`, `turfwar-odds-hourly`, `turfwar-schedule-weekly`).
 
-## 8h) PLATFORM-086E1B activation — weekly schedule maintenance operator sequence — ⏳ PENDING (held for E1B1)
+## 8h) PLATFORM-086E1B activation — weekly schedule maintenance operator sequence — ⏳ PENDING (E1B1 merged; ready to execute)
 
-**Status: NOT executed, and HELD.** The merged E1B build ships `GET /api/cron/schedule-refresh` and the `manage:schedule-refresh-schedule` CLI, but **no `turfwar-schedule-weekly` QStash schedule exists** — merging activated nothing. Activation was then **held when the E1B preseason coverage gap was discovered** (E1B targeted only `season` leagues, while the daily season-transition cron refreshes preseason schedules only when unarmed or within 7 days of the first game — leaving a cache-armed early-preseason schedule with no automatic maintenance). **PLATFORM-086E1B1 is the bounded correction; this sequence cannot resume until E1B1 merges.** This section reflects the corrected (E1B1) behavior.
+**Status: NOT executed; READY.** The merged E1B build ships `GET /api/cron/schedule-refresh` and the `manage:schedule-refresh-schedule` CLI, but **no `turfwar-schedule-weekly` QStash schedule exists** — merging activated nothing. Activation was held when the E1B preseason coverage gap was discovered (E1B targeted only `season` leagues, while the daily season-transition cron refreshes preseason schedules only when unarmed or within 7 days of the first game — leaving a cache-armed early-preseason schedule with no automatic maintenance); **the bounded correction PLATFORM-086E1B1 has since MERGED (PR #424), so this operator sequence may now be executed.** This section reflects the corrected (E1B1) behavior.
 
 The corrected route delegates each targeted year to the E1A full-season schedule authority (`refreshFullSeasonSchedule` — durable per-year lease, complete-before-commit, observation-ordered transaction) with **operation-aware** gating under this ownership model:
 
