@@ -4,7 +4,11 @@ import { getLeagues } from '@/lib/leagueRegistry';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
-import { getScheduleProbeState } from '@/lib/scheduleProbe';
+import {
+  deriveFirstGameDate,
+  getScheduleProbeState,
+  saveScheduleProbeState,
+} from '@/lib/scheduleProbe';
 import {
   classifyPreseasonWeeklyRefreshOperation,
   classifyWeeklyScheduleRefreshOperation,
@@ -312,6 +316,33 @@ export async function GET(req: Request): Promise<Response> {
       }
       const refresh = await refreshFullSeasonSchedule({ year: candidate.year });
       entries.push(yearEntryFromRefresh(candidate.year, operation, refresh));
+
+      // E1B1 cycle-1 remediation (finding 1): a successful preseason-maintenance
+      // refresh RE-DERIVES the probe's firstGameDate from the freshly confirmed
+      // schedule (preserving baseCachedAt) — mirroring the manual full-year
+      // `/api/schedule` refresh's established probe update. The probe is the
+      // exact durable signal the season-transition handoff consumes; without this,
+      // a weekly refresh that commits an EARLIER first game would leave the probe
+      // stale and the transition cron idle past the true first kickoff. Best-effort
+      // (same as the manual route): the schedule commit already succeeded durably,
+      // so a probe-write failure never falsifies the refresh result — the next
+      // successful weekly run (or a transition fetch) re-derives it.
+      if (
+        operation === 'preseason-maintenance' &&
+        refresh.status === 'success' &&
+        refresh.items.length > 0
+      ) {
+        try {
+          const existingProbe = await getScheduleProbeState(candidate.year);
+          await saveScheduleProbeState({
+            year: candidate.year,
+            baseCachedAt: existingProbe?.baseCachedAt ?? new Date(nowMs).toISOString(),
+            firstGameDate: deriveFirstGameDate(refresh.items),
+          });
+        } catch {
+          // Best-effort — never fail a committed refresh over probe bookkeeping.
+        }
+      }
     }
 
     exec.years = entries;

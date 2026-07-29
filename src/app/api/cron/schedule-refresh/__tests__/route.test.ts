@@ -897,3 +897,72 @@ test('no-active-season is no longer present in the route or event contract', asy
     assert.ok(!source.includes('no-active-season'), `${file} must not carry the retired reason`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// E1B1 cycle-1 remediation (finding 1) — a successful preseason-maintenance
+// refresh re-derives the probe's firstGameDate from the committed schedule
+// (preserving baseCachedAt), so the season-transition handoff tracks the
+// refreshed schedule instead of a stale probe.
+// ---------------------------------------------------------------------------
+
+test('a successful preseason refresh re-derives the probe firstGameDate (preserving baseCachedAt)', async () => {
+  await seedPreseasonLeague(2031);
+  await seedSchedule(2031, ORDINARY_KICKOFF);
+  await seedProbe(2031, EARLY_FIRST_KICKOFF); // probe: 2099-08-28
+  // The committed refresh carries an EARLIER first game than the probe knows.
+  stubProvider({ 2031: { regular: gameBody(2031), postseason: '[]' } }); // 2031-09-01
+  const { res } = await runRoute();
+  assert.equal((await res.json()).result, 'success');
+
+  const probe = await getAppState<{ baseCachedAt: string; firstGameDate: string }>(
+    'schedule-probe',
+    '2031'
+  );
+  assert.equal(
+    probe?.value?.firstGameDate,
+    '2031-09-01T00:00:00.000Z',
+    'firstGameDate re-derived from the committed schedule'
+  );
+  assert.equal(probe?.value?.baseCachedAt, '2031-05-01T00:00:00.000Z', 'baseCachedAt preserved');
+});
+
+test('an earlier committed kickoff crosses the handoff: the next run defers to season-transition', async () => {
+  await seedPreseasonLeague(2031);
+  await seedSchedule(2031, ORDINARY_KICKOFF);
+  await seedProbe(2031, EARLY_FIRST_KICKOFF);
+  // The refresh commits a game kicking off ~3 days from the REAL clock — inside
+  // the seven-day handoff window relative to the derived first game.
+  const imminentKickoff = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString();
+  stubProvider({
+    2031: {
+      regular: JSON.stringify([
+        {
+          id: 20311,
+          week: 1,
+          home_team: 'Texas',
+          away_team: 'Rice',
+          start_date: imminentKickoff,
+          home_conference: 'Big 12',
+          away_conference: 'American',
+        },
+      ]),
+      postseason: '[]',
+    },
+  });
+
+  // Run 1 — early preseason by the STALE probe; commits the imminent game and
+  // re-derives the probe.
+  const first = await runRoute();
+  assert.equal((await first.res.json()).result, 'success');
+  const probe = await getAppState<{ firstGameDate: string }>('schedule-probe', '2031');
+  assert.equal(probe?.value?.firstGameDate, imminentKickoff, 'probe now knows the imminent game');
+
+  // Run 2 — the re-derived probe puts the year inside the handoff window: the
+  // DAILY season-transition cron owns it now (provider-free deferral).
+  fetchLog.length = 0;
+  const second = await runRoute();
+  const body = (await second.res.json()) as { result: string; reason: string };
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'season-transition-owner');
+  assert.equal(fetchLog.length, 0, 'the deferred year spends nothing');
+});
