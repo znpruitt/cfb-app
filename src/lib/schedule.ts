@@ -95,7 +95,13 @@ export type ScheduleWireItem = {
   homeConference: string;
   awayConference: string;
   status: string;
+  /** CFBD `completed` flag (PLATFORM-086E1A) — retained provider metadata only. */
+  completed?: boolean;
+  /** CFBD `start_time_tbd` flag (PLATFORM-086E1A) — presentation metadata only. */
+  startTimeTBD?: boolean;
   venue?: VenueInfo | string | null;
+  /** CFBD numeric venue id (PLATFORM-086E1A). */
+  venueId?: number;
   label?: string | null;
   notes?: string | null;
   seasonType?: 'regular' | 'postseason' | string | null;
@@ -103,6 +109,10 @@ export type ScheduleWireItem = {
   regularSubtype?: 'standard' | 'conference_championship' | string | null;
   postseasonSubtype?: 'bowl' | 'playoff' | string | null;
   playoffRound?: 'quarterfinal' | 'semifinal' | 'national_championship' | 'playoff' | string | null;
+  /** Structured CFBD playoff competition string (PLATFORM-086E1A). */
+  playoffCompetition?: string;
+  /** How `playoffRound` was determined (PLATFORM-086E1A) — gates rollover. */
+  playoffRoundSource?: 'cfbd-structured' | 'explicit-provider-field' | 'text-inferred';
   bowlName?: string | null;
   conferenceChampionshipConference?: string | null;
   eventKey?: string | null;
@@ -138,7 +148,19 @@ export type AppGame = {
   conference: string | null;
   bowlName: string | null;
   playoffRound: string | null;
+  /**
+   * Structured CFBD playoff competition + provenance (PLATFORM-086E1A), carried
+   * through from the schedule item so the season-rollover authority can read the
+   * canonical game's structured playoff identity. `playoffRoundSource` gates
+   * rollover: only `cfbd-structured` is authoritative.
+   */
+  playoffCompetition?: string | null;
+  playoffRoundSource?: 'cfbd-structured' | 'explicit-provider-field' | 'text-inferred' | null;
   postseasonRole: PostseasonRole | null;
+  /** CFBD retained scalar metadata (PLATFORM-086E1A). */
+  startTimeTBD?: boolean | null;
+  venueId?: number | null;
+  completed?: boolean | null;
   providerGameId: string | null;
   neutral: boolean;
   neutralDisplay: 'vs' | 'home_away';
@@ -262,6 +284,33 @@ export {
   getRegularSeasonEligibilityDecision,
 } from './scheduleEligibility.ts';
 
+/**
+ * PLATFORM-086E1A — carry the retained CFBD schedule metadata (structured playoff
+ * identity + scalar flags) from a schedule wire item onto its canonical `AppGame`.
+ * Each field is included ONLY when the wire item actually carries it, so a game
+ * whose schedule row lacks this metadata keeps its exact prior `AppGame` shape
+ * (no new `null` keys) — existing consumers and fixtures are unaffected. The
+ * `playoffRoundSource` is validated against the closed provenance union so a
+ * malformed persisted value can never masquerade as authoritative for rollover.
+ */
+function retainedScheduleMetadata(item: ScheduleWireItem): Partial<AppGame> {
+  const fields: Partial<AppGame> = {};
+  if (typeof item.playoffCompetition === 'string' && item.playoffCompetition.length > 0) {
+    fields.playoffCompetition = item.playoffCompetition;
+  }
+  if (
+    item.playoffRoundSource === 'cfbd-structured' ||
+    item.playoffRoundSource === 'explicit-provider-field' ||
+    item.playoffRoundSource === 'text-inferred'
+  ) {
+    fields.playoffRoundSource = item.playoffRoundSource;
+  }
+  if (typeof item.startTimeTBD === 'boolean') fields.startTimeTBD = item.startTimeTBD;
+  if (typeof item.venueId === 'number') fields.venueId = item.venueId;
+  if (typeof item.completed === 'boolean') fields.completed = item.completed;
+  return fields;
+}
+
 export function buildScheduleFromApi(params: {
   scheduleItems: ScheduleWireItem[];
   teams: TeamCatalogItem[];
@@ -378,6 +427,7 @@ export function buildScheduleFromApi(params: {
         playoffRound: null,
         postseasonRole: 'conference_championship',
         providerGameId: item.id,
+        ...retainedScheduleMetadata(item),
         neutral: item.neutralSite,
         neutralDisplay:
           item.neutralSiteDisplay === 'vs' ? 'vs' : item.neutralSite ? 'vs' : 'home_away',
@@ -445,6 +495,7 @@ export function buildScheduleFromApi(params: {
               : 'playoff'
             : 'bowl',
         providerGameId: item.id,
+        ...retainedScheduleMetadata(item),
         neutral: item.neutralSite,
         neutralDisplay: item.neutralSiteDisplay === 'home_away' ? 'home_away' : 'vs',
         venue: item.venue ?? null,
@@ -540,6 +591,7 @@ export function buildScheduleFromApi(params: {
               ? 'playoff'
               : 'bowl'),
         providerGameId: item.id,
+        ...retainedScheduleMetadata(item),
         neutral: item.neutralSite,
         neutralDisplay: item.neutralSiteDisplay === 'home_away' ? 'home_away' : 'vs',
         venue: item.venue ?? null,
@@ -611,6 +663,7 @@ export function buildScheduleFromApi(params: {
       playoffRound: null,
       postseasonRole: null,
       providerGameId: item.id,
+      ...retainedScheduleMetadata(item),
       neutral: item.neutralSite,
       neutralDisplay:
         item.neutralSiteDisplay === 'vs' ? 'vs' : item.neutralSite ? 'vs' : 'home_away',

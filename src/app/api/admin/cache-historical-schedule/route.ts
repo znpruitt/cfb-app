@@ -1,59 +1,31 @@
 import { NextResponse } from 'next/server';
 
-import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
-import { buildCfbdGamesUrl } from '@/lib/cfbd';
-import {
-  mapCfbdScheduleGame,
-  type CfbdScheduleGame,
-  type ScheduleItem,
-  type SeasonType,
-} from '@/lib/schedule/cfbdSchedule';
+import { getLeagues } from '@/lib/leagueRegistry';
+import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
+import { seasonYearForToday } from '@/lib/scores/normalizers';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
-import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { getAppState } from '@/lib/server/appStateStore';
 import type { CacheEntry } from '../../schedule/cache';
 
 export const dynamic = 'force-dynamic';
 
-const CFBD_RETRY_POLICY = {
-  maxAttempts: 3,
-  baseDelayMs: 250,
-  maxDelayMs: 2_000,
-  jitterRatio: 0.2,
-  retryOnHttpStatuses: [408, 425, 429, 500, 502, 503, 504],
-} as const;
-
-const CFBD_PACING_POLICY = {
-  key: 'cfbd',
-  minIntervalMs: 150,
-} as const;
-
-function activeSeasonYear(now = new Date()): number {
-  const month = now.getUTCMonth();
-  const year = now.getUTCFullYear();
-  return month >= 7 ? year : year - 1;
-}
-
-async function fetchSeasonTypeItems(year: number, seasonType: SeasonType): Promise<ScheduleItem[]> {
-  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
-  if (!cfbdApiKey) {
-    throw new Error('CFBD_API_KEY missing');
+/**
+ * Years the historical repair must NEVER overwrite: the app's inferred current
+ * season, plus every year assigned to a league whose lifecycle is `preseason` or
+ * `season`. `force=1` does NOT bypass this — active-season schedule is owned by the
+ * schedule route + season-transition cron, and a historical repair must never race
+ * or clobber it (PLATFORM-086E1A §4).
+ */
+async function computeProtectedActiveYears(): Promise<Set<number>> {
+  const protectedYears = new Set<number>([seasonYearForToday()]);
+  const leagues = await getLeagues();
+  for (const league of leagues) {
+    const status = league.status;
+    if (status?.state === 'preseason' || status?.state === 'season') {
+      protectedYears.add((status as { year: number }).year);
+    }
   }
-
-  const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week: null });
-  const upstream = await fetchUpstreamJson<CfbdScheduleGame[]>(cfbdUrl.toString(), {
-    cache: 'no-store',
-    timeoutMs: 12_000,
-    headers: { Authorization: `Bearer ${cfbdApiKey}` },
-    retry: CFBD_RETRY_POLICY,
-    pacing: CFBD_PACING_POLICY,
-  });
-
-  const items: ScheduleItem[] = [];
-  for (const game of upstream) {
-    const result = mapCfbdScheduleGame(game, seasonType);
-    if (result.ok) items.push(result.item);
-  }
-  return items;
+  return protectedYears;
 }
 
 export async function POST(req: Request): Promise<Response> {
@@ -81,11 +53,12 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  const activeSeason = activeSeasonYear();
-  if (year === activeSeason) {
+  // Active-season protection — enforced regardless of `force`.
+  const protectedYears = await computeProtectedActiveYears();
+  if (protectedYears.has(year)) {
     return NextResponse.json(
       {
-        error: `year ${year} is the active season — use the existing schedule route to refresh active season cache`,
+        error: `year ${year} is an active season (inferred current year or a preseason/season league year) — refresh it via the schedule route, not the historical repair`,
         field: 'year',
       },
       { status: 400 }
@@ -94,52 +67,46 @@ export async function POST(req: Request): Promise<Response> {
 
   const cacheKey = `${year}-all-all`;
 
+  // Without `force`, an already-cached historical year is a no-provider-call
+  // short-circuit (avoid re-spending a fetch on data we already hold).
   if (!force) {
-    const existing = await getAppState<CacheEntry>('schedule', cacheKey);
-    if (existing) {
+    let existing: Awaited<ReturnType<typeof getAppState<CacheEntry>>>;
+    try {
+      existing = await getAppState<CacheEntry>('schedule', cacheKey);
+    } catch {
+      return NextResponse.json(
+        { error: 'schedule cache read failed', code: 'schedule-cache-read-failed' },
+        { status: 503 }
+      );
+    }
+    if (existing?.value) {
       return NextResponse.json({ alreadyCached: true, year });
     }
   }
 
-  let regularItems: ScheduleItem[];
-  let postseasonItems: ScheduleItem[];
+  // Allowed historical year — drive the SHARED full-season authority so it gets the
+  // same completeness, schema-drift, empty-replacement, lease, transaction,
+  // observation-order, and provider-status protection as every other full-year
+  // writer (PLATFORM-086E1A §4).
+  const result = await refreshFullSeasonSchedule({ year });
 
-  try {
-    [regularItems, postseasonItems] = await Promise.all([
-      fetchSeasonTypeItems(year, 'regular'),
-      fetchSeasonTypeItems(year, 'postseason'),
-    ]);
-  } catch (err) {
-    if (err instanceof UpstreamFetchError) {
-      return NextResponse.json(
-        { error: 'CFBD API error', detail: err.details },
-        { status: err.details.status ?? 502 }
-      );
-    }
+  if (result.status === 'in-progress') {
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'unknown error fetching schedule from CFBD' },
-      { status: 502 }
+      { error: 'schedule refresh already in progress for this year', code: result.reason },
+      { status: 409 }
     );
   }
-
-  const items = [...regularItems, ...postseasonItems].sort(
-    (a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? '')
-  );
-
-  const now = Date.now();
-  const entry: CacheEntry = {
-    at: now,
-    items,
-    partialFailure: false,
-    failedSeasonTypes: [],
-  };
-
-  await setAppState('schedule', cacheKey, entry);
+  if (result.status === 'failure') {
+    return NextResponse.json(
+      { error: 'historical schedule repair failed', code: result.reason },
+      { status: result.httpStatus }
+    );
+  }
 
   return NextResponse.json({
     success: true,
     year,
-    gameCount: items.length,
-    cachedAt: new Date(now).toISOString(),
+    gameCount: result.items.length,
+    cachedAt: result.committedAt ?? result.observedAt ?? new Date().toISOString(),
   });
 }

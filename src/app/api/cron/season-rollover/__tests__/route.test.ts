@@ -42,9 +42,17 @@ function makeLeague(slug: string, status: League['status']): League {
   };
 }
 
-// Seed a schedule cache containing a national-championship game. `champDate`
-// controls the rollover time gate: rollover fires only at championship + 7 days.
-async function seedScheduleWithChampionship(champDate: string): Promise<void> {
+// Seed a schedule cache containing a STRUCTURED CFP national-championship game
+// plus a complete final score (PLATFORM-086E1A). `champDate` controls the rollover
+// time gate: rollover fires only at championship + 7 days AND only off a
+// structured (`cfbd-structured`), confirmed-final championship. `options.final`
+// (default true) toggles the score's finality so a test can assert a
+// not-yet-final championship does NOT roll.
+async function seedScheduleWithChampionship(
+  champDate: string,
+  options: { final?: boolean } = {}
+): Promise<void> {
+  const final = options.final ?? true;
   await setTeamDatabaseFile({
     source: 'cfbd',
     updatedAt: '2023-01-01T00:00:00.000Z',
@@ -56,7 +64,7 @@ async function seedScheduleWithChampionship(champDate: string): Promise<void> {
   await setAppState('schedule', `${YEAR}-all-all`, {
     items: [
       {
-        id: 'champ-1',
+        id: '401752',
         week: 15,
         startDate: champDate,
         neutralSite: true,
@@ -67,7 +75,31 @@ async function seedScheduleWithChampionship(champDate: string): Promise<void> {
         awayConference: 'Big Ten',
         status: 'final',
         seasonType: 'postseason',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'playoff',
         playoffRound: 'national_championship',
+        playoffCompetition: 'College Football Playoff',
+        playoffRoundSource: 'cfbd-structured',
+      },
+    ],
+  });
+  // Rollover finality is derived from the SCORE cache via the centralized status
+  // classifier — never from the schedule row's status. Attach a score to the
+  // championship game by its exact CFBD provider game id.
+  await setAppState('scores', `${YEAR}-all-postseason`, {
+    at: Date.parse('2023-01-10T00:00:00.000Z'),
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+    items: [
+      {
+        id: '401752',
+        seasonType: 'postseason',
+        startDate: champDate,
+        week: 15,
+        status: final ? 'final' : 'in progress',
+        home: { team: 'Alpha U', score: final ? 34 : 14 },
+        away: { team: 'Beta U', score: final ? 21 : 10 },
+        time: null,
       },
     ],
   });
@@ -160,4 +192,95 @@ test('championship + 7 days not reached → skipped, invalidates nothing', async
     tags.filter((t) => t.startsWith('standings:')),
     []
   );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086E1A — leagues are grouped by year and each year is evaluated
+// independently: a not-yet-final year must not roll just because another year is.
+// ---------------------------------------------------------------------------
+
+function makeLeagueForYear(slug: string, year: number): League {
+  return {
+    slug,
+    displayName: `League ${slug}`,
+    year,
+    createdAt: '2022-01-01T00:00:00.000Z',
+    status: { state: 'season', year },
+  };
+}
+
+async function seedYearChampionship(
+  year: number,
+  champDate: string,
+  final: boolean
+): Promise<void> {
+  await setAppState('schedule', `${year}-all-all`, {
+    items: [
+      {
+        id: `${year}0101`,
+        week: 15,
+        startDate: champDate,
+        neutralSite: true,
+        conferenceGame: false,
+        homeTeam: 'Alpha U',
+        awayTeam: 'Beta U',
+        homeConference: 'SEC',
+        awayConference: 'Big Ten',
+        status: 'final',
+        seasonType: 'postseason',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'playoff',
+        playoffRound: 'national_championship',
+        playoffCompetition: 'College Football Playoff',
+        playoffRoundSource: 'cfbd-structured',
+      },
+    ],
+  });
+  await setAppState('scores', `${year}-all-postseason`, {
+    at: Date.parse(champDate) + 24 * 60 * 60 * 1000,
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+    items: [
+      {
+        id: `${year}0101`,
+        seasonType: 'postseason',
+        startDate: champDate,
+        week: 15,
+        status: final ? 'final' : 'in progress',
+        home: { team: 'Alpha U', score: final ? 34 : 14 },
+        away: { team: 'Beta U', score: final ? 21 : 10 },
+        time: null,
+      },
+    ],
+  });
+}
+
+test('multiple season years are evaluated independently for rollover', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeagueForYear('alpha', 2023),
+    makeLeagueForYear('beta', 2024),
+  ]);
+  // Shared team catalog for both years.
+  await setTeamDatabaseFile({
+    source: 'cfbd',
+    updatedAt: '2023-01-01T00:00:00.000Z',
+    items: [
+      { school: 'Alpha U', conference: 'SEC' },
+      { school: 'Beta U', conference: 'Big Ten' },
+    ],
+  });
+  // 2023: structured, final championship well in the past → eligible.
+  await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z', true);
+  // 2024: structured championship but NOT final → not eligible.
+  await seedYearChampionship(2024, '2024-01-08T00:00:00.000Z', false);
+
+  const { result: res } = await runCapturingTags(() => GET(cronRequest()));
+  const body = (await res.json()) as { leaguesRolledOver?: string[] };
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.deepEqual(body.leaguesRolledOver, ['alpha'], 'only the eligible year rolled');
+
+  const leagues = await getAppState<League[]>('leagues', 'registry');
+  const bySlug = Object.fromEntries((leagues?.value ?? []).map((l) => [l.slug, l.status?.state]));
+  assert.equal(bySlug.alpha, 'offseason', '2023 rolled to offseason');
+  assert.equal(bySlug.beta, 'season', '2024 (not final) stays in season');
 });

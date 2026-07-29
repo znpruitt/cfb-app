@@ -4,21 +4,33 @@ import { clearAllSuppressionRecords } from '@/lib/insights/suppression';
 import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { saveSeasonArchive } from '@/lib/seasonArchive';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
-import { buildSeasonArchive, findNationalChampionshipGameDate } from '@/lib/seasonRollover';
+import { buildSeasonArchive } from '@/lib/seasonRollover';
+import {
+  resolveNationalChampionshipRollover,
+  type ChampionshipRolloverSkipReason,
+} from '@/lib/schedule/nationalChampionshipRollover';
 
 export const dynamic = 'force-dynamic';
 
 const TEST_LEAGUE_SLUG = 'test';
-const ROLLOVER_DELAY_MS = 7 * 24 * 60 * 60 * 1000;
 
-type RolloverError = { leagueSlug: string; error: string };
+type RolloverError = { leagueSlug?: string; year?: number; error: string };
+
+type YearRolloverResult = {
+  year: number;
+  championshipDate?: string;
+  rolloverDate?: string;
+  skipped?: boolean;
+  reason?: ChampionshipRolloverSkipReason | 'read-failed';
+  leaguesRolledOver: string[];
+  suppressionClearedFor: string[];
+};
 
 type CronResult = {
   skipped?: boolean;
   reason?: string;
-  rolloverDate?: string | null;
-  year?: number;
   success?: boolean;
+  years?: YearRolloverResult[];
   leaguesRolledOver?: string[];
   suppressionClearedFor?: string[];
   errors?: RolloverError[];
@@ -51,79 +63,125 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       return NextResponse.json({ skipped: true, reason: 'no leagues in season state' });
     }
 
-    // All non-test leagues are assumed to be on the same year (global rollover model)
-    const year = (seasonLeagues[0]!.status as { state: 'season'; year: number }).year;
-
-    const championshipDate = await findNationalChampionshipGameDate(year);
-    if (!championshipDate) {
-      return NextResponse.json({
-        skipped: true,
-        reason: 'national championship game not found in schedule cache',
-        year,
-      });
+    // Group leagues by their season year and evaluate each year INDEPENDENTLY —
+    // never assume all leagues share the first eligible league's year
+    // (PLATFORM-086E1A §6). The rollover authority reads each year's canonical
+    // schedule cache-only and requires a structured, confirmed-final championship.
+    const byYear = new Map<number, typeof seasonLeagues>();
+    for (const league of seasonLeagues) {
+      const year = (league.status as { state: 'season'; year: number }).year;
+      const group = byYear.get(year) ?? [];
+      group.push(league);
+      byYear.set(year, group);
     }
 
-    const championshipMs = new Date(championshipDate).getTime();
-    const rolloverMs = championshipMs + ROLLOVER_DELAY_MS;
-    const rolloverDate = new Date(rolloverMs).toISOString();
-
-    if (Date.now() < rolloverMs) {
-      return NextResponse.json({
-        skipped: true,
-        reason: 'championship + 7 days not reached',
-        rolloverDate,
-        year,
-      });
-    }
-
+    const now = Date.now();
+    const years: YearRolloverResult[] = [];
     const leaguesRolledOver: string[] = [];
     const suppressionClearedFor: string[] = [];
     const errors: RolloverError[] = [];
 
-    for (const league of seasonLeagues) {
-      try {
-        const archive = await buildSeasonArchive(league.slug, year);
-        await saveSeasonArchive(archive);
-      } catch (err) {
-        errors.push({
-          leagueSlug: league.slug,
-          error: err instanceof Error ? err.message : 'unknown error',
+    for (const [year, yearLeagues] of byYear) {
+      const decision = await resolveNationalChampionshipRollover(year, now);
+
+      if (decision.kind === 'read-failed') {
+        // A genuine durable read failure is a FAILURE, never ordinary absence:
+        // surface it and do not roll this year.
+        errors.push({ year, error: `rollover read failed: ${decision.detail}` });
+        years.push({
+          year,
+          skipped: true,
+          reason: 'read-failed',
+          leaguesRolledOver: [],
+          suppressionClearedFor: [],
         });
         continue;
       }
 
-      try {
-        await updateLeagueStatus(league.slug, { state: 'offseason' });
-        leaguesRolledOver.push(league.slug);
-        // Season→offseason changes this league's standings surface (live →
-        // prior-season final from the archive just written). Bust its cached
-        // snapshots so the public page reflects the rollover. League-scoped: only
-        // the leagues that actually rolled over are affected.
-        invalidateStandings(league.slug);
-      } catch (err) {
-        errors.push({
-          leagueSlug: league.slug,
-          error: `status write failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+      if (decision.kind === 'skip') {
+        years.push({
+          year,
+          skipped: true,
+          reason: decision.reason,
+          leaguesRolledOver: [],
+          suppressionClearedFor: [],
         });
         continue;
       }
 
-      // Only clear suppression after both archive and status update succeeded.
-      // Non-blocking — a failure here does not fail the rollover.
-      try {
-        await clearAllSuppressionRecords(league.slug, year);
-        suppressionClearedFor.push(league.slug);
-      } catch {
-        // Suppression clear is best-effort; rollover already succeeded.
+      // Eligible — roll every league in this year group.
+      const yearResult: YearRolloverResult = {
+        year,
+        championshipDate: decision.championshipDate,
+        rolloverDate: decision.rolloverDate,
+        leaguesRolledOver: [],
+        suppressionClearedFor: [],
+      };
+
+      for (const league of yearLeagues) {
+        try {
+          const archive = await buildSeasonArchive(league.slug, year);
+          await saveSeasonArchive(archive);
+        } catch (err) {
+          errors.push({
+            leagueSlug: league.slug,
+            year,
+            error: err instanceof Error ? err.message : 'unknown error',
+          });
+          continue;
+        }
+
+        try {
+          await updateLeagueStatus(league.slug, { state: 'offseason' });
+          yearResult.leaguesRolledOver.push(league.slug);
+          leaguesRolledOver.push(league.slug);
+          // Season→offseason changes this league's standings surface (live →
+          // prior-season final from the archive just written). Bust its cached
+          // snapshots. League-scoped: only leagues that actually rolled over.
+          invalidateStandings(league.slug);
+        } catch (err) {
+          errors.push({
+            leagueSlug: league.slug,
+            year,
+            error: `status write failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+          });
+          continue;
+        }
+
+        // Only clear suppression after both archive and status update succeeded.
+        // Non-blocking — a failure here does not fail the rollover.
+        try {
+          await clearAllSuppressionRecords(league.slug, year);
+          yearResult.suppressionClearedFor.push(league.slug);
+          suppressionClearedFor.push(league.slug);
+        } catch {
+          // Suppression clear is best-effort; rollover already succeeded.
+        }
       }
+
+      years.push(yearResult);
+    }
+
+    const rolledAny = leaguesRolledOver.length > 0;
+    const hadFailure = errors.length > 0;
+
+    // A pure benign outcome (nothing eligible, nothing failed) reports `skipped`
+    // exactly as before, so a not-yet-final / waiting-period run is indistinguishable
+    // from the legacy single-year skip. Anything that rolled or failed reports the
+    // detailed per-year result.
+    if (!rolledAny && !hadFailure) {
+      return NextResponse.json({
+        skipped: true,
+        reason: 'no year eligible for rollover',
+        years,
+      });
     }
 
     return NextResponse.json({
-      success: errors.length === 0,
-      year,
-      rolloverDate,
+      success: !hadFailure,
       leaguesRolledOver,
       suppressionClearedFor,
+      years,
       errors,
     });
   } catch (err) {
