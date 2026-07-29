@@ -28,6 +28,7 @@ import {
   weekPartitionScope,
   yearScope,
 } from '../../../../lib/providerRefreshScope.ts';
+import { acquireScheduleRefreshLease } from '../../../../lib/schedule/scheduleRefreshLease.ts';
 
 // Schedule status scope now reflects the ACTUAL refresh target (finding 1): a
 // full-year (seasonType=all) refresh records the year rollup, while a single
@@ -166,8 +167,11 @@ test('schedule route returns 502 for seasonType=all when one request fails', asy
   const res = await GET(req);
   const json = await res.json();
 
+  // Full-year refresh now flows through the shared authority (PLATFORM-086E1A):
+  // a failed required partition rejects the aggregate with the closed reason code
+  // and the specific failed partition(s).
   assert.equal(res.status, 502);
-  assert.equal(json.error, 'partial upstream error');
+  assert.equal(json.code, 'partition-fetch-failed');
   assert.deepEqual(json.detail.failedSeasonTypes, ['postseason']);
 });
 
@@ -264,7 +268,7 @@ test('schema drift within an all-season refresh reports it as a failed partition
   const json = await res.json();
 
   assert.equal(res.status, 502);
-  assert.equal(json.error, 'partial upstream error');
+  assert.equal(json.code, 'partition-schema-drift');
   assert.deepEqual(json.detail.failedSeasonTypes, ['regular']);
 
   // Nothing committed under the all-season key.
@@ -469,17 +473,21 @@ test('a prior-cache read failure while classifying an empty response resolves th
   );
   __setAppStateReadFailureForTests(null);
 
-  assert.equal(res.status, 502);
+  // The shared authority (PLATFORM-086E1A) fails FAST when the prior durable
+  // schedule state cannot be read — BEFORE the lease or any provider-refresh
+  // attempt — so it never begins an attempt that could dangle and never advances a
+  // false success. The full-year route surfaces this as a 503 with the closed
+  // reason code.
+  assert.equal(res.status, 503);
   const json = await res.json();
-  assert.equal(json.detail?.code, 'schedule-prior-cache-read-failed');
+  assert.equal(json.code, 'canonical-context-unavailable');
 
   const status = await getProviderRefreshStatus('schedule', SCHEDULE_YEAR_SCOPE);
   assert.equal(
     status.latestAttemptOutcome,
-    'failed',
-    'the open attempt resolves as failed, never left in-progress'
+    'succeeded',
+    'fail-fast begins no attempt — the seeded prior-good status is untouched'
   );
-  assert.equal(status.lastError?.code, 'schedule-prior-cache-read-failed');
   assert.equal(
     status.lastSuccessAt,
     priorSuccessAt,
@@ -548,7 +556,7 @@ test('an unexpected all-empty refresh does NOT overwrite a populated durable sch
   const json = await res.json();
 
   assert.equal(res.status, 502, JSON.stringify(json));
-  assert.match(String(json.error ?? ''), /no games/i);
+  assert.equal(json.code, 'empty-replacement-rejected');
 
   // Prior-good durable schedule is intact — NOT overwritten with an empty snapshot.
   const durable = await getAppState<{ items: Array<{ id: string }> }>('schedule', '2027-all-all');
@@ -1378,4 +1386,34 @@ test('week+all: a legacy aggregate with only regular rows composes to a regular-
   // regular partition's own (fresh) timestamp — not a stale placeholder.
   assert.equal(new Date(json.meta.generatedAt).getTime(), legacyAt);
   assert.notEqual(json.meta.stale, true);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086E1A — the full-year refresh flows through the shared authority; a
+// concurrent full-year refresh is a truthful 409 with no provider request.
+// ---------------------------------------------------------------------------
+
+test('full-year manual refresh under lease contention maps to HTTP 409 with no provider call', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+
+  // A nonexpired lease is already held for this year (another refresh in flight).
+  const held = await acquireScheduleRefreshLease({ year: 2027, now: Date.now() });
+  assert.equal(held.acquired, true);
+
+  let fetchCalls = 0;
+  setMockFetch(async () => {
+    fetchCalls += 1;
+    return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+  });
+
+  const res = await GET(
+    new Request('http://localhost/api/schedule?year=2027&seasonType=all&bypassCache=1', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
+  );
+  assert.equal(res.status, 409);
+  const json = await res.json();
+  assert.equal(json.code, 'refresh-in-progress');
+  assert.equal(fetchCalls, 0, 'the losing full-year caller makes no provider request');
 });

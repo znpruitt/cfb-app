@@ -268,10 +268,13 @@ test('a prior-cache read failure while classifying an empty probe resolves the a
   assert.equal(res.status, 500, JSON.stringify(body));
   assert.ok(body.error, 'the cron returns its established safe failure response');
 
-  // The open schedule attempt resolves as failed — never left in-progress.
+  // The shared authority fails FAST (canonical-context-unavailable) when the prior
+  // durable schedule cannot be read — BEFORE the lease or any provider-refresh
+  // attempt. So no attempt is begun (none can dangle) and no false success is
+  // recorded; the cron surfaces the store outage as a 500.
   const status = await getProviderRefreshStatus('schedule', yearScope(YEAR));
-  assert.equal(status.latestAttemptOutcome, 'failed');
-  assert.equal(status.lastError?.code, 'schedule-prior-cache-read-failed');
+  assert.equal(status.latestAttemptOutcome, null, 'fail-fast begins no attempt');
+  assert.equal(status.lastSuccessAt, null, 'no false success recorded');
 
   // Prior-good durable schedule retained (nothing written on the read-failure path).
   const stored = await getAppState<{ items: Array<{ id: string }> }>('schedule', `${YEAR}-all-all`);
@@ -470,8 +473,70 @@ test('a complete transition fetch commits durable schedule and probe', async () 
   const probe = await getAppState<{ firstGameDate: string | null }>('schedule-probe', String(YEAR));
   assert.equal(probe?.value?.firstGameDate, '2099-09-01T00:00:00.000Z');
 
-  // Future first game → no transition yet, so no standings invalidation.
+  // A fresh schedule COMMIT now invalidates canonical standings for the year via
+  // the shared authority (PLATFORM-086E1A closes the old gap where a transition
+  // schedule write left standings stale). Future first game → no transition flip.
   assert.equal(body.years[0]?.transitioned, false);
+  assert.ok(
+    tags.includes('standings:alpha:2023'),
+    'fresh schedule commit invalidates year standings'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086E1A — the cron drives the shared full-season authority: exactly one
+// regular/postseason fetch pair and one year-scoped attempt, and it never flips a
+// league off a failed refresh even when the transition time gate is satisfied.
+// ---------------------------------------------------------------------------
+
+test('season-transition drives one shared attempt and one regular/postseason fetch pair', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  // No probe → shouldFetch true. Count exactly which season types are requested.
+  const seenSeasonTypes: string[] = [];
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    seenSeasonTypes.push(url.searchParams.get('seasonType') ?? '');
+    return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+
+  await GET(cronRequest());
+
+  assert.deepEqual(
+    [...seenSeasonTypes].sort(),
+    ['postseason', 'regular'],
+    'exactly one fetch per required partition'
+  );
+  // A single year-scoped attempt was recorded (a valid-empty no-op here).
+  const status = await getProviderRefreshStatus('schedule', yearScope(YEAR));
+  assert.equal(status.latestAttemptOutcome, 'no-op', 'one year-scoped attempt, resolved once');
+});
+
+test('season-transition does not flip a league off a failed refresh even past the first-game gate', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  // Past firstGameDate → the transition time gate WOULD fire if the probe were
+  // trusted. But the refresh fails (postseason partition fails), so the league must
+  // NOT flip off unconfirmed data.
+  await seedPastProbe();
+  stubFetchBySeasonType(
+    JSON.stringify([game(1, 'Texas', 'Rice', '2023-08-26T00:00:00.000Z')]),
+    'throw'
+  );
+
+  const { result: res, tags } = await runCapturingTags(() => GET(cronRequest()));
+  const body = (await res.json()) as {
+    years: Array<{ partialFailure?: boolean; transitioned: boolean; failedSeasonTypes?: string[] }>;
+  };
+  assert.equal(res.status, 200);
+  assert.equal(body.years[0]?.partialFailure, true);
+  assert.deepEqual(body.years[0]?.failedSeasonTypes, ['postseason']);
+  assert.equal(body.years[0]?.transitioned, false, 'no flip off a failed refresh');
+
+  const leagues = await getAppState<League[]>('leagues', 'registry');
+  assert.equal(leagues?.value?.[0]?.status?.state, 'preseason');
   assert.deepEqual(
     tags.filter((t) => t.startsWith('standings:')),
     []

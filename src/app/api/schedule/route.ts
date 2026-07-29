@@ -13,6 +13,8 @@ import {
   classifyEmptyScheduleRefresh,
   hasRequiredSeasonTypeFailure,
 } from '@/lib/scheduleSeasonFetch';
+import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
+import type { FullSeasonScheduleRefreshResult } from '@/lib/schedule/fullSeasonScheduleRefreshResult';
 
 import { type CacheEntry, SCHEDULE_ROUTE_CACHE } from './cache';
 import {
@@ -540,6 +542,47 @@ async function refreshScheduleWeekPartition(params: {
   return { kind: 'success', seasonType, items: fetched.items };
 }
 
+/**
+ * Map a shared full-season refresh result to the `/api/schedule` HTTP response
+ * (PLATFORM-086E1A). Lease contention is a truthful 409 with NO provider request;
+ * a failure carries the authority's HTTP status + closed reason code; a success or
+ * validated no-op serves the confirmed items with the standard schedule meta. The
+ * success/empty response body matches the pre-migration full-year shape.
+ */
+function fullSeasonRefreshResponse(
+  result: FullSeasonScheduleRefreshResult,
+  now: number
+): NextResponse {
+  if (result.status === 'in-progress') {
+    return NextResponse.json(
+      { error: 'schedule refresh already in progress for this year', code: result.reason },
+      { status: 409 }
+    );
+  }
+  if (result.status === 'failure') {
+    return NextResponse.json(
+      {
+        error: 'schedule refresh failed',
+        code: result.reason,
+        ...(result.failedSeasonTypes.length > 0
+          ? { detail: { failedSeasonTypes: result.failedSeasonTypes } }
+          : {}),
+      },
+      { status: result.httpStatus }
+    );
+  }
+  return NextResponse.json<ScheduleResponse>({
+    items: result.items,
+    meta: {
+      source: 'cfbd',
+      cache: 'miss',
+      fallbackUsed: false,
+      generatedAt: result.observedAt ?? new Date(now).toISOString(),
+      partialFailure: false,
+    },
+  });
+}
+
 export async function GET(req: Request) {
   recordRouteRequest('schedule');
   const url = new URL(req.url);
@@ -807,6 +850,35 @@ export async function GET(req: Request) {
         partialFailure: false,
       },
     });
+  }
+
+  // PLATFORM-086E1A: the FULL-YEAR refresh (no week, all season types) is served by
+  // the shared full-season schedule authority — one completeness-checked,
+  // observation-ordered, concurrency-safe writer. It owns the lease, provider fetch,
+  // commit, standings invalidation, and provider-status resolution; a concurrent
+  // full-year refresh maps to HTTP 409 with NO provider request. Targeted child-key
+  // writers (a specific season type, or a specific week) are UNCHANGED and continue
+  // on the single-scope path below.
+  if (week === null && requestedSeasonType === 'all') {
+    const result = await refreshFullSeasonSchedule({ year, now });
+
+    // Update schedule probe state when a full-season admin refresh durably commits
+    // real rows (preserves the pre-migration probe-update behavior). Non-fatal.
+    if (bypassCache && result.status === 'success' && result.items.length > 0) {
+      try {
+        const existingProbe = await getScheduleProbeState(year);
+        const firstGameDate = deriveFirstGameDate(result.items);
+        await saveScheduleProbeState({
+          year,
+          baseCachedAt: existingProbe?.baseCachedAt ?? new Date(now).toISOString(),
+          firstGameDate,
+        });
+      } catch {
+        // Non-fatal — probe state update failure must not block the schedule response.
+      }
+    }
+
+    return fullSeasonRefreshResponse(result, now);
   }
 
   // Provider-refresh observability (PLATFORM-086A): reaching here means an admin
