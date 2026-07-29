@@ -38,6 +38,12 @@ export type OddsTargetVariant = 'canonical' | 'filtered';
  *   - `week-partition`   — a single (year, week, seasonType) partition (game-stats).
  *   - `odds-target`      — a single Odds cache target, distinguished by canonical
  *                           vs filtered variant and the durable Odds cache key.
+ *   - `schedule-media`   — the year-wide schedule game-media PRESENTATION cache
+ *                           (PLATFORM-086E1C1). A distinct key from the canonical
+ *                           schedule year rollup, so a presentation refresh can
+ *                           never overwrite or imply canonical schedule success.
+ *   - `venue-catalog`    — the global venue-catalog PRESENTATION cache
+ *                           (PLATFORM-086E1C1); no year dimension.
  *   - `legacy-unscoped`  — a pre-scoped record keyed only by dataset. Read for
  *                           deep diagnostics; never treated as selected-year truth.
  */
@@ -47,6 +53,8 @@ export type ProviderRefreshScope =
   | { kind: 'season-partition'; year: number; seasonType: CanonicalSeasonType }
   | { kind: 'week-partition'; year: number; week: number; seasonType: CanonicalSeasonType }
   | { kind: 'odds-target'; year: number; variant: OddsTargetVariant; cacheKey: string }
+  | { kind: 'schedule-media'; year: number }
+  | { kind: 'venue-catalog' }
   | { kind: 'legacy-unscoped' };
 
 /**
@@ -93,6 +101,16 @@ export function oddsTargetScope(
   return { kind: 'odds-target', year, variant, cacheKey };
 }
 
+/** Year-wide schedule game-media presentation cache (PLATFORM-086E1C1). */
+export function scheduleMediaScope(year: number): ProviderRefreshScope {
+  return { kind: 'schedule-media', year };
+}
+
+/** Global venue-catalog presentation cache (PLATFORM-086E1C1). */
+export function venueCatalogScope(): ProviderRefreshScope {
+  return { kind: 'venue-catalog' };
+}
+
 export function legacyUnscopedScope(): ProviderRefreshScope {
   return { kind: 'legacy-unscoped' };
 }
@@ -127,6 +145,10 @@ export function providerRefreshScopeKey(
       )}`;
     case 'odds-target':
       return `${dataset}:target:${scope.year}:${scope.variant}:${scope.cacheKey}`;
+    case 'schedule-media':
+      return `${dataset}:media:${scope.year}`;
+    case 'venue-catalog':
+      return `${dataset}:venues`;
     case 'legacy-unscoped':
       return dataset;
   }
@@ -234,6 +256,10 @@ export function describeProviderRefreshScope(scope: ProviderRefreshScope): strin
       return `${scope.year} week ${scope.week} ${scope.seasonType}`;
     case 'odds-target':
       return `${scope.year} odds (${scope.variant})`;
+    case 'schedule-media':
+      return `${scope.year} schedule media`;
+    case 'venue-catalog':
+      return 'venue catalog';
     case 'legacy-unscoped':
       return 'legacy (unscoped)';
   }

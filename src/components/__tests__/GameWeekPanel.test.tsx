@@ -54,6 +54,8 @@ function game(overrides: Partial<AppGame>): AppGame {
     awayConf: overrides.awayConf ?? 'IND',
     homeConf: overrides.homeConf ?? 'IND',
     sources: overrides.sources,
+    startTimeTBD: overrides.startTimeTBD,
+    media: overrides.media,
   };
 }
 
@@ -1633,4 +1635,102 @@ test('pregame provider statuses containing "ot" letters do not render as live su
   assert.match(html, /data-summary-state[^>]*>NOT_STARTED<\/div>/);
   assert.match(html, /border-sky-200[^>]*data-summary-state="true">NOT_STARTED<\/div>/);
   assert.doesNotMatch(html, /border-amber-200[^>]*data-summary-state="true">NOT_STARTED<\/div>/);
+});
+
+// --- PLATFORM-086E1C1: broadcast + enriched venue + Time TBD -----------------
+
+test('expanded card renders the preferred broadcast outlet and enriched venue', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'presentation-enriched',
+          csvAway: 'Ohio State',
+          csvHome: 'Texas',
+          date: '2025-08-30T00:00:00.000Z',
+          neutral: true,
+          neutralDisplay: 'vs',
+          media: [
+            { gameId: '101', mediaType: 'radio', outlet: 'KVET' },
+            { gameId: '101', mediaType: 'tv', outlet: 'ESPN' },
+          ],
+          venue: {
+            stadium: 'Darrell K Royal–Texas Memorial Stadium',
+            city: 'Austin',
+            state: 'TX',
+            country: 'US',
+          },
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Sat, Aug 30, 12:00 AM/);
+  assert.match(html, /ESPN/, 'the tv outlet wins the display priority');
+  assert.doesNotMatch(html, /KVET/, 'the compact card shows ONE preferred outlet');
+  assert.match(html, /Neutral Site/);
+  assert.match(html, /Darrell K Royal–Texas Memorial Stadium • Austin, TX/);
+});
+
+test('expanded card renders date plus Time TBD when startTimeTBD is true', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'presentation-tbd',
+          csvAway: 'Georgia',
+          csvHome: 'Alabama',
+          date: '2025-08-30T00:00:00.000Z',
+          startTimeTBD: true,
+          media: [{ gameId: '102', mediaType: 'tv', outlet: 'ABC' }],
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Sat, Aug 30 · Time TBD/);
+  assert.doesNotMatch(html, /12:00 AM/, 'the placeholder clock is never shown as confirmed');
+  assert.match(html, /ABC/);
+});
+
+test('missing presentation enrichment preserves the existing card output', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[
+        game({
+          key: 'presentation-absent',
+          csvAway: 'TCU',
+          csvHome: 'Baylor',
+          date: '2025-09-01T17:00:00.000Z',
+          venue: null,
+        }),
+      ]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Mon, Sep 1, 5:00 PM/);
+  assert.doesNotMatch(html, /Streaming ·/);
+  assert.doesNotMatch(html, /Radio ·/);
+  assert.doesNotMatch(html, /Time TBD/);
 });

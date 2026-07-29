@@ -15,6 +15,11 @@ import {
 } from '@/lib/scheduleSeasonFetch';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import type { FullSeasonScheduleRefreshResult } from '@/lib/schedule/fullSeasonScheduleRefreshResult';
+import {
+  enrichScheduleItemsWithPresentation,
+  type PresentationEnrichedScheduleItem,
+} from '@/lib/schedule/schedulePresentationJoin';
+import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
 
 import { type CacheEntry, SCHEDULE_ROUTE_CACHE } from './cache';
 import {
@@ -70,7 +75,13 @@ interface ScheduleMeta {
 }
 
 interface ScheduleResponse {
-  items: ScheduleItem[];
+  /**
+   * Canonical schedule items with the OPTIONAL cache-only presentation overlay
+   * (PLATFORM-086E1C1): `media` joined by exact provider game id and venue
+   * display fields filled by exact `venueId` — never persisted back to the
+   * durable `schedule/*` records.
+   */
+  items: PresentationEnrichedScheduleItem[];
   meta: ScheduleMeta;
 }
 
@@ -546,13 +557,14 @@ async function refreshScheduleWeekPartition(params: {
  * Map a shared full-season refresh result to the `/api/schedule` HTTP response
  * (PLATFORM-086E1A). Lease contention is a truthful 409 with NO provider request;
  * a failure carries the authority's HTTP status + closed reason code; a success or
- * validated no-op serves the confirmed items with the standard schedule meta. The
- * success/empty response body matches the pre-migration full-year shape.
+ * validated no-op serves the confirmed items — presentation-enriched cache-only
+ * (PLATFORM-086E1C1) — with the standard schedule meta. The success/empty
+ * response body matches the pre-migration full-year shape.
  */
-function fullSeasonRefreshResponse(
+async function fullSeasonRefreshResponse(
   result: FullSeasonScheduleRefreshResult,
   now: number
-): NextResponse {
+): Promise<NextResponse> {
   if (result.status === 'in-progress') {
     return NextResponse.json(
       { error: 'schedule refresh already in progress for this year', code: result.reason },
@@ -572,7 +584,10 @@ function fullSeasonRefreshResponse(
     );
   }
   return NextResponse.json<ScheduleResponse>({
-    items: result.items,
+    items: await enrichScheduleItemsWithPresentation({
+      year: result.requestedYear,
+      items: result.items,
+    }),
     meta: {
       source: 'cfbd',
       cache: 'miss',
@@ -649,7 +664,7 @@ export async function GET(req: Request) {
         if (isFreshScheduleCacheEntry(entry, now)) {
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: entry.items,
+            items: await enrichScheduleItemsWithPresentation({ year, items: entry.items }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -668,7 +683,7 @@ export async function GET(req: Request) {
         if (!isAdmin) {
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: entry.items,
+            items: await enrichScheduleItemsWithPresentation({ year, items: entry.items }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -701,7 +716,7 @@ export async function GET(req: Request) {
     if (!bypassCache && isFreshScheduleCacheEntry(hit, now)) {
       recordRouteCacheHit('schedule');
       return NextResponse.json<ScheduleResponse>({
-        items: hit.items,
+        items: await enrichScheduleItemsWithPresentation({ year, items: hit.items }),
         meta: {
           source: 'cfbd',
           cache: 'hit',
@@ -721,7 +736,7 @@ export async function GET(req: Request) {
         pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
         recordRouteCacheHit('schedule');
         return NextResponse.json<ScheduleResponse>({
-          items: storedValue.items,
+          items: await enrichScheduleItemsWithPresentation({ year, items: storedValue.items }),
           meta: {
             source: 'cfbd',
             cache: 'hit',
@@ -741,7 +756,7 @@ export async function GET(req: Request) {
           pruneCache(SCHEDULE_ROUTE_CACHE, 'schedule');
           recordRouteCacheHit('schedule');
           return NextResponse.json<ScheduleResponse>({
-            items: storedValue.items,
+            items: await enrichScheduleItemsWithPresentation({ year, items: storedValue.items }),
             meta: {
               source: 'cfbd',
               cache: 'hit',
@@ -841,7 +856,7 @@ export async function GET(req: Request) {
       .sort((a, b) => a.week - b.week || (a.startDate ?? '').localeCompare(b.startDate ?? ''));
 
     return NextResponse.json<ScheduleResponse>({
-      items,
+      items: await enrichScheduleItemsWithPresentation({ year, items }),
       meta: {
         source: 'cfbd',
         cache: 'miss',
@@ -875,6 +890,22 @@ export async function GET(req: Request) {
         });
       } catch {
         // Non-fatal — probe state update failure must not block the schedule response.
+      }
+
+      // PLATFORM-086E1C1 manual presentation seeding: ONLY the authorized
+      // full-year `bypassCache=1` refresh whose E1A result is a populated
+      // success invokes the presentation authority (targeted repairs, E1A
+      // failures/no-ops/lease contention, and every automatic caller do not).
+      // The authority resolves every fault into its typed result and never
+      // throws, so a presentation failure can never replace the successful
+      // canonical schedule response below; the defensive catch is belt-and-
+      // suspenders. Runs AFTER the probe update so it can never block it, and
+      // BEFORE the response join so the response serves whatever presentation
+      // cache won after the attempt.
+      try {
+        await refreshSchedulePresentation({ year, trigger: 'manual' });
+      } catch {
+        // Never let presentation seeding disturb the canonical schedule response.
       }
     }
 
@@ -1205,7 +1236,7 @@ export async function GET(req: Request) {
   }
 
   return NextResponse.json<ScheduleResponse>({
-    items,
+    items: await enrichScheduleItemsWithPresentation({ year, items }),
     meta: {
       source: 'cfbd',
       cache: 'miss',
