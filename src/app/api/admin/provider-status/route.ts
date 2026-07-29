@@ -217,18 +217,20 @@ export async function POST(req: Request): Promise<Response> {
       }
       // Honest controls (PLATFORM-086A remediation): only a dataset whose
       // auto-refresh setting is actually CONSUMED by a live job today can be
-      // toggled. Datasets with no active automation (planned 086B–086E) or the
-      // lifecycle-critical/exempt season-transition schedule cannot be flipped
-      // into a misleading "disabled" state that has no runtime effect. When those
-      // jobs ship, their descriptor flips `autoRefreshSettingConsumed` and the
-      // control activates.
+      // toggled. Datasets with no active automation cannot be flipped into a
+      // misleading "disabled" state that has no runtime effect. When a job
+      // ships, its descriptor flips `autoRefreshSettingConsumed` and the control
+      // activates — Schedule is interactive since PLATFORM-086E1B (its toggle
+      // pauses ORDINARY weekly maintenance; the lifecycle-critical operations —
+      // the season transition and postseason-boundary maintenance — stay exempt
+      // regardless of this setting).
       const descriptor = getProviderDatasetDescriptor(body.dataset);
       if (!descriptor.autoRefreshSettingConsumed) {
         return NextResponse.json(
           {
             error: 'dataset-auto-refresh-not-active',
             detail: descriptor.lifecycleCritical
-              ? `${descriptor.label} automation is lifecycle-critical and exempt from provider polling controls.`
+              ? `${descriptor.label} has lifecycle-critical automation and no setting-consuming job yet — this control is not active.`
               : `${descriptor.label} has no active automatic refresh yet — its cadence is planned, so this control is not active.`,
             dataset: body.dataset,
           },

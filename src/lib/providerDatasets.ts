@@ -103,12 +103,17 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     provider: 'CFBD',
     hasActiveAutomation: true,
     currentAutomation:
-      'Preseason transition probe only (season-transition cron); no in-season automatic refresh.',
-    plannedPolicy: 'Planned (PLATFORM-086C): fixed weekly in-season refresh.',
-    // The only automation touching schedule today is the lifecycle-critical
-    // season-transition cron, which is exempt from the global pause.
+      'Preseason transition probe (season-transition cron, lifecycle-critical) plus the weekly in-season route GET /api/cron/schedule-refresh (QStash `turfwar-schedule-weekly`, Tuesdays 12:00 UTC once provisioned per runbook §8h): each active season year gets one complete regular+postseason refresh through the shared full-season authority. Ordinary weekly maintenance honors the global pause and this toggle; the postseason-boundary maintenance that establishes the season-rollover boundary (from 7 days before the latest regular-season kickoff, while leagues remain in season) is lifecycle-critical and exempt.',
+    plannedPolicy:
+      'Active (PLATFORM-086E1B): fixed weekly Tuesday 12:00 UTC external trigger — the QStash schedule and cadence are version-controlled, never admin-editable. The toggle pauses ONLY ordinary weekly maintenance; the preseason transition and postseason-boundary maintenance remain exempt.',
+    // Lifecycle-critical here means the dataset CONTAINS lifecycle-critical
+    // OPERATIONS (the season-transition cron and the weekly cron's
+    // postseason-boundary maintenance) that are exempt from operator pause
+    // controls — NOT that every schedule refresh bypasses them: ordinary weekly
+    // maintenance honors the global pause and this dataset's toggle
+    // (PLATFORM-086E1B operation-aware gating).
     lifecycleCritical: true,
-    autoRefreshSettingConsumed: false,
+    autoRefreshSettingConsumed: true,
     // Weekly cadence (matches the diagnostics stale-schedule threshold).
     staleAfterMs: 8 * DAY_MS,
   },

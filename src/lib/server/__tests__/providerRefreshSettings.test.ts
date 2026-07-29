@@ -40,11 +40,45 @@ test('per-dataset disable blocks only that dataset', async () => {
   assert.equal(await isAutoRefreshAllowed('game-stats'), true);
 });
 
-test('lifecycle-critical schedule is EXEMPT from the global pause', async () => {
-  await setGlobalPause(true);
-  // Schedule automation is the season-transition cron (lifecycle-critical). It
-  // must never be gated by the noncritical pause.
+// PLATFORM-086E1B: `isAutoRefreshAllowed` STRICTLY evaluates the noncritical
+// settings — the descriptor-based lifecycle bypass is removed. Lifecycle-critical
+// operations (season transition/rollover, the weekly cron's postseason-boundary
+// maintenance) stay exempt by never CALLING the helper, not by a bypass inside it.
+
+test('schedule honors the global pause (no descriptor-based lifecycle bypass)', async () => {
   assert.equal(await isAutoRefreshAllowed('schedule'), true);
+  await setGlobalPause(true);
+  assert.equal(await isAutoRefreshAllowed('schedule'), false, 'global pause gates schedule');
+  await setGlobalPause(false);
+  assert.equal(await isAutoRefreshAllowed('schedule'), true);
+});
+
+test('schedule honors its own dataset toggle', async () => {
+  await setDatasetAutoRefreshEnabled('schedule', false);
+  assert.equal(await isAutoRefreshAllowed('schedule'), false, 'toggle gates schedule');
+  // Other datasets unaffected.
+  assert.equal(await isAutoRefreshAllowed('scores'), true);
+  await setDatasetAutoRefreshEnabled('schedule', true);
+  assert.equal(await isAutoRefreshAllowed('schedule'), true);
+});
+
+test('lifecycle routes remain exempt because they do not call the helper', async () => {
+  // The exemption seam is STRUCTURAL: the season-transition and season-rollover
+  // crons never consult `isAutoRefreshAllowed`, so no settings state can gate
+  // them. Pin that with a source scan (the same style as the repo's other
+  // structural guards) so a future edit cannot silently wire the lifecycle
+  // routes through the operator gate.
+  const { readFile } = await import('node:fs/promises');
+  for (const route of [
+    'src/app/api/cron/season-transition/route.ts',
+    'src/app/api/cron/season-rollover/route.ts',
+  ]) {
+    const source = await readFile(route, 'utf8');
+    assert.ok(
+      !source.includes('isAutoRefreshAllowed'),
+      `${route} must not consult the noncritical settings gate`
+    );
+  }
 });
 
 test('settings persist across reads', async () => {

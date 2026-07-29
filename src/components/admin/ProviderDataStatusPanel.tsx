@@ -365,9 +365,10 @@ export default function ProviderDataStatusPanel({
               )}
             </div>
             <p className="text-[11px] text-gray-500 dark:text-zinc-400">
-              When On, noncritical automatic provider polling is paused. Manual admin refresh and
-              the lifecycle-critical season transition always keep running, and most provider jobs
-              (scores, Odds, schedule, rankings) are still planned rather than active.
+              When On, noncritical automatic provider polling (scores, Odds, game stats, ordinary
+              weekly schedule maintenance) is paused. Manual admin refresh and lifecycle-critical
+              operations — the season transition/rollover and the postseason-boundary schedule
+              maintenance — always keep running.
             </p>
           </div>
           <button

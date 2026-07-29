@@ -5,8 +5,9 @@
  * shared across instances:
  *   - `globalPause`: pauses NONCRITICAL automatic provider polling. It does NOT
  *     block manual admin refresh, and it does NOT block lifecycle-critical
- *     automation (the season-transition cron is exempt — see
- *     `isAutoRefreshAllowed`).
+ *     OPERATIONS (the season-transition/rollover crons and the weekly schedule
+ *     cron's postseason-boundary maintenance) — those are exempt by never
+ *     consulting `isAutoRefreshAllowed`, which itself carries no bypass.
  *   - per-dataset `enabled`: enables/disables AUTOMATIC refresh for one dataset.
  *     It never deletes prior-good data and never blocks manual repair.
  *
@@ -14,17 +15,13 @@
  * fields. Cadence stays fixed in code / `vercel.json`.
  *
  * Defaults preserve current behavior: nothing paused, every dataset's automatic
- * refresh "enabled". Today only the game-stats cron consumes its setting; the
- * other datasets have no automatic job yet, so their setting is a persisted
- * intent that future PLATFORM-086B–086E jobs will read via `isAutoRefreshAllowed`.
+ * refresh "enabled". The game-stats, live-scores, Odds, and weekly-schedule
+ * (ordinary maintenance only) jobs consume their settings via
+ * `isAutoRefreshAllowed`; rankings/conferences persist an intent no job reads yet.
  */
 
 import { getAppState, setAppState } from './appStateStore.ts';
-import {
-  PROVIDER_DATASETS,
-  getProviderDatasetDescriptor,
-  type ProviderDataset,
-} from '../providerDatasets.ts';
+import { PROVIDER_DATASETS, type ProviderDataset } from '../providerDatasets.ts';
 
 export const PROVIDER_REFRESH_SETTINGS_SCOPE = 'provider-refresh-settings';
 export const PROVIDER_REFRESH_SETTINGS_KEY = 'global';
@@ -116,22 +113,23 @@ export async function setDatasetAutoRefreshEnabled(
 }
 
 /**
- * Whether NONCRITICAL automatic refresh is currently allowed for a dataset,
- * factoring both the global pause and the dataset's own enable flag.
+ * Whether NONCRITICAL automatic refresh is currently allowed for a dataset:
  *
- * Contract: lifecycle-critical automation (the season-transition cron) must NOT
- * call this — it is exempt from the global pause and always runs. This helper is
- * for noncritical data-ingestion jobs (game-stats today; scores/odds/etc. in
- * future PLATFORM-086 tasks). It is safe to call even for datasets whose
- * automatic job does not exist yet — those jobs simply don't call it until they
- * ship.
+ *   global pause enabled  → false
+ *   dataset toggle off    → false
+ *   otherwise             → true
+ *
+ * Contract (PLATFORM-086E1B): this helper STRICTLY evaluates the operator
+ * settings — it carries NO lifecycle exemption. Lifecycle-critical OPERATIONS
+ * (the season-transition cron, the season-rollover cron, and the weekly cron's
+ * postseason-boundary schedule maintenance) remain exempt by intentionally NOT
+ * calling this helper, not by a bypass inside it. A caller that mixes ordinary
+ * and lifecycle-critical operations over one dataset (the weekly schedule cron)
+ * consults this only for its ORDINARY operations. A settings-store read failure
+ * propagates — noncritical callers fail closed (`settings-unavailable`) rather
+ * than assuming an open gate.
  */
 export async function isAutoRefreshAllowed(dataset: ProviderDataset): Promise<boolean> {
-  const descriptor = getProviderDatasetDescriptor(dataset);
-  if (descriptor.lifecycleCritical) {
-    // Defensive: lifecycle-critical datasets are exempt; never gate them here.
-    return true;
-  }
   const settings = await getProviderRefreshSettings();
   if (settings.globalPause) return false;
   return settings.datasets[dataset]?.enabled !== false;

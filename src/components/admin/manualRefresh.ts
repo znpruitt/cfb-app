@@ -228,7 +228,10 @@ export type DatasetControlMode = 'interactive' | 'lifecycle-exempt' | 'planned';
  * Whether a dataset's auto-refresh toggle should be an INTERACTIVE control or
  * read-only future-intent/exempt language (finding #7). Only a dataset whose
  * setting is consumed by a live job today (`autoRefreshSettingConsumed`) gets an
- * interactive toggle; the lifecycle-critical season-transition schedule is
+ * interactive toggle — including Schedule since PLATFORM-086E1B, whose toggle
+ * pauses ORDINARY weekly maintenance while the lifecycle-critical operations
+ * (season transition, postseason-boundary maintenance) stay exempt. A dataset
+ * that is lifecycle-critical with NO setting-consuming job would be read-only
  * exempt; everything else is planned.
  */
 export function datasetControlMode(descriptor: ProviderDatasetDescriptor): DatasetControlMode {
@@ -241,7 +244,7 @@ export function datasetControlMode(descriptor: ProviderDatasetDescriptor): Datas
 export function controlModeLabel(mode: DatasetControlMode): string {
   switch (mode) {
     case 'lifecycle-exempt':
-      return 'Lifecycle transition remains active and is exempt from provider polling pause controls.';
+      return 'Lifecycle-critical automation remains active and is exempt from provider polling pause controls.';
     case 'planned':
       return 'Planned automation — control not active yet.';
     case 'interactive':

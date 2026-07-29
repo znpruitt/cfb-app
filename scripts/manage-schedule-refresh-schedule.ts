@@ -1,34 +1,37 @@
-// Operator CLI for the EXTERNAL Odds trigger schedule (PLATFORM-086C2).
+// Operator CLI for the EXTERNAL weekly schedule-maintenance trigger
+// (PLATFORM-086E1B).
 //
-// The hourly Odds poll runs from an external QStash schedule (Vercel's Hobby plan
-// rejects sub-daily cron expressions at deploy time, and the Odds cadence is
-// application-owned regardless) that calls the route
+// The weekly in-season schedule refresh runs from an external QStash schedule
+// (the project's scheduling boundary: external provider polling → QStash;
+// internal lifecycle reconciliation → Vercel Cron) that calls the route
 //
-//   GET https://turfwar.games/api/cron/odds
+//   GET https://turfwar.games/api/cron/schedule-refresh
 //     Authorization: Bearer <CRON_SECRET>   (forwarded by QStash)
 //
-// every hour. The application's pure polling policy — not the schedule — owns the
-// 6-hour baseline / 2-hour America/Chicago pregame cadence; the hourly trigger is
-// only the heartbeat that lets the policy decide whether a provider request is due.
+// every Tuesday at 12:00 UTC. The application's operation-aware policy — not the
+// schedule — decides per active season year whether the run is ordinary
+// (operator-gated) or postseason-boundary (lifecycle-critical, exempt)
+// maintenance; the weekly trigger is only the heartbeat.
 //
 // All schedule policy — the fixed message contract, inspect-first/apply-gated
 // safety, fail-closed behavior, provider-side Authorization redaction, exit codes,
 // and the guarantee that only QStash management endpoints are ever hit — lives in
 // the shared, contract-parameterized `scripts/lib/qstashSchedule.ts`; this file
-// only binds the Odds CONTRACT into it. It carries NO QStash runtime dependency
-// (plain fetch), NEVER deletes, and treats the schedule's identity/destination/
-// message contract as FIXED constants.
+// only binds the weekly-schedule CONTRACT into it. It carries NO QStash runtime
+// dependency (plain fetch), NEVER deletes, and treats the schedule's identity/
+// destination/message contract as FIXED constants.
 //
-// This CLI PROVISIONS/controls the schedule; it does NOT itself activate Odds
-// automation. Activation (creating the schedule against production + opening the
-// gates) is the separate, operator-run post-merge step in the deployment runbook
-// (§8g); until then the route stays dormant and no schedule exists.
+// This CLI PROVISIONS/controls the schedule; it does NOT itself activate weekly
+// schedule automation. Activation (creating the schedule against production + the
+// exact-authentication proof + opening the ordinary gate) is the separate,
+// operator-run post-merge step in the deployment runbook (§8h); until then the
+// route stays dormant and no schedule exists.
 //
 // Usage:
-//   tsx scripts/manage-odds-schedule.ts [inspect]        # READ-ONLY: read back + verify the contract
-//   tsx scripts/manage-odds-schedule.ts upsert --apply   # create/overwrite the fixed schedule
-//   tsx scripts/manage-odds-schedule.ts pause  --apply   # pause deliveries
-//   tsx scripts/manage-odds-schedule.ts resume --apply   # resume deliveries
+//   tsx scripts/manage-schedule-refresh-schedule.ts [inspect]        # READ-ONLY: read back + verify the contract
+//   tsx scripts/manage-schedule-refresh-schedule.ts upsert --apply   # create/overwrite the fixed schedule
+//   tsx scripts/manage-schedule-refresh-schedule.ts pause  --apply   # pause deliveries
+//   tsx scripts/manage-schedule-refresh-schedule.ts resume --apply   # resume deliveries
 //
 // Default execution (and any action WITHOUT `--apply`) is read-only.
 //
@@ -62,17 +65,17 @@ import {
 } from './lib/qstashSchedule.ts';
 
 // === The FIXED schedule contract (never operator-tunable) ===
-export const SCHEDULE_ID = 'turfwar-odds-hourly';
-export const DESTINATION = 'https://turfwar.games/api/cron/odds';
-export const CRON = '0 * * * *';
+export const SCHEDULE_ID = 'turfwar-schedule-weekly';
+export const DESTINATION = 'https://turfwar.games/api/cron/schedule-refresh';
+export const CRON = '0 12 * * 2';
 export const METHOD = 'GET';
 export const RETRIES = 0;
 export { DEFAULT_QSTASH_BASE };
 export type { FetchLike, RunDeps, ScheduleReadback } from './lib/qstashSchedule.ts';
 
 const USAGE =
-  'usage: tsx scripts/manage-odds-schedule.ts [inspect]\n' +
-  '       tsx scripts/manage-odds-schedule.ts <upsert|pause|resume> --apply';
+  'usage: tsx scripts/manage-schedule-refresh-schedule.ts [inspect]\n' +
+  '       tsx scripts/manage-schedule-refresh-schedule.ts <upsert|pause|resume> --apply';
 
 const CONTRACT: ScheduleContract = {
   scheduleId: SCHEDULE_ID,
@@ -81,15 +84,15 @@ const CONTRACT: ScheduleContract = {
   method: METHOD,
   retries: RETRIES,
   usage: USAGE,
-  debugEnvVar: 'MANAGE_ODDS_SCHEDULE_DEBUG',
-  failureTag: 'manage-odds-schedule-failed',
-  authProofRef: '§8g step 5',
+  debugEnvVar: 'MANAGE_SCHEDULE_REFRESH_SCHEDULE_DEBUG',
+  failureTag: 'manage-schedule-refresh-schedule-failed',
+  authProofRef: '§8h',
 };
 
 // Contract-independent policy is re-exported straight through.
 export { parseScheduleArgs, redactHeaderNames, resolveQstashBase, scrubSecrets };
 
-// Contract-dependent helpers, bound to the Odds contract.
+// Contract-dependent helpers, bound to the weekly-schedule contract.
 export const buildUpsertRequest = (params: {
   base: string;
   qstashToken: string;

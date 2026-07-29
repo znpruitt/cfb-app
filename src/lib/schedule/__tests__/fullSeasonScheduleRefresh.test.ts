@@ -349,3 +349,47 @@ test('missing credentials begin and resolve the exact year-scoped attempt', asyn
   );
   assert.equal(status.lastError?.code, 'schedule-cfbd-api-key-missing');
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086E1B — providerCallAttempted instrumentation: false for every
+// pre-provider exit; true immediately before provider work and afterward.
+// ---------------------------------------------------------------------------
+
+test('providerCallAttempted stays false for every pre-provider exit', async () => {
+  // Missing credentials (attempt begun + resolved, but no provider work).
+  delete MUTABLE_ENV.CFBD_API_KEY;
+  let fetchCalls = 0;
+  globalThis.fetch = (async () => {
+    fetchCalls += 1;
+    return new Response('[]', { status: 200 });
+  }) as typeof fetch;
+  const missingKey = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
+  assert.equal(missingKey.reason, 'cfbd-api-key-missing');
+  assert.equal(missingKey.providerCallAttempted, false);
+  MUTABLE_ENV.CFBD_API_KEY = 'test-cfbd-token';
+
+  // Lease contention (in-progress) — no provider request.
+  const { acquireScheduleRefreshLease } = await import('../scheduleRefreshLease.ts');
+  const held = await acquireScheduleRefreshLease({ year: YEAR, now: T0 });
+  assert.equal(held.acquired, true);
+  const contended = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
+  assert.equal(contended.reason, 'refresh-in-progress');
+  assert.equal(contended.providerCallAttempted, false);
+  assert.equal(fetchCalls, 0, 'no provider request on any pre-provider exit');
+});
+
+test('providerCallAttempted is true from the provider fetch onward — including failures', async () => {
+  // A transport failure AFTER the fetch pair started must still report true.
+  stubFetchBySeasonType('throw', 'throw');
+  const failed = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
+  assert.equal(failed.reason, 'partition-fetch-failed');
+  assert.equal(failed.providerCallAttempted, true, 'true after a transport failure');
+
+  // A committed success reports true as well.
+  stubFetchBySeasonType(game(1, 'Texas', 'Rice', '2031-09-01T00:00:00Z', 1), JSON.stringify([]));
+  const { result } = await runCapturingTags(() =>
+    refreshFullSeasonSchedule({ year: YEAR, now: T0 + 60_000 })
+  );
+  assert.equal(result.reason, 'written-clean');
+  assert.equal(result.providerCallAttempted, true, 'true after a durable commit');
+});
