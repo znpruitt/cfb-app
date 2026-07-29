@@ -295,20 +295,36 @@ export function normalizeVenueCatalogPayload(payload: unknown): VenueCatalogNorm
   return { kind: 'rows', items, usableRows: usable.length };
 }
 
-/** A stored value is a usable media cache entry only with a real items array. */
+/**
+ * A stored value is a usable media cache entry only with a real items array.
+ * Rows are re-validated through the SAME row normalizer used at commit time, so
+ * a corrupted/malformed durable row degrades to absence instead of throwing in
+ * a downstream join — a broken presentation cache must never break a canonical
+ * schedule response.
+ */
 export function normalizeScheduleMediaCacheEntry(value: unknown): ScheduleMediaCacheEntry | null {
   if (!isPlainObject(value)) return null;
   const candidate = value as Partial<ScheduleMediaCacheEntry>;
   if (typeof candidate.at !== 'number' || !Number.isFinite(candidate.at)) return null;
   if (!Array.isArray(candidate.items)) return null;
-  return { at: candidate.at, items: candidate.items };
+  const items: ScheduleMediaItem[] = [];
+  for (const raw of candidate.items) {
+    const normalized = normalizeScheduleMediaRow(raw);
+    if (normalized) items.push(normalized);
+  }
+  return { at: candidate.at, items };
 }
 
-/** A stored value is a usable venue cache entry only with a real items array. */
+/** A stored value is a usable venue cache entry only with a real items array (row-validated). */
 export function normalizeVenueCatalogCacheEntry(value: unknown): VenueCatalogCacheEntry | null {
   if (!isPlainObject(value)) return null;
   const candidate = value as Partial<VenueCatalogCacheEntry>;
   if (typeof candidate.at !== 'number' || !Number.isFinite(candidate.at)) return null;
   if (!Array.isArray(candidate.items)) return null;
-  return { at: candidate.at, items: candidate.items };
+  const items: VenueCatalogItem[] = [];
+  for (const raw of candidate.items) {
+    const normalized = normalizeVenueCatalogRow(raw);
+    if (normalized) items.push(normalized);
+  }
+  return { at: candidate.at, items };
 }

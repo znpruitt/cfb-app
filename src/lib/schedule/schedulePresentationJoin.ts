@@ -96,8 +96,13 @@ async function loadScheduleMediaEntry(params: {
       scheduleMediaStateKey(year)
     );
     const entry = normalizeScheduleMediaCacheEntry(stored?.value);
-    mediaMemoByYear.set(year, { at: now, value: entry });
-    return entry;
+    // Regression-guarded like the publish helpers: a durable read that RACED an
+    // in-flight commit (read began before, resolved after the guarded publish)
+    // must not roll the memo back below the fresher published entry. A durable
+    // ABSENCE (null) still wins — deletion is authoritative.
+    const fresher = memo?.value && entry && memo.value.at > entry.at ? memo.value : entry;
+    mediaMemoByYear.set(year, { at: now, value: fresher });
+    return fresher;
   } catch {
     // Generic diagnostic only — no error detail, payload, or key material.
     console.warn('schedule-presentation: media cache read failed; serving base schedule rows');
@@ -114,8 +119,13 @@ async function loadVenueCatalogEntry(params: {
   try {
     const stored = await getAppState<unknown>(VENUE_CATALOG_STATE_SCOPE, VENUE_CATALOG_STATE_KEY);
     const entry = normalizeVenueCatalogCacheEntry(stored?.value);
-    venueCatalogMemo = { at: now, value: entry };
-    return entry;
+    // Same regression guard as the media loader (see above).
+    const fresher =
+      venueCatalogMemo?.value && entry && venueCatalogMemo.value.at > entry.at
+        ? venueCatalogMemo.value
+        : entry;
+    venueCatalogMemo = { at: now, value: fresher };
+    return fresher;
   } catch {
     console.warn('schedule-presentation: venue cache read failed; serving base schedule rows');
     return venueCatalogMemo?.value ?? null;

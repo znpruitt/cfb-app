@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  normalizeScheduleMediaCacheEntry,
   normalizeScheduleMediaPayload,
   normalizeScheduleMediaRow,
+  normalizeVenueCatalogCacheEntry,
   normalizeVenueCatalogPayload,
   normalizeVenueCatalogRow,
 } from '../schedulePresentation.ts';
@@ -226,4 +228,27 @@ test('venue payload classification mirrors the media rules', () => {
   const empty = normalizeVenueCatalogPayload([]);
   assert.equal(empty.kind, 'rows');
   if (empty.kind === 'rows') assert.equal(empty.items.length, 0);
+});
+
+test('cache-entry normalizers drop malformed stored rows instead of surfacing them', () => {
+  const media = normalizeScheduleMediaCacheEntry({
+    at: 1,
+    items: [
+      { gameId: '101', mediaType: 'tv', outlet: 'ESPN' },
+      null,
+      42,
+      { gameId: '102', mediaType: 'hologram', outlet: 'X' },
+      { gameId: '103', mediaType: 'web', outlet: '' },
+    ],
+  });
+  assert.ok(media);
+  assert.deepEqual(media!.items, [{ gameId: '101', mediaType: 'tv', outlet: 'ESPN' }]);
+
+  const venues = normalizeVenueCatalogCacheEntry({
+    at: 1,
+    items: [{ id: 3504, name: 'Kyle Field' }, null, { name: 'No Id Stadium' }],
+  });
+  assert.ok(venues);
+  assert.equal(venues!.items.length, 1);
+  assert.equal(venues!.items[0]!.id, 3504);
 });

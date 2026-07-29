@@ -216,3 +216,30 @@ test('empty input returns empty without any cache read', async () => {
     __setAppStateReadFailureForTests(null);
   }
 });
+
+test('a raced durable read cannot roll the memo back below a fresher published entry', async () => {
+  const { publishScheduleMediaMemo } = await import('../schedulePresentationJoin.ts');
+  // Durable holds the OLDER entry (a read that began before a commit); the
+  // fresher committed entry has already been published into the memo.
+  await setAppState(SCHEDULE_MEDIA_STATE_SCOPE, scheduleMediaStateKey(YEAR), {
+    at: NOW - 60_000,
+    items: [{ gameId: '101', mediaType: 'tv', outlet: 'Older TV' }],
+  });
+  publishScheduleMediaMemo(YEAR, {
+    at: NOW,
+    items: [{ gameId: '101', mediaType: 'tv', outlet: 'Fresher TV' }],
+  });
+
+  const items = [scheduleItem()];
+  const enriched = await enrichScheduleItemsWithPresentation({
+    year: YEAR,
+    items,
+    now: NOW,
+    forceDurable: true,
+  });
+  assert.equal(
+    enriched[0]!.media?.[0]?.outlet,
+    'Fresher TV',
+    'the guarded loader keeps the fresher published entry'
+  );
+});

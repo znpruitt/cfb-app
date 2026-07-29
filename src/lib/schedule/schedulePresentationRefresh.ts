@@ -98,9 +98,14 @@ function canonicalScheduleKey(year: number): string {
   return `${year}-all-all`;
 }
 
-/** Strict provider-game-id grammar shared with the canonical schedule metadata. */
+/**
+ * Strict provider-game-id grammar shared with the media normalizer's canonical
+ * form: a positive safe integer in EXACT canonical decimal representation (no
+ * leading zeros), so a schedule id and a media gameId can only ever match on
+ * the identical canonical string.
+ */
 function isCanonicalProviderGameId(id: unknown): id is string {
-  if (typeof id !== 'string' || !/^\d+$/.test(id)) return false;
+  if (typeof id !== 'string' || !/^[1-9]\d*$/.test(id)) return false;
   const parsed = Number(id);
   return Number.isSafeInteger(parsed) && parsed > 0;
 }

@@ -470,3 +470,11 @@ test('a logger failure changes no authority result', async () => {
     console.log = originalLog;
   }
 });
+
+test('non-canonical (leading-zero) schedule ids never enter the eligible media target', async () => {
+  const { calls } = forbidAllFetches();
+  await seedCanonicalSchedule([{ id: '0123', week: 1, homeTeam: 'Texas', awayTeam: 'Rice' }]);
+  const result = await refreshSchedulePresentation({ year: YEAR, trigger: 'manual', now: NOW });
+  assert.equal(result.media.reason, 'canonical-context-unavailable');
+  assert.equal(calls.media + calls.venues + calls.other, 0);
+});
