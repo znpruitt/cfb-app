@@ -1,24 +1,14 @@
 import { useEffect, type Dispatch, type SetStateAction } from 'react';
 
-import { buildOddsLookup, type CanonicalOddsItem, type CombinedOdds } from '../../lib/odds';
+import type { CombinedOdds } from '../../lib/odds';
 import type { OddsUsageSnapshot } from '../../lib/apiUsage';
+import { applyOddsResponse, type OddsClientResponse } from '../../lib/oddsClientPayload';
+import { ODDS_HYDRATION_ISSUE } from '../../lib/cfbScheduleAppHelpers';
 
-/**
- * The generic, body-free issue surfaced when a cache-only Odds hydration fails. It
- * is prefixed `Odds fetch failed:` so `isLiveOddsIssue` classifies it — a
- * score-only live tick then PRESERVES it rather than silently wiping the "odds
- * unavailable" warning (PLATFORM-086C3). It never contains a response body, URL, or
- * credential.
- */
-export const ODDS_HYDRATION_ISSUE = 'Odds fetch failed: unable to load current odds.';
-
-type OddsHydrationResponse = {
-  items?: CanonicalOddsItem[];
-  meta?: {
-    usage?: OddsUsageSnapshot | null;
-    snapshotCapturedAt?: string | null;
-  };
-};
+// The generic, body-free hydration-failure issue is defined next to its classifier
+// (`isLiveOddsIssue`) in `cfbScheduleAppHelpers`; re-exported here for callers/tests
+// that reference it through the hook (PLATFORM-086C3 remediation).
+export { ODDS_HYDRATION_ISSUE };
 
 /**
  * PLATFORM-086C3 — hydrate the league's canonical Odds from the durable cache ONCE
@@ -83,13 +73,12 @@ export function useOddsHydration(params: {
           surfaceIssue();
           return;
         }
-        const payload = (await res.json()) as OddsHydrationResponse;
+        const payload = (await res.json()) as OddsClientResponse;
         if (controller.signal.aborted) return;
         // A successful empty response truthfully installs an empty lookup + null
-        // snapshot — the season simply has no cached lines yet.
-        setOddsByKey(buildOddsLookup(payload.items ?? []));
-        setOddsSnapshotAt(payload.meta?.snapshotCapturedAt ?? null);
-        setOddsUsage(payload.meta?.usage ?? null);
+        // snapshot — the season simply has no cached lines yet. The shared applier
+        // decodes the response and merges usage freshness-aware.
+        applyOddsResponse(payload, { setOddsByKey, setOddsSnapshotAt, setOddsUsage });
       } catch {
         // An abort (stale/unmount) is expected and not a failure; a genuine failure
         // preserves prior-good client Odds and surfaces one generic, body-free issue.

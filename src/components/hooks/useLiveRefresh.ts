@@ -18,7 +18,8 @@ import {
 import { getOddsQuotaGuardState } from '../../lib/api/oddsUsage';
 import { fetchTeamsCatalog } from '../../lib/teamsCatalog';
 import { requireAdminAuthHeaders } from '../../lib/adminAuth';
-import { buildOddsLookup, type CanonicalOddsItem, type CombinedOdds } from '../../lib/odds';
+import { type CombinedOdds } from '../../lib/odds';
+import { applyOddsResponse, type OddsClientResponse } from '../../lib/oddsClientPayload';
 import { fetchScoresByGame, type ScorePack } from '../../lib/scores';
 import { classifyScorePackStatus } from '../../lib/gameStatus';
 import { isLiveIssue, isLiveOddsIssue } from '../../lib/cfbScheduleAppHelpers';
@@ -324,22 +325,11 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
               }
             );
             if (oddsRes.ok) {
-              const oddsPayload = (await oddsRes.json()) as {
-                items?: CanonicalOddsItem[];
-                meta?: {
-                  cache?: 'hit' | 'miss';
-                  usage?: OddsUsageSnapshot | null;
-                  snapshotCapturedAt?: string | null;
-                };
-              };
-
-              const canonicalItems = oddsPayload.items ?? [];
-
-              setOddsUsage(oddsPayload.meta?.usage ?? null);
-              // Served-snapshot freshness for THIS season (finding #2), tied to the
-              // odds cache entry actually returned — null when nothing is cached.
-              setOddsSnapshotAt(oddsPayload.meta?.snapshotCapturedAt ?? null);
-              setOddsByKey(buildOddsLookup(canonicalItems));
+              const oddsPayload = (await oddsRes.json()) as OddsClientResponse;
+              // Shared decoder (PLATFORM-086C3): decodes `{ items, meta }` and applies
+              // it — served-snapshot freshness for THIS season, and usage merged
+              // freshness-aware so it never clobbers a newer admin usage reading.
+              applyOddsResponse(oddsPayload, { setOddsByKey, setOddsSnapshotAt, setOddsUsage });
             } else {
               const t = await oddsRes.text().catch(() => '');
               setIssues((p) => [

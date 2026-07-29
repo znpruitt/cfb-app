@@ -5,6 +5,7 @@ import {
   deriveScheduleLoadApplicationResult,
   isLiveIssue,
   isLiveOddsIssue,
+  ODDS_HYDRATION_ISSUE,
 } from '../cfbScheduleAppHelpers.ts';
 import type { BuiltSchedule, AppGame } from '../schedule.ts';
 
@@ -24,6 +25,14 @@ test('isLiveOddsIssue matches only odds live issues, and stays a subset of isLiv
   ]) {
     assert.equal(isLiveOddsIssue(nonOdds), false, nonOdds);
   }
+});
+
+test('PLATFORM-086C3: the hydration issue is classified by exact value, not just its prefix', () => {
+  // The hydration issue constant and its classifier are co-located; classification
+  // is by exact value, so a reword of the copy cannot silently declassify it (a
+  // score-only tick would otherwise wrongly wipe or retain the odds warning).
+  assert.equal(isLiveOddsIssue(ODDS_HYDRATION_ISSUE), true);
+  assert.equal(isLiveIssue(ODDS_HYDRATION_ISSUE), true);
 });
 
 function game(overrides: Partial<AppGame>): AppGame {
