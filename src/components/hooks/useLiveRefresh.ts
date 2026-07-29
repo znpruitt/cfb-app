@@ -8,7 +8,7 @@ import {
   type ScoreHydrationState,
 } from '../../lib/scoreHydration';
 import { decideRefresh } from '../../lib/refreshDecision';
-import { LIVE_MANUAL_COOLDOWN_MS, type RefreshPlan } from '../../lib/refreshPolicy';
+import { LIVE_MANUAL_COOLDOWN_MS } from '../../lib/refreshPolicy';
 import {
   LIVE_SCORE_POLL_INTERVAL_MS,
   deriveLiveScorePartitions,
@@ -18,7 +18,8 @@ import {
 import { getOddsQuotaGuardState } from '../../lib/api/oddsUsage';
 import { fetchTeamsCatalog } from '../../lib/teamsCatalog';
 import { requireAdminAuthHeaders } from '../../lib/adminAuth';
-import { buildOddsLookup, type CanonicalOddsItem, type CombinedOdds } from '../../lib/odds';
+import { type CombinedOdds } from '../../lib/odds';
+import { applyOddsResponse, type OddsClientResponse } from '../../lib/oddsClientPayload';
 import { fetchScoresByGame, type ScorePack } from '../../lib/scores';
 import { classifyScorePackStatus } from '../../lib/gameStatus';
 import { isLiveIssue, isLiveOddsIssue } from '../../lib/cfbScheduleAppHelpers';
@@ -44,7 +45,6 @@ type UseLiveRefreshParams = {
   scoresByKey: Record<string, ScorePack>;
   aliasMap: AliasMap;
   oddsUsage: OddsUsageSnapshot | null;
-  refreshPlan: RefreshPlan;
   scoreHydrationState: ScoreHydrationState;
   setScoreHydrationState: Dispatch<SetStateAction<ScoreHydrationState>>;
   setIssues: Dispatch<SetStateAction<string[]>>;
@@ -197,7 +197,6 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     scoresByKey,
     aliasMap,
     oddsUsage,
-    refreshPlan,
     scoreHydrationState,
     setScoreHydrationState,
     setIssues,
@@ -253,7 +252,12 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       if (liveRefreshInFlightRef.current) return;
 
       const nowMs = Date.now();
-      const shouldFetchOdds = options?.includeOdds ?? refreshPlan.odds.fetchOnStartup;
+      // Odds are NOT fetched automatically here anymore — cache-only Odds display is
+      // owned by `useOddsHydration` (PLATFORM-086C3), decoupled from the kickoff
+      // window. This path fetches odds ONLY when a caller explicitly opts in
+      // (`includeOdds: true`), preserving the dormant authorized manual-refresh seam
+      // (which pairs `manual: true` with `refresh=1` + admin auth).
+      const shouldFetchOdds = options?.includeOdds ?? false;
       const quota = getOddsQuotaGuardState(oddsUsage?.remaining);
       const refreshDecision = decideRefresh({
         hasGames: games.length > 0,
@@ -321,22 +325,11 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
               }
             );
             if (oddsRes.ok) {
-              const oddsPayload = (await oddsRes.json()) as {
-                items?: CanonicalOddsItem[];
-                meta?: {
-                  cache?: 'hit' | 'miss';
-                  usage?: OddsUsageSnapshot | null;
-                  snapshotCapturedAt?: string | null;
-                };
-              };
-
-              const canonicalItems = oddsPayload.items ?? [];
-
-              setOddsUsage(oddsPayload.meta?.usage ?? null);
-              // Served-snapshot freshness for THIS season (finding #2), tied to the
-              // odds cache entry actually returned — null when nothing is cached.
-              setOddsSnapshotAt(oddsPayload.meta?.snapshotCapturedAt ?? null);
-              setOddsByKey(buildOddsLookup(canonicalItems));
+              const oddsPayload = (await oddsRes.json()) as OddsClientResponse;
+              // Shared decoder (PLATFORM-086C3): decodes `{ items, meta }` and applies
+              // it — served-snapshot freshness for THIS season, and usage merged
+              // freshness-aware so it never clobbers a newer admin usage reading.
+              applyOddsResponse(oddsPayload, { setOddsByKey, setOddsSnapshotAt, setOddsUsage });
             } else {
               const t = await oddsRes.text().catch(() => '');
               setIssues((p) => [
@@ -489,7 +482,6 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       isDebug,
       oddsUsage,
       onGamesFinalized,
-      refreshPlan.odds.fetchOnStartup,
       scoreScopeGames,
       selectedSeason,
       selectedTab,
@@ -529,12 +521,13 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       scheduleLoaded,
       didBootstrapThisPass: true,
     });
+    // Score-only bootstrap — Odds are hydrated separately by `useOddsHydration`
+    // (PLATFORM-086C3), never through this live-refresh path.
     void refreshLiveData({
       manual: false,
-      includeOdds: refreshPlan.odds.fetchOnStartup,
       scoreScopeGamesOverride: bootstrapScoreGames,
     });
-  }, [games, refreshLiveData, refreshPlan.odds.fetchOnStartup, scheduleLoaded, selectedTab]);
+  }, [games, refreshLiveData, scheduleLoaded, selectedTab]);
 
   // Visible-tab live-score polling (PLATFORM-086B2B): a self-rescheduling 3-minute
   // timer that re-evaluates eligibility every tick AND whenever the tab gains

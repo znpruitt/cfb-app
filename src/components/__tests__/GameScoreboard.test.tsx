@@ -229,3 +229,37 @@ test('expanded scoreboard status uses chip-only state color treatment', () => {
   assert.match(html, /border-emerald-200[^>]*data-scoreboard-status="true">FINAL<\/div>/);
   assert.doesNotMatch(html, /bg-emerald-50[^>]*aria-label="Game scoreboard"/);
 });
+
+test('PLATFORM-086C3: a far-future scheduled game renders spread, over/under, and moneyline from hydrated cache odds', () => {
+  // A game far outside the retired [-12h, +3d] window still shows its cached lines
+  // — the scoreboard renders whatever CombinedOdds it receives, regardless of time.
+  const html = renderScoreboard({
+    score: {
+      status: 'scheduled',
+      time: null,
+      home: { team: 'Baylor', score: null },
+      away: { team: 'Texas Tech', score: null },
+    },
+    odds: {
+      favorite: 'Baylor',
+      spread: -6.5,
+      homeSpread: -6.5,
+      awaySpread: 6.5,
+      spreadPriceHome: -110,
+      spreadPriceAway: -110,
+      total: 58.5,
+      mlHome: -250,
+      mlAway: 210,
+      overPrice: -110,
+      underPrice: -110,
+      source: 'DraftKings',
+      bookmakerKey: 'draftkings',
+      capturedAt: '2026-08-01T00:00:00.000Z',
+      lineSourceStatus: 'latest',
+    },
+  });
+
+  assert.match(html, /Spread: Baylor -6\.5/);
+  assert.match(html, /Over\/Under: 58\.5/);
+  assert.match(html, /Moneyline:/);
+});

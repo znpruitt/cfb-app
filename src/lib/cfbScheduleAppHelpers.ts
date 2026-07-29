@@ -25,13 +25,28 @@ export function isTransientScheduleIssue(issue: string): boolean {
 }
 
 /**
+ * The generic, body-free issue surfaced when a cache-only Odds hydration fails
+ * (PLATFORM-086C3). Co-located with `isLiveOddsIssue` — which matches it by exact
+ * VALUE below, not a fragile prefix — so rewording this copy can never silently
+ * declassify it (a score-only tick would otherwise wrongly wipe, or wrongly retain,
+ * the "odds unavailable" warning). Never contains a response body, URL, or credential.
+ */
+export const ODDS_HYDRATION_ISSUE = 'Odds fetch failed: unable to load current odds.';
+
+/**
  * Odds-specific live issues (a failed or errored odds fetch). Split out so a
  * score-only live poll can clear its own transient issues WITHOUT wiping an
  * unresolved odds-failure warning it is not retrying (PLATFORM-086B2B): a
  * `includeOdds: false` tick must not silently hide that displayed odds are stale.
+ * The hydration issue is matched by exact value (not just the shared prefixes) so
+ * classification cannot drift from its copy (PLATFORM-086C3).
  */
 export function isLiveOddsIssue(issue: string): boolean {
-  return issue.startsWith('Odds error ') || issue.startsWith('Odds fetch failed:');
+  return (
+    issue === ODDS_HYDRATION_ISSUE ||
+    issue.startsWith('Odds error ') ||
+    issue.startsWith('Odds fetch failed:')
+  );
 }
 
 export function isLiveIssue(issue: string): boolean {

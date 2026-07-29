@@ -22,7 +22,6 @@ import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { type CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
 import { type ScorePack } from '../lib/scores';
-import { getRefreshPlan } from '../lib/refreshPolicy';
 import type { AliasMap } from '../lib/teamNames';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import type { StandingsCoverage } from '../lib/standings';
@@ -74,6 +73,7 @@ import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
 import { buildOwnerColorMap, prefersDarkMode } from '../lib/ownerColors';
 import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
+import { useOddsHydration } from './hooks/useOddsHydration';
 import { useLiveDelta } from './hooks/useLiveDelta';
 import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
@@ -347,6 +347,13 @@ export default function CFBScheduleApp({
   >({});
 
   const [scheduleLoaded, setScheduleLoaded] = useState<boolean>(false);
+  // Monotonic counter bumped on every full schedule (re)build (`loadScheduleFromApi`
+  // success). It is the re-arm signal for `useOddsHydration` (PLATFORM-086C3 review
+  // remediation): a successful in-place reload of an already-loaded schedule leaves
+  // `scheduleLoaded` and the has-games flag unchanged, so odds would otherwise stay
+  // keyed to stale schedule data — a generation change forces a fresh cache-only
+  // hydration against the rebuilt (identity-recomputed) games.
+  const [scheduleGeneration, setScheduleGeneration] = useState<number>(0);
   const [scoreHydrationState, setScoreHydrationState] = useState<ScoreHydrationState>(
     EMPTY_SCORE_HYDRATION_STATE
   );
@@ -494,6 +501,10 @@ export default function CFBScheduleApp({
         setByes(built.byes);
         setConferences(built.conferences);
         setScheduleLoaded(true);
+        // Force a fresh Odds hydration for this (re)built schedule — a with-games
+        // in-place reload does not toggle `scheduleLoaded`, so the generation bump
+        // is what re-arms `useOddsHydration` (PLATFORM-086C3 review remediation).
+        setScheduleGeneration((n) => n + 1);
         if (options?.bypassCache) {
           await loadRankings({ bypassCache: true });
         }
@@ -1009,16 +1020,6 @@ export default function CFBScheduleApp({
     });
   }, [games, hasActiveViewFilters, selectedTab, selectedWeek, visibleGames]);
 
-  const refreshPlan = useMemo(
-    () =>
-      getRefreshPlan({
-        season: selectedSeason,
-        visibleGames,
-        scoresByKey,
-      }),
-    [scoresByKey, selectedSeason, visibleGames]
-  );
-
   // PLATFORM-080: recompute server canonicalStandings after an in-session game
   // finalization. router.refresh() re-runs the RSC tree; the /api/scores write
   // path already invalidated the standings cache tag, so canonical recomputes
@@ -1042,7 +1043,6 @@ export default function CFBScheduleApp({
     // canonical identity (the stored league map drives the editor only).
     aliasMap: effectiveAliasMap,
     oddsUsage,
-    refreshPlan,
     scoreHydrationState,
     setScoreHydrationState,
     setIssues,
@@ -1060,6 +1060,21 @@ export default function CFBScheduleApp({
     // up the new final). liveDelta excludes final games, so without this the
     // standings would stay tied to the render-time snapshot until navigation.
     onGamesFinalized: handleGamesFinalized,
+  });
+
+  // PLATFORM-086C3: hydrate canonical Odds from the durable cache ONCE per season,
+  // decoupled from live-score refresh and the kickoff window, so every cached line
+  // (far-future, live, or completed game) reaches its card. Strictly cache-only
+  // (`GET /api/odds?year=<season>`, no `refresh=1`, no auth) — never spends quota.
+  useOddsHydration({
+    selectedSeason,
+    scheduleLoaded,
+    hasGames: games.length > 0,
+    scheduleGeneration,
+    setOddsByKey,
+    setOddsSnapshotAt,
+    setOddsUsage,
+    setIssues,
   });
 
   // Odds-usage is admin-only diagnostics (API quota state). Only admins fetch it;
@@ -1155,6 +1170,13 @@ export default function CFBScheduleApp({
 
         const override = next[eventId];
         if (override) {
+          // Optimistic in-place patch only — this keeps each game's existing
+          // canonical `key` (it does not recompute identity), so it does NOT bump
+          // `scheduleGeneration`: the authoritative re-hydration for a key-changing
+          // override happens on the next `loadScheduleFromApi` rebuild (which
+          // recomputes keys from the overridden participants and bumps generation).
+          // Bumping here would only trigger a redundant cache read against unchanged
+          // keys (PLATFORM-086C3 review remediation).
           setGames((prevGames) =>
             prevGames.map((g) => (g.eventId === eventId ? applyOverride(g, override) : g))
           );

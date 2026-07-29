@@ -32,6 +32,33 @@ export type OddsUsageSnapshot = {
   cacheStatus?: 'hit' | 'miss' | 'unknown';
 };
 
+/**
+ * Pick the FRESHER of two odds-usage snapshots by `capturedAt` (PLATFORM-086C3
+ * remediation). A `null` incoming never overwrites a known snapshot, and an OLDER
+ * snapshot never overwrites a newer one — so the two concurrent writers of the
+ * shared client `oddsUsage` state (`useAdminOddsUsage` from the durable admin
+ * reading, and `useOddsHydration` from the public cache meta, which after 086C2 can
+ * be a staler `responseEntry.usage` or null) converge on the newest reading
+ * regardless of which resolves last. A validly-timestamped snapshot always beats an
+ * untimestamped one; a same-or-newer timestamp applies so a genuine refresh still
+ * lands.
+ */
+export function mergeFresherOddsUsage(
+  prev: OddsUsageSnapshot | null,
+  next: OddsUsageSnapshot | null
+): OddsUsageSnapshot | null {
+  if (!next) return prev;
+  if (!prev) return next;
+  const prevMs = Date.parse(prev.capturedAt);
+  const nextMs = Date.parse(next.capturedAt);
+  const prevValid = Number.isFinite(prevMs);
+  const nextValid = Number.isFinite(nextMs);
+  if (prevValid && !nextValid) return prev;
+  if (!prevValid && nextValid) return next;
+  if (!prevValid && !nextValid) return next;
+  return nextMs >= prevMs ? next : prev;
+}
+
 export async function fetchCfbdUsageSnapshot(): Promise<CfbdUsageSnapshot> {
   // Admin-only endpoint — send the admin token (these snapshots are only ever
   // requested from admin surfaces).
