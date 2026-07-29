@@ -5,6 +5,12 @@ import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import {
+  deriveFirstGameDate,
+  getScheduleProbeState,
+  saveScheduleProbeState,
+} from '@/lib/scheduleProbe';
+import {
+  classifyPreseasonWeeklyRefreshOperation,
   classifyWeeklyScheduleRefreshOperation,
   SCHEDULE_WEEKLY_CONTROL_SCOPE,
   type ScheduleWeeklyControl,
@@ -27,18 +33,25 @@ export const dynamic = 'force-dynamic';
  *
  * QStash invokes this weekly (`turfwar-schedule-weekly`, Tuesdays 12:00 UTC once
  * provisioned per runbook §8h). One invocation authenticates CRON_SECRET, selects
- * the distinct active `season` years cache-only from the league registry, loads
- * each year's prior-good canonical schedule, classifies ordinary vs
- * postseason-boundary maintenance with the pure operation policy, applies the
- * operator settings ONLY to ordinary maintenance (postseason-boundary maintenance
- * is lifecycle-critical and exempt — like the season-transition/rollover crons),
- * and delegates each allowed year to the E1A full-season authority
+ * the distinct `season` AND `preseason` years cache-only from the league registry
+ * (any `season` league owns a mixed year — one execution under the active-season
+ * policy; `offseason` is excluded), loads each year's prior-good canonical
+ * schedule (plus, for preseason years, the durable schedule probe), classifies
+ * the operation with the pure policies — active-season ordinary vs sticky
+ * postseason-boundary, and preseason: cache-armed early preseason
+ * (`preseason-maintenance`, ordinary) vs deferral to the daily season-transition
+ * cron (`season-transition-owner`: probe unarmed, or inside the final seven days
+ * before the first kickoff — PLATFORM-086E1B1) — applies the operator settings
+ * ONLY to the ordinary operations (postseason-boundary maintenance is
+ * lifecycle-critical and exempt, like the season-transition/rollover crons), and
+ * delegates each allowed year to the E1A full-season authority
  * (`refreshFullSeasonSchedule`) exactly once, sequentially in ascending year
  * order. The authority owns the lease, fetch, completeness gate, observation-
  * ordered commit, standings invalidation, and provider-refresh status — this
  * route never duplicates them, never calls `/api/schedule` over HTTP, and never
- * mutates league lifecycle state. A single outer `finally` emits exactly one
- * secret-safe `schedule-refresh-cron` runtime event.
+ * mutates league lifecycle state (discovery and the preseason→season transition
+ * remain solely the season-transition cron's). A single outer `finally` emits
+ * exactly one secret-safe `schedule-refresh-cron` runtime event.
  *
  * Controlled operational failures return HTTP 200 with truthful result data
  * (QStash delivered the message and the app processed it; the body/event records
@@ -56,10 +69,18 @@ function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
 
 type YearCandidate = {
   year: number;
+  /** The effective lifecycle owner: any `season` league wins over `preseason`. */
+  owner: 'season' | 'preseason';
   classification:
     | { kind: 'operation'; operation: WeeklyScheduleRefreshOperation }
+    | { kind: 'season-transition-owner' }
     | { kind: 'canonical-context-unavailable' };
 };
+
+/** An ORDINARY (operator-gated, noncritical) weekly operation (E1B1). */
+function isOrdinaryOperation(operation: WeeklyScheduleRefreshOperation): boolean {
+  return operation === 'ordinary-maintenance' || operation === 'preseason-maintenance';
+}
 
 /** Map one E1A result onto the per-year cron execution entry. */
 function yearEntryFromRefresh(
@@ -108,90 +129,120 @@ export async function GET(req: Request): Promise<Response> {
       );
     }
 
-    // Target selection — cache-only registry read. Only `season` leagues are
-    // targets (preseason belongs to the season-transition cron; offseason has no
-    // maintenance target); the year comes from lifecycle status, never the calendar.
-    let activeYears: number[];
+    // Target selection — cache-only registry read. `season` AND `preseason`
+    // leagues are targets (E1B1: cache-armed early preseason gets ordinary weekly
+    // maintenance; unarmed/final-week preseason defers to the season-transition
+    // cron); `offseason` is excluded. Years come from lifecycle status, never the
+    // calendar. Each distinct year resolves ONE effective owner — any `season`
+    // league wins over `preseason` (a mixed year executes at most once, under the
+    // active-season policy) — so E1A is never invoked twice for the same year.
+    let targetYears: Array<{ year: number; owner: 'season' | 'preseason' }>;
     try {
       const leagues = await getLeagues();
-      const years = new Set<number>();
+      const ownerByYear = new Map<number, 'season' | 'preseason'>();
       for (const league of leagues) {
-        if (league.status?.state === 'season') years.add(league.status.year);
+        const status = league.status;
+        if (status?.state === 'season') {
+          ownerByYear.set(status.year, 'season');
+        } else if (status?.state === 'preseason' && ownerByYear.get(status.year) !== 'season') {
+          ownerByYear.set(status.year, 'preseason');
+        }
       }
-      activeYears = [...years].sort((a, b) => a - b);
+      targetYears = [...ownerByYear.entries()]
+        .map(([year, owner]) => ({ year, owner }))
+        .sort((a, b) => a.year - b.year);
     } catch {
       exec.result = 'failure';
       exec.reason = 'canonical-context-unavailable';
       return NextResponse.json({ result: exec.result, reason: exec.reason, years: [] });
     }
 
-    if (activeYears.length === 0) {
+    if (targetYears.length === 0) {
       exec.result = 'skipped';
-      exec.reason = 'no-active-season';
+      exec.reason = 'no-maintenance-target';
       return NextResponse.json({ result: exec.result, reason: exec.reason, years: [] });
     }
 
     // Classify EVERY candidate year (cache-only prior-good schedule read + the
-    // pure operation policy + the durable boundary latch) BEFORE reading
+    // pure operation policy — plus the durable boundary latch for SEASON years,
+    // and the durable schedule probe for PRESEASON years) BEFORE reading
     // settings, so the settings gate is consulted only when an ordinary year
     // actually exists.
     const nowMs = Date.now();
     const candidates: YearCandidate[] = [];
-    for (const year of activeYears) {
+    for (const { year, owner } of targetYears) {
       let classification: YearCandidate['classification'];
       try {
-        // The durable boundary latch: once a year has classified
-        // `postseason-boundary`, it stays lifecycle-critical for every later
-        // invocation even if a schedule change moved the recomputed boundary
-        // later (cycle-1 review finding 1). A latch READ failure degrades to
-        // `latched: false` — the recomputed classification still applies, so the
-        // only effect of a transient latch outage inside the revert window is one
-        // operator-gated run; the next successful read restores the latch.
-        let latched = false;
-        try {
-          const control = await getAppState<ScheduleWeeklyControl>(
-            SCHEDULE_WEEKLY_CONTROL_SCOPE,
-            String(year)
-          );
-          latched = typeof control?.value?.postseasonBoundaryReachedAt === 'string';
-        } catch {
-          latched = false;
-        }
-        const stored = await getAppState<CacheEntry>('schedule', `${year}-all-all`);
-        classification = classifyWeeklyScheduleRefreshOperation({
-          entry: stored?.value,
-          now: nowMs,
-          latched,
-        });
-        // Persist the latch the FIRST time this year enters the critical window
-        // (best-effort — a write failure only defers latching to a later run; the
-        // classification this run already stands).
-        if (
-          !latched &&
-          classification.kind === 'operation' &&
-          classification.operation === 'postseason-boundary'
-        ) {
+        if (owner === 'preseason') {
+          // PRESEASON (E1B1): the pure preseason policy consumes the durable
+          // schedule probe + the prior-good canonical schedule. It NEVER reads or
+          // writes the postseason-boundary latch (preseason is never
+          // lifecycle-critical), and an unarmed / final-seven-day probe defers the
+          // year to the daily season-transition cron with no provider work.
+          const probe = await getScheduleProbeState(year);
+          const stored = await getAppState<CacheEntry>('schedule', `${year}-all-all`);
+          classification = classifyPreseasonWeeklyRefreshOperation({
+            entry: stored?.value,
+            probe,
+            now: nowMs,
+          });
+        } else {
+          // ACTIVE SEASON — the existing E1B policy, unchanged. The durable
+          // boundary latch: once a year has classified `postseason-boundary`, it
+          // stays lifecycle-critical for every later invocation even if a schedule
+          // change moved the recomputed boundary later (cycle-1 review finding 1).
+          // A latch READ failure degrades to `latched: false` — the recomputed
+          // classification still applies, so the only effect of a transient latch
+          // outage inside the revert window is one operator-gated run; the next
+          // successful read restores the latch.
+          let latched = false;
           try {
-            await setAppState(SCHEDULE_WEEKLY_CONTROL_SCOPE, String(year), {
-              postseasonBoundaryReachedAt: new Date(nowMs).toISOString(),
-            } satisfies ScheduleWeeklyControl);
+            const control = await getAppState<ScheduleWeeklyControl>(
+              SCHEDULE_WEEKLY_CONTROL_SCOPE,
+              String(year)
+            );
+            latched = typeof control?.value?.postseasonBoundaryReachedAt === 'string';
           } catch {
-            // Best-effort — never fail the run over latch bookkeeping.
+            latched = false;
+          }
+          const stored = await getAppState<CacheEntry>('schedule', `${year}-all-all`);
+          classification = classifyWeeklyScheduleRefreshOperation({
+            entry: stored?.value,
+            now: nowMs,
+            latched,
+          });
+          // Persist the latch the FIRST time this year enters the critical window
+          // (best-effort — a write failure only defers latching to a later run; the
+          // classification this run already stands).
+          if (
+            !latched &&
+            classification.kind === 'operation' &&
+            classification.operation === 'postseason-boundary'
+          ) {
+            try {
+              await setAppState(SCHEDULE_WEEKLY_CONTROL_SCOPE, String(year), {
+                postseasonBoundaryReachedAt: new Date(nowMs).toISOString(),
+              } satisfies ScheduleWeeklyControl);
+            } catch {
+              // Best-effort — never fail the run over latch bookkeeping.
+            }
           }
         }
       } catch {
         classification = { kind: 'canonical-context-unavailable' };
       }
-      candidates.push({ year, classification });
+      candidates.push({ year, owner, classification });
     }
 
-    // Settings — read ONCE, and only when at least one ordinary year exists.
-    // Postseason-boundary years never consult the gate (lifecycle-critical), and a
-    // settings-store failure blocks ONLY ordinary years (`settings-unavailable`).
+    // Settings — read ONCE, and only when at least one ORDINARY year exists
+    // (active-season ordinary OR cache-armed early-preseason maintenance — both
+    // noncritical). Postseason-boundary years never consult the gate
+    // (lifecycle-critical); transition-owned preseason years never consult
+    // settings OR E1A; a settings-store failure blocks ONLY ordinary years
+    // (`settings-unavailable`).
     const hasOrdinary = candidates.some(
       (c) =>
-        c.classification.kind === 'operation' &&
-        c.classification.operation === 'ordinary-maintenance'
+        c.classification.kind === 'operation' && isOrdinaryOperation(c.classification.operation)
     );
     let ordinaryGate: 'open' | 'closed' | 'unavailable' = 'open';
     if (hasOrdinary) {
@@ -203,8 +254,8 @@ export async function GET(req: Request): Promise<Response> {
     }
 
     // Execute sequentially in ascending year order. Each allowed year delegates to
-    // the E1A authority exactly once; skipped/context-unavailable years create no
-    // provider-refresh attempt and no provider work.
+    // the E1A authority exactly once; skipped/deferred/context-unavailable years
+    // create no provider-refresh attempt and no provider work.
     const entries: ScheduleRefreshCronYearExecution[] = [];
     for (const candidate of candidates) {
       if (candidate.classification.kind === 'canonical-context-unavailable') {
@@ -220,8 +271,24 @@ export async function GET(req: Request): Promise<Response> {
         });
         continue;
       }
+      if (candidate.classification.kind === 'season-transition-owner') {
+        // The DAILY season-transition cron owns this preseason year (probe
+        // unarmed, or inside the final seven days) — an intentional provider-free
+        // deferral, never a failure or a no-op.
+        entries.push({
+          year: candidate.year,
+          operation: null,
+          result: 'skipped',
+          reason: 'season-transition-owner',
+          providerCallAttempted: false,
+          rowsReceived: 0,
+          rowsCommitted: 0,
+          dataChanged: false,
+        });
+        continue;
+      }
       const operation = candidate.classification.operation;
-      if (operation === 'ordinary-maintenance' && ordinaryGate === 'closed') {
+      if (isOrdinaryOperation(operation) && ordinaryGate === 'closed') {
         entries.push({
           year: candidate.year,
           operation,
@@ -234,7 +301,7 @@ export async function GET(req: Request): Promise<Response> {
         });
         continue;
       }
-      if (operation === 'ordinary-maintenance' && ordinaryGate === 'unavailable') {
+      if (isOrdinaryOperation(operation) && ordinaryGate === 'unavailable') {
         entries.push({
           year: candidate.year,
           operation,
@@ -249,6 +316,33 @@ export async function GET(req: Request): Promise<Response> {
       }
       const refresh = await refreshFullSeasonSchedule({ year: candidate.year });
       entries.push(yearEntryFromRefresh(candidate.year, operation, refresh));
+
+      // E1B1 cycle-1 remediation (finding 1): a successful preseason-maintenance
+      // refresh RE-DERIVES the probe's firstGameDate from the freshly confirmed
+      // schedule (preserving baseCachedAt) — mirroring the manual full-year
+      // `/api/schedule` refresh's established probe update. The probe is the
+      // exact durable signal the season-transition handoff consumes; without this,
+      // a weekly refresh that commits an EARLIER first game would leave the probe
+      // stale and the transition cron idle past the true first kickoff. Best-effort
+      // (same as the manual route): the schedule commit already succeeded durably,
+      // so a probe-write failure never falsifies the refresh result — the next
+      // successful weekly run (or a transition fetch) re-derives it.
+      if (
+        operation === 'preseason-maintenance' &&
+        refresh.status === 'success' &&
+        refresh.items.length > 0
+      ) {
+        try {
+          const existingProbe = await getScheduleProbeState(candidate.year);
+          await saveScheduleProbeState({
+            year: candidate.year,
+            baseCachedAt: existingProbe?.baseCachedAt ?? new Date(nowMs).toISOString(),
+            firstGameDate: deriveFirstGameDate(refresh.items),
+          });
+        } catch {
+          // Best-effort — never fail a committed refresh over probe bookkeeping.
+        }
+      }
     }
 
     exec.years = entries;

@@ -417,16 +417,35 @@ The **server-side** automation — the QStash `turfwar-odds-hourly` schedule tha
 
    **Coordinated `CRON_SECRET` rotation now spans all FOUR schedules** (they share the secret) — see §8h for the full four-schedule rotation order (`turfwar-game-stats-15m`, `turfwar-live-scores-3m`, `turfwar-odds-hourly`, `turfwar-schedule-weekly`).
 
-## 8h) PLATFORM-086E1B activation — weekly schedule maintenance operator sequence — ⏳ PENDING
+## 8h) PLATFORM-086E1B activation — weekly schedule maintenance operator sequence — ⏳ PENDING (held for E1B1)
 
-**Status: NOT executed.** The E1B build ships `GET /api/cron/schedule-refresh` and the `manage:schedule-refresh-schedule` CLI, but **no `turfwar-schedule-weekly` QStash schedule exists** — merging the build activates nothing. This section is the operator procedure that will activate weekly schedule maintenance.
+**Status: NOT executed, and HELD.** The merged E1B build ships `GET /api/cron/schedule-refresh` and the `manage:schedule-refresh-schedule` CLI, but **no `turfwar-schedule-weekly` QStash schedule exists** — merging activated nothing. Activation was then **held when the E1B preseason coverage gap was discovered** (E1B targeted only `season` leagues, while the daily season-transition cron refreshes preseason schedules only when unarmed or within 7 days of the first game — leaving a cache-armed early-preseason schedule with no automatic maintenance). **PLATFORM-086E1B1 is the bounded correction; this sequence cannot resume until E1B1 merges.** This section reflects the corrected (E1B1) behavior.
 
-The E1B build delegates each active `season` year to the E1A full-season schedule authority (`refreshFullSeasonSchedule` — durable per-year lease, complete-before-commit, observation-ordered transaction) with **operation-aware** gating: **ordinary weekly maintenance** honors the global pause + the Schedule dataset toggle, while **postseason-boundary maintenance** (from 7 days before the latest regular-season kickoff, while leagues remain in `season`) is **lifecycle-critical and EXEMPT** — like the season-transition/rollover crons themselves — so an operator pause can never starve the season-rollover boundary of the schedule data it needs. Every eligible refresh fetches the complete regular+postseason season; E1A's lease + observation ordering make duplicate/overlapping QStash deliveries safe. On any CLI exit `4` (indeterminate durability), inspect read-only and STOP; never blind-retry.
+The corrected route delegates each targeted year to the E1A full-season schedule authority (`refreshFullSeasonSchedule` — durable per-year lease, complete-before-commit, observation-ordered transaction) with **operation-aware** gating under this ownership model:
+
+```text
+Preseason, schedule/probe not armed        → daily season-transition owns discovery
+Preseason, first game known and > 7d away  → weekly E1B ordinary maintenance (`preseason-maintenance`)
+Preseason, within 7 days of first kickoff  → daily season-transition owns freshness + lifecycle transition
+Active season                              → weekly E1B `ordinary-maintenance`
+Postseason boundary                        → weekly E1B sticky lifecycle-critical `postseason-boundary`
+```
+
+**Ordinary operations** (`preseason-maintenance`, `ordinary-maintenance`) honor the global pause + the Schedule dataset toggle; **postseason-boundary maintenance** (from 7 days before the latest regular-season kickoff, sticky while leagues remain in `season`) is **lifecycle-critical and EXEMPT** — like the season-transition/rollover crons themselves. A transition-owned preseason year is an intentional provider-free deferral (`skipped / season-transition-owner`), never a failure. Every eligible refresh fetches the complete regular+postseason season; E1A's lease + observation ordering make duplicate/overlapping QStash deliveries safe. On any CLI exit `4` (indeterminate durability), inspect read-only and STOP; never blind-retry.
 
 ### Preflight
 
-1. **Confirm the reviewed E1B commit is serving production**, and `vercel.json` still contains ONLY the two daily lifecycle jobs (season-transition, season-rollover) — `/api/cron/schedule-refresh` is externally triggered by QStash, never a Vercel cron.
-2. **Confirm the current active year classifies `ordinary-maintenance`** (the season's latest regular kickoff is more than 7 days away). If it already classifies `postseason-boundary`, **STOP for user-approved activation planning** — the Schedule toggle is intentionally exempt in that window, so the ordinary-gated proof below cannot run as written.
+1. **Confirm the reviewed E1B1 commit is serving production**, and `vercel.json` still contains ONLY the two daily lifecycle jobs (season-transition, season-rollover) — `/api/cron/schedule-refresh` is externally triggered by QStash, never a Vercel cron.
+2. **Confirm the active year's current classification.** Safe provider-free activation-proof states:
+
+   ```text
+   preseason-maintenance + Schedule Off  → skipped / automation-paused-or-disabled
+   ordinary-maintenance  + Schedule Off  → skipped / automation-paused-or-disabled
+   season-transition-owner               → skipped / season-transition-owner (provider-free deferral)
+   ```
+
+   **STOP for user-approved activation planning ONLY if the year already classifies `postseason-boundary`** — that operation intentionally bypasses the Schedule toggle, so no gated proof exists in that window.
+
 3. **Turn the Schedule automatic-refresh toggle Off** (admin provider-status panel). Global pause may remain Off — the dataset toggle alone is sufficient for the ordinary proof.
 4. **Confirm operator credentials**: `QSTASH_TOKEN` (management-only; operator environment ONLY — never Vercel or the repo) and `CRON_SECRET` (the deployed route credential Vercel holds; the SAME value all four schedules forward).
 5. **Confirm no `turfwar-schedule-weekly` schedule exists** (`npm run manage:schedule-refresh-schedule` — read-only inspect), or inspect any existing schedule before mutation.
@@ -442,14 +461,21 @@ Require: schedule id `turfwar-schedule-weekly`; destination `https://turfwar.gam
 
 ### Exact-authentication proof
 
-Keep the Schedule toggle **Off** and wait for the first scheduled delivery. Require **HTTP 200** with body/event `skipped / automation-paused-or-disabled`, `providerCallAttempted: false` on every year entry, `rowsCommitted: 0`, exactly one `schedule-refresh-cron` runtime event, NO new schedule provider-refresh attempt, NO schedule write, and CFBD quota unchanged. A **401**, a missing delivery, any provider call/attempt/write, a divergent contract, or any other response is a **STOP** condition.
+Keep the Schedule toggle **Off** and wait for the first scheduled delivery. Require **HTTP 200** with `providerCallAttempted: false` on every year entry, `rowsCommitted: 0`, exactly one `schedule-refresh-cron` runtime event, NO new schedule provider-refresh attempt, NO schedule write, and CFBD quota unchanged. The expected body/event depends on the year's window:
+
+- **Early preseason** (armed probe, first game > 7 days away): `skipped / automation-paused-or-disabled` with `operation: preseason-maintenance`.
+- **Within the final seven days (or unarmed probe)**: `skipped / season-transition-owner` — the daily transition cron owns the year; this is equally a valid provider-free authentication proof.
+- **Active season (ordinary window)**: `skipped / automation-paused-or-disabled` with `operation: ordinary-maintenance`.
+
+A **401**, a missing delivery, any unexpected provider call/attempt/write, a divergent contract, or any other response is a **STOP** condition.
 
 ### Open the gate
 
-1. Turn Schedule automation **On**.
+1. Turn Schedule automation **On** (only after the proof above).
 2. Perform one deliberate authorized route invocation, or wait for the following Tuesday's delivery.
-3. Verify: the correct active year(s) with the correct operation mode; ONE complete E1A regular+postseason refresh per allowed year (`written-clean`/`unchanged-clean`, or a truthful no-op); exactly one structured event; the exact year-scoped provider-refresh status advanced; bounded provider usage (two CFBD `/games` requests per refreshed year); no partial/empty replacement (prior-good retained on any failure).
-4. **Post-activation record**: complete a separate docs-only update recording the deployed commit, the QStash contract readback, the exact-authentication proof delivery, the first gated run's result/reason/rows/data-change state, and the CFBD quota evidence.
+3. **If the year is still early preseason (or active-season ordinary)**: verify ONE complete E1A regular+postseason refresh for the year (`written-clean`/`unchanged-clean`, or a truthful no-op); exactly one structured event; the exact year-scoped provider-refresh status advanced; bounded provider usage (two CFBD `/games` requests per refreshed year); no partial/empty replacement (prior-good retained on any failure).
+4. **If the year is transition-owned** (inside the final seven days): leave the schedule active and verify the delivery reports `skipped / season-transition-owner` while the DAILY season-transition cron owns freshness — weekly provider work begins automatically once the lifecycle state becomes `season`.
+5. **Post-activation record**: complete a separate docs-only update recording the deployed commit, the QStash contract readback, the exact-authentication proof delivery, the first gated run's result/reason/operation/rows/data-change state, and the CFBD quota evidence.
 
 ### Emergency stop
 

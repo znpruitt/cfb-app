@@ -30,8 +30,9 @@ export type ScheduleRefreshCronExecutionResult =
 export type ScheduleRefreshCronExecutionReason =
   | 'cron-secret-not-configured'
   | 'cron-authorization-invalid'
-  | 'no-active-season'
+  | 'no-maintenance-target'
   | 'automation-paused-or-disabled'
+  | 'season-transition-owner'
   | 'canonical-context-unavailable'
   | 'settings-unavailable'
   | 'year-results'
@@ -45,6 +46,7 @@ export type ScheduleRefreshCronYearExecution = {
   reason:
     | FullSeasonScheduleRefreshReason
     | 'automation-paused-or-disabled'
+    | 'season-transition-owner'
     | 'canonical-context-unavailable'
     | 'settings-unavailable';
   providerCallAttempted: boolean;
@@ -82,7 +84,8 @@ export function createScheduleRefreshCronExecutionState(): ScheduleRefreshCronEx
 }
 
 /**
- * The aggregate result over the per-year entries (PLATFORM-086E1B §5):
+ * The aggregate result over the per-year entries (PLATFORM-086E1B §5, extended
+ * by E1B1):
  *   1. no entries → `skipped`;
  *   2. all entries skipped → `skipped`;
  *   3. ≥1 failure AND ≥1 non-failure (success/no-op) among the non-skipped →
@@ -90,8 +93,11 @@ export function createScheduleRefreshCronExecutionState(): ScheduleRefreshCronEx
  *   4. every non-skipped entry failed → `failure`;
  *   5. ≥1 success and no failure → `success`;
  *   6. otherwise (≥1 no-op, no success/failure) → `no-op`.
- * A skipped ordinary year never makes a successful critical-year run partial
- * (skips are excluded before the partial/failure comparison).
+ * Skips are excluded before the partial/failure comparison, so neither a gated
+ * ordinary year NOR a transition-owned preseason year (an intentional
+ * `season-transition-owner` deferral) can make a successful sibling run partial —
+ * mixed deferrals/skips plus successful work aggregate to success/no-op
+ * according to the executed work.
  */
 export function aggregateScheduleCronResult(
   years: readonly ScheduleRefreshCronYearExecution[]
@@ -109,10 +115,10 @@ export function aggregateScheduleCronResult(
 
 /**
  * The aggregate top-level reason over the per-year entries: a uniform
- * gated/context/settings run reports that uniform reason; anything mixed or
- * actually executed reports `year-results`. (Auth failures and the no-target /
- * registry-failure paths never reach this — the route sets their literal
- * reasons directly.)
+ * transition-deferred/gated/context/settings run reports that uniform reason;
+ * anything mixed or actually executed reports `year-results`. (Auth failures and
+ * the no-target / registry-failure paths never reach this — the route sets their
+ * literal reasons directly.)
  */
 export function aggregateScheduleCronReason(
   years: readonly ScheduleRefreshCronYearExecution[]
@@ -120,9 +126,11 @@ export function aggregateScheduleCronReason(
   const uniform = (
     reason:
       | 'automation-paused-or-disabled'
+      | 'season-transition-owner'
       | 'canonical-context-unavailable'
       | 'settings-unavailable'
   ): boolean => years.length > 0 && years.every((entry) => entry.reason === reason);
+  if (uniform('season-transition-owner')) return 'season-transition-owner';
   if (uniform('automation-paused-or-disabled')) return 'automation-paused-or-disabled';
   if (uniform('canonical-context-unavailable')) return 'canonical-context-unavailable';
   if (uniform('settings-unavailable')) return 'settings-unavailable';
