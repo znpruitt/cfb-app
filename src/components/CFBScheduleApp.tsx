@@ -347,6 +347,13 @@ export default function CFBScheduleApp({
   >({});
 
   const [scheduleLoaded, setScheduleLoaded] = useState<boolean>(false);
+  // Monotonic counter bumped on every real rebuild of `games` (a full schedule
+  // (re)load, or a postseason-override apply that can change canonical keys). It is
+  // the re-arm signal for `useOddsHydration` (PLATFORM-086C3 review remediation): a
+  // successful in-place reload of an already-loaded schedule leaves `scheduleLoaded`
+  // and the has-games flag unchanged, so odds would otherwise stay keyed to stale
+  // schedule data — a generation change forces a fresh cache-only hydration.
+  const [scheduleGeneration, setScheduleGeneration] = useState<number>(0);
   const [scoreHydrationState, setScoreHydrationState] = useState<ScoreHydrationState>(
     EMPTY_SCORE_HYDRATION_STATE
   );
@@ -494,6 +501,10 @@ export default function CFBScheduleApp({
         setByes(built.byes);
         setConferences(built.conferences);
         setScheduleLoaded(true);
+        // Force a fresh Odds hydration for this (re)built schedule — a with-games
+        // in-place reload does not toggle `scheduleLoaded`, so the generation bump
+        // is what re-arms `useOddsHydration` (PLATFORM-086C3 review remediation).
+        setScheduleGeneration((n) => n + 1);
         if (options?.bypassCache) {
           await loadRankings({ bypassCache: true });
         }
@@ -1059,6 +1070,7 @@ export default function CFBScheduleApp({
     selectedSeason,
     scheduleLoaded,
     hasGames: games.length > 0,
+    scheduleGeneration,
     setOddsByKey,
     setOddsSnapshotAt,
     setOddsUsage,
@@ -1161,6 +1173,9 @@ export default function CFBScheduleApp({
           setGames((prevGames) =>
             prevGames.map((g) => (g.eventId === eventId ? applyOverride(g, override) : g))
           );
+          // A postseason override can change a game's canonical identity, so bump
+          // the schedule generation to re-hydrate Odds against the new keys.
+          setScheduleGeneration((n) => n + 1);
         }
 
         return next;

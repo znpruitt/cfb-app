@@ -24,14 +24,19 @@ export { ODDS_HYDRATION_ISSUE };
  * `refresh=1` and NO admin authorization header, so it can never spend provider
  * quota or trigger an upstream fetch (the public Odds route is a pure cache reader
  * under PLATFORM-075/086C2). It runs when the selected season's schedule has loaded
- * with games and re-arms only when the season changes or the schedule reloads —
- * week/tab/subview navigation, focus, visibility, and the live-score timer never
- * re-trigger it (their effect inputs are not in this hook's dependency list).
+ * with games and re-arms when the season changes OR the schedule is rebuilt (the
+ * `scheduleGeneration` bump — a full (re)load or a postseason-override apply that
+ * can change canonical keys, since a with-games in-place reload leaves
+ * `scheduleLoaded`/`hasGames` unchanged). Week/tab/subview navigation, focus,
+ * visibility, and the live-score timer never re-trigger it (their inputs are not in
+ * this hook's dependency list).
  */
 export function useOddsHydration(params: {
   selectedSeason: number;
   scheduleLoaded: boolean;
   hasGames: boolean;
+  /** Monotonic rebuild signal — a change re-hydrates against the new schedule keys. */
+  scheduleGeneration: number;
   setOddsByKey: Dispatch<SetStateAction<Record<string, CombinedOdds>>>;
   setOddsSnapshotAt: Dispatch<SetStateAction<string | null>>;
   setOddsUsage: Dispatch<SetStateAction<OddsUsageSnapshot | null>>;
@@ -41,6 +46,7 @@ export function useOddsHydration(params: {
     selectedSeason,
     scheduleLoaded,
     hasGames,
+    scheduleGeneration,
     setOddsByKey,
     setOddsSnapshotAt,
     setOddsUsage,
@@ -88,10 +94,14 @@ export function useOddsHydration(params: {
     })();
 
     return () => controller.abort();
+    // `scheduleGeneration` is a re-arm trigger (a rebuild changes canonical keys):
+    // its change aborts any in-flight response for the prior schedule and starts a
+    // fresh cache-only hydration.
   }, [
     selectedSeason,
     scheduleLoaded,
     hasGames,
+    scheduleGeneration,
     setOddsByKey,
     setOddsSnapshotAt,
     setOddsUsage,

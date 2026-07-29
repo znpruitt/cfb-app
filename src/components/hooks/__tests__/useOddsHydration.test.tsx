@@ -112,6 +112,7 @@ function makeHarness(initial: {
   selectedSeason: number;
   scheduleLoaded: boolean;
   hasGames: boolean;
+  scheduleGeneration?: number;
 }) {
   const state: HarnessState = { oddsByKey: {}, oddsSnapshotAt: null, oddsUsage: null, issues: [] };
   const apply = <T,>(prev: T, updater: T | ((p: T) => T)): T =>
@@ -129,7 +130,10 @@ function makeHarness(initial: {
     state.issues = apply(state.issues, u);
   };
   const props = {
-    ...initial,
+    selectedSeason: initial.selectedSeason,
+    scheduleLoaded: initial.scheduleLoaded,
+    hasGames: initial.hasGames,
+    scheduleGeneration: initial.scheduleGeneration ?? 1,
     setOddsByKey,
     setOddsSnapshotAt,
     setOddsUsage,
@@ -319,4 +323,31 @@ test('#9: re-renders (navigation) do not cause repeated Odds requests', async ()
   await new Promise((r) => setTimeout(r, 15));
 
   assert.equal(oddsCalls().length, 1, 'exactly one hydration across many re-renders');
+});
+
+test('#10: a schedule rebuild (generation bump) re-hydrates against the new schedule', async () => {
+  // A with-games in-place schedule reload leaves selectedSeason/scheduleLoaded/hasGames
+  // unchanged; the scheduleGeneration bump is what re-arms hydration so odds never
+  // stay keyed to stale schedule data (PLATFORM-086C3 review remediation, finding).
+  let call = 0;
+  installOddsFetch(() => {
+    call += 1;
+    return oddsResponse({ items: [{ canonicalGameId: `gen-${call}`, odds: combinedOdds() }] });
+  });
+  const { state, props } = makeHarness({
+    selectedSeason: 2026,
+    scheduleLoaded: true,
+    hasGames: true,
+    scheduleGeneration: 1,
+  });
+
+  const view = renderHook((p) => useOddsHydration(p), { initialProps: props });
+  await waitFor(() => assert.ok(state.oddsByKey['gen-1']));
+  assert.equal(oddsCalls().length, 1);
+
+  // The schedule was rebuilt in place (same season/loaded/hasGames) — only the
+  // generation changed. This must trigger a fresh hydration.
+  view.rerender({ ...props, scheduleGeneration: 2 });
+  await waitFor(() => assert.equal(oddsCalls().length, 2));
+  await waitFor(() => assert.ok(state.oddsByKey['gen-2']));
 });
