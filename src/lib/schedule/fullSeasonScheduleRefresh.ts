@@ -237,11 +237,21 @@ async function commitFullSeasonSchedule(params: {
   }
 
   // No write happened for these — nothing to publish.
-  if (
-    outcome.kind === 'empty-response' ||
-    outcome.kind === 'empty-replacement-rejected' ||
-    outcome.kind === 'stale-observation'
-  ) {
+  if (outcome.kind === 'empty-response' || outcome.kind === 'empty-replacement-rejected') {
+    return outcome;
+  }
+
+  if (outcome.kind === 'stale-observation') {
+    // A stale refresh committed nothing, but the transaction-fresh durable entry it
+    // read is NEWER than our observation. Forward it into the process cache ONLY when
+    // it is newer than the local entry, so a subsequent ordinary request on this
+    // instance cannot keep serving an OLDER process-cached schedule until TTL — while
+    // never regressing below a possibly-fresher local entry, recording a success, or
+    // invalidating standings (PLATFORM-086E1A finding 3).
+    const local = SCHEDULE_ROUTE_CACHE[scheduleKey(year)];
+    if (outcome.entry && (!local || outcome.entry.at > local.at)) {
+      SCHEDULE_ROUTE_CACHE[scheduleKey(year)] = outcome.entry;
+    }
     return outcome;
   }
 

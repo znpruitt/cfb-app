@@ -344,6 +344,91 @@ function playoffEventKey(round: PlayoffRound, bowlName: string | null): string {
   return `cfp-${round}`;
 }
 
+/**
+ * Parse a provider-supplied playoff round label (nested structured object OR flat
+ * field) into a canonical `PlayoffRound`, or null. Accepts CFBD's spaced
+ * "National Championship" alongside the hyphenated/underscored forms.
+ */
+function parseProviderPlayoffRound(raw: string): PlayoffRound | null {
+  const t = raw.trim().toLowerCase();
+  if (t === 'first-round' || t === 'first round') return 'first-round';
+  if (t === 'national_championship' || t === 'national championship')
+    return 'national_championship';
+  if (t === 'quarterfinal' || t === 'semifinal' || t === 'playoff') return t as PlayoffRound;
+  return null;
+}
+
+type PlayoffProvenance = {
+  round: PlayoffRound | null;
+  /** Structured/flat competition string, or '' when none. */
+  competition: string;
+  source: PlayoffRoundSource | undefined;
+  /** True when the round came from an explicit provider field (nested or flat), not text. */
+  fromProviderField: boolean;
+};
+
+/**
+ * Resolve a postseason row's playoff round, competition, and PROVENANCE from the
+ * strongest available evidence (PLATFORM-086E1A findings 1 & 2). This is the single
+ * gate the season-rollover authority trusts, applied identically whether or not the
+ * row carried `game_phase: 'postseason'`:
+ *   - `cfbd-structured` ONLY when the round AND the competition BOTH come from CFBD's
+ *     nested structured `playoff` object — the strongest signal;
+ *   - `explicit-provider-field` for any explicit provider round that is not fully
+ *     structured (a nested round without a structured competition, a flat round, or
+ *     a nested/flat mix) — never authoritative for rollover;
+ *   - `text-inferred` for a round guessed from name/notes text (suppressed for
+ *     explicit non-FBS rows so FCS/D-II/D-III wording can never mint a CFP identity).
+ * The raw `playoff` object is read here for its scalars only and never persisted.
+ */
+function derivePlayoffProvenance(params: {
+  game: CfbdScheduleGame;
+  text: string;
+  explicitNonFbs: boolean;
+}): PlayoffProvenance {
+  const { game, text, explicitNonFbs } = params;
+  const structuredPlayoff =
+    game.playoff && typeof game.playoff === 'object' && !Array.isArray(game.playoff)
+      ? game.playoff
+      : null;
+  const structuredRound = parseProviderPlayoffRound(normalizeString(structuredPlayoff?.round));
+  const flatRound = parseProviderPlayoffRound(
+    normalizeString(game.playoff_round ?? game.playoffRound)
+  );
+  const structuredCompetition = normalizeString(structuredPlayoff?.competition);
+  const flatCompetition = normalizeString(game.playoff_competition ?? game.playoffCompetition);
+  const competition = structuredCompetition || flatCompetition;
+
+  // cfbd-structured: the round AND competition BOTH come from the nested object.
+  if (structuredRound != null && structuredCompetition) {
+    return {
+      round: structuredRound,
+      competition,
+      source: 'cfbd-structured',
+      fromProviderField: true,
+    };
+  }
+  // explicit-provider-field: any explicit provider round that is not fully structured.
+  const explicitRound = structuredRound ?? flatRound;
+  if (explicitRound != null) {
+    return {
+      round: explicitRound,
+      competition,
+      source: 'explicit-provider-field',
+      fromProviderField: true,
+    };
+  }
+  // text-inferred: round guessed from text (non-FBS rows suppress inference).
+  const roundFromText =
+    !explicitNonFbs && hasPlayoffMarker(text) ? playoffRoundFromText(text) : null;
+  return {
+    round: roundFromText,
+    competition,
+    source: roundFromText != null ? 'text-inferred' : undefined,
+    fromProviderField: false,
+  };
+}
+
 function deriveEventMetadata(params: {
   game: CfbdScheduleGame;
   seasonType: SeasonType;
@@ -373,22 +458,9 @@ function deriveEventMetadata(params: {
   const normalizedPostseasonSubtype = normalizeString(
     game.postseason_subtype ?? game.postseasonSubtype
   ).toLowerCase();
-  // CFBD's structured playoff object supplies the round/competition at higher
-  // precedence than the flat compatibility fields; the raw object is read here but
-  // NEVER persisted (only its scalars flow into the item).
-  const structuredPlayoff =
-    game.playoff && typeof game.playoff === 'object' && !Array.isArray(game.playoff)
-      ? game.playoff
-      : null;
-  const normalizedPlayoffRound = normalizeString(
-    structuredPlayoff?.round ?? game.playoff_round ?? game.playoffRound
-  ).toLowerCase();
-  // Structured CFBD playoff competition (PLATFORM-086E1A). Retained verbatim as
-  // metadata; combined with an explicit structured round it marks a row as
-  // `cfbd-structured` — the only provenance the rollover authority trusts.
-  const normalizedPlayoffCompetition = normalizeString(
-    structuredPlayoff?.competition ?? game.playoff_competition ?? game.playoffCompetition
-  );
+  // Playoff round/competition/provenance are resolved by `derivePlayoffProvenance`
+  // (PLATFORM-086E1A) so nested-structured, flat, and text evidence are classified
+  // identically in both postseason branches below.
   const normalizedEventKey = normalizeString(game.event_key ?? game.eventKey);
   const normalizedConference = normalizeString(
     game.conference_championship_conference ?? game.conferenceChampionshipConference
@@ -449,46 +521,26 @@ function deriveEventMetadata(params: {
     // round, event key) is preserved as-is.
     const explicitNonFbs = hasExplicitNonFbsParticipant(game);
     const playoffFromText = !explicitNonFbs && hasPlayoffMarker(text);
-    const roundFromText = playoffFromText ? playoffRoundFromText(text) : null;
-    // Round from the EXPLICIT provider field (unchanged derivation), tracked
-    // separately so the provenance tag reflects how the round was actually
-    // determined (PLATFORM-086E1A).
-    const explicitRound: PlayoffRound | null =
-      normalizedPlayoffRound === 'first-round' || normalizedPlayoffRound === 'first round'
-        ? 'first-round'
-        : normalizedPlayoffRound === 'national_championship' ||
-            normalizedPlayoffRound === 'national championship'
-          ? 'national_championship'
-          : normalizedPlayoffRound === 'quarterfinal' ||
-              normalizedPlayoffRound === 'semifinal' ||
-              normalizedPlayoffRound === 'playoff'
-            ? (normalizedPlayoffRound as PlayoffRound)
-            : null;
-    const round: PlayoffRound | null = explicitRound ?? roundFromText;
-    // Provenance: an explicit provider round PLUS a structured competition is the
-    // only `cfbd-structured` signal; an explicit round alone is
-    // `explicit-provider-field`; a text-inferred round is `text-inferred`.
-    const playoffRoundSource: PlayoffRoundSource | undefined =
-      round == null
-        ? undefined
-        : explicitRound != null
-          ? normalizedPlayoffCompetition
-            ? 'cfbd-structured'
-            : 'explicit-provider-field'
-          : 'text-inferred';
+    const provenance = derivePlayoffProvenance({ game, text, explicitNonFbs });
+    const round = provenance.round;
+    // Subtype precedence: an explicit provider subtype wins; otherwise an explicit
+    // provider playoff round OR a text-playoff marker makes it a playoff.
     const postseasonSubtype: PostseasonSubtype =
-      normalizedPostseasonSubtype === 'playoff' ||
-      (normalizedPostseasonSubtype !== 'bowl' && playoffFromText)
+      normalizedPostseasonSubtype === 'playoff'
         ? 'playoff'
-        : 'bowl';
+        : normalizedPostseasonSubtype === 'bowl'
+          ? 'bowl'
+          : provenance.fromProviderField || playoffFromText
+            ? 'playoff'
+            : 'bowl';
 
     return {
       gamePhase: 'postseason',
       regularSubtype: 'standard',
       postseasonSubtype,
       playoffRound: round,
-      ...(normalizedPlayoffCompetition ? { playoffCompetition: normalizedPlayoffCompetition } : {}),
-      ...(playoffRoundSource ? { playoffRoundSource } : {}),
+      ...(provenance.competition ? { playoffCompetition: provenance.competition } : {}),
+      ...(provenance.source ? { playoffRoundSource: provenance.source } : {}),
       bowlName,
       conferenceChampionshipConference: null,
       eventKey:
@@ -552,24 +604,27 @@ function deriveEventMetadata(params: {
   }
 
   if (seasonType === 'postseason') {
-    const round = playoff ? playoffRoundFromText(text) : null;
-    const postseasonSubtype: PostseasonSubtype = playoff ? 'playoff' : 'bowl';
-    const eventKey = playoff
-      ? playoffEventKey(round ?? 'playoff', bowlName)
-      : bowlName
-        ? slugify(bowlName)
-        : `postseason-${slugify(text || 'game')}`;
+    // Use the SAME provenance derivation as the `game_phase: 'postseason'` branch
+    // (PLATFORM-086E1A finding 1): a structured CFBD `playoff` object authorizes
+    // rollover even for a postseason row that omitted `game_phase`. A text-only
+    // round stays `text-inferred`.
+    const provenance = derivePlayoffProvenance({ game, text, explicitNonFbs });
+    const round = provenance.round;
+    const postseasonSubtype: PostseasonSubtype = round != null ? 'playoff' : 'bowl';
+    const eventKey =
+      round != null
+        ? playoffEventKey(round, bowlName)
+        : bowlName
+          ? slugify(bowlName)
+          : `postseason-${slugify(text || 'game')}`;
 
     return {
       gamePhase: 'postseason',
       regularSubtype: 'standard',
       postseasonSubtype,
       playoffRound: round,
-      // This fallback derives the round purely from text (no structured provider
-      // field is consulted here), so its provenance is always `text-inferred` —
-      // never authoritative for rollover (PLATFORM-086E1A).
-      ...(normalizedPlayoffCompetition ? { playoffCompetition: normalizedPlayoffCompetition } : {}),
-      ...(round != null ? { playoffRoundSource: 'text-inferred' as const } : {}),
+      ...(provenance.competition ? { playoffCompetition: provenance.competition } : {}),
+      ...(provenance.source ? { playoffRoundSource: provenance.source } : {}),
       bowlName,
       conferenceChampionshipConference: null,
       eventKey,

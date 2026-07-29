@@ -99,6 +99,54 @@ test('playoff provenance distinguishes structured, explicit-field, and text-infe
   }
 });
 
+// 30c — a nested structured playoff object authorizes cfbd-structured provenance
+// even when the row omits `game_phase` (PLATFORM-086E1A finding 1).
+test('a nested structured playoff without game_phase is still cfbd-structured', async () => {
+  const mapped = mapCfbdScheduleGame(
+    {
+      id: 401752,
+      week: 15,
+      home_team: 'Alpha U',
+      away_team: 'Beta U',
+      // NO game_phase — the row is only classifiable as postseason via seasonType.
+      playoff: { competition: 'College Football Playoff', round: 'National Championship' },
+    },
+    'postseason'
+  );
+  assert.ok(mapped.ok);
+  if (!mapped.ok) return;
+  assert.equal(mapped.item.gamePhase, 'postseason');
+  assert.equal(mapped.item.playoffRound, 'national_championship');
+  assert.equal(mapped.item.playoffRoundSource, 'cfbd-structured');
+  assert.equal(mapped.item.playoffCompetition, 'College Football Playoff');
+});
+
+// 30d — a FLAT round + FLAT competition (no nested structured object) is only
+// explicit-provider-field, never cfbd-structured (PLATFORM-086E1A finding 2), so it
+// cannot authorize rollover.
+test('a flat playoff_round + flat competition is explicit-provider-field, not structured', async () => {
+  const mapped = mapCfbdScheduleGame(
+    {
+      id: 401752,
+      week: 15,
+      home_team: 'Alpha U',
+      away_team: 'Beta U',
+      game_phase: 'postseason',
+      playoff_round: 'national_championship',
+      playoff_competition: 'College Football Playoff',
+    },
+    'postseason'
+  );
+  assert.ok(mapped.ok);
+  if (!mapped.ok) return;
+  assert.equal(mapped.item.playoffRound, 'national_championship');
+  assert.equal(
+    mapped.item.playoffRoundSource,
+    'explicit-provider-field',
+    'flat fields are not the structured nested object'
+  );
+});
+
 // 31 — excluded / raw provider fields are not persisted.
 test('excluded and raw provider fields are not persisted', async () => {
   const raw = {
