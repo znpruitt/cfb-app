@@ -147,6 +147,32 @@ test('a flat playoff_round + flat competition is explicit-provider-field, not st
   );
 });
 
+// 30e — an explicitly non-FBS postseason row with a provider round but no
+// game_phase must NOT mint a shared cfp-* event key (PLATFORM-086E1A cycle-2 /
+// PLATFORM-086H3E4 cross-division collision guard).
+test('a non-FBS postseason row with a provider round never mints a cfp-* event key', async () => {
+  const mapped = mapCfbdScheduleGame(
+    {
+      id: 401738295,
+      week: 15,
+      home_team: 'North Dakota State',
+      away_team: 'South Dakota State',
+      home_classification: 'fcs', // explicit non-FBS → CFP identity must be suppressed
+      away_classification: 'fcs',
+      // NO game_phase → reaches the seasonType-postseason fallback branch.
+      playoff_round: 'semifinal',
+    },
+    'postseason'
+  );
+  assert.ok(mapped.ok);
+  if (!mapped.ok) return;
+  const key = mapped.item.eventKey ?? '';
+  assert.ok(!key.startsWith('cfp-'), `non-FBS row must not get a cfp-* key (got "${key}")`);
+  assert.notEqual(key, 'national-championship');
+  // Round/provenance metadata is still retained for diagnostics.
+  assert.equal(mapped.item.playoffRound, 'semifinal');
+});
+
 // 31 — excluded / raw provider fields are not persisted.
 test('excluded and raw provider fields are not persisted', async () => {
   const raw = {

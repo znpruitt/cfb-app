@@ -611,8 +611,14 @@ function deriveEventMetadata(params: {
     const provenance = derivePlayoffProvenance({ game, text, explicitNonFbs });
     const round = provenance.round;
     const postseasonSubtype: PostseasonSubtype = round != null ? 'playoff' : 'bowl';
+    // Mirror the `game_phase: 'postseason'` branch's `!explicitNonFbs` guard around
+    // `playoffEventKey` (PLATFORM-086E1A cycle-2 fix): an explicitly non-FBS row must
+    // NEVER mint a shared `cfp-*` event key — even from an explicit provider round —
+    // or FCS/D-II/D-III games collide with FBS CFP identities (the PLATFORM-086H3E4
+    // collision class). Round/provenance metadata is still retained for diagnostics;
+    // only the identity-bearing event key is guarded.
     const eventKey =
-      round != null
+      round != null && !explicitNonFbs
         ? playoffEventKey(round, bowlName)
         : bowlName
           ? slugify(bowlName)
