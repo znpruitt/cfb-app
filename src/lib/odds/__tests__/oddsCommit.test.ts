@@ -286,19 +286,21 @@ test('convergence #5: a secondary (raw) write failure rolls back the primary (st
     now: NOW_ISO,
   });
   // Fail the odds-cache (secondary) write; the whole transaction must roll back.
+  // Post-remediation the commit never throws for a durable-store fault — it maps
+  // to `store-unavailable` (a tolerated refresh outcome) while the transaction
+  // still rolls back both keys to the prior-good state.
   __setAppStateWriteFailureForTests(new Error('raw write failed'), 'odds-cache');
-  await assert.rejects(
-    commitCanonicalOddsRefresh({
-      season: SEASON,
-      seasonScopedKey: KEY,
-      rawEntry: rawEntry(T2, [oddsEvent(-10)]),
-      games,
-      oddsEvents: [oddsEvent(-10)],
-      resolver,
-      observationAt: T2,
-      now: NOW_ISO,
-    })
-  );
+  const rolledBack = await commitCanonicalOddsRefresh({
+    season: SEASON,
+    seasonScopedKey: KEY,
+    rawEntry: rawEntry(T2, [oddsEvent(-10)]),
+    games,
+    oddsEvents: [oddsEvent(-10)],
+    resolver,
+    observationAt: T2,
+    now: NOW_ISO,
+  });
+  assert.equal(rolledBack.kind, 'store-unavailable');
   __setAppStateWriteFailureForTests(null);
   // Both keys remain at the prior-good T1 state.
   const durableRaw = await getAppState<SharedOddsCacheEntry>('odds-cache', KEY);

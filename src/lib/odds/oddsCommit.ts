@@ -48,12 +48,7 @@ import {
 } from '../odds.ts';
 import type { NormalizedOddsEvent } from '@/app/api/odds/routeInternals';
 import type { AppGame } from '../schedule.ts';
-import {
-  AppStateKeyLockAcquireError,
-  AppStateTxnCleanupError,
-  AppStateTxnFinalizeError,
-  withAppStateKeyTransaction,
-} from '../server/appStateStore.ts';
+import { withAppStateKeyTransaction } from '../server/appStateStore.ts';
 import {
   DURABLE_ODDS_STORE_KEY,
   durableOddsStoreScope,
@@ -183,14 +178,6 @@ export function buildNextOddsStore(
   return { store: nextStore, changed };
 }
 
-function isStoreUnavailable(error: unknown): boolean {
-  return (
-    error instanceof AppStateKeyLockAcquireError ||
-    error instanceof AppStateTxnFinalizeError ||
-    error instanceof AppStateTxnCleanupError
-  );
-}
-
 export type CanonicalOddsCommitOutcome =
   | {
       kind: 'committed';
@@ -269,9 +256,13 @@ export async function commitCanonicalOddsRefresh(params: {
         };
       }
     );
-  } catch (error) {
-    if (isStoreUnavailable(error)) return { kind: 'store-unavailable' };
-    throw error;
+  } catch {
+    // The transaction callback's only fallible operations are the store
+    // reads/writes (the merge is pure over pre-validated games/events), so ANY
+    // fault — the typed lock/finalize/cleanup wrappers OR a rethrown raw
+    // read/write statement error — is store-unavailable, not a propagated failure
+    // (review remediation). Callers map this to a truthful durable-commit failure.
+    return { kind: 'store-unavailable' };
   }
 
   if (outcome.kind === 'stale-observation') {
@@ -343,9 +334,13 @@ export async function commitFilteredOddsRefresh(params: {
     const commitSeq = nextProviderCommitSeq();
     oddsCache.entries[seasonScopedKey] = rawEntry;
     return { kind: 'committed', rawEntry, committedAt, commitSeq };
-  } catch (error) {
-    if (isStoreUnavailable(error)) return { kind: 'store-unavailable' };
-    throw error;
+  } catch {
+    // The transaction callback's only fallible operations are the store
+    // reads/writes (the merge is pure over pre-validated games/events), so ANY
+    // fault — the typed lock/finalize/cleanup wrappers OR a rethrown raw
+    // read/write statement error — is store-unavailable, not a propagated failure
+    // (review remediation). Callers map this to a truthful durable-commit failure.
+    return { kind: 'store-unavailable' };
   }
 }
 
@@ -391,9 +386,13 @@ export async function maintainCanonicalClosingLines(params: {
         return built;
       }
     );
-  } catch (error) {
-    if (isStoreUnavailable(error)) return { kind: 'store-unavailable' };
-    throw error;
+  } catch {
+    // The transaction callback's only fallible operations are the store
+    // reads/writes (the merge is pure over pre-validated games/events), so ANY
+    // fault — the typed lock/finalize/cleanup wrappers OR a rethrown raw
+    // read/write statement error — is store-unavailable, not a propagated failure
+    // (review remediation). Callers map this to a truthful durable-commit failure.
+    return { kind: 'store-unavailable' };
   }
 
   // The returned store is the confirmed durable value (just-written or

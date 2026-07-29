@@ -116,12 +116,13 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     dataset: 'odds',
     label: 'Odds',
     provider: 'The Odds API',
-    hasActiveAutomation: false,
-    currentAutomation: 'No automatic job and no operator UI today (authorized API refresh only).',
+    hasActiveAutomation: true,
+    currentAutomation:
+      'External QStash schedule (hourly) → GET /api/cron/odds. The application polling policy decides whether a provider request is due: normally every ~6 hours, and every ~2 hours during the 6 hours before each America/Chicago slate date’s first kickoff (eligible games within the next 7 days). A due run issues one quota-free /sports probe plus at most one 3-credit /odds request, above a 50-credit reserve; the global pause + this Odds toggle gate it, and public traffic stays cache-only.',
     plannedPolicy:
-      'Planned (PLATFORM-086B): fixed baseline cadence with modest pre-kickoff priority.',
+      'Active (PLATFORM-086C2): hourly external trigger; application-owned 6h baseline / 2h pre-kickoff cadence; 50-credit reserve; global-pause + toggle gated.',
     lifecycleCritical: false,
-    autoRefreshSettingConsumed: false,
+    autoRefreshSettingConsumed: true,
     // Matches the diagnostics stale-odds threshold.
     staleAfterMs: 2 * DAY_MS,
   },

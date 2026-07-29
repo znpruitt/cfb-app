@@ -104,7 +104,9 @@ export async function probeOddsQuota(params: {
   const doFetch = params.fetchImpl ?? fetch;
   let response: Response;
   try {
-    response = await doFetch(url, { cache: 'no-store' });
+    // Bounded like the `/odds` request, so a hung probe cannot hold the refresh
+    // lease until the platform function timeout (review remediation).
+    response = await doFetch(url, { cache: 'no-store', signal: AbortSignal.timeout(12_000) });
   } catch {
     return { kind: 'quota-probe-failed' };
   }

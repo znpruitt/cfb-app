@@ -19,6 +19,46 @@ export class UpstreamFetchError extends Error {
   }
 }
 
+/**
+ * Case-insensitive query-parameter names that carry a credential and must NEVER
+ * appear in a diagnostic/error/log representation of an upstream URL (e.g. The
+ * Odds API sends its key as `?apiKey=...`). PLATFORM-086C2 security prerequisite.
+ */
+const CREDENTIAL_QUERY_PARAMS: ReadonlySet<string> = new Set([
+  'apikey',
+  'key',
+  'token',
+  'access_token',
+  'authorization',
+]);
+
+/**
+ * Redact credential query parameters from an upstream URL for SAFE diagnostic
+ * use — errors, logs, and returned error details. The REAL request URL is never
+ * passed through this: only its diagnostic representation is. Origin/path and
+ * non-credential parameters are preserved; a value that cannot be parsed as an
+ * absolute URL is reduced to everything before its query string (or a fixed
+ * placeholder) rather than risk leaking a credential-bearing string verbatim.
+ */
+export function sanitizeUpstreamUrl(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    let mutated = false;
+    for (const name of [...url.searchParams.keys()]) {
+      if (CREDENTIAL_QUERY_PARAMS.has(name.toLowerCase())) {
+        url.searchParams.set(name, 'REDACTED');
+        mutated = true;
+      }
+    }
+    // Avoid re-encoding when nothing was redacted (keeps the URL byte-identical
+    // for the common no-credential case, e.g. CFBD `?year=&week=`).
+    return mutated ? url.toString() : rawUrl;
+  } catch {
+    const queryIndex = rawUrl.indexOf('?');
+    return queryIndex >= 0 ? `${rawUrl.slice(0, queryIndex)}?REDACTED` : rawUrl;
+  }
+}
+
 export type UpstreamRetryPolicy = {
   maxAttempts?: number;
   baseDelayMs?: number;
@@ -207,10 +247,12 @@ function toUpstreamFetchError(params: {
     });
   }
 
-  const message = error instanceof Error ? error.message : 'Unknown network error';
+  // A FIXED message — never the raw `error.message`, which (in some environments)
+  // can embed the requested URL and therefore a credential query parameter
+  // (PLATFORM-086C2 security remediation). The `url` here is already sanitized.
   return new UpstreamFetchError({
     kind: 'network',
-    message,
+    message: 'Upstream network error',
     url,
   });
 }
@@ -228,6 +270,9 @@ export async function fetchUpstreamResponse(
     ...init
   } = options;
   const retryPolicy = resolveRetryPolicy(retry);
+  // The credential-safe URL used in EVERY diagnostic (logs, errors, returned
+  // details). The real `url` is used only for `fetch` below.
+  const safeUrl = sanitizeUpstreamUrl(url);
 
   for (let attempt = 1; attempt <= retryPolicy.maxAttempts; attempt += 1) {
     const timeoutController = new AbortController();
@@ -239,7 +284,7 @@ export async function fetchUpstreamResponse(
 
       if (IS_UPSTREAM_DEBUG) {
         console.log('upstream request', {
-          url,
+          url: safeUrl,
           method: init.method ?? 'GET',
           headers: toHeaderObject(init.headers),
           timeoutMs,
@@ -257,7 +302,7 @@ export async function fetchUpstreamResponse(
           responseHeaders[key] = value;
         }
         console.log('upstream response', {
-          url,
+          url: safeUrl,
           status: res.status,
           statusText: res.statusText,
           headers: responseHeaders,
@@ -272,7 +317,7 @@ export async function fetchUpstreamResponse(
           const { waitMs, baseMs } = computeBackoffMs(attempt, retryPolicy);
           if (IS_UPSTREAM_DEBUG) {
             console.log('upstream retry scheduled', {
-              url,
+              url: safeUrl,
               attempt,
               nextAttempt: attempt + 1,
               reason: `http_${res.status}`,
@@ -294,7 +339,7 @@ export async function fetchUpstreamResponse(
           message: toMessage(res.status, res.statusText),
           status: res.status,
           statusText: res.statusText,
-          url,
+          url: safeUrl,
           responseBody,
         });
       }
@@ -303,7 +348,7 @@ export async function fetchUpstreamResponse(
     } catch (error) {
       const normalized = toUpstreamFetchError({
         error,
-        url,
+        url: safeUrl,
         timeoutController,
         requestSignal,
         timeoutMs,
@@ -316,7 +361,7 @@ export async function fetchUpstreamResponse(
         const { waitMs, baseMs } = computeBackoffMs(attempt, retryPolicy);
         if (IS_UPSTREAM_DEBUG) {
           console.log('upstream retry scheduled', {
-            url,
+            url: safeUrl,
             attempt,
             nextAttempt: attempt + 1,
             reason: normalized.details.kind,
@@ -338,7 +383,7 @@ export async function fetchUpstreamResponse(
   throw new UpstreamFetchError({
     kind: 'network',
     message: 'Upstream retry loop exhausted unexpectedly',
-    url,
+    url: safeUrl,
   });
 }
 
@@ -354,7 +399,7 @@ export async function fetchUpstreamJson<T>(
     throw new UpstreamFetchError({
       kind: 'parse',
       message: 'Upstream response was not valid JSON',
-      url,
+      url: sanitizeUpstreamUrl(url),
     });
   }
 }

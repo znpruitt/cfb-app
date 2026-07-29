@@ -7,6 +7,7 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateKeyLockFailureForTests,
+  __setAppStateWriteFailureForTests,
   getAppState,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
@@ -227,12 +228,23 @@ test('convergence #6: a filtered refresh never seeds the canonical durable store
 test('remediation: a post-commit failure after a valid no-op does not bill the lease backoff', async () => {
   const originalFetch = global.fetch;
   const seasonScopedKey = defaultOddsCacheKey(SEASON);
-  // The provider returns a valid EMPTY payload (a no-op commit), then the
-  // response-building schedule fetch (after the empty commit) fails — a throw on
-  // the tail AFTER the attempt already resolved as a no-op.
+  // The canonical PRELOAD schedule fetch succeeds (context available BEFORE the
+  // billed request), the provider returns a valid EMPTY payload (a no-op commit),
+  // then the RESPONSE-BUILDING schedule rebuild (after the empty commit resolved
+  // the attempt) fails — a throw on the tail AFTER the attempt already resolved as
+  // a no-op. The preload/tail split means the schedule endpoint is hit twice: the
+  // first call (preload) must succeed, the second (tail) fails.
+  let scheduleCalls = 0;
   global.fetch = (async (input: RequestInfo | URL) => {
     const url = new URL(typeof input === 'string' ? input : input.toString());
     if (url.pathname === '/api/schedule') {
+      scheduleCalls += 1;
+      if (scheduleCalls === 1) {
+        return new Response(JSON.stringify({ items: [] }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       return new Response('boom', { status: 500 });
     }
     if (url.pathname === '/api/conferences') {
@@ -253,12 +265,56 @@ test('remediation: a post-commit failure after a valid no-op does not bill the l
   }) as typeof fetch;
   try {
     const res = await GET(new Request(`http://localhost/api/odds?year=${SEASON}&refresh=1`));
-    assert.equal(res.status, 500); // the tail schedule fetch failed
+    assert.equal(res.status, 500); // the tail schedule rebuild failed
+    assert.ok(scheduleCalls >= 2); // preload succeeded, tail failed
     // The lease resolved as the recorded no-op — backoff RESET, completed-check
     // recorded — NOT reclassified to a billed failure by the catch.
     const control = await readOddsRefreshControl(seasonScopedKey);
     assert.equal(control?.automaticFailureCount, 0);
     assert.ok(control?.lastCompletedCheckAt);
+    assert.equal(control?.lease, null);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
+test('remediation F4: a canonical PRELOAD failure fails before billing (release-only, no /odds)', async () => {
+  const originalFetch = global.fetch;
+  const seasonScopedKey = defaultOddsCacheKey(SEASON);
+  // The canonical schedule preload fails — this happens BEFORE the billed `/odds`
+  // request, so no credit is spent and the lease must resolve release-only (backoff
+  // NOT advanced), not as a billed failure. The odds provider must never be called.
+  let oddsProviderCalls = 0;
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.hostname === 'api.the-odds-api.com') {
+      oddsProviderCalls += 1;
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.pathname === '/api/schedule') {
+      return new Response('boom', { status: 500 });
+    }
+    if (url.pathname === '/api/conferences') {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+  try {
+    const res = await GET(new Request(`http://localhost/api/odds?year=${SEASON}&refresh=1`));
+    assert.equal(res.status, 503);
+    const body = (await res.json()) as { code?: string };
+    assert.equal(body.code, 'canonical-context-unavailable');
+    assert.equal(oddsProviderCalls, 0); // never billed the provider
+    // release-only: the automatic backoff is NOT advanced by a pre-billing context
+    // failure, and no completed-check is recorded (nothing actually refreshed).
+    const control = await readOddsRefreshControl(seasonScopedKey);
+    assert.equal(control?.automaticFailureCount, 0);
     assert.equal(control?.lease, null);
   } finally {
     global.fetch = originalFetch;
@@ -361,6 +417,52 @@ test('remediation F1b: the empty guard judges by observation, not lastFetch (spl
   }
 });
 
+test('compatibility #46: a public read performs zero durable writes', async () => {
+  const originalFetch = global.fetch;
+  installFetch(oddsOk);
+  // Any durable write throws — a public read must not perform one.
+  __setAppStateWriteFailureForTests(new Error('no writes on a public read'));
+  try {
+    const res = await GET(new Request(`http://localhost/api/odds?year=${SEASON}`));
+    assert.equal(res.status, 200);
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+    global.fetch = originalFetch;
+  }
+});
+
+test('security #7: a manual upstream error returns no raw body and no credential', async () => {
+  const originalFetch = global.fetch;
+  const BODY_MARKER = 'PROVIDER-BODY-SECRET';
+  global.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.pathname === '/api/schedule') {
+      return new Response(JSON.stringify({ items: [scheduleItem()] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.pathname === '/api/conferences') {
+      return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    // 403 is not retried, so this resolves fast to a single provider-fetch failure.
+    return new Response(`{"message":"${BODY_MARKER}"}`, { status: 403, statusText: 'Forbidden' });
+  }) as typeof fetch;
+  try {
+    const res = await GET(new Request(`http://localhost/api/odds?year=${SEASON}&refresh=1`));
+    assert.equal(res.status, 403);
+    const text = await res.text();
+    assert.ok(!text.includes(BODY_MARKER), 'raw provider body must not be returned');
+    assert.ok(!text.includes('test-key'), 'credential must not be returned');
+    assert.ok(!text.includes('apiKey=test'), 'credential-bearing url must not be returned');
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
+
 test('compatibility #45: a public read never calls the Odds provider', async () => {
   const originalFetch = global.fetch;
   const counters = installFetch(oddsOk);
@@ -392,16 +494,18 @@ test('compatibility #46: an authorized manual refresh returns the compatible 200
   }
 });
 
-test('compatibility #47: the route does not import the dormant automatic modules', async () => {
+test('compatibility #47: the manual route does not import the automatic-cadence modules', async () => {
+  // The MANUAL route stays free of the polling/quota/context cadence modules; the
+  // C2 cron route (a separate file) owns those.
   const routeSrc = await fs.readFile(path.join(process.cwd(), 'src/app/api/odds/route.ts'), 'utf8');
-  for (const dormant of ['pollingPolicy', 'quotaPolicy', 'canonicalOddsContext']) {
-    assert.ok(!routeSrc.includes(dormant), `route imports dormant module ${dormant}`);
+  for (const cadence of ['pollingPolicy', 'quotaPolicy', 'canonicalOddsContext']) {
+    assert.ok(!routeSrc.includes(cadence), `manual route imports cadence module ${cadence}`);
   }
-  // There is no odds cron route in C1.
-  await assert.rejects(fs.access(path.join(process.cwd(), 'src/app/api/cron/odds')));
+  // The C2 Odds cron route exists.
+  await assert.doesNotReject(fs.access(path.join(process.cwd(), 'src/app/api/cron/odds/route.ts')));
 });
 
-test('compatibility #48: the Odds provider descriptor stays inactive and setting-unconsumed', () => {
-  assert.equal(PROVIDER_DATASET_DESCRIPTORS.odds.hasActiveAutomation, false);
-  assert.equal(PROVIDER_DATASET_DESCRIPTORS.odds.autoRefreshSettingConsumed, false);
+test('compatibility #48: the Odds provider descriptor is active and setting-consumed (C2)', () => {
+  assert.equal(PROVIDER_DATASET_DESCRIPTORS.odds.hasActiveAutomation, true);
+  assert.equal(PROVIDER_DATASET_DESCRIPTORS.odds.autoRefreshSettingConsumed, true);
 });
