@@ -415,7 +415,68 @@ The **server-side** automation — the QStash `turfwar-odds-hourly` schedule tha
 
    **Emergency stop order (gates + schedule):** (1) **enable global pause**; (2) **disable the `odds` dataset auto-refresh**; (3) `npm run manage:odds-schedule -- pause --apply` (stop QStash deliveries). Resume reverses it: `npm run manage:odds-schedule -- resume --apply` → enable the dataset → clear global pause LAST. Any rollback after provisioning: close both gates and pause the schedule FIRST, so no delivery can reach a provider before the gates are intentionally reopened.
 
-   **Coordinated `CRON_SECRET` rotation spans all THREE schedules** (they share the secret): enable global pause → disable the `game-stats`, `scores`, AND `odds` datasets → `pause --apply` for `manage:game-stats-schedule`, `manage:live-scores-schedule`, AND `manage:odds-schedule` → update the deployed secret in Vercel → re-run `upsert --apply` for ALL THREE (re-forwards the new value + re-applies redaction) → inspect ALL THREE (verifies redaction while provider-disabled) → repeat the exact-authentication delivery proof for ALL THREE → `resume --apply` for ALL THREE → re-enable all three datasets → clear global pause LAST.
+   **Coordinated `CRON_SECRET` rotation now spans all FOUR schedules** (they share the secret) — see §8h for the full four-schedule rotation order (`turfwar-game-stats-15m`, `turfwar-live-scores-3m`, `turfwar-odds-hourly`, `turfwar-schedule-weekly`).
+
+## 8h) PLATFORM-086E1B activation — weekly schedule maintenance operator sequence — ⏳ PENDING
+
+**Status: NOT executed.** The E1B build ships `GET /api/cron/schedule-refresh` and the `manage:schedule-refresh-schedule` CLI, but **no `turfwar-schedule-weekly` QStash schedule exists** — merging the build activates nothing. This section is the operator procedure that will activate weekly schedule maintenance.
+
+The E1B build delegates each active `season` year to the E1A full-season schedule authority (`refreshFullSeasonSchedule` — durable per-year lease, complete-before-commit, observation-ordered transaction) with **operation-aware** gating: **ordinary weekly maintenance** honors the global pause + the Schedule dataset toggle, while **postseason-boundary maintenance** (from 7 days before the latest regular-season kickoff, while leagues remain in `season`) is **lifecycle-critical and EXEMPT** — like the season-transition/rollover crons themselves — so an operator pause can never starve the season-rollover boundary of the schedule data it needs. Every eligible refresh fetches the complete regular+postseason season; E1A's lease + observation ordering make duplicate/overlapping QStash deliveries safe. On any CLI exit `4` (indeterminate durability), inspect read-only and STOP; never blind-retry.
+
+### Preflight
+
+1. **Confirm the reviewed E1B commit is serving production**, and `vercel.json` still contains ONLY the two daily lifecycle jobs (season-transition, season-rollover) — `/api/cron/schedule-refresh` is externally triggered by QStash, never a Vercel cron.
+2. **Confirm the current active year classifies `ordinary-maintenance`** (the season's latest regular kickoff is more than 7 days away). If it already classifies `postseason-boundary`, **STOP for user-approved activation planning** — the Schedule toggle is intentionally exempt in that window, so the ordinary-gated proof below cannot run as written.
+3. **Turn the Schedule automatic-refresh toggle Off** (admin provider-status panel). Global pause may remain Off — the dataset toggle alone is sufficient for the ordinary proof.
+4. **Confirm operator credentials**: `QSTASH_TOKEN` (management-only; operator environment ONLY — never Vercel or the repo) and `CRON_SECRET` (the deployed route credential Vercel holds; the SAME value all four schedules forward).
+5. **Confirm no `turfwar-schedule-weekly` schedule exists** (`npm run manage:schedule-refresh-schedule` — read-only inspect), or inspect any existing schedule before mutation.
+
+### Provision
+
+```bash
+npm run manage:schedule-refresh-schedule -- upsert --apply
+npm run manage:schedule-refresh-schedule            # read-only inspect
+```
+
+Require: schedule id `turfwar-schedule-weekly`; destination `https://turfwar.games/api/cron/schedule-refresh`; cron `0 12 * * 2` (Tuesdays 12:00 UTC — QStash evaluates cron in UTC); method GET; retries 0; no callback/failure-callback/queue/delay/flow-control policy; exactly ONE forwarded Authorization header whose readback is **`REDACTED:<opaque>`** (provider-side redaction active; never plaintext). Inspect proves structure + redaction, NOT exact route authentication — that is the next step. Exit `4` is indeterminate: inspect before any retry.
+
+### Exact-authentication proof
+
+Keep the Schedule toggle **Off** and wait for the first scheduled delivery. Require **HTTP 200** with body/event `skipped / automation-paused-or-disabled`, `providerCallAttempted: false` on every year entry, `rowsCommitted: 0`, exactly one `schedule-refresh-cron` runtime event, NO new schedule provider-refresh attempt, NO schedule write, and CFBD quota unchanged. A **401**, a missing delivery, any provider call/attempt/write, a divergent contract, or any other response is a **STOP** condition.
+
+### Open the gate
+
+1. Turn Schedule automation **On**.
+2. Perform one deliberate authorized route invocation, or wait for the following Tuesday's delivery.
+3. Verify: the correct active year(s) with the correct operation mode; ONE complete E1A regular+postseason refresh per allowed year (`written-clean`/`unchanged-clean`, or a truthful no-op); exactly one structured event; the exact year-scoped provider-refresh status advanced; bounded provider usage (two CFBD `/games` requests per refreshed year); no partial/empty replacement (prior-good retained on any failure).
+4. **Post-activation record**: complete a separate docs-only update recording the deployed commit, the QStash contract readback, the exact-authentication proof delivery, the first gated run's result/reason/rows/data-change state, and the CFBD quota evidence.
+
+### Emergency stop
+
+- **Ordinary window**: turn Schedule automation **Off** → `npm run manage:schedule-refresh-schedule -- pause --apply`.
+- **Critical (postseason-boundary) window**: `pause --apply` is the AUTHORITATIVE stop — the critical operation intentionally ignores the ordinary settings gates, so pausing the QStash schedule is what stops deliveries.
+- **Resume**: `npm run manage:schedule-refresh-schedule -- resume --apply` → enable Schedule automation. If the year is currently critical, resume the schedule only after the underlying issue is resolved.
+
+### Coordinated `CRON_SECRET` rotation (all FOUR schedules)
+
+`CRON_SECRET` now spans `turfwar-game-stats-15m`, `turfwar-live-scores-3m`, `turfwar-odds-hourly`, and `turfwar-schedule-weekly`. Rotation order:
+
+1. Enable global pause.
+2. Disable the `game-stats`, `scores`, `odds`, AND `schedule` (ordinary) dataset toggles.
+3. `pause --apply` for ALL FOUR schedule managers.
+4. Update `CRON_SECRET` in Vercel.
+5. Re-run `upsert --apply` for ALL FOUR (re-forwards the new value + re-applies redaction).
+6. Inspect ALL FOUR (exact contract + redaction).
+7. Repeat the scheduled exact-authentication proofs with provider gates closed.
+8. `resume --apply` for ALL FOUR.
+9. Re-enable the datasets.
+10. Clear global pause LAST.
+
+For a **postseason-boundary** Schedule window, pausing `turfwar-schedule-weekly` — NOT the Schedule toggle — is what guarantees no delivery during rotation (the critical operation ignores the toggle).
+
+### Postseason structured-data checkpoint
+
+When CFBD first publishes the postseason/championship slate, inspect the normalized durable schedule read-only. The CFP championship row must eventually carry: a numeric provider id, a valid kickoff, a structured playoff competition, `playoffRound: national_championship`, and `playoffRoundSource: cfbd-structured`. Until that evidence exists, automatic rollover remains fail-closed (PLATFORM-086E1A). **Do NOT restore text inference or the latest-postseason fallback if the provider shape differs** — treat a mismatch as a separately reviewed normalization task. This checkpoint does not block preseason E1B activation.
 
 ## 9) Common failure diagnosis
 
