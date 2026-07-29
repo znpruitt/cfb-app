@@ -8,7 +8,7 @@ import {
   type ScoreHydrationState,
 } from '../../lib/scoreHydration';
 import { decideRefresh } from '../../lib/refreshDecision';
-import { LIVE_MANUAL_COOLDOWN_MS, type RefreshPlan } from '../../lib/refreshPolicy';
+import { LIVE_MANUAL_COOLDOWN_MS } from '../../lib/refreshPolicy';
 import {
   LIVE_SCORE_POLL_INTERVAL_MS,
   deriveLiveScorePartitions,
@@ -44,7 +44,6 @@ type UseLiveRefreshParams = {
   scoresByKey: Record<string, ScorePack>;
   aliasMap: AliasMap;
   oddsUsage: OddsUsageSnapshot | null;
-  refreshPlan: RefreshPlan;
   scoreHydrationState: ScoreHydrationState;
   setScoreHydrationState: Dispatch<SetStateAction<ScoreHydrationState>>;
   setIssues: Dispatch<SetStateAction<string[]>>;
@@ -197,7 +196,6 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     scoresByKey,
     aliasMap,
     oddsUsage,
-    refreshPlan,
     scoreHydrationState,
     setScoreHydrationState,
     setIssues,
@@ -253,7 +251,12 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       if (liveRefreshInFlightRef.current) return;
 
       const nowMs = Date.now();
-      const shouldFetchOdds = options?.includeOdds ?? refreshPlan.odds.fetchOnStartup;
+      // Odds are NOT fetched automatically here anymore — cache-only Odds display is
+      // owned by `useOddsHydration` (PLATFORM-086C3), decoupled from the kickoff
+      // window. This path fetches odds ONLY when a caller explicitly opts in
+      // (`includeOdds: true`), preserving the dormant authorized manual-refresh seam
+      // (which pairs `manual: true` with `refresh=1` + admin auth).
+      const shouldFetchOdds = options?.includeOdds ?? false;
       const quota = getOddsQuotaGuardState(oddsUsage?.remaining);
       const refreshDecision = decideRefresh({
         hasGames: games.length > 0,
@@ -489,7 +492,6 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       isDebug,
       oddsUsage,
       onGamesFinalized,
-      refreshPlan.odds.fetchOnStartup,
       scoreScopeGames,
       selectedSeason,
       selectedTab,
@@ -529,12 +531,13 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       scheduleLoaded,
       didBootstrapThisPass: true,
     });
+    // Score-only bootstrap — Odds are hydrated separately by `useOddsHydration`
+    // (PLATFORM-086C3), never through this live-refresh path.
     void refreshLiveData({
       manual: false,
-      includeOdds: refreshPlan.odds.fetchOnStartup,
       scoreScopeGamesOverride: bootstrapScoreGames,
     });
-  }, [games, refreshLiveData, refreshPlan.odds.fetchOnStartup, scheduleLoaded, selectedTab]);
+  }, [games, refreshLiveData, scheduleLoaded, selectedTab]);
 
   // Visible-tab live-score polling (PLATFORM-086B2B): a self-rescheduling 3-minute
   // timer that re-evaluates eligibility every tick AND whenever the tab gains

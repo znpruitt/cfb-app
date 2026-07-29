@@ -22,7 +22,6 @@ import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { type CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
 import { type ScorePack } from '../lib/scores';
-import { getRefreshPlan } from '../lib/refreshPolicy';
 import type { AliasMap } from '../lib/teamNames';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
 import type { StandingsCoverage } from '../lib/standings';
@@ -74,6 +73,7 @@ import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
 import { buildOwnerColorMap, prefersDarkMode } from '../lib/ownerColors';
 import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
+import { useOddsHydration } from './hooks/useOddsHydration';
 import { useLiveDelta } from './hooks/useLiveDelta';
 import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
@@ -1009,16 +1009,6 @@ export default function CFBScheduleApp({
     });
   }, [games, hasActiveViewFilters, selectedTab, selectedWeek, visibleGames]);
 
-  const refreshPlan = useMemo(
-    () =>
-      getRefreshPlan({
-        season: selectedSeason,
-        visibleGames,
-        scoresByKey,
-      }),
-    [scoresByKey, selectedSeason, visibleGames]
-  );
-
   // PLATFORM-080: recompute server canonicalStandings after an in-session game
   // finalization. router.refresh() re-runs the RSC tree; the /api/scores write
   // path already invalidated the standings cache tag, so canonical recomputes
@@ -1042,7 +1032,6 @@ export default function CFBScheduleApp({
     // canonical identity (the stored league map drives the editor only).
     aliasMap: effectiveAliasMap,
     oddsUsage,
-    refreshPlan,
     scoreHydrationState,
     setScoreHydrationState,
     setIssues,
@@ -1060,6 +1049,20 @@ export default function CFBScheduleApp({
     // up the new final). liveDelta excludes final games, so without this the
     // standings would stay tied to the render-time snapshot until navigation.
     onGamesFinalized: handleGamesFinalized,
+  });
+
+  // PLATFORM-086C3: hydrate canonical Odds from the durable cache ONCE per season,
+  // decoupled from live-score refresh and the kickoff window, so every cached line
+  // (far-future, live, or completed game) reaches its card. Strictly cache-only
+  // (`GET /api/odds?year=<season>`, no `refresh=1`, no auth) — never spends quota.
+  useOddsHydration({
+    selectedSeason,
+    scheduleLoaded,
+    hasGames: games.length > 0,
+    setOddsByKey,
+    setOddsSnapshotAt,
+    setOddsUsage,
+    setIssues,
   });
 
   // Odds-usage is admin-only diagnostics (API quota state). Only admins fetch it;
