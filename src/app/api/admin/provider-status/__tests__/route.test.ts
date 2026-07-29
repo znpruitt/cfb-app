@@ -189,14 +189,19 @@ test('POST set-dataset-enabled is REJECTED for a planned/unconsumed dataset (fin
   }
 });
 
-test('POST set-dataset-enabled is REJECTED for lifecycle-critical schedule (finding #7)', async () => {
+test('POST set-dataset-enabled is ACCEPTED for schedule (086E1B — toggle is interactive)', async () => {
+  // The weekly maintenance cron consumes the Schedule setting
+  // (`autoRefreshSettingConsumed: true`), so the toggle is a real control now:
+  // Off pauses ORDINARY weekly maintenance (the lifecycle-critical season
+  // transition and postseason-boundary maintenance remain exempt regardless).
   const res = await POST(
     postRequest({ action: 'set-dataset-enabled', dataset: 'schedule', enabled: false })
   );
-  assert.equal(res.status, 400);
-  const body = (await res.json()) as { error: string; detail: string };
-  assert.equal(body.error, 'dataset-auto-refresh-not-active');
-  assert.match(body.detail, /exempt/i);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as {
+    settings: { datasets: Record<string, { enabled: boolean }> };
+  };
+  assert.equal(body.settings.datasets.schedule.enabled, false, 'the toggle persisted');
 });
 
 test('POST rejects an unknown dataset', async () => {

@@ -1,16 +1,21 @@
 // Shared QStash management-schedule policy for the EXTERNAL cron triggers
-// (PLATFORM-086B2B). Both the game-stats poll and the live-scores poll run from
-// external QStash schedules that call an UNCHANGED route
+// (PLATFORM-086B2B; generalized by PLATFORM-086E1B). The external provider
+// polling jobs — game-stats, live-scores, Odds, and the weekly schedule
+// maintenance — run from external QStash schedules that call an UNCHANGED route
 //
 //   GET https://turfwar.games/api/cron/<job>
 //     Authorization: Bearer <CRON_SECRET>   (forwarded by QStash)
 //
-// on a fixed cadence, because Vercel's Hobby plan rejects sub-daily cron
-// expressions at deploy time. This module is the single, contract-parameterized
-// home for provisioning and controlling such a schedule through the QStash
-// MANAGEMENT API. It carries NO QStash runtime dependency (plain fetch), never
-// deletes, and treats each schedule's identity, destination, and message
-// contract as FIXED constants supplied by the per-job {@link ScheduleContract}.
+// on a fixed cadence. QStash is the project's scheduling boundary for EXTERNAL
+// provider polling generally (internal lifecycle reconciliation stays on Vercel
+// Cron in `vercel.json`) — originally motivated by Vercel Hobby rejecting
+// sub-daily cron expressions, but not limited to sub-daily jobs (the weekly
+// schedule trigger is daily-or-coarser and still lives here). This module is the
+// single, contract-parameterized home for provisioning and controlling such a
+// schedule through the QStash MANAGEMENT API. It carries NO QStash runtime
+// dependency (plain fetch), never deletes, and treats each schedule's identity,
+// destination, and message contract as FIXED constants supplied by the per-job
+// {@link ScheduleContract}.
 //
 // Every per-job CLI (scripts/manage-<job>-schedule.ts) binds its contract into
 // these functions and re-exports them, so the job scripts stay thin and their

@@ -316,17 +316,24 @@ test('combineOutcomes: any failure makes the whole action a failure', () => {
 
 // ---- Finding #7: controls are interactive only when consumed ----
 
-test('datasetControlMode: consumed datasets are interactive (game-stats, scores, odds)', () => {
+test('datasetControlMode: consumed datasets are interactive (game-stats, scores, odds, schedule)', () => {
   // scores joined game-stats as a consumed dataset via its live-score cron
-  // (PLATFORM-086B2B), and odds via its Odds cron (PLATFORM-086C2), so their
+  // (PLATFORM-086B2B), odds via its Odds cron (PLATFORM-086C2), and schedule via
+  // the weekly maintenance cron (PLATFORM-086E1B — its toggle pauses ordinary
+  // weekly maintenance; the lifecycle-critical operations stay exempt), so their
   // toggles are now interactive.
-  for (const dataset of ['game-stats', 'scores', 'odds'] as const) {
+  for (const dataset of ['game-stats', 'scores', 'odds', 'schedule'] as const) {
     assert.equal(datasetControlMode(getProviderDatasetDescriptor(dataset)), 'interactive');
   }
 });
 
-test('datasetControlMode: schedule is lifecycle-exempt', () => {
-  assert.equal(datasetControlMode(getProviderDatasetDescriptor('schedule')), 'lifecycle-exempt');
+test('datasetControlMode: schedule is interactive DESPITE being lifecycle-critical (086E1B)', () => {
+  // The dataset keeps `lifecycleCritical: true` (it CONTAINS lifecycle-critical
+  // operations) but the consumed setting wins: the toggle is interactive.
+  const descriptor = getProviderDatasetDescriptor('schedule');
+  assert.equal(descriptor.lifecycleCritical, true);
+  assert.equal(descriptor.autoRefreshSettingConsumed, true);
+  assert.equal(datasetControlMode(descriptor), 'interactive');
 });
 
 test('datasetControlMode: planned datasets are not interactive', () => {

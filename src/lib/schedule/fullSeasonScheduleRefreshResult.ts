@@ -72,6 +72,18 @@ export type FullSeasonScheduleRefreshResult = {
   rowsCommitted: number;
   /** Whether committed schedule CONTENT changed (drives standings invalidation). */
   dataChanged: boolean;
+  /**
+   * Whether THIS refresh started the schedule provider-fetch stage
+   * (PLATFORM-086E1B instrumentation). `false` for every pre-provider exit —
+   * prior-state read failure, lease contention or lease-store failure, missing
+   * CFBD credentials; set `true` immediately before the regular/postseason fetch
+   * pair begins and it REMAINS true after a transport, payload, completeness, or
+   * commit failure. It refers only to the provider-fetch stage (never status or
+   * store work) and does not count internal retries. Callers consume this field
+   * directly — never re-derive it from `attemptedSeasonTypes`, HTTP status,
+   * response text, or the result reason.
+   */
+  providerCallAttempted: boolean;
   /** The observation instant captured immediately before provider work (ISO), or null. */
   observedAt: string | null;
   /** The confirmed durable commit instant (ISO) — set only when a write happened. */
@@ -137,6 +149,7 @@ export function fullSeasonScheduleRefreshResult(params: {
   rowsReceived?: number;
   rowsCommitted?: number;
   dataChanged?: boolean;
+  providerCallAttempted?: boolean;
   observedAt?: string | null;
   committedAt?: string | null;
   items?: CacheEntry['items'];
@@ -153,6 +166,7 @@ export function fullSeasonScheduleRefreshResult(params: {
     rowsReceived: params.rowsReceived ?? 0,
     rowsCommitted: params.rowsCommitted ?? 0,
     dataChanged: params.dataChanged ?? false,
+    providerCallAttempted: params.providerCallAttempted ?? false,
     observedAt: params.observedAt ?? null,
     committedAt: params.committedAt ?? null,
     items: params.items ?? [],

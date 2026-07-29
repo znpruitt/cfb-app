@@ -319,6 +319,11 @@ export async function refreshFullSeasonSchedule(params: {
 
   let attempt: ProviderRefreshAttempt | null = null;
   let attemptResolved = false;
+  // Instrumentation (PLATFORM-086E1B): flips true immediately before the
+  // regular/postseason provider-fetch pair starts, and stays true through every
+  // later transport/payload/completeness/commit outcome. Pre-provider exits
+  // (context read failure, lease refusal, missing credentials) leave it false.
+  let providerCallAttempted = false;
   try {
     // Step 3 — begin the year-scoped attempt BEFORE credential validation, so a
     // missing key still begins and resolves the exact year attempt.
@@ -350,8 +355,18 @@ export async function refreshFullSeasonSchedule(params: {
 
     // Step 5-7 — fetch both partitions with bounded concurrency (the shared CFBD
     // pacing key still serializes the two requests) and apply the completeness gate.
+    providerCallAttempted = true;
     const outcomes = await Promise.all(
       FULL_SEASON_SEASON_TYPES.map((seasonType) => fetchPartition({ year, seasonType, apiKey }))
+    );
+    // Usable rows received across the FULFILLED partitions — counted before the
+    // completeness gate so a partition failure still reports the true received
+    // count (a regular partition that fetched 100 games alongside a failed
+    // postseason must not report `rowsReceived: 0` — cycle-1 review finding 3).
+    // Nothing is COMMITTED from a rejected aggregate regardless.
+    const rowsReceived = outcomes.reduce(
+      (total, o) => total + (o.kind === 'rows' ? o.items.length : 0),
+      0
     );
     const uncertainOutcomes = outcomes.filter(
       (o): o is Exclude<PartitionFetchOutcome, { kind: 'rows' }> => o.kind !== 'rows'
@@ -384,12 +399,13 @@ export async function refreshFullSeasonSchedule(params: {
         requestedYear: year,
         attemptedSeasonTypes,
         failedSeasonTypes,
+        rowsReceived,
+        providerCallAttempted,
         observedAt,
       });
     }
 
     const items = sortScheduleItems(outcomes.flatMap((o) => (o.kind === 'rows' ? o.items : [])));
-    const rowsReceived = items.length;
 
     const commit = await commitFullSeasonSchedule({ year, observedAtMs, items });
 
@@ -406,6 +422,7 @@ export async function refreshFullSeasonSchedule(params: {
           requestedYear: year,
           attemptedSeasonTypes,
           rowsReceived,
+          providerCallAttempted,
           observedAt,
           items: commit.entry?.items ?? [],
           entry: commit.entry,
@@ -423,6 +440,7 @@ export async function refreshFullSeasonSchedule(params: {
           requestedYear: year,
           attemptedSeasonTypes,
           rowsReceived,
+          providerCallAttempted,
           observedAt,
         });
       }
@@ -440,6 +458,7 @@ export async function refreshFullSeasonSchedule(params: {
           requestedYear: year,
           attemptedSeasonTypes,
           rowsReceived,
+          providerCallAttempted,
           observedAt,
         });
       }
@@ -457,6 +476,7 @@ export async function refreshFullSeasonSchedule(params: {
           requestedYear: year,
           attemptedSeasonTypes,
           rowsReceived,
+          providerCallAttempted,
           observedAt,
         });
       }
@@ -477,6 +497,7 @@ export async function refreshFullSeasonSchedule(params: {
           requestedYear: year,
           attemptedSeasonTypes,
           rowsReceived,
+          providerCallAttempted,
           rowsCommitted: 0,
           dataChanged: false,
           observedAt,
@@ -503,6 +524,7 @@ export async function refreshFullSeasonSchedule(params: {
           requestedYear: year,
           attemptedSeasonTypes,
           rowsReceived,
+          providerCallAttempted,
           rowsCommitted: commit.entry.items.length,
           dataChanged: true,
           observedAt,
@@ -530,6 +552,7 @@ export async function refreshFullSeasonSchedule(params: {
       reason: 'unexpected-error',
       requestedYear: year,
       attemptedSeasonTypes,
+      providerCallAttempted,
     });
   } finally {
     // Released on EVERY outcome; token-checked so a reclaimed lease is untouched.
