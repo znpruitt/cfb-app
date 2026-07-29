@@ -393,3 +393,14 @@ test('providerCallAttempted is true from the provider fetch onward — including
   assert.equal(result.reason, 'written-clean');
   assert.equal(result.providerCallAttempted, true, 'true after a durable commit');
 });
+
+// Cycle-1 review remediation (finding 3) — a partition failure still reports the
+// rows genuinely received from the fulfilled partition (never a false zero).
+test('a partition failure reports rowsReceived from the fulfilled partition', async () => {
+  stubFetchBySeasonType(game(1, 'Texas', 'Rice', '2031-09-01T00:00:00Z', 1), 'throw');
+
+  const result = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
+  assert.equal(result.reason, 'partition-fetch-failed');
+  assert.equal(result.rowsReceived, 1, 'the fulfilled regular partition rows are counted');
+  assert.equal(result.rowsCommitted, 0, 'nothing is committed from a rejected aggregate');
+});

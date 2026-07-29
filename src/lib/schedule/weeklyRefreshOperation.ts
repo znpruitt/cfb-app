@@ -38,15 +38,39 @@ export type WeeklyScheduleRefreshClassification =
 export const POSTSEASON_BOUNDARY_LEAD_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
- * Canonical season-type partition for a normalized schedule row — the same
- * defensive fallback the schedule route uses: read the canonical `seasonType`
- * field; only a hypothetical legacy row without it falls back to `gamePhase`.
+ * Durable per-year boundary latch (cycle-1 review finding 1). The weekly route
+ * writes `{ postseasonBoundaryReachedAt: <ISO> }` under
+ * `schedule-weekly-control/<year>` the first time a year classifies
+ * `postseason-boundary`, and passes `latched: true` into the classifier on every
+ * later invocation — so a schedule change that moves the latest regular kickoff
+ * LATER can never revert an already-critical year to operator-gated ordinary
+ * maintenance. Read/written by the route (this module stays pure); a stale latch
+ * for a year whose leagues left `season` is inert (the year is never targeted).
  */
-function isRegularSeasonRow(item: CacheEntry['items'][number]): boolean {
-  if (item.seasonType === 'regular' || item.seasonType === 'postseason') {
-    return item.seasonType === 'regular';
+export const SCHEDULE_WEEKLY_CONTROL_SCOPE = 'schedule-weekly-control';
+
+export type ScheduleWeeklyControl = { postseasonBoundaryReachedAt: string };
+
+/**
+ * Season-type partition of a normalized schedule row, judged STRICTLY for the
+ * lifecycle boundary (cycle-1 review finding 2): the canonical `seasonType`
+ * decides; a row that OMITS it entirely (a hypothetical legacy row) falls back to
+ * `gamePhase` — the same fallback the schedule route uses — but a row carrying a
+ * PRESENT-yet-unrecognized `seasonType` (e.g. `"post-season"`) is MALFORMED, not
+ * a regular-season row. Counting a malformed later row as regular would extend
+ * the lifecycle boundary and let operator settings gate a genuinely critical
+ * window, so a malformed row poisons the whole entry (`malformed`) and the
+ * caller refuses with `canonical-context-unavailable` rather than guessing.
+ */
+function classifyRowPartition(
+  item: CacheEntry['items'][number]
+): 'regular' | 'postseason' | 'malformed' {
+  const { seasonType } = item;
+  if (seasonType === 'regular' || seasonType === 'postseason') return seasonType;
+  if (seasonType === undefined || seasonType === null) {
+    return item.gamePhase === 'postseason' ? 'postseason' : 'regular';
   }
-  return item.gamePhase !== 'postseason';
+  return 'malformed';
 }
 
 /** A usable kickoff → epoch ms, or null. */
@@ -67,17 +91,35 @@ function normalizeEntry(value: unknown): CacheEntry | null {
 /**
  * Classify one active `season` year's weekly refresh operation at `now` (epoch
  * ms) from its prior-good canonical schedule entry (the raw stored value —
- * malformed shapes degrade to `canonical-context-unavailable`, never a guess).
+ * malformed shapes degrade to `canonical-context-unavailable`, never a guess)
+ * plus the caller-supplied durable boundary latch.
  *
- *   - No usable entry, no items, or no regular-season game with a valid kickoff
+ *   - No usable entry, no items, a row with a PRESENT-but-unrecognized
+ *     `seasonType`, or no regular-season game with a valid kickoff
  *     → `canonical-context-unavailable` (the caller must not do provider work);
+ *   - `latched === true` (this year already entered the lifecycle-critical
+ *     window on an earlier invocation) → `postseason-boundary`, regardless of
+ *     the recomputed boundary — see the latch note below;
  *   - `now < latestRegularKickoff − 7d` → `ordinary-maintenance` (operator-gated);
  *   - `now >= latestRegularKickoff − 7d` → `postseason-boundary`
  *     (lifecycle-critical, exempt from operator settings).
+ *
+ * The latch (cycle-1 review finding 1): the boundary is recomputed from the
+ * LATEST cached schedule every invocation, so a refresh that adds/reschedules a
+ * regular-season game to a LATER kickoff would otherwise move the boundary
+ * forward and revert an already-critical year to ordinary — violating the rule
+ * that once reached, the operation remains lifecycle-critical while the year's
+ * leagues remain in `season`. The route persists a per-year durable latch the
+ * first time a year classifies `postseason-boundary` and passes it back here on
+ * every later invocation, keeping the classifier itself pure (the latch is an
+ * explicit input, not hidden state). Context-unavailability still takes
+ * precedence over the latch — unusable context never triggers provider work.
  */
 export function classifyWeeklyScheduleRefreshOperation(params: {
   entry: unknown;
   now: number;
+  /** True when this year already entered the critical window on a prior run. */
+  latched?: boolean;
 }): WeeklyScheduleRefreshClassification {
   const entry = normalizeEntry(params.entry);
   if (!entry || entry.items.length === 0) {
@@ -87,7 +129,13 @@ export function classifyWeeklyScheduleRefreshOperation(params: {
   let latestRegularKickoffMs: number | null = null;
   for (const item of entry.items) {
     if (!item || typeof item !== 'object') continue;
-    if (!isRegularSeasonRow(item)) continue;
+    const partition = classifyRowPartition(item);
+    // A malformed season type poisons the entry — refuse rather than guess a
+    // boundary off a row we cannot attribute to a partition.
+    if (partition === 'malformed') {
+      return { kind: 'canonical-context-unavailable' };
+    }
+    if (partition !== 'regular') continue;
     const ms = kickoffMs(item.startDate);
     if (ms === null) continue;
     if (latestRegularKickoffMs === null || ms > latestRegularKickoffMs) {
@@ -98,6 +146,12 @@ export function classifyWeeklyScheduleRefreshOperation(params: {
   // it the boundary cannot be computed, so the context is unusable.
   if (latestRegularKickoffMs === null) {
     return { kind: 'canonical-context-unavailable' };
+  }
+
+  // An already-latched year stays lifecycle-critical even if a schedule change
+  // moved the recomputed boundary later.
+  if (params.latched === true) {
+    return { kind: 'operation', operation: 'postseason-boundary' };
   }
 
   const boundaryMs = latestRegularKickoffMs - POSTSEASON_BOUNDARY_LEAD_MS;

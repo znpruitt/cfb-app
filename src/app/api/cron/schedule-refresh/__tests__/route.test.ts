@@ -572,3 +572,43 @@ test('vercel.json retains only the daily lifecycle crons (no weekly schedule ent
     { path: '/api/cron/season-rollover', schedule: '0 0 * * *' },
   ]);
 });
+
+// ---------------------------------------------------------------------------
+// Cycle-1 review remediation (finding 1) — the durable boundary latch: once a
+// year classifies postseason-boundary, a schedule change that moves the latest
+// regular kickoff LATER cannot revert it to operator-gated ordinary maintenance.
+// ---------------------------------------------------------------------------
+
+test('a critical year is latched durably and stays exempt after the boundary moves later', async () => {
+  await seedSeasonLeague(2020);
+  await seedSchedule(2020, CRITICAL_KICKOFF);
+  stubProvider({ 2020: { regular: gameBody(2020), postseason: '[]' } });
+
+  // Run 1 — classifies postseason-boundary and persists the latch.
+  const first = await runRoute();
+  assert.equal((await first.res.json()).result, 'success');
+  const latch = await getAppState<{ postseasonBoundaryReachedAt?: string }>(
+    'schedule-weekly-control',
+    '2020'
+  );
+  assert.ok(
+    typeof latch?.value?.postseasonBoundaryReachedAt === 'string',
+    'the boundary latch is persisted durably'
+  );
+
+  // A schedule change moves the latest REGULAR kickoff far into the future —
+  // boundary math alone would now classify ordinary — and the operator closes
+  // the gates.
+  await seedSchedule(2020, ORDINARY_KICKOFF, { at: 2 });
+  await setGlobalPause(true);
+  await setDatasetAutoRefreshEnabled('schedule', false);
+  stubProvider({ 2020: { regular: gameBody(2020), postseason: '[]' } });
+
+  // Run 2 — the latch keeps the year lifecycle-critical: still exempt, still runs.
+  const second = await runRoute();
+  const body = (await second.res.json()) as { result: string };
+  assert.notEqual(body.result, 'skipped', 'a latched year is never operator-gated');
+  const entry = second.events[0]!.years[0]!;
+  assert.equal(entry.operation, 'postseason-boundary', 'latched classification persists');
+  assert.ok(fetchLog.length > 0, 'the latched year still reached the provider');
+});

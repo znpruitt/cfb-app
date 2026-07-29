@@ -359,6 +359,15 @@ export async function refreshFullSeasonSchedule(params: {
     const outcomes = await Promise.all(
       FULL_SEASON_SEASON_TYPES.map((seasonType) => fetchPartition({ year, seasonType, apiKey }))
     );
+    // Usable rows received across the FULFILLED partitions — counted before the
+    // completeness gate so a partition failure still reports the true received
+    // count (a regular partition that fetched 100 games alongside a failed
+    // postseason must not report `rowsReceived: 0` — cycle-1 review finding 3).
+    // Nothing is COMMITTED from a rejected aggregate regardless.
+    const rowsReceived = outcomes.reduce(
+      (total, o) => total + (o.kind === 'rows' ? o.items.length : 0),
+      0
+    );
     const uncertainOutcomes = outcomes.filter(
       (o): o is Exclude<PartitionFetchOutcome, { kind: 'rows' }> => o.kind !== 'rows'
     );
@@ -390,13 +399,13 @@ export async function refreshFullSeasonSchedule(params: {
         requestedYear: year,
         attemptedSeasonTypes,
         failedSeasonTypes,
+        rowsReceived,
         providerCallAttempted,
         observedAt,
       });
     }
 
     const items = sortScheduleItems(outcomes.flatMap((o) => (o.kind === 'rows' ? o.items : [])));
-    const rowsReceived = items.length;
 
     const commit = await commitFullSeasonSchedule({ year, observedAtMs, items });
 

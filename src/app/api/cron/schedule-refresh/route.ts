@@ -1,11 +1,13 @@
 import { NextResponse } from 'next/server';
 
 import { getLeagues } from '@/lib/leagueRegistry';
-import { getAppState } from '@/lib/server/appStateStore';
+import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import {
   classifyWeeklyScheduleRefreshOperation,
+  SCHEDULE_WEEKLY_CONTROL_SCOPE,
+  type ScheduleWeeklyControl,
   type WeeklyScheduleRefreshOperation,
 } from '@/lib/schedule/weeklyRefreshOperation';
 import {
@@ -130,18 +132,53 @@ export async function GET(req: Request): Promise<Response> {
     }
 
     // Classify EVERY candidate year (cache-only prior-good schedule read + the
-    // pure operation policy) BEFORE reading settings, so the settings gate is
-    // consulted only when an ordinary year actually exists.
+    // pure operation policy + the durable boundary latch) BEFORE reading
+    // settings, so the settings gate is consulted only when an ordinary year
+    // actually exists.
     const nowMs = Date.now();
     const candidates: YearCandidate[] = [];
     for (const year of activeYears) {
       let classification: YearCandidate['classification'];
       try {
+        // The durable boundary latch: once a year has classified
+        // `postseason-boundary`, it stays lifecycle-critical for every later
+        // invocation even if a schedule change moved the recomputed boundary
+        // later (cycle-1 review finding 1). A latch READ failure degrades to
+        // `latched: false` — the recomputed classification still applies, so the
+        // only effect of a transient latch outage inside the revert window is one
+        // operator-gated run; the next successful read restores the latch.
+        let latched = false;
+        try {
+          const control = await getAppState<ScheduleWeeklyControl>(
+            SCHEDULE_WEEKLY_CONTROL_SCOPE,
+            String(year)
+          );
+          latched = typeof control?.value?.postseasonBoundaryReachedAt === 'string';
+        } catch {
+          latched = false;
+        }
         const stored = await getAppState<CacheEntry>('schedule', `${year}-all-all`);
         classification = classifyWeeklyScheduleRefreshOperation({
           entry: stored?.value,
           now: nowMs,
+          latched,
         });
+        // Persist the latch the FIRST time this year enters the critical window
+        // (best-effort — a write failure only defers latching to a later run; the
+        // classification this run already stands).
+        if (
+          !latched &&
+          classification.kind === 'operation' &&
+          classification.operation === 'postseason-boundary'
+        ) {
+          try {
+            await setAppState(SCHEDULE_WEEKLY_CONTROL_SCOPE, String(year), {
+              postseasonBoundaryReachedAt: new Date(nowMs).toISOString(),
+            } satisfies ScheduleWeeklyControl);
+          } catch {
+            // Best-effort — never fail the run over latch bookkeeping.
+          }
+        }
       } catch {
         classification = { kind: 'canonical-context-unavailable' };
       }

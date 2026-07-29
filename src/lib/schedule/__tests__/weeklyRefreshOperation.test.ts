@@ -135,3 +135,45 @@ test('legacy rows without seasonType classify by gamePhase fallback', () => {
   const decision = classifyWeeklyScheduleRefreshOperation({ entry: legacy, now: BOUNDARY - 1 });
   assert.deepEqual(decision, { kind: 'operation', operation: 'ordinary-maintenance' });
 });
+
+// ---------------------------------------------------------------------------
+// Cycle-1 review remediation.
+// ---------------------------------------------------------------------------
+
+// Finding 1 — a latched year stays lifecycle-critical even when a schedule
+// change moved the recomputed boundary later (before the new boundary).
+test('a latched year classifies postseason-boundary even before the recomputed boundary', () => {
+  const decision = classifyWeeklyScheduleRefreshOperation({
+    entry: entryWith(REGULAR_SEASON_ITEMS),
+    now: BOUNDARY - 1, // ordinary by boundary math alone
+    latched: true,
+  });
+  assert.deepEqual(decision, { kind: 'operation', operation: 'postseason-boundary' });
+});
+
+test('context-unavailability takes precedence over the latch', () => {
+  const decision = classifyWeeklyScheduleRefreshOperation({
+    entry: entryWith([]),
+    now: BOUNDARY,
+    latched: true,
+  });
+  assert.equal(decision.kind, 'canonical-context-unavailable');
+});
+
+// Finding 2 — a PRESENT-but-unrecognized seasonType is malformed context, never
+// a regular-season row that could extend the boundary.
+test('a present-but-invalid seasonType poisons the entry as context-unavailable', () => {
+  const withMalformed = entryWith([
+    ...REGULAR_SEASON_ITEMS,
+    {
+      id: 'bad',
+      week: 15,
+      // A LATER kickoff than the latest regular game: if this row were counted
+      // as regular it would extend the boundary and revert critical to ordinary.
+      startDate: '2032-01-10T00:00:00.000Z',
+      seasonType: 'post-season', // malformed — not the canonical vocabulary
+    },
+  ]);
+  const decision = classifyWeeklyScheduleRefreshOperation({ entry: withMalformed, now: BOUNDARY });
+  assert.equal(decision.kind, 'canonical-context-unavailable');
+});
