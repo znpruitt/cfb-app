@@ -90,6 +90,10 @@ export async function resetTestLeague(): Promise<void> {
 export async function beginPreseason(slug: string): Promise<void> {
   const league = await getLeague(slug);
   if (!league) throw new Error('League not found');
+  // Offseason-only guard (PLATFORM-086F2B): the lifecycle authority now syncs
+  // league.year to the preseason year immediately, so an unguarded re-invocation
+  // (double-click, stale tab) would increment the year again on every call.
+  if (league.status?.state !== 'offseason') throw new Error('League is not in offseason');
   await updateLeagueStatus(slug, { state: 'preseason', year: league.year + 1 });
   // Offseason→preseason changes the league's standings surface (prior-season
   // final → preseason owner list). Bust its cached snapshots (umbrella, all

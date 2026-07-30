@@ -16,8 +16,10 @@ import type {
 // ---------------------------------------------------------------------------
 // PLATFORM-086F2B — the Season-page rollover panel consumes the per-year
 // contract: every request carries the selected explicit year, execute controls
-// exist only for eligible years, multiple years cannot cross-wire state, and a
-// successful action clears the preview and reloads status.
+// exist only for eligible years, multiple years cannot cross-wire state, a
+// successful action clears the preview and reloads status (the executed year
+// drops out of the eligible list while the result banner persists), and a
+// mid-flow gate refusal renders the stable reason and resyncs.
 // ---------------------------------------------------------------------------
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
@@ -36,6 +38,7 @@ type Recorded = { method: string; body: { year?: number; confirmed?: boolean } |
 
 let requests: Recorded[] = [];
 let statusPayload: ManualRolloverStatusResponse;
+let confirmResponse: (body: { year?: number }) => Response;
 const originalFetch = globalThis.fetch;
 
 function makeYearStatus(
@@ -101,6 +104,7 @@ function executeResponse(year: number): ManualRolloverExecuteResponse {
 
 beforeEach(() => {
   requests = [];
+  confirmResponse = (body) => Response.json(executeResponse(body.year!));
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     const body = init?.body ? (JSON.parse(String(init.body)) as Recorded['body']) : null;
@@ -109,7 +113,7 @@ beforeEach(() => {
       return Response.json(statusPayload);
     }
     if (body?.confirmed === false) return Response.json(previewResponse(body.year!));
-    return Response.json(executeResponse(body!.year!));
+    return confirmResponse(body!);
   }) as typeof globalThis.fetch;
 });
 
@@ -129,13 +133,13 @@ test('renders nothing when no year is eligible (no execute control for ineligibl
   await waitFor(() => assert.equal(container.textContent, '', 'no eligible year → no panel UI'));
 });
 
-test('preview and confirm send the selected explicit year; success reloads status', async () => {
+test('preview and confirm send the selected explicit year; success persists across the reload', async () => {
   statusPayload = {
     generatedAt: '2026-01-01T00:00:00.000Z',
     years: [makeYearStatus(2023, 'eligible'), makeYearStatus(2024, 'eligible')],
   };
 
-  const { getAllByRole, getByRole, getByText } = render(<RolloverPanel />);
+  const { getAllByRole, getByRole, getByText, queryByText } = render(<RolloverPanel />);
   await waitFor(() => getByText(/Season 2023 is complete/));
   getByText(/Season 2024 is complete/);
 
@@ -154,7 +158,14 @@ test('preview and confirm send the selected explicit year; success reloads statu
     1,
     'only the non-previewed year still shows its preview control'
   );
-  assert.throws(() => getByText(/Rollover preview — 2024 season/));
+  assert.equal(queryByText(/Rollover preview — 2024 season/), null);
+
+  // Production-faithful reload: after execution the 2023 leagues are offseason,
+  // so the post-success status DROPS 2023 from the eligible list.
+  statusPayload = {
+    generatedAt: '2026-01-01T00:00:01.000Z',
+    years: [makeYearStatus(2024, 'eligible')],
+  };
 
   // Confirm names the exact year and league count, and posts that year.
   const confirmButton = getByRole('button', {
@@ -166,8 +177,36 @@ test('preview and confirm send the selected explicit year; success reloads statu
   const confirmPost = requests.filter((r) => r.method === 'POST')[1];
   assert.deepEqual(confirmPost?.body, { year: 2023, confirmed: true });
 
-  // Success reloaded the per-year status (initial GET + post-success GET).
+  // Success reloaded the per-year status (initial GET + post-success GET); the
+  // executed year's section unmounted while the banner PERSISTS, and the
+  // sibling year's section is still offered.
   assert.equal(requests.filter((r) => r.method === 'GET').length, 2);
+  assert.equal(queryByText(/Season 2023 is complete/), null, 'executed year dropped');
+  getByText(/Season 2023 archived/);
+  getByText(/Season 2024 is complete/);
   // No request ever carried the sibling year.
   assert.ok(requests.filter((r) => r.method === 'POST').every((r) => r.body?.year === 2023));
+});
+
+test('a mid-flow gate refusal shows the stable reason, clears the preview, and resyncs', async () => {
+  statusPayload = {
+    generatedAt: '2026-01-01T00:00:00.000Z',
+    years: [makeYearStatus(2023, 'eligible')],
+  };
+  confirmResponse = () =>
+    Response.json({ error: 'rollover-not-eligible', reason: 'not-final' }, { status: 409 });
+
+  const { getByRole, getByText, queryByRole } = render(<RolloverPanel />);
+  await waitFor(() => getByText(/Season 2023 is complete/));
+
+  fireEvent.click(getByRole('button', { name: /Preview Rollover/ }));
+  await waitFor(() => getByText(/Rollover preview — 2023 season/));
+
+  fireEvent.click(getByRole('button', { name: /Confirm Rollover — archive the 2023 season/ }));
+
+  await waitFor(() => getByText(/Rollover refused: .*not final yet/));
+  // The stale preview was dropped — no confirm control remains mounted.
+  assert.equal(queryByRole('button', { name: /Confirm Rollover/ }), null);
+  // The refusal triggered a status resync (initial GET + refusal GET).
+  assert.equal(requests.filter((r) => r.method === 'GET').length, 2);
 });

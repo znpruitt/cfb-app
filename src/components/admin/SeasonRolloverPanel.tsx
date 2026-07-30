@@ -41,22 +41,24 @@ function formatDate(iso: string | null | undefined): string | null {
  * year renders its own instance (keyed by year) so preview/confirmation state
  * can never cross-wire between years; every request carries this row's
  * explicit year, and execute controls exist only while the year is eligible.
+ * Execute RESULTS are reported up to the panel: a successful rollover removes
+ * this year from the active list, unmounting this row on the status reload.
  */
 function YearRow({
   status,
-  onCompleted,
+  onRefused,
+  onExecuted,
 }: {
   status: ManualRolloverYearStatus;
-  onCompleted: () => Promise<void>;
+  onRefused: () => Promise<void>;
+  onExecuted: (result: ManualRolloverExecuteResponse) => Promise<void>;
 }) {
-  const router = useRouter();
   const { year } = status;
   const leagueCount = status.leagues.length;
 
   const [previewLoading, setPreviewLoading] = useState(false);
   const [executeLoading, setExecuteLoading] = useState(false);
   const [preview, setPreview] = useState<ManualRolloverPreviewResponse['preview'] | null>(null);
-  const [executeResult, setExecuteResult] = useState<ManualRolloverExecuteResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const busy = previewLoading || executeLoading;
@@ -70,7 +72,6 @@ function YearRow({
   async function handlePreview() {
     setPreviewLoading(true);
     setError(null);
-    setExecuteResult(null);
     try {
       const res = await fetch('/api/admin/rollover', {
         method: 'POST',
@@ -79,7 +80,7 @@ function YearRow({
       });
       if (!res.ok) {
         setError(await refusalMessage(res));
-        await onCompleted();
+        await onRefused();
         return;
       }
       const data = (await res.json()) as ManualRolloverPreviewResponse;
@@ -110,16 +111,14 @@ function YearRow({
         // The gate refused after a previously eligible preview — drop the
         // stale preview and resync the per-year status.
         setPreview(null);
-        await onCompleted();
+        await onRefused();
         return;
       }
       const data = (await res.json()) as ManualRolloverExecuteResponse;
-      setExecuteResult(data);
       setPreview(null);
-      // Refresh the RSC tree and reload per-year status so admin/league
-      // surfaces reflect the archived season.
-      router.refresh();
-      await onCompleted();
+      // Report up: the panel renders the persistent result banner (this row
+      // may unmount on the reload) and refreshes status + the RSC tree.
+      await onExecuted(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unexpected error');
     } finally {
@@ -167,7 +166,7 @@ function YearRow({
           <button onClick={() => void handlePreview()} disabled={busy} className={buttonClass}>
             {previewLoading ? 'Loading preview…' : preview ? 'Refresh Preview' : 'Preview Rollover'}
           </button>
-          {preview && !executeResult && (
+          {preview && (
             <button
               onClick={() => void handleExecute()}
               disabled={busy}
@@ -180,7 +179,7 @@ function YearRow({
       )}
       {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
 
-      {preview && !executeResult && (
+      {preview && (
         <div className="mt-3 space-y-3">
           <p className="text-xs text-gray-500 dark:text-zinc-400">
             Previewing rollover for season <span className="font-medium">{preview.year}</span>.{' '}
@@ -244,38 +243,6 @@ function YearRow({
           </ul>
         </div>
       )}
-
-      {executeResult && (
-        <div className="mt-3 space-y-2">
-          {executeResult.success ? (
-            <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
-              Rollover complete — the {executeResult.year} season was archived and{' '}
-              {executeResult.rolledOverLeagues.length} league
-              {executeResult.rolledOverLeagues.length !== 1 ? 's' : ''} transitioned to offseason.
-            </p>
-          ) : (
-            <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-              {executeResult.message ?? 'Rollover failed.'}
-            </p>
-          )}
-          {executeResult.rolledOverLeagues.length > 0 && (
-            <ul className="space-y-0.5 text-xs text-gray-600 dark:text-zinc-300">
-              {executeResult.rolledOverLeagues.map((slug) => (
-                <li key={slug}>✓ {slug}</li>
-              ))}
-            </ul>
-          )}
-          {executeResult.errors.length > 0 && (
-            <ul className="space-y-0.5 text-xs text-red-600 dark:text-red-400">
-              {executeResult.errors.map((err) => (
-                <li key={`${err.stage}:${err.leagueSlug}`}>
-                  ✗ {err.leagueSlug} ({err.stage}): {err.error}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
     </div>
   );
 }
@@ -285,8 +252,10 @@ export default function SeasonRolloverPanel({
 }: {
   nextRolloverDate?: string | null;
 } = {}): React.ReactElement {
+  const router = useRouter();
   const [years, setYears] = useState<ManualRolloverYearStatus[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<ManualRolloverExecuteResponse | null>(null);
 
   const loadStatus = useCallback(async () => {
     setLoadError(null);
@@ -315,6 +284,17 @@ export default function SeasonRolloverPanel({
     void loadStatus();
   }, [loadStatus]);
 
+  const handleExecuted = useCallback(
+    async (result: ManualRolloverExecuteResponse) => {
+      setLastResult(result);
+      // Refresh the RSC tree so admin/league surfaces reflect the archived
+      // season, then reload the per-year status (the executed year drops out).
+      router.refresh();
+      await loadStatus();
+    },
+    [router, loadStatus]
+  );
+
   const rolloverDateDisplay = formatDate(nextRolloverDate);
 
   return (
@@ -335,6 +315,38 @@ export default function SeasonRolloverPanel({
         </p>
       )}
 
+      {lastResult && (
+        <div className="space-y-2">
+          {lastResult.success ? (
+            <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
+              Rollover complete — the {lastResult.year} season was archived and{' '}
+              {lastResult.rolledOverLeagues.length} league
+              {lastResult.rolledOverLeagues.length !== 1 ? 's' : ''} transitioned to offseason.
+            </p>
+          ) : (
+            <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+              {lastResult.message ?? 'Rollover failed.'}
+            </p>
+          )}
+          {lastResult.rolledOverLeagues.length > 0 && (
+            <ul className="space-y-0.5 text-xs text-gray-600 dark:text-zinc-300">
+              {lastResult.rolledOverLeagues.map((slug) => (
+                <li key={slug}>✓ {slug}</li>
+              ))}
+            </ul>
+          )}
+          {lastResult.errors.length > 0 && (
+            <ul className="space-y-0.5 text-xs text-red-600 dark:text-red-400">
+              {lastResult.errors.map((err) => (
+                <li key={`${err.stage}:${err.leagueSlug}`}>
+                  ✗ {err.leagueSlug} ({err.stage}): {err.error}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {loadError && <p className="text-xs text-red-600 dark:text-red-400">{loadError}</p>}
       {!loadError && years === null && (
         <p className="text-xs text-gray-500 dark:text-zinc-400">Loading rollover status…</p>
@@ -348,7 +360,12 @@ export default function SeasonRolloverPanel({
       {years !== null && years.length > 0 && (
         <div className="space-y-3">
           {years.map((yearStatus) => (
-            <YearRow key={yearStatus.year} status={yearStatus} onCompleted={loadStatus} />
+            <YearRow
+              key={yearStatus.year}
+              status={yearStatus}
+              onRefused={loadStatus}
+              onExecuted={handleExecuted}
+            />
           ))}
         </div>
       )}

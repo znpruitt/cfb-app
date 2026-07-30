@@ -120,6 +120,22 @@ test('completeSetup writes one synchronized lifecycle record (no separate year w
   assert.equal(league?.year, 2026, 'top-level year synchronized by the same lifecycle write');
 });
 
+test('beginPreseason refuses outside offseason — re-invocation cannot re-increment the year', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }),
+  ]);
+
+  await assert.rejects(
+    () => runCapturingTags(() => beginPreseason('alpha')),
+    /League is not in offseason/
+  );
+
+  const record = await getAppState<League[]>('leagues', 'registry');
+  const league = record?.value?.[0];
+  assert.deepEqual(league?.status, { state: 'preseason', year: 2026 }, 'no double increment');
+  assert.equal(league?.year, 2025, 'top-level year untouched by the refused call');
+});
+
 test('beginPreseason synchronizes league.year to the preseason year', async () => {
   await setAppState('leagues', 'registry', [makeLeague('alpha', { state: 'offseason' })]);
 

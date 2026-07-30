@@ -60,6 +60,7 @@ type Recorded = { method: string; body: { year?: number; confirmed?: boolean } |
 
 let requests: Recorded[] = [];
 let statusPayload: ManualRolloverStatusResponse;
+let confirmResponse: (body: { year?: number }) => Response;
 const originalFetch = globalThis.fetch;
 
 function makeYearStatus(
@@ -132,13 +133,14 @@ function executeResponse(year: number): ManualRolloverExecuteResponse {
 
 beforeEach(() => {
   requests = [];
+  confirmResponse = (body) => Response.json(executeResponse(body.year!));
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const method = init?.method ?? 'GET';
     const body = init?.body ? (JSON.parse(String(init.body)) as Recorded['body']) : null;
     requests.push({ method, body });
     if (method === 'GET') return Response.json(statusPayload);
     if (body?.confirmed === false) return Response.json(previewResponse(body.year!));
-    return Response.json(executeResponse(body!.year!));
+    return confirmResponse(body!);
   }) as typeof globalThis.fetch;
 });
 
@@ -196,6 +198,13 @@ test('preview/execute carry the exact year; multi-year state never cross-wires; 
   const executeButton = getByRole('button', { name: 'Execute Rollover (2023)' });
   assert.equal(queryByText('Execute Rollover (2024)'), null, 'sibling year has no execute');
 
+  // Production-faithful reload: after execution the 2023 leagues are offseason,
+  // so the post-success status DROPS the 2023 row.
+  statusPayload = {
+    generatedAt: '2026-01-01T00:00:01.000Z',
+    years: [makeYearStatus(2024, 'eligible')],
+  };
+
   fireEvent.click(executeButton);
   await waitFor(() => getByText(/Rollover complete — the 2023 season was archived/));
   getByText(/2 leagues transitioned to offseason/);
@@ -207,8 +216,38 @@ test('preview/execute carry the exact year; multi-year state never cross-wires; 
     'no request ever targeted the sibling year'
   );
 
-  // Success cleared the preview, reloaded status, and refreshed the RSC tree.
+  // Success cleared the preview, reloaded status (executed row unmounted while
+  // the banner persists), and refreshed the RSC tree.
   assert.equal(queryByText(/Previewing rollover for season/), null);
+  assert.equal(queryByText('Season 2023'), null, 'executed year row dropped');
+  getByText(/Rollover complete — the 2023 season was archived/);
+  getByText('Season 2024');
   assert.equal(requests.filter((r) => r.method === 'GET').length, 2);
   assert.equal(router.refreshCalls, 1);
+});
+
+test('a mid-flow gate refusal shows the stable reason, clears the preview, and resyncs', async () => {
+  statusPayload = {
+    generatedAt: '2026-01-01T00:00:00.000Z',
+    years: [makeYearStatus(2023, 'eligible')],
+  };
+  confirmResponse = () =>
+    Response.json({ error: 'rollover-not-eligible', reason: 'not-final' }, { status: 409 });
+
+  const { getByRole, getByText, queryByRole, queryByText } = render(
+    withRouter(<SeasonRolloverPanel />, makeRouter())
+  );
+  await waitFor(() => getByText('Season 2023'));
+
+  fireEvent.click(getByRole('button', { name: /Preview Rollover/ }));
+  await waitFor(() => getByText(/Previewing rollover for season/));
+
+  fireEvent.click(getByRole('button', { name: 'Execute Rollover (2023)' }));
+
+  await waitFor(() => getByText(/Rollover refused: .*not final yet/));
+  // The stale preview was dropped — no execute control remains mounted.
+  assert.equal(queryByRole('button', { name: /Execute Rollover/ }), null);
+  assert.equal(queryByText(/Previewing rollover for season/), null);
+  // The refusal triggered a status resync (initial GET + refusal GET).
+  assert.equal(requests.filter((r) => r.method === 'GET').length, 2);
 });

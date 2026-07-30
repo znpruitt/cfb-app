@@ -24,14 +24,18 @@ type PreviewData = ManualRolloverPreviewResponse['preview'];
  * PLATFORM-086F2B — one eligible year's preview/confirm flow. Each eligible
  * year renders its own section instance (keyed by year), so preview and
  * confirmation state can never cross-wire between years, and every request
- * carries this section's explicit year.
+ * carries this section's explicit year. Execute RESULTS are reported up to the
+ * panel (not held here): a successful rollover removes this year from the
+ * eligible list, unmounting this section on the post-success status reload.
  */
 function EligibleYearSection({
   status,
-  onCompleted,
+  onRefused,
+  onExecuted,
 }: {
   status: ManualRolloverYearStatus;
-  onCompleted: () => Promise<void>;
+  onRefused: () => Promise<void>;
+  onExecuted: (result: ManualRolloverExecuteResponse) => Promise<void>;
 }) {
   const { year } = status;
   const leagueCount = status.leagues.length;
@@ -40,7 +44,6 @@ function EligibleYearSection({
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
-  const [result, setResult] = useState<ManualRolloverExecuteResponse | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
@@ -51,8 +54,8 @@ function EligibleYearSection({
 
   async function handlePreview() {
     setPreviewError(null);
+    setConfirmError(null);
     setPreview(null);
-    setResult(null);
     setPreviewing(true);
     try {
       const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
@@ -64,7 +67,7 @@ function EligibleYearSection({
       if (!res.ok) {
         setPreviewError(await refusalMessage(res));
         // A refusal means eligibility changed since load — resync the status.
-        await onCompleted();
+        await onRefused();
         return;
       }
       const data = (await res.json()) as ManualRolloverPreviewResponse;
@@ -91,14 +94,14 @@ function EligibleYearSection({
         // The gate refused after a previously eligible preview — the preview is
         // stale authorization for nothing. Drop it and resync.
         setPreview(null);
-        await onCompleted();
+        await onRefused();
         return;
       }
       const data = (await res.json()) as ManualRolloverExecuteResponse;
-      setResult(data);
       setPreview(null);
-      // Reload status so this year drops out of the eligible list.
-      await onCompleted();
+      // Report up: the panel renders the result banner (this section may
+      // unmount on the reload) and reloads the per-year status.
+      await onExecuted(data);
     } catch (err) {
       setConfirmError((err as Error).message);
     } finally {
@@ -125,143 +128,150 @@ function EligibleYearSection({
         </p>
       </div>
 
-      {result ? (
-        <div className="mt-4 space-y-3">
-          {result.success ? (
-            <p className="text-sm font-medium text-green-700 dark:text-green-400">
-              Season {result.year} archived. {result.rolledOverLeagues.length} league
-              {result.rolledOverLeagues.length !== 1 ? 's' : ''} set to offseason.
-            </p>
-          ) : (
-            <p className="text-sm font-medium text-red-700 dark:text-red-400">
-              {result.message ?? 'Rollover did not fully complete.'}
-            </p>
-          )}
-          {result.rolledOverLeagues.length > 0 && (
-            <p className="text-sm text-gray-600 dark:text-zinc-400">
-              Rolled over: {result.rolledOverLeagues.join(', ')}
-            </p>
-          )}
-          {result.errors.length > 0 && (
-            <div className="space-y-1">
-              {result.errors.map((e) => (
-                <p
-                  key={`${e.stage}:${e.leagueSlug}`}
-                  className="text-sm text-red-700 dark:text-red-400"
+      <div className="mt-4 space-y-4">
+        {!preview && (
+          <div className="flex items-center gap-3">
+            <button
+              className={primaryButtonClass}
+              onClick={() => void handlePreview()}
+              disabled={previewing}
+            >
+              {previewing ? 'Building preview…' : 'Preview Rollover'}
+            </button>
+            {(previewError ?? confirmError) && (
+              <p className="text-sm text-red-700 dark:text-red-400">
+                {previewError ?? confirmError}
+              </p>
+            )}
+          </div>
+        )}
+
+        {preview && (
+          <div className="space-y-4">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
+              Rollover preview — {preview.year} season
+            </h3>
+
+            <div className="space-y-3">
+              {preview.leagues.map((league) => (
+                <div
+                  key={league.leagueSlug}
+                  className="rounded-lg border border-gray-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900"
                 >
-                  {e.leagueSlug} ({e.stage}): {e.error}
-                </p>
+                  <p className="text-sm font-medium text-gray-900 dark:text-zinc-100">
+                    {league.displayName}{' '}
+                    <span className="font-mono text-xs text-gray-500 dark:text-zinc-400">
+                      ({league.leagueSlug})
+                    </span>
+                  </p>
+
+                  {league.error ? (
+                    <p className="mt-1 text-xs text-red-700 dark:text-red-400">
+                      Error: {league.error}
+                    </p>
+                  ) : league.hasExistingArchive && league.diff ? (
+                    <div className="mt-2 space-y-1 text-xs text-gray-600 dark:text-zinc-400">
+                      <p className="font-medium text-amber-700 dark:text-amber-400">
+                        Existing {preview.year} archive will be overwritten
+                      </p>
+                      <p>
+                        Score changes: {league.diff.scoresChanged} owner records affected
+                        {league.diff.scoresChanged === 0 ? ' (none)' : ''}
+                      </p>
+                      <p>
+                        Outcome flips: {league.diff.outcomesFlipped} owner records affected
+                        {league.diff.outcomesFlipped > 0 &&
+                          league.diff.ownersAffectedByFlip.length > 0 && (
+                            <> — {league.diff.ownersAffectedByFlip.join(', ')}</>
+                          )}
+                      </p>
+                      <p>
+                        Final standings order:{' '}
+                        {league.diff.standingsOrderChanged ? (
+                          <>
+                            changed —{' '}
+                            {league.diff.standingsMovement
+                              .map((m) => `${m.ownerName} ${m.previousPosition}→${m.newPosition}`)
+                              .join(', ')}
+                          </>
+                        ) : (
+                          'unchanged'
+                        )}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="mt-1 text-xs text-green-700 dark:text-green-400">
+                      New archive — {preview.year} season will be written fresh
+                    </p>
+                  )}
+                </div>
               ))}
             </div>
-          )}
-        </div>
-      ) : (
-        <div className="mt-4 space-y-4">
-          {!preview && (
-            <div className="flex items-center gap-3">
+
+            <div className="flex flex-wrap items-center gap-3">
               <button
-                className={primaryButtonClass}
-                onClick={() => void handlePreview()}
-                disabled={previewing}
+                className={dangerButtonClass}
+                onClick={() => void handleConfirm()}
+                disabled={confirming}
               >
-                {previewing ? 'Building preview…' : 'Preview Rollover'}
+                {confirming
+                  ? 'Archiving…'
+                  : `Confirm Rollover — archive the ${preview.year} season (${leagueCount} league${leagueCount !== 1 ? 's' : ''})`}
               </button>
-              {previewError && (
-                <p className="text-sm text-red-700 dark:text-red-400">{previewError}</p>
+              <button
+                className={controlButtonClass}
+                onClick={() => {
+                  setPreview(null);
+                  setConfirmError(null);
+                }}
+                disabled={confirming}
+              >
+                Cancel
+              </button>
+              {confirmError && (
+                <p className="text-sm text-red-700 dark:text-red-400">{confirmError}</p>
               )}
             </div>
-          )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-          {preview && (
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-                Rollover preview — {preview.year} season
-              </h3>
-
-              <div className="space-y-3">
-                {preview.leagues.map((league) => (
-                  <div
-                    key={league.leagueSlug}
-                    className="rounded-lg border border-gray-200 bg-white p-3 dark:border-zinc-700 dark:bg-zinc-900"
-                  >
-                    <p className="text-sm font-medium text-gray-900 dark:text-zinc-100">
-                      {league.displayName}{' '}
-                      <span className="font-mono text-xs text-gray-500 dark:text-zinc-400">
-                        ({league.leagueSlug})
-                      </span>
-                    </p>
-
-                    {league.error ? (
-                      <p className="mt-1 text-xs text-red-700 dark:text-red-400">
-                        Error: {league.error}
-                      </p>
-                    ) : league.hasExistingArchive && league.diff ? (
-                      <div className="mt-2 space-y-1 text-xs text-gray-600 dark:text-zinc-400">
-                        <p className="font-medium text-amber-700 dark:text-amber-400">
-                          Existing {preview.year} archive will be overwritten
-                        </p>
-                        <p>
-                          Score changes: {league.diff.scoresChanged} owner records affected
-                          {league.diff.scoresChanged === 0 ? ' (none)' : ''}
-                        </p>
-                        <p>
-                          Outcome flips: {league.diff.outcomesFlipped} owner records affected
-                          {league.diff.outcomesFlipped > 0 &&
-                            league.diff.ownersAffectedByFlip.length > 0 && (
-                              <> — {league.diff.ownersAffectedByFlip.join(', ')}</>
-                            )}
-                        </p>
-                        <p>
-                          Final standings order:{' '}
-                          {league.diff.standingsOrderChanged ? (
-                            <>
-                              changed —{' '}
-                              {league.diff.standingsMovement
-                                .map((m) => `${m.ownerName} ${m.previousPosition}→${m.newPosition}`)
-                                .join(', ')}
-                            </>
-                          ) : (
-                            'unchanged'
-                          )}
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="mt-1 text-xs text-green-700 dark:text-green-400">
-                        New archive — {preview.year} season will be written fresh
-                      </p>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="flex flex-wrap items-center gap-3">
-                <button
-                  className={dangerButtonClass}
-                  onClick={() => void handleConfirm()}
-                  disabled={confirming}
-                >
-                  {confirming
-                    ? 'Archiving…'
-                    : `Confirm Rollover — archive the ${preview.year} season (${leagueCount} league${leagueCount !== 1 ? 's' : ''})`}
-                </button>
-                <button
-                  className={controlButtonClass}
-                  onClick={() => {
-                    setPreview(null);
-                    setConfirmError(null);
-                  }}
-                  disabled={confirming}
-                >
-                  Cancel
-                </button>
-                {confirmError && (
-                  <p className="text-sm text-red-700 dark:text-red-400">{confirmError}</p>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
+/** The persistent execute-result banner — survives the executed year leaving the eligible list. */
+function ResultBanner({ result }: { result: ManualRolloverExecuteResponse }) {
+  return (
+    <div className="mb-4 rounded-2xl border border-gray-300 bg-gray-50/80 p-4 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/60">
+      <div className="space-y-3">
+        {result.success ? (
+          <p className="text-sm font-medium text-green-700 dark:text-green-400">
+            Season {result.year} archived. {result.rolledOverLeagues.length} league
+            {result.rolledOverLeagues.length !== 1 ? 's' : ''} set to offseason.
+          </p>
+        ) : (
+          <p className="text-sm font-medium text-red-700 dark:text-red-400">
+            {result.message ?? 'Rollover did not fully complete.'}
+          </p>
+        )}
+        {result.rolledOverLeagues.length > 0 && (
+          <p className="text-sm text-gray-600 dark:text-zinc-400">
+            Rolled over: {result.rolledOverLeagues.join(', ')}
+          </p>
+        )}
+        {result.errors.length > 0 && (
+          <div className="space-y-1">
+            {result.errors.map((e) => (
+              <p
+                key={`${e.stage}:${e.leagueSlug}`}
+                className="text-sm text-red-700 dark:text-red-400"
+              >
+                {e.leagueSlug} ({e.stage}): {e.error}
+              </p>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -269,6 +279,7 @@ function EligibleYearSection({
 export default function RolloverPanel() {
   const [years, setYears] = useState<ManualRolloverYearStatus[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [lastResult, setLastResult] = useState<ManualRolloverExecuteResponse | null>(null);
 
   const loadStatus = useCallback(async () => {
     setLoadError(null);
@@ -304,6 +315,14 @@ export default function RolloverPanel() {
     void loadStatus();
   }, [loadStatus]);
 
+  const handleExecuted = useCallback(
+    async (result: ManualRolloverExecuteResponse) => {
+      setLastResult(result);
+      await loadStatus();
+    },
+    [loadStatus]
+  );
+
   if (loadError) {
     return (
       <div className="mb-4 rounded-2xl border border-gray-300 bg-gray-50/80 p-4 text-sm text-red-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-red-400">
@@ -314,14 +333,22 @@ export default function RolloverPanel() {
 
   // Execute controls exist ONLY for eligible years; this panel stays hidden
   // until at least one active season year passes the strict gate (ineligible
-  // and unavailable years surface on the Data Cache maintenance panel).
+  // and unavailable years surface on the Data Cache maintenance panel). A
+  // just-executed rollover keeps its result banner visible even after the
+  // executed year drops out of the eligible list.
   const eligibleYears = (years ?? []).filter((y) => y.eligibility === 'eligible');
-  if (eligibleYears.length === 0) return null;
+  if (eligibleYears.length === 0 && !lastResult) return null;
 
   return (
     <>
+      {lastResult && <ResultBanner result={lastResult} />}
       {eligibleYears.map((yearStatus) => (
-        <EligibleYearSection key={yearStatus.year} status={yearStatus} onCompleted={loadStatus} />
+        <EligibleYearSection
+          key={yearStatus.year}
+          status={yearStatus}
+          onRefused={loadStatus}
+          onExecuted={handleExecuted}
+        />
       ))}
     </>
   );
