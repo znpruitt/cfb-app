@@ -103,7 +103,11 @@ function usablePayload(year: number, school = 'Georgia'): unknown[] {
 type PartitionStub = unknown[] | 'fail';
 type InfoStub = { remainingCalls?: unknown; patronLevel?: unknown } | 'fail' | 'throw';
 
-const fetchLog: { info: number; rankings: string[] } = { info: 0, rankings: [] };
+const fetchLog: { info: number; rankings: string[]; sequence: string[] } = {
+  info: 0,
+  rankings: [],
+  sequence: [],
+};
 
 /** Stub CFBD: `/info` (quota probe) and per-year `/rankings` partitions. */
 function stubProvider(opts: {
@@ -115,6 +119,7 @@ function stubProvider(opts: {
     const url = new URL(typeof input === 'string' ? input : input.toString());
     if (url.pathname === '/info') {
       fetchLog.info += 1;
+      fetchLog.sequence.push('info');
       const info = opts.info ?? { remainingCalls: 4000, patronLevel: 1 };
       if (info === 'throw') throw new Error('info transport down');
       if (info === 'fail') return new Response('unavailable', { status: 503 });
@@ -128,6 +133,7 @@ function stubProvider(opts: {
       const seasonType =
         url.searchParams.get('seasonType') === 'postseason' ? 'postseason' : 'regular';
       fetchLog.rankings.push(`${year}:${seasonType}`);
+      fetchLog.sequence.push(String(year));
       opts.onRankingsRequest?.();
       const partitions = opts.rankings?.[year];
       const body = partitions ? partitions[seasonType] : [];
@@ -198,6 +204,7 @@ test.afterEach(() => {
   console.log = ORIGINAL_CONSOLE_LOG;
   fetchLog.info = 0;
   fetchLog.rankings = [];
+  fetchLog.sequence = [];
 });
 
 test.after(() => {
@@ -706,6 +713,14 @@ test('multiple due years execute ascending with a fresh probe and one refresh ea
   );
   assert.equal(fetchLog.info, 2, 'one FRESH quota probe per due year');
   assert.equal(fetchLog.rankings.length, 4, 'one two-partition refresh per year');
+  // The reserve is re-evaluated BEFORE every due year's spend: each year's
+  // probe precedes its own partition pair, and the second probe follows the
+  // first year's spend (review P3 #4 — exact interleaving, not just counts).
+  assert.deepEqual(
+    fetchLog.sequence,
+    ['info', '2031', '2031', 'info', '2032', '2032'],
+    'probe → spend → probe → spend ordering'
+  );
   assert.ok((await windowControl(WEEKLY_KEY)).completedAt);
   assert.ok((await windowControl(`${YEAR2}:weekly-ap-coaches:2031-10-05`)).completedAt);
 });

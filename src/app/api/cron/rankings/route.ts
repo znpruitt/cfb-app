@@ -192,6 +192,10 @@ export async function GET(req: Request): Promise<Response> {
     const scheduledAt = new Date(startedAtMs);
 
     const entries: RankingsCronYearExecution[] = [];
+    // Alias the per-year entries into the tracker IMMEDIATELY so a defensive
+    // double-fault mid-loop still emits the years already executed (with the
+    // pessimistic aggregate) instead of losing the record of provider spend.
+    exec.years = entries;
     for (const target of targets) {
       // Cache-only publication context (schedule kickoffs + structured
       // championship + cached poll coverage). Unavailable context refuses ALL
@@ -288,7 +292,6 @@ export async function GET(req: Request): Promise<Response> {
       entries.push(yearEntryFromRefresh(target, window, quota.remaining, refresh, completion));
     }
 
-    exec.years = entries;
     exec.result = aggregateRankingsCronResult(entries);
     exec.reason = aggregateRankingsCronReason(entries);
 

@@ -192,10 +192,66 @@ test('poll flags reflect which sources have usable cached data', async () => {
   assert.equal(result.context.hasCfp, true);
 });
 
+// Codex round-1 finding #2 — coverage is scoped to THIS season's weeks: a
+// foreign-season week must never mark a source published for the target year.
+test('a foreign-season cached week never counts toward this year’s poll coverage', async () => {
+  const entry = rankingsEntry({ ap: true });
+  (entry.response.weeks[0] as { season: number }).season = YEAR - 1;
+  await setAppState('rankings', String(YEAR), entry);
+  const result = await loadContext();
+  assert.equal(result.kind, 'ok');
+  assert.equal(result.kind === 'ok' && result.context.hasAp, false);
+});
+
+// Codex round-1 finding #2 — malformed poll values (a string's `.length` is
+// truthy) never count as coverage; the year stays refreshable (self-healing),
+// not unavailable.
+test('malformed poll values never count as coverage', async () => {
+  const entry = rankingsEntry({});
+  (entry.response.weeks[0] as { polls: Record<string, unknown> }).polls = {
+    ap: 'xx',
+    coaches: { length: 5 },
+    cfp: [],
+  };
+  await setAppState('rankings', String(YEAR), entry);
+  const result = await loadContext();
+  assert.equal(result.kind, 'ok');
+  if (result.kind !== 'ok') return;
+  assert.equal(result.context.hasAp, false);
+  assert.equal(result.context.hasCoaches, false);
+  assert.equal(result.context.hasCfp, false);
+});
+
 // 5 — malformed present records are UNAVAILABLE, never coerced to absence.
 test('a present but malformed schedule record is unavailable context', async () => {
   await setAppState('schedule', `${YEAR}-all-all`, { at: 1, items: 'not-an-array' });
   assert.deepEqual(await loadContext(), { kind: 'unavailable' });
+});
+
+// Codex round-1 finding #1 — ELEMENT-level schedule corruption is unavailable,
+// never usable context that could manufacture kickoff/championship windows.
+test('element-level schedule corruption is unavailable context', async () => {
+  for (const items of [
+    ['corrupt-string'],
+    [scheduleItem(), 42],
+    [null],
+    [scheduleItem(), ['nested-array']],
+  ]) {
+    await setAppState('schedule', `${YEAR}-all-all`, { at: 1, items });
+    assert.deepEqual(await loadContext(), { kind: 'unavailable' }, JSON.stringify(items));
+  }
+});
+
+// Fields may be legitimately absent on OBJECT items (older records) — that is
+// shape variation, not corruption.
+test('object items with absent fields remain usable known-shape context', async () => {
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: 1,
+    items: [{ id: '9' }, scheduleItem()],
+  });
+  const result = await loadContext();
+  assert.equal(result.kind, 'ok');
+  assert.equal(result.kind === 'ok' && result.context.firstKickoffAt, '2031-08-30T18:00:00.000Z');
 });
 
 test('a present but malformed rankings record is unavailable context', async () => {

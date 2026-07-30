@@ -70,11 +70,20 @@ function kickoffMs(startDate: string | null | undefined): number | null {
 
 type StoredScheduleShape = { items?: unknown };
 
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 /**
  * Read the canonical `schedule/<year>-all-all` entry cache-only and classify it:
  *   - absent record → known absence (`{ items: null }`);
- *   - present record whose `items` is a real array → usable items;
- *   - present record with any other shape → malformed (unavailable).
+ *   - present record whose `items` is an array of plain objects → usable items
+ *     (individual FIELDS may be legitimately absent/null on older records —
+ *     that is known shape variation, not corruption);
+ *   - present record with any other shape — a non-array `items`, or ANY
+ *     non-object element — → malformed (unavailable): element-level corruption
+ *     must never manufacture kickoff- or championship-derived windows
+ *     (Codex round-1 finding #1).
  * A store read failure propagates to the caller (unavailable context).
  */
 async function readScheduleItems(
@@ -87,8 +96,8 @@ async function readScheduleItems(
     return { kind: 'absent' };
   }
   const items = (record.value as StoredScheduleShape).items;
-  if (!Array.isArray(items)) return { kind: 'malformed' };
-  return { kind: 'items', items: items as ScheduleWireItem[] };
+  if (!Array.isArray(items) || !items.every(isPlainObject)) return { kind: 'malformed' };
+  return { kind: 'items', items: items as unknown as ScheduleWireItem[] };
 }
 
 /**
@@ -136,10 +145,19 @@ export async function loadRankingsPublicationContext(params: {
       // A PRESENT rankings record that does not normalize is malformed state —
       // unavailable, never coerced into "no polls yet".
       if (entry === null) return { kind: 'unavailable' };
+      // Coverage counts ONLY well-formed poll ARRAYS on weeks labeled with THIS
+      // season (Codex round-1 finding #2): a foreign-season week (possible in
+      // pre-E2A snapshots) or a malformed poll value (a string's `.length` is
+      // truthy) must never mark a source "already published" and suppress its
+      // discovery window. Not counting them is deliberately self-healing — at
+      // worst one due window refreshes and rewrites the record clean — where
+      // failing the year unavailable would wedge automation until manual repair.
+      const populated = (value: unknown): boolean => Array.isArray(value) && value.length > 0;
       for (const week of entry.response.weeks) {
-        if ((week.polls?.ap ?? []).length > 0) hasAp = true;
-        if ((week.polls?.coaches ?? []).length > 0) hasCoaches = true;
-        if ((week.polls?.cfp ?? []).length > 0) hasCfp = true;
+        if (week?.season !== year) continue;
+        if (populated(week.polls?.ap)) hasAp = true;
+        if (populated(week.polls?.coaches)) hasCoaches = true;
+        if (populated(week.polls?.cfp)) hasCfp = true;
       }
     }
   } catch {
