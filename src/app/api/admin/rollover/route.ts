@@ -1,6 +1,6 @@
 import { requireAdminAuth } from '@/lib/server/adminAuth';
 import { clearAllSuppressionRecords } from '@/lib/insights/suppression';
-import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
+import { completeSeasonRollover, getLeagues } from '@/lib/leagueRegistry';
 import { sanitizeLeagues } from '@/lib/leagueSanitize';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { getSeasonArchive, saveSeasonArchive, diffSeasonArchives } from '@/lib/seasonArchive';
@@ -250,12 +250,24 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json(body);
   }
 
-  // Stage 2: transition each archived league to offseason. Status-write
-  // failures are reported truthfully — a partial outcome is never a success.
+  // Stage 2: transition each archived league to offseason through the GUARDED
+  // conditional transition — the league must still be in `season` for the
+  // requested year at write time (this request's group snapshot predates the
+  // archive work, and another actor may have rolled/advanced the league since).
+  // Status-write failures and guard refusals are reported truthfully — a
+  // partial outcome is never a success.
   const rolledOverLeagues: string[] = [];
   for (const league of group.leagues) {
     try {
-      await updateLeagueStatus(league.slug, { state: 'offseason' });
+      const transition = await completeSeasonRollover(league.slug, year);
+      if (transition.outcome !== 'transitioned') {
+        errors.push({
+          leagueSlug: league.slug,
+          stage: 'status',
+          error: `league is no longer in the requested ${year} season group`,
+        });
+        continue;
+      }
       rolledOverLeagues.push(league.slug);
     } catch (err) {
       errors.push({

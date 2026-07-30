@@ -247,11 +247,7 @@ function YearRow({
   );
 }
 
-export default function SeasonRolloverPanel({
-  nextRolloverDate,
-}: {
-  nextRolloverDate?: string | null;
-} = {}): React.ReactElement {
+export default function SeasonRolloverPanel(): React.ReactElement {
   const router = useRouter();
   const [years, setYears] = useState<ManualRolloverYearStatus[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -295,8 +291,6 @@ export default function SeasonRolloverPanel({
     [router, loadStatus]
   );
 
-  const rolloverDateDisplay = formatDate(nextRolloverDate);
-
   return (
     <section className={sectionClass}>
       <div>
@@ -308,12 +302,6 @@ export default function SeasonRolloverPanel({
           waiting period) — manual rollover cannot bypass it.
         </p>
       </div>
-
-      {rolloverDateDisplay && (
-        <p className="text-xs text-gray-500 dark:text-zinc-400">
-          Next automatic rollover: <span className="font-medium">{rolloverDateDisplay}</span>
-        </p>
-      )}
 
       {lastResult && (
         <div className="space-y-2">

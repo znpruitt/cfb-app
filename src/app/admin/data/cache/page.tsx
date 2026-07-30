@@ -7,12 +7,8 @@ import HistoricalCachePanel from '@/components/admin/HistoricalCachePanel';
 import SeasonRolloverPanel from '@/components/admin/SeasonRolloverPanel';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { sanitizeLeagues } from '@/lib/leagueSanitize';
-import { findNationalChampionshipGameDate } from '@/lib/seasonRollover';
 
 export const dynamic = 'force-dynamic';
-
-const TEST_LEAGUE_SLUG = 'test';
-const ROLLOVER_DELAY_MS = 7 * 24 * 60 * 60 * 1000;
 
 export default async function AdminDataCachePage() {
   const leagues = await getLeagues();
@@ -22,15 +18,11 @@ export default async function AdminDataCachePage() {
   const leagueAwareYear =
     preseasonLeague?.status?.state === 'preseason' ? preseasonLeague.status.year : undefined;
 
-  // Estimate the next automatic rollover date: championship + 7 days for the season year
-  const seasonLeague = leagues.find(
-    (l) => l.slug !== TEST_LEAGUE_SLUG && l.status?.state === 'season'
-  );
-  const seasonYear = seasonLeague?.status?.state === 'season' ? seasonLeague.status.year : null;
-  const championshipDate = seasonYear ? await findNationalChampionshipGameDate(seasonYear) : null;
-  const nextRolloverDate = championshipDate
-    ? new Date(new Date(championshipDate).getTime() + ROLLOVER_DELAY_MS).toISOString()
-    : null;
+  // PLATFORM-086F2B (Codex review): the panel no longer takes a page-computed
+  // "next rollover" date — that estimate came from the FIRST season league plus
+  // the weaker latest-postseason fallback, so with multiple active years (or a
+  // date the strict gate would refuse) it could mislabel the panel. The panel
+  // renders the authoritative per-year dates from the rollover status API.
 
   return (
     <main className="min-h-screen bg-white px-6 py-10 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
@@ -46,7 +38,7 @@ export default async function AdminDataCachePage() {
           <h1 className="text-2xl font-semibold text-gray-900 dark:text-zinc-100">Data Cache</h1>
         </div>
 
-        <SeasonRolloverPanel nextRolloverDate={nextRolloverDate} />
+        <SeasonRolloverPanel />
         <GlobalRefreshPanel defaultYear={leagueAwareYear} />
         <GameStatsCachePanel defaultYear={leagueAwareYear} />
         <SpRatingsCachePanel />

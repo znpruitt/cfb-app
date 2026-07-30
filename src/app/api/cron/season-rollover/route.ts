@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { clearAllSuppressionRecords } from '@/lib/insights/suppression';
-import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
+import { completeSeasonRollover, getLeagues } from '@/lib/leagueRegistry';
 import { saveSeasonArchive } from '@/lib/seasonArchive';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { buildSeasonArchive } from '@/lib/seasonRollover';
@@ -122,7 +122,20 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         }
 
         try {
-          await updateLeagueStatus(league.slug, { state: 'offseason' });
+          // Guarded conditional transition (shared with the manual route): the
+          // league must still be in `season` for THIS year at write time, so a
+          // racing rollover/preseason advance can never be clobbered back to
+          // offseason. Unreachable in an ordinary run (the snapshot is fresh);
+          // a refusal is reported like any status-write failure.
+          const transition = await completeSeasonRollover(league.slug, year);
+          if (transition.outcome !== 'transitioned') {
+            errors.push({
+              leagueSlug: league.slug,
+              year,
+              error: `status write failed: league is no longer in the ${year} season group`,
+            });
+            continue;
+          }
           yearResult.leaguesRolledOver.push(league.slug);
           leaguesRolledOver.push(league.slug);
           // Season→offseason changes this league's standings surface (live →
