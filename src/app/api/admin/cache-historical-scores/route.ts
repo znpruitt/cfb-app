@@ -4,7 +4,18 @@ import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import {
+  beginProviderRefreshAttempt,
+  nextProviderCommitSeq,
+  recordProviderRefreshFailure,
+  recordProviderRefreshSuccess,
+} from '@/lib/server/providerRefreshStatus';
+import { scoresAggregateScope } from '@/lib/providerRefreshScope';
 import type { CacheEntry, CacheKey } from '@/lib/scores/cache';
+import {
+  classifyHistoricalScoreWrites,
+  HISTORICAL_REPAIR_SEASON_TYPES,
+} from '@/lib/scores/historicalScoreWrites';
 import { seasonYearForToday, toScorePackFromCfbd } from '@/lib/scores/normalizers';
 import type { CfbdGameLoose, ScorePack, SeasonType } from '@/lib/scores/types';
 
@@ -23,12 +34,13 @@ const CFBD_PACING_POLICY = {
   minIntervalMs: 150,
 } as const;
 
-async function fetchScoreItems(year: number, seasonType: SeasonType): Promise<ScorePack[]> {
-  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
-  if (!cfbdApiKey) {
-    throw new Error('CFBD_API_KEY missing');
-  }
+const REPAIR_SEASON_TYPES = HISTORICAL_REPAIR_SEASON_TYPES;
 
+async function fetchScoreItems(
+  year: number,
+  seasonType: SeasonType,
+  cfbdApiKey: string
+): Promise<ScorePack[]> {
   const cfbdUrl = buildCfbdGamesUrl({ year, seasonType, week: null });
   const rawGames = await fetchUpstreamJson<CfbdGameLoose[]>(cfbdUrl.toString(), {
     cache: 'no-store',
@@ -46,6 +58,14 @@ async function fetchScoreItems(year: number, seasonType: SeasonType): Promise<Sc
   return items;
 }
 
+// PLATFORM-086F2C — this manual recovery route now records ONE truthful,
+// year-scoped `provider-refresh-status` attempt whenever provider work is
+// required (the always-both-partitions repair resolves to the exact year
+// rollup via `scoresAggregateScope`). Auth failures, invalid requests,
+// protected active years, and already-cached short-circuits fabricate no
+// attempt. Status recording is best-effort and never replaces the route's
+// provider/cache outcome; no raw provider bodies, credential-bearing URLs, or
+// thrown storage errors are stored.
 export async function POST(req: Request): Promise<Response> {
   const authFailure = await requireAdminRequest(req);
   if (authFailure) return authFailure;
@@ -95,30 +115,72 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
-  let regularItems: ScorePack[];
-  let postseasonItems: ScorePack[];
+  // Provider work is required from here on — begin the ONE scoped attempt
+  // BEFORE credential validation so a missing-key exit is a visible failure.
+  // The repair always targets both complete historical partitions, so the
+  // scope resolves to the exact year rollup.
+  const startedMs = Date.now();
+  const scope = scoresAggregateScope(year, ['regular', 'postseason'], ['regular', 'postseason']);
+  const attempt = await beginProviderRefreshAttempt('scores', scope, {
+    startedAt: new Date(startedMs).toISOString(),
+  });
 
-  try {
-    [regularItems, postseasonItems] = await Promise.all([
-      fetchScoreItems(year, 'regular'),
-      fetchScoreItems(year, 'postseason'),
-    ]);
-  } catch (err) {
-    if (err instanceof UpstreamFetchError) {
+  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
+  if (!cfbdApiKey) {
+    await recordProviderRefreshFailure('scores', scope, {
+      attempt,
+      error: 'CFBD_API_KEY missing',
+      code: 'cfbd-api-key-missing',
+      status: 502,
+      failedPartitions: [...REPAIR_SEASON_TYPES],
+      durationMs: Date.now() - startedMs,
+    });
+    return NextResponse.json({ error: 'CFBD_API_KEY missing' }, { status: 502 });
+  }
+
+  const fetchResults = await Promise.allSettled(
+    REPAIR_SEASON_TYPES.map((seasonType) => fetchScoreItems(year, seasonType, cfbdApiKey))
+  );
+  const fetchFailures = REPAIR_SEASON_TYPES.filter(
+    (_, i) => fetchResults[i]!.status === 'rejected'
+  );
+
+  if (fetchFailures.length > 0) {
+    const firstErr = fetchResults.find(
+      (r): r is PromiseRejectedResult => r.status === 'rejected'
+    )!.reason;
+    // Status storage stays sanitized: a stable generic code + partition list —
+    // never provider bodies, URLs, or stack traces.
+    await recordProviderRefreshFailure('scores', scope, {
+      attempt,
+      error: `historical score fetch failed for partition(s): ${fetchFailures.join(', ')}`,
+      code: 'cfbd-fetch-failed',
+      status: firstErr instanceof UpstreamFetchError ? (firstErr.details.status ?? 502) : 502,
+      failedPartitions: [...fetchFailures],
+      durationMs: Date.now() - startedMs,
+    });
+    // Response shape preserved from the pre-F2C route.
+    if (firstErr instanceof UpstreamFetchError) {
       return NextResponse.json(
-        { error: 'CFBD API error', detail: err.details },
-        { status: err.details.status ?? 502 }
+        { error: 'CFBD API error', detail: firstErr.details },
+        { status: firstErr.details.status ?? 502 }
       );
     }
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'unknown error fetching scores from CFBD' },
+      {
+        error:
+          firstErr instanceof Error ? firstErr.message : 'unknown error fetching scores from CFBD',
+      },
       { status: 502 }
     );
   }
 
+  const regularItems = (fetchResults[0] as PromiseFulfilledResult<ScorePack[]>).value;
+  const postseasonItems = (fetchResults[1] as PromiseFulfilledResult<ScorePack[]>).value;
+
   const now = Date.now();
 
-  await Promise.all([
+  const writeResults = await Promise.allSettled([
     setAppState<CacheEntry>('scores', regularKey, {
       at: now,
       items: regularItems,
@@ -131,7 +193,41 @@ export async function POST(req: Request): Promise<Response> {
       source: 'cfbd',
       cfbdFallbackReason: 'none',
     }),
-  ]);
+  ] as const);
+  // Capture the confirmed commit time + sequence immediately after the writes.
+  const committedAt = new Date().toISOString();
+  const commitSeq = nextProviderCommitSeq();
+
+  const writes = classifyHistoricalScoreWrites(writeResults);
+
+  if (!writes.allOk) {
+    // A durable-write failure NEVER records success or advances last-success;
+    // a lone committed sibling is a truthful partial failure.
+    await recordProviderRefreshFailure('scores', scope, {
+      attempt,
+      error: `historical score cache write failed for partition(s): ${writes.failedPartitions.join(', ')}`,
+      code: 'durable-write-failed',
+      status: 500,
+      partialFailure: writes.partialFailure,
+      failedPartitions: writes.failedPartitions,
+      durationMs: Date.now() - startedMs,
+    });
+    // Previously an uncaught throw; now a generic JSON 500 that never exposes
+    // the thrown storage error.
+    return NextResponse.json(
+      { error: 'failed to persist historical scores', year },
+      { status: 500 }
+    );
+  }
+
+  await recordProviderRefreshSuccess('scores', scope, {
+    attempt,
+    committedAt,
+    commitSeq,
+    source: 'cfbd',
+    rowsCommitted: regularItems.length + postseasonItems.length,
+    durationMs: Date.now() - startedMs,
+  });
 
   return NextResponse.json({
     success: true,

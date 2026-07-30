@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
+import MaintenanceActionDetails from './MaintenanceActionDetails';
 
 const buttonClass =
   'rounded border border-gray-300 bg-gray-50 px-4 py-1.5 text-sm text-gray-900 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700';
@@ -163,7 +164,7 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900">
       <div>
-        <h2 className="text-base font-medium text-gray-900 dark:text-zinc-100">Game Stats Cache</h2>
+        <h3 className="text-base font-medium text-gray-900 dark:text-zinc-100">Game Stats Cache</h3>
         <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
           Fetch and cache team stats for a specific week. Run after each game week completes.
         </p>
@@ -245,6 +246,10 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
           <span className="text-xs text-red-600 dark:text-red-400">{error ?? 'Failed'}</span>
         )}
       </div>
+      <MaintenanceActionDetails
+        action="game-stats-partition-refresh"
+        targetScope={`${year} ${seasonType} week ${week}`}
+      />
 
       <div className="space-y-2">
         <div className="flex items-center gap-3">
@@ -269,6 +274,10 @@ export default function GameStatsCachePanel({ defaultYear }: { defaultYear?: num
             ))}
           </ul>
         )}
+        <MaintenanceActionDetails
+          action="game-stats-full-backfill"
+          targetScope={`${year} full season (15 regular + 4 postseason weeks)`}
+        />
       </div>
     </section>
   );

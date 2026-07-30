@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
+import MaintenanceActionDetails from './MaintenanceActionDetails';
 import { interpretRefreshResponse, scoresAggregateRefreshUrl } from './manualRefresh';
 
 type SectionStatus = 'idle' | 'loading' | 'success' | 'error';
@@ -99,7 +100,7 @@ export default function GlobalRefreshPanel({
 
       <section className={sectionClass}>
         <div>
-          <h2 className="text-base font-medium text-gray-900 dark:text-zinc-100">Schedule</h2>
+          <h3 className="text-base font-medium text-gray-900 dark:text-zinc-100">Schedule</h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
             Fetch the latest schedule from the data provider. Run when games appear missing or
             incorrect.
@@ -115,11 +116,15 @@ export default function GlobalRefreshPanel({
           </button>
           <StatusBadge status={scheduleStatus} error={scheduleError} />
         </div>
+        <MaintenanceActionDetails
+          action="schedule-full-year-refresh"
+          targetScope={`${year} full season`}
+        />
       </section>
 
       <section className={sectionClass}>
         <div>
-          <h2 className="text-base font-medium text-gray-900 dark:text-zinc-100">Scores</h2>
+          <h3 className="text-base font-medium text-gray-900 dark:text-zinc-100">Scores</h3>
           <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
             Fetch the latest scores from the data provider for regular season and postseason.
           </p>
@@ -134,6 +139,10 @@ export default function GlobalRefreshPanel({
           </button>
           <StatusBadge status={scoresStatus} error={scoresError} />
         </div>
+        <MaintenanceActionDetails
+          action="scores-aggregate-refresh"
+          targetScope={`${year} season (applicable partitions)`}
+        />
       </section>
     </>
   );

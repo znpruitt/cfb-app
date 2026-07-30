@@ -4,6 +4,7 @@ import { useState } from 'react';
 
 import { getAdminAuthHeaders } from '@/lib/adminAuth';
 import type { PublicLeague } from '@/lib/league';
+import MaintenanceActionDetails from './MaintenanceActionDetails';
 
 type Props = {
   leagues: PublicLeague[];
@@ -82,9 +83,9 @@ export default function HistoricalCachePanel({ leagues }: Props) {
   return (
     <div className="rounded-lg border border-gray-200 bg-white p-5 space-y-4 dark:border-zinc-700 dark:bg-zinc-900">
       <div>
-        <h2 className="text-base font-medium text-gray-900 dark:text-zinc-100">
+        <h3 className="text-base font-medium text-gray-900 dark:text-zinc-100">
           Historical Data Cache
-        </h2>
+        </h3>
         <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
           Download and save schedule and score data for past seasons. Required before archiving
           historical seasons.
@@ -129,6 +130,10 @@ export default function HistoricalCachePanel({ leagues }: Props) {
                 : `Cached ${scheduleResult.gameCount} games for ${scheduleResult.year}`}
             </p>
           )}
+          <MaintenanceActionDetails
+            action="historical-schedule-repair"
+            targetScope={`${year} full season (past year)`}
+          />
         </div>
 
         <div className="flex flex-col gap-1">
@@ -147,6 +152,10 @@ export default function HistoricalCachePanel({ leagues }: Props) {
                 : `Cached ${scoresResult.scoreCount} scores for ${scoresResult.year}`}
             </p>
           )}
+          <MaintenanceActionDetails
+            action="historical-scores-repair"
+            targetScope={`${year} full season (past year)`}
+          />
         </div>
       </div>
     </div>

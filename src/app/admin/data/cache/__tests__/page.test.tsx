@@ -1,0 +1,91 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import AdminDataCachePage from '../page';
+import AdminPage from '../../../page';
+import {
+  __deleteAppStateFileForTests,
+  __resetAppStateForTests,
+  setAppState,
+} from '../../../../../lib/server/appStateStore.ts';
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2C — the stable /admin/data/cache route presents as Data
+// Maintenance & Recovery: renamed heading/breadcrumb/landing card, three
+// section groups in order, and NO rollover surface (Season Management owns it).
+// ---------------------------------------------------------------------------
+
+test.beforeEach(async () => {
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+});
+
+/** Collect every string and every component function name in a JSX tree. */
+function walk(node: unknown, out: { strings: string[]; components: string[] }): void {
+  if (typeof node === 'string') {
+    out.strings.push(node);
+    return;
+  }
+  if (Array.isArray(node)) {
+    for (const child of node) walk(child, out);
+    return;
+  }
+  if (node && typeof node === 'object') {
+    const el = node as { type?: unknown; props?: Record<string, unknown> };
+    if (typeof el.type === 'function' && el.type.name) out.components.push(el.type.name);
+    if (el.props) {
+      walk(el.props.children, out);
+      for (const [key, value] of Object.entries(el.props)) {
+        if (key !== 'children' && typeof value === 'string') out.strings.push(value);
+      }
+    }
+  }
+}
+
+test('page renders as Data Maintenance & Recovery with three ordered sections, no rollover', async () => {
+  await setAppState('leagues', 'registry', []);
+  const element = await AdminDataCachePage();
+  const out = { strings: [] as string[], components: [] as string[] };
+  walk(element, out);
+
+  const text = out.strings.join(' | ');
+  assert.match(text, /Data Maintenance & Recovery/);
+  assert.match(text, /Provider maintenance & recovery/);
+  assert.match(text, /Season inputs/);
+  assert.match(text, /Historical recovery/);
+  assert.match(text, /Season Management/, 'lifecycle link copy present');
+  assert.match(text, /nominal per successful attempt/, 'shared cost caveat stated');
+
+  // Sections appear in the intended order.
+  const provider = text.indexOf('Provider maintenance & recovery');
+  const inputs = text.indexOf('Season inputs');
+  const historical = text.indexOf('Historical recovery');
+  assert.ok(provider < inputs && inputs < historical, 'section order');
+
+  // Rollover is absent — Season Management owns it.
+  assert.ok(!out.components.includes('SeasonRolloverPanel'), 'SeasonRolloverPanel not rendered');
+  assert.ok(!text.includes('Season Rollover'), 'no rollover copy');
+
+  // The five maintenance panels are all still composed.
+  for (const name of [
+    'GlobalRefreshPanel',
+    'GameStatsCachePanel',
+    'SpRatingsCachePanel',
+    'WinTotalsUploadPanel',
+    'HistoricalCachePanel',
+  ]) {
+    assert.ok(out.components.includes(name), `${name} rendered`);
+  }
+});
+
+test('the /admin landing card uses the new name while the href stays /admin/data/cache', async () => {
+  await setAppState('leagues', 'registry', []);
+  const element = await AdminPage();
+  const out = { strings: [] as string[], components: [] as string[] };
+  walk(element, out);
+
+  const text = out.strings.join(' | ');
+  assert.match(text, /Data Maintenance & Recovery/);
+  assert.ok(out.strings.includes('/admin/data/cache'), 'href unchanged');
+  assert.ok(!out.strings.includes('Data Cache'), 'old card title retired');
+});
