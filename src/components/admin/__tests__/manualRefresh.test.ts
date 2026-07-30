@@ -337,9 +337,19 @@ test('datasetControlMode: schedule is interactive DESPITE being lifecycle-critic
 });
 
 test('datasetControlMode: planned datasets are not interactive', () => {
-  for (const dataset of ['rankings', 'conferences'] as const) {
+  // `rankings` left this list with PLATFORM-086E2B (its publication cron
+  // consumes the toggle — exercised below); conferences stay planned/manual.
+  for (const dataset of ['conferences'] as const) {
     assert.equal(datasetControlMode(getProviderDatasetDescriptor(dataset)), 'planned');
   }
+});
+
+test('datasetControlMode: rankings is interactive (086E2B — publication cron consumes the toggle)', () => {
+  const descriptor = getProviderDatasetDescriptor('rankings');
+  assert.equal(descriptor.hasActiveAutomation, true);
+  assert.equal(descriptor.autoRefreshSettingConsumed, true);
+  assert.equal(descriptor.lifecycleCritical, false);
+  assert.equal(datasetControlMode(descriptor), 'interactive');
 });
 
 test('controlModeLabel: exempt and planned modes have honest read-only text', () => {

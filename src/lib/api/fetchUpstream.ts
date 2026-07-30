@@ -403,3 +403,15 @@ export async function fetchUpstreamJson<T>(
     });
   }
 }
+
+/**
+ * Test-only: clear the shared per-key pacing state. Suites that pin `Date.now`
+ * with mocked timers (PLATFORM-086E2B publication-slot tests) would otherwise
+ * leave a `nextAllowedAt` in another test's future when the mocked clock jumps
+ * backward between tests, turning the 150 ms pacing wait into an effectively
+ * unbounded sleep. Never called in production paths.
+ */
+export function __resetUpstreamPacingForTests(): void {
+  paceNextAllowedAtByKey.clear();
+  paceTailByKey.clear();
+}
