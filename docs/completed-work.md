@@ -1970,6 +1970,28 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2A — Admin Control-Plane Inventory + Target IA — Complete
+
+- **Status:** Complete — merged to `main` via PR #430 (merge commit `4d6b897`, 2026-07-30).
+  Documentation-only; six files (the new canonical doc + ledger/index projections).
+- **PROMPT_ID(s):** `PLATFORM-086F2A-ADMIN-CONTROL-PLANE-IA-v1` (first slice of the
+  PLATFORM-086F2 admin control-plane redesign).
+- **Outcome:** `docs/architecture/admin-control-plane.md` is now canonical for the admin
+  route/action inventory (source-verified at `7d5741a`, with corrections to the accepted audit
+  draft), the locked decisions, the target information architecture, the hardened
+  `scheduler-execution-status/<job>` receipt contract (post-auth writes only, monotonic ordering),
+  and the F2A–F2J migration map with per-finding slice ownership (high-priority lifecycle
+  correctness → F2B; historical-scores status recording made mandatory for F2C per the binding
+  provider-status invariant).
+- **Verification:** `npm run lint:markdown` clean; relative links validated; route/action matrix
+  independently verified against the admin pages, admin API routes, and cron routes. Review
+  converged: Claude self-review + three Codex rounds (details in `docs/prompt-registry.md`), with
+  the round-3 P2 resolved by explicit user authorization.
+- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2B is
+  the next F2 slice; the co-located `route.test.ts` relocation is a recorded candidate follow-up).
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped

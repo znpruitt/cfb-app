@@ -102,10 +102,10 @@ that plan.
 
 Execution order within F2 (each slice is one independently deployable PR):
 
-1. **F2A — inventory + IA doc** (docs-only) — implemented, PR open.
+1. **F2A — inventory + IA doc** (docs-only) — ✅ merged (PR #430).
 2. **F2B — lifecycle authority safety** (manual rollover converged onto the strict automatic
    eligibility gate, per-lifecycle-year rollover, no render-time status seeding, single league-year
-   authority) — next slice, after F2A merges.
+   authority) — the next slice.
 3. Then, in order: F2C maintenance action model → F2D operational-mutation relocation → F2E1/F2E2
    scheduler receipts → F2F system-health read model → F2G System Health UI → F2H Season Management
    consolidation → F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
