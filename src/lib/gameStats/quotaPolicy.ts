@@ -100,13 +100,22 @@ function resolveRemaining(
   return { remaining: remainingCalls };
 }
 
-/** The scheduled (automation) gate: trustworthy usage ≥ 1,002 or refuse. */
-export function evaluateAutomationQuota(usage: CfbdUsageSnapshot): AutomationQuotaDecision {
+/**
+ * The scheduled (automation) gate: trustworthy usage at or above `minRemaining`
+ * or refuse. The default minimum stays the game-stats/live-score threshold
+ * (reserve + 2 = 1,002); a caller whose refresh may spend more calls supplies
+ * its own reserve-plus-allowance minimum (e.g. rankings automation passes
+ * 1,007, PLATFORM-086E2A) while reusing this ONE usage-trust algorithm.
+ */
+export function evaluateAutomationQuota(
+  usage: CfbdUsageSnapshot,
+  minRemaining: number = CFBD_AUTOMATION_MIN_REMAINING
+): AutomationQuotaDecision {
   const resolved = resolveRemaining(usage);
   if ('refusal' in resolved) {
     return { kind: 'refused', reason: resolved.refusal, remaining: resolved.remaining };
   }
-  if (resolved.remaining < CFBD_AUTOMATION_MIN_REMAINING) {
+  if (resolved.remaining < minRemaining) {
     return { kind: 'refused', reason: 'below-reserve', remaining: resolved.remaining };
   }
   return { kind: 'allowed', remaining: resolved.remaining };

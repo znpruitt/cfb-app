@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getDefaultRankingsSeason } from '@/lib/rankings';
+import { refreshSeasonRankings } from '@/lib/rankings/refreshAuthority';
 import { loadSeasonRankings } from '@/lib/server/rankings';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 
@@ -12,6 +13,13 @@ function parseNonNegativeInt(raw: string | null): number | null {
   return Number.parseInt(raw, 10);
 }
 
+/**
+ * Thin adapter (PLATFORM-086E2A): public reads are strictly cache-only via
+ * `loadSeasonRankings`; the authorized `bypassCache` path drives the shared
+ * refresh authority and translates its typed result — never re-deriving outcome
+ * truth from exceptions. Error bodies stay on the closed secret-free reason
+ * vocabulary; provider payloads, URLs, credentials, and stacks never surface.
+ */
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const yearParam = url.searchParams.get('year');
@@ -36,7 +44,18 @@ export async function GET(req: Request) {
     const authFailure = await requireAdminRequest(req);
     if (bypassCache && authFailure) return authFailure;
 
-    return NextResponse.json(await loadSeasonRankings(year, { allowRefresh: bypassCache }));
+    if (bypassCache) {
+      const result = await refreshSeasonRankings({ year, trigger: 'manual' });
+      if (result.reason === 'refresh-in-progress') {
+        return NextResponse.json({ error: 'rankings-refresh-in-progress' }, { status: 409 });
+      }
+      if (result.response) {
+        return NextResponse.json(result.response, { status: result.httpStatus });
+      }
+      return NextResponse.json({ error: result.reason }, { status: result.httpStatus });
+    }
+
+    return NextResponse.json(await loadSeasonRankings(year));
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown rankings error';
     const status = message.includes('admin refresh required') ? 503 : 500;
