@@ -1,7 +1,16 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { loadSeasonRankings, __resetSeasonRankingsCacheForTests } from '../server/rankings.ts';
+import { refreshSeasonRankings } from '../rankings/refreshAuthority.ts';
+import {
+  loadSeasonRankings,
+  peekRankingsProcessMemo,
+  publishRankingsProcessMemo,
+  __resetSeasonRankingsCacheForTests,
+  __setSeasonRankingsCacheForTests,
+  RANKINGS_MEMO_TTL_MS,
+  type RankingsCacheEntry,
+} from '../server/rankings.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -14,10 +23,11 @@ import { yearScope } from '../providerRefreshScope.ts';
 import type { RankingsResponse } from '../rankings.ts';
 
 // ---------------------------------------------------------------------------
-// PLATFORM-085A — durable-first commit order for the rankings provider cache.
-// An authorized rankings refresh must persist durably BEFORE publishing to the
-// process-local CACHE, so a failed durable write never leaves this instance
-// serving "fresh" rankings other instances can't reproduce.
+// PLATFORM-085A — durable-first commit order for the rankings provider cache,
+// now enforced by the PLATFORM-086E2A shared refresh authority: an authorized
+// rankings refresh must persist durably BEFORE publishing to the process memo,
+// so a failed durable write never leaves this instance serving "fresh" rankings
+// other instances can't reproduce.
 // ---------------------------------------------------------------------------
 
 const SEASON = 2026;
@@ -25,7 +35,7 @@ const ORIGINAL_FETCH = global.fetch;
 const ORIGINAL_CFBD_KEY = process.env.CFBD_API_KEY;
 
 // A CFBD regular-season rankings payload that normalizes to a usable week (real
-// team names so the identity resolver resolves them). An EMPTY payload is now a
+// team names so the identity resolver resolves them). An EMPTY payload is a
 // no-op that never persists (5th-review finding #6), so the durable-first commit
 // path needs genuine content to exercise.
 const RANKINGS_PAYLOAD = [
@@ -78,6 +88,10 @@ function stubRankings(opts: { regular: unknown; postseason: unknown }) {
   }) as typeof fetch;
 }
 
+function refresh() {
+  return refreshSeasonRankings({ year: SEASON, trigger: 'manual' });
+}
+
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
@@ -86,14 +100,7 @@ test.beforeEach(async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
   // CFBD rankings upstream returns a usable regular-season poll (empty postseason),
   // so the refresh builds and persists a nonempty response.
-  global.fetch = (async (input: URL | string) => {
-    const url = new URL(typeof input === 'string' ? input : input.toString());
-    const body = url.searchParams.get('seasonType') === 'postseason' ? [] : RANKINGS_PAYLOAD;
-    return new Response(JSON.stringify(body), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    });
-  }) as typeof fetch;
+  stubRankings({ regular: RANKINGS_PAYLOAD, postseason: [] });
 });
 
 test.after(() => {
@@ -105,9 +112,13 @@ test.after(() => {
 });
 
 test('rankings refresh: a durable write failure does not publish process-local fresh rankings', async () => {
-  __setAppStateWriteFailureForTests(new Error('durable write unavailable'));
+  // Fail ONLY the rankings-data commit; the lease control scope still works, so
+  // this exercises the COMMIT transaction failure specifically.
+  __setAppStateWriteFailureForTests(new Error('durable write unavailable'), 'rankings');
   try {
-    await assert.rejects(() => loadSeasonRankings(SEASON, { allowRefresh: true }));
+    const result = await refresh();
+    assert.equal(result.status, 'failure');
+    assert.equal(result.reason, 'durable-commit-failed');
   } finally {
     __setAppStateWriteFailureForTests(null);
   }
@@ -116,17 +127,18 @@ test('rankings refresh: a durable write failure does not publish process-local f
   assert.equal(await getAppState('rankings', String(SEASON)), null);
 
   // A subsequent non-refresh read must NOT serve fresh rankings from the
-  // process cache (it was never populated) — with nothing cached it demands an
+  // process memo (it was never populated) — with nothing cached it demands an
   // admin refresh instead of returning a poisoned hit.
   await assert.rejects(() => loadSeasonRankings(SEASON), /admin refresh required/);
 });
 
 test('rankings refresh: a successful durable write publishes to the process cache', async () => {
-  const first = await loadSeasonRankings(SEASON, { allowRefresh: true });
-  assert.equal(first.meta.cache, 'miss');
+  const result = await refresh();
+  assert.equal(result.reason, 'written-clean');
+  assert.equal(result.response?.meta.cache, 'miss');
 
   // Durable persisted, and a non-refresh read is now served from the process
-  // cache as a hit.
+  // memo as a hit.
   assert.ok(await getAppState('rankings', String(SEASON)));
   const second = await loadSeasonRankings(SEASON);
   assert.equal(second.meta.cache, 'hit');
@@ -134,10 +146,9 @@ test('rankings refresh: a successful durable write publishes to the process cach
 
 test('rankings refresh: a missing CFBD key records a failed attempt (rereview finding #5)', async () => {
   delete process.env.CFBD_API_KEY;
-  await assert.rejects(
-    () => loadSeasonRankings(SEASON, { allowRefresh: true }),
-    /CFBD_API_KEY missing/
-  );
+  const result = await refresh();
+  assert.equal(result.status, 'failure');
+  assert.equal(result.reason, 'cfbd-api-key-missing');
   const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.equal(status.lastError?.code, 'cfbd-api-key-missing');
@@ -150,11 +161,7 @@ test('rankings refresh: a missing CFBD key records a failed attempt (rereview fi
 // ---------------------------------------------------------------------------
 
 function stubEmptyRankings() {
-  global.fetch = (async () =>
-    new Response(JSON.stringify([]), {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    })) as typeof fetch;
+  stubRankings({ regular: [], postseason: [] });
 }
 
 function populatedRankings(): RankingsResponse {
@@ -175,7 +182,11 @@ function populatedRankings(): RankingsResponse {
             primaryRankSource: 'ap',
           },
         ],
-        polls: { cfp: [], ap: [], coaches: [] },
+        polls: {
+          cfp: [],
+          ap: [{ teamId: 'georgia', teamName: 'Georgia', rank: 1, rankSource: 'ap' }],
+          coaches: [],
+        },
       },
     ],
     latestWeek: null,
@@ -183,10 +194,16 @@ function populatedRankings(): RankingsResponse {
   };
 }
 
+function priorGoodEntry(): RankingsCacheEntry {
+  return { at: Date.parse('2026-01-01T00:00:00.000Z'), response: populatedRankings() };
+}
+
 test('rankings refresh: a valid pre-poll empty resolves as a no-op without persisting', async () => {
   stubEmptyRankings();
-  const response = await loadSeasonRankings(SEASON, { allowRefresh: true });
-  assert.deepEqual(response.weeks, [], 'an empty pre-poll response returns no weeks');
+  const result = await refresh();
+  assert.equal(result.status, 'no-op');
+  assert.equal(result.reason, 'empty-response');
+  assert.deepEqual(result.response?.weeks, [], 'an empty pre-poll response returns no weeks');
 
   // Nothing durable was written (no empty "healthy" snapshot).
   assert.equal(await getAppState('rankings', String(SEASON)), null);
@@ -197,18 +214,18 @@ test('rankings refresh: a valid pre-poll empty resolves as a no-op without persi
 
 test('rankings refresh: an unexpected empty over prior-good preserves it and records failure', async () => {
   // Prior-good durable rankings for this season.
-  await setAppState('rankings', String(SEASON), {
-    at: Date.parse('2026-01-01T00:00:00.000Z'),
-    response: populatedRankings(),
-  });
+  await setAppState('rankings', String(SEASON), priorGoodEntry());
   __resetSeasonRankingsCacheForTests(); // force the durable read
   stubEmptyRankings();
 
-  const response = await loadSeasonRankings(SEASON, { allowRefresh: true });
+  const result = await refresh();
+  assert.equal(result.status, 'failure');
+  assert.equal(result.reason, 'rankings-empty-replacement-rejected');
   // Prior-good rankings are served (stale), not replaced with an empty snapshot.
-  assert.equal(response.weeks.length, 1, 'prior-good weeks are retained and served');
+  assert.equal(result.response?.weeks.length, 1, 'prior-good weeks are retained and served');
+  assert.equal(result.response?.meta.stale, true);
 
-  const durable = await getAppState<{ response: RankingsResponse }>('rankings', String(SEASON));
+  const durable = await getAppState<RankingsCacheEntry>('rankings', String(SEASON));
   assert.equal(durable?.value?.response?.weeks?.length, 1, 'durable rankings not overwritten');
 
   const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
@@ -223,20 +240,19 @@ test('rankings refresh: an unexpected empty over prior-good preserves it and rec
 // ---------------------------------------------------------------------------
 
 test('rankings refresh: a drifted regular partition rejects even when postseason is usable', async () => {
-  // Prior-good so the reject serves stale rather than throwing.
-  await setAppState('rankings', String(SEASON), {
-    at: Date.parse('2026-01-01T00:00:00.000Z'),
-    response: populatedRankings(),
-  });
+  // Prior-good so the reject serves stale rather than failing hard.
+  await setAppState('rankings', String(SEASON), priorGoodEntry());
   __resetSeasonRankingsCacheForTests();
   stubRankings({ regular: DRIFT_PAYLOAD, postseason: POSTSEASON_USABLE });
 
-  const response = await loadSeasonRankings(SEASON, { allowRefresh: true });
+  const result = await refresh();
+  assert.equal(result.status, 'failure');
+  assert.equal(result.reason, 'rankings-partition-schema-drift');
   // Usable postseason must NOT mask the regular drift — the aggregate is rejected
   // and prior-good is served, never a silently-incomplete (postseason-only) commit.
-  assert.equal(response.weeks.length, 1, 'prior-good retained, not an incomplete commit');
+  assert.equal(result.response?.weeks.length, 1, 'prior-good retained, not an incomplete commit');
 
-  const durable = await getAppState<{ response: RankingsResponse }>('rankings', String(SEASON));
+  const durable = await getAppState<RankingsCacheEntry>('rankings', String(SEASON));
   assert.equal(durable?.value?.response?.weeks?.length, 1, 'durable rankings not overwritten');
 
   const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
@@ -246,28 +262,28 @@ test('rankings refresh: a drifted regular partition rejects even when postseason
 });
 
 test('rankings refresh: a drifted postseason partition rejects even when regular is usable', async () => {
-  // No prior-good → the reject surfaces as a hard failure (throws).
+  // No prior-good → the reject surfaces as a hard failure (nothing servable).
   stubRankings({ regular: RANKINGS_PAYLOAD, postseason: DRIFT_PAYLOAD });
-  await assert.rejects(
-    () => loadSeasonRankings(SEASON, { allowRefresh: true }),
-    /partition schema drift/
-  );
+  const result = await refresh();
+  assert.equal(result.status, 'failure');
+  assert.equal(result.reason, 'rankings-partition-schema-drift');
+  assert.equal(result.httpStatus, 500);
+  assert.equal(result.response, null);
   assert.equal(await getAppState('rankings', String(SEASON)), null, 'nothing committed');
   const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.deepEqual(status.failedPartitions, ['postseason']);
-  // 7th-review finding #3: the outer catch must NOT overwrite the specific code
-  // with a generic one when the drift branch already resolved the attempt.
+  // 7th-review finding #3: the specific drift code must survive — never
+  // overwritten by a generic failure recording.
   assert.equal(status.lastError?.code, 'rankings-partition-schema-drift');
-  assert.match(status.lastError?.message ?? '', /schema drift/);
+  assert.match(status.lastError?.message ?? '', /schema-drift/);
 });
 
 test('rankings refresh: both partitions drifting with no prior cache is a failure, not a no-op', async () => {
   stubRankings({ regular: DRIFT_PAYLOAD, postseason: DRIFT_PAYLOAD });
-  await assert.rejects(
-    () => loadSeasonRankings(SEASON, { allowRefresh: true }),
-    /partition schema drift/
-  );
+  const result = await refresh();
+  assert.equal(result.status, 'failure');
+  assert.equal(result.reason, 'rankings-partition-schema-drift');
   assert.equal(await getAppState('rankings', String(SEASON)), null, 'nothing committed');
   const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'failed');
@@ -276,23 +292,69 @@ test('rankings refresh: both partitions drifting with no prior cache is a failur
 });
 
 test('rankings refresh: a generic provider failure still records a generic (non-drift) code', async () => {
-  // A network/HTTP failure is NOT drift — it must record through the generic outer
-  // catch, and must not masquerade with the drift code.
+  // A network/HTTP failure is NOT drift — it must record the transport-failure
+  // code, and must not masquerade with the drift code.
   global.fetch = (async () =>
-    new Response('upstream unavailable', { status: 503 })) as typeof fetch;
-  await assert.rejects(() => loadSeasonRankings(SEASON, { allowRefresh: true }));
+    new Response('upstream unavailable', { status: 400 })) as typeof fetch;
+  const result = await refresh();
+  assert.equal(result.status, 'failure');
+  assert.equal(result.reason, 'provider-fetch-failed');
   const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.notEqual(status.lastError?.code, 'rankings-partition-schema-drift');
+});
+
+test('a public read racing a same-instance commit never regresses the process memo', async () => {
+  // Reader memo-regression race (review P3 #1): the reader's memo is EXPIRED
+  // with old content, the durable read is in flight, and a refresh on this
+  // instance publishes a fresher memo during that await. The reader must not
+  // clobber the fresher memo (nor serve the older snapshot) when it resumes.
+  const oldEntry = priorGoodEntry();
+  await setAppState('rankings', String(SEASON), oldEntry);
+  __setSeasonRankingsCacheForTests(SEASON, oldEntry, {
+    memoizedAtMs: Date.now() - RANKINGS_MEMO_TTL_MS - 1000,
+  });
+
+  const fresher: RankingsCacheEntry = {
+    at: oldEntry.at + 60_000,
+    response: {
+      ...populatedRankings(),
+      meta: {
+        source: 'cfbd',
+        cache: 'miss',
+        generatedAt: new Date(oldEntry.at + 60_000).toISOString(),
+      },
+    },
+  };
+
+  // Start the read (expired memo → durable re-read), then publish the fresher
+  // commit BEFORE the in-flight durable read resolves (synchronous publish
+  // lands ahead of the awaited continuation).
+  const pending = loadSeasonRankings(SEASON);
+  publishRankingsProcessMemo(SEASON, fresher);
+
+  const served = await pending;
+  assert.equal(
+    served.meta.generatedAt,
+    fresher.response.meta.generatedAt,
+    'the fresher concurrent commit is served, not the older durable snapshot'
+  );
+  assert.equal(
+    peekRankingsProcessMemo(SEASON)?.at,
+    fresher.at,
+    'the fresher memo survives the racing read'
+  );
 });
 
 test('rankings refresh: usable regular + genuinely empty postseason commits successfully', async () => {
   // The normal mid-season case: regular usable, postseason raw-empty (pre-bowls).
   // Empty postseason is valid absence, NOT drift — the refresh commits.
   stubRankings({ regular: RANKINGS_PAYLOAD, postseason: [] });
-  const response = await loadSeasonRankings(SEASON, { allowRefresh: true });
-  assert.equal(response.meta.cache, 'miss');
-  assert.ok(response.weeks.length >= 1, 'usable regular weeks committed');
+  const result = await refresh();
+  assert.equal(result.status, 'success');
+  assert.equal(result.reason, 'written-clean');
+  assert.equal(result.response?.meta.cache, 'miss');
+  assert.ok((result.response?.weeks.length ?? 0) >= 1, 'usable regular weeks committed');
   const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'succeeded');
 });

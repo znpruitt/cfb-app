@@ -1,7 +1,25 @@
-import teamsCatalog from '../../data/teams.json';
-import { buildCfbdRankingsUrl } from '../cfbd.ts';
-import { fetchUpstreamJson } from '../api/fetchUpstream.ts';
-import { createTeamIdentityResolver, type TeamCatalogItem } from '../teamIdentity.ts';
+/**
+ * Server-side rankings cache reading + provider-payload normalization.
+ *
+ * PLATFORM-086E2A separation: this module is strictly CACHE-ONLY. It never
+ * contacts CFBD — `loadSeasonRankings` serves the process memo and the durable
+ * `rankings/<year>` snapshot, and every provider fetch/validation/commit lives in
+ * the shared refresh authority (`src/lib/rankings/refreshAuthority.ts`), which is
+ * the ONE writer for both the authorized manual route and the future
+ * PLATFORM-086E2B automatic caller.
+ *
+ * Freshness model (PLATFORM-086E2A):
+ *   - The process memo is a cross-instance VISIBILITY bound, not a data-staleness
+ *     judgment: a reader may trust its in-process copy for at most 120 seconds
+ *     before forcing a durable re-read, so another instance's committed refresh
+ *     becomes visible within that bound.
+ *   - Rankings DATA staleness is the weekly-cadence horizon shared with the
+ *     provider descriptor (8 days): younger snapshots serve clean; older ones
+ *     remain prior-good fallback but carry `meta.stale`/`meta.rebuildRequired`.
+ *   - Neither horizon ever authorizes a public read to contact the provider.
+ */
+
+import { createTeamIdentityResolver } from '../teamIdentity.ts';
 import {
   normalizePollSource,
   selectPrimaryRankSource,
@@ -12,33 +30,8 @@ import {
   type RankingsResponse,
   type RankingsWeek,
 } from '../rankings.ts';
-import { SEED_ALIASES } from '../teamNames.ts';
-import { getAppState, setAppState } from './appStateStore.ts';
-import { yearScope } from '../providerRefreshScope.ts';
-import {
-  beginProviderRefreshAttempt,
-  nextProviderCommitSeq,
-  recordProviderRefreshFailure,
-  recordProviderRefreshNoop,
-  recordProviderRefreshSuccess,
-} from './providerRefreshStatus.ts';
-
-/**
- * A rankings refresh failure that has ALREADY resolved the provider-refresh
- * attempt with its own specific metadata (code + `failedPartitions` + a detailed
- * message). The outer catch must rethrow it WITHOUT recording a second, generic
- * failure — a second `recordProviderRefreshFailure` would replace `lastError`
- * (and drop the actionable code / failed partitions) with a generic message
- * (7th-review finding #3). Only genuinely unrecorded errors (fetch/network/durable
- * commit) fall through to the generic outer-catch recording.
- */
-class RecordedRankingsRefreshError extends Error {
-  readonly alreadyRecorded = true;
-  constructor(message: string) {
-    super(message);
-    this.name = 'RecordedRankingsRefreshError';
-  }
-}
+import { getProviderDatasetDescriptor } from '../providerDatasets.ts';
+import { getAppState } from './appStateStore.ts';
 
 export type CfbdPollRank = {
   rank: number | null;
@@ -58,25 +51,39 @@ export type CfbdPollWeek = {
   polls: CfbdPoll[];
 };
 
-const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-const CACHE = new Map<number, { at: number; response: RankingsResponse }>();
-const CFBD_RETRY_POLICY = {
-  maxAttempts: 3,
-  baseDelayMs: 250,
-  maxDelayMs: 2_000,
-  jitterRatio: 0.2,
-  retryOnHttpStatuses: [408, 425, 429, 500, 502, 503, 504],
-} as const;
-const CFBD_PACING_POLICY = {
-  key: 'cfbd',
-  minIntervalMs: 150,
-} as const;
+/** One durable/process-cached rankings snapshot: observation instant + payload. */
+export type RankingsCacheEntry = {
+  /** Observation instant (epoch ms) captured immediately before provider work. */
+  at: number;
+  response: RankingsResponse;
+};
+
+/**
+ * Process-memo lifetime: how long one instance may trust its in-process copy
+ * before forcing a durable re-read (cross-instance visibility bound). This is
+ * NOT a data-staleness judgment — see `RANKINGS_STALE_AFTER_MS`.
+ */
+export const RANKINGS_MEMO_TTL_MS = 120 * 1000;
+
+/**
+ * Rankings DATA staleness horizon — weekly-cadence data with an 8-day allowance,
+ * sourced from the shared provider descriptor so diagnostics and serving truth
+ * cannot drift apart.
+ */
+export const RANKINGS_STALE_AFTER_MS = getProviderDatasetDescriptor('rankings').staleAfterMs;
+
+const CACHE = new Map<number, { entry: RankingsCacheEntry; memoizedAtMs: number }>();
 
 function compareWeek(a: RankingsWeek, b: RankingsWeek): number {
   if (a.season !== b.season) return a.season - b.season;
   if (a.week !== b.week) return a.week - b.week;
   const seasonTypeOrder = (value: string) => (value === 'postseason' ? 1 : 0);
   return seasonTypeOrder(a.seasonType) - seasonTypeOrder(b.seasonType);
+}
+
+/** Stable week ordering shared by normalization and the refresh authority. */
+export function compareRankingsWeeks(a: RankingsWeek, b: RankingsWeek): number {
+  return compareWeek(a, b);
 }
 
 function toCanonicalPollEntries(
@@ -160,9 +167,14 @@ function mergeWeekRankings(params: {
   };
 }
 
-const POSTSEASON_SYNTHETIC_WEEK = 999;
+export const POSTSEASON_SYNTHETIC_WEEK = 999;
 
-function remapPostseasonWeeks(weeks: RankingsWeek[]): RankingsWeek[] {
+/**
+ * Collapse the postseason partition to ONE synthetic final-poll week (the highest
+ * CFBD postseason week), keyed at `POSTSEASON_SYNTHETIC_WEEK` — the canonical
+ * final-poll representation every rankings surface consumes.
+ */
+export function remapPostseasonWeeks(weeks: RankingsWeek[]): RankingsWeek[] {
   const regular = weeks.filter((w) => w.seasonType !== 'postseason');
   const postseason = weeks
     .filter((w) => w.seasonType === 'postseason')
@@ -191,8 +203,8 @@ export function normalizeCfbdRankingsWeeks(
     .sort(compareWeek);
 }
 
-type RankingsPartition = 'regular' | 'postseason';
-type RankingsPartitionKind = 'usable' | 'schema-drift' | 'valid-empty';
+export type RankingsPartition = 'regular' | 'postseason';
+export type RankingsPartitionKind = 'usable' | 'schema-drift' | 'valid-empty';
 
 /**
  * Classify a SINGLE rankings partition from its raw provider payload and its
@@ -211,241 +223,88 @@ export function classifyRankingsPartition(
   return { partition, kind: raw.length > 0 ? 'schema-drift' : 'valid-empty' };
 }
 
+/** A stored value is a usable cache entry only when it carries a real response. */
+export function normalizeStoredRankingsEntry(value: unknown): RankingsCacheEntry | null {
+  if (!value || typeof value !== 'object') return null;
+  const candidate = value as Partial<RankingsCacheEntry>;
+  if (typeof candidate.at !== 'number' || !Number.isFinite(candidate.at)) return null;
+  const response = candidate.response as Partial<RankingsResponse> | undefined;
+  if (!response || typeof response !== 'object') return null;
+  if (!Array.isArray(response.weeks)) return null;
+  return { at: candidate.at, response: response as RankingsResponse };
+}
+
+/**
+ * Build the served payload for one cache entry: `cache: 'hit'`, with the
+ * stale/rebuild markers applied ONLY past the 8-day data horizon — never merely
+ * because the snapshot outlived the 120-second process memo.
+ */
+export function serveRankingsEntry(entry: RankingsCacheEntry, nowMs: number): RankingsResponse {
+  const stale = nowMs - entry.at >= RANKINGS_STALE_AFTER_MS;
+  return {
+    ...entry.response,
+    meta: {
+      source: entry.response.meta?.source ?? 'cfbd',
+      cache: 'hit',
+      generatedAt: entry.response.meta?.generatedAt ?? new Date(entry.at).toISOString(),
+      ...(stale ? { stale: true, rebuildRequired: true } : {}),
+    },
+  };
+}
+
+/**
+ * Publish a confirmed durable entry into the process memo. Called by the refresh
+ * authority ONLY after its transaction commit, and by the cache reader when it
+ * re-reads durable state.
+ */
+export function publishRankingsProcessMemo(season: number, entry: RankingsCacheEntry): void {
+  CACHE.set(season, { entry, memoizedAtMs: Date.now() });
+}
+
+/** The current memoized entry regardless of memo TTL (visibility comparisons). */
+export function peekRankingsProcessMemo(season: number): RankingsCacheEntry | null {
+  return CACHE.get(season)?.entry ?? null;
+}
+
+/**
+ * Strictly cache-only rankings read: process memo (≤120s) → durable snapshot →
+ * newest available entry. NEVER contacts CFBD. With nothing cached anywhere it
+ * throws the established `admin refresh required` error (the route maps it to
+ * HTTP 503) — a public cache miss is provider-free by construction.
+ */
 export async function loadSeasonRankings(
-  season = getDefaultRankingsSeason(null),
-  options?: { allowRefresh?: boolean }
+  season = getDefaultRankingsSeason(null)
 ): Promise<RankingsResponse> {
-  const allowRefresh = options?.allowRefresh ?? false;
-  const cached = CACHE.get(season);
   const now = Date.now();
-  if (!allowRefresh && cached && now - cached.at < CACHE_TTL_MS) {
-    return {
-      ...cached.response,
-      meta: {
-        ...cached.response.meta,
-        cache: 'hit',
-      },
-    };
+  const memo = CACHE.get(season);
+  if (memo && now - memo.memoizedAtMs < RANKINGS_MEMO_TTL_MS) {
+    return serveRankingsEntry(memo.entry, now);
   }
 
-  const stored = await getAppState<{ at: number; response: RankingsResponse }>(
-    'rankings',
-    String(season)
+  // Memo absent or past its visibility bound — force a durable read so another
+  // instance's committed refresh becomes visible within 120 seconds.
+  const stored = normalizeStoredRankingsEntry(
+    (await getAppState<unknown>('rankings', String(season)))?.value
   );
-  if (!allowRefresh && stored?.value && now - stored.value.at < CACHE_TTL_MS) {
-    CACHE.set(season, stored.value);
-    return {
-      ...stored.value.response,
-      meta: {
-        ...stored.value.response.meta,
-        cache: 'hit',
-      },
-    };
+
+  const candidates = [memo?.entry ?? null, stored].filter(
+    (entry): entry is RankingsCacheEntry => entry !== null
+  );
+  const newest = candidates.sort((a, b) => b.at - a.at)[0] ?? null;
+  if (newest) {
+    // A refresh on THIS instance may have committed and published a fresher
+    // memo while the durable read above was in flight — never regress the memo
+    // (and this response) below it (mirrors the authority's stale-observation
+    // memo guard; PLATFORM-086E2A review P3 #1).
+    const concurrent = CACHE.get(season)?.entry ?? null;
+    const winner = concurrent && concurrent.at > newest.at ? concurrent : newest;
+    CACHE.set(season, { entry: winner, memoizedAtMs: now });
+    return serveRankingsEntry(winner, now);
   }
 
-  if (!allowRefresh) {
-    const staleCandidates = [cached, stored?.value].filter(
-      (entry): entry is NonNullable<typeof entry> => Boolean(entry)
-    );
-    const stale = staleCandidates.sort((a, b) => b.at - a.at)[0] ?? null;
-    if (stale) {
-      return {
-        ...stale.response,
-        meta: {
-          ...stale.response.meta,
-          cache: 'hit',
-          stale: true,
-          rebuildRequired: true,
-        },
-      };
-    }
-    throw new Error(
-      'rankings cache miss: admin refresh required (retry with bypassCache=1 and admin token)'
-    );
-  }
-
-  // Provider-refresh observability (PLATFORM-086A): only the allowRefresh path
-  // reaches here (cache-only reads returned above), so this is a real refresh.
-  // Begin BEFORE credential validation so a missing-key early exit still resolves
-  // a recorded failed attempt (rereview finding #5).
-  // One rankings refresh genuinely covers BOTH season-type partitions (regular +
-  // postseason are fetched, validated, and aggregated together below), so it
-  // records the explicit YEAR ROLLUP. There is no regular-only rankings path that
-  // could establish year-wide freshness from a single partition.
-  const rankingsScope = yearScope(season);
-  const attempt = await beginProviderRefreshAttempt('rankings', rankingsScope, {
-    startedAt: new Date(now).toISOString(),
-  });
-
-  const cfbdApiKey = process.env.CFBD_API_KEY?.trim() ?? '';
-  if (!cfbdApiKey) {
-    await recordProviderRefreshFailure('rankings', rankingsScope, {
-      attempt,
-      error: 'CFBD_API_KEY missing',
-      code: 'cfbd-api-key-missing',
-      durationMs: Date.now() - now,
-    });
-    throw new Error('CFBD_API_KEY missing');
-  }
-
-  try {
-    const resolver = createTeamIdentityResolver({
-      aliasMap: SEED_ALIASES,
-      teams: (teamsCatalog.items ?? []) as TeamCatalogItem[],
-    });
-    const fetchOpts = {
-      cache: 'no-store' as const,
-      timeoutMs: 12_000,
-      headers: { Authorization: `Bearer ${cfbdApiKey}` },
-      retry: CFBD_RETRY_POLICY,
-      pacing: CFBD_PACING_POLICY,
-    };
-
-    const [regularData, postseasonData] = await Promise.all([
-      fetchUpstreamJson<CfbdPollWeek[]>(
-        buildCfbdRankingsUrl({ year: season, seasonType: 'regular' }).toString(),
-        fetchOpts
-      ),
-      fetchUpstreamJson<CfbdPollWeek[]>(
-        buildCfbdRankingsUrl({ year: season, seasonType: 'postseason' }).toString(),
-        fetchOpts
-      ),
-    ]);
-
-    // Validate EACH partition independently BEFORE combining (6th-review finding
-    // #1). A nonempty raw payload that normalizes to zero usable weeks is schema
-    // drift; it must NOT be masked by usable content from the other partition, and
-    // must NOT be mistaken for a valid no-op just because normalization produced
-    // zero rows. Valid absence is inferred from an EMPTY raw payload only.
-    const regularNormalized = normalizeCfbdRankingsWeeks(regularData ?? [], resolver);
-    const postseasonNormalized = normalizeCfbdRankingsWeeks(postseasonData ?? [], resolver);
-    const partitionClasses = [
-      classifyRankingsPartition('regular', regularData ?? [], regularNormalized),
-      classifyRankingsPartition('postseason', postseasonData ?? [], postseasonNormalized),
-    ];
-    const driftedPartitions = partitionClasses
-      .filter((p) => p.kind === 'schema-drift')
-      .map((p) => p.partition);
-
-    if (driftedPartitions.length > 0) {
-      // ≥1 applicable partition drifted → reject the AGGREGATE refresh. Never commit
-      // a silently-incomplete snapshot as success, and never advance last-success.
-      // Retain prior-good (serve it stale) when available; otherwise surface the
-      // drift as a hard failure so the empty replacement cannot pass unnoticed.
-      await recordProviderRefreshFailure('rankings', rankingsScope, {
-        attempt,
-        error: `rankings partition(s) ${driftedPartitions.join(', ')} returned a nonempty payload that normalized to zero usable weeks (schema drift)`,
-        code: 'rankings-partition-schema-drift',
-        partialFailure: partitionClasses.some((p) => p.kind === 'usable'),
-        failedPartitions: driftedPartitions,
-        durationMs: Date.now() - now,
-      });
-      const prior = stored?.value ?? cached ?? null;
-      if (prior) {
-        return {
-          ...prior.response,
-          meta: { ...prior.response.meta, cache: 'hit', stale: true, rebuildRequired: true },
-        };
-      }
-      // The attempt is already resolved with the specific drift metadata above;
-      // signal the outer catch to rethrow without a second generic recording.
-      throw new RecordedRankingsRefreshError(
-        `rankings refresh failed: partition schema drift (${driftedPartitions.join(', ')})`
-      );
-    }
-
-    // No drift. Combine the usable/valid-empty partitions and remap postseason.
-    const weeks = remapPostseasonWeeks(
-      [...regularNormalized, ...postseasonNormalized].sort(compareWeek)
-    );
-
-    if (weeks.length === 0) {
-      // Both partitions were raw-EMPTY (no drift above). Valid absence must not be
-      // inferred solely from zero rows — a genuinely empty payload is a valid no-op
-      // ONLY when rankings are not expected yet. Prior-good populated rankings are
-      // the "expected" signal: an empty response OVER them is an unexpected empty
-      // replacement (failure, retain prior-good), while an empty response with no
-      // prior-good is a pre-poll no-op.
-      const priorPopulated =
-        (stored?.value?.response?.weeks?.length ?? 0) > 0 ||
-        (cached?.response?.weeks?.length ?? 0) > 0;
-      if (priorPopulated) {
-        await recordProviderRefreshFailure('rankings', rankingsScope, {
-          attempt,
-          error: 'rankings refresh returned zero usable weeks while prior-good rankings are cached',
-          code: 'rankings-empty-replacement-rejected',
-          durationMs: Date.now() - now,
-        });
-        const prior = stored?.value ?? cached!;
-        return {
-          ...prior.response,
-          meta: { ...prior.response.meta, cache: 'hit', stale: true, rebuildRequired: true },
-        };
-      }
-      // Genuinely empty pre-poll data → no-op: no durable write, prior-good (absent
-      // here) preserved, last-success not advanced. A CLEAN empty response (no stale
-      // markers) so the manual panel reads it as a successful no-op, not a fallback.
-      await recordProviderRefreshNoop('rankings', rankingsScope, {
-        attempt,
-        source: 'cfbd',
-        durationMs: Date.now() - now,
-      });
-      return {
-        weeks: [],
-        latestWeek: null,
-        meta: {
-          source: 'cfbd',
-          cache: 'miss',
-          generatedAt: new Date(now).toISOString(),
-        },
-      };
-    }
-
-    const response: RankingsResponse = {
-      weeks,
-      latestWeek: weeks.at(-1) ?? null,
-      meta: {
-        source: 'cfbd',
-        cache: 'miss',
-        generatedAt: new Date(now).toISOString(),
-      },
-    };
-
-    const cacheEntry = { at: now, response };
-    // Durable-first commit order (PLATFORM-085A): persist the rankings snapshot
-    // BEFORE publishing it to the process cache, so a failed durable write can't
-    // leave this instance serving "fresh" rankings that no other instance can
-    // durably reproduce. A setAppState throw propagates, skipping the CACHE update.
-    await setAppState('rankings', String(season), cacheEntry);
-    // Durable commit time + sequence for success ordering (rereview findings #3/#6).
-    const committedAt = new Date().toISOString();
-    const commitSeq = nextProviderCommitSeq();
-    CACHE.set(season, cacheEntry);
-
-    await recordProviderRefreshSuccess('rankings', rankingsScope, {
-      attempt,
-      committedAt,
-      commitSeq,
-      source: 'cfbd',
-      rowsCommitted: weeks.length,
-      durationMs: Date.now() - now,
-    });
-    return response;
-  } catch (error) {
-    if (error instanceof RecordedRankingsRefreshError) {
-      // Already terminally resolved with specific metadata (e.g. partition schema
-      // drift) — do NOT overwrite `lastError` with a generic failure.
-      throw error;
-    }
-    // A genuinely unrecorded failure (fetch/network/durable-commit) → record the
-    // generic failure so the attempt resolves and prior-good is preserved.
-    await recordProviderRefreshFailure('rankings', rankingsScope, {
-      attempt,
-      error: error instanceof Error ? error.message : 'rankings refresh failed',
-      durationMs: Date.now() - now,
-    });
-    throw error;
-  }
+  throw new Error(
+    'rankings cache miss: admin refresh required (retry with bypassCache=1 and admin token)'
+  );
 }
 
 export function __resetSeasonRankingsCacheForTests(): void {
@@ -454,7 +313,8 @@ export function __resetSeasonRankingsCacheForTests(): void {
 
 export function __setSeasonRankingsCacheForTests(
   season: number,
-  entry: { at: number; response: RankingsResponse }
+  entry: RankingsCacheEntry,
+  opts?: { memoizedAtMs?: number }
 ): void {
-  CACHE.set(season, entry);
+  CACHE.set(season, { entry, memoizedAtMs: opts?.memoizedAtMs ?? Date.now() });
 }
