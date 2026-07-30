@@ -845,6 +845,7 @@ test('non-qualifying season-transition paths never invoke presentation', async (
   captured = await runCapturingPresentation(() => GET(cronRequest('wrong-secret')));
   assert.equal((captured.result as Response).status, 401);
   assert.equal(presentationLog.length, 0);
+  assert.equal(captured.pEvents.length, 0);
 
   // (25a) E1A failure (postseason partition down).
   await __deleteAppStateFileForTests();
@@ -859,6 +860,7 @@ test('non-qualifying season-transition paths never invoke presentation', async (
   });
   captured = await runCapturingPresentation(() => GET(cronRequest()));
   assert.equal(presentationLog.length, 0, 'an E1A failure never triggers presentation');
+  assert.equal(captured.pEvents.length, 0);
 
   // (25b) a valid empty-response no-op (both partitions genuinely empty).
   await __deleteAppStateFileForTests();
@@ -870,6 +872,7 @@ test('non-qualifying season-transition paths never invoke presentation', async (
   stubProviderWithPresentation({ regular: '[]', postseason: '[]' });
   captured = await runCapturingPresentation(() => GET(cronRequest()));
   assert.equal(presentationLog.length, 0, 'an empty-response no-op never triggers presentation');
+  assert.equal(captured.pEvents.length, 0);
 
   // (25c) stale observation — durable schedule observed in the future.
   await __deleteAppStateFileForTests();
@@ -902,6 +905,7 @@ test('non-qualifying season-transition paths never invoke presentation', async (
   });
   captured = await runCapturingPresentation(() => GET(cronRequest()));
   assert.equal(presentationLog.length, 0, 'a stale observation never triggers presentation');
+  assert.equal(captured.pEvents.length, 0);
 
   // (25d) E1A lease contention.
   await __deleteAppStateFileForTests();
@@ -921,4 +925,5 @@ test('non-qualifying season-transition paths never invoke presentation', async (
   });
   captured = await runCapturingPresentation(() => GET(cronRequest()));
   assert.equal(presentationLog.length, 0, 'lease contention never triggers presentation');
+  assert.equal(captured.pEvents.length, 0);
 });

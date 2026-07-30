@@ -1185,6 +1185,7 @@ test('non-qualifying weekly paths never invoke the presentation authority', asyn
   run = await runRoute();
   assert.equal(run.events[0]!.years[0]!.reason, 'automation-paused-or-disabled');
   assert.equal(presentationFetchLog.length, 0);
+  assert.equal(presentationEvents(run.rawLines).length, 0);
 
   // (8) settings store unavailable.
   await __deleteAppStateFileForTests();
@@ -1198,6 +1199,7 @@ test('non-qualifying weekly paths never invoke the presentation authority', asyn
   __setAppStateReadFailureForTests(null);
   assert.equal(run.events[0]!.years[0]!.reason, 'settings-unavailable');
   assert.equal(presentationFetchLog.length, 0);
+  assert.equal(presentationEvents(run.rawLines).length, 0);
 
   // (9) canonical context unavailable (no prior-good schedule).
   await __deleteAppStateFileForTests();
@@ -1208,6 +1210,7 @@ test('non-qualifying weekly paths never invoke the presentation authority', asyn
   run = await runRoute();
   assert.equal(run.events[0]!.years[0]!.reason, 'canonical-context-unavailable');
   assert.equal(presentationFetchLog.length, 0);
+  assert.equal(presentationEvents(run.rawLines).length, 0);
 
   // (10) E1A failure (a partition transport failure).
   await __deleteAppStateFileForTests();
@@ -1219,6 +1222,7 @@ test('non-qualifying weekly paths never invoke the presentation authority', asyn
   run = await runRoute();
   assert.equal(run.events[0]!.years[0]!.result, 'failure');
   assert.equal(presentationFetchLog.length, 0);
+  assert.equal(presentationEvents(run.rawLines).length, 0);
 
   // (11a) an empty replacement over populated prior-good is an E1A failure —
   // no presentation. (A weekly E1A `empty-response` is unreachable by
@@ -1234,6 +1238,7 @@ test('non-qualifying weekly paths never invoke the presentation authority', asyn
   run = await runRoute();
   assert.equal(run.events[0]!.years[0]!.reason, 'empty-replacement-rejected');
   assert.equal(presentationFetchLog.length, 0);
+  assert.equal(presentationEvents(run.rawLines).length, 0);
 
   // (11b) stale observation (prior durable entry observed in the future).
   await __deleteAppStateFileForTests();
@@ -1245,6 +1250,7 @@ test('non-qualifying weekly paths never invoke the presentation authority', asyn
   run = await runRoute();
   assert.equal(run.events[0]!.years[0]!.reason, 'stale-observation');
   assert.equal(presentationFetchLog.length, 0);
+  assert.equal(presentationEvents(run.rawLines).length, 0);
 
   // (11c) refresh-in-progress (E1A lease contention).
   await __deleteAppStateFileForTests();
@@ -1258,6 +1264,7 @@ test('non-qualifying weekly paths never invoke the presentation authority', asyn
   run = await runRoute();
   assert.equal(run.events[0]!.years[0]!.reason, 'refresh-in-progress');
   assert.equal(presentationFetchLog.length, 0);
+  assert.equal(presentationEvents(run.rawLines).length, 0);
 });
 
 // 12 + 16 — mixed multi-year: presentation runs only for qualifying successes,
