@@ -31,7 +31,8 @@ Supersedes: (none)
 1. **NEXT — PLATFORM-086F2: admin diagnostics information-architecture redesign** (see Active
    priority 1 below). The last provider-campaign implementation item; everything before it in the
    campaign is merged and, where applicable, active in production.
-2. Then: return to product-facing work — homepage/landing page, INSIGHTS-018 (NEW tag + signatures),
+2. Then: return to product-facing work — homepage/landing page (not yet scoped — no backlog slug),
+   INSIGHTS-018 (NEW tag + signatures),
    INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights), History Records
    continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup later.
 3. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
@@ -110,17 +111,23 @@ The legacy diagnostics tools remain available and unmoved until this ships.
 sized, cohesive PRs — one cohesive objective with a clear acceptance contract, independently
 reviewable, verifiable, deployable, and revertible. Stop-and-reassess signals (not hard limits):
 more than 15 changed files or more than 1,500 net changed lines (excluding lockfiles/generated
-data) → stop, explain what expanded, then split or obtain explicit approval. Never bundle live
-scores with Odds; never fold diagnostics information-architecture work into correctness or
-automation PRs; documentation is updated near the end of implementation; unrelated review findings
-become separately tracked follow-ups. Named failure case: PLATFORM-086A (77 files / ~12k lines).
+data) → stop, explain what expanded, then split or obtain explicit approval. Related fixes MAY stay
+together when they share one provider family or end-to-end behavior; split work that crosses
+distinct provider families, separate automation jobs, substantial independent UI surfaces, or
+components shipping on different schedules — a planning split is mandatory before implementation
+in those cases, and artificial one-finding-per-PR fragmentation is the opposite failure mode. Never
+bundle live scores with Odds; never fold diagnostics information-architecture work into correctness
+or automation PRs; no opportunistic architecture cleanup outside the acceptance contract;
+documentation is updated near the end of implementation; unrelated review findings become
+separately tracked follow-ups. Named failure case: PLATFORM-086A (77 files / ~12k lines).
 
 ### Provider campaign (PLATFORM-086) — completed record
 
 The provider correctness & automation campaign is **complete except 086F2**. Live-score polling
-(3-minute), Odds polling (hourly), weekly schedule maintenance, automatic schedule-presentation
-enrichment, and publication-aware rankings automation are all **active in production**; game-stats
-polling (15-minute) has been active since H3E. Every slice's full execution record (scope, review
+(3-minute), Odds polling (hourly), weekly schedule maintenance, and publication-aware rankings
+automation are all **active in production**; game-stats polling (15-minute) has been active since
+H3E; automatic schedule-presentation enrichment is wired into the active schedulers (its first
+qualifying automatic refresh is the pending, passive §8i observation). Every slice's full execution record (scope, review
 rounds, verification, PRs, merge commits) lives in `docs/prompt-registry.md`; outcome milestones in
 `docs/completed-work.md`; operator activation evidence in `docs/deployment-runbook.md` §8e (game
 stats), §8f (live scores), §8g (Odds), §8h (weekly schedule), §8i (presentation observation —

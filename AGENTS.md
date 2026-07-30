@@ -30,7 +30,7 @@ All foundational phases are complete (architecture, production hardening, league
 
 Active campaign status is **not** duplicated here — it drifts. See `docs/next-tasks.md` (the active execution queue and current phase focus) and `docs/roadmap.md` (campaign definitions and development philosophy) for the current campaigns and their status.
 
-**Unresolved decisions and deferrals** are tracked in one place: `docs/next-tasks.md` → "Audit-driven correctness + docs sequence" (from the app-wide PLATFORM-068 audit); per-item history is in `docs/prompt-registry.md`. That section is the single source — do not restate individual item statuses here or in `CLAUDE.md`, so they can't go stale as items ship.
+**Unresolved decisions and deferrals** are tracked in one place: `docs/next-tasks.md` → "Unresolved decisions & known deferrals" (a top-level section since DOCS-012; it originated under the app-wide PLATFORM-068 audit sequence); per-item history is in `docs/prompt-registry.md`. That section is the single source — do not restate individual item statuses here or in `CLAUDE.md`, so they can't go stale as items ship.
 
 ---
 

@@ -1931,6 +1931,22 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PRE-LAUNCH-TIDYUP — Complete
+
+- **Status:** Complete (PR #306, commit `1d1b451`). _Record restored by DOCS-012 — this campaign's
+  only written record previously lived in `docs/next-tasks.md` and was removed there during the
+  ledger deconfliction._
+- **PROMPT_ID(s):** PRE-LAUNCH-TIDYUP (pre-registry campaign label).
+- **Outcome:** `npm test` script added (the entry point that later enabled the
+  TEST-SUITE-BASELINE-CLEANUP arc); `papaparse` dependency removed; documentation drift fixes for
+  the cron schedule and the custom-domain redirect; the `ADMIN_API_TOKEN` sunset timeline
+  documented.
+- **Verification:** shipped via PR #306; the follow-on test-baseline arc it surfaced is recorded in
+  `docs/prompt-registry.md` (`TEST-SUITE-HANG-BASELINE-FIX`, `PLATFORM-001`–`PLATFORM-004`).
+- **Open follow-ups:** none (the surfaced test-baseline cleanup completed separately).
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
