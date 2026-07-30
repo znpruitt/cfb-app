@@ -54,7 +54,7 @@ The admin API surface under `src/app/api/admin/` comprises: `provider-status` (G
 
 ## Action, cost, and mutation inventory
 
-Target **destination** names the owning surface in the target IA (below). Provider refreshes marked "authorized `refresh=1`" go through the public provider route with admin credentials per the cache-reader + authorized-refresh policy (`docs/architecture/game-data-flow.md`).
+Target **destination** names the owning surface in the target IA (below); "Data Maintenance" is column shorthand for the Data Maintenance & Recovery group. Provider refreshes marked "authorized `refresh=1`" go through the public provider route with admin credentials per the cache-reader + authorized-refresh policy (`docs/architecture/game-data-flow.md`).
 
 | Action / API | Provider cost (nominal) | Durable effect | Automation owner | Destination |
 | --- | --- | --- | --- | --- |
@@ -102,10 +102,10 @@ Target **destination** names the owning surface in the target IA (below). Provid
 - Provider-refresh status cannot prove scheduler delivery: a harmless skip/no-target invocation creates no provider attempt, so its absence must not be read as scheduler failure (motivates the receipt contract below).
 - CFBD quota is loaded twice on Diagnostics: `AdminUsagePanel` and `ProviderDataStatusPanel` each perform an independent CFBD usage read per mount.
 - Stale automation descriptors: `src/lib/providerDatasets.ts` still hedges Schedule/Rankings automation with "once provisioned per runbook §8h/§8j" although both QStash schedules are active, and `src/lib/server/providerRefreshSettings.ts` plus `ProviderDataStatusPanel` retain "cadence is fixed in code / `vercel.json`" wording although the active schedules are QStash-managed.
-- Legacy-token error messages on `/admin/leagues` say "Enter your token in the Auth panel above". The referenced `AdminAuthPanel` **is** rendered on that page (audit correction — it is not missing), but its visible label is "Admin access token", and the legacy `ADMIN_API_TOKEN` path is a transition-period fallback under Clerk (`AGENTS.md` → Auth Architecture Invariants) — the copy names a panel label that does not exist and over-centers the fallback credential.
+- Legacy-token error messages on `/admin/leagues` say "Enter your token in the Auth panel above". The referenced `AdminAuthPanel` **is** rendered on that page (audit correction — it is not missing), but its visible label is "Admin access token", and the legacy `ADMIN_API_TOKEN` path is a transition-period fallback under Clerk (`AGENTS.md` → Auth Architecture Invariants) — the copy names a panel label that does not exist and over-centers the fallback credential. Owned by F2I (the League Management rework).
 - `/admin/[slug]/roster` combines direct roster editing (commissioner operation) with historical/repair CSV import (platform recovery) on one page for different audiences.
 - `/admin/draft` is reachable only by URL and duplicates league-scoped navigation.
-- Test-convention drift: `src/app/api/admin/team-database/route.test.ts` sits co-located next to its route (outside `src/**/__tests__/`) and has drifted from current route behavior — it lacks the request-context setup the maintained `__tests__/route.test.ts` copy needs for `invalidateAllLeaguesStandings`, so it asserts a success status the route no longer produces under its conditions. Four more co-located `route.test.ts` files share the convention violation: `src/app/api/admin/odds-usage/`, `src/app/api/odds/`, `src/app/api/owners/`, `src/app/api/postseason-overrides/`.
+- Test-convention drift: `src/app/api/admin/team-database/route.test.ts` sits co-located next to its route (outside `src/**/__tests__/`) and has drifted from current route behavior — it lacks the request-context setup the maintained `__tests__/route.test.ts` copy needs for `invalidateAllLeaguesStandings`, so it asserts a success status the route no longer produces under its conditions. Four more co-located `route.test.ts` files share the convention violation: `src/app/api/admin/odds-usage/`, `src/app/api/odds/`, `src/app/api/owners/`, `src/app/api/postseason-overrides/`. Disposition: the drifted team-database duplicate is removed by F2D (which reworks that action's surface and already has a maintained `__tests__/` copy); the four remaining co-located files are a mechanical relocation recorded as a non-F2 cleanup follow-up (pointer in `docs/next-tasks.md` → candidate follow-ups).
 
 ## Target information architecture
 
@@ -128,7 +128,7 @@ A latest-only durable receipt is written under the distinct scope `scheduler-exe
 | Job | Route | Cadence |
 | --- | --- | --- |
 | Live scores | `GET /api/cron/live-scores` | Every 3 minutes (QStash `turfwar-live-scores-3m`) |
-| Game stats | `GET /api/cron/game-stats` | Every 15 minutes (QStash) |
+| Game stats | `GET /api/cron/game-stats` | Every 15 minutes (QStash `turfwar-game-stats-15m`) |
 | Odds | `GET /api/cron/odds` | Hourly (QStash `turfwar-odds-hourly`) |
 | Weekly schedule | `GET /api/cron/schedule-refresh` | Weekly (QStash `turfwar-schedule-weekly`) |
 | Rankings | `GET /api/cron/rankings` | Twice daily (QStash `turfwar-rankings-publication`) |

@@ -212,8 +212,10 @@ unless verified in merged work.
   records):** PLATFORM-045 (league-route canonical-loader dedup), PLATFORM-052 (podium/hero live
   badge; `liveCountByOwner` staleness alignment), PLATFORM-054/055/056 (canonical-layer candidates:
   score cache warming, global alias merge, insights canonical owner sourcing), canonical ownership
-  IDs for current-season draft ownership, 086H4 (broader game-stats presentation/copy audit), and
-  the game-stats legacy-row migration. See `docs/prompt-registry.md` and `docs/completed-work.md`.
+  IDs for current-season draft ownership, 086H4 (broader game-stats presentation/copy audit), the
+  game-stats legacy-row migration, and the co-located `route.test.ts` relocation (four non-admin
+  files; see `docs/architecture/admin-control-plane.md` → operational clarity findings). See
+  `docs/prompt-registry.md` and `docs/completed-work.md`.
 
 _Resolved during the audit sequence (no longer open): `AdminDebugSurface` → deleted in
 PLATFORM-079b; public odds/scores fetch policy → PLATFORM-075 pure-cache-reader model._
