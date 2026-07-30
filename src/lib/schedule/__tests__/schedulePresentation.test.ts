@@ -252,3 +252,13 @@ test('cache-entry normalizers drop malformed stored rows instead of surfacing th
   assert.equal(venues!.items.length, 1);
   assert.equal(venues!.items[0]!.id, 3504);
 });
+
+test('a nonempty stored array whose rows are ALL invalid is absence, never a fresh empty entry', () => {
+  assert.equal(
+    normalizeScheduleMediaCacheEntry({ at: 1, items: [null, 42, { junk: true }] }),
+    null
+  );
+  assert.equal(normalizeVenueCatalogCacheEntry({ at: 1, items: [{ name: 'No Id' }, null] }), null);
+  // A genuinely empty stored array is still a usable (empty) entry.
+  assert.deepEqual(normalizeScheduleMediaCacheEntry({ at: 1, items: [] }), { at: 1, items: [] });
+});

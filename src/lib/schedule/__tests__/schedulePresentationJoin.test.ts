@@ -243,3 +243,26 @@ test('a raced durable read cannot roll the memo back below a fresher published e
     'the guarded loader keeps the fresher published entry'
   );
 });
+
+test('a stale durable ABSENCE cannot roll the memo back below a fresher published entry', async () => {
+  const { publishScheduleMediaMemo } = await import('../schedulePresentationJoin.ts');
+  // Durable is ABSENT (a read that began before the first commit), while the
+  // fresher committed entry has already been published into the memo — the
+  // published entry must win (these caches have no deletion path).
+  publishScheduleMediaMemo(YEAR, {
+    at: NOW,
+    items: [{ gameId: '101', mediaType: 'tv', outlet: 'Fresher TV' }],
+  });
+
+  const enriched = await enrichScheduleItemsWithPresentation({
+    year: YEAR,
+    items: [scheduleItem()],
+    now: NOW,
+    forceDurable: true,
+  });
+  assert.equal(
+    enriched[0]!.media?.[0]?.outlet,
+    'Fresher TV',
+    'pre-commit absence never overwrites a concurrently published entry'
+  );
+});

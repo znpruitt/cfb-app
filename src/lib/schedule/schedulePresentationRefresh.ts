@@ -471,6 +471,23 @@ async function refreshVenuesPart(params: { now: number }): Promise<SchedulePrese
   let providerCallAttempted = false;
   let observedAt: string | null = null;
   try {
+    // Post-acquisition freshness RE-CHECK (Codex round-1 P3, mirroring the Odds
+    // cron's post-acquisition cadence re-check): a competing invocation may have
+    // refreshed and released between our first freshness read and this lease
+    // grant — never spend a second `/venues` request on a catalog that just
+    // became fresh. A re-read failure is context unavailability, exactly like
+    // the first read; the lease is released by the enclosing `finally`.
+    try {
+      const recheck = normalizeVenueCatalogCacheEntry(
+        (await getAppState<unknown>(VENUE_CATALOG_STATE_SCOPE, VENUE_CATALOG_STATE_KEY))?.value
+      );
+      if (recheck && now - recheck.at < VENUE_CATALOG_TTL_MS) {
+        return schedulePresentationPartResult({ reason: 'fresh-cache' });
+      }
+    } catch {
+      return schedulePresentationPartResult({ reason: 'canonical-context-unavailable' });
+    }
+
     attempt = await beginProviderRefreshAttempt('schedule', scope, {
       startedAt: new Date(now).toISOString(),
     });

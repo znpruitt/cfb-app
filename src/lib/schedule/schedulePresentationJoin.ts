@@ -96,17 +96,21 @@ async function loadScheduleMediaEntry(params: {
       scheduleMediaStateKey(year)
     );
     const entry = normalizeScheduleMediaCacheEntry(stored?.value);
-    // Regression-guarded like the publish helpers: a durable read that RACED an
-    // in-flight commit (read began before, resolved after the guarded publish)
-    // must not roll the memo back below the fresher published entry. A durable
-    // ABSENCE (null) still wins — deletion is authoritative.
-    const fresher = memo?.value && entry && memo.value.at > entry.at ? memo.value : entry;
+    // Re-read the memo AFTER the durable read resolves (Codex round-1 P2): a
+    // commit that raced this read may have published a fresher entry mid-await,
+    // and this read's older snapshot — including pre-commit ABSENCE (null) —
+    // must never roll it back. These caches have no deletion path, so a fresher
+    // published entry outranks a null read; any residual mismatch stays inside
+    // the bounded memo TTL.
+    const current = mediaMemoByYear.get(year);
+    const fresher =
+      current?.value && (!entry || current.value.at > entry.at) ? current.value : entry;
     mediaMemoByYear.set(year, { at: now, value: fresher });
     return fresher;
   } catch {
     // Generic diagnostic only — no error detail, payload, or key material.
     console.warn('schedule-presentation: media cache read failed; serving base schedule rows');
-    return memo?.value ?? null;
+    return mediaMemoByYear.get(year)?.value ?? null;
   }
 }
 
@@ -119,11 +123,10 @@ async function loadVenueCatalogEntry(params: {
   try {
     const stored = await getAppState<unknown>(VENUE_CATALOG_STATE_SCOPE, VENUE_CATALOG_STATE_KEY);
     const entry = normalizeVenueCatalogCacheEntry(stored?.value);
-    // Same regression guard as the media loader (see above).
+    // Same post-await re-read guard as the media loader (see above).
+    const current = venueCatalogMemo;
     const fresher =
-      venueCatalogMemo?.value && entry && venueCatalogMemo.value.at > entry.at
-        ? venueCatalogMemo.value
-        : entry;
+      current?.value && (!entry || current.value.at > entry.at) ? current.value : entry;
     venueCatalogMemo = { at: now, value: fresher };
     return fresher;
   } catch {

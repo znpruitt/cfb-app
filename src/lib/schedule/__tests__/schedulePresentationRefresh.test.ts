@@ -478,3 +478,38 @@ test('non-canonical (leading-zero) schedule ids never enter the eligible media t
   assert.equal(result.media.reason, 'canonical-context-unavailable');
   assert.equal(calls.media + calls.venues + calls.other, 0);
 });
+
+test('a corrupted fresh-timestamped venue catalog is due and self-heals', async () => {
+  await seedCanonicalSchedule();
+  // Nonempty but fully invalid rows under a FRESH timestamp: absence-normalized,
+  // so the part must refetch instead of trusting the corrupted entry for 30 days.
+  await setAppState(VENUE_CATALOG_STATE_SCOPE, VENUE_CATALOG_STATE_KEY, {
+    at: NOW - 1000,
+    items: [{ corrupted: true }, null],
+  });
+  const { calls } = installFetchMock({ media: () => MEDIA_PAYLOAD, venues: () => VENUES_PAYLOAD });
+  const result = await refreshSchedulePresentation({ year: YEAR, trigger: 'manual', now: NOW });
+  assert.equal(result.venues.reason, 'written-clean');
+  assert.equal(calls.venues, 1, 'the corrupted catalog was repaired with one fetch');
+});
+
+test('the venues part re-checks freshness after acquiring its lease (TOCTOU pin)', async () => {
+  // The read→lease TOCTOU interleave (competitor refreshes and releases between
+  // our freshness read and lease grant) is not deterministically constructible
+  // without an injection seam, so the post-acquisition re-check is pinned at the
+  // source level, mirroring the repo's source-scan contract convention.
+  const { readFileSync } = await import('node:fs');
+  const source = readFileSync(
+    new URL('../schedulePresentationRefresh.ts', import.meta.url),
+    'utf8'
+  );
+  const venuesPart = source.slice(source.indexOf('async function refreshVenuesPart'));
+  const afterLease = venuesPart.slice(venuesPart.indexOf('acquireSchedulePresentationLease'));
+  const recheckIndex = afterLease.indexOf('VENUE_CATALOG_STATE_KEY');
+  const fetchIndex = afterLease.indexOf('buildCfbdVenuesUrl');
+  assert.ok(recheckIndex >= 0, 'a post-acquisition freshness re-read exists');
+  assert.ok(
+    recheckIndex < fetchIndex,
+    'the freshness re-read happens BEFORE the /venues provider request'
+  );
+});

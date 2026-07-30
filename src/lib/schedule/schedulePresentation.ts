@@ -312,6 +312,10 @@ export function normalizeScheduleMediaCacheEntry(value: unknown): ScheduleMediaC
     const normalized = normalizeScheduleMediaRow(raw);
     if (normalized) items.push(normalized);
   }
+  // A NONEMPTY stored array whose rows are ALL invalid is a corrupted entry,
+  // not a legitimately empty one — treat it as absence (never as a "fresh
+  // empty" entry whose timestamp would suppress repair until the next refresh).
+  if (candidate.items.length > 0 && items.length === 0) return null;
   return { at: candidate.at, items };
 }
 
@@ -326,5 +330,9 @@ export function normalizeVenueCatalogCacheEntry(value: unknown): VenueCatalogCac
     const normalized = normalizeVenueCatalogRow(raw);
     if (normalized) items.push(normalized);
   }
+  // Same corruption rule as the media entry: nonempty-but-all-invalid rows are
+  // absence, so a corrupted venue catalog becomes DUE and self-heals on the
+  // next refresh instead of sitting "fresh" for up to the 30-day TTL.
+  if (candidate.items.length > 0 && items.length === 0) return null;
   return { at: candidate.at, items };
 }
