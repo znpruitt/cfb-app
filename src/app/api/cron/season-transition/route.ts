@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { getLeagues, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
+import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
@@ -185,17 +185,16 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
 
         if (nowMs >= oneDayBeforeMs) {
           for (const league of yearLeagues) {
+            // One lifecycle write — the authority synchronizes league.year to
+            // targetYear in the same registry record, so there is no separate
+            // year-sync write that could strand a transitioned league.
             await updateLeagueStatus(league.slug, { state: 'season', year: targetYear });
             yearResult.leagues.push(league.slug);
             // Invalidate immediately on the status flip — this is the change that
             // alters the standings surface (preseason owner list → live season
             // standings) AND drops the league from future cron-transition retries
-            // (the route only re-processes `preseason` leagues). It must not be
-            // gated behind the separate year-sync write below: if that threw, the
-            // league would be stranded in `season` with a stale preseason snapshot
-            // and no retry to re-invalidate.
+            // (the route only re-processes `preseason` leagues).
             invalidateStandings(league.slug);
-            await updateLeague(league.slug, { year: targetYear });
           }
           yearResult.transitioned = yearResult.leagues.length > 0;
         }

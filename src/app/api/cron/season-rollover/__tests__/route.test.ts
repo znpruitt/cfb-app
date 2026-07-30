@@ -255,6 +255,26 @@ async function seedYearChampionship(
   });
 }
 
+// PLATFORM-086F2B — the cron consumes the SHARED grouping policy
+// (groupRolloverTargets); the test league stays excluded from automatic rollover.
+test('the test league is excluded from automatic rollover', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('test', { state: 'season', year: YEAR }),
+    makeLeague('alpha', { state: 'season', year: YEAR }),
+  ]);
+  await seedScheduleWithChampionship('2023-01-09T00:00:00.000Z');
+
+  const { result: res } = await runCapturingTags(() => GET(cronRequest()));
+  const body = (await res.json()) as { leaguesRolledOver?: string[] };
+  assert.equal(res.status, 200, JSON.stringify(body));
+  assert.deepEqual(body.leaguesRolledOver, ['alpha'], 'only the production league rolled');
+
+  const leagues = await getAppState<League[]>('leagues', 'registry');
+  const bySlug = Object.fromEntries((leagues?.value ?? []).map((l) => [l.slug, l.status?.state]));
+  assert.equal(bySlug.test, 'season', 'test league untouched');
+  assert.equal(bySlug.alpha, 'offseason');
+});
+
 test('multiple season years are evaluated independently for rollover', async () => {
   await setAppState('leagues', 'registry', [
     makeLeagueForYear('alpha', 2023),

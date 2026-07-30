@@ -5,15 +5,6 @@ import { assembleSeasonScoredBuild } from './seasonBuild.ts';
 import { buildGameStatSlateSnapshot } from './gameStats/slateSnapshot.ts';
 import type { SeasonArchive } from './seasonArchive.ts';
 
-// Loose type matching the schedule cache CacheEntry items
-type ScheduleCacheItem = {
-  playoffRound?: string | null;
-  status: string;
-  homeTeam: string;
-  awayTeam: string;
-  [key: string]: unknown;
-};
-
 /**
  * Locate the latest postseason game date from the schedule cache for the given year.
  * Prefers a game flagged `playoffRound === 'national_championship'`, otherwise falls
@@ -53,33 +44,12 @@ export async function findNationalChampionshipGameDate(year: number): Promise<st
   }
 }
 
-/**
- * Returns true if the current season's CFP National Championship has been played and is final.
- * Reads from the schedule cache — does not make upstream API calls.
- * Returns false safely if data is unavailable.
- */
-export async function isSeasonComplete(year: number): Promise<boolean> {
-  try {
-    const cached = await getAppState<{ items: ScheduleCacheItem[] }>('schedule', `${year}-all-all`);
-    let items = cached?.value?.items ?? [];
-
-    // Fall back to postseason-only cache if the combined key is absent
-    if (items.length === 0) {
-      const postseasonCached = await getAppState<{ items: ScheduleCacheItem[] }>(
-        'schedule',
-        `${year}-all-postseason`
-      );
-      items = postseasonCached?.value?.items ?? [];
-    }
-
-    const champGames = items.filter((item) => item.playoffRound === 'national_championship');
-    if (champGames.length === 0) return false;
-
-    return champGames.some((game) => (game.status ?? '').toLowerCase().includes('final'));
-  } catch {
-    return false;
-  }
-}
+// NOTE (PLATFORM-086F2B): the old `isSeasonComplete(year)` display heuristic —
+// a text-match on schedule status, weaker than the strict rollover gate — was
+// deleted with its last consumer (the pre-F2B manual rollover GET). Season
+// completeness questions go through `resolveNationalChampionshipRollover`
+// (src/lib/schedule/nationalChampionshipRollover.ts); do not reintroduce a
+// parallel weaker check.
 
 /**
  * Assembles a complete SeasonArchive for the given league and year from cached data.

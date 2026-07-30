@@ -1,18 +1,17 @@
 import { NextResponse } from 'next/server';
 
 import { clearAllSuppressionRecords } from '@/lib/insights/suppression';
-import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
+import { completeSeasonRollover, getLeagues } from '@/lib/leagueRegistry';
 import { saveSeasonArchive } from '@/lib/seasonArchive';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { buildSeasonArchive } from '@/lib/seasonRollover';
+import { groupRolloverTargets } from '@/lib/rolloverTargeting';
 import {
   resolveNationalChampionshipRollover,
   type ChampionshipRolloverSkipReason,
 } from '@/lib/schedule/nationalChampionshipRollover';
 
 export const dynamic = 'force-dynamic';
-
-const TEST_LEAGUE_SLUG = 'test';
 
 type RolloverError = { leagueSlug?: string; year?: number; error: string };
 
@@ -54,25 +53,16 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   }
 
   try {
-    const allLeagues = await getLeagues();
-    const seasonLeagues = allLeagues.filter(
-      (l) => l.slug !== TEST_LEAGUE_SLUG && l.status?.state === 'season'
-    );
-
-    if (seasonLeagues.length === 0) {
-      return NextResponse.json({ skipped: true, reason: 'no leagues in season state' });
-    }
-
-    // Group leagues by their season year and evaluate each year INDEPENDENTLY —
-    // never assume all leagues share the first eligible league's year
+    // Target selection is the SHARED per-year grouping policy (PLATFORM-086F2B,
+    // `groupRolloverTargets`): non-test leagues in `season`, grouped exclusively
+    // by `status.year`, ascending. Each year is evaluated INDEPENDENTLY — never
+    // assume all leagues share the first eligible league's year
     // (PLATFORM-086E1A §6). The rollover authority reads each year's canonical
     // schedule cache-only and requires a structured, confirmed-final championship.
-    const byYear = new Map<number, typeof seasonLeagues>();
-    for (const league of seasonLeagues) {
-      const year = (league.status as { state: 'season'; year: number }).year;
-      const group = byYear.get(year) ?? [];
-      group.push(league);
-      byYear.set(year, group);
+    const groups = groupRolloverTargets(await getLeagues());
+
+    if (groups.length === 0) {
+      return NextResponse.json({ skipped: true, reason: 'no leagues in season state' });
     }
 
     const now = Date.now();
@@ -81,7 +71,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     const suppressionClearedFor: string[] = [];
     const errors: RolloverError[] = [];
 
-    for (const [year, yearLeagues] of byYear) {
+    for (const { year, leagues: yearLeagues } of groups) {
       const decision = await resolveNationalChampionshipRollover(year, now);
 
       if (decision.kind === 'read-failed') {
@@ -132,7 +122,20 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         }
 
         try {
-          await updateLeagueStatus(league.slug, { state: 'offseason' });
+          // Guarded conditional transition (shared with the manual route): the
+          // league must still be in `season` for THIS year at write time, so a
+          // racing rollover/preseason advance can never be clobbered back to
+          // offseason. Unreachable in an ordinary run (the snapshot is fresh);
+          // a refusal is reported like any status-write failure.
+          const transition = await completeSeasonRollover(league.slug, year);
+          if (transition.outcome !== 'transitioned') {
+            errors.push({
+              leagueSlug: league.slug,
+              year,
+              error: `status write failed: league is no longer in the ${year} season group`,
+            });
+            continue;
+          }
           yearResult.leaguesRolledOver.push(league.slug);
           leaguesRolledOver.push(league.slug);
           // Season→offseason changes this league's standings surface (live →

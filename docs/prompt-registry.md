@@ -52,6 +52,44 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2B-LIFECYCLE-AUTHORITY-SAFETY-v1
+
+- Purpose: Eliminate the three lifecycle correctness risks identified by PLATFORM-086F2A —
+  unsafe manual rollover, competing league-year authorities, and durable lifecycle writes during
+  Server Component rendering — as the correctness prerequisite for the remaining admin
+  control-plane slices (F2C–F2J).
+- Scope: Code + focused tests + binding docs. `src/lib/leagueRegistry.ts` (serialized
+  single-authority lifecycle mutations via the registry-key transaction; guarded
+  `completeSeasonRollover`); new `src/lib/rolloverTargeting.ts` (shared per-year targeting) and
+  `src/lib/manualRollover.ts` (shared client contract); rewritten `/api/admin/rollover`;
+  `/api/cron/season-rollover` converged on the shared helpers (behavior preserved); narrowed
+  `PATCH /api/admin/leagues/[slug]` + status-seeding creation; `/admin/leagues` and
+  `/admin/[slug]` pages; both rollover panels; lifecycle callers (`[slug]/actions.ts`,
+  season-transition cron); dead `isSeasonComplete` deleted. New `AGENTS.md` → **Lifecycle
+  Authority Invariants** (binding); `docs/architecture/admin-control-plane.md` F2B findings
+  flipped to resolved.
+- Outcome: `updateLeagueStatus` is the ONE lifecycle mutation authority — season/preseason
+  synchronize `league.year = status.year` in one serialized transactional write; offseason writes
+  the outgoing `status.year` (healing desynchronized legacy projections); generic
+  `updateLeague`/PATCH reject lifecycle fields (`409 league-year-lifecycle-managed`); new leagues
+  are born with an explicit status; admin rendering performs no durable write; `beginPreseason` is
+  offseason-guarded. Manual rollover is per-year behind the SAME strict gate as the cron
+  (`resolveNationalChampionshipRollover` re-evaluated on every POST; `groupRolloverTargets`
+  targeting by `status.year` only; group-atomic archive-first manual execution vs preserved
+  per-league cron isolation; guarded conditional transitions in both paths; truthful partial
+  failures; no force/emergency bypass; eligibility cache-only). Both panels consume one shared
+  per-year client contract with persistent result banners.
+- Review / verification: Claude subagent self-review (1 P2 — unguarded `beginPreseason`
+  double-increment — + 5 P3; the P2 and 4 P3s fixed, 1 P3 test-strength note deferred as a
+  non-blocker: no clean seam pins "exactly one registry write" in a test). Codex round 1 (4 P1 +
+  2 P2): registry serialization, offseason year-heal, guarded stale-transition protection,
+  invariant-wording correction, and the panel's misleading global rollover date all fixed; the
+  legacy missing-status repair path dispositioned as spec-deferred (owned by F2H lifecycle
+  recovery). Codex round 2: clean. 53 new focused tests; full suite 2846 green; `npx tsc
+  --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean. No provider, QStash,
+  Vercel, or production rollover operation performed.
+- Status: Implemented — PR open (PR #431).
+
 ### PLATFORM-086F2A-ADMIN-CONTROL-PLANE-IA-v1
 
 - Purpose: Establish the audited admin control-plane inventory and target information architecture
