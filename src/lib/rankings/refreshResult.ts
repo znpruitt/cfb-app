@@ -22,7 +22,12 @@
  *   - `failure`     — a partition fetch/payload rejection, a prior-relative
  *                     completeness rejection, an empty replacement of populated
  *                     prior-good, or a durable store failure. Prior-good durable
- *                     rankings are retained; no success/cache is published.
+ *                     rankings are retained and no success/cache is published —
+ *                     with one honest caveat: a commit whose ACKNOWLEDGMENT was
+ *                     lost (`durable-commit-failed`) may in fact have durably
+ *                     applied; it is still reported as a failure (never a
+ *                     fabricated success), the memo stays unpublished, and the
+ *                     next refresh reconciles via observation ordering.
  *
  * The reason axis is a closed, stable, secret-free union. It NEVER carries a
  * request/response object, provider payload, environment value, credential, error
@@ -67,7 +72,12 @@ export type RankingsRefreshResult = {
   year: number;
   /** Which caller class drove this refresh (manual route vs E2B automation). */
   trigger: RankingsRefreshTrigger;
-  /** Partitions the authority attempted (empty on a pre-attempt outcome). */
+  /**
+   * Partitions whose provider fetch this refresh actually started. Populated
+   * (both partitions) exactly when `providerCallAttempted` flips true; EMPTY on
+   * every pre-fetch exit — lease contention, store failure, missing credentials
+   * — so a refusal never fabricates attempted partitions.
+   */
   attemptedSeasonTypes: RankingsSeasonType[];
   /**
    * Partitions that caused a partition-level rejection: the uncertain partitions

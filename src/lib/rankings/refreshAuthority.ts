@@ -118,11 +118,18 @@ async function fetchPartition(params: {
   }
 
   const weeks = normalizeCfbdRankingsWeeks(upstream, resolver);
-  const classified = classifyRankingsPartition(seasonType, upstream, weeks);
+  // Cross-year contamination guard (Codex round-1 P2): a week labeled with a
+  // DIFFERENT season can never enter this year's aggregate — `usable` means
+  // usable FOR THE REQUESTED YEAR. An entirely-mislabeled nonempty payload
+  // therefore classifies as schema drift below, and a partially-mislabeled one
+  // loses its foreign weeks here and then fails the prior-relative completeness
+  // gate if that loss regresses coverage. Never committed as this year's truth.
+  const seasonWeeks = weeks.filter((week) => week.season === year);
+  const classified = classifyRankingsPartition(seasonType, upstream, seasonWeeks);
   if (classified.kind === 'schema-drift') {
     return { kind: 'schema-drift', seasonType };
   }
-  return { kind: 'rows', seasonType, weeks };
+  return { kind: 'rows', seasonType, weeks: seasonWeeks };
 }
 
 /** Map one canonical week to the partition that produced it. */
@@ -289,7 +296,11 @@ export async function refreshSeasonRankings(params: {
   now?: number;
 }): Promise<RankingsRefreshResult> {
   const { year, trigger } = params;
-  const attemptedSeasonTypes = [...RANKINGS_SEASON_TYPES];
+  // Populated ONLY when the provider-fetch stage actually begins (alongside
+  // `providerCallAttempted`), so a pre-fetch exit — lease refusal, prior-state
+  // read failure, missing credentials — never fabricates attempted partitions
+  // (external review finding #3).
+  let attemptedSeasonTypes: RankingsSeasonType[] = [];
 
   // Fresh acquisition instant captured immediately before lease acquisition —
   // never at route entry.
@@ -343,7 +354,6 @@ export async function refreshSeasonRankings(params: {
         year,
         trigger,
         observedAt: acquiredAtIso,
-        attemptedSeasonTypes,
       });
     }
 
@@ -362,7 +372,6 @@ export async function refreshSeasonRankings(params: {
         year,
         trigger,
         observedAt: acquiredAtIso,
-        attemptedSeasonTypes,
       });
     }
 
@@ -376,6 +385,7 @@ export async function refreshSeasonRankings(params: {
     const observedAtMs = params.now ?? Date.now();
     observedAtIso = new Date(observedAtMs).toISOString();
     providerCallAttempted = true;
+    attemptedSeasonTypes = [...RANKINGS_SEASON_TYPES];
     const outcomes = await Promise.all(
       RANKINGS_SEASON_TYPES.map((seasonType) =>
         fetchPartition({ year, seasonType, apiKey: cfbdApiKey, resolver })

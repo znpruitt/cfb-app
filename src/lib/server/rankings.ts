@@ -292,8 +292,14 @@ export async function loadSeasonRankings(
   );
   const newest = candidates.sort((a, b) => b.at - a.at)[0] ?? null;
   if (newest) {
-    CACHE.set(season, { entry: newest, memoizedAtMs: now });
-    return serveRankingsEntry(newest, now);
+    // A refresh on THIS instance may have committed and published a fresher
+    // memo while the durable read above was in flight — never regress the memo
+    // (and this response) below it (mirrors the authority's stale-observation
+    // memo guard; PLATFORM-086E2A review P3 #1).
+    const concurrent = CACHE.get(season)?.entry ?? null;
+    const winner = concurrent && concurrent.at > newest.at ? concurrent : newest;
+    CACHE.set(season, { entry: winner, memoizedAtMs: now });
+    return serveRankingsEntry(winner, now);
   }
 
   throw new Error(

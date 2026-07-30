@@ -4,7 +4,11 @@ import test from 'node:test';
 import { refreshSeasonRankings } from '../rankings/refreshAuthority.ts';
 import {
   loadSeasonRankings,
+  peekRankingsProcessMemo,
+  publishRankingsProcessMemo,
   __resetSeasonRankingsCacheForTests,
+  __setSeasonRankingsCacheForTests,
+  RANKINGS_MEMO_TTL_MS,
   type RankingsCacheEntry,
 } from '../server/rankings.ts';
 import {
@@ -298,6 +302,48 @@ test('rankings refresh: a generic provider failure still records a generic (non-
   const status = await getProviderRefreshStatus('rankings', yearScope(SEASON));
   assert.equal(status.latestAttemptOutcome, 'failed');
   assert.notEqual(status.lastError?.code, 'rankings-partition-schema-drift');
+});
+
+test('a public read racing a same-instance commit never regresses the process memo', async () => {
+  // Reader memo-regression race (review P3 #1): the reader's memo is EXPIRED
+  // with old content, the durable read is in flight, and a refresh on this
+  // instance publishes a fresher memo during that await. The reader must not
+  // clobber the fresher memo (nor serve the older snapshot) when it resumes.
+  const oldEntry = priorGoodEntry();
+  await setAppState('rankings', String(SEASON), oldEntry);
+  __setSeasonRankingsCacheForTests(SEASON, oldEntry, {
+    memoizedAtMs: Date.now() - RANKINGS_MEMO_TTL_MS - 1000,
+  });
+
+  const fresher: RankingsCacheEntry = {
+    at: oldEntry.at + 60_000,
+    response: {
+      ...populatedRankings(),
+      meta: {
+        source: 'cfbd',
+        cache: 'miss',
+        generatedAt: new Date(oldEntry.at + 60_000).toISOString(),
+      },
+    },
+  };
+
+  // Start the read (expired memo → durable re-read), then publish the fresher
+  // commit BEFORE the in-flight durable read resolves (synchronous publish
+  // lands ahead of the awaited continuation).
+  const pending = loadSeasonRankings(SEASON);
+  publishRankingsProcessMemo(SEASON, fresher);
+
+  const served = await pending;
+  assert.equal(
+    served.meta.generatedAt,
+    fresher.response.meta.generatedAt,
+    'the fresher concurrent commit is served, not the older durable snapshot'
+  );
+  assert.equal(
+    peekRankingsProcessMemo(SEASON)?.at,
+    fresher.at,
+    'the fresher memo survives the racing read'
+  );
 });
 
 test('rankings refresh: usable regular + genuinely empty postseason commits successfully', async () => {

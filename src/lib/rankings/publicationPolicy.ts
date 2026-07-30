@@ -12,8 +12,12 @@
  *
  * Windows (all UTC; day 0 = Sunday):
  *   - `preseason-discovery`     Monday 22:00, from 45 days before the first
- *                               canonical kickoff, while AP or Coaches data is
- *                               still absent.
+ *                               canonical kickoff UNTIL that kickoff, while AP
+ *                               or Coaches data is still absent. Strictly a
+ *                               PRESEASON window: once the season starts the
+ *                               Sunday weekly window already refreshes both
+ *                               partitions, so a poll source missing mid-season
+ *                               never justifies an extra Monday slot.
  *   - `weekly-ap-coaches`       Sunday 22:00 during the late-preseason/active
  *                               interval (from 45 days before the first kickoff
  *                               until seven days past the structured
@@ -158,7 +162,9 @@ export function evaluateRankingsPublicationWindow(
     hour === 22 &&
     day === 1 &&
     discoveryStart !== null &&
+    firstKickoff !== null &&
     t >= discoveryStart &&
+    t < firstKickoff &&
     (!context.hasAp || !context.hasCoaches)
   ) {
     return due('preseason-discovery');

@@ -85,6 +85,22 @@ test('preseason discovery still fires while exactly one poll is absent', () => {
   assert.equal(decision.due && decision.kind, 'preseason-discovery');
 });
 
+// External review finding #2 — discovery is strictly a PRESEASON window: once
+// the first kickoff passes, a still-absent poll source never re-arms Mondays
+// (the Sunday weekly window already refreshes both partitions all season).
+test('preseason discovery never fires after the first kickoff, even with a poll absent', () => {
+  // Monday 2026-08-31 22:00 is two days AFTER the 2026-08-29 first kickoff.
+  assert.equal(at('2026-08-31T22:00:00.000Z').getUTCDay(), 1, 'fixture is a Monday');
+  const decision = evaluateRankingsPublicationWindow(
+    context({
+      scheduledAt: at('2026-08-31T22:00:00.000Z'),
+      hasAp: false,
+      hasCoaches: false,
+    })
+  );
+  assert.deepEqual(decision, { due: false, reason: 'no-window-due' });
+});
+
 // 34 — weekly AP/Coaches: Sunday 22:00 during the late-preseason/active interval.
 test('weekly AP/Coaches fires on Sundays from the 45-day lead through the season', () => {
   const preseasonSunday = evaluateRankingsPublicationWindow(

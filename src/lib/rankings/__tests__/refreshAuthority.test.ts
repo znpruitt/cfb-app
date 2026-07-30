@@ -281,6 +281,60 @@ test('an equal observation timestamp preserves the prior committed entry', async
 });
 
 // ---------------------------------------------------------------------------
+// Cross-year contamination (Codex round-1 P2)
+// ---------------------------------------------------------------------------
+
+// A structurally valid payload whose weeks are labeled with a DIFFERENT season
+// must never replace this year's rankings, even when its week numbers and poll
+// sources mirror the cached data exactly.
+test('a payload labeled with a different season is rejected, never committed as this year', async () => {
+  stubPartitions({
+    regular: [regularWeek(1, [poll('AP Top 25', [['Georgia', 1]])])],
+    postseason: [],
+  });
+  await refresh(T1);
+
+  // Entirely-mislabeled nonempty payload (prior season's weeks) → zero weeks
+  // usable FOR THIS YEAR → schema drift; prior-good retained.
+  stubPartitions({
+    regular: [
+      {
+        season: YEAR - 1,
+        seasonType: 'regular',
+        week: 1,
+        polls: [poll('AP Top 25', [['Michigan', 1]])],
+      },
+    ],
+    postseason: [],
+  });
+  const mislabeled = await refresh(T2);
+  assert.equal(mislabeled.status, 'failure');
+  assert.equal(mislabeled.reason, 'rankings-partition-schema-drift');
+  assert.deepEqual(mislabeled.failedSeasonTypes, ['regular']);
+  const durable = await durableEntry();
+  assert.equal(durable?.at, T1, 'prior-good untouched');
+  assert.equal(durable?.response.weeks[0]?.teams[0]?.teamName, 'Georgia');
+
+  // Partially-mislabeled payload: the foreign week is EXCLUDED, and losing the
+  // prior week-1 coverage then fails the completeness gate.
+  stubPartitions({
+    regular: [
+      {
+        season: YEAR - 1,
+        seasonType: 'regular',
+        week: 1,
+        polls: [poll('AP Top 25', [['Michigan', 1]])],
+      },
+      regularWeek(2, [poll('AP Top 25', [['Georgia', 1]])]),
+    ],
+    postseason: [],
+  });
+  const mixed = await refresh(T2);
+  assert.equal(mixed.reason, 'rankings-partition-incomplete');
+  assert.equal((await durableEntry())?.at, T1, 'prior-good still untouched');
+});
+
+// ---------------------------------------------------------------------------
 // Partition validation (16, 17, 18, 19, 20)
 // ---------------------------------------------------------------------------
 
@@ -529,6 +583,9 @@ test('a prior-state read outage fails closed as store-unavailable before provide
     assert.equal(result.status, 'failure');
     assert.equal(result.reason, 'store-unavailable');
     assert.equal(result.providerCallAttempted, false);
+    // External review finding #3 — a pre-fetch exit fabricates no attempted
+    // partitions (the field mirrors providerCallAttempted).
+    assert.deepEqual(result.attemptedSeasonTypes, []);
     assert.equal(stub.calls(), 0, 'no provider request after a failed prior-state read');
   } finally {
     __setAppStateReadFailureForTests(null);
@@ -547,6 +604,7 @@ test('a missing CFBD key records a failed attempt without provider work', async 
   assert.equal(result.status, 'failure');
   assert.equal(result.reason, 'cfbd-api-key-missing');
   assert.equal(result.providerCallAttempted, false);
+  assert.deepEqual(result.attemptedSeasonTypes, [], 'no fabricated attempted partitions');
   assert.equal(stub.calls(), 0);
 
   const status = await getProviderRefreshStatus('rankings', yearScope(YEAR));
