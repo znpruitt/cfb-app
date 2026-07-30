@@ -80,7 +80,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   6 P3s dispositioned (see the entry's PR). Confirming round: all six remediations verified; 1
   residual P2 (a second dangling next-tasks pointer phrasing) + 1 P3 (this verdict recorded
   prematurely) — both fixed in the final commit and mechanically re-verified.
-- Status: Implemented — PR open (not merged).
+- Status: Merged (PR #429, `ea4fa60`, 2026-07-30).
 
 ### PLATFORM-086E2B-RANKINGS-PUBLICATION-AUTOMATION-v1
 

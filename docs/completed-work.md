@@ -1947,6 +1947,29 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### DOCS-012 — Current-Ledger Deconfliction + Ledger-Ownership Governance — Complete
+
+- **Status:** Complete — merged to `main` via PR #429 (merge commit `ea4fa60`, 2026-07-30).
+  Documentation-only; six files (`AGENTS.md` + the five ledger/index documents).
+- **PROMPT_ID(s):** `DOCS-012-CURRENT-LEDGER-DECONFLICTION-v2` (v1 draft scope amended
+  pre-implementation, never registered).
+- **Outcome:** Each ledger now has one clear responsibility, bound by the new `AGENTS.md` → "Ledger
+  ownership during closeout" rules: `next-tasks.md` owns the execution queue and the one canonical
+  deferrals list (and is the only doc that designates `NEXT`); `roadmap.md` owns direction without
+  PR internals; `prompt-registry.md` owns concise execution records (compact template for future
+  entries; no mutable `NEXT` pointers); this file owns outcome milestones (point-in-time warning
+  added; new template below). Displaced evidence was rehomed rather than dropped (the §8c/parity-
+  rerun record into the registry; the PRE-LAUNCH-TIDYUP milestone above), and the server-fetch
+  backlog was corrected to the verified audit findings.
+- **Verification:** `npm run lint:markdown` + `git diff --check` clean; registry-heading uniqueness,
+  local-link resolution, and single-`NEXT` checks passed; independent review + confirming round
+  resolved (2 P1 + 3 P2 + 7 P3 across both rounds, all remediated or explicitly dispositioned).
+- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md`. One
+  residual excluded from this task by instruction: `CLAUDE.md`'s deferrals pointer retains a stale
+  intermediate path segment (its terminal heading resolves).
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
