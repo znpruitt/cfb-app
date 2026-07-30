@@ -63,12 +63,18 @@ export async function POST(req: Request): Promise<Response> {
     return new Response(`League with slug "${slug}" already exists`, { status: 409 });
   }
 
+  // PLATFORM-086F2B — new leagues are born with an explicit lifecycle status.
+  // `status` is the lifecycle authority and the top-level `year` its synchronized
+  // projection; initializing both here preserves the pre-F2B effective behavior
+  // (a missing status was inferred as `{ state: 'season', year }`) while
+  // preventing new missing-status records.
   const league: League = {
     slug,
     displayName,
     year,
     createdAt: new Date().toISOString(),
     foundedYear: new Date().getFullYear(),
+    status: { state: 'season', year },
   };
 
   const updated = await addLeague(league);

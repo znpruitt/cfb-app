@@ -5,14 +5,13 @@ import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { saveSeasonArchive } from '@/lib/seasonArchive';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { buildSeasonArchive } from '@/lib/seasonRollover';
+import { groupRolloverTargets } from '@/lib/rolloverTargeting';
 import {
   resolveNationalChampionshipRollover,
   type ChampionshipRolloverSkipReason,
 } from '@/lib/schedule/nationalChampionshipRollover';
 
 export const dynamic = 'force-dynamic';
-
-const TEST_LEAGUE_SLUG = 'test';
 
 type RolloverError = { leagueSlug?: string; year?: number; error: string };
 
@@ -54,25 +53,16 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   }
 
   try {
-    const allLeagues = await getLeagues();
-    const seasonLeagues = allLeagues.filter(
-      (l) => l.slug !== TEST_LEAGUE_SLUG && l.status?.state === 'season'
-    );
-
-    if (seasonLeagues.length === 0) {
-      return NextResponse.json({ skipped: true, reason: 'no leagues in season state' });
-    }
-
-    // Group leagues by their season year and evaluate each year INDEPENDENTLY —
-    // never assume all leagues share the first eligible league's year
+    // Target selection is the SHARED per-year grouping policy (PLATFORM-086F2B,
+    // `groupRolloverTargets`): non-test leagues in `season`, grouped exclusively
+    // by `status.year`, ascending. Each year is evaluated INDEPENDENTLY — never
+    // assume all leagues share the first eligible league's year
     // (PLATFORM-086E1A §6). The rollover authority reads each year's canonical
     // schedule cache-only and requires a structured, confirmed-final championship.
-    const byYear = new Map<number, typeof seasonLeagues>();
-    for (const league of seasonLeagues) {
-      const year = (league.status as { state: 'season'; year: number }).year;
-      const group = byYear.get(year) ?? [];
-      group.push(league);
-      byYear.set(year, group);
+    const groups = groupRolloverTargets(await getLeagues());
+
+    if (groups.length === 0) {
+      return NextResponse.json({ skipped: true, reason: 'no leagues in season state' });
     }
 
     const now = Date.now();
@@ -81,7 +71,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     const suppressionClearedFor: string[] = [];
     const errors: RolloverError[] = [];
 
-    for (const [year, yearLeagues] of byYear) {
+    for (const { year, leagues: yearLeagues } of groups) {
       const decision = await resolveNationalChampionshipRollover(year, now);
 
       if (decision.kind === 'read-failed') {

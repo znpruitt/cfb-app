@@ -1,9 +1,15 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
-import type { PublicLeague } from '@/lib/league';
-import type { SeasonArchiveDiff } from '@/lib/seasonArchive';
+import {
+  buildManualRolloverRequest,
+  describeManualRolloverRefusal,
+  parseManualRolloverStatusResponse,
+  type ManualRolloverExecuteResponse,
+  type ManualRolloverPreviewResponse,
+  type ManualRolloverYearStatus,
+} from '@/lib/manualRollover';
 
 const controlButtonClass =
   'px-3 py-2 rounded border border-gray-300 bg-white text-sm text-gray-900 transition-colors hover:bg-gray-50 hover:border-gray-400 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700/60';
@@ -12,71 +18,35 @@ const primaryButtonClass =
 const dangerButtonClass =
   'px-4 py-2 rounded border border-red-600 bg-red-600 text-sm font-medium text-white transition-colors hover:bg-red-700 hover:border-red-700 dark:border-red-500 dark:bg-red-600 dark:hover:bg-red-700';
 
-type StatusData = {
-  seasonComplete: boolean;
-  currentYear: number;
-  leagues: PublicLeague[];
-};
+type PreviewData = ManualRolloverPreviewResponse['preview'];
 
-type LeaguePreview = {
-  leagueSlug: string;
-  displayName: string;
-  hasExistingArchive: boolean;
-  diff: SeasonArchiveDiff | null;
-  error: string | null;
-};
-
-type PreviewData = {
-  currentYear: number;
-  leagues: LeaguePreview[];
-};
-
-type RolloverResult = {
-  success: boolean;
-  archivedLeagues: string[];
-  errors: Array<{ leagueSlug: string; error: string }>;
-};
-
-export default function RolloverPanel() {
-  const [status, setStatus] = useState<StatusData | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+/**
+ * PLATFORM-086F2B — one eligible year's preview/confirm flow. Each eligible
+ * year renders its own section instance (keyed by year), so preview and
+ * confirmation state can never cross-wire between years, and every request
+ * carries this section's explicit year.
+ */
+function EligibleYearSection({
+  status,
+  onCompleted,
+}: {
+  status: ManualRolloverYearStatus;
+  onCompleted: () => Promise<void>;
+}) {
+  const { year } = status;
+  const leagueCount = status.leagues.length;
 
   const [preview, setPreview] = useState<PreviewData | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
-  const [result, setResult] = useState<RolloverResult | null>(null);
+  const [result, setResult] = useState<ManualRolloverExecuteResponse | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
 
-  useEffect(() => {
-    void loadStatus();
-  }, []);
-
-  async function loadStatus() {
-    setLoadError(null);
-    try {
-      let authHeaders: Record<string, string>;
-      try {
-        authHeaders = requireAdminAuthHeaders() as Record<string, string>;
-      } catch {
-        setLoadError('No admin token found — please enter your admin token above.');
-        return;
-      }
-      const res = await fetch('/api/admin/rollover', {
-        cache: 'no-store',
-        headers: authHeaders,
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        setLoadError(text || `GET /api/admin/rollover ${res.status}`);
-        return;
-      }
-      const data = (await res.json()) as StatusData;
-      setStatus(data);
-    } catch (err) {
-      setLoadError((err as Error).message);
-    }
+  async function refusalMessage(res: Response): Promise<string> {
+    const payload: unknown = await res.json().catch(() => null);
+    return describeManualRolloverRefusal(payload) ?? `POST /api/admin/rollover ${res.status}`;
   }
 
   async function handlePreview() {
@@ -89,14 +59,15 @@ export default function RolloverPanel() {
       const res = await fetch('/api/admin/rollover', {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ confirmed: false }),
+        body: JSON.stringify(buildManualRolloverRequest(year, false)),
       });
       if (!res.ok) {
-        const text = await res.text();
-        setPreviewError(text || `POST /api/admin/rollover ${res.status}`);
+        setPreviewError(await refusalMessage(res));
+        // A refusal means eligibility changed since load — resync the status.
+        await onCompleted();
         return;
       }
-      const data = (await res.json()) as { preview: PreviewData };
+      const data = (await res.json()) as ManualRolloverPreviewResponse;
       setPreview(data.preview);
     } catch (err) {
       setPreviewError((err as Error).message);
@@ -113,36 +84,27 @@ export default function RolloverPanel() {
       const res = await fetch('/api/admin/rollover', {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ confirmed: true }),
+        body: JSON.stringify(buildManualRolloverRequest(year, true)),
       });
       if (!res.ok) {
-        const text = await res.text();
-        setConfirmError(text || `POST /api/admin/rollover ${res.status}`);
+        setConfirmError(await refusalMessage(res));
+        // The gate refused after a previously eligible preview — the preview is
+        // stale authorization for nothing. Drop it and resync.
+        setPreview(null);
+        await onCompleted();
         return;
       }
-      const data = (await res.json()) as RolloverResult;
+      const data = (await res.json()) as ManualRolloverExecuteResponse;
       setResult(data);
       setPreview(null);
-      // Reload status to reflect new year
-      await loadStatus();
+      // Reload status so this year drops out of the eligible list.
+      await onCompleted();
     } catch (err) {
       setConfirmError((err as Error).message);
     } finally {
       setConfirming(false);
     }
   }
-
-  if (loadError) {
-    return (
-      <div className="mb-4 rounded-2xl border border-gray-300 bg-gray-50/80 p-4 text-sm text-red-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-red-400">
-        Season rollover status unavailable: {loadError}
-      </div>
-    );
-  }
-
-  if (!status || !status.seasonComplete) return null;
-
-  const { currentYear } = status;
 
   return (
     <div className="mb-4 rounded-2xl border border-amber-300 bg-amber-50/80 p-4 shadow-sm dark:border-amber-700/60 dark:bg-amber-950/20">
@@ -151,31 +113,43 @@ export default function RolloverPanel() {
           Season Rollover
         </p>
         <h2 className="text-xl font-semibold text-gray-950 dark:text-zinc-50">
-          Season {currentYear} is complete — ready to archive
+          Season {year} is complete — ready to archive
         </h2>
         <p className="max-w-2xl text-sm text-gray-600 dark:text-zinc-300">
           The CFP National Championship has been played. Clicking <strong>Preview Rollover</strong>{' '}
-          will show what will be archived for each league. Clicking{' '}
-          <strong>Confirm Rollover</strong> will archive the {currentYear} season for all leagues
-          and set them to offseason status.
+          will show what will be archived for each of the {leagueCount} league
+          {leagueCount !== 1 ? 's' : ''} in the {year} season. Clicking{' '}
+          <strong>Confirm Rollover</strong> will archive the {year} season for{' '}
+          {leagueCount !== 1 ? `those ${leagueCount} leagues` : 'that league'} and set{' '}
+          {leagueCount !== 1 ? 'them' : 'it'} to offseason status.
         </p>
       </div>
 
       {result ? (
         <div className="mt-4 space-y-3">
-          <p className="text-sm font-medium text-green-700 dark:text-green-400">
-            Season {currentYear} archived. All leagues set to offseason.
-          </p>
-          {result.archivedLeagues.length > 0 && (
+          {result.success ? (
+            <p className="text-sm font-medium text-green-700 dark:text-green-400">
+              Season {result.year} archived. {result.rolledOverLeagues.length} league
+              {result.rolledOverLeagues.length !== 1 ? 's' : ''} set to offseason.
+            </p>
+          ) : (
+            <p className="text-sm font-medium text-red-700 dark:text-red-400">
+              {result.message ?? 'Rollover did not fully complete.'}
+            </p>
+          )}
+          {result.rolledOverLeagues.length > 0 && (
             <p className="text-sm text-gray-600 dark:text-zinc-400">
-              Archived: {result.archivedLeagues.join(', ')}
+              Rolled over: {result.rolledOverLeagues.join(', ')}
             </p>
           )}
           {result.errors.length > 0 && (
             <div className="space-y-1">
               {result.errors.map((e) => (
-                <p key={e.leagueSlug} className="text-sm text-red-700 dark:text-red-400">
-                  {e.leagueSlug}: {e.error}
+                <p
+                  key={`${e.stage}:${e.leagueSlug}`}
+                  className="text-sm text-red-700 dark:text-red-400"
+                >
+                  {e.leagueSlug} ({e.stage}): {e.error}
                 </p>
               ))}
             </div>
@@ -201,7 +175,7 @@ export default function RolloverPanel() {
           {preview && (
             <div className="space-y-4">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-zinc-100">
-                Rollover preview — {preview.currentYear} season
+                Rollover preview — {preview.year} season
               </h3>
 
               <div className="space-y-3">
@@ -224,7 +198,7 @@ export default function RolloverPanel() {
                     ) : league.hasExistingArchive && league.diff ? (
                       <div className="mt-2 space-y-1 text-xs text-gray-600 dark:text-zinc-400">
                         <p className="font-medium text-amber-700 dark:text-amber-400">
-                          Existing {preview.currentYear} archive will be overwritten
+                          Existing {preview.year} archive will be overwritten
                         </p>
                         <p>
                           Score changes: {league.diff.scoresChanged} owner records affected
@@ -253,7 +227,7 @@ export default function RolloverPanel() {
                       </div>
                     ) : (
                       <p className="mt-1 text-xs text-green-700 dark:text-green-400">
-                        New archive — {preview.currentYear} season will be written fresh
+                        New archive — {preview.year} season will be written fresh
                       </p>
                     )}
                   </div>
@@ -268,7 +242,7 @@ export default function RolloverPanel() {
                 >
                   {confirming
                     ? 'Archiving…'
-                    : `Confirm Rollover — archive ${preview.currentYear} season`}
+                    : `Confirm Rollover — archive the ${preview.year} season (${leagueCount} league${leagueCount !== 1 ? 's' : ''})`}
                 </button>
                 <button
                   className={controlButtonClass}
@@ -289,5 +263,66 @@ export default function RolloverPanel() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function RolloverPanel() {
+  const [years, setYears] = useState<ManualRolloverYearStatus[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const loadStatus = useCallback(async () => {
+    setLoadError(null);
+    try {
+      let authHeaders: Record<string, string>;
+      try {
+        authHeaders = requireAdminAuthHeaders() as Record<string, string>;
+      } catch {
+        setLoadError('No admin token found — please enter your admin token above.');
+        return;
+      }
+      const res = await fetch('/api/admin/rollover', {
+        cache: 'no-store',
+        headers: authHeaders,
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        setLoadError(text || `GET /api/admin/rollover ${res.status}`);
+        return;
+      }
+      const data = parseManualRolloverStatusResponse(await res.json());
+      if (!data) {
+        setLoadError('Unexpected rollover status response shape.');
+        return;
+      }
+      setYears(data.years);
+    } catch (err) {
+      setLoadError((err as Error).message);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadStatus();
+  }, [loadStatus]);
+
+  if (loadError) {
+    return (
+      <div className="mb-4 rounded-2xl border border-gray-300 bg-gray-50/80 p-4 text-sm text-red-700 shadow-sm dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-red-400">
+        Season rollover status unavailable: {loadError}
+      </div>
+    );
+  }
+
+  // Execute controls exist ONLY for eligible years; this panel stays hidden
+  // until at least one active season year passes the strict gate (ineligible
+  // and unavailable years surface on the Data Cache maintenance panel).
+  const eligibleYears = (years ?? []).filter((y) => y.eligibility === 'eligible');
+  if (eligibleYears.length === 0) return null;
+
+  return (
+    <>
+      {eligibleYears.map((yearStatus) => (
+        <EligibleYearSection key={yearStatus.year} status={yearStatus} onCompleted={loadStatus} />
+      ))}
+    </>
   );
 }

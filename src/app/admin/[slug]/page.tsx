@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-import { getLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
+import { getLeague } from '@/lib/leagueRegistry';
 import type { LeagueStatus } from '@/lib/league';
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import LeagueStatusPanel from '@/components/admin/LeagueStatusPanel';
@@ -29,14 +29,12 @@ export default async function AdminLeaguePage({ params }: { params: Promise<{ sl
 
   if (!league) notFound();
 
+  // Legacy missing-status records read through the same inference the rest of
+  // the app uses: `{ state: 'season', year: league.year }`. READ-ONLY —
+  // rendering an admin page must never persist lifecycle state
+  // (PLATFORM-086F2B); new leagues are created with an explicit status, and
+  // lifecycle writes happen only through explicit operations.
   const leagueStatus: LeagueStatus = league.status ?? { state: 'season', year: league.year };
-
-  // Seed status if absent — fire-and-forget; display uses in-memory value, write does not block render
-  if (!league.status) {
-    updateLeagueStatus(slug, leagueStatus).catch(() => {
-      // Non-fatal
-    });
-  }
 
   // Derive lookup year from lifecycle state:
   // season/preseason → use status.year; offseason → fall back to league.year

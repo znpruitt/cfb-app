@@ -71,11 +71,11 @@ export async function resetTestDraft(): Promise<void> {
 }
 
 /**
- * Hard-reset the test league to { state: 'season', year: 2025 }, syncing league.year too.
+ * Hard-reset the test league to { state: 'season', year: 2025 }. The lifecycle
+ * authority synchronizes league.year in the same write.
  * Also clears all 2026 preseason/draft state so the next dry run starts clean.
  */
 export async function resetTestLeague(): Promise<void> {
-  await updateLeague('test', { year: 2025 });
   await updateLeagueStatus('test', { state: 'season', year: 2025 });
   await Promise.all([
     deleteAppState('preseason-owners:test', '2026'),
@@ -125,8 +125,9 @@ export async function completeSetup(slug: string, year: number): Promise<void> {
   const league = await getLeague(slug);
   if (!league) throw new Error('League not found');
   if (league.status?.state !== 'preseason') throw new Error('League is not in preseason');
+  // One lifecycle write — the authority synchronizes league.year to the
+  // preseason year in the same registry record.
   await updateLeagueStatus(slug, { state: 'preseason', year, setupComplete: true });
-  await updateLeague(slug, { year });
   revalidatePath(`/admin/${slug}`);
   revalidatePath(`/admin/${slug}`, 'layout');
   revalidatePath(`/admin/${slug}/preseason`);

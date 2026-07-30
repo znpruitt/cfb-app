@@ -21,7 +21,6 @@ const destructiveButtonClass =
 
 type EditState = {
   displayName: string;
-  year: string;
   error: string | null;
   saving: boolean;
 };
@@ -69,7 +68,6 @@ export default function AdminLeaguesPage() {
       ...prev,
       [league.slug]: {
         displayName: league.displayName,
-        year: String(league.year),
         error: null,
         saving: false,
       },
@@ -189,19 +187,11 @@ export default function AdminLeaguesPage() {
     if (!state) return;
 
     const trimmedName = state.displayName.trim();
-    const yearNum = Number(state.year);
 
     if (!trimmedName) {
       setEditMap((prev) => ({
         ...prev,
         [leagueSlug]: { ...prev[leagueSlug], error: 'Display name is required.' },
-      }));
-      return;
-    }
-    if (!Number.isFinite(yearNum) || yearNum < 2000) {
-      setEditMap((prev) => ({
-        ...prev,
-        [leagueSlug]: { ...prev[leagueSlug], error: 'Year must be a valid season year.' },
       }));
       return;
     }
@@ -225,10 +215,12 @@ export default function AdminLeaguesPage() {
       [leagueSlug]: { ...prev[leagueSlug], saving: true, error: null },
     }));
     try {
+      // Season year is lifecycle-managed (PLATFORM-086F2B) — the configuration
+      // PATCH sends only the display name and would be rejected if it sent year.
       const res = await fetch(`/api/admin/leagues/${encodeURIComponent(leagueSlug)}`, {
         method: 'PATCH',
         headers: { 'content-type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ displayName: trimmedName, year: yearNum }),
+        body: JSON.stringify({ displayName: trimmedName }),
       });
       if (!res.ok) {
         const text = await res.text();
@@ -312,6 +304,9 @@ export default function AdminLeaguesPage() {
                         <span className="text-xs text-gray-400 dark:text-zinc-500">
                           (URL — permanent)
                         </span>
+                        <span className="text-xs text-gray-400 dark:text-zinc-500">
+                          · Season year: {league.year} (managed by league lifecycle)
+                        </span>
                       </div>
                       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                         <div className="space-y-1">
@@ -328,20 +323,6 @@ export default function AdminLeaguesPage() {
                                   ...prev[league.slug],
                                   displayName: e.target.value,
                                 },
-                              }))
-                            }
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-xs text-gray-500 dark:text-zinc-400">Year</label>
-                          <input
-                            className={inputClass}
-                            type="number"
-                            value={editing.year}
-                            onChange={(e) =>
-                              setEditMap((prev) => ({
-                                ...prev,
-                                [league.slug]: { ...prev[league.slug], year: e.target.value },
                               }))
                             }
                           />

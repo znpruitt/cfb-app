@@ -28,26 +28,37 @@ export async function PATCH(
   }
 
   const obj = body as Record<string, unknown>;
-  const updates: { displayName?: string; year?: number; foundedYear?: number } = {};
+
+  // PLATFORM-086F2B — the season year and lifecycle status are managed only by
+  // the lifecycle mutation authority (`updateLeagueStatus`); this configuration
+  // route must not offer a second, competing year authority. Reject explicitly
+  // rather than silently ignoring the field.
+  if ('year' in obj) {
+    return Response.json(
+      {
+        error: 'league-year-lifecycle-managed',
+        detail: 'Season year is managed through league lifecycle operations.',
+      },
+      { status: 409 }
+    );
+  }
+  if ('status' in obj) {
+    return Response.json(
+      {
+        error: 'league-status-lifecycle-managed',
+        detail: 'League lifecycle status is managed through league lifecycle operations.',
+      },
+      { status: 409 }
+    );
+  }
+
+  const updates: { displayName?: string; foundedYear?: number } = {};
 
   if ('displayName' in obj) {
     if (typeof obj.displayName !== 'string' || !obj.displayName.trim()) {
       return new Response('displayName must be a non-empty string', { status: 400 });
     }
     updates.displayName = obj.displayName.trim();
-  }
-
-  if ('year' in obj) {
-    const year =
-      typeof obj.year === 'number'
-        ? obj.year
-        : typeof obj.year === 'string'
-          ? Number(obj.year)
-          : NaN;
-    if (!Number.isFinite(year) || year < 2000) {
-      return new Response('year must be a valid season year', { status: 400 });
-    }
-    updates.year = year;
   }
 
   if ('foundedYear' in obj) {
@@ -64,7 +75,7 @@ export async function PATCH(
   }
 
   if (Object.keys(updates).length === 0) {
-    return new Response('No updatable fields provided (displayName, year, foundedYear)', {
+    return new Response('No updatable fields provided (displayName, foundedYear)', {
       status: 400,
     });
   }

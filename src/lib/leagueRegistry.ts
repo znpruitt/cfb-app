@@ -34,10 +34,24 @@ export async function addLeague(league: League): Promise<League[]> {
   return updated;
 }
 
+/**
+ * Generic league CONFIGURATION update (display name, founded year, password
+ * material, assignment configuration). The lifecycle fields — `year` and
+ * `status` — are reserved for `updateLeagueStatus`, the single lifecycle-year
+ * mutation authority (PLATFORM-086F2B): `league.status` is the lifecycle
+ * source of truth and the top-level `league.year` is only its synchronized
+ * compatibility projection, so no generic caller may write either field. The
+ * type excludes them and the runtime guard rejects untyped callers.
+ */
 export async function updateLeague(
   slug: string,
-  updates: Partial<Omit<League, 'slug' | 'createdAt'>>
+  updates: Partial<Omit<League, 'slug' | 'createdAt' | 'year' | 'status'>>
 ): Promise<League | null> {
+  if ('year' in updates || 'status' in updates) {
+    throw new Error(
+      'updateLeague cannot mutate lifecycle fields (year/status) — use updateLeagueStatus'
+    );
+  }
   const leagues = await getLeagues();
   const idx = leagues.findIndex((l) => l.slug === slug);
   if (idx === -1) return null;
@@ -46,11 +60,33 @@ export async function updateLeague(
   return updated[idx];
 }
 
+/**
+ * The single lifecycle mutation authority (PLATFORM-086F2B). Performs ONE
+ * registry write per call:
+ *
+ *   - `season` / `preseason` → sets `status` AND synchronizes the top-level
+ *     `league.year` to `status.year` in the same written record;
+ *   - `offseason` → sets only `status`, retaining the last season year in
+ *     `league.year` (the archived-season compatibility projection).
+ *
+ * Because both fields land in one `setAppState` write, a failed registry write
+ * can never leave `status.year` and `league.year` partially synchronized.
+ */
 export async function updateLeagueStatus(
   slug: string,
   status: LeagueStatus
 ): Promise<League | null> {
-  return updateLeague(slug, { status });
+  const leagues = await getLeagues();
+  const idx = leagues.findIndex((l) => l.slug === slug);
+  if (idx === -1) return null;
+  const current = leagues[idx]!;
+  const next: League =
+    status.state === 'offseason'
+      ? { ...current, status }
+      : { ...current, status, year: status.year };
+  const updated = leagues.map((l, i) => (i === idx ? next : l));
+  await setAppState(REGISTRY_SCOPE, REGISTRY_KEY, updated);
+  return next;
 }
 
 /**

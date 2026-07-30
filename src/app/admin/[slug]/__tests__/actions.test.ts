@@ -7,7 +7,7 @@ import test from 'node:test';
 import '../../../api/draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStorage';
 import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
 
-import { confirmPreseasonOwners, beginPreseason } from '../actions';
+import { confirmPreseasonOwners, beginPreseason, completeSetup } from '../actions';
 import type { League } from '../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
@@ -99,4 +99,34 @@ test('beginPreseason invalidates the league standings (offseason→preseason)', 
   const tags = await runCapturingTags(() => beginPreseason('alpha'));
 
   assert.ok(tags.includes('standings:alpha'), 'league umbrella tag invalidated');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2B — lifecycle callers no longer perform a redundant second
+// year write: the lifecycle authority synchronizes league.year with
+// status.year in ONE registry record.
+// ---------------------------------------------------------------------------
+
+test('completeSetup writes one synchronized lifecycle record (no separate year write)', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }),
+  ]);
+
+  await runCapturingTags(() => completeSetup('alpha', 2026));
+
+  const record = await getAppState<League[]>('leagues', 'registry');
+  const league = record?.value?.[0];
+  assert.deepEqual(league?.status, { state: 'preseason', year: 2026, setupComplete: true });
+  assert.equal(league?.year, 2026, 'top-level year synchronized by the same lifecycle write');
+});
+
+test('beginPreseason synchronizes league.year to the preseason year', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('alpha', { state: 'offseason' })]);
+
+  await runCapturingTags(() => beginPreseason('alpha'));
+
+  const record = await getAppState<League[]>('leagues', 'registry');
+  const league = record?.value?.[0];
+  assert.deepEqual(league?.status, { state: 'preseason', year: 2026 });
+  assert.equal(league?.year, 2026);
 });
