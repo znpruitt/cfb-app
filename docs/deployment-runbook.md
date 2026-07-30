@@ -531,7 +531,11 @@ What to observe, in order:
 
 After observing (2) and (3), complete a docs-only checkpoint here recording the observed events (date, trigger, media/venues reasons, and quota evidence if captured), then proceed to PLATFORM-086E2.
 
-## 8j) PLATFORM-086E2B activation — automatic rankings publication operator sequence — ⏳ NOT EXECUTED (post-merge)
+## 8j) PLATFORM-086E2B activation — automatic rankings publication operator sequence — ✅ COMPLETED (2026-07-30)
+
+**Production activation record (2026-07-30):** the sequence below was EXECUTED and verified. `turfwar-rankings-publication` is provisioned, active, and unpaused; the contract readback verified exactly (`GET https://turfwar.games/api/cron/rankings`, cron `0 4,22 * * *`, retries `0`, exactly one provider-redacted forwarded Authorization header). **Gates-closed proof**: QStash message `msg_7YoJxFpwkEy4DbXxFQZ91MK8xiB1wPdpTVwXqzbabbkFQqCevikHu` delivered HTTP `200` `skipped / automation-paused-or-disabled` with no quota check and no provider work. **Open-gate proof**: an authenticated delivery returned HTTP `200` `skipped / not-a-heartbeat-slot` with `quotaChecked: false`, `providerCallAttempted: false`, and no rows or data changes — one of the sanctioned provider-free outcomes (step 8); per step 9, a provider-backed publication is ordinary monitoring, NOT an activation blocker. **Final state**: Rankings automation On, global pause Off, schedule active/unpaused, CFBD quota and provider status unchanged. The first natural due-window refresh (e.g. a Sunday 22:00 UTC weekly slot once polls exist) is observed via the `rankings-cron` event as routine monitoring.
+
+The original sequence (retained as the procedure record):
 
 **Merging the E2B build activates nothing**: the route (`GET /api/cron/rankings`), the descriptor flip (Rankings toggle interactive), and the management CLI ship dormant — **no `turfwar-rankings-publication` QStash schedule exists until this sequence provisions it**, and the application's publication policy (not the heartbeat) decides when provider work is due. Perform in order; record actual evidence only.
 
