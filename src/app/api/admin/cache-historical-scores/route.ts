@@ -4,6 +4,7 @@ import { fetchUpstreamJson, UpstreamFetchError } from '@/lib/api/fetchUpstream';
 import { buildCfbdGamesUrl } from '@/lib/cfbd';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { loadCachedScheduleItems } from '@/lib/server/canonicalScheduleCache';
 import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
@@ -55,10 +56,38 @@ async function fetchScoreItems(
     pacing: CFBD_PACING_POLICY,
   });
 
+  // Classifier parity with /api/scores (Codex r2): a non-array payload, a
+  // nonempty→zero-normalized payload, and an id-less normalized row are all
+  // schema drift / partition uncertainty — thrown here so the aggregate's
+  // fetch-failure branch records a truthful failure and writes nothing,
+  // instead of an empty/incomplete replacement masquerading as benign.
+  if (!Array.isArray(rawGames)) {
+    throw new Error(
+      `historical scores ${seasonType} ${year}: provider returned a non-array payload`
+    );
+  }
+
   const items: ScorePack[] = [];
+  let sawIdlessRow = false;
   for (const game of rawGames) {
     const pack = toScorePackFromCfbd(game);
-    if (pack) items.push(pack);
+    if (!pack) continue;
+    if (!pack.id?.trim()) {
+      sawIdlessRow = true;
+      continue;
+    }
+    items.push(pack);
+  }
+
+  if (rawGames.length > 0 && items.length === 0) {
+    throw new Error(
+      `historical scores ${seasonType} ${year}: provider returned ${rawGames.length} rows but none normalized to a valid score (schema drift)`
+    );
+  }
+  if (sawIdlessRow) {
+    throw new Error(
+      `historical scores ${seasonType} ${year}: provider returned a normalized row without a game id (partition uncertainty); prior-good data retained`
+    );
   }
   return items;
 }
@@ -219,15 +248,27 @@ export async function POST(req: Request): Promise<Response> {
     (seasonType) => itemsByPartition[seasonType].length === 0
   );
   if (emptyPartitions.length > 0) {
-    const [scheduleRecord, priorRegular, priorPostseason] = await Promise.all([
-      getAppState<{ items?: unknown[] }>('schedule', `${year}-all-all`),
+    // Evidence sources resolve INDEPENDENTLY and never throw (mirrors
+    // /api/scores' gatherEmptyScoresEvidence, Codex r2): a failed read makes
+    // only that source unavailable — unavailability is never evidence of
+    // absence and never leaves the begun attempt stuck in-progress. The
+    // composed schedule reader also sees partition-only cache layouts
+    // (`${year}-all-regular` / `-all-postseason` without an aggregate entry).
+    const [priorRegular, priorPostseason, scheduleRes] = await Promise.allSettled([
       getAppState<CacheEntry>('scores', regularKey),
       getAppState<CacheEntry>('scores', postseasonKey),
+      loadCachedScheduleItems(year),
     ]);
-    const scheduleItems = toScheduleEvidence(scheduleRecord?.value?.items);
+    const scheduleItems = toScheduleEvidence(
+      scheduleRes.status === 'fulfilled' ? scheduleRes.value : []
+    );
     const priorRowsByPartition: Record<SeasonType, number> = {
-      regular: priorRegular?.value?.items?.length ?? 0,
-      postseason: priorPostseason?.value?.items?.length ?? 0,
+      regular:
+        priorRegular.status === 'fulfilled' ? (priorRegular.value?.value?.items?.length ?? 0) : 0,
+      postseason:
+        priorPostseason.status === 'fulfilled'
+          ? (priorPostseason.value?.value?.items?.length ?? 0)
+          : 0,
     };
     const nowMs = Date.now();
     const rejectedPartitions = emptyPartitions.filter(

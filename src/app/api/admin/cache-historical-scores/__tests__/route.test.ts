@@ -10,6 +10,7 @@ import type { ProviderRefreshStatus } from '../../../../../lib/server/providerRe
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
   __setAppStateWriteFailureForTests,
   getAppState,
   setAppState,
@@ -270,6 +271,67 @@ test('an empty partition with started schedule games is rejected as unexpected',
   const row = (await statusRow())!;
   assert.equal(row.lastError?.code, 'cfbd-empty-unexpected');
   assert.deepEqual(row.failedPartitions, ['postseason']);
+});
+
+// Codex r2 — a nonempty payload normalizing to zero rows is schema drift, never
+// a valid absence or sibling success.
+test('a nonempty payload normalizing to zero rows fails as schema drift', async () => {
+  fetchPlan.postseason = () => okJson([{ unrecognizable: true }, { alsoUnrecognizable: 1 }]);
+
+  const res = await POST(request({ year: YEAR }));
+  assert.equal(res.status, 502);
+  const body = (await res.json()) as { error: string };
+  assert.match(body.error, /schema drift/);
+
+  const row = (await statusRow())!;
+  assert.equal(row.latestAttemptOutcome, 'failed');
+  assert.equal(row.lastError?.code, 'cfbd-fetch-failed');
+  assert.deepEqual(row.failedPartitions, ['postseason']);
+  assert.equal(await getAppState('scores', `${YEAR}-all-regular`), null, 'no sibling commit');
+});
+
+// Codex r2 — partition-only schedule cache layouts still provide started-game
+// evidence (composed reader), so an empty score partition is rejected.
+test('partition-only schedule layout still rejects an unexpected empty partition', async () => {
+  // Schedule exists ONLY under the postseason partition key — no `-all-all`.
+  await setAppState('schedule', `${YEAR}-all-postseason`, {
+    items: [
+      {
+        week: 1,
+        seasonType: 'postseason',
+        startDate: `${YEAR}-12-20T00:00:00.000Z`,
+        status: 'final',
+        homeTeam: 'Alpha U',
+        awayTeam: 'Beta U',
+      },
+    ],
+  });
+  fetchPlan.postseason = () => okJson([]);
+
+  const res = await POST(request({ year: YEAR }));
+  assert.equal(res.status, 502);
+  const row = (await statusRow())!;
+  assert.equal(row.lastError?.code, 'cfbd-empty-unexpected');
+  assert.deepEqual(row.failedPartitions, ['postseason']);
+});
+
+// Codex r2 — an evidence-read outage never strands the attempt in-progress: the
+// classification stays conservative and the attempt reaches a terminal outcome.
+test('a schedule-evidence read outage still resolves the attempt terminally', async () => {
+  fetchPlan.regular = () => okJson([]);
+  fetchPlan.postseason = () => okJson([]);
+  __setAppStateReadFailureForTests(new Error('schedule store outage'), 'schedule');
+  try {
+    const res = await POST(request({ year: YEAR }));
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { noOp?: boolean };
+    assert.equal(body.noOp, true, 'conservative valid absence without readable evidence');
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
+
+  const row = (await statusRow())!;
+  assert.equal(row.latestAttemptOutcome, 'no-op', 'terminal outcome — never stuck in-progress');
 });
 
 // Codex r1 — genuinely absent targets resolve as a NO-OP: no empty commit, no
