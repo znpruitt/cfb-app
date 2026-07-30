@@ -30,7 +30,7 @@ All foundational phases are complete (architecture, production hardening, league
 
 Active campaign status is **not** duplicated here — it drifts. See `docs/next-tasks.md` (the active execution queue and current phase focus) and `docs/roadmap.md` (campaign definitions and development philosophy) for the current campaigns and their status.
 
-**Unresolved decisions and deferrals** are tracked in one place: `docs/next-tasks.md` → "Audit-driven correctness + docs sequence" (from the app-wide PLATFORM-068 audit); per-item history is in `docs/prompt-registry.md`. That section is the single source — do not restate individual item statuses here or in `CLAUDE.md`, so they can't go stale as items ship.
+**Unresolved decisions and deferrals** are tracked in one place: `docs/next-tasks.md` → "Unresolved decisions & known deferrals" (a top-level section since DOCS-012; it originated under the app-wide PLATFORM-068 audit sequence); per-item history is in `docs/prompt-registry.md`. That section is the single source — do not restate individual item statuses here or in `CLAUDE.md`, so they can't go stale as items ship.
 
 ---
 
@@ -296,6 +296,31 @@ Up to three independent Codex review/remediation cycles may run automatically. T
 - Implementation prompts should include the relevant documentation updates **in scope** (registry entry, roadmap/next-tasks status, invariant or architecture notes the change affects).
 - Finalize documentation **immediately before merge, after code review/remediation is complete**, so the docs describe the actual shipped behavior — not the plan. Do not mark work "complete" in governance/registry/roadmap docs while review findings remain open.
 - When a change resolves or supersedes a previously-documented risk or follow-up, update that earlier note; when it leaves a known risk unresolved, keep it documented as unresolved rather than quietly dropping it.
+
+### Ledger ownership during closeout
+
+A final implementation report is not itself documentation content to copy into every ledger. When a
+task affects multiple documentation files, write only the projection owned by each file:
+
+- `docs/next-tasks.md` owns the current execution queue, planned/parked/blocked work, and the single
+  canonical list of unresolved decisions and deferrals. Do not add shipped implementation
+  narratives, review histories, commit lists, or test totals.
+- `docs/roadmap.md` owns campaign goals, dependencies, coarse sequencing, and high-level status. Do
+  not duplicate PR closeout reports, detailed review findings, file lists, commits, or verification
+  counts.
+- `docs/prompt-registry.md` owns the concise historical execution record for formal prompts. Record
+  purpose, scope, outcome, review/verification, and implementation/merge status. Do not maintain
+  mutable `NEXT` pointers there.
+- `docs/completed-work.md` owns concise merged/shipped outcome milestones. It is not a current task
+  list and must not restate canonical deferrals or future execution order.
+- Architecture and operations documents change only when the implemented behavior changes their
+  owned runtime contract or operating procedure.
+- When the same fact is relevant to more than one document, keep the detailed record in its owning
+  document and use a short link elsewhere. Never copy the implementation's complete final response
+  into multiple ledgers.
+- Pre-merge closeout records implementation/review truth without claiming merge. The normal
+  post-merge flip updates merge status and appends the completed milestone; it must not reintroduce
+  live queue pointers into historical ledgers.
 
 ---
 

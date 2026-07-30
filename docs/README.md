@@ -1,7 +1,7 @@
 # Documentation Index
 
 Status: Current
-Last verified: 2026-07-26
+Last verified: 2026-07-30
 Owner: Project documentation
 Canonical for: documentation source-of-truth map and doc lifecycle/status definitions
 Supersedes: (none)
@@ -19,10 +19,10 @@ This is the **source-of-truth map** for the project's documentation. Start here 
 | [`CLAUDE.md`](../CLAUDE.md) | Claude-specific working guidance only; points back at `AGENTS.md`/`DESIGN.md` | Current |
 | [`README.md`](../README.md) | Repository onboarding — what the app is, how to run it, and where the authoritative docs live | Current (onboarding) |
 | [`docs/README.md`](README.md) | This documentation map + doc-ownership boundaries + the documentation-system's own maintenance roadmap | Current |
-| [`docs/next-tasks.md`](next-tasks.md) | Active queue + unresolved product decisions/deferrals ("what's next / still open") | Current |
-| [`docs/roadmap.md`](roadmap.md) | Higher-level product/platform roadmap + development philosophy | Current |
-| [`docs/prompt-registry.md`](prompt-registry.md) | Historical ledger of implementation/audit prompts (IDs, scope, outcomes) — **not a backlog** | Current (ledger) |
-| [`docs/completed-work.md`](completed-work.md) | Append-only record of shipped milestones | Historical (append-only) |
+| [`docs/next-tasks.md`](next-tasks.md) | Current execution order, planned/parked work, blockers, and the ONE canonical list of unresolved decisions/deferrals; the only doc that may mark work `NEXT`/`CURRENT` | Current |
+| [`docs/roadmap.md`](roadmap.md) | Campaign definitions, goals, dependencies, coarse future sequencing, and development philosophy — direction, not PR internals | Current |
+| [`docs/prompt-registry.md`](prompt-registry.md) | Historical ledger of formal prompts and their execution outcomes (IDs, scope, outcomes, merge state) — **not a backlog**, never a `NEXT` pointer | Current (ledger) |
+| [`docs/completed-work.md`](completed-work.md) | Append-only, outcome-focused record of merged/shipped milestones; entry status text is point-in-time history | Historical (append-only) |
 | [`docs/architecture/overview.md`](architecture/overview.md) | High-level runtime architecture, canonical data-flow overview, source-of-truth hierarchy, architecture-doc index | Current |
 | [`docs/architecture/game-data-flow.md`](architecture/game-data-flow.md) | Schedule → canonical games, score/odds attachment, game-stats ingestion/evidence flow, public cache-reader + authorized-refresh policy, provider quota | Current |
 | [`docs/architecture/identity-and-ownership.md`](architecture/identity-and-ownership.md) | Team-name canonicalization boundary, alias precedence, current-season ownership attribution, CSV's role | Current |
@@ -50,6 +50,44 @@ Use these labels when describing or adding a doc, so readers know how much to tr
 - **Archived** — retained for reference only; outside active navigation.
 
 A **ledger** (e.g. `prompt-registry.md`) is a special case: individual entries are historical records, but the file itself is current and appended forward.
+
+## Current vs historical ledger ownership (DOCS-012)
+
+The binding closeout rules live in `AGENTS.md` → "Documentation closeout timing" → **"Ledger
+ownership during closeout"**; this index summarizes the model rather than duplicating it:
+
+| Document | Required responsibility |
+|---|---|
+| `next-tasks.md` | Current execution order, planned work, parked work, blockers, and the one canonical list of unresolved decisions/deferrals |
+| `roadmap.md` | Campaign definitions, goals, dependencies, and coarse future sequencing |
+| `prompt-registry.md` | Historical ledger of formal prompts and their execution outcomes |
+| `completed-work.md` | Append-only, outcome-focused record of merged/shipped milestones |
+
+Working rules:
+
+- Only `next-tasks.md` may designate an item `NEXT` or `CURRENT`.
+- Unresolved decisions and known deferrals are canonical only in `next-tasks.md`; other documents
+  link to that section instead of maintaining duplicate descriptions.
+- Historical status text (an old `NEXT`, `PENDING`, or dormant-planning phrase inside a ledger
+  entry) is point-in-time evidence, not current planning authority.
+- New prompt-registry and completed-work entries must not embed live queue pointers that will
+  become stale.
+
+### Status vocabulary
+
+Current planning documents use: `NEXT` · `In progress` · `Planned` · `Parked` · `Blocked` ·
+`✅ Complete`. Deployment qualifiers are separate and composable: `Merged` · `Dormant` ·
+`Active in production` · `Unprovisioned` · `Observation pending`. Existing historical entries are
+grandfathered — do not mechanically rewrite old entries merely to change capitalization; correct a
+historical phrase only when it actively misleads current-state guidance.
+
+### `Last verified` policy
+
+- In **current** planning/reference documents, `Last verified` means the entire current-authority
+  content was audited for present-state accuracy on that date.
+- In **historical ledgers**, it means the ledger structure, newest entries, ordering, cross-links,
+  and file-level guidance were verified — NOT that every historical implementation claim was
+  re-proven against the runtime.
 
 ## Authority boundaries
 
