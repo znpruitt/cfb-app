@@ -217,6 +217,106 @@ test('a postseason fetch failure records one failed attempt naming the partition
   assert.equal(await getAppState('scores', `${YEAR}-all-postseason`), null);
 });
 
+// Codex r1 — an empty partition over PRIOR-GOOD rows is a rejected replacement:
+// one failed attempt, no writes, prior rows retained.
+test('an empty partition over prior-good rows is rejected before any write', async () => {
+  // Prior-good postseason rows exist for the exact key the repair would overwrite.
+  await setAppState('scores', `${YEAR}-all-postseason`, {
+    at: 1,
+    items: [{ id: '9', home: { team: 'A', score: 1 }, away: { team: 'B', score: 0 } }],
+    source: 'cfbd',
+  });
+  fetchPlan.postseason = () => okJson([]);
+
+  // force:true — provider work required despite the partial existing cache.
+  const res = await POST(request({ year: YEAR, force: true }));
+  assert.equal(res.status, 502);
+  const body = (await res.json()) as { error: string };
+  assert.match(body.error, /rows are expected for partition\(s\): postseason/);
+  assert.match(body.error, /prior cached rows retained/);
+
+  const row = (await statusRow())!;
+  assert.equal(row.latestAttemptOutcome, 'failed');
+  assert.equal(row.lastError?.code, 'cfbd-empty-unexpected');
+  assert.deepEqual(row.failedPartitions, ['postseason']);
+  assert.equal(row.lastSuccessAt, null);
+
+  const prior = await getAppState<{ items: unknown[] }>('scores', `${YEAR}-all-postseason`);
+  assert.equal(prior?.value?.items?.length, 1, 'prior-good rows retained');
+  assert.equal(
+    await getAppState('scores', `${YEAR}-all-regular`),
+    null,
+    'no sibling write on a rejected aggregate'
+  );
+});
+
+// Codex r1 — started schedule games are unexpected-empty evidence even with no
+// prior score rows.
+test('an empty partition with started schedule games is rejected as unexpected', async () => {
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    items: [
+      {
+        week: 1,
+        seasonType: 'postseason',
+        startDate: `${YEAR}-12-20T00:00:00.000Z`,
+        status: 'final',
+      },
+    ],
+  });
+  fetchPlan.postseason = () => okJson([]);
+
+  const res = await POST(request({ year: YEAR }));
+  assert.equal(res.status, 502);
+  const row = (await statusRow())!;
+  assert.equal(row.lastError?.code, 'cfbd-empty-unexpected');
+  assert.deepEqual(row.failedPartitions, ['postseason']);
+});
+
+// Codex r1 — genuinely absent targets resolve as a NO-OP: no empty commit, no
+// last-success advancement.
+test('all-empty partitions with no evidence resolve as a no-op with no empty commit', async () => {
+  fetchPlan.regular = () => okJson([]);
+  fetchPlan.postseason = () => okJson([]);
+
+  const res = await POST(request({ year: YEAR }));
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { success: boolean; scoreCount: number; noOp?: boolean };
+  assert.equal(body.success, true);
+  assert.equal(body.scoreCount, 0);
+  assert.equal(body.noOp, true);
+
+  const row = (await statusRow())!;
+  assert.equal(row.latestAttemptOutcome, 'no-op');
+  assert.equal(row.lastSuccessAt, null, 'no-op never advances last-success');
+
+  assert.equal(await getAppState('scores', `${YEAR}-all-regular`), null, 'no empty commit');
+  assert.equal(await getAppState('scores', `${YEAR}-all-postseason`), null);
+});
+
+// Codex r1 — a valid-absence empty sibling is skipped while the populated
+// partition commits: success counts only the committed rows.
+test('a valid-absence empty sibling is skipped while the populated partition commits', async () => {
+  fetchPlan.postseason = () => okJson([]);
+  // No schedule evidence and no prior postseason rows → postseason is valid absence.
+
+  const res = await POST(request({ year: YEAR }));
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { success: boolean; scoreCount: number };
+  assert.equal(body.success, true);
+  assert.equal(body.scoreCount, 2, 'only the committed regular rows counted');
+
+  const row = (await statusRow())!;
+  assert.equal(row.latestAttemptOutcome, 'succeeded');
+  assert.equal(row.rowsCommitted, 2);
+
+  assert.notEqual(await getAppState('scores', `${YEAR}-all-regular`), null);
+  assert.equal(
+    await getAppState('scores', `${YEAR}-all-postseason`),
+    null,
+    'valid-absence partition never written'
+  );
+});
+
 // 6 — durable write failure: failed attempt, no last-success advancement, and a
 // generic 500 that never exposes the thrown storage error.
 test('a durable write failure records durable-write-failed and never success', async () => {

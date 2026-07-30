@@ -8,10 +8,15 @@ import {
   beginProviderRefreshAttempt,
   nextProviderCommitSeq,
   recordProviderRefreshFailure,
+  recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
 import { scoresAggregateScope } from '@/lib/providerRefreshScope';
 import type { CacheEntry, CacheKey } from '@/lib/scores/cache';
+import {
+  classifyEmptyScoresResponse,
+  type ScheduleScoreEvidenceItem,
+} from '@/lib/scores/emptyScoresClassifier';
 import {
   classifyHistoricalScoreWrites,
   HISTORICAL_REPAIR_SEASON_TYPES,
@@ -56,6 +61,23 @@ async function fetchScoreItems(
     if (pack) items.push(pack);
   }
   return items;
+}
+
+/** Loose historical-schedule-cache rows → the classifier's evidence slice. */
+function toScheduleEvidence(raw: unknown): ScheduleScoreEvidenceItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const o = item as Record<string, unknown>;
+    return [
+      {
+        week: typeof o.week === 'number' ? o.week : -1,
+        seasonType: typeof o.seasonType === 'string' ? o.seasonType : null,
+        startDate: typeof o.startDate === 'string' ? o.startDate : null,
+        status: typeof o.status === 'string' ? o.status : null,
+      },
+    ];
+  });
 }
 
 // PLATFORM-086F2C — this manual recovery route now records ONE truthful,
@@ -177,28 +199,99 @@ export async function POST(req: Request): Promise<Response> {
 
   const regularItems = (fetchResults[0] as PromiseFulfilledResult<ScorePack[]>).value;
   const postseasonItems = (fetchResults[1] as PromiseFulfilledResult<ScorePack[]>).value;
+  const itemsByPartition: Record<SeasonType, ScorePack[]> = {
+    regular: regularItems,
+    postseason: postseasonItems,
+  };
+  const keysByPartition: Record<SeasonType, CacheKey> = {
+    regular: regularKey,
+    postseason: postseasonKey,
+  };
+
+  // An empty CFBD partition is NOT automatically a valid result (Codex review;
+  // shared scores empty policy — PLATFORM-086G1 finding #6): classify BEFORE any
+  // durable write against target-scoped evidence (prior-good durable rows for
+  // the exact key, or started non-disrupted games in the cached schedule). An
+  // unexpected empty is a provider FAILURE that writes nothing — prior-good
+  // historical rows are never replaced by an empty payload — and a genuinely
+  // absent target resolves as a NO-OP with no empty commit.
+  const emptyPartitions = REPAIR_SEASON_TYPES.filter(
+    (seasonType) => itemsByPartition[seasonType].length === 0
+  );
+  if (emptyPartitions.length > 0) {
+    const [scheduleRecord, priorRegular, priorPostseason] = await Promise.all([
+      getAppState<{ items?: unknown[] }>('schedule', `${year}-all-all`),
+      getAppState<CacheEntry>('scores', regularKey),
+      getAppState<CacheEntry>('scores', postseasonKey),
+    ]);
+    const scheduleItems = toScheduleEvidence(scheduleRecord?.value?.items);
+    const priorRowsByPartition: Record<SeasonType, number> = {
+      regular: priorRegular?.value?.items?.length ?? 0,
+      postseason: priorPostseason?.value?.items?.length ?? 0,
+    };
+    const nowMs = Date.now();
+    const rejectedPartitions = emptyPartitions.filter(
+      (seasonType) =>
+        classifyEmptyScoresResponse({
+          priorGoodRowCount: priorRowsByPartition[seasonType],
+          scheduleItems,
+          seasonType,
+          week: null,
+          now: nowMs,
+        }).kind === 'unexpected-empty'
+    );
+    if (rejectedPartitions.length > 0) {
+      await recordProviderRefreshFailure('scores', scope, {
+        attempt,
+        error: `CFBD returned 0 rows but score rows are expected for partition(s): ${rejectedPartitions.join(', ')}; prior-good data retained`,
+        code: 'cfbd-empty-unexpected',
+        status: 502,
+        failedPartitions: [...rejectedPartitions],
+        durationMs: Date.now() - startedMs,
+      });
+      return NextResponse.json(
+        {
+          error: `CFBD returned 0 score rows but rows are expected for partition(s): ${rejectedPartitions.join(', ')} — prior cached rows retained`,
+        },
+        { status: 502 }
+      );
+    }
+  }
+
+  // Only nonempty partitions are written — a valid-absence empty is never a
+  // durable empty commit (it would silently replace or poison the key).
+  const writePartitions = REPAIR_SEASON_TYPES.filter(
+    (seasonType) => itemsByPartition[seasonType].length > 0
+  );
+
+  if (writePartitions.length === 0) {
+    // Every partition is a genuinely absent target: a valid no-op — resolves
+    // the attempt without advancing last-success and writes nothing.
+    await recordProviderRefreshNoop('scores', scope, {
+      attempt,
+      source: 'cfbd',
+      durationMs: Date.now() - startedMs,
+    });
+    return NextResponse.json({ success: true, year, scoreCount: 0, noOp: true });
+  }
 
   const now = Date.now();
 
-  const writeResults = await Promise.allSettled([
-    setAppState<CacheEntry>('scores', regularKey, {
-      at: now,
-      items: regularItems,
-      source: 'cfbd',
-      cfbdFallbackReason: 'none',
-    }),
-    setAppState<CacheEntry>('scores', postseasonKey, {
-      at: now,
-      items: postseasonItems,
-      source: 'cfbd',
-      cfbdFallbackReason: 'none',
-    }),
-  ] as const);
+  const writeResults = await Promise.allSettled(
+    writePartitions.map((seasonType) =>
+      setAppState<CacheEntry>('scores', keysByPartition[seasonType], {
+        at: now,
+        items: itemsByPartition[seasonType],
+        source: 'cfbd',
+        cfbdFallbackReason: 'none',
+      })
+    )
+  );
   // Capture the confirmed commit time + sequence immediately after the writes.
   const committedAt = new Date().toISOString();
   const commitSeq = nextProviderCommitSeq();
 
-  const writes = classifyHistoricalScoreWrites(writeResults);
+  const writes = classifyHistoricalScoreWrites(writePartitions, writeResults);
 
   if (!writes.allOk) {
     // A durable-write failure NEVER records success or advances last-success;
@@ -220,19 +313,24 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
+  const rowsCommitted = writePartitions.reduce(
+    (total, seasonType) => total + itemsByPartition[seasonType].length,
+    0
+  );
+
   await recordProviderRefreshSuccess('scores', scope, {
     attempt,
     committedAt,
     commitSeq,
     source: 'cfbd',
-    rowsCommitted: regularItems.length + postseasonItems.length,
+    rowsCommitted,
     durationMs: Date.now() - startedMs,
   });
 
   return NextResponse.json({
     success: true,
     year,
-    scoreCount: regularItems.length + postseasonItems.length,
+    scoreCount: rowsCommitted,
     cachedAt: new Date(now).toISOString(),
   });
 }

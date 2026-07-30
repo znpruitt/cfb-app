@@ -11,22 +11,23 @@ export type HistoricalScoreWriteClassification = {
 };
 
 /**
- * PLATFORM-086F2C — classify the two durable score-cache writes (regular,
- * postseason) into the truthful provider-status shape: which partitions
- * failed, and whether the failure is PARTIAL (one sibling durably committed).
- * Pure — exported for direct testing since the store's test seams are
- * scope-level and cannot fail exactly one of two same-scope keys.
+ * PLATFORM-086F2C — classify the ATTEMPTED durable score-cache writes into the
+ * truthful provider-status shape: which partitions failed, and whether the
+ * failure is PARTIAL (a sibling durably committed). `attempted` lists the
+ * partitions actually written this run (a valid-absence empty partition is
+ * never written, so it is never attempted). Pure — exported for direct testing
+ * since the store's test seams are scope-level and cannot fail exactly one of
+ * two same-scope keys.
  */
 export function classifyHistoricalScoreWrites(
-  results: readonly [PromiseSettledResult<unknown>, PromiseSettledResult<unknown>]
+  attempted: readonly SeasonType[],
+  results: readonly PromiseSettledResult<unknown>[]
 ): HistoricalScoreWriteClassification {
-  const failedPartitions = HISTORICAL_REPAIR_SEASON_TYPES.filter(
-    (_, i) => results[i]!.status === 'rejected'
-  ) as SeasonType[];
-  const committed = HISTORICAL_REPAIR_SEASON_TYPES.length - failedPartitions.length;
+  const failedPartitions = attempted.filter((_, i) => results[i]?.status === 'rejected');
+  const committed = attempted.length - failedPartitions.length;
   return {
     allOk: failedPartitions.length === 0,
-    failedPartitions,
+    failedPartitions: [...failedPartitions],
     partialFailure: failedPartitions.length > 0 && committed > 0,
   };
 }
