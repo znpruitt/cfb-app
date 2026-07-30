@@ -79,7 +79,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   label): all fixed. Round 2 (2 P2: per-week score-fallback cost, lifecycle execution-log gap):
   both fixed. Round 3 (1 P2: the status-silent branch conflicted with the binding provider-status
   invariant): fixed with user authorization — mandatory status recording assigned to F2C.
-- Status: Implemented — PR open.
+- Status: Implemented — PR open (PR #430).
 
 ### DOCS-012-CURRENT-LEDGER-DECONFLICTION-v2
 
