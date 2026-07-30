@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-07-26
+Last verified: 2026-07-30
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -13,27 +13,24 @@ Supersedes: (none)
 - This is **not** an active task list.
 - Add future completed phases/milestones here instead of mixing history into `docs/next-tasks.md`.
 
+> **Reading historical entries:** any `NEXT`, `PENDING`, "dormant", or follow-up planning wording
+> inside an entry below is **point-in-time history** — accurate when the entry was written, never
+> current planning authority. Current state always comes from `docs/next-tasks.md` (the canonical
+> queue and deferrals list). `Last verified` for this ledger covers its structure, newest entries,
+> and file-level guidance — not runtime revalidation of every historical claim.
+
 ## Completed phases / milestones
 
-> **PLATFORM-086H3 status (not a completion — decomposition in progress):** the
-> single-branch H3 activation attempt was frozen as a read-only salvage
-> reference after an architecture audit and is decomposed into prerequisite PRs
-> A–E. Prerequisite **A** (durable multi-key app-state transaction primitive) is
-> **MERGED into `main` (PR #398)** — dormant, with production HTTP behavior
-> byte-identical to `main` (`src/lib/server/appStateStore.ts` was the only
-> production file changed). The **original prerequisite B architecture**
-> (revision lineage/ledger, permanent revisions, restoration high-water,
-> irreversible witness, operator repair, and the dormant-boundary/capability-graph
-> guard — designed in `docs/ai/platform-086h3-contract.md`, now a **historical
-> reference**) is **SUPERSEDED** after two architectural audits and will not be
-> built; the `platform/086h3b-revision-status-authority` branch is frozen, unmerged.
-> It is replaced by a small **fenced legacy writer** prerequisite (**merged to `main`
-> via PR #399, 2026-07-21**; entry below), and **C/D/E are redefined WITHOUT
-> lineage/revision/repair** — see **`docs/ai/game-stats-writer-fence.md`**.
-> **Production activation has NOT occurred**; C/D remain unimplemented and final
-> activation remains E. 086H4 and the
-> legacy-row migration remain deferred. A milestone entry is added below only once a
-> prerequisite actually merges.
+> **Historical note — the PLATFORM-086H3 decomposition (point-in-time planning, since completed):**
+> a preamble here once tracked the in-progress H3 decomposition (frozen single-branch attempt →
+> prerequisite PRs, the superseded revision/lineage prerequisite B, and the fenced-legacy-writer
+> replacement). That work has long since completed and activated in production; its lineage is
+> preserved in the per-milestone entries below (the H3B-replacement fenced writer, the H3C slices,
+> H3D, and the H3E activation checkpoints), the `PLATFORM-086H3*` entries in
+> `docs/prompt-registry.md` (including the full H3A record — PR #398 — and the audit that
+> superseded prerequisite B), and the architecture record in
+> [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) (with the superseded
+> original design frozen in [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md)).
 
 ### PLATFORM-086H2 — Durable Game-Stats Merge Service (Dormant) — Complete
 
@@ -1936,10 +1933,15 @@ Key architectural decisions across Phase 5:
 
 ### Template for future entries
 
-Use this structure for each new completed phase/milestone:
+Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
+outcomes — not review-by-review transcripts, live task sequencing, or duplicated deferral text:
+
+```md
+### <Milestone> — Complete
 
 - **Status:**
 - **PROMPT_ID(s):**
-- **Goals completed:**
-- **Key outcomes:**
-- **Optional follow-up debt (non-blocking):**
+- **Outcome:**
+- **Verification:**
+- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md`, when applicable.
+```

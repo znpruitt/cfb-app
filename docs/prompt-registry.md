@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-07-26
+Last verified: 2026-07-30
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -18,11 +18,63 @@ The registry should remain:
 - high-signal
 - manually maintained
 
+`Last verified` for this ledger means the structure, newest entries, ordering, cross-links, and
+this file-level guidance were verified — not that every historical implementation claim was
+re-proven against the runtime.
+
+## Entry format (required for future entries)
+
+New entries use this compact template (DOCS-012) and ordinarily stay five concise bullets,
+linking to the architecture/operations/completed-work documents for extensive detail:
+
+```md
+### <PROMPT_ID>
+
+- Purpose:
+- Scope:
+- Outcome:
+- Review / verification:
+- Status:
+```
+
+Rules:
+
+- `Status` records implementation/merge state only (e.g. `Merged (PR #N, <commit>, <date>)`,
+  `Implemented — PR open`, `Superseded/unimplemented`). It must NOT carry a mutable `NEXT`
+  pointer — the current queue lives only in `docs/next-tasks.md`.
+- Keep most-recent-first ordering.
+- **Older entry formats are grandfathered.** Do not rewrite historical entries to the new
+  template; their status text is point-in-time evidence.
+
 ---
 
 ## Prompt ledger (most recent first)
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
+
+### DOCS-012-CURRENT-LEDGER-DECONFLICTION-v2
+
+- Purpose: Reconcile the current planning and historical ledgers so each document has one clear
+  responsibility — current work findable without reading shipped history, completed detail not
+  repeated across planning docs, and consistent formats for future ledger entries. v2 (amended
+  pre-implementation, superseding the unregistered v1 draft scope) adds the binding governance
+  mechanism to `AGENTS.md`.
+- Scope: Documentation-only, six files — `AGENTS.md` (new binding "Ledger ownership during
+  closeout" subsection under Documentation closeout timing) plus `docs/README.md` (ownership
+  contract summary, status vocabulary, `Last verified` policy), `docs/next-tasks.md` (compact
+  execution order; completed narratives replaced with links; canonical deferrals preserved;
+  server-fetch backlog corrected to the verified audit findings), `docs/roadmap.md` (PLATFORM-086
+  arc collapsed to a status table), `docs/prompt-registry.md` (this template + grandfather note),
+  `docs/completed-work.md` (point-in-time warning; H3 planning preamble replaced with a historical
+  annotation; new milestone template).
+- Outcome: One canonical execution queue and deferrals list (`next-tasks.md`); roadmap describes
+  direction, not PR internals; historical ledgers keep their evidence without masquerading as
+  current planning; future closeouts write per-ledger projections instead of copying full final
+  reports (binding in `AGENTS.md`).
+- Review / verification: `npm run lint:markdown` + `git diff --check` clean; prompt-ID uniqueness,
+  link resolution, and single-`NEXT` checks pass; one independent review focused on ownership
+  overlap, deleted evidence, status accuracy, and broken links, remediated per the bounded cycle.
+- Status: Implemented — PR open (not merged).
 
 ### PLATFORM-086E2B-RANKINGS-PUBLICATION-AUTOMATION-v1
 
