@@ -6,6 +6,7 @@ import ViewMoreLink, { viewMoreLinkClass } from './navigation/ViewMoreLink';
 import { selectGamesBackTrend, selectPositionDeltas } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { getGameOwners } from '../lib/gameOwnership';
+import { formatExpandedKickoff } from '../lib/gameCardPresentation';
 import { formatGameMatchupLabel, gameStateFromScore } from '../lib/gameUi';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import {
@@ -80,21 +81,6 @@ function formatWinPct(value: number): string {
 
 function formatDiff(value: number): string {
   return value > 0 ? `+${value}` : String(value);
-}
-
-function formatKickoff(date: string | null, timeZone: string): string {
-  if (!date) return 'TBD';
-  const kickoff = new Date(date);
-  if (Number.isNaN(kickoff.getTime())) return 'TBD';
-
-  return kickoff.toLocaleString(undefined, {
-    timeZone,
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
 }
 
 function renderMatchupLabel(
@@ -732,7 +718,11 @@ function GameCardList({
               {formatScoreLine(item)}
             </div>
             <div className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
-              {formatKickoff(item.bucket.game.date, timeZone)}
+              {formatExpandedKickoff(
+                item.bucket.game.date,
+                timeZone,
+                item.bucket.game.startTimeTBD
+              )}
             </div>
           </article>
         );
@@ -767,7 +757,11 @@ function GameSummaryList({
         const homeScore = score?.home.score ?? '—';
         const status = score?.status ?? 'Scheduled';
         const state = gameStateFromScore(score);
-        const kickoff = formatKickoff(item.bucket.game.date, timeZone);
+        const kickoff = formatExpandedKickoff(
+          item.bucket.game.date,
+          timeZone,
+          item.bucket.game.startTimeTBD
+        );
         const ownerLabel =
           item.bucket.awayOwner && item.bucket.homeOwner
             ? `${item.bucket.awayOwner} vs ${item.bucket.homeOwner}`
@@ -857,7 +851,7 @@ function FeaturedGamesList({
         const game = item.bucket.game;
         const score = item.score;
         const state = gameStateFromScore(score);
-        const kickoff = formatKickoff(game.date, timeZone);
+        const kickoff = formatExpandedKickoff(game.date, timeZone, game.startTimeTBD);
         const gameBadge = deriveFeaturedGameBadge(game);
         const awayScore = score?.away.score ?? null;
         const homeScore = score?.home.score ?? null;

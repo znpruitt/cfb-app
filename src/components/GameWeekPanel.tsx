@@ -218,6 +218,8 @@ export default function GameWeekPanel({
                   timeZone: displayTimeZone,
                   useNeutralSemantics,
                   venue: g.venue,
+                  startTimeTBD: g.startTimeTBD,
+                  media: g.media,
                 });
                 const primaryTag = card.tagPrimary;
                 const secondaryTags = card.tagSecondary;

@@ -59,6 +59,7 @@ function game(overrides: Partial<AppGame>): AppGame {
     awayConf: overrides.awayConf ?? 'SEC',
     homeConf: overrides.homeConf ?? 'Big Ten',
     sources: overrides.sources,
+    startTimeTBD: overrides.startTimeTBD,
   };
 }
 
@@ -2066,4 +2067,30 @@ test('overview podium/hero cards do not receive a live badge (Top-N table only)'
   });
   const matches = html.match(/data-overview-live-pending/g) ?? [];
   assert.equal(matches.length, 1);
+});
+
+// --- PLATFORM-086E1C1: never present a TBD placeholder time as confirmed -----
+
+test('overview panel renders date plus Time TBD instead of the placeholder clock', () => {
+  const tbdGame = game({
+    csvAway: 'Texas',
+    csvHome: 'Ohio State',
+    date: '2026-09-01T00:00:00.000Z',
+    startTimeTBD: true,
+  });
+
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[item(tbdGame)]}
+      keyMatchups={[item(tbdGame)]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Tue, Sep 1 · Time TBD/);
+  assert.doesNotMatch(html, /12:00 AM/);
 });

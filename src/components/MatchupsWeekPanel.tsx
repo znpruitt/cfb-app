@@ -1,5 +1,6 @@
 import React from 'react';
 
+import { formatExpandedKickoff } from '../lib/gameCardPresentation';
 import { classifyScorePackStatus } from '../lib/gameStatus';
 import type { CombinedOdds } from '../lib/odds';
 import { pillClass, usesNeutralSiteSemantics } from '../lib/gameUi';
@@ -78,19 +79,6 @@ export function scrollFocusedOwnerIntoView(params: {
 }
 
 const DEFAULT_VISIBLE_OPPONENTS = getDefaultVisibleOpponentsCount();
-function formatKickoff(date: string | null, timeZone: string): string {
-  if (!date) return 'TBD';
-  const kickoff = new Date(date);
-  if (Number.isNaN(kickoff.getTime())) return 'TBD';
-  return kickoff.toLocaleString(undefined, {
-    timeZone,
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
 
 function performanceClasses(tone: 'scheduled' | 'inprogress' | 'final' | 'neutral'): string {
   if (tone === 'final') {
@@ -217,9 +205,13 @@ function GameRow({
   if (statusTone === 'inprogress' && liveClockLabel) metadataEntries.push(liveClockLabel);
   metadataEntries.push(opponentDescriptor);
   if (statusTone === 'scheduled') {
-    metadataEntries.push(`Kickoff ${formatKickoff(slateGame.game.date, displayTimeZone)}`);
+    metadataEntries.push(
+      `Kickoff ${formatExpandedKickoff(slateGame.game.date, displayTimeZone, slateGame.game.startTimeTBD)}`
+    );
   } else {
-    metadataEntries.push(formatKickoff(slateGame.game.date, displayTimeZone));
+    metadataEntries.push(
+      formatExpandedKickoff(slateGame.game.date, displayTimeZone, slateGame.game.startTimeTBD)
+    );
   }
   if (slateGame.game.neutral) {
     metadataEntries.push('Neutral site');

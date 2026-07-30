@@ -27,6 +27,7 @@ import {
   type WeekCorrectionReason,
 } from './regularSeasonWeekCalendar.ts';
 import type { VenueInfo } from './schedule/cfbdSchedule.ts';
+import type { ScheduleMediaItem } from './schedule/schedulePresentation.ts';
 import { requireAdminAuthHeaders } from './adminAuth.ts';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
@@ -102,6 +103,12 @@ export type ScheduleWireItem = {
   venue?: VenueInfo | string | null;
   /** CFBD numeric venue id (PLATFORM-086E1A). */
   venueId?: number;
+  /**
+   * Cache-only presentation media overlay (PLATFORM-086E1C1), joined by the
+   * server from `schedule-media/<year>-all` by exact provider game id. A WIRE
+   * field only — never part of the durable canonical schedule records.
+   */
+  media?: ScheduleMediaItem[];
   label?: string | null;
   notes?: string | null;
   seasonType?: 'regular' | 'postseason' | string | null;
@@ -161,6 +168,8 @@ export type AppGame = {
   startTimeTBD?: boolean | null;
   venueId?: number | null;
   completed?: boolean | null;
+  /** Cache-only presentation media overlay (PLATFORM-086E1C1) — wire metadata only. */
+  media?: ScheduleMediaItem[];
   providerGameId: string | null;
   neutral: boolean;
   neutralDisplay: 'vs' | 'home_away';
@@ -308,6 +317,7 @@ function retainedScheduleMetadata(item: ScheduleWireItem): Partial<AppGame> {
   if (typeof item.startTimeTBD === 'boolean') fields.startTimeTBD = item.startTimeTBD;
   if (typeof item.venueId === 'number') fields.venueId = item.venueId;
   if (typeof item.completed === 'boolean') fields.completed = item.completed;
+  if (Array.isArray(item.media) && item.media.length > 0) fields.media = item.media;
   return fields;
 }
 

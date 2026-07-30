@@ -23,6 +23,23 @@ export function buildCfbdConferencesUrl(): URL {
 }
 
 /**
+ * CFBD `GET /games/media` (PLATFORM-086E1C1 schedule presentation). Deliberately
+ * year-wide with NO classification filter: the response is filtered afterward
+ * against canonical schedule game ids, so a tracked FBS-vs-FCS game is never
+ * lost to uncertain provider-classification semantics.
+ */
+export function buildCfbdGamesMediaUrl(params: { year: number }): URL {
+  const url = new URL('https://api.collegefootballdata.com/games/media');
+  url.searchParams.set('year', String(params.year));
+  return url;
+}
+
+/** CFBD `GET /venues` (PLATFORM-086E1C1) — the global venue catalog, unfiltered. */
+export function buildCfbdVenuesUrl(): URL {
+  return new URL('https://api.collegefootballdata.com/venues');
+}
+
+/**
  * CFBD `GET /scoreboard` (PLATFORM-086B1 live-score polling). The audited
  * contract: it accepts ONLY optional `classification` and `conference` filters —
  * it does NOT accept `year`, `week`, or `seasonType`, so the response is the

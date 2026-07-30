@@ -55,6 +55,7 @@ function game(overrides: Partial<AppGame>): AppGame {
     awayConf: overrides.awayConf ?? 'SEC',
     homeConf: overrides.homeConf ?? 'SEC',
     sources: overrides.sources,
+    startTimeTBD: overrides.startTimeTBD,
   };
 }
 
@@ -929,4 +930,29 @@ test('matchups panel reorders owner cards to canonical owner identity when canon
   const bobCardIndex = html.indexOf('data-owner-card="Bob"');
   assert.ok(aliceCardIndex >= 0 && bobCardIndex >= 0);
   assert.ok(aliceCardIndex < bobCardIndex, 'Alice card should appear before Bob card');
+});
+
+// --- PLATFORM-086E1C1: never present a TBD placeholder time as confirmed -----
+
+test('matchups panel renders date plus Time TBD instead of the placeholder clock', () => {
+  const html = renderToStaticMarkup(
+    <MatchupsWeekPanel
+      games={[
+        game({
+          key: 'tbd-kickoff',
+          csvAway: 'Alabama',
+          csvHome: 'Georgia',
+          date: '2025-08-30T00:00:00.000Z',
+          startTimeTBD: true,
+        }),
+      ]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map([['Alabama', 'Alice']])}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.match(html, /Kickoff Sat, Aug 30 · Time TBD/);
+  assert.doesNotMatch(html, /12:00 AM/);
 });
