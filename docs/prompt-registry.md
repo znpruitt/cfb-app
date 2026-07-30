@@ -73,7 +73,12 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `scheduler-execution-status/<job>` scope is verified unused and reserved for F2E1/F2E2.
 - Review / verification: `npm run lint:markdown` clean; relative links validated; the route/action
   matrix was checked against `src/app/admin/**`, `src/app/api/admin/**`, and the seven cron routes
-  by an independent read-only verification pass before writing.
+  by an independent read-only verification pass before writing. Claude self-review: 3 P3s, fixed.
+  Codex round 1 (1 P1 + 4 P2 + 1 P3: receipt auth gating, monotonic receipt ordering,
+  `bypassCache=1` correction, diagnostic-cost truth, historical-scores status gap, follow-up
+  label): all fixed. Round 2 (2 P2: per-week score-fallback cost, lifecycle execution-log gap):
+  both fixed. Round 3 (1 P2: the status-silent branch conflicted with the binding provider-status
+  invariant): fixed with user authorization — mandatory status recording assigned to F2C.
 - Status: Implemented — PR open.
 
 ### DOCS-012-CURRENT-LEDGER-DECONFLICTION-v2
