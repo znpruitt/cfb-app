@@ -105,9 +105,9 @@ Execution order within F2 (each slice is one independently deployable PR):
 1. **F2A — inventory + IA doc** (docs-only) — ✅ merged (PR #430).
 2. **F2B — lifecycle authority safety** (manual rollover converged onto the strict automatic
    eligibility gate, per-lifecycle-year rollover, no render-time status seeding, single league-year
-   authority; binding rules in `AGENTS.md` → Lifecycle Authority Invariants) — implemented, PR
-   open.
-3. **F2C — maintenance action model and page foundation** — next slice, after F2B merges.
+   authority; binding rules in `AGENTS.md` → Lifecycle Authority Invariants) — ✅ merged
+   (PR #431).
+3. **F2C — maintenance action model and page foundation** — the next slice.
 4. Then, in order: F2D operational-mutation relocation → F2E1/F2E2 scheduler receipts → F2F
    system-health read model → F2G System Health UI → F2H Season Management consolidation → F2I
    Platform Configuration/Team Identity → F2J commissioner boundaries + navigation closeout.

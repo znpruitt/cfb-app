@@ -1992,6 +1992,30 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2B — Lifecycle Authority Safety — Complete
+
+- **Status:** Complete — merged to `main` via PR #431 (merge commit `5658413`, 2026-07-30).
+- **PROMPT_ID(s):** `PLATFORM-086F2B-LIFECYCLE-AUTHORITY-SAFETY-v1` (second slice of the
+  PLATFORM-086F2 admin control-plane redesign).
+- **Outcome:** The three F2A lifecycle correctness risks are eliminated. `updateLeagueStatus` is
+  the single lifecycle mutation authority (serialized transactional registry writes;
+  season/preseason synchronize `league.year = status.year`; offseason writes the outgoing
+  `status.year`, healing desynchronized legacy projections); generic configuration paths can no
+  longer mutate the season year (`409 league-year-lifecycle-managed`); new leagues are born with
+  an explicit lifecycle status; admin rendering performs no durable lifecycle write. Manual
+  rollover is per-year behind the SAME strict gate as the automatic cron
+  (`resolveNationalChampionshipRollover`, re-evaluated on every POST), with shared
+  `groupRolloverTargets` targeting, group-atomic archive-first execution, guarded conditional
+  season→offseason transitions in both paths, truthful partial-failure reporting, and no
+  force/emergency bypass. Binding rules: `AGENTS.md` → Lifecycle Authority Invariants.
+- **Verification:** 53 new focused tests; full suite 2846 green; `npx tsc --noEmit`,
+  `npm run lint:all`, `npm run build`, `git diff --check` clean. Review converged: Claude
+  self-review + two Codex rounds (round 2 clean); details in `docs/prompt-registry.md`.
+- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2C is
+  the next F2 slice; the legacy missing-status lifecycle repair path is owned by F2H).
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
