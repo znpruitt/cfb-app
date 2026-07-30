@@ -158,11 +158,11 @@ test('POST set-global-pause persists and is reflected on the next GET', async ()
   assert.equal(body.globalPause, true);
 });
 
-test('POST set-dataset-enabled persists for CONSUMED datasets (game-stats, scores, odds)', async () => {
+test('POST set-dataset-enabled persists for CONSUMED datasets (game-stats, scores, odds, rankings)', async () => {
   // Datasets with an EXISTING automatic job that consumes the toggle: game-stats
-  // (PLATFORM-086H3E), scores (PLATFORM-086B2B live-score cron), and odds
-  // (PLATFORM-086C2 Odds cron).
-  for (const dataset of ['game-stats', 'scores', 'odds']) {
+  // (PLATFORM-086H3E), scores (PLATFORM-086B2B live-score cron), odds
+  // (PLATFORM-086C2 Odds cron), and rankings (PLATFORM-086E2B publication cron).
+  for (const dataset of ['game-stats', 'scores', 'odds', 'rankings']) {
     const postRes = await POST(
       postRequest({ action: 'set-dataset-enabled', dataset, enabled: false })
     );
@@ -178,10 +178,10 @@ test('POST set-dataset-enabled persists for CONSUMED datasets (game-stats, score
 });
 
 test('POST set-dataset-enabled is REJECTED for a planned/unconsumed dataset (finding #7)', async () => {
-  // `scores` and `odds` are no longer here — their crons (PLATFORM-086B2B /
-  // PLATFORM-086C2) now consume the toggle, so they are exercised by the
-  // CONSUMED-dataset test above.
-  for (const dataset of ['rankings', 'conferences']) {
+  // `scores`, `odds`, and `rankings` are no longer here — their crons
+  // (PLATFORM-086B2B / PLATFORM-086C2 / PLATFORM-086E2B) now consume the toggle,
+  // so they are exercised by the CONSUMED-dataset test above.
+  for (const dataset of ['conferences']) {
     const res = await POST(postRequest({ action: 'set-dataset-enabled', dataset, enabled: false }));
     assert.equal(res.status, 400, `${dataset} toggle must be rejected as not-yet-active`);
     const body = (await res.json()) as { error: string };

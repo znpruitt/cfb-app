@@ -45,7 +45,9 @@ export type ProviderDatasetDescriptor = {
   provider: ProviderName;
   /**
    * Whether an automatic refresh job for this dataset exists in versioned
-   * deployment config (`vercel.json`) TODAY. `false` means manual/API-only.
+   * config TODAY — a `vercel.json` lifecycle cron or a fixed external QStash
+   * schedule provisioned by a versioned management CLI. `false` means
+   * manual/API-only.
    */
   hasActiveAutomation: boolean;
   /** Truthful description of the automation that runs today (or its absence). */
@@ -135,11 +137,13 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     dataset: 'rankings',
     label: 'Rankings',
     provider: 'CFBD',
-    hasActiveAutomation: false,
-    currentAutomation: 'Manual/API refresh only — no automatic job today.',
-    plannedPolicy: 'Planned (PLATFORM-086C): Sunday and CFP-release refresh.',
+    hasActiveAutomation: true,
+    currentAutomation:
+      'External QStash heartbeat (`turfwar-rankings-publication`, 04:00 and 22:00 UTC once provisioned per runbook §8j) → GET /api/cron/rankings. The application publication policy — not the heartbeat — decides whether provider work is due (AP/Coaches Sundays, preseason-discovery Mondays before kickoff, opening-week Tuesdays, CFP Wednesdays, final-poll Wednesdays); each due window is claimed durably exactly once, gated by a fresh CFBD /info probe above the 1,007-call rankings reserve, and refreshed through the shared rankings authority. The global pause + this Rankings toggle gate every automatic refresh; manual admin refresh stays available and ungated; public traffic stays cache-only.',
+    plannedPolicy:
+      'Active (PLATFORM-086E2B): fixed 04:00/22:00 UTC external heartbeat — the QStash schedule, publication windows, and reserve are version-controlled, never admin-editable; the toggle pauses/resumes all automatic rankings refresh.',
     lifecycleCritical: false,
-    autoRefreshSettingConsumed: false,
+    autoRefreshSettingConsumed: true,
     // Weekly cadence (matches the diagnostics stale-rankings threshold).
     staleAfterMs: 8 * DAY_MS,
   },
