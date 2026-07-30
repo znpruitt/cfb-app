@@ -88,7 +88,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   recovery). Codex round 2: clean. 53 new focused tests; full suite 2846 green; `npx tsc
   --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean. No provider, QStash,
   Vercel, or production rollover operation performed.
-- Status: Implemented — PR open.
+- Status: Implemented — PR open (PR #431).
 
 ### PLATFORM-086F2A-ADMIN-CONTROL-PLANE-IA-v1
 
