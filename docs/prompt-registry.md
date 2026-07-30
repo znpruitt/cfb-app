@@ -52,6 +52,30 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2A-ADMIN-CONTROL-PLANE-IA-v1
+
+- Purpose: Establish the audited admin control-plane inventory and target information architecture
+  as canonical documentation before any PLATFORM-086F2 code slice — routes, action
+  costs/mutations, correctness findings, locked decisions, the scheduler-receipt contract, and the
+  F2A–F2J migration map.
+- Scope: Documentation-only. New `docs/architecture/admin-control-plane.md` (canonical); queue and
+  roadmap projections (`docs/next-tasks.md` Active priority 1, `docs/roadmap.md` 086 table);
+  doc-index rows (`docs/README.md`, `docs/architecture/overview.md`); this entry. No runtime files.
+- Outcome: The audit (read-only, `main` @ `7d5741a`, 2026-07-30) is recorded with independent
+  source verification, including corrections: the rollover cron path is
+  `/api/cron/season-rollover`; the `/admin/leagues` legacy-token copy references a panel that IS
+  present (the real defect is a label mismatch plus legacy-fallback wording); five co-located
+  `route.test.ts` convention violations exist (the team-database one also behaviorally drifted).
+  The three high-priority correctness findings (manual rollover bypassing
+  `resolveNationalChampionshipRollover` and assuming one global `league.year`; the
+  `league.year`-vs-`status.year` dual authority; render-time `updateLeagueStatus` seeding on
+  `/admin/[slug]`) are confirmed with code evidence and assigned to F2B. The
+  `scheduler-execution-status/<job>` scope is verified unused and reserved for F2E1/F2E2.
+- Review / verification: `npm run lint:markdown` clean; relative links validated; the route/action
+  matrix was checked against `src/app/admin/**`, `src/app/api/admin/**`, and the seven cron routes
+  by an independent read-only verification pass before writing.
+- Status: Implemented — PR open.
+
 ### DOCS-012-CURRENT-LEDGER-DECONFLICTION-v2
 
 - Purpose: Reconcile the current planning and historical ledgers so each document has one clear

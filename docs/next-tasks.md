@@ -28,9 +28,9 @@ Supersedes: (none)
 
 ## Current execution order
 
-1. **NEXT — PLATFORM-086F2: admin diagnostics information-architecture redesign** (see Active
-   priority 1 below). The last provider-campaign implementation item; everything before it in the
-   campaign is merged and, where applicable, active in production.
+1. **NEXT — PLATFORM-086F2: admin control-plane information-architecture redesign (F2A–F2J)** (see
+   Active priority 1 below). The last provider-campaign implementation item; everything before it in
+   the campaign is merged and, where applicable, active in production.
 2. Then: return to product-facing work — homepage/landing page (not yet scoped — no backlog slug),
    INSIGHTS-018 (NEW tag + signatures),
    INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights), History Records
@@ -89,23 +89,29 @@ All foundational phases are complete. Work is now organized into named workstrea
 
 ## Active priorities
 
-### 1. PLATFORM-086F2 — admin diagnostics information-architecture redesign — NEXT
+### 1. PLATFORM-086F2 — admin control-plane information-architecture redesign — NEXT
 
-Backlog reference: `PLATFORM-086F-ADMIN-DIAGNOSTICS-DASHBOARD-v1` (formal `PROMPT_ID` assigned at
-activation). The broader diagnostics-dashboard redesign, deliberately sequenced after every real
-automation job shipped:
+Activated from backlog slug `PLATFORM-086F-ADMIN-DIAGNOSTICS-DASHBOARD-v1`. The read-only audit is
+complete and accepted; the canonical inventory, target information architecture, locked decisions,
+scheduler-receipt contract, and the slice-by-slice migration map live in
+[`docs/architecture/admin-control-plane.md`](architecture/admin-control-plane.md)
+(`PLATFORM-086F2A-ADMIN-CONTROL-PLANE-IA-v1`). The original "diagnostics dashboard" goals (compact
+system-health summary, severity-ordered actionable issues, a scheduler heartbeat kept distinct from
+provider-refresh status, and the H3E scheduler-skip observability gap) are all carried forward by
+that plan.
 
-- a compact system-health summary;
-- actionable issues ordered by severity;
-- comparable dataset-health presentation;
-- organized drill-down treatment of the legacy tools (API Usage, Team Database, Storage Status,
-  Score Attachment) with clearer triage and information hierarchy;
-- optionally, an independent "last scheduler check" heartbeat — kept distinct from provider-refresh
-  status so harmless scheduler checks never fabricate provider activity;
-- absorbs the non-blocking observability gap noted at H3E closeout (a harmless scheduler skip has no
-  app-side structured log).
+Execution order within F2 (each slice is one independently deployable PR):
 
-The legacy diagnostics tools remain available and unmoved until this ships.
+1. **F2A — inventory + IA doc** (docs-only) — implemented, PR open.
+2. **F2B — lifecycle authority safety** (manual rollover converged onto the strict automatic
+   eligibility gate, per-lifecycle-year rollover, no render-time status seeding, single league-year
+   authority) — next slice, after F2A merges.
+3. Then, in order: F2C maintenance action model → F2D operational-mutation relocation → F2E1/F2E2
+   scheduler receipts → F2F system-health read model → F2G System Health UI → F2H Season Management
+   consolidation → F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
+   navigation closeout.
+
+The legacy diagnostics tools remain available and unmoved until the corresponding slice ships.
 
 **Binding PR-sizing rule (applies to 086F2 and all future campaign work):** the goal is correctly
 sized, cohesive PRs — one cohesive objective with a clear acceptance contract, independently
