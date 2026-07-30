@@ -517,6 +517,20 @@ For a **postseason-boundary** Schedule window, pausing `turfwar-schedule-weekly`
 
 When CFBD first publishes the postseason/championship slate, inspect the normalized durable schedule read-only. The CFP championship row must eventually carry: a numeric provider id, a valid kickoff, a structured playoff competition, `playoffRound: national_championship`, and `playoffRoundSource: cfbd-structured`. Until that evidence exists, automatic rollover remains fail-closed (PLATFORM-086E1A). **Do NOT restore text inference or the latest-postseason fallback if the provider shape differs** — treat a mismatch as a separately reviewed normalization task. This checkpoint does not block preseason E1B activation.
 
+## 8i) PLATFORM-086E1C2 — automatic schedule-presentation observation checkpoint — ⏳ PENDING (post-merge; NO provisioning step)
+
+**There is nothing to provision or toggle.** E1C2 wires the E1C1 presentation authority into the two ALREADY-ACTIVE canonical schedulers (`turfwar-schedule-weekly` and the daily season-transition Vercel cron), so merging the PR makes presentation refresh eligible on the next qualifying canonical success — activation is OBSERVATION ONLY. Do not create a schedule, change a toggle, or invoke anything to "activate" it. Record the observations below from actual production evidence only (Vercel Runtime Logs; the CFBD quota panel if captured) — never fabricate delivery IDs, call counts, timestamps, or quota values.
+
+What to observe, in order:
+
+1. **The E1C1 manual proof is already complete** (pre-E1C2): the 2026-07-30 02:37 UTC manual full-year seed committed media `written-clean` (456 rows) + venues `written-clean` (844 rows), aggregate `success`, terminal CFBD remaining `4899`. Nothing to repeat.
+2. **A provider-free weekly skip proves no presentation call occurs on non-qualifying runs.** While 2026 remains transition-owned (`skipped / season-transition-owner`), a weekly delivery emits ONE `schedule-refresh-cron` event and NO `schedule-presentation-refresh` event — the correct negative proof.
+3. **The first qualifying automatic canonical success** (a `written-clean`/`unchanged-clean` populated year on either cron) should emit a SEPARATE `schedule-presentation-refresh` event (`trigger: weekly` or `season-transition`) alongside the unchanged canonical event/response. Expected media reason: `written-clean` or `unchanged-clean`.
+4. **Normal venue behavior is `fresh-cache` with zero `/venues` calls** while the durable catalog (seeded 2026-07-30) is younger than 30 days; a `/venues` fetch is expected only once the catalog is ≥30 days old. Normal per-year bound: 2 canonical `/games` + 1 `/games/media` (+1 `/venues` only when due).
+5. **Emergency stop (ordinary weekly maintenance):** the existing Schedule toggle / global pause stops ordinary canonical years before E1A runs, which also stops their presentation work (no separate presentation gate exists). **Lifecycle-critical paths remain exempt by design:** the season-transition cron and a `postseason-boundary` weekly success still run canonical work and their piggybacked presentation refresh regardless of the gates; pausing `turfwar-schedule-weekly` (schedule manager `pause --apply`) is the authoritative stop for the weekly route, exactly as in §8h.
+
+After observing (2) and (3), complete a docs-only checkpoint here recording the observed events (date, trigger, media/venues reasons, and quota evidence if captured), then proceed to PLATFORM-086E2.
+
 ## 9) Common failure diagnosis
 
 ### Clerk sign-in fails or redirects loop

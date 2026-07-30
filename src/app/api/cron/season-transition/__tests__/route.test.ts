@@ -604,3 +604,326 @@ test('shouldFetch pins: unarmed probe, unknown first game, and final-week all fe
     assert.equal(body.years[0]?.probed, probed, `shouldFetch pin: ${name}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086E1C2 — automatic presentation wiring (trigger: 'season-transition').
+// A qualifying populated E1A success invokes the REAL E1C1 authority once per
+// year AFTER probe/lifecycle/standings work; every other path invokes nothing;
+// presentation faults never block or roll back lifecycle truth.
+// ---------------------------------------------------------------------------
+
+const presentationLog: string[] = [];
+
+/** Numeric-id game row so committed items yield canonical provider game ids. */
+function numericGame(year: number, startDate: string): Record<string, unknown> {
+  return {
+    id: year * 10 + 1,
+    week: 1,
+    home_team: 'Texas',
+    away_team: 'Rice',
+    start_date: startDate,
+    home_conference: 'Big 12',
+    away_conference: 'American',
+  };
+}
+
+/**
+ * Presentation-aware CFBD stub: `/games` per season type, `/games/media` and
+ * `/venues` tracked in `presentationLog` (default empty payloads).
+ */
+function stubProviderWithPresentation(params: {
+  regular: string | 'throw';
+  postseason: string | 'throw';
+  media?: string | 'throw';
+}): void {
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.pathname === '/games/media') {
+      presentationLog.push(`media:${url.searchParams.get('year')}`);
+      const body = params.media ?? '[]';
+      if (body === 'throw') throw new Error('stub: media network down');
+      return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (url.pathname === '/venues') {
+      presentationLog.push('venues');
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    const seasonType = url.searchParams.get('seasonType');
+    const body = seasonType === 'postseason' ? params.postseason : params.regular;
+    if (body === 'throw') return new Response('upstream unavailable', { status: 503 });
+    return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+}
+
+/** Capture the authority's `schedule-presentation-refresh` console events. */
+async function runCapturingPresentation<T>(fn: () => Promise<T>): Promise<{
+  result: T;
+  tags: string[];
+  pEvents: Array<{ trigger: string; year: number; media: { reason: string } }>;
+}> {
+  const originalLog = console.log;
+  const pEvents: Array<{ trigger: string; year: number; media: { reason: string } }> = [];
+  console.log = ((...args: unknown[]) => {
+    const line = args.map((a) => String(a)).join(' ');
+    try {
+      const parsed = JSON.parse(line) as { event?: string };
+      if (parsed?.event === 'schedule-presentation-refresh') {
+        pEvents.push(parsed as (typeof pEvents)[number]);
+      }
+    } catch {
+      // Non-JSON console output — ignored.
+    }
+  }) as typeof console.log;
+  try {
+    const { result, tags } = await runCapturingTags(fn);
+    return { result, tags, pEvents };
+  } finally {
+    console.log = originalLog;
+  }
+}
+
+// 17 + 18 + 27 — a qualifying populated success invokes presentation once with
+// trigger 'season-transition', after the probe update and lifecycle flip.
+test('a qualifying transition success invokes presentation once after lifecycle work', async () => {
+  presentationLog.length = 0;
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  await seedPastProbe();
+  // Populated refresh whose first game is in the past → probe re-derived, the
+  // transition gate fires, and the year qualifies for presentation.
+  stubProviderWithPresentation({
+    regular: JSON.stringify([numericGame(YEAR, '2023-08-26T00:00:00.000Z')]),
+    postseason: '[]',
+    media: JSON.stringify([{ id: YEAR * 10 + 1, mediaType: 'tv', outlet: 'ESPN' }]),
+  });
+
+  const { result: res, tags, pEvents } = await runCapturingPresentation(() => GET(cronRequest()));
+  const body = (await res.json()) as {
+    years: Array<{ cached: boolean; transitioned: boolean; leagues: string[] }>;
+  };
+  assert.equal(res.status, 200);
+  assert.equal(body.years[0]?.cached, true);
+  assert.equal(body.years[0]?.transitioned, true, 'the lifecycle flip happened');
+  assert.ok(tags.includes('standings:alpha'), 'standings invalidated');
+
+  assert.deepEqual(presentationLog, [`media:${YEAR}`, 'venues'], 'one presentation pass');
+  assert.equal(pEvents.length, 1, 'exactly one presentation event');
+  assert.equal(pEvents[0]!.trigger, 'season-transition');
+  assert.equal(pEvents[0]!.year, YEAR);
+  assert.equal(pEvents[0]!.media.reason, 'written-clean');
+
+  // The probe reflects the committed schedule (updated BEFORE presentation).
+  const probe = await getAppState<{ firstGameDate: string | null }>('schedule-probe', String(YEAR));
+  assert.equal(probe?.value?.firstGameDate, '2023-08-26T00:00:00.000Z');
+});
+
+// 19 + 26 — presentation failure never blocks the transition, year sync,
+// standings invalidation, or the CronResult contract.
+test('a presentation failure does not block a due transition or change the response', async () => {
+  presentationLog.length = 0;
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  await seedPastProbe();
+  stubProviderWithPresentation({
+    regular: JSON.stringify([numericGame(YEAR, '2023-08-26T00:00:00.000Z')]),
+    postseason: '[]',
+    media: 'throw',
+  });
+
+  const { result: res, tags, pEvents } = await runCapturingPresentation(() => GET(cronRequest()));
+  const body = (await res.json()) as {
+    years: Array<{ transitioned: boolean; partialFailure?: boolean }>;
+    error?: string;
+  };
+  assert.equal(res.status, 200, 'HTTP status unchanged');
+  assert.equal(body.years[0]?.transitioned, true, 'the flip still happened');
+  assert.equal(body.years[0]?.partialFailure, undefined, 'no fabricated partialFailure');
+  assert.equal(body.error, undefined, 'no fabricated error');
+  assert.ok(tags.includes('standings:alpha'), 'standings invalidation intact');
+  assert.equal(pEvents[0]!.media.reason, 'provider-fetch-failed');
+
+  const leagues = await getAppState<League[]>('leagues', 'registry');
+  assert.equal(leagues?.value?.[0]?.status?.state, 'season', 'league year/state synced');
+});
+
+// 20 — multiple leagues sharing one year → presentation once for that year.
+test('multiple leagues sharing a year invoke presentation once', async () => {
+  presentationLog.length = 0;
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+    makeLeague('beta', { state: 'preseason', year: YEAR }),
+  ]);
+  await seedPastProbe();
+  stubProviderWithPresentation({
+    regular: JSON.stringify([numericGame(YEAR, '2023-08-26T00:00:00.000Z')]),
+    postseason: '[]',
+  });
+  const { pEvents } = await runCapturingPresentation(() => GET(cronRequest()));
+  assert.deepEqual(
+    presentationLog.filter((entry) => entry.startsWith('media:')),
+    [`media:${YEAR}`],
+    'one media call for the shared year'
+  );
+  assert.equal(pEvents.length, 1);
+});
+
+// 21 — distinct successful years invoke presentation once per year.
+test('distinct successful years invoke presentation once each', async () => {
+  presentationLog.length = 0;
+  const otherYear = YEAR + 1;
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+    { ...makeLeague('gamma', { state: 'preseason', year: otherYear }), year: otherYear },
+  ]);
+  // No probes → both years fetch (discovery). Future first games → no flips,
+  // but both years still qualify for presentation.
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    if (url.pathname === '/games/media') {
+      presentationLog.push(`media:${url.searchParams.get('year')}`);
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    if (url.pathname === '/venues') {
+      presentationLog.push('venues');
+      return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    const year = Number(url.searchParams.get('year'));
+    const seasonType = url.searchParams.get('seasonType');
+    const body =
+      seasonType === 'postseason'
+        ? '[]'
+        : JSON.stringify([numericGame(year, `${year + 1}-08-26T00:00:00.000Z`)]);
+    return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+
+  const { pEvents } = await runCapturingPresentation(() => GET(cronRequest()));
+  assert.deepEqual(
+    presentationLog.filter((entry) => entry.startsWith('media:')).sort(),
+    [`media:${YEAR}`, `media:${otherYear}`],
+    'one media call per successful year'
+  );
+  assert.equal(pEvents.length, 2);
+  assert.ok(pEvents.every((event) => event.trigger === 'season-transition'));
+});
+
+// 22/23/24/25 — every non-qualifying path performs NO presentation work.
+test('non-qualifying season-transition paths never invoke presentation', async () => {
+  // (22) shouldFetch false — armed probe, first game far in the future.
+  presentationLog.length = 0;
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  await setAppState('schedule-probe', String(YEAR), {
+    year: YEAR,
+    baseCachedAt: '2023-01-01T00:00:00.000Z',
+    firstGameDate: '2099-08-26T00:00:00.000Z',
+  });
+  stubProviderWithPresentation({ regular: 'throw', postseason: 'throw' });
+  let captured = await runCapturingPresentation(() => GET(cronRequest()));
+  assert.equal((captured.result as Response).status, 200);
+  assert.equal(presentationLog.length, 0, 'shouldFetch=false spends nothing');
+  assert.equal(captured.pEvents.length, 0);
+
+  // (23) no preseason leagues.
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  presentationLog.length = 0;
+  await setAppState('leagues', 'registry', [makeLeague('done', { state: 'season', year: YEAR })]);
+  captured = await runCapturingPresentation(() => GET(cronRequest()));
+  assert.equal(presentationLog.length, 0);
+  assert.equal(captured.pEvents.length, 0);
+
+  // (24) authentication failure.
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  presentationLog.length = 0;
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  captured = await runCapturingPresentation(() => GET(cronRequest('wrong-secret')));
+  assert.equal((captured.result as Response).status, 401);
+  assert.equal(presentationLog.length, 0);
+  assert.equal(captured.pEvents.length, 0);
+
+  // (25a) E1A failure (postseason partition down).
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  presentationLog.length = 0;
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  stubProviderWithPresentation({
+    regular: JSON.stringify([numericGame(YEAR, '2023-08-26T00:00:00.000Z')]),
+    postseason: 'throw',
+  });
+  captured = await runCapturingPresentation(() => GET(cronRequest()));
+  assert.equal(presentationLog.length, 0, 'an E1A failure never triggers presentation');
+  assert.equal(captured.pEvents.length, 0);
+
+  // (25b) a valid empty-response no-op (both partitions genuinely empty).
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  presentationLog.length = 0;
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  stubProviderWithPresentation({ regular: '[]', postseason: '[]' });
+  captured = await runCapturingPresentation(() => GET(cronRequest()));
+  assert.equal(presentationLog.length, 0, 'an empty-response no-op never triggers presentation');
+  assert.equal(captured.pEvents.length, 0);
+
+  // (25c) stale observation — durable schedule observed in the future.
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  presentationLog.length = 0;
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: Date.now() + 1_000_000_000,
+    items: [
+      {
+        id: String(YEAR * 10 + 1),
+        week: 1,
+        startDate: '2023-08-26T00:00:00.000Z',
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        homeConference: 'Big 12',
+        awayConference: 'American',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  stubProviderWithPresentation({
+    regular: JSON.stringify([numericGame(YEAR, '2023-08-26T00:00:00.000Z')]),
+    postseason: '[]',
+  });
+  captured = await runCapturingPresentation(() => GET(cronRequest()));
+  assert.equal(presentationLog.length, 0, 'a stale observation never triggers presentation');
+  assert.equal(captured.pEvents.length, 0);
+
+  // (25d) E1A lease contention.
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  presentationLog.length = 0;
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  const { acquireScheduleRefreshLease } = await import(
+    '../../../../../lib/schedule/scheduleRefreshLease.ts'
+  );
+  const lease = await acquireScheduleRefreshLease({ year: YEAR, now: Date.now() });
+  assert.ok(lease.acquired);
+  stubProviderWithPresentation({
+    regular: JSON.stringify([numericGame(YEAR, '2023-08-26T00:00:00.000Z')]),
+    postseason: '[]',
+  });
+  captured = await runCapturingPresentation(() => GET(cronRequest()));
+  assert.equal(presentationLog.length, 0, 'lease contention never triggers presentation');
+  assert.equal(captured.pEvents.length, 0);
+});

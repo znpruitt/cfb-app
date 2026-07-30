@@ -345,3 +345,27 @@ test('an unsuccessful E1A outcome never seeds presentation data', async () => {
   );
   assert.equal(mediaEntry, null, 'no presentation seed on an E1A no-op');
 });
+
+// PLATFORM-086E1C2 regression pin: manual seeding still uses trigger 'manual'.
+test('the authorized full-year manual seed emits its event with trigger manual', async () => {
+  installProviderMock();
+  const originalLog = console.log;
+  const triggers: string[] = [];
+  console.log = ((...args: unknown[]) => {
+    try {
+      const parsed = JSON.parse(String(args[0])) as { event?: string; trigger?: string };
+      if (parsed?.event === 'schedule-presentation-refresh') triggers.push(parsed.trigger ?? '');
+    } catch {
+      // Non-JSON console output — ignored.
+    }
+  }) as typeof console.log;
+  try {
+    const res = await GET(
+      new Request(`http://localhost/api/schedule?year=${YEAR}&seasonType=all&bypassCache=1`)
+    );
+    assert.equal(res.status, 200);
+  } finally {
+    console.log = originalLog;
+  }
+  assert.deepEqual(triggers, ['manual']);
+});
