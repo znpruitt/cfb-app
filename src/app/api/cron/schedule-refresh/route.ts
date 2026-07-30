@@ -4,6 +4,7 @@ import { getLeagues } from '@/lib/leagueRegistry';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
+import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
 import {
   deriveFirstGameDate,
   getScheduleProbeState,
@@ -341,6 +342,27 @@ export async function GET(req: Request): Promise<Response> {
           });
         } catch {
           // Best-effort — never fail a committed refresh over probe bookkeeping.
+        }
+      }
+
+      // PLATFORM-086E1C2: a qualifying POPULATED E1A success (`written-clean` OR
+      // `unchanged-clean` — broadcast assignments can change independently of the
+      // canonical rows) triggers ONE automatic presentation refresh for the year.
+      // Strictly best-effort and AFTER the canonical year entry + probe update:
+      // the E1C1 authority owns its own leases, provider calls, status scopes,
+      // and `schedule-presentation-refresh` event, resolves every fault into its
+      // typed result, and its outcome never alters the canonical per-year entry,
+      // aggregate result/reason, HTTP body, probe truth, or the
+      // `schedule-refresh-cron` event. Called WITHOUT `now` so the presentation
+      // observation/leases use a fresh clock captured after canonical work —
+      // route latency never shortens the leases or ages the observation.
+      // Skipped/deferred/gated/failed/no-op/in-progress years never reach here.
+      if (refresh.status === 'success' && refresh.items.length > 0) {
+        try {
+          await refreshSchedulePresentation({ year: candidate.year, trigger: 'weekly' });
+        } catch {
+          // Defensive contract boundary — a presentation fault must never affect
+          // canonical weekly maintenance.
         }
       }
     }

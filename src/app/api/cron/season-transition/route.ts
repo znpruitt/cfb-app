@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { getLeagues, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
+import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
 import type { ScheduleSeasonType } from '@/lib/scheduleSeasonFetch';
 import {
   getScheduleProbeState,
@@ -92,6 +93,10 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       // (a failed/stale/rejected refresh) — the league must not flip off it; the
       // next cron run retries once the shared authority commits a clean schedule.
       let transitionBlocked = false;
+      // PLATFORM-086E1C2: set ONLY by a qualifying populated E1A success this run
+      // and consumed AFTER this year's probe/lifecycle/standings work, so the
+      // optional presentation refresh can never precede or delay lifecycle truth.
+      let shouldRefreshPresentation = false;
 
       // Schedule probe logic
       let probeState = await getScheduleProbeState(targetYear);
@@ -131,6 +136,9 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           };
           await saveScheduleProbeState(newProbeState);
           probeState = newProbeState;
+          // PLATFORM-086E1C2: freshly confirmed canonical data qualifies this year
+          // for ONE best-effort presentation refresh AFTER the lifecycle work below.
+          shouldRefreshPresentation = true;
         } else if (refresh.status === 'no-op' && refresh.reason === 'empty-response') {
           // Genuinely unpublished / inapplicable absence (a future season not yet
           // published): retain prior-good, do not update the probe, and do not
@@ -190,6 +198,24 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
             await updateLeague(league.slug, { year: targetYear });
           }
           yearResult.transitioned = yearResult.leagues.length > 0;
+        }
+      }
+
+      // PLATFORM-086E1C2: LIFECYCLE-FIRST ordering — the optional presentation
+      // refresh runs only after this year's probe update, any preseason→season
+      // status flips, standings invalidation, and league-year synchronization
+      // completed above. Strictly best-effort: the E1C1 authority owns its own
+      // leases/provider calls/status scopes and emits its own
+      // `schedule-presentation-refresh` event (`trigger: 'season-transition'`);
+      // its latency or failure never rolls back or blocks lifecycle truth, never
+      // sets `partialFailure`/`fatalStoreError`, and never changes the
+      // `CronResult` body or HTTP status. Called WITHOUT `now` so the
+      // presentation observation/leases use a fresh post-lifecycle clock.
+      if (shouldRefreshPresentation) {
+        try {
+          await refreshSchedulePresentation({ year: targetYear, trigger: 'season-transition' });
+        } catch {
+          // Defensive contract boundary — presentation faults are invisible here.
         }
       }
 
