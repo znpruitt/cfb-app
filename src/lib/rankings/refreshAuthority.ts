@@ -211,9 +211,11 @@ type CommitOutcome =
  *   4. content comparison — identical canonical content commits a metadata-only
  *      freshness bump (`unchanged-clean`); changed content commits the complete
  *      replacement (`written-clean`).
- * A transaction failure leaves the durable key at prior-good and returns
- * `store-unavailable`; the process memo is published only by the caller after a
- * confirmed write.
+ * A transaction failure returns `store-unavailable` with the commit
+ * UNCONFIRMED — usually the durable key is untouched at prior-good, but a
+ * write whose acknowledgment was lost may have durably applied (see the
+ * result-contract caveat); the process memo is published only by the caller
+ * after a CONFIRMED write, never on an unconfirmed one.
  */
 async function commitSeasonRankings(params: {
   year: number;
