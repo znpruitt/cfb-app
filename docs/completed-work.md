@@ -2066,6 +2066,33 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2D — Operational Mutation Relocation (D1 + D2) — Complete
+
+- **Status:** Complete — merged to `main` via PR #433 (D1, `fa5c0f6`) and PR #434 (D2,
+  `a2a56fc`), 2026-07-30.
+- **PROMPT_ID(s):** `PLATFORM-086F2D1-PROVIDER-MAINTENANCE-RELOCATION-v1`,
+  `PLATFORM-086F2D2-SCORE-ATTACHMENT-RECOVERY-RELOCATION-v1` (the audited F2D split).
+- **Outcome:** Diagnostics (`/admin/diagnostics`) now contains only operational observation and
+  safety controls — provider/cache status with the global pause and dataset toggles, quota
+  observation, and storage diagnostics. Every provider-spending mutation lives on Data
+  Maintenance & Recovery with a cost/scope disclosure: the manual dataset refreshes and Reference
+  data section (D1), and the relocated score-attachment tool as the explicitly confirmed,
+  emergency-class "Refresh scores and run attachment trace" recovery action whose one captured
+  target drives its disclosure, confirmation (including the derived season-wide refresh scope for
+  week-targeted runs), request, and result label, with the trace disclaiming upstream-success
+  proof (D2). Refresh feedback is attempt-scoped throughout; invalid scope can never silently
+  broaden or retarget. Backend routes, auth, provider semantics, and the server-fetch backlog are
+  unchanged and separately owned.
+- **Verification:** D1 full suite 2892; D2 full suite 2906 — all gates clean in both. Reviews
+  converged: D1 self-review + three Codex rounds (round 3 clean); D2 self-review + three Codex
+  rounds with the round-3 finding resolved by explicit user authorization (details in
+  `docs/prompt-registry.md`).
+- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2E1 is
+  the next F2 slice; the `manualRefresh.ts` dead-surface trim and the server-fetch backlog remain
+  recorded follow-ups).
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped

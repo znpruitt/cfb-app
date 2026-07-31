@@ -118,8 +118,8 @@ Execution order within F2 (each slice is one independently deployable PR):
      (PR #433).
    - **F2D2 — score-attachment recovery relocation** (the mutating score tool becomes an
      explicitly confirmed emergency-class Data Maintenance action; Diagnostics keeps only
-     observation + safety controls) — implemented, PR open.
-5. **F2E1 — external scheduler receipts** — next slice, after F2D2 merges.
+     observation + safety controls) — ✅ merged (PR #434).
+5. **F2E1 — external scheduler receipts** — the next slice.
 6. Then, in order: F2E2 lifecycle receipts + reader → F2F system-health read model → F2G System
    Health UI → F2H Season Management consolidation → F2I Platform Configuration/Team Identity →
    F2J commissioner boundaries + navigation closeout.
