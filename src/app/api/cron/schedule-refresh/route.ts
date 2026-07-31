@@ -24,6 +24,11 @@ import {
   emitScheduleRefreshCronExecutionEvent,
   type ScheduleRefreshCronYearExecution,
 } from '@/lib/schedule/cronExecutionLog';
+import {
+  createSchedulerInvocationId,
+  scheduleSchedulerExecutionReceipt,
+  scheduleYearsTarget,
+} from '@/lib/server/schedulerExecutionStatus';
 import type { CacheEntry } from '@/app/api/schedule/cache';
 import type { FullSeasonScheduleRefreshResult } from '@/lib/schedule/fullSeasonScheduleRefreshResult';
 
@@ -110,6 +115,10 @@ function yearEntryFromRefresh(
 export async function GET(req: Request): Promise<Response> {
   const startedAtMs = Date.now();
   const exec = createScheduleRefreshCronExecutionState();
+  // PLATFORM-086F2E1 — receipt identity, created ONLY after successful cron
+  // authentication (never inferred from the final result/reason). Null means
+  // no durable receipt is scheduled for this invocation.
+  let receiptInvocationId: string | null = null;
 
   try {
     // CRON_SECRET first — fail closed. No registry/schedule/settings/status/
@@ -129,6 +138,7 @@ export async function GET(req: Request): Promise<Response> {
         { status: 401 }
       );
     }
+    receiptInvocationId = createSchedulerInvocationId();
 
     // Target selection — cache-only registry read. `season` AND `preseason`
     // leagues are targets (E1B1: cache-armed early preseason gets ordinary weekly
@@ -258,6 +268,12 @@ export async function GET(req: Request): Promise<Response> {
     // the E1A authority exactly once; skipped/deferred/context-unavailable years
     // create no provider-refresh attempt and no provider work.
     const entries: ScheduleRefreshCronYearExecution[] = [];
+    // Alias the per-year entries into the tracker IMMEDIATELY (matching the
+    // rankings cron) so an authenticated defensive exception mid-loop still
+    // carries the already-completed per-year/provider truth into the runtime
+    // event and the F2E1 receipt (with the pessimistic aggregate) instead of
+    // losing the record of provider spend (PLATFORM-086F2E1 correction).
+    exec.years = entries;
     for (const candidate of candidates) {
       if (candidate.classification.kind === 'canonical-context-unavailable') {
         entries.push({
@@ -367,7 +383,6 @@ export async function GET(req: Request): Promise<Response> {
       }
     }
 
-    exec.years = entries;
     exec.result = aggregateScheduleCronResult(entries);
     exec.reason = aggregateScheduleCronReason(entries);
 
@@ -378,5 +393,22 @@ export async function GET(req: Request): Promise<Response> {
     return NextResponse.json({ result: exec.result, reason: exec.reason, years: exec.years });
   } finally {
     emitScheduleRefreshCronExecutionEvent(exec, startedAtMs);
+    // PLATFORM-086F2E1 — one latest-only durable receipt per AUTHENTICATED
+    // invocation, scheduled post-response. Result/reason are the tracker's
+    // verbatim; provider truth is true when ANY recorded year attempted a
+    // provider-data request; the bounded target summarizes at most the first
+    // eight years. Best-effort, so it can neither change the response nor mask
+    // a propagating throw.
+    if (receiptInvocationId !== null) {
+      scheduleSchedulerExecutionReceipt({
+        job: 'schedule-refresh',
+        invocationId: receiptInvocationId,
+        startedAtMs,
+        result: exec.result,
+        reason: exec.reason,
+        providerCallAttempted: exec.years.some((entry) => entry.providerCallAttempted),
+        target: scheduleYearsTarget(exec.years),
+      });
+    }
   }
 }

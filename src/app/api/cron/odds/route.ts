@@ -35,6 +35,10 @@ import {
   type OddsCronExecutionState,
 } from '@/lib/odds/cronExecutionLog';
 import {
+  createSchedulerInvocationId,
+  scheduleSchedulerExecutionReceipt,
+} from '@/lib/server/schedulerExecutionStatus';
+import {
   effectiveOddsObservationMs,
   ODDS_DEFAULT_BOOKMAKERS,
   ODDS_DEFAULT_MARKETS,
@@ -165,6 +169,10 @@ export async function GET(req: Request): Promise<Response> {
   let attemptScope: ProviderRefreshScope | null = null;
   let providerCallAttempted = false;
   let attemptResolved = false;
+  // PLATFORM-086F2E1 — receipt identity, created ONLY after successful cron
+  // authentication (never inferred from the final result/reason). Null means
+  // no durable receipt is scheduled for this invocation.
+  let receiptInvocationId: string | null = null;
 
   try {
     // CRON_SECRET first — fail closed. No settings/context/status/lease/quota/
@@ -185,6 +193,7 @@ export async function GET(req: Request): Promise<Response> {
         { status: 401 }
       );
     }
+    receiptInvocationId = createSchedulerInvocationId();
 
     // Operator pause / Odds dataset toggle — before context or maintenance.
     if (!(await isAutoRefreshAllowed('odds'))) {
@@ -496,5 +505,25 @@ export async function GET(req: Request): Promise<Response> {
       });
     }
     emitOddsCronExecutionEvent(exec, startedAtMs);
+    // PLATFORM-086F2E1 — one latest-only durable receipt per AUTHENTICATED
+    // invocation, scheduled post-response. Result/reason/provider truth are the
+    // tracker's verbatim; best-effort, so it can neither change the response
+    // nor mask a propagating throw.
+    if (receiptInvocationId !== null) {
+      scheduleSchedulerExecutionReceipt({
+        job: 'odds',
+        invocationId: receiptInvocationId,
+        startedAtMs,
+        result: exec.result,
+        reason: exec.reason,
+        providerCallAttempted: exec.providerCallAttempted,
+        target: {
+          kind: 'odds',
+          year: exec.year,
+          cadence: exec.cadence,
+          eligibleGames: exec.eligibleGames,
+        },
+      });
+    }
   }
 }

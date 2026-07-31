@@ -32,6 +32,10 @@ import {
   recordProviderRefreshNoop,
   recordProviderRefreshSuccess,
 } from '@/lib/server/providerRefreshStatus';
+import {
+  createSchedulerInvocationId,
+  scheduleSchedulerExecutionReceipt,
+} from '@/lib/server/schedulerExecutionStatus';
 
 export const dynamic = 'force-dynamic';
 
@@ -202,6 +206,10 @@ export async function GET(req: Request) {
   const now = new Date();
   const year = seasonYearForToday(now);
   const exec = createCronExecutionState(year);
+  // PLATFORM-086F2E1 — receipt identity, created ONLY after successful cron
+  // authentication (never inferred from the final result/reason). Null means
+  // no durable receipt is scheduled for this invocation.
+  let receiptInvocationId: string | null = null;
 
   try {
     // CRON_SECRET first — fail closed with distinct configuration errors.
@@ -220,6 +228,7 @@ export async function GET(req: Request) {
         { status: 401 }
       );
     }
+    receiptInvocationId = createSchedulerInvocationId();
 
     // Operator pause — before target selection, so no scoped attempt exists.
     if (!(await isAutoRefreshAllowed('game-stats'))) {
@@ -459,5 +468,25 @@ export async function GET(req: Request) {
     // unexpected-error`). Best-effort inside the helper; cannot alter the
     // response or mask a thrown error.
     emitGameStatsCronExecutionEvent(exec, startedAtMs);
+    // PLATFORM-086F2E1 — one latest-only durable receipt per AUTHENTICATED
+    // invocation, scheduled post-response. Result/reason/provider truth are the
+    // tracker's verbatim; best-effort, so it can neither change the response
+    // nor mask a propagating throw.
+    if (receiptInvocationId !== null) {
+      scheduleSchedulerExecutionReceipt({
+        job: 'game-stats',
+        invocationId: receiptInvocationId,
+        startedAtMs,
+        result: exec.result,
+        reason: exec.reason,
+        providerCallAttempted: exec.providerCallAttempted,
+        target: {
+          kind: 'game-stats',
+          year: exec.year,
+          week: exec.week,
+          seasonType: exec.seasonType,
+        },
+      });
+    }
   }
 }

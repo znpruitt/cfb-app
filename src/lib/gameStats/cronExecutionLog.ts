@@ -9,8 +9,11 @@ import type { GameStatsRefreshOutcomeReason } from '@/lib/gameStats/refreshOutco
  * This module owns the logging POLICY so the ~400-line route does not absorb it.
  * It records ONLY the allowlisted operational primitives below — never a request
  * object, response body, thrown error, provider payload, environment value, URL,
- * credential, or authorization header. The event doubles as proof that the
- * request reached the application, so no durable heartbeat is written.
+ * credential, or authorization header. The event remains the detailed
+ * per-invocation log surface, including authentication failures;
+ * PLATFORM-086F2E1 separately records a latest-only durable receipt
+ * (`scheduler-execution-status`) after successful authentication, and that
+ * receipt never replaces or changes this runtime event.
  *
  * The route builds one mutable {@link GameStatsCronExecutionState} at entry and
  * emits exactly one event from a single `finally`, so authentication failures,

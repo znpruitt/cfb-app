@@ -26,6 +26,11 @@ import { evaluateRankingsAutomationQuota } from '@/lib/rankings/quotaPolicy';
 import { refreshSeasonRankings } from '@/lib/rankings/refreshAuthority';
 import type { RankingsRefreshResult } from '@/lib/rankings/refreshResult';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
+import {
+  createSchedulerInvocationId,
+  rankingsYearsTarget,
+  scheduleSchedulerExecutionReceipt,
+} from '@/lib/server/schedulerExecutionStatus';
 
 export const dynamic = 'force-dynamic';
 
@@ -134,6 +139,10 @@ function yearEntryFromRefresh(
 export async function GET(req: Request): Promise<Response> {
   const startedAtMs = Date.now();
   const exec = createRankingsCronExecutionState();
+  // PLATFORM-086F2E1 — receipt identity, created ONLY after successful cron
+  // authentication (never inferred from the final result/reason). Null means
+  // no durable receipt is scheduled for this invocation.
+  let receiptInvocationId: string | null = null;
 
   try {
     // CRON_SECRET first — fail closed. No registry/settings/cache/quota/status/
@@ -154,6 +163,7 @@ export async function GET(req: Request): Promise<Response> {
         { status: 401 }
       );
     }
+    receiptInvocationId = createSchedulerInvocationId();
 
     // The Rankings automation gate — read ONCE, before any registry/cache/quota
     // work. ALL rankings automation is noncritical: the global pause or the
@@ -301,5 +311,22 @@ export async function GET(req: Request): Promise<Response> {
     return NextResponse.json({ result: exec.result, reason: exec.reason, years: exec.years });
   } finally {
     emitRankingsCronExecutionEvent(exec, startedAtMs);
+    // PLATFORM-086F2E1 — one latest-only durable receipt per AUTHENTICATED
+    // invocation, scheduled post-response. Result/reason are the tracker's
+    // verbatim; provider truth is true when ANY recorded year attempted a
+    // provider-data request; the bounded target summarizes at most the first
+    // eight years. Best-effort, so it can neither change the response nor mask
+    // a propagating throw.
+    if (receiptInvocationId !== null) {
+      scheduleSchedulerExecutionReceipt({
+        job: 'rankings',
+        invocationId: receiptInvocationId,
+        startedAtMs,
+        result: exec.result,
+        reason: exec.reason,
+        providerCallAttempted: exec.years.some((entry) => entry.providerCallAttempted),
+        target: rankingsYearsTarget(exec.years),
+      });
+    }
   }
 }
