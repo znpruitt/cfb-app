@@ -52,6 +52,42 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2D2-SCORE-ATTACHMENT-RECOVERY-RELOCATION-v1
+
+- Purpose: Complete the F2D operational-mutation relocation — move the mutating score-attachment
+  tool from Diagnostics to Data Maintenance & Recovery and present it truthfully as an explicitly
+  confirmed, emergency-class recovery action; Diagnostics keeps only observation and safety
+  controls.
+- Scope: New `ScoreAttachmentRecoveryPanel` under a new Diagnostic recovery section on
+  `/admin/data/cache` (after Provider maintenance & recovery); `DiagnosticsScorePanel` +
+  `ScoreAttachmentDebugPanel` deleted; 13th maintenance descriptor (`score-attachment-recovery`,
+  emergency, factual per-week-fallback cost copy); `fetchScoreAttachmentDebug` gained an optional
+  `AbortSignal` (URL/headers unchanged); Diagnostics page composes only
+  `ProviderDataStatusPanel`/`AdminUsagePanel`/`AdminStorageStatusPanel`; `/admin` Diagnostics
+  card reworded. Backend route, `loadDebugSeasonContext`, `fetchScoresByGame` fallback, auth,
+  status codes, and response schemas UNCHANGED; the server-fetch backlog stays separately owned.
+- Outcome: One captured target (year 2000..currentUTCYear+1 / blank-or-bounded week 0–99 /
+  all|regular|postseason) drives the disclosure, the mandatory `window.confirm` (naming the
+  target, cache mutations, possible per-week fan-out, and — for week-scoped runs — the route's
+  ACTUAL derivation: season-wide refresh per season type with games in that week, no games → no
+  refresh), the exact request params, and the result label. Invalid scope never silently broadens
+  or retargets (exponential-serialization years/weeks rejected); cancel performs zero requests;
+  one attempt at a time with disabled controls, attempt-sequence + abort-on-unmount guards, and
+  clear-on-change results; traces render "Trace loaded" with the does-not-prove caveat, never a
+  refresh-success claim; non-2xx stays generic.
+- Review / verification: Claude subagent self-review (no P0–P2; 2 P3 fixed — week
+  serialization bound, honest invalid-target copy — and the dead `source` param deferred to the
+  server-fetch backlog). Codex round 1 (1 P1 TS aliased-narrowing compile error + 2 P2 —
+  week-scope confirmation truth, year serialization bound — all fixed; `tsc` restored to the
+  hard gate chain). Round 2 (1 P2 — fixed: the confirmation states the derived refresh scope,
+  never a fixed partition promise). Round 3 (1 P2 — year bound loosened past the provider
+  routes' maximum could render a misleading "Trace loaded"; fixed with user authorization at the
+  post-round-3 gate). Full suite 2906 green; `npx tsc --noEmit`, `npm run lint:all`,
+  `npm run build`, `git diff --check` clean. Browser verification unavailable (extension not
+  installed) — deterministic render tests are the acceptance authority. No provider, scheduler,
+  production, or BotID-stash operation.
+- Status: Implemented — PR open.
+
 ### PLATFORM-086F2D1-PROVIDER-MAINTENANCE-RELOCATION-v1
 
 - Purpose: First slice of the F2D operational-mutation relocation (split at its audit into
