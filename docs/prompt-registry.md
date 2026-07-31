@@ -86,7 +86,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `npm run build`, `git diff --check` clean. Browser verification unavailable (extension not
   installed) — deterministic render tests are the acceptance authority. No provider, scheduler,
   production, or BotID-stash operation.
-- Status: Implemented — PR open.
+- Status: Implemented — PR open (PR #434).
 
 ### PLATFORM-086F2D1-PROVIDER-MAINTENANCE-RELOCATION-v1
 
