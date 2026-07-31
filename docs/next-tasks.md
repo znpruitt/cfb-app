@@ -129,12 +129,17 @@ Execution order within F2 (each slice is one independently deployable PR):
    previously-missing secret-safe runtime execution-log events; responses, lifecycle decisions,
    provider behavior, cadence, and `vercel.json` unchanged; no reader/UI) — ✅ **merged (PR #436,
    `fa6e967`, 2026-07-31)**.
-7. **F2E2B — lifecycle scheduler reader + classifier** — **the next slice**: add the cache-only
-   admin reader over all seven `scheduler-execution-status/<job>` receipts and the cadence-aware
-   delivery-health classification.
-8. Then, in order: F2F system-health read model → F2G System Health UI → F2H Season Management
-   consolidation → F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
-   navigation closeout.
+7. **F2E2B — scheduler receipt reader + delivery classifier** (cache-only server reader over all
+   seven `scheduler-execution-status/<job>` receipts + schedule-slot-aware delivery classifier;
+   safe receipt parsing exposed on the authority; server-only — no route, UI, provider call,
+   scheduler mutation, settings change, or durable write) — ✅ **implemented, PR #437 open (not
+   merged)**.
+8. **F2F — system-health read model** — **the next slice**: one server-side operational view model
+   consuming the F2E2B reader plus automation gates, canonical data health, latest scoped attempts,
+   quota, and storage — kept distinct — with stable issue codes, severity, explanation, and repair
+   links.
+9. Then, in order: F2G System Health UI → F2H Season Management consolidation → F2I Platform
+   Configuration/Team Identity → F2J commissioner boundaries + navigation closeout.
 
 The legacy diagnostics tools remain available and unmoved until the corresponding slice ships.
 
