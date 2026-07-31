@@ -52,6 +52,46 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2E2B-SCHEDULER-RECEIPT-READER-CLASSIFIER-v1
+
+- Purpose: The final scheduler-receipt foundation before F2F — a cache-only server reader and
+  schedule-slot-aware delivery classifier over all seven durable scheduler receipts, so the later
+  System Health model gets truthful scheduler-DELIVERY evidence without conflating delivery,
+  execution outcome, provider activity, or data freshness.
+- Scope: `schedulerExecutionStatus.ts` gains `EXTERNAL_SCHEDULER_JOBS` (canonical ordered tuple;
+  `ExternalSchedulerJob` derived from it), `schedulerSourceForJob` (single ownership map, no second
+  source), and the exported `parseSchedulerExecutionReceipt(value, expectedJob, nowMs)` that
+  validates AND rebuilds a stored receipt field-by-field (no extra-field leakage, never a raw
+  cast) — reused in the writer's prior-record validation with monotonic `(startedAt, invocationId)`
+  ordering, replaceability, and the future-prior guard all unchanged. New
+  `src/lib/server/schedulerDeliveryHealth.ts` owns the seven fixed UTC policies (cron/cadence/grace;
+  source derived), a pure deterministic schedule-slot calculator (no cron-parser dependency), pure
+  on-time/late classification, one cache-only scope reader with an injected loader seam, and the
+  stable read-model types. Server-only: no route, hook, UI, provider call, scheduler mutation,
+  settings change, receipt write, history, `vercel.json`/`package.json` change, or F2F issue/
+  severity logic.
+- Outcome: The reader loads `scheduler-execution-status` ONCE and returns exactly seven
+  state-bearing rows in canonical order; each carries its policy, the `requiredStartedAt` slot, a
+  `deliveryState` (`on-time`/`late`/`missing`/`invalid`/`unavailable`), and the safely-parsed
+  receipt or `null`. Timeliness is `startedAt` versus `previousSlot(now − grace)` ONLY — never
+  `result`/`reason`/`providerCallAttempted`/target/`updatedAt` — so a timely skip/no-op/failure is
+  still `on-time`; the slot math is UTC-only (DST-irrelevant) and correct across
+  minute/hour/day/month/year boundaries, Rankings' uneven 04:00/22:00 gaps, and Vercel's 65-minute
+  daily window. A missing key is `missing`, an unparseable row is `invalid` (never contaminating
+  siblings), and a scope-read failure yields seven `unavailable` rows without leaking the storage
+  error. Policies are pinned by tests to the five management-script `CRON` exports and both
+  `vercel.json` entries; runtime code imports neither.
+- Review / verification: Claude self-review (no P0–P2). Codex round 1 one P1 (the default-loader
+  integration test could `DELETE FROM app_state` on a configured Postgres store because file
+  fallback is selected by `DATABASE_URL` absence, not `NODE_ENV`) FIXED by clearing/restoring
+  `DATABASE_URL` around the destructive setup (verified the test never connects with a bogus
+  `DATABASE_URL` set). Full suite 3014 green (+26: 23 delivery-health + 3 authority parser/job/
+  source); `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean. No
+  browser verification (no route/UI). PR size: 4 files / ~1,000 net lines — well under both soft
+  signals. No provider, scheduler, production, or BotID-stash operation.
+- Status: **Implemented; PR open to `main` (not merged) — feature branch
+  `platform/086f2e2b-scheduler-receipt-reader-classifier`.**
+
 ### PLATFORM-086F2E2A-LIFECYCLE-SCHEDULER-RECEIPTS-v1
 
 - Purpose: First half of the audited F2E2 split — extend the merged F2E1 receipt system to the
