@@ -92,7 +92,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   heavily-documented single-file authority, not scope creep, and splitting per-route would be the
   artificial fragmentation the audit warned against. Surfaced for the user's merge decision (PR
   left unmerged). No provider, scheduler, production, or BotID-stash operation.
-- Status: **Implemented; PR open to `main` (not merged) — feature branch
+- Status: **Implemented; PR #435 open to `main` (not merged) — feature branch
   `platform/086f2e1-external-scheduler-receipts`.**
 
 ### PLATFORM-086F2D2-SCORE-ATTACHMENT-RECOVERY-RELOCATION-v1

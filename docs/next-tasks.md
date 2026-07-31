@@ -123,7 +123,7 @@ Execution order within F2 (each slice is one independently deployable PR):
    `src/lib/server/schedulerExecutionStatus.ts` + latest-only durable
    `scheduler-execution-status/<job>` receipts written after successful cron auth on all five
    QStash routes; responses, provider behavior, cadence, runtime-event schemas, QStash contracts,
-   and `vercel.json` unchanged; no reader/UI) — ✅ **implemented, PR open (not merged)**.
+   and `vercel.json` unchanged; no reader/UI) — ✅ **implemented, PR #435 open (not merged)**.
 6. **F2E2 — lifecycle receipts + reader** — the next slice: instrument the season-transition and
    season-rollover crons (including their currently-missing execution-log events), then add the
    cache-only admin reader and cadence-aware delivery-health classification for the receipts.
