@@ -137,15 +137,18 @@ export default function ScoreAttachmentRecoveryPanel({
       description: describeScoreAttachmentTarget(year, parsedWeek, seasonType),
     };
 
-    // A selected week scopes the TRACE only — the route's underlying score
-    // refresh always runs against the full selected season partition(s). The
-    // confirmation must not present the mutation as week-scoped (Codex review).
+    // A selected week scopes the TRACE only — the route derives the refresh
+    // partitions from the season types actually present among that week's
+    // scheduled games and then refreshes those partitions SEASON-WIDE (a week
+    // with no matching games performs no refresh at all). The confirmation
+    // must state that derivation, never a fixed partition promise (Codex r2).
     const weekScopeNote =
       target.week === null
         ? ''
-        : `\n\nNote: the week selection scopes the trace only — the underlying score refresh covers the full ${
-            target.seasonType === '' ? 'regular + postseason' : target.seasonType
-          } season partition${target.seasonType === '' ? 's' : ''} for ${target.year}.`;
+        : '\n\nNote: the week selection scopes the trace only. The underlying score refresh runs ' +
+          `season-wide for each season type that has games in week ${target.week} of ${target.year}` +
+          (target.seasonType === '' ? '' : ` (limited to ${target.seasonType})`) +
+          ' — not just that week; a week with no matching games performs no refresh.';
 
     const confirmed = window.confirm(
       `Refresh CFBD-backed score data and run the attachment trace for ${target.description}?\n\n` +
@@ -208,8 +211,9 @@ export default function ScoreAttachmentRecoveryPanel({
         <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
           Refreshes CFBD-backed score data for the selected target and traces how each provider row
           attaches to the canonical schedule. This is a mutating recovery action — not a read-only
-          diagnostic. A week selection scopes the trace only; the underlying score refresh always
-          covers the full selected season partition(s).
+          diagnostic. A week selection scopes the trace only: the underlying refresh runs
+          season-wide for each season type with games in that week — a week with no matching games
+          performs no refresh.
         </p>
       </div>
 

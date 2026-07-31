@@ -193,12 +193,16 @@ test('the confirmation names the captured target and the mutation consequences',
   assert.match(message, /update score caches and provider-refresh status/);
   assert.match(message, /invalidate standings when scores change/);
   assert.match(message, /fall back to provider-week requests/);
-  // A week-scoped trace never presents the MUTATION as week-scoped: the
-  // refresh covers the full selected partition (Codex review).
+  // A week-scoped trace never presents the MUTATION as week-scoped OR as a
+  // fixed partition promise: the refresh derives season types from the week's
+  // actual games and runs season-wide (Codex r1 + r2).
   assert.match(
     message,
-    /week selection scopes the trace only — the underlying score refresh covers the full postseason season partition/
+    new RegExp(
+      `season-wide for each season type that has games in week 17 of ${year} \\(limited to postseason\\)`
+    )
   );
+  assert.match(message, /a week with no matching games performs no refresh/);
 });
 
 test('an all-season confirmation carries no week-scope note; year is serialization-bounded', () => {
