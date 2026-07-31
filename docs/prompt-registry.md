@@ -89,7 +89,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   source); `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean. No
   browser verification (no route/UI). PR size: 4 files / ~1,000 net lines — well under both soft
   signals. No provider, scheduler, production, or BotID-stash operation.
-- Status: **Implemented; PR open to `main` (not merged) — feature branch
+- Status: **Implemented; PR #437 open to `main` (not merged) — feature branch
   `platform/086f2e2b-scheduler-receipt-reader-classifier`.**
 
 ### PLATFORM-086F2E2A-LIFECYCLE-SCHEDULER-RECEIPTS-v1
