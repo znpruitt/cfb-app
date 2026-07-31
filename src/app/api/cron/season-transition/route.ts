@@ -371,6 +371,13 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     result.error = err instanceof Error ? err.message : 'unknown error';
     return NextResponse.json(result, { status: 500 });
   } finally {
+    // Order the event/receipt years ASCENDING (the `byYear` map preserves league
+    // registry insertion order, which is not guaranteed chronological), so the
+    // bounded eight-entry receipt keeps the EARLIEST years and matches the
+    // ascending multi-year convention of the sibling crons. This mutates only the
+    // event/receipt array — the HTTP response's `result.years` is a separate
+    // array and stays byte-identical.
+    exec.years.sort((a, b) => a.year - b.year);
     emitSeasonTransitionCronExecutionEvent(exec, startedAtMs);
     if (receiptInvocationId !== null) {
       scheduleSchedulerExecutionReceipt({

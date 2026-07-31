@@ -456,6 +456,45 @@ test('a receipt-store failure leaves the response, event, and transition unchang
   assert.equal(await readSchedulerReceipt('season-transition'), null, 'nothing stored');
 });
 
+// Ordering — the receipt/event years are ASCENDING even when the league registry
+// lists preseason years out of order (the `byYear` map preserves registry order).
+test('receipt and event years are sorted ascending regardless of registry order', async () => {
+  // Registry order is DESCENDING (2024 then 2023); no probes → both years probe
+  // the empty stub (no-op/empty-response), no transition.
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'later',
+      displayName: 'later',
+      year: 2024,
+      createdAt: '2022-01-01T00:00:00.000Z',
+      status: { state: 'preseason', year: 2024 },
+    },
+    {
+      slug: 'earlier',
+      displayName: 'earlier',
+      year: 2023,
+      createdAt: '2022-01-01T00:00:00.000Z',
+      status: { state: 'preseason', year: 2023 },
+    },
+  ]);
+  const { res, event } = await runRoute();
+  assert.equal(res!.status, 200);
+  assert.deepEqual(
+    event.years.map((y) => y.year),
+    [2023, 2024],
+    'event years ascending despite descending registry order'
+  );
+
+  await deferrer.flush();
+  const stored = await readSchedulerReceipt('season-transition');
+  const target = stored!.value.target as { years: Array<{ year: number }> };
+  assert.deepEqual(
+    target.years.map((y) => y.year),
+    [2023, 2024],
+    'receipt target years ascending'
+  );
+});
+
 // 12 — no credential/marker/registry/provider-error leak in event or receipt.
 test('no credential, registry, or provider-error marker leaks into the event or receipt', async () => {
   const CRON_MARKER = 'sekret-cron-MARKER';
