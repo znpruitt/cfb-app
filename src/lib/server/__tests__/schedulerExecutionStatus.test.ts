@@ -42,8 +42,10 @@ const ORIGINAL = {
   DATABASE_URL: process.env.DATABASE_URL,
 };
 
-const T0 = Date.parse('2026-07-31T12:00:00.000Z');
+// A base instant safely in the PAST relative to the real clock (fixtures whose
+// startedAt sits in the future would trip the prior-receipt future-skew guard).
 const SEC = 1_000;
+const T0 = Date.now() - 24 * 60 * 60 * SEC;
 
 const ID_A = '0a0a0a0a-0000-4000-8000-000000000000';
 const ID_B = '0b0b0b0b-0000-4000-8000-000000000000';
@@ -274,6 +276,30 @@ test('malformed, job-mismatched, and obsolete-version prior records are replaced
   await setAppState(SCOPE, 'live-scores', wrongTarget);
   await recordSchedulerExecutionReceipt(incoming);
   assert.equal((await readSchedulerReceipt('live-scores'))?.value.invocationId, ID_A);
+});
+
+// A prior whose startedAt is implausibly in the FUTURE (corruption, a manual
+// edit, or a foreign writer) is replaceable even though it is otherwise
+// well-formed with a valid reason — otherwise its later startedAt would win the
+// monotonic comparison and pin scheduler health to malformed data forever. A
+// coincidentally-valid reason (`unexpected-error` is in every vocabulary) must
+// not rescue it; the future-startedAt guard is what closes the vector.
+test('a future-dated prior receipt is replaced despite an otherwise-valid shape', async () => {
+  const futurePrior = receiptOf(
+    liveScoresInput({
+      invocationId: ID_C,
+      startedAtMs: Date.now() + 10 * 24 * 60 * 60 * SEC, // ten days ahead
+      result: 'failure',
+      reason: 'unexpected-error', // a reason valid in every job vocabulary
+    })
+  );
+  await setAppState(SCOPE, 'live-scores', futurePrior);
+  // A normal, present-time incoming receipt must win and overwrite the corrupt
+  // future-dated record even though its startedAt is "earlier".
+  await recordSchedulerExecutionReceipt(receiptOf(liveScoresInput({ invocationId: ID_A })));
+  const stored = await readSchedulerReceipt('live-scores');
+  assert.equal(stored?.value.invocationId, ID_A, 'the future-dated prior was replaceable');
+  assert.equal(stored?.value.reason, 'no-polling-target');
 });
 
 // 5/6 — a newer prior start instant is never overwritten by a stale completion,

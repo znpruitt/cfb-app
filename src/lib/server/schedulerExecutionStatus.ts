@@ -42,8 +42,10 @@ import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
  *     `invocationId`, and an exact duplicate never rewrites. `completedAt` and
  *     the store's `updated_at` never decide freshness, so an older overlapping
  *     invocation that completes late cannot overwrite a newer delivery.
- *     A missing, malformed, job-mismatched, or obsolete-version prior record is
- *     replaceable; a genuine read failure aborts without writing.
+ *     A missing, malformed, job-mismatched, obsolete-version, or future-dated
+ *     prior record is replaceable (a `startedAt` implausibly ahead of real time
+ *     is corruption or a foreign writer that would otherwise pin health forever);
+ *     a genuine read failure aborts without writing.
  *   - BEST-EFFORT: every read/lock/transaction/serialization/write failure is
  *     swallowed. A receipt can never change a cron response, mask an exception,
  *     alter provider/status behavior, or emit storage error details. No memo,
@@ -243,11 +245,16 @@ export async function recordSchedulerExecutionReceipt(
     // defense in depth even though the builder already allowlists.
     const stored = rebuildReceipt(receipt);
     if (stored === null) return;
+    // A validity reference for the prior's `startedAt`: a legitimate receipt is
+    // stamped with its route-entry instant, which can never exceed real time, so
+    // a prior dated implausibly in the future can only be corruption or a foreign
+    // writer — and left usable it would pin scheduler health forever.
+    const nowMs = Date.now();
     await withAppStateKeyTransaction(SCHEDULER_EXECUTION_STATUS_SCOPE, stored.job, async (txn) => {
       // A thrown read propagates (rolling back the transaction): a real read
       // failure must never be mistaken for a replaceable missing record.
       const prior = await txn.read<unknown>();
-      const usablePrior = prior ? parseUsablePriorReceipt(prior.value, stored.job) : null;
+      const usablePrior = prior ? parseUsablePriorReceipt(prior.value, stored.job, nowMs) : null;
       if (usablePrior && !incomingReceiptWins(stored, usablePrior)) return;
       await txn.write(stored);
     });
@@ -297,6 +304,19 @@ export function scheduleSchedulerExecutionReceipt(
 
 // ---------------------------------------------------------------------------
 // Allowlisted rebuilding + prior-record validation (module-internal policy).
+
+/**
+ * A prior receipt's `startedAt` is trusted only up to this margin past real
+ * time. A legitimate receipt is stamped with its route-entry instant (≤ now, up
+ * to sub-second cross-instance clock skew), so a prior dated meaningfully in the
+ * future is corruption or a foreign/incompatible writer. Rejecting it makes such
+ * a record replaceable — otherwise its later `startedAt` would win the monotonic
+ * comparison and pin scheduler health to malformed data indefinitely (a merely
+ * later PAST timestamp self-heals on the next cron run; only a future one pins).
+ * The margin generously covers real skew while bounding any residual pin to
+ * minutes rather than forever.
+ */
+const PRIOR_FUTURE_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
 
 const RESULT_VALUES: ReadonlySet<string> = new Set([
   'skipped',
@@ -476,12 +496,24 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
 /**
  * A prior record is usable ONLY when its version, job, source, invocation
  * identity, timestamps, result, provider flag, and job-compatible target shape
- * are all valid. Anything else (missing, malformed, mismatched job, obsolete
- * version, corrupt fields) is replaceable and returns `null`.
+ * are all valid, AND its `startedAt` — the monotonic ordering key — is not dated
+ * implausibly in the future. Anything else (missing, malformed, mismatched job,
+ * obsolete version, corrupt fields, a future-dated `startedAt`) is replaceable
+ * and returns `null`.
+ *
+ * The future-`startedAt` guard is what actually closes the "malformed prior pins
+ * health forever" vector: validating `reason` against the closed vocabulary is
+ * both insufficient (a corrupt record with a coincidentally-valid reason such as
+ * `unexpected-error` would still win a future-dated comparison) and fragile
+ * (it would re-enumerate five cross-module reason unions). A record that is
+ * well-formed in every other way but carries an unrecognized `reason` still only
+ * pins health if its `startedAt` beats live cron runs — which the future guard
+ * prevents; a sane PAST timestamp self-heals on the next run regardless.
  */
 function parseUsablePriorReceipt(
   value: unknown,
-  job: ExternalSchedulerJob
+  job: ExternalSchedulerJob,
+  nowMs: number
 ): SchedulerExecutionReceipt | null {
   if (typeof value !== 'object' || value === null) return null;
   const record = value as Record<string, unknown>;
@@ -490,6 +522,7 @@ function parseUsablePriorReceipt(
   if (record.source !== 'qstash') return null;
   if (typeof record.invocationId !== 'string' || record.invocationId.length === 0) return null;
   if (!isValidIsoInstant(record.startedAt) || !isValidIsoInstant(record.completedAt)) return null;
+  if (Date.parse(record.startedAt) > nowMs + PRIOR_FUTURE_SKEW_TOLERANCE_MS) return null;
   if (!isNonNegativeInteger(record.durationMs)) return null;
   if (typeof record.result !== 'string' || !RESULT_VALUES.has(record.result)) return null;
   if (typeof record.reason !== 'string' || record.reason.length === 0) return null;
