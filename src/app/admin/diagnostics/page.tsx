@@ -1,6 +1,5 @@
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import AdminUsagePanel from '@/components/AdminUsagePanel';
-import AdminTeamDatabasePanel from '@/components/AdminTeamDatabasePanel';
 import AdminStorageStatusPanel from '@/components/AdminStorageStatusPanel';
 import DiagnosticsScorePanel from '@/components/admin/DiagnosticsScorePanel';
 import ProviderDataStatusPanel from '@/components/admin/ProviderDataStatusPanel';
@@ -28,9 +27,10 @@ export default async function AdminDiagnosticsPage() {
 
         <ProviderDataStatusPanel defaultYear={season} />
 
+        {/* PLATFORM-086F2D1 — the team-database sync moved to Data Maintenance &
+            Recovery (Reference data); the score tool relocates in F2D2. */}
         <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-zinc-700 dark:bg-zinc-900">
           <AdminUsagePanel />
-          <AdminTeamDatabasePanel />
           <AdminStorageStatusPanel />
           <DiagnosticsScorePanel season={season} />
         </div>

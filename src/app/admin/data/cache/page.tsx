@@ -3,6 +3,8 @@ import Link from 'next/link';
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import GlobalRefreshPanel from '@/components/admin/GlobalRefreshPanel';
 import GameStatsCachePanel from '@/components/admin/GameStatsCachePanel';
+import ProviderMaintenancePanel from '@/components/admin/ProviderMaintenancePanel';
+import ReferenceDataPanel from '@/components/admin/ReferenceDataPanel';
 import SpRatingsCachePanel from '@/components/SpRatingsCachePanel';
 import WinTotalsUploadPanel from '@/components/WinTotalsUploadPanel';
 import HistoricalCachePanel from '@/components/admin/HistoricalCachePanel';
@@ -57,12 +59,18 @@ export default async function AdminDataCachePage() {
           <h2 className={sectionHeadingClass}>Provider maintenance &amp; recovery</h2>
           <GlobalRefreshPanel defaultYear={leagueAwareYear} />
           <GameStatsCachePanel defaultYear={leagueAwareYear} />
+          <ProviderMaintenancePanel defaultYear={leagueAwareYear} />
         </section>
 
         <section className="space-y-4">
           <h2 className={sectionHeadingClass}>Season inputs</h2>
           <SpRatingsCachePanel />
           <WinTotalsUploadPanel />
+        </section>
+
+        <section className="space-y-4">
+          <h2 className={sectionHeadingClass}>Reference data</h2>
+          <ReferenceDataPanel />
         </section>
 
         <section className="space-y-4">

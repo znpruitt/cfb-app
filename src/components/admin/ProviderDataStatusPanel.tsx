@@ -14,13 +14,8 @@ import { describeProviderRefreshScope } from '@/lib/providerRefreshScope';
 import type { ProviderDiagnostic } from '@/lib/server/providerDataDiagnostics';
 import type { OddsUsageSnapshot } from '@/lib/api/oddsUsage';
 import {
-  combineOutcomes,
   controlModeLabel,
   datasetControlMode,
-  interpretRefreshResponse,
-  isSelectedYear,
-  manualActionKey,
-  manualRefreshUrls,
   panelFeedRenderState,
   shouldApplyStatusResponse,
 } from './manualRefresh';
@@ -68,16 +63,6 @@ const cardClass =
 const buttonClass =
   'rounded border border-gray-300 bg-white px-3 py-1 text-xs text-gray-900 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700';
 
-/** Human note on the provider cost of one manual refresh (from PLAN-003 audit). */
-const MANUAL_REFRESH_COST: Record<ProviderDataset, string> = {
-  scores: '≈2 CFBD requests (regular + postseason)',
-  schedule: '≈2 CFBD requests (regular + postseason)',
-  odds: '1 Odds API request (≈3 billing units)',
-  rankings: '≈2 CFBD requests (regular + postseason)',
-  conferences: '1 CFBD request',
-  'game-stats': '1 CFBD request (one week)',
-};
-
 type ActionState = { status: 'idle' | 'loading' | 'success' | 'error'; message?: string };
 
 // Stable ids linking each authoritative-mutation control to its failure alert
@@ -110,10 +95,6 @@ export default function ProviderDataStatusPanel({
   const [loading, setLoading] = useState(false);
   const [cfbdUsage, setCfbdUsage] = useState<CfbdUsageSnapshot | null>(null);
   const [actions, setActions] = useState<Record<string, ActionState>>({});
-  const [gameStatsWeek, setGameStatsWeek] = useState<number>(1);
-  const [gameStatsSeasonType, setGameStatsSeasonType] = useState<'regular' | 'postseason'>(
-    'regular'
-  );
   const [now, setNow] = useState<number>(() => Date.now());
   // Year-race guards (hotfix requirements 7–11): a monotonic request seq + an
   // AbortController so an older year's response can never overwrite a newer
@@ -226,61 +207,10 @@ export default function ProviderDataStatusPanel({
     [load]
   );
 
-  const runManualRefresh = useCallback(
-    async (dataset: ProviderDataset) => {
-      // Capture the exact partition this action is for. State is keyed by
-      // `${actionYear}:${dataset}` — and for game-stats also by week + season type
-      // (v2 finding #2) — so a completed result never appears on another year, and
-      // a Week 1 regular result/spinner never shows beside Week 2 or postseason.
-      const actionYear = yearRef.current;
-      const actionWeek = gameStatsWeek;
-      const actionSeasonType = gameStatsSeasonType;
-      const key = manualActionKey(
-        actionYear,
-        dataset,
-        dataset === 'game-stats' ? { week: actionWeek, seasonType: actionSeasonType } : undefined
-      );
-      setAction(key, { status: 'loading' });
-      const headers = requireAdminAuthHeaders() as Record<string, string>;
-      const opts = { cache: 'no-store' as const, headers };
-      try {
-        const urls = manualRefreshUrls(dataset, {
-          year: actionYear,
-          week: actionWeek,
-          seasonType: actionSeasonType,
-        });
-        // Interpret each response: a non-2xx OR a 2xx that served a bundled/
-        // prior-good fallback (conferences on provider failure) is a failure, so
-        // the panel never reports success over a provider failure (finding #6).
-        const outcomes = await Promise.all(
-          urls.map((url) => fetch(url, opts).then(interpretRefreshResponse))
-        );
-        const combined = combineOutcomes(outcomes);
-        if (combined.ok) {
-          setAction(key, { status: 'success' });
-        } else if (combined.kind === 'fallback') {
-          setAction(key, {
-            status: 'error',
-            message: 'Provider refresh failed; fallback data is still serving.',
-          });
-        } else {
-          setAction(key, { status: 'error', message: `HTTP ${combined.status}` });
-        }
-      } catch (err) {
-        setAction(key, {
-          status: 'error',
-          message: err instanceof Error ? err.message : 'Failed',
-        });
-      }
-      // Reload only if the action's year is still selected (requirement 9). If the
-      // operator moved to another year, do not reload the old year or disturb the
-      // current year's in-flight request. The keyed result stays under actionYear.
-      if (isSelectedYear(actionYear, yearRef.current)) {
-        await load();
-      }
-    },
-    [gameStatsWeek, gameStatsSeasonType, load]
-  );
+  // PLATFORM-086F2D1 — manual provider refreshes left this panel: System Health
+  // is observational plus operational safety controls (global pause + dataset
+  // toggles). Every provider-spending mutation lives on Data Maintenance &
+  // Recovery with its cost/scope disclosure.
 
   // Authoritative, reconciled CFBD quota shared with the legacy API Usage panel
   // (both render `normalized`, so they can never disagree or show an impossible
@@ -309,7 +239,8 @@ export default function ProviderDataStatusPanel({
           </h2>
           <p className="mt-1 text-xs text-gray-500 dark:text-zinc-400">
             Freshness, failures, and quota for each provider-backed dataset. Status is cache-only;
-            it never spends provider quota.
+            it never spends provider quota. Manual refreshes and repairs live on Data Maintenance
+            &amp; Recovery.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -463,16 +394,6 @@ export default function ProviderDataStatusPanel({
             });
             const successRel = formatRelativeTimestamp(row.status.lastSuccessAt, now);
             const attemptRel = formatRelativeTimestamp(row.status.lastAttemptAt, now);
-            // Manual-refresh state is keyed by (year, dataset) — and for game-stats
-            // also by the CURRENT week + season type (v2 finding #2) — so a result
-            // never leaks across years or partitions. Toggles stay globally keyed.
-            const refreshKey = manualActionKey(
-              year,
-              row.dataset,
-              row.dataset === 'game-stats'
-                ? { week: gameStatsWeek, seasonType: gameStatsSeasonType }
-                : undefined
-            );
             const toggleKey = `toggle:${row.dataset}`;
             const controlMode = datasetControlMode(row.descriptor);
             return (
@@ -499,14 +420,6 @@ export default function ProviderDataStatusPanel({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button
-                      className={buttonClass}
-                      disabled={actions[refreshKey]?.status === 'loading'}
-                      onClick={() => void runManualRefresh(row.dataset)}
-                      title={MANUAL_REFRESH_COST[row.dataset]}
-                    >
-                      {actions[refreshKey]?.status === 'loading' ? 'Refreshing…' : 'Manual refresh'}
-                    </button>
                     {/* Honest controls (finding #7): only an interactive toggle when
                       a live job actually consumes the setting; otherwise read-only
                       future-intent / lifecycle-exempt language. */}
@@ -561,35 +474,6 @@ export default function ProviderDataStatusPanel({
                   </p>
                 )}
 
-                {row.dataset === 'game-stats' && (
-                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500 dark:text-zinc-400">
-                    <label>Week</label>
-                    <input
-                      type="number"
-                      min={0}
-                      value={gameStatsWeek}
-                      onChange={(e) => setGameStatsWeek(Number(e.target.value))}
-                      className="w-16 rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                    />
-                    {/* Season type (finding #2): postseason repair must reach the
-                      postseason cache key, not default to regular. */}
-                    <label>Season</label>
-                    <select
-                      value={gameStatsSeasonType}
-                      onChange={(e) =>
-                        setGameStatsSeasonType(
-                          e.target.value === 'postseason' ? 'postseason' : 'regular'
-                        )
-                      }
-                      className="rounded border border-gray-300 bg-white px-1.5 py-0.5 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-                    >
-                      <option value="regular">regular</option>
-                      <option value="postseason">postseason</option>
-                    </select>
-                    <span>for manual refresh</span>
-                  </div>
-                )}
-
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-gray-600 dark:text-zinc-400 sm:grid-cols-3">
                   <Field label="Last success" value={successRel ?? '—'} />
                   <Field label="Last attempt" value={attemptRel ?? '—'} />
@@ -618,17 +502,6 @@ export default function ProviderDataStatusPanel({
                   <p className="text-[11px] text-red-700 dark:text-red-400">
                     Last error: {row.status.lastError.message}
                     {row.status.lastError.status ? ` (${row.status.lastError.status})` : ''}
-                  </p>
-                )}
-
-                {actions[refreshKey]?.status === 'error' && (
-                  <p className="text-[11px] text-red-700 dark:text-red-400">
-                    Refresh failed: {actions[refreshKey]?.message}
-                  </p>
-                )}
-                {actions[refreshKey]?.status === 'success' && (
-                  <p className="text-[11px] text-green-700 dark:text-green-400">
-                    Refresh complete.
                   </p>
                 )}
 
