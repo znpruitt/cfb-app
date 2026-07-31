@@ -213,10 +213,79 @@ test('ReferenceDataPanel: conferences + team-database wiring, disclosures, fallb
   assert.equal(requests[0]!.url, '/api/conferences?bypassCache=1');
   assert.equal(requests[0]!.method, 'GET');
 
+  // The sync response must be a VALID TeamDatabaseSyncResponse — the panel
+  // renders the summary, and an invalid fixture would mask a render throw
+  // (Codex review).
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    requests.push({
+      url: String(input),
+      method: init?.method ?? 'GET',
+      body: init?.body ? String(init.body) : null,
+      headers: (init?.headers as Record<string, string>) ?? {},
+    });
+    return Response.json({
+      ok: true,
+      source: 'cfbd',
+      updatedAt: '2026-07-30T00:00:00.000Z',
+      summary: {
+        fetchedCount: 136,
+        writtenCount: 136,
+        updatedCount: 3,
+        withColorCount: 130,
+        withAltColorCount: 120,
+        missingColorCount: 6,
+        skippedCount: 0,
+        errors: [],
+      },
+    });
+  }) as typeof globalThis.fetch;
+
   fireEvent.click(getByRole('button', { name: 'Update Team Database' }));
   await waitFor(() => assert.equal(requests.length, 2));
   assert.equal(requests[1]!.url, '/api/admin/team-database');
   assert.equal(requests[1]!.method, 'POST');
+  // The rendered summary proves the panel consumed the response without throwing.
+  await waitFor(() => getByText('Latest sync summary'));
+  getByText('Fetched: 136');
+  getByText('No skipped rows.');
+});
+
+// Codex review — refresh feedback is year-scoped: changing the season year
+// resets visible results, and a late completion for the abandoned year is
+// dropped rather than rendered beside the new target.
+test('ProviderMaintenancePanel: a year change resets feedback and drops stale completions', async () => {
+  const year = seasonYearForToday();
+  let resolveOdds: ((r: Response) => void) | null = null;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    requests.push({ url: String(input), method: 'GET', body: null, headers: {} });
+    return new Promise<Response>((resolve) => {
+      resolveOdds = resolve;
+    });
+  }) as typeof globalThis.fetch;
+
+  const { container, getByRole, getByText, queryByText } = render(<ProviderMaintenancePanel />);
+  fireEvent.click(getByRole('button', { name: 'Refresh Odds' }));
+  await waitFor(() => getByText('Working…'));
+
+  // Switch the year while the old-year request is still in flight.
+  const yearInput = container.querySelector('input[type="number"]')!;
+  const propsKey = Object.keys(yearInput).find((k) => k.startsWith('__reactProps$'))!;
+  const props = (yearInput as unknown as Record<string, unknown>)[propsKey] as {
+    onChange: (e: { target: { value: string } }) => void;
+  };
+  act(() => {
+    props.onChange({ target: { value: String(year + 1) } });
+  });
+  getByText(`${year + 1} canonical odds`);
+
+  // The old-year request resolves successfully — it must NOT render "Done"
+  // beside the newly selected year's target.
+  await act(async () => {
+    resolveOdds!(Response.json({}));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  assert.equal(queryByText('Done'), null, 'stale completion dropped');
+  assert.equal(queryByText('Working…'), null, 'feedback reset by the year change');
 });
 
 test('ReferenceDataPanel: a bundled-fallback conferences 2xx never renders success', async () => {

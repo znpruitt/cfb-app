@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
@@ -43,32 +43,53 @@ export default function ProviderMaintenancePanel({
   const [rankingsStatus, setRankingsStatus] = useState<SectionStatus>('idle');
   const [rankingsError, setRankingsError] = useState<string | undefined>();
 
+  // Year-scoped feedback truthfulness (Codex review — the trait the old status
+  // panel keyed by `manualActionKey`): a result belongs to the year it was
+  // requested for. Changing the year resets the visible feedback, and a late
+  // completion for a since-abandoned year is dropped rather than rendered
+  // beside the newly selected target.
+  const yearRef = useRef(year);
+  yearRef.current = year;
+
+  function handleYearChange(nextYear: number) {
+    setYear(nextYear);
+    setOddsStatus('idle');
+    setOddsError(undefined);
+    setRankingsStatus('idle');
+    setRankingsError(undefined);
+  }
+
   async function runRefresh(
     dataset: 'odds' | 'rankings',
     setStatus: (s: SectionStatus) => void,
     setError: (e: string | undefined) => void
   ) {
+    const actionYear = yearRef.current;
     setStatus('loading');
     setError(undefined);
+    const applyIfCurrent = (status: SectionStatus, error?: string) => {
+      if (actionYear !== yearRef.current) return; // stale year — drop silently
+      setError(error);
+      setStatus(status);
+    };
     try {
-      const [url] = manualRefreshUrls(dataset, { year });
+      const [url] = manualRefreshUrls(dataset, { year: actionYear });
       const outcome = await fetch(url!, {
         cache: 'no-store',
         headers: requireAdminAuthHeaders() as Record<string, string>,
       }).then(interpretRefreshResponse);
       if (!outcome.ok) {
-        setError(
+        applyIfCurrent(
+          'error',
           outcome.kind === 'http'
             ? `Error ${outcome.status}`
             : 'Provider refresh failed; fallback data is still serving.'
         );
-        setStatus('error');
         return;
       }
-      setStatus('success');
+      applyIfCurrent('success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unexpected error');
-      setStatus('error');
+      applyIfCurrent('error', err instanceof Error ? err.message : 'Unexpected error');
     }
   }
 
@@ -92,7 +113,7 @@ export default function ProviderMaintenancePanel({
             <input
               type="number"
               value={year}
-              onChange={(e) => setYear(Number(e.target.value))}
+              onChange={(e) => handleYearChange(Number(e.target.value))}
               min={2000}
               step={1}
               className="w-24 rounded border border-gray-300 bg-gray-50 px-2 py-1 text-sm text-gray-900 focus:border-gray-500 focus:outline-none dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:focus:border-zinc-500"
