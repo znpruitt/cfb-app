@@ -2093,6 +2093,43 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2E1 — External Scheduler Receipts — Complete
+
+- **Status:** Complete — merged to `main` via PR #435 (merge commit `4404ad3`), 2026-07-31.
+- **PROMPT_ID(s):** `PLATFORM-086F2E1-EXTERNAL-SCHEDULER-RECEIPTS-v1` (first scheduler-health
+  slice of the F2 admin control-plane redesign).
+- **Outcome:** A shared authority (`src/lib/server/schedulerExecutionStatus.ts`) writes one
+  latest-only, secret-safe durable receipt per QStash cron job under
+  `scheduler-execution-status/<job>`, so future System Health diagnostics can distinguish
+  scheduler _delivery_ from provider-refresh _data_ activity. Each receipt is allowlisted
+  (version/job/`source:'qstash'`/application-generated `crypto.randomUUID` invocation id created
+  only after `verifyCronSecret` returns `ok`/start+complete instants/route-only duration/verbatim
+  tracker result+reason/provider-call flag/bounded per-job target capped at eight years), committed
+  with monotonic latest-only ordering inside `withAppStateKeyTransaction` (equal-or-newer prior
+  wins by `(startedAt, invocationId)`; malformed/mismatched/obsolete/future-dated priors are
+  replaceable with the future-skew reference read inside the transaction; a genuine read failure
+  writes nothing; one row per job), and persisted post-response via Next.js `after` — fully
+  best-effort, so a receipt failure never changes a cron response, masks a throw, or alters
+  provider/runtime-event behavior. Auth failures never create or advance a receipt. The five
+  routes were instrumented (identity after auth, receipt scheduled from the existing `finally`
+  after the unchanged runtime event), the weekly-schedule route's `exec.years = entries` moved
+  before the per-year loop (matching rankings), and the five stale execution-log comments updated.
+  Responses, provider behavior, cadence, runtime-event schemas, QStash contracts, and `vercel.json`
+  are unchanged; no reader/UI (F2E2).
+- **Verification:** Full suite 2956 (+52 receipt tests: 17 authority + 35 route/harness);
+  `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean. Review
+  converged: self-review (no P0–P2) → Codex round 1 (1 P2 — an unknown-reason prior could win
+  future-dated ordering; fixed with a future-`startedAt` guard) → round 2 (1 P2 — the round-1
+  guard's skew reference could go stale under lock contention; fixed by reading it inside the
+  transaction) → round 3 clean. PR-size reassessment (recorded in `docs/prompt-registry.md`):
+  24 files / ~2,950 net lines crossed both soft signals, dominated by the §8-mandated test suite
+  plus a heavily-documented single-file authority; accepted as one cohesive, revertible contract.
+- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2E2 —
+  lifecycle-cron receipts + the cache-only admin reader + cadence-aware delivery-health
+  classification — is the next F2 slice).
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
