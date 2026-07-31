@@ -193,6 +193,32 @@ test('the confirmation names the captured target and the mutation consequences',
   assert.match(message, /update score caches and provider-refresh status/);
   assert.match(message, /invalidate standings when scores change/);
   assert.match(message, /fall back to provider-week requests/);
+  // A week-scoped trace never presents the MUTATION as week-scoped: the
+  // refresh covers the full selected partition (Codex review).
+  assert.match(
+    message,
+    /week selection scopes the trace only — the underlying score refresh covers the full postseason season partition/
+  );
+});
+
+test('an all-season confirmation carries no week-scope note; year is serialization-bounded', () => {
+  confirmAnswer = false;
+  const { container, getByRole, getByText } = render(<ScoreAttachmentRecoveryPanel />);
+
+  fireEvent.click(getByRole('button', { name: 'Refresh scores and run attachment trace' }));
+  assert.ok(
+    !/week selection scopes the trace only/.test(confirmMessages[0]!),
+    'no week note on a full-season run'
+  );
+
+  // An exponent-sized year would serialize as 1e+22 and be parsed as year 1
+  // server-side — it must never reach confirmation.
+  const yearInput = container.querySelector('input[type="number"]')!;
+  setControl(yearInput, '1e22');
+  fireEvent.click(getByRole('button', { name: 'Refresh scores and run attachment trace' }));
+  getByText('Year must be a whole number between 2000 and 2100.');
+  assert.equal(confirmMessages.length, 1, 'no confirmation for an out-of-bounds year');
+  assert.deepEqual(requests, []);
 });
 
 test('a confirmed all-season run uses exactly year-only params with admin headers, no-store', async () => {

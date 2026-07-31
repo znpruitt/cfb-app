@@ -101,24 +101,25 @@ export default function ScoreAttachmentRecoveryPanel({
     return Number.isSafeInteger(n) && n <= 99 ? n : 'invalid';
   })();
 
-  const targetInvalid = parsedWeek === 'invalid' || !Number.isInteger(year) || year < 2000;
+  // Year gets the same serialization bound as the week: an exponent-sized value
+  // (1e22) passes an unbounded integer check but serializes as `1e+22`, which
+  // the route's parser reads as year 1 — running against a different year than
+  // the operator confirmed.
+  const yearInvalid = !Number.isInteger(year) || year < 2000 || year > 2100;
+  const targetInvalid = parsedWeek === 'invalid' || yearInvalid;
   const currentTarget = useMemo(
     () =>
       targetInvalid
         ? 'invalid target — correct the controls before running'
-        : describeScoreAttachmentTarget(
-            year,
-            parsedWeek === 'invalid' ? null : parsedWeek,
-            seasonType
-          ),
+        : describeScoreAttachmentTarget(year, parsedWeek, seasonType),
     [targetInvalid, year, parsedWeek, seasonType]
   );
 
   async function handleRun() {
     // Validate the exact target BEFORE any confirmation or request. An invalid
-    // week must never silently broaden into an all-season recovery.
-    if (!Number.isInteger(year) || year < 2000) {
-      setValidationError('Year must be a whole number of at least 2000.');
+    // week or year must never silently reach a broader or different scope.
+    if (yearInvalid) {
+      setValidationError('Year must be a whole number between 2000 and 2100.');
       return;
     }
     if (parsedWeek === 'invalid') {
@@ -136,12 +137,23 @@ export default function ScoreAttachmentRecoveryPanel({
       description: describeScoreAttachmentTarget(year, parsedWeek, seasonType),
     };
 
+    // A selected week scopes the TRACE only — the route's underlying score
+    // refresh always runs against the full selected season partition(s). The
+    // confirmation must not present the mutation as week-scoped (Codex review).
+    const weekScopeNote =
+      target.week === null
+        ? ''
+        : `\n\nNote: the week selection scopes the trace only — the underlying score refresh covers the full ${
+            target.seasonType === '' ? 'regular + postseason' : target.seasonType
+          } season partition${target.seasonType === '' ? 's' : ''} for ${target.year}.`;
+
     const confirmed = window.confirm(
       `Refresh CFBD-backed score data and run the attachment trace for ${target.description}?\n\n` +
         'This can update score caches and provider-refresh status, invalidate standings when ' +
         'scores change, and refresh schedule or conference context when those caches are cold. ' +
-        'A broad run can fall back to provider-week requests and consume substantially more quota.\n\n' +
-        'Continue?'
+        'A broad run can fall back to provider-week requests and consume substantially more quota.' +
+        weekScopeNote +
+        '\n\nContinue?'
     );
     if (!confirmed) return;
 
@@ -196,7 +208,8 @@ export default function ScoreAttachmentRecoveryPanel({
         <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
           Refreshes CFBD-backed score data for the selected target and traces how each provider row
           attaches to the canonical schedule. This is a mutating recovery action — not a read-only
-          diagnostic.
+          diagnostic. A week selection scopes the trace only; the underlying score refresh always
+          covers the full selected season partition(s).
         </p>
       </div>
 
