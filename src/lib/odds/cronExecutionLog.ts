@@ -8,8 +8,10 @@ import type { OddsRefreshReason } from './refreshResult.ts';
  * logging POLICY so the route does not absorb it, and records ONLY the allowlisted
  * operational primitives below — never a request object, response body, thrown
  * error, provider payload, environment value, URL, credential, or authorization
- * header. The event doubles as proof the request reached the application, so no
- * durable heartbeat is written.
+ * header. The event remains the detailed per-invocation log surface, including
+ * authentication failures; PLATFORM-086F2E1 separately records a latest-only
+ * durable receipt (`scheduler-execution-status`) after successful
+ * authentication, and that receipt never replaces or changes this runtime event.
  *
  * The route builds one mutable {@link OddsCronExecutionState} at entry and emits
  * exactly one event from a single `finally`, so authentication failures, skips,

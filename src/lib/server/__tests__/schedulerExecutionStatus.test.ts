@@ -1,0 +1,495 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  __deleteAppStateFileForTests,
+  __resetAppStateForTests,
+  __setAppStateFileCommitFailureForTests,
+  __setAppStateKeyLockFailureForTests,
+  __setAppStateReadFailureForTests,
+  __setAppStateWriteFailureForTests,
+  setAppState,
+} from '@/lib/server/appStateStore';
+import {
+  __setSchedulerReceiptDeferrerForTests,
+  buildSchedulerExecutionReceipt,
+  createSchedulerInvocationId,
+  rankingsYearsTarget,
+  recordSchedulerExecutionReceipt,
+  scheduleSchedulerExecutionReceipt,
+  scheduleYearsTarget,
+  SCHEDULER_EXECUTION_STATUS_SCOPE,
+  type SchedulerExecutionReceipt,
+  type SchedulerExecutionReceiptInput,
+} from '@/lib/server/schedulerExecutionStatus';
+
+import {
+  installSchedulerReceiptDeferrer,
+  RECEIPT_KEYS,
+  readSchedulerReceipt,
+} from './schedulerReceiptTestHarness';
+
+// PLATFORM-086F2E1 — the shared receipt authority: exact allowlisted schema,
+// all five job-compatible target shapes, monotonic latest-only ordering,
+// malformed/mismatched prior replacement, bounded multi-year summaries, and
+// fully-swallowed store/deferrer failures. Route integration lives in each cron
+// suite's receipts.test.ts.
+
+const SCOPE = SCHEDULER_EXECUTION_STATUS_SCOPE;
+const MUTABLE_ENV = process.env as Record<string, string | undefined>;
+const ORIGINAL = {
+  NODE_ENV: process.env.NODE_ENV,
+  DATABASE_URL: process.env.DATABASE_URL,
+};
+
+const T0 = Date.parse('2026-07-31T12:00:00.000Z');
+const SEC = 1_000;
+
+const ID_A = '0a0a0a0a-0000-4000-8000-000000000000';
+const ID_B = '0b0b0b0b-0000-4000-8000-000000000000';
+const ID_C = '0c0c0c0c-0000-4000-8000-000000000000';
+
+function liveScoresInput(
+  overrides: Partial<SchedulerExecutionReceiptInput> = {}
+): SchedulerExecutionReceiptInput {
+  return {
+    job: 'live-scores',
+    invocationId: ID_A,
+    startedAtMs: T0,
+    completedAtMs: T0 + 250,
+    result: 'skipped',
+    reason: 'no-polling-target',
+    providerCallAttempted: false,
+    target: { kind: 'live-scores', year: 2026, mode: null, targetGames: 0, targetPartitions: 0 },
+    ...overrides,
+  };
+}
+
+function receiptOf(input: SchedulerExecutionReceiptInput): SchedulerExecutionReceipt {
+  const receipt = buildSchedulerExecutionReceipt(input);
+  assert.ok(receipt, 'builder produces a receipt for a valid input');
+  return receipt;
+}
+
+test.beforeEach(async () => {
+  MUTABLE_ENV.NODE_ENV = 'development';
+  delete MUTABLE_ENV.DATABASE_URL;
+  __setAppStateReadFailureForTests(null);
+  __setAppStateWriteFailureForTests(null);
+  __setAppStateKeyLockFailureForTests(null);
+  __setAppStateFileCommitFailureForTests(null);
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+});
+
+test.afterEach(() => {
+  __setSchedulerReceiptDeferrerForTests(null);
+  __setAppStateReadFailureForTests(null);
+  __setAppStateWriteFailureForTests(null);
+  __setAppStateKeyLockFailureForTests(null);
+  __setAppStateFileCommitFailureForTests(null);
+});
+
+test.after(() => {
+  for (const [key, value] of Object.entries(ORIGINAL)) {
+    if (value === undefined) delete MUTABLE_ENV[key];
+    else MUTABLE_ENV[key] = value;
+  }
+});
+
+// 1/12 — exact stored top-level keys, constants, valid instants, integer duration.
+test('a stored receipt carries exactly the allowlisted keys with valid instants and duration', async () => {
+  await recordSchedulerExecutionReceipt(receiptOf(liveScoresInput()));
+  const stored = await readSchedulerReceipt('live-scores');
+  assert.ok(stored, 'missing prior record → the receipt writes');
+  const value = stored.value;
+  assert.deepEqual(Object.keys(value).slice().sort(), RECEIPT_KEYS);
+  assert.equal(value.version, 1);
+  assert.equal(value.job, 'live-scores');
+  assert.equal(value.source, 'qstash');
+  assert.equal(value.invocationId, ID_A);
+  assert.equal(value.startedAt, new Date(T0).toISOString());
+  assert.equal(value.completedAt, new Date(T0 + 250).toISOString());
+  assert.ok(Number.isFinite(Date.parse(value.startedAt)), 'startedAt is a valid ISO instant');
+  assert.ok(Number.isFinite(Date.parse(value.completedAt)), 'completedAt is a valid ISO instant');
+  assert.ok(
+    Number.isInteger(value.durationMs) && value.durationMs === 250,
+    'durationMs is the exact nonnegative integer difference'
+  );
+  assert.equal(value.result, 'skipped');
+  assert.equal(value.reason, 'no-polling-target');
+  assert.equal(value.providerCallAttempted, false);
+});
+
+test('an inverted completion instant clamps durationMs to zero', () => {
+  const receipt = receiptOf(liveScoresInput({ completedAtMs: T0 - 5_000 }));
+  assert.equal(receipt.durationMs, 0);
+});
+
+test('createSchedulerInvocationId returns a UUID-shaped identity', () => {
+  const id = createSchedulerInvocationId();
+  assert.ok(id && /^[0-9a-f-]{36}$/.test(id));
+});
+
+// 2 — all five job-compatible target shapes persist with exact target key sets.
+test('all five job target shapes persist with exact allowlisted target keys', async () => {
+  const inputs: SchedulerExecutionReceiptInput[] = [
+    liveScoresInput({
+      result: 'success',
+      reason: 'scoreboard-written-clean',
+      providerCallAttempted: true,
+      target: {
+        kind: 'live-scores',
+        year: 2026,
+        mode: 'scoreboard',
+        targetGames: 3,
+        targetPartitions: 2,
+      },
+    }),
+    liveScoresInput({
+      job: 'game-stats',
+      result: 'success',
+      reason: 'written-clean',
+      providerCallAttempted: true,
+      target: { kind: 'game-stats', year: 2026, week: 3, seasonType: 'regular' },
+    }),
+    liveScoresInput({
+      job: 'odds',
+      result: 'no-op',
+      reason: 'empty-response',
+      providerCallAttempted: true,
+      target: { kind: 'odds', year: 2026, cadence: 'baseline', eligibleGames: 4 },
+    }),
+    liveScoresInput({
+      job: 'schedule-refresh',
+      result: 'success',
+      reason: 'year-results',
+      providerCallAttempted: true,
+      target: scheduleYearsTarget([
+        { year: 2025, operation: 'postseason-boundary' },
+        { year: 2026, operation: 'preseason-maintenance' },
+      ]),
+    }),
+    liveScoresInput({
+      job: 'rankings',
+      result: 'success',
+      reason: 'year-results',
+      providerCallAttempted: true,
+      target: rankingsYearsTarget([{ year: 2026, publicationWindow: 'weekly-ap-coaches' }]),
+    }),
+  ];
+  for (const input of inputs) {
+    await recordSchedulerExecutionReceipt(receiptOf(input));
+  }
+
+  const expectations: Array<{
+    job: SchedulerExecutionReceiptInput['job'];
+    kind: string;
+    keys: string[];
+  }> = [
+    {
+      job: 'live-scores',
+      kind: 'live-scores',
+      keys: ['kind', 'mode', 'targetGames', 'targetPartitions', 'year'].sort(),
+    },
+    { job: 'game-stats', kind: 'game-stats', keys: ['kind', 'seasonType', 'week', 'year'].sort() },
+    { job: 'odds', kind: 'odds', keys: ['cadence', 'eligibleGames', 'kind', 'year'].sort() },
+    {
+      job: 'schedule-refresh',
+      kind: 'schedule-years',
+      keys: ['kind', 'totalYears', 'truncated', 'years'].sort(),
+    },
+    {
+      job: 'rankings',
+      kind: 'rankings-years',
+      keys: ['kind', 'totalYears', 'truncated', 'years'].sort(),
+    },
+  ];
+  for (const expectation of expectations) {
+    const stored = await readSchedulerReceipt(expectation.job);
+    assert.ok(stored, `receipt persisted for ${expectation.job}`);
+    assert.equal(stored.value.job, expectation.job);
+    assert.equal(stored.value.target.kind, expectation.kind);
+    assert.deepEqual(Object.keys(stored.value.target).slice().sort(), expectation.keys);
+  }
+
+  const schedule = await readSchedulerReceipt('schedule-refresh');
+  assert.deepEqual(
+    (schedule!.value.target as { years: unknown[] }).years.map((entry) =>
+      Object.keys(entry as object)
+        .slice()
+        .sort()
+    ),
+    [
+      ['operation', 'year'],
+      ['operation', 'year'],
+    ]
+  );
+  const rankings = await readSchedulerReceipt('rankings');
+  assert.deepEqual(
+    (rankings!.value.target as { years: unknown[] }).years.map((entry) =>
+      Object.keys(entry as object)
+        .slice()
+        .sort()
+    ),
+    [['publicationWindow', 'year']]
+  );
+});
+
+// 4 — malformed / mismatched / obsolete-version prior records are replaceable.
+test('malformed, job-mismatched, and obsolete-version prior records are replaced', async () => {
+  const incoming = receiptOf(liveScoresInput({ startedAtMs: T0 }));
+
+  await setAppState(SCOPE, 'live-scores', { garbage: true });
+  await recordSchedulerExecutionReceipt(incoming);
+  assert.equal((await readSchedulerReceipt('live-scores'))?.value.invocationId, ID_A);
+
+  // A NEWER-started but job-mismatched record stored under this key is unusable
+  // and must be replaced despite its later start instant.
+  const mismatched = receiptOf(
+    liveScoresInput({
+      job: 'game-stats',
+      invocationId: ID_C,
+      startedAtMs: T0 + 60 * SEC,
+      target: { kind: 'game-stats', year: 2026, week: null, seasonType: null },
+    })
+  );
+  await setAppState(SCOPE, 'live-scores', mismatched);
+  await recordSchedulerExecutionReceipt(incoming);
+  assert.equal((await readSchedulerReceipt('live-scores'))?.value.invocationId, ID_A);
+
+  const obsolete = {
+    ...receiptOf(liveScoresInput({ invocationId: ID_C, startedAtMs: T0 + 60 * SEC })),
+    version: 2,
+  };
+  await setAppState(SCOPE, 'live-scores', obsolete);
+  await recordSchedulerExecutionReceipt(incoming);
+  assert.equal((await readSchedulerReceipt('live-scores'))?.value.invocationId, ID_A);
+
+  // A corrupt target shape (wrong kind for the job) is also replaceable.
+  const wrongTarget = {
+    ...receiptOf(liveScoresInput({ invocationId: ID_C, startedAtMs: T0 + 60 * SEC })),
+    target: { kind: 'odds', year: 2026, cadence: null, eligibleGames: 0 },
+  };
+  await setAppState(SCOPE, 'live-scores', wrongTarget);
+  await recordSchedulerExecutionReceipt(incoming);
+  assert.equal((await readSchedulerReceipt('live-scores'))?.value.invocationId, ID_A);
+});
+
+// 5/6 — a newer prior start instant is never overwritten by a stale completion,
+// even when the older invocation commits last with a later completedAt.
+test('an older invocation that completes late cannot overwrite a newer delivery', async () => {
+  const older = receiptOf(
+    liveScoresInput({
+      invocationId: ID_A,
+      startedAtMs: T0,
+      completedAtMs: T0 + 120 * SEC, // completes AFTER the newer invocation
+      result: 'failure',
+      reason: 'provider-fetch-failed',
+    })
+  );
+  const newer = receiptOf(
+    liveScoresInput({
+      invocationId: ID_B,
+      startedAtMs: T0 + 30 * SEC,
+      completedAtMs: T0 + 31 * SEC,
+    })
+  );
+
+  // The newer invocation commits first; the older one finishes late.
+  await recordSchedulerExecutionReceipt(newer);
+  await recordSchedulerExecutionReceipt(older);
+
+  const stored = await readSchedulerReceipt('live-scores');
+  assert.equal(stored?.value.invocationId, ID_B, 'the newer delivery remains');
+  assert.equal(stored?.value.result, 'skipped');
+});
+
+// 7 — equal start instants tie-break deterministically on lexical invocationId.
+test('equal start instants use the lexical invocationId tie-break', async () => {
+  const a = receiptOf(liveScoresInput({ invocationId: ID_A }));
+  const b = receiptOf(liveScoresInput({ invocationId: ID_B }));
+  const c = receiptOf(liveScoresInput({ invocationId: ID_C }));
+
+  await recordSchedulerExecutionReceipt(b);
+  await recordSchedulerExecutionReceipt(a); // lexically lower → preserved prior
+  assert.equal((await readSchedulerReceipt('live-scores'))?.value.invocationId, ID_B);
+
+  await recordSchedulerExecutionReceipt(c); // lexically higher → wins
+  assert.equal((await readSchedulerReceipt('live-scores'))?.value.invocationId, ID_C);
+});
+
+// 8 — an exact duplicate identity never rewrites the stored record.
+test('an exact duplicate identity is preserved without a rewrite', async () => {
+  const receipt = receiptOf(liveScoresInput());
+  await recordSchedulerExecutionReceipt(receipt);
+  const before = await readSchedulerReceipt('live-scores');
+  assert.ok(before);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await recordSchedulerExecutionReceipt(receiptOf(liveScoresInput()));
+  const after = await readSchedulerReceipt('live-scores');
+  assert.deepEqual(after?.value, before.value);
+  assert.equal(after?.updatedAt, before.updatedAt, 'no rewrite occurred');
+});
+
+// 9 — bounded multi-year summaries: cap of eight, truthful totals, order.
+test('multi-year targets cap at eight entries with truthful totalYears and truncated', () => {
+  const many = Array.from({ length: 10 }, (_, i) => ({
+    year: 2020 + i,
+    operation: 'ordinary-maintenance' as const,
+  }));
+  const capped = scheduleYearsTarget(many);
+  assert.equal(capped.totalYears, 10);
+  assert.equal(capped.truncated, true);
+  assert.equal(capped.years.length, 8);
+  assert.deepEqual(
+    capped.years.map((entry) => entry.year),
+    [2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027],
+    'ascending order preserved, first eight kept'
+  );
+
+  const few = rankingsYearsTarget([
+    { year: 2025, publicationWindow: null },
+    { year: 2026, publicationWindow: 'cfp-publication' },
+  ]);
+  assert.equal(few.totalYears, 2);
+  assert.equal(few.truncated, false);
+  assert.equal(few.years.length, 2);
+});
+
+// 10 — read / advisory-lock / transaction / write failures resolve harmlessly.
+test('a prior-record read failure writes nothing and preserves the stored receipt', async () => {
+  await recordSchedulerExecutionReceipt(receiptOf(liveScoresInput()));
+  const before = await readSchedulerReceipt('live-scores');
+  __setAppStateReadFailureForTests(new Error('receipt read boom'), SCOPE);
+  await recordSchedulerExecutionReceipt(
+    receiptOf(liveScoresInput({ invocationId: ID_B, startedAtMs: T0 + 60 * SEC }))
+  );
+  __setAppStateReadFailureForTests(null);
+  const after = await readSchedulerReceipt('live-scores');
+  assert.deepEqual(after, before, 'a genuine read failure writes nothing');
+});
+
+test('advisory-lock, write, and transaction-commit failures resolve harmlessly', async () => {
+  __setAppStateKeyLockFailureForTests(new Error('lock boom'), SCOPE);
+  await recordSchedulerExecutionReceipt(receiptOf(liveScoresInput()));
+  __setAppStateKeyLockFailureForTests(null);
+  assert.equal(await readSchedulerReceipt('live-scores'), null);
+
+  __setAppStateWriteFailureForTests(new Error('write boom'), SCOPE);
+  await recordSchedulerExecutionReceipt(receiptOf(liveScoresInput()));
+  __setAppStateWriteFailureForTests(null);
+  assert.equal(await readSchedulerReceipt('live-scores'), null);
+
+  __setAppStateFileCommitFailureForTests(new Error('commit boom'));
+  await recordSchedulerExecutionReceipt(receiptOf(liveScoresInput()));
+  __setAppStateFileCommitFailureForTests(null);
+  assert.equal(await readSchedulerReceipt('live-scores'), null);
+
+  // With every seam cleared the same receipt persists (nothing was poisoned).
+  await recordSchedulerExecutionReceipt(receiptOf(liveScoresInput()));
+  assert.ok(await readSchedulerReceipt('live-scores'));
+});
+
+// 11 — deferrer registration/callback failures are harmless.
+test('a throwing deferrer registration is swallowed and writes nothing', async () => {
+  __setSchedulerReceiptDeferrerForTests(() => {
+    throw new Error('registration boom');
+  });
+  assert.doesNotThrow(() => scheduleSchedulerExecutionReceipt(liveScoresInput()));
+  __setSchedulerReceiptDeferrerForTests(null);
+  assert.equal(await readSchedulerReceipt('live-scores'), null);
+});
+
+test('a failing persistence callback resolves harmlessly through the deferrer', async () => {
+  const deferrer = installSchedulerReceiptDeferrer();
+  try {
+    __setAppStateWriteFailureForTests(new Error('write boom'), SCOPE);
+    scheduleSchedulerExecutionReceipt(liveScoresInput());
+    assert.equal(deferrer.count(), 1);
+    await deferrer.flush(); // must not reject
+    __setAppStateWriteFailureForTests(null);
+    assert.equal(await readSchedulerReceipt('live-scores'), null);
+  } finally {
+    deferrer.restore();
+  }
+});
+
+test('without an injected deferrer, scheduling outside a request scope is a no-op', async () => {
+  // Production uses Next.js `after`; under node:test there is no request scope,
+  // so registration fails and is swallowed — never an untracked promise.
+  assert.doesNotThrow(() => scheduleSchedulerExecutionReceipt(liveScoresInput()));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(await readSchedulerReceipt('live-scores'), null);
+});
+
+// Snapshot immutability — the callback never closes over mutable route state.
+test('the receipt snapshot is immutable: later mutations never reach durable state', async () => {
+  const deferrer = installSchedulerReceiptDeferrer();
+  try {
+    const input = liveScoresInput({
+      result: 'success',
+      reason: 'scoreboard-written-clean',
+      providerCallAttempted: true,
+      target: {
+        kind: 'live-scores',
+        year: 2026,
+        mode: 'scoreboard',
+        targetGames: 2,
+        targetPartitions: 1,
+      },
+    });
+    scheduleSchedulerExecutionReceipt(input);
+    // Mutate the tracker-shaped input AFTER scheduling, BEFORE persistence.
+    input.result = 'failure';
+    input.reason = 'unexpected-error';
+    (input.target as { targetGames: number }).targetGames = 99;
+    await deferrer.flush();
+    const stored = await readSchedulerReceipt('live-scores');
+    assert.equal(stored?.value.result, 'success');
+    assert.equal(stored?.value.reason, 'scoreboard-written-clean');
+    assert.equal(
+      (stored?.value.target as { targetGames: number }).targetGames,
+      2,
+      'the pre-mutation snapshot persisted'
+    );
+  } finally {
+    deferrer.restore();
+  }
+});
+
+// 13 — secret canaries and arbitrary attached properties never persist.
+test('secret canaries and arbitrary attached properties never reach durable state', async () => {
+  const SECRET_MARKER = 'sekret-cron-MARKER';
+  const HEADER_MARKER = 'Bearer sekret-header-MARKER';
+  const deferrer = installSchedulerReceiptDeferrer();
+  try {
+    const input = {
+      ...liveScoresInput(),
+      cronSecret: SECRET_MARKER,
+      authorization: HEADER_MARKER,
+      target: {
+        kind: 'live-scores',
+        year: 2026,
+        mode: null,
+        targetGames: 0,
+        targetPartitions: 0,
+        upstreamUrl: 'https://api.example.com/?apiKey=sekret-url-MARKER',
+        error: new Error(SECRET_MARKER),
+      },
+    } as unknown as Parameters<typeof scheduleSchedulerExecutionReceipt>[0];
+    scheduleSchedulerExecutionReceipt(input);
+    await deferrer.flush();
+    const stored = await readSchedulerReceipt('live-scores');
+    assert.ok(stored);
+    const serialized = JSON.stringify(stored.value);
+    assert.ok(!serialized.includes('MARKER'), 'no canary appears in durable state');
+    assert.deepEqual(Object.keys(stored.value).slice().sort(), RECEIPT_KEYS);
+    assert.deepEqual(
+      Object.keys(stored.value.target).slice().sort(),
+      ['kind', 'mode', 'targetGames', 'targetPartitions', 'year'].sort()
+    );
+  } finally {
+    deferrer.restore();
+  }
+});

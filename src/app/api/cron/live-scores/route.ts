@@ -35,6 +35,10 @@ import {
   type ProviderRefreshAttempt,
 } from '@/lib/server/providerRefreshStatus';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
+import {
+  createSchedulerInvocationId,
+  scheduleSchedulerExecutionReceipt,
+} from '@/lib/server/schedulerExecutionStatus';
 
 export const dynamic = 'force-dynamic';
 
@@ -156,6 +160,10 @@ export async function GET(req: Request) {
   const now = new Date();
   const year = seasonYearForToday(now);
   const exec = createLiveScoresCronExecutionState(year);
+  // PLATFORM-086F2E1 — receipt identity, created ONLY after successful cron
+  // authentication (never inferred from the final result/reason). Null means
+  // no durable receipt is scheduled for this invocation.
+  let receiptInvocationId: string | null = null;
 
   try {
     // CRON_SECRET first — fail closed with distinct configuration errors. No
@@ -175,6 +183,7 @@ export async function GET(req: Request) {
         { status: 401 }
       );
     }
+    receiptInvocationId = createSchedulerInvocationId();
 
     // Operator pause — before target selection, so no scoped attempt exists.
     if (!(await isAutoRefreshAllowed('scores'))) {
@@ -269,6 +278,27 @@ export async function GET(req: Request) {
     // The ONLY emission point — best-effort; cannot alter the response or mask a
     // throw. On an unexpected throw `exec` still holds `failure / unexpected-error`.
     emitLiveScoresCronExecutionEvent(exec, startedAtMs);
+    // PLATFORM-086F2E1 — one latest-only durable receipt per AUTHENTICATED
+    // invocation, scheduled post-response. Result/reason/provider truth are the
+    // tracker's verbatim; best-effort, so it can neither change the response
+    // nor mask a propagating throw.
+    if (receiptInvocationId !== null) {
+      scheduleSchedulerExecutionReceipt({
+        job: 'live-scores',
+        invocationId: receiptInvocationId,
+        startedAtMs,
+        result: exec.result,
+        reason: exec.reason,
+        providerCallAttempted: exec.providerCallAttempted,
+        target: {
+          kind: 'live-scores',
+          year: exec.year,
+          mode: exec.mode,
+          targetGames: exec.targetGames,
+          targetPartitions: exec.targetPartitions,
+        },
+      });
+    }
   }
 }
 

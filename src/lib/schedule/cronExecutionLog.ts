@@ -9,8 +9,11 @@ import type { WeeklyScheduleRefreshOperation } from './weeklyRefreshOperation.ts
  * owns the logging POLICY so the route does not absorb it, and records ONLY the
  * allowlisted operational primitives below — never a request object, response
  * body, thrown error, schedule item, provider payload, URL, registry row,
- * environment object, header, or credential. The event doubles as proof the
- * scheduled delivery reached the application, so no durable heartbeat is written.
+ * environment object, header, or credential. The event remains the detailed
+ * per-invocation log surface, including authentication failures;
+ * PLATFORM-086F2E1 separately records a latest-only durable receipt
+ * (`scheduler-execution-status`) after successful authentication, and that
+ * receipt never replaces or changes this runtime event.
  *
  * The route builds one mutable {@link ScheduleRefreshCronExecutionState} at entry
  * (pessimistic `failure / unexpected-error`) and emits exactly one event from a
