@@ -2042,6 +2042,30 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2D1 — Provider Maintenance Relocation — Complete
+
+- **Status:** Complete — merged to `main` via PR #433 (merge commit `fa5c0f6`, 2026-07-30).
+- **PROMPT_ID(s):** `PLATFORM-086F2D1-PROVIDER-MAINTENANCE-RELOCATION-v1` (first slice of the
+  audit-split F2D operational-mutation relocation).
+- **Outcome:** System Health (`/admin/diagnostics`) no longer performs provider-spending
+  mutations besides its operational safety controls: every manual refresh, the game-stats
+  partition inputs, and the team-database sync left `ProviderDataStatusPanel`/Diagnostics, while
+  the global pause, dataset toggles, mutation-error feedback, status, quota, and diagnostics
+  cards remain. The relocated actions live on Data Maintenance & Recovery — a new Odds & Rankings
+  panel and a Reference data section (Conferences + the renamed Team Database sync) — issuing
+  byte-identical requests through the shared URL authority with truthful fallback interpretation,
+  each with its cost/scope disclosure (contract now 12 actions), and with attempt-scoped refresh
+  feedback (per-dataset sequences; year changes invalidate in-flight attempts). The drifted
+  co-located team-database route test was deleted; the maintained suite gained the upstream
+  bearer-key assertion.
+- **Verification:** Full suite 2892 green; `npx tsc --noEmit`, `npm run lint:all`,
+  `npm run build`, `git diff --check` clean. Review converged: Claude self-review + three Codex
+  rounds (round 3 clean); details in `docs/prompt-registry.md`.
+- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2D2 is
+  the next F2 slice; the `manualRefresh.ts` dead-surface trim is a recorded candidate follow-up).
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
