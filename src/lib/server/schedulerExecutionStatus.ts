@@ -245,12 +245,17 @@ export async function recordSchedulerExecutionReceipt(
     // defense in depth even though the builder already allowlists.
     const stored = rebuildReceipt(receipt);
     if (stored === null) return;
-    // A validity reference for the prior's `startedAt`: a legitimate receipt is
-    // stamped with its route-entry instant, which can never exceed real time, so
-    // a prior dated implausibly in the future can only be corruption or a foreign
-    // writer — and left usable it would pin scheduler health forever.
-    const nowMs = Date.now();
     await withAppStateKeyTransaction(SCHEDULER_EXECUTION_STATUS_SCOPE, stored.job, async (txn) => {
+      // The future-skew reference for the prior's `startedAt` is read INSIDE the
+      // callback, AFTER any pool-client/advisory-lock wait, so a long contention
+      // wait can never make it stale: a legitimate receipt is stamped with its
+      // route-entry instant (≤ real time), so a prior dated implausibly ahead of
+      // real time can only be corruption or a foreign writer — and left usable it
+      // would pin scheduler health forever. Capturing `nowMs` before the wait
+      // could misclassify a newer receipt another instance committed during the
+      // wait as future-dated and let this older receipt overwrite it, defeating
+      // monotonic ordering under contention.
+      const nowMs = Date.now();
       // A thrown read propagates (rolling back the transaction): a real read
       // failure must never be mistaken for a replaceable missing record.
       const prior = await txn.read<unknown>();
