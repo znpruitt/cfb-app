@@ -80,7 +80,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   A→B→A same-year race — fixed with per-dataset attempt sequences). Round 3: clean. Full suite
   2892 green; `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean.
   No provider, scheduler, or production operation performed.
-- Status: Implemented — PR open.
+- Status: Implemented — PR open (PR #433).
 
 ### PLATFORM-086F2C-MAINTENANCE-ACTION-MODEL-v1
 
