@@ -52,6 +52,58 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2E2A-LIFECYCLE-SCHEDULER-RECEIPTS-v1
+
+- Purpose: First half of the audited F2E2 split — extend the merged F2E1 receipt system to the
+  two Vercel-native lifecycle crons and add their previously-missing secret-safe runtime
+  execution-log events, completing durable delivery evidence for all seven scheduled jobs.
+- Scope: `schedulerExecutionStatus.ts` job union +`season-transition`/+`season-rollover`;
+  `SchedulerSource = 'qstash' | 'vercel-cron'` DERIVED from a closed job→source map (never
+  accepted from a caller); two bounded target variants (`season-transition-years`,
+  `season-rollover-years`) with builders + per-shape validation; stored source normalized and
+  validated per job; version 1 and all F2E1 guarantees (monotonic `(startedAt, invocationId)`,
+  future-prior guard read inside the txn, best-effort, `after` deferral) unchanged. New
+  `src/lib/lifecycleCronExecutionLog.ts` owns both event schemas, the shared result vocabulary,
+  aggregation, and best-effort single-line emission. Both routes restructured to one outer
+  try/(catch)/finally: entry timestamp + pessimistic tracker + `invocationId` created only after
+  `verifyCronSecret` returns `ok`; the finally emits the runtime event then schedules one receipt
+  only when authenticated. No reader/UI (F2E2B), no lifecycle-behavior/scheduler/`vercel.json`
+  changes.
+- Outcome: Every authenticated lifecycle invocation writes one allowlisted receipt
+  (`source: 'vercel-cron'`); the five QStash jobs keep `source: 'qstash'` byte-equivalent. Both
+  routes emit exactly one secret-safe event per invocation (auth failures included). Season
+  transition provider truth is `exec.years.some(...providerCallAttempted)` (E1A's field); rollover
+  is always `providerCallAttempted: false`. Per-year classification is truthful — transition
+  supersedes the E1A reason, a probe-read/probe-write/lifecycle-write throw maps to
+  `probe-state-unavailable` / `probe-write-failed` / `lifecycle-write-failed` (partial vs failure
+  by prior success) while the SAME 500 response is preserved via a per-year re-throw to the outer
+  catch; the transition event/receipt years are sorted ascending before the eight-entry cap. The
+  transition non-transition result is mapped from E1A's typed `refresh.status` verbatim (never a
+  re-derived reason list). Rollover per-league counts AND per-year errors drive
+  complete/partial/failed (a rolled league whose standings-invalidation throws is a truthful
+  `rollover-partial`, consistent with the response's `success: false`); a championship-resolution
+  throw records the failing year rather than omitting it. Every existing HTTP response,
+  lifecycle decision, E1A/probe behavior, archive-first ordering, per-league failure isolation,
+  standings invalidation, suppression clearing, and presentation triggering is byte-preserved
+  (25 existing lifecycle route tests stay green unchanged).
+- Review / verification: Claude `/code-review` (xhigh) — 2 findings: a correctness/drift risk
+  (E1A result re-derived from a reason list) fixed, and a reuse note (lifecycle aggregation
+  duplicates the rankings cron policy) recorded out-of-scope. Independent Codex converged over
+  three cycles: round 1 clean (one earlier attempt aborted on a network disconnect with no verdict
+  — honestly re-run); round 2 one P2 (unsorted multi-year receipt could drop earlier years under
+  the cap) fixed with an ascending sort; round 3 two P2 rollover-accuracy gaps (a resolution throw
+  omitted the failing year; an invalidation throw was misclassified as complete) presented at the
+  three-cycle gate and fixed under explicit user authorization. A final confirmation pass was
+  interrupted by a session teardown with no verdict (not claimed). Full suite 2988 green (+32: 7
+  authority + 15 season-transition + 10 season-rollover); `npx tsc --noEmit`, `npm run lint:all`,
+  `npm run build`, `git diff --check` clean. No browser verification required (no reader/UI).
+  PR-size reassessment: ~13 files / ~1,900 net lines — crosses the >1,500-net-line soft signal
+  (file count under 15), dominated by the §8-mandated lifecycle test suites and the shared exec-log
+  helper; **user approved proceeding as one cohesive, revertible lifecycle-observability contract**
+  rather than an artificial split. No provider, scheduler, production, or BotID-stash operation.
+- Status: **Implemented; PR #436 open to `main` (not merged) — feature branch
+  `platform/086f2e2a-lifecycle-scheduler-receipts`.**
+
 ### PLATFORM-086F2E1-EXTERNAL-SCHEDULER-RECEIPTS-v1
 
 - Purpose: First scheduler-health slice of the F2 admin control-plane redesign — add latest-only,

@@ -18,6 +18,8 @@ import {
   recordSchedulerExecutionReceipt,
   scheduleSchedulerExecutionReceipt,
   scheduleYearsTarget,
+  seasonRolloverYearsTarget,
+  seasonTransitionYearsTarget,
   SCHEDULER_EXECUTION_STATUS_SCOPE,
   type SchedulerExecutionReceipt,
   type SchedulerExecutionReceiptInput,
@@ -236,6 +238,165 @@ test('all five job target shapes persist with exact allowlisted target keys', as
     ),
     [['publicationWindow', 'year']]
   );
+});
+
+// F2E2A — the five QStash jobs keep source `qstash`; the two lifecycle jobs write
+// `vercel-cron`; all seven job/target/source combinations validate and persist.
+test('all seven jobs derive the correct source and persist their target shape', async () => {
+  const inputs: SchedulerExecutionReceiptInput[] = [
+    liveScoresInput(),
+    liveScoresInput({
+      job: 'game-stats',
+      target: { kind: 'game-stats', year: 2026, week: 3, seasonType: 'regular' },
+    }),
+    liveScoresInput({
+      job: 'odds',
+      target: { kind: 'odds', year: 2026, cadence: null, eligibleGames: 0 },
+    }),
+    liveScoresInput({
+      job: 'schedule-refresh',
+      target: scheduleYearsTarget([{ year: 2026, operation: null }]),
+    }),
+    liveScoresInput({
+      job: 'rankings',
+      target: rankingsYearsTarget([{ year: 2026, publicationWindow: null }]),
+    }),
+    liveScoresInput({
+      job: 'season-transition',
+      result: 'success',
+      reason: 'season-transitioned',
+      providerCallAttempted: true,
+      target: seasonTransitionYearsTarget([
+        { year: 2026, targetLeagues: 2, probed: true, transitionedLeagues: 2 },
+      ]),
+    }),
+    liveScoresInput({
+      job: 'season-rollover',
+      result: 'success',
+      reason: 'rollover-complete',
+      providerCallAttempted: false,
+      target: seasonRolloverYearsTarget([{ year: 2025, targetLeagues: 1, rolledOverLeagues: 1 }]),
+    }),
+  ];
+  for (const input of inputs) {
+    await recordSchedulerExecutionReceipt(receiptOf(input));
+  }
+
+  const expectations: Array<{
+    job: SchedulerExecutionReceiptInput['job'];
+    source: string;
+    kind: string;
+  }> = [
+    { job: 'live-scores', source: 'qstash', kind: 'live-scores' },
+    { job: 'game-stats', source: 'qstash', kind: 'game-stats' },
+    { job: 'odds', source: 'qstash', kind: 'odds' },
+    { job: 'schedule-refresh', source: 'qstash', kind: 'schedule-years' },
+    { job: 'rankings', source: 'qstash', kind: 'rankings-years' },
+    { job: 'season-transition', source: 'vercel-cron', kind: 'season-transition-years' },
+    { job: 'season-rollover', source: 'vercel-cron', kind: 'season-rollover-years' },
+  ];
+  for (const e of expectations) {
+    const stored = await readSchedulerReceipt(e.job);
+    assert.ok(stored, `receipt persisted for ${e.job}`);
+    assert.equal(stored.value.source, e.source, `${e.job} source`);
+    assert.equal(stored.value.target.kind, e.kind, `${e.job} target kind`);
+  }
+
+  const transition = await readSchedulerReceipt('season-transition');
+  assert.deepEqual(
+    (transition!.value.target as { years: unknown[] }).years.map((entry) =>
+      Object.keys(entry as object)
+        .slice()
+        .sort()
+    ),
+    [['probed', 'targetLeagues', 'transitionedLeagues', 'year'].sort()]
+  );
+  const rollover = await readSchedulerReceipt('season-rollover');
+  assert.deepEqual(
+    (rollover!.value.target as { years: unknown[] }).years.map((entry) =>
+      Object.keys(entry as object)
+        .slice()
+        .sort()
+    ),
+    [['rolledOverLeagues', 'targetLeagues', 'year'].sort()]
+  );
+});
+
+// F2E2A — the source is DERIVED from the job, never accepted from the caller: an
+// incoming receipt claiming the wrong source is normalized to the job's source.
+test('a caller-claimed wrong source is normalized to the job source, never stored', async () => {
+  const rollover = receiptOf(
+    liveScoresInput({
+      job: 'season-rollover',
+      result: 'success',
+      reason: 'rollover-complete',
+      providerCallAttempted: false,
+      target: seasonRolloverYearsTarget([{ year: 2025, targetLeagues: 1, rolledOverLeagues: 1 }]),
+    })
+  );
+  // The builder already derived the correct source; forcing a wrong one and
+  // re-recording must normalize back (never persist a lifecycle job as qstash).
+  await recordSchedulerExecutionReceipt({ ...rollover, source: 'qstash' });
+  assert.equal((await readSchedulerReceipt('season-rollover'))?.value.source, 'vercel-cron');
+});
+
+// F2E2A — a stored prior with the WRONG source for its job is unusable/replaceable.
+test('a stored prior with a mismatched source is replaceable', async () => {
+  const good = receiptOf(
+    liveScoresInput({
+      job: 'season-transition',
+      result: 'success',
+      reason: 'season-transitioned',
+      providerCallAttempted: true,
+      startedAtMs: T0,
+      target: seasonTransitionYearsTarget([
+        { year: 2026, targetLeagues: 1, probed: true, transitionedLeagues: 1 },
+      ]),
+    })
+  );
+  // Seed a NEWER-started but wrong-source (qstash) record; it must be replaceable
+  // despite the later start instant, and an older-good incoming wins.
+  await setAppState(SCOPE, 'season-transition', {
+    ...good,
+    invocationId: ID_C,
+    startedAt: new Date(T0 + 60 * SEC).toISOString(),
+    source: 'qstash',
+  });
+  await recordSchedulerExecutionReceipt(good);
+  const stored = await readSchedulerReceipt('season-transition');
+  assert.equal(stored?.value.invocationId, ID_A, 'the mismatched-source prior was replaceable');
+  assert.equal(stored?.value.source, 'vercel-cron');
+});
+
+// F2E2A — a wrong target KIND for the job is unusable (buildSchedulerExecutionReceipt null).
+test('a target kind that does not match the job yields no receipt', () => {
+  const bad = buildSchedulerExecutionReceipt({
+    ...liveScoresInput({ job: 'season-rollover' }),
+    // live-scores target under the season-rollover job — incompatible.
+  });
+  assert.equal(bad, null, 'incompatible job/target kind builds no receipt');
+});
+
+// F2E2A — both lifecycle multi-year summaries cap at eight with truthful totals.
+test('lifecycle multi-year targets cap at eight entries with truthful totalYears/truncated', () => {
+  const manyTransition = Array.from({ length: 11 }, (_, i) => ({
+    year: 2015 + i,
+    targetLeagues: 1,
+    probed: true,
+    transitionedLeagues: 0,
+  }));
+  const t = seasonTransitionYearsTarget(manyTransition);
+  assert.equal(t.totalYears, 11);
+  assert.equal(t.truncated, true);
+  assert.equal(t.years.length, 8);
+  assert.deepEqual(
+    t.years.map((y) => y.year),
+    [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022]
+  );
+
+  const r = seasonRolloverYearsTarget([{ year: 2025, targetLeagues: 3, rolledOverLeagues: 2 }]);
+  assert.equal(r.totalYears, 1);
+  assert.equal(r.truncated, false);
 });
 
 // 4 — malformed / mismatched / obsolete-version prior records are replaceable.

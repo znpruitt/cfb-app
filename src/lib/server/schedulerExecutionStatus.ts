@@ -11,11 +11,18 @@ import type { RankingsPublicationWindowKind } from '@/lib/rankings/publicationPo
 import type { RankingsCronExecutionReason } from '@/lib/rankings/cronExecutionLog';
 import type { ScheduleRefreshCronExecutionReason } from '@/lib/schedule/cronExecutionLog';
 import type { WeeklyScheduleRefreshOperation } from '@/lib/schedule/weeklyRefreshOperation';
+import type {
+  SeasonRolloverCronExecutionReason,
+  SeasonTransitionCronExecutionReason,
+} from '@/lib/lifecycleCronExecutionLog';
 import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 
 /**
- * PLATFORM-086F2E1 — latest-only durable execution receipts for the five
- * QStash-triggered cron routes (`scheduler-execution-status/<job>`).
+ * PLATFORM-086F2E1 / F2E2A — latest-only durable execution receipts for the
+ * seven scheduled cron routes (`scheduler-execution-status/<job>`): the five
+ * QStash-triggered jobs (F2E1, `source: 'qstash'`) plus the two Vercel-native
+ * lifecycle crons — season-transition and season-rollover (F2E2A,
+ * `source: 'vercel-cron'`).
  *
  * A receipt proves ONE thing the runtime execution-log events cannot durably
  * prove: an AUTHENTICATED scheduled delivery reached the application, when it
@@ -33,7 +40,8 @@ import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
  *     arbitrary attached state. `invocationId` is an application-generated UUID
  *     created only after successful cron authentication; no QStash header
  *     (`Upstash-Message-Id`, signature, user-agent, …) is ever inspected or
- *     persisted. `source: 'qstash'` names the configured scheduler owner — it
+ *     persisted. `source` is DERIVED from `job` (never accepted from a caller)
+ *     and names the configured scheduler owner (`qstash` | `vercel-cron`) — it
  *     is NOT a cryptographic provenance claim.
  *   - MONOTONIC latest-only persistence: one row per job, committed inside the
  *     durable per-key transaction. A valid prior record is preserved unless the
@@ -68,7 +76,30 @@ export type ExternalSchedulerJob =
   | 'game-stats'
   | 'odds'
   | 'schedule-refresh'
-  | 'rankings';
+  | 'rankings'
+  | 'season-transition'
+  | 'season-rollover';
+
+/**
+ * How a job is scheduled. `source` is NEVER accepted from a route caller — it is
+ * derived from `job` through {@link JOB_SOURCE}, so a receipt can only ever claim
+ * the scheduler owner its job is actually wired to. `qstash` names the five
+ * QStash-triggered jobs (F2E1); `vercel-cron` names the two lifecycle crons
+ * scheduled natively by `vercel.json` (F2E2A). Neither is a cryptographic
+ * provenance claim — see the module header.
+ */
+export type SchedulerSource = 'qstash' | 'vercel-cron';
+
+/** The closed job → source contract. The ONLY place a source is decided. */
+const JOB_SOURCE: Record<ExternalSchedulerJob, SchedulerSource> = {
+  'live-scores': 'qstash',
+  'game-stats': 'qstash',
+  odds: 'qstash',
+  'schedule-refresh': 'qstash',
+  rankings: 'qstash',
+  'season-transition': 'vercel-cron',
+  'season-rollover': 'vercel-cron',
+};
 
 export type SchedulerExecutionResult =
   | 'skipped'
@@ -88,7 +119,9 @@ export type SchedulerExecutionReason =
   | GameStatsCronExecutionReason
   | OddsCronExecutionReason
   | ScheduleRefreshCronExecutionReason
-  | RankingsCronExecutionReason;
+  | RankingsCronExecutionReason
+  | SeasonTransitionCronExecutionReason
+  | SeasonRolloverCronExecutionReason;
 
 /** The allowlisted, bounded per-job target summary variants. */
 export type SchedulerExecutionTarget =
@@ -128,13 +161,34 @@ export type SchedulerExecutionTarget =
         year: number;
         publicationWindow: RankingsPublicationWindowKind | null;
       }>;
+    }
+  | {
+      kind: 'season-transition-years';
+      totalYears: number;
+      truncated: boolean;
+      years: Array<{
+        year: number;
+        targetLeagues: number;
+        probed: boolean;
+        transitionedLeagues: number;
+      }>;
+    }
+  | {
+      kind: 'season-rollover-years';
+      totalYears: number;
+      truncated: boolean;
+      years: Array<{
+        year: number;
+        targetLeagues: number;
+        rolledOverLeagues: number;
+      }>;
     };
 
 /** The exact durable record stored at `scheduler-execution-status/<job>`. */
 export type SchedulerExecutionReceipt = {
   version: 1;
   job: ExternalSchedulerJob;
-  source: 'qstash';
+  source: SchedulerSource;
   invocationId: string;
   startedAt: string;
   completedAt: string;
@@ -190,6 +244,46 @@ export function rankingsYearsTarget(
   };
 }
 
+/** The bounded `season-transition-years` summary from the route's per-year entries. */
+export function seasonTransitionYearsTarget(
+  entries: ReadonlyArray<{
+    year: number;
+    targetLeagues: number;
+    probed: boolean;
+    transitionedLeagues: number;
+  }>
+): Extract<SchedulerExecutionTarget, { kind: 'season-transition-years' }> {
+  const years = entries.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
+    year: entry.year,
+    targetLeagues: entry.targetLeagues,
+    probed: entry.probed,
+    transitionedLeagues: entry.transitionedLeagues,
+  }));
+  return {
+    kind: 'season-transition-years',
+    totalYears: entries.length,
+    truncated: entries.length > years.length,
+    years,
+  };
+}
+
+/** The bounded `season-rollover-years` summary from the route's per-year entries. */
+export function seasonRolloverYearsTarget(
+  entries: ReadonlyArray<{ year: number; targetLeagues: number; rolledOverLeagues: number }>
+): Extract<SchedulerExecutionTarget, { kind: 'season-rollover-years' }> {
+  const years = entries.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
+    year: entry.year,
+    targetLeagues: entry.targetLeagues,
+    rolledOverLeagues: entry.rolledOverLeagues,
+  }));
+  return {
+    kind: 'season-rollover-years',
+    totalYears: entries.length,
+    truncated: entries.length > years.length,
+    years,
+  };
+}
+
 export type SchedulerExecutionReceiptInput = {
   job: ExternalSchedulerJob;
   invocationId: string;
@@ -213,12 +307,16 @@ export type SchedulerExecutionReceiptInput = {
 export function buildSchedulerExecutionReceipt(
   input: SchedulerExecutionReceiptInput
 ): SchedulerExecutionReceipt | null {
+  // The target kind must match the job, and the source is DERIVED from the job
+  // (never accepted from the caller) — a receipt can only claim the scheduler
+  // owner its job is actually wired to.
+  if (JOB_TARGET_KIND[input.job] !== input.target?.kind) return null;
   const target = rebuildTarget(input.target);
   if (target === null) return null;
   return {
     version: 1,
     job: input.job,
-    source: 'qstash',
+    source: JOB_SOURCE[input.job],
     invocationId: input.invocationId,
     startedAt: new Date(input.startedAtMs).toISOString(),
     completedAt: new Date(input.completedAtMs).toISOString(),
@@ -355,6 +453,8 @@ const JOB_TARGET_KIND: Record<ExternalSchedulerJob, SchedulerExecutionTarget['ki
   odds: 'odds',
   'schedule-refresh': 'schedule-years',
   rankings: 'rankings-years',
+  'season-transition': 'season-transition-years',
+  'season-rollover': 'season-rollover-years',
 };
 
 function isFiniteNumber(value: unknown): value is number {
@@ -412,6 +512,29 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
           .slice(0, MAX_SCHEDULER_TARGET_YEARS)
           .map((entry) => ({ year: entry.year, publicationWindow: entry.publicationWindow })),
       };
+    case 'season-transition-years':
+      return {
+        kind: 'season-transition-years',
+        totalYears: target.totalYears,
+        truncated: target.truncated,
+        years: target.years.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
+          year: entry.year,
+          targetLeagues: entry.targetLeagues,
+          probed: entry.probed,
+          transitionedLeagues: entry.transitionedLeagues,
+        })),
+      };
+    case 'season-rollover-years':
+      return {
+        kind: 'season-rollover-years',
+        totalYears: target.totalYears,
+        truncated: target.truncated,
+        years: target.years.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
+          year: entry.year,
+          targetLeagues: entry.targetLeagues,
+          rolledOverLeagues: entry.rolledOverLeagues,
+        })),
+      };
     default:
       return null;
   }
@@ -420,12 +543,14 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
 /** Rebuild the full receipt from the explicit allowlist; `null` when unusable. */
 function rebuildReceipt(receipt: SchedulerExecutionReceipt): SchedulerExecutionReceipt | null {
   if (JOB_TARGET_KIND[receipt.job] !== receipt.target?.kind) return null;
+  // The stored source is DERIVED from the job — an incoming receipt that claims
+  // the wrong source for its job is normalized to the correct one, never trusted.
   const target = rebuildTarget(receipt.target);
   if (target === null) return null;
   return {
     version: 1,
     job: receipt.job,
-    source: 'qstash',
+    source: JOB_SOURCE[receipt.job],
     invocationId: receipt.invocationId,
     startedAt: receipt.startedAt,
     completedAt: receipt.completedAt,
@@ -493,9 +618,44 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
         typeof target.truncated === 'boolean' &&
         isValidYearEntries(target.years, 'publicationWindow', PUBLICATION_WINDOWS)
       );
+    case 'season-transition-years':
+      return (
+        isNonNegativeInteger(target.totalYears) &&
+        typeof target.truncated === 'boolean' &&
+        isValidLifecycleYearEntries(target.years, [
+          { field: 'targetLeagues', kind: 'count' },
+          { field: 'probed', kind: 'boolean' },
+          { field: 'transitionedLeagues', kind: 'count' },
+        ])
+      );
+    case 'season-rollover-years':
+      return (
+        isNonNegativeInteger(target.totalYears) &&
+        typeof target.truncated === 'boolean' &&
+        isValidLifecycleYearEntries(target.years, [
+          { field: 'targetLeagues', kind: 'count' },
+          { field: 'rolledOverLeagues', kind: 'count' },
+        ])
+      );
     default:
       return false;
   }
+}
+
+/** Validate a lifecycle multi-year entry list (finite year + typed extra fields). */
+function isValidLifecycleYearEntries(
+  value: unknown,
+  fields: ReadonlyArray<{ field: string; kind: 'count' | 'boolean' }>
+): boolean {
+  if (!Array.isArray(value) || value.length > MAX_SCHEDULER_TARGET_YEARS) return false;
+  return value.every((entry) => {
+    if (typeof entry !== 'object' || entry === null) return false;
+    const row = entry as Record<string, unknown>;
+    if (!isFiniteNumber(row.year)) return false;
+    return fields.every(({ field, kind }) =>
+      kind === 'boolean' ? typeof row[field] === 'boolean' : isNonNegativeInteger(row[field])
+    );
+  });
 }
 
 /**
@@ -524,7 +684,9 @@ function parseUsablePriorReceipt(
   const record = value as Record<string, unknown>;
   if (record.version !== 1) return null;
   if (record.job !== job) return null;
-  if (record.source !== 'qstash') return null;
+  // The source must be the one this job is wired to — a record claiming the wrong
+  // source (e.g. a lifecycle job stored as `qstash`) is corrupt and replaceable.
+  if (record.source !== JOB_SOURCE[job]) return null;
   if (typeof record.invocationId !== 'string' || record.invocationId.length === 0) return null;
   if (!isValidIsoInstant(record.startedAt) || !isValidIsoInstant(record.completedAt)) return null;
   if (Date.parse(record.startedAt) > nowMs + PRIOR_FUTURE_SKEW_TOLERANCE_MS) return null;

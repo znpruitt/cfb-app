@@ -10,6 +10,18 @@ import {
   resolveNationalChampionshipRollover,
   type ChampionshipRolloverSkipReason,
 } from '@/lib/schedule/nationalChampionshipRollover';
+import {
+  aggregateLifecycleCronReason,
+  aggregateLifecycleCronResult,
+  createSeasonRolloverCronExecutionState,
+  emitSeasonRolloverCronExecutionEvent,
+  type SeasonRolloverCronYearExecution,
+} from '@/lib/lifecycleCronExecutionLog';
+import {
+  createSchedulerInvocationId,
+  scheduleSchedulerExecutionReceipt,
+  seasonRolloverYearsTarget,
+} from '@/lib/server/schedulerExecutionStatus';
 
 export const dynamic = 'force-dynamic';
 
@@ -43,25 +55,57 @@ function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
 }
 
 export async function GET(req: Request): Promise<NextResponse<CronResult>> {
-  const authResult = verifyCronSecret(req);
-  if (authResult !== 'ok') {
-    const reason =
-      authResult === 'not-configured'
-        ? 'CRON_SECRET is not configured on the server — set it in Vercel environment variables'
-        : 'unauthorized: Bearer token did not match CRON_SECRET';
-    return NextResponse.json({ skipped: true, reason }, { status: 401 });
-  }
+  // PLATFORM-086F2E2A — one secret-safe `season-rollover-cron` runtime event per
+  // invocation (emitted from the single outer `finally`, auth failures included)
+  // plus one latest-only durable receipt per AUTHENTICATED invocation. Rollover
+  // is cache-only, so `providerCallAttempted` is always false. All existing HTTP
+  // responses, lifecycle decisions, archive-first ordering, per-league failure
+  // isolation, and suppression behavior are unchanged.
+  const startedAtMs = Date.now();
+  const exec = createSeasonRolloverCronExecutionState();
+  // Alias the per-year entries into the tracker immediately so a defensive throw
+  // mid-loop still carries the already-completed years into the event/receipt.
+  const entries: SeasonRolloverCronYearExecution[] = [];
+  exec.years = entries;
+  let receiptInvocationId: string | null = null;
 
   try {
+    const authResult = verifyCronSecret(req);
+    if (authResult !== 'ok') {
+      exec.reason =
+        authResult === 'not-configured'
+          ? 'cron-secret-not-configured'
+          : 'cron-authorization-invalid';
+      const reason =
+        authResult === 'not-configured'
+          ? 'CRON_SECRET is not configured on the server — set it in Vercel environment variables'
+          : 'unauthorized: Bearer token did not match CRON_SECRET';
+      return NextResponse.json({ skipped: true, reason }, { status: 401 });
+    }
+    receiptInvocationId = createSchedulerInvocationId();
+
     // Target selection is the SHARED per-year grouping policy (PLATFORM-086F2B,
     // `groupRolloverTargets`): non-test leagues in `season`, grouped exclusively
     // by `status.year`, ascending. Each year is evaluated INDEPENDENTLY — never
     // assume all leagues share the first eligible league's year
     // (PLATFORM-086E1A §6). The rollover authority reads each year's canonical
     // schedule cache-only and requires a structured, confirmed-final championship.
-    const groups = groupRolloverTargets(await getLeagues());
+    let groups: ReturnType<typeof groupRolloverTargets>;
+    try {
+      groups = groupRolloverTargets(await getLeagues());
+    } catch (err) {
+      // A registry read failure is the same 500 as before; the event/receipt
+      // record the typed `registry-unavailable` reason.
+      exec.reason = 'registry-unavailable';
+      return NextResponse.json(
+        { skipped: true, reason: err instanceof Error ? err.message : 'unknown error' },
+        { status: 500 }
+      );
+    }
 
     if (groups.length === 0) {
+      exec.result = 'skipped';
+      exec.reason = 'no-season-leagues';
       return NextResponse.json({ skipped: true, reason: 'no leagues in season state' });
     }
 
@@ -72,7 +116,30 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     const errors: RolloverError[] = [];
 
     for (const { year, leagues: yearLeagues } of groups) {
-      const decision = await resolveNationalChampionshipRollover(year, now);
+      // Every league is either rolled (pushed below) or errored (continue), so a
+      // per-year entry's result is derived from rolled-vs-target counts.
+      const yearEntry: SeasonRolloverCronYearExecution = {
+        year,
+        result: 'failure',
+        reason: 'rollover-failed',
+        providerCallAttempted: false,
+        targetLeagues: yearLeagues.length,
+        rolledOverLeagues: 0,
+        suppressionCleared: 0,
+      };
+      let decision: Awaited<ReturnType<typeof resolveNationalChampionshipRollover>>;
+      try {
+        decision = await resolveNationalChampionshipRollover(year, now);
+      } catch (err) {
+        // A structurally malformed cached schedule can make resolution THROW
+        // rather than return `read-failed`. Record the failing year (so the
+        // event/receipt never omit it) and finalize the aggregate here, then
+        // propagate the SAME 500 the outer catch already produces.
+        entries.push({ ...yearEntry, result: 'failure', reason: 'unexpected-error' });
+        exec.result = aggregateLifecycleCronResult(entries);
+        exec.reason = aggregateLifecycleCronReason(entries, 'year-results');
+        throw err;
+      }
 
       if (decision.kind === 'read-failed') {
         // A genuine durable read failure is a FAILURE, never ordinary absence:
@@ -85,6 +152,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           leaguesRolledOver: [],
           suppressionClearedFor: [],
         });
+        entries.push({ ...yearEntry, result: 'failure', reason: 'read-failed' });
         continue;
       }
 
@@ -96,6 +164,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           leaguesRolledOver: [],
           suppressionClearedFor: [],
         });
+        entries.push({ ...yearEntry, result: 'skipped', reason: decision.reason });
         continue;
       }
 
@@ -107,6 +176,11 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         leaguesRolledOver: [],
         suppressionClearedFor: [],
       };
+      // Errors recorded before THIS year's league loop, so the classification can
+      // tell whether any league in this year failed — a league is pushed to
+      // `leaguesRolledOver` BEFORE its `invalidateStandings`, so an invalidation
+      // throw records an error while the league still counts as rolled.
+      const errorsBeforeYear = errors.length;
 
       for (const league of yearLeagues) {
         try {
@@ -163,7 +237,32 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       }
 
       years.push(yearResult);
+      // Per-year event classification from confirmed counts AND per-year errors:
+      // every league rolled with NO error this year → complete; any roll with a
+      // failure (a not-fully-rolled year, OR a rolled league whose
+      // `invalidateStandings` threw) → partial; nothing rolled → failed. Keying
+      // `complete` on error-freeness (not just the rolled count) keeps the
+      // event/receipt consistent with the response's `success: !hadFailure`.
+      const rolledInYear = yearResult.leaguesRolledOver.length;
+      const yearHadError = errors.length > errorsBeforeYear;
+      const complete = rolledInYear === yearLeagues.length && !yearHadError;
+      entries.push({
+        year,
+        result: complete ? 'success' : rolledInYear > 0 ? 'partial' : 'failure',
+        reason: complete
+          ? 'rollover-complete'
+          : rolledInYear > 0
+            ? 'rollover-partial'
+            : 'rollover-failed',
+        providerCallAttempted: false,
+        targetLeagues: yearLeagues.length,
+        rolledOverLeagues: rolledInYear,
+        suppressionCleared: yearResult.suppressionClearedFor.length,
+      });
     }
+
+    exec.result = aggregateLifecycleCronResult(entries);
+    exec.reason = aggregateLifecycleCronReason(entries, 'year-results');
 
     const rolledAny = leaguesRolledOver.length > 0;
     const hadFailure = errors.length > 0;
@@ -188,6 +287,8 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       errors,
     });
   } catch (err) {
+    // Any otherwise-unclassified fault stays the pessimistic
+    // `failure / unexpected-error` tracker default and the same 500 response.
     return NextResponse.json(
       {
         skipped: true,
@@ -195,5 +296,18 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       },
       { status: 500 }
     );
+  } finally {
+    emitSeasonRolloverCronExecutionEvent(exec, startedAtMs);
+    if (receiptInvocationId !== null) {
+      scheduleSchedulerExecutionReceipt({
+        job: 'season-rollover',
+        invocationId: receiptInvocationId,
+        startedAtMs,
+        result: exec.result,
+        reason: exec.reason,
+        providerCallAttempted: false,
+        target: seasonRolloverYearsTarget(exec.years),
+      });
+    }
   }
 }
