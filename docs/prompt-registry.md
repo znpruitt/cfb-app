@@ -52,6 +52,36 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2D1-PROVIDER-MAINTENANCE-RELOCATION-v1
+
+- Purpose: First slice of the F2D operational-mutation relocation (split at its audit into
+  D1/D2): move every provider-spending mutation except the score-attachment tool out of System
+  Health, so Diagnostics keeps automation gates and observation while each relocated action gains
+  its F2C cost/scope disclosure on Data Maintenance & Recovery.
+- Scope: `ProviderDataStatusPanel` stripped of manual-refresh buttons, cost strings, game-stats
+  partition inputs, and manual-refresh state (global pause, dataset toggles, PLATFORM-086I
+  mutation-error feedback, status loading + year-race guards, quota blocks, and diagnostics cards
+  preserved); new `ProviderMaintenancePanel` (Odds + Rankings) and `ReferenceDataPanel`
+  (Conferences + the relocated/renamed Team Database sync) on `/admin/data/cache` under a new
+  Reference data section; four new descriptors (contract now 12); `AdminTeamDatabasePanel`
+  deleted; the drifted co-located `team-database/route.test.ts` deleted (maintained `__tests__`
+  suite retained and extended with the upstream bearer-key assertion); `manualRefresh.ts` module
+  doc corrected (dead-surface trim recorded as a follow-up). No API URL, method, authentication
+  rule, refresh authority, or provider-status behavior changed.
+- Outcome: System Health is observational plus operational safety controls only. The relocated
+  requests are byte-identical to what the old Diagnostics buttons issued (same
+  `manualRefreshUrls` + `interpretRefreshResponse` authority — a fallback-serving 2xx never
+  renders success), and refresh feedback is attempt-scoped: per-dataset monotonic attempt
+  sequences own the loading/result state, year changes invalidate in-flight attempts, and a
+  superseded request can never overwrite newer feedback.
+- Review / verification: Claude subagent self-review (no P0–P2; 3 P3s fixed). Codex round 1
+  (2 P2 — dataset-only feedback lost year-scoping, and the team-sync wiring test's invalid
+  fixture masked a render throw — both fixed). Round 2 (1 P2 — the year-only guard left an
+  A→B→A same-year race — fixed with per-dataset attempt sequences). Round 3: clean. Full suite
+  2892 green; `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean.
+  No provider, scheduler, or production operation performed.
+- Status: Implemented — PR open.
+
 ### PLATFORM-086F2C-MAINTENANCE-ACTION-MODEL-v1
 
 - Purpose: Establish the Data Maintenance & Recovery page foundation — truthful per-action
