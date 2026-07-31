@@ -275,3 +275,25 @@ test('a sync persists the corrected derived aliases in the durable catalog', asy
   assert.ok(nmsu);
   assert.ok(!nmsu!.alts?.includes('newmexico'), 'truncated newmexico prefix not persisted');
 });
+
+// PLATFORM-086F2D1 — with the drifted co-located duplicate suite deleted, pin
+// the route-level upstream contract here: the CFBD request carries the
+// configured key as a bearer Authorization header and targets /teams.
+test('the upstream CFBD request forwards the configured bearer key', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('alpha')]);
+  let capturedUrl = '';
+  let capturedAuth: string | null = null;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    capturedUrl = String(input);
+    capturedAuth = new Headers(init?.headers).get('authorization');
+    return new Response(JSON.stringify(CFBD_ROWS), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  }) as typeof fetch;
+
+  const { result: res } = await runCapturingTags(() => POST(postRequest()));
+  assert.equal(res.status, 200, await res.text());
+  assert.match(capturedUrl, /\/teams/);
+  assert.equal(capturedAuth, 'Bearer test-cfbd-key');
+});

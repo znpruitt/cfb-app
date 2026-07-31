@@ -83,7 +83,9 @@ export default function ReferenceDataPanel(): React.ReactElement {
   return (
     <section className={sectionClass}>
       <div>
-        <h3 className="text-base font-medium text-gray-900 dark:text-zinc-100">Reference Data</h3>
+        <h3 className="text-base font-medium text-gray-900 dark:text-zinc-100">
+          Conference catalog &amp; team database
+        </h3>
         <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
           Global, year-independent reference datasets: the conference catalog and the canonical team
           database. Manual-only — no automation owns these.
@@ -113,7 +115,6 @@ export default function ReferenceDataPanel(): React.ReactElement {
         >
           {syncLoading ? 'Updating team database…' : 'Update Team Database'}
         </button>
-        {syncLoading && <span className="text-xs text-gray-500 dark:text-zinc-400">Working…</span>}
         {syncError && (
           <span className="text-xs text-red-600 dark:text-red-400">Sync error: {syncError}</span>
         )}

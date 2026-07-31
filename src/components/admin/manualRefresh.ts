@@ -1,7 +1,22 @@
 /**
- * Pure helpers for the admin Provider Data Status panel's manual refresh +
- * honest-controls logic (PLATFORM-086A remediation). Kept free of React so they
- * are unit-testable without a DOM.
+ * Pure helpers for the admin provider panels (PLATFORM-086A remediation; kept
+ * free of React so they are unit-testable without a DOM).
+ *
+ * Since PLATFORM-086F2D1 the LIVE consumers split across two surfaces:
+ *   - `manualRefreshUrls` (odds/rankings/conferences branches) +
+ *     `interpretRefreshResponse` + `scoresAggregateRefreshUrl` drive the Data
+ *     Maintenance & Recovery panels (GlobalRefreshPanel,
+ *     ProviderMaintenancePanel, ReferenceDataPanel);
+ *   - the status/feed helpers (`shouldApplyStatusResponse`,
+ *     `panelFeedRenderState`, `datasetControlMode`, `controlModeLabel`) drive
+ *     the observational Provider Data Status panel, which no longer issues
+ *     manual refreshes.
+ *
+ * The `scores`/`schedule`/`game-stats` branches of `manualRefreshUrls`, plus
+ * `manualActionKey`, `isSelectedYear`, and `combineOutcomes`, have NO live
+ * caller (the maintenance panels build those requests directly) — they are
+ * retained as contract history under unit test only. Editing them changes no
+ * live button; a trim is a recorded cleanup follow-up.
  */
 
 import { type ProviderDataset, type ProviderDatasetDescriptor } from '@/lib/providerDatasets';
