@@ -127,7 +127,19 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         rolledOverLeagues: 0,
         suppressionCleared: 0,
       };
-      const decision = await resolveNationalChampionshipRollover(year, now);
+      let decision: Awaited<ReturnType<typeof resolveNationalChampionshipRollover>>;
+      try {
+        decision = await resolveNationalChampionshipRollover(year, now);
+      } catch (err) {
+        // A structurally malformed cached schedule can make resolution THROW
+        // rather than return `read-failed`. Record the failing year (so the
+        // event/receipt never omit it) and finalize the aggregate here, then
+        // propagate the SAME 500 the outer catch already produces.
+        entries.push({ ...yearEntry, result: 'failure', reason: 'unexpected-error' });
+        exec.result = aggregateLifecycleCronResult(entries);
+        exec.reason = aggregateLifecycleCronReason(entries, 'year-results');
+        throw err;
+      }
 
       if (decision.kind === 'read-failed') {
         // A genuine durable read failure is a FAILURE, never ordinary absence:
@@ -164,6 +176,11 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         leaguesRolledOver: [],
         suppressionClearedFor: [],
       };
+      // Errors recorded before THIS year's league loop, so the classification can
+      // tell whether any league in this year failed — a league is pushed to
+      // `leaguesRolledOver` BEFORE its `invalidateStandings`, so an invalidation
+      // throw records an error while the league still counts as rolled.
+      const errorsBeforeYear = errors.length;
 
       for (const league of yearLeagues) {
         try {
@@ -220,23 +237,23 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       }
 
       years.push(yearResult);
-      // Per-year event classification from confirmed counts: every league rolled
-      // → complete; some rolled, some failed → partial; none rolled → failed.
+      // Per-year event classification from confirmed counts AND per-year errors:
+      // every league rolled with NO error this year → complete; any roll with a
+      // failure (a not-fully-rolled year, OR a rolled league whose
+      // `invalidateStandings` threw) → partial; nothing rolled → failed. Keying
+      // `complete` on error-freeness (not just the rolled count) keeps the
+      // event/receipt consistent with the response's `success: !hadFailure`.
       const rolledInYear = yearResult.leaguesRolledOver.length;
+      const yearHadError = errors.length > errorsBeforeYear;
+      const complete = rolledInYear === yearLeagues.length && !yearHadError;
       entries.push({
         year,
-        result:
-          rolledInYear === yearLeagues.length
-            ? 'success'
-            : rolledInYear > 0
-              ? 'partial'
-              : 'failure',
-        reason:
-          rolledInYear === yearLeagues.length
-            ? 'rollover-complete'
-            : rolledInYear > 0
-              ? 'rollover-partial'
-              : 'rollover-failed',
+        result: complete ? 'success' : rolledInYear > 0 ? 'partial' : 'failure',
+        reason: complete
+          ? 'rollover-complete'
+          : rolledInYear > 0
+            ? 'rollover-partial'
+            : 'rollover-failed',
         providerCallAttempted: false,
         targetLeagues: yearLeagues.length,
         rolledOverLeagues: rolledInYear,

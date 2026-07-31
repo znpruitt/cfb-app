@@ -155,6 +155,39 @@ async function runRoute(req: Request = cronRequest()): Promise<{
   return { res, event: events[0]!, threw, raw };
 }
 
+/**
+ * Run GET WITHOUT a Next work store so `invalidateStandings` (revalidateTag)
+ * throws — the app-state mutations (archive/status) still succeed, so a league
+ * rolls but its standings invalidation fails.
+ */
+async function runRouteNoStore(req: Request = cronRequest()): Promise<{
+  res: Response | null;
+  event: SeasonRolloverCronExecutionEvent;
+}> {
+  const raw: string[] = [];
+  console.log = ((...args: unknown[]) => {
+    raw.push(args.map((a) => (typeof a === 'string' ? a : String(a))).join(' '));
+  }) as typeof console.log;
+  let res: Response | null = null;
+  try {
+    res = await GET(req);
+  } finally {
+    console.log = ORIGINAL_CONSOLE_LOG;
+  }
+  const events: SeasonRolloverCronExecutionEvent[] = [];
+  for (const line of raw) {
+    try {
+      const parsed = JSON.parse(line) as { event?: string };
+      if (parsed?.event === 'season-rollover-cron')
+        events.push(parsed as SeasonRolloverCronExecutionEvent);
+    } catch {
+      /* not an event line */
+    }
+  }
+  assert.equal(events.length, 1, `exactly one season-rollover-cron event (got ${events.length})`);
+  return { res, event: events[0]! };
+}
+
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
@@ -443,4 +476,58 @@ test('a receipt-store failure changes no response, and no slug/credential/error 
   for (const marker of [CRON_MARKER, 'secret-slug-MARKER']) {
     assert.ok(!serialized.includes(marker), `no leak of ${marker}`);
   }
+});
+
+// Codex r3 finding A — a resolution THROW (structurally malformed cached
+// schedule) records the failing year rather than omitting it from the receipt.
+test('a championship-resolution throw records the failing year in the event/receipt', async () => {
+  await seedTeams();
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'season', year: 2023 }, 2023),
+  ]);
+  // A malformed schedule cache: a null item makes structured-championship
+  // resolution throw AFTER the cache read succeeds (not a read-failed return).
+  await setAppState('schedule', `2023-all-all`, { items: [null] });
+  const { res, event, threw } = await runRoute();
+  // The outer catch preserves the same 500; the event/receipt still include the year.
+  assert.ok(res!.status === 500 || threw, 'a resolution throw is the existing 500 / propagation');
+  assert.equal(event.years.length, 1, 'the failing year is NOT omitted');
+  assert.equal(event.years[0]!.year, 2023);
+  assert.equal(event.years[0]!.result, 'failure');
+  assert.equal(event.years[0]!.reason, 'unexpected-error');
+
+  await deferrer.flush();
+  const stored = await readSchedulerReceipt('season-rollover');
+  const target = stored!.value.target as { totalYears: number; years: Array<{ year: number }> };
+  assert.equal(target.totalYears, 1, 'the receipt target retains the failing year');
+  assert.deepEqual(
+    target.years.map((y) => y.year),
+    [2023]
+  );
+});
+
+// Codex r3 finding B — a rolled league whose invalidateStandings throws is a
+// per-year PARTIAL (not complete), consistent with the response's success:false.
+test('an invalidation failure on a rolled league is partial/rollover-partial, not complete', async () => {
+  await seedTeams();
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'season', year: 2023 }, 2023),
+  ]);
+  await seedChampionship(2023, PAST_CHAMP, true);
+  // Running with no work store makes invalidateStandings (revalidateTag) throw
+  // AFTER the league rolled (archive + status committed).
+  const { res, event } = await runRouteNoStore();
+  const body = (await res!.json()) as { success?: boolean; leaguesRolledOver?: string[] };
+  assert.equal(res!.status, 200);
+  assert.equal(body.success, false, 'the response reports the invalidation failure');
+  assert.deepEqual(body.leaguesRolledOver, ['alpha'], 'the league still rolled');
+  // The event/receipt must NOT claim complete when the response says failure.
+  assert.equal(event.result, 'partial');
+  const year = event.years[0]!;
+  assert.equal(year.result, 'partial');
+  assert.equal(year.reason, 'rollover-partial');
+  assert.equal(year.rolledOverLeagues, 1);
+
+  await deferrer.flush();
+  assert.equal((await readSchedulerReceipt('season-rollover'))?.value.reason, 'rollover-partial');
 });
