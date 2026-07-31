@@ -2,6 +2,7 @@ import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import RolloverPanel from '@/components/RolloverPanel';
 import BackfillPanel from '@/components/admin/BackfillPanel';
 import ArchiveListPanel from '@/components/admin/ArchiveListPanel';
+import SeasonRolloverPanel from '@/components/admin/SeasonRolloverPanel';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { sanitizeLeagues } from '@/lib/leagueSanitize';
 
@@ -25,6 +26,13 @@ export default async function AdminSeasonPage() {
         </div>
 
         <RolloverPanel />
+        {/* PLATFORM-086F2C — the per-year rollover status/maintenance panel
+            moved here from Data Maintenance & Recovery: Season Management owns
+            lifecycle rollover, and this panel is the only surface showing
+            ineligible/unavailable years with reasons and due dates. The
+            RolloverPanel above renders only when a year is eligible; final
+            consolidation of the two panels remains F2H. */}
+        <SeasonRolloverPanel />
         <BackfillPanel leagues={sanitizeLeagues(leagues)} />
         <ArchiveListPanel />
       </div>

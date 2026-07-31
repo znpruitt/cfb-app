@@ -333,9 +333,10 @@ export default function RolloverPanel() {
 
   // Execute controls exist ONLY for eligible years; this panel stays hidden
   // until at least one active season year passes the strict gate (ineligible
-  // and unavailable years surface on the Data Cache maintenance panel). A
-  // just-executed rollover keeps its result banner visible even after the
-  // executed year drops out of the eligible list.
+  // and unavailable years surface on the Season Management per-year status
+  // panel — SeasonRolloverPanel, PLATFORM-086F2C). A just-executed rollover
+  // keeps its result banner visible even after the executed year drops out of
+  // the eligible list.
   const eligibleYears = (years ?? []).filter((y) => y.eligibility === 'eligible');
   if (eligibleYears.length === 0 && !lastResult) return null;
 

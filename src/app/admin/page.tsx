@@ -26,8 +26,8 @@ const platformCards = [
   },
   {
     href: '/admin/data/cache',
-    title: 'Data Cache',
-    desc: 'SP+ ratings, win totals, schedule, scores, historical data',
+    title: 'Data Maintenance & Recovery',
+    desc: 'Provider refreshes, season inputs, and historical repair',
   },
   {
     href: '/admin/aliases',

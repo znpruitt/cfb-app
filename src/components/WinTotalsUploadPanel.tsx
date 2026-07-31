@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
+import MaintenanceActionDetails from '@/components/admin/MaintenanceActionDetails';
 
 const primaryButtonClass =
   'px-4 py-2 rounded border border-blue-600 bg-blue-600 text-sm font-medium text-white transition-colors hover:bg-blue-700 hover:border-blue-700 dark:border-blue-500 dark:bg-blue-600 dark:hover:bg-blue-700';
@@ -58,9 +59,9 @@ export default function WinTotalsUploadPanel() {
 
   return (
     <section className="rounded-lg border border-gray-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
-      <h2 className="mb-3 text-base font-semibold text-gray-900 dark:text-zinc-100">
+      <h3 className="mb-3 text-base font-semibold text-gray-900 dark:text-zinc-100">
         Win Total Upload
-      </h2>
+      </h3>
       <p className="mb-3 text-sm text-gray-500 dark:text-zinc-400">
         Upload projected win totals (over/under lines) for draft cards. CSV format:{' '}
         <code className="rounded bg-gray-100 px-1 text-xs dark:bg-zinc-800">
@@ -139,6 +140,9 @@ export default function WinTotalsUploadPanel() {
           </div>
         </div>
       )}
+      <div className="mt-3">
+        <MaintenanceActionDetails action="win-totals-upload" targetScope={`${year} season`} />
+      </div>
     </section>
   );
 }

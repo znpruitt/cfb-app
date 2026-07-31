@@ -107,10 +107,13 @@ Execution order within F2 (each slice is one independently deployable PR):
    eligibility gate, per-lifecycle-year rollover, no render-time status seeding, single league-year
    authority; binding rules in `AGENTS.md` → Lifecycle Authority Invariants) — ✅ merged
    (PR #431).
-3. **F2C — maintenance action model and page foundation** — the next slice.
-4. Then, in order: F2D operational-mutation relocation → F2E1/F2E2 scheduler receipts → F2F
-   system-health read model → F2G System Health UI → F2H Season Management consolidation → F2I
-   Platform Configuration/Team Identity → F2J commissioner boundaries + navigation closeout.
+3. **F2C — maintenance action model and page foundation** (Data Maintenance & Recovery rename,
+   shared per-action cost/scope disclosure contract, rollover off the maintenance page,
+   historical-score repair provider-status instrumentation) — implemented, PR open.
+4. **F2D — operational mutation relocation** — next slice, after F2C merges.
+5. Then, in order: F2E1/F2E2 scheduler receipts → F2F system-health read model → F2G System
+   Health UI → F2H Season Management consolidation → F2I Platform Configuration/Team Identity →
+   F2J commissioner boundaries + navigation closeout.
 
 The legacy diagnostics tools remain available and unmoved until the corresponding slice ships.
 
