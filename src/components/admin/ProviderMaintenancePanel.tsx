@@ -43,16 +43,23 @@ export default function ProviderMaintenancePanel({
   const [rankingsStatus, setRankingsStatus] = useState<SectionStatus>('idle');
   const [rankingsError, setRankingsError] = useState<string | undefined>();
 
-  // Year-scoped feedback truthfulness (Codex review — the trait the old status
-  // panel keyed by `manualActionKey`): a result belongs to the year it was
-  // requested for. Changing the year resets the visible feedback, and a late
-  // completion for a since-abandoned year is dropped rather than rendered
-  // beside the newly selected target.
-  const yearRef = useRef(year);
-  yearRef.current = year;
+  // Feedback truthfulness (Codex review — the trait the old status panel keyed
+  // by `manualActionKey`): a result belongs to the exact ATTEMPT it came from.
+  // Each dataset keeps a monotonic attempt sequence; starting a refresh claims
+  // the next sequence, and only the latest attempt may write feedback — so a
+  // superseded request (a rapid re-click, or an old-year request surviving an
+  // A→B→A year round-trip) can never overwrite newer loading/result state.
+  // Changing the year also bumps both sequences and resets the visible
+  // feedback, invalidating every in-flight attempt outright.
+  const attemptSeqRefs = {
+    odds: useRef(0),
+    rankings: useRef(0),
+  } as const;
 
   function handleYearChange(nextYear: number) {
     setYear(nextYear);
+    attemptSeqRefs.odds.current += 1;
+    attemptSeqRefs.rankings.current += 1;
     setOddsStatus('idle');
     setOddsError(undefined);
     setRankingsStatus('idle');
@@ -64,11 +71,13 @@ export default function ProviderMaintenancePanel({
     setStatus: (s: SectionStatus) => void,
     setError: (e: string | undefined) => void
   ) {
-    const actionYear = yearRef.current;
+    const actionYear = year;
+    const seqRef = attemptSeqRefs[dataset];
+    const attemptSeq = ++seqRef.current;
     setStatus('loading');
     setError(undefined);
     const applyIfCurrent = (status: SectionStatus, error?: string) => {
-      if (actionYear !== yearRef.current) return; // stale year — drop silently
+      if (attemptSeq !== seqRef.current) return; // superseded attempt — drop silently
       setError(error);
       setStatus(status);
     };

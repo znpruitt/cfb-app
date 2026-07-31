@@ -288,6 +288,57 @@ test('ProviderMaintenancePanel: a year change resets feedback and drops stale co
   assert.equal(queryByText('Working…'), null, 'feedback reset by the year change');
 });
 
+// Codex r2 — an A→B→A year round-trip must not let the superseded first
+// attempt overwrite the newer attempt's feedback: only the latest per-dataset
+// attempt sequence may write.
+test('ProviderMaintenancePanel: a superseded same-year attempt never overwrites newer feedback', async () => {
+  const year = seasonYearForToday();
+  const pending: Array<(r: Response) => void> = [];
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    requests.push({ url: String(input), method: 'GET', body: null, headers: {} });
+    return new Promise<Response>((resolve) => {
+      pending.push(resolve);
+    });
+  }) as typeof globalThis.fetch;
+
+  const { container, getByRole, getByText, queryByText } = render(<ProviderMaintenancePanel />);
+  const oddsButton = () => getByRole('button', { name: /Refresh Odds|Refreshing…/ });
+
+  // Attempt 1 for year A starts and stays in flight.
+  fireEvent.click(oddsButton());
+  await waitFor(() => getByText('Working…'));
+
+  // A → B → A round-trip (each change resets feedback and invalidates attempts).
+  const yearInput = container.querySelector('input[type="number"]')!;
+  const propsKey = Object.keys(yearInput).find((k) => k.startsWith('__reactProps$'))!;
+  const props = (yearInput as unknown as Record<string, unknown>)[propsKey] as {
+    onChange: (e: { target: { value: string } }) => void;
+  };
+  act(() => props.onChange({ target: { value: String(year + 1) } }));
+  act(() => props.onChange({ target: { value: String(year) } }));
+  assert.equal(queryByText('Working…'), null, 'round-trip reset the feedback');
+
+  // Attempt 2 for the SAME year A starts and is now the latest.
+  fireEvent.click(oddsButton());
+  await waitFor(() => getByText('Working…'));
+  assert.equal(pending.length, 2, 'two in-flight attempts');
+
+  // The SUPERSEDED attempt 1 resolves successfully — it must not write.
+  await act(async () => {
+    pending[0]!(Response.json({}));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  assert.equal(queryByText('Done'), null, 'superseded attempt dropped');
+  getByText('Working…');
+
+  // The latest attempt resolves and owns the feedback.
+  await act(async () => {
+    pending[1]!(Response.json({}));
+    await new Promise((r) => setTimeout(r, 0));
+  });
+  await waitFor(() => getByText('Done'));
+});
+
 test('ReferenceDataPanel: a bundled-fallback conferences 2xx never renders success', async () => {
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     requests.push({ url: String(input), method: 'GET', body: null, headers: {} });
