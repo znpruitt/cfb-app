@@ -10,6 +10,11 @@ import { CRON as ODDS_CRON } from '../../../../scripts/manage-odds-schedule';
 import { CRON as RANKINGS_CRON } from '../../../../scripts/manage-rankings-schedule';
 import { CRON as SCHEDULE_REFRESH_CRON } from '../../../../scripts/manage-schedule-refresh-schedule';
 import {
+  __deleteAppStateFileForTests,
+  __resetAppStateForTests,
+  setAppState,
+} from '@/lib/server/appStateStore';
+import {
   buildSchedulerExecutionReceipt,
   EXTERNAL_SCHEDULER_JOBS,
   rankingsYearsTarget,
@@ -560,4 +565,36 @@ test('the reader performs exactly one scope read and no writes', async () => {
     },
   });
   assert.equal(reads, 1, 'exactly one durable scope read');
+});
+
+// ── Default loader reads the real durable scope end-to-end ───────────────────
+test('the default loader reads the real durable scheduler-execution scope', async (t) => {
+  const mutableEnv = process.env as Record<string, string | undefined>;
+  const prevNodeEnv = mutableEnv.NODE_ENV;
+  mutableEnv.NODE_ENV = 'development'; // file-fallback durable store
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  t.after(async () => {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    if (prevNodeEnv === undefined) delete mutableEnv.NODE_ENV;
+    else mutableEnv.NODE_ENV = prevNodeEnv;
+  });
+
+  const now = ms('2026-03-15T12:10:00Z');
+  // Seed one valid, on-time receipt under its job key in the real scope.
+  await setAppState(
+    'scheduler-execution-status',
+    'live-scores',
+    validReceipt('live-scores', ms('2026-03-15T12:06:00Z'))
+  );
+
+  // No injected loader → the default cache-only scope read runs.
+  const snap = await readSchedulerDeliveryHealth({ nowMs: now });
+  assert.equal(snap.jobs.length, 7);
+  const live = snap.jobs.find((r) => r.job === 'live-scores')!;
+  assert.equal(live.deliveryState, 'on-time');
+  assert.ok(live.receipt, 'the durable receipt was read and parsed');
+  // Every job without a durable row is `missing`.
+  assert.equal(snap.jobs.find((r) => r.job === 'odds')!.deliveryState, 'missing');
 });
