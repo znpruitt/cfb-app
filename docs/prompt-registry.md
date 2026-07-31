@@ -101,7 +101,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   (file count under 15), dominated by the §8-mandated lifecycle test suites and the shared exec-log
   helper; **user approved proceeding as one cohesive, revertible lifecycle-observability contract**
   rather than an artificial split. No provider, scheduler, production, or BotID-stash operation.
-- Status: **Implemented; PR open to `main` (not merged) — feature branch
+- Status: **Implemented; PR #436 open to `main` (not merged) — feature branch
   `platform/086f2e2a-lifecycle-scheduler-receipts`.**
 
 ### PLATFORM-086F2E1-EXTERNAL-SCHEDULER-RECEIPTS-v1
