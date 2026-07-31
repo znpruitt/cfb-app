@@ -27,13 +27,14 @@ const EXPECTED_IDS = [
   'historical-scores-repair',
   'conferences-refresh',
   'team-database-sync',
+  'score-attachment-recovery',
 ] as const;
 
 const VALID_CLASSES: readonly MaintenanceActionClass[] = ['routine', 'recovery', 'emergency'];
 
-test('all twelve action IDs exist exactly once', () => {
+test('all thirteen action IDs exist exactly once', () => {
   assert.deepEqual([...MAINTENANCE_ACTION_IDS].sort(), [...EXPECTED_IDS].sort());
-  assert.equal(new Set(MAINTENANCE_ACTION_IDS).size, 12);
+  assert.equal(new Set(MAINTENANCE_ACTION_IDS).size, 13);
 });
 
 test('every descriptor has nonblank fields and a valid class', () => {
@@ -53,11 +54,27 @@ test('every descriptor has nonblank fields and a valid class', () => {
   }
 });
 
-test('only the full game-stats backfill is emergency', () => {
+test('exactly the two audited high-cost actions are emergency', () => {
   const emergencies = MAINTENANCE_ACTION_IDS.filter(
     (id) => MAINTENANCE_ACTIONS[id].actionClass === 'emergency'
-  );
-  assert.deepEqual(emergencies, ['game-stats-full-backfill']);
+  ).sort();
+  assert.deepEqual(emergencies, ['game-stats-full-backfill', 'score-attachment-recovery']);
+});
+
+test('the score-attachment recovery descriptor states the approved facts', () => {
+  const d = MAINTENANCE_ACTIONS['score-attachment-recovery'];
+  assert.equal(d.label, 'Refresh scores and run attachment trace');
+  assert.equal(d.provider, 'CFBD through the schedule, conference, and score adapters');
+  assert.match(d.nominalCost, /1–2 score requests/);
+  assert.match(d.nominalCost, /2 schedule partitions and 1 conferences request/);
+  assert.match(d.nominalCost, /fall back across provider weeks/);
+  assert.deepEqual(d.durableMutations, [
+    'Score caches and scoped provider-refresh statuses',
+    'Standings invalidation when scores change',
+    'Schedule and conference caches/statuses when cold context rebuilds them',
+  ]);
+  assert.equal(d.automationOwner, 'Operator diagnostic and recovery only');
+  assert.equal(d.actionClass, 'emergency');
 });
 
 test('routine vs recovery classifications match the audited action classes', () => {

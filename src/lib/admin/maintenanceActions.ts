@@ -24,7 +24,8 @@ export type MaintenanceActionId =
   | 'historical-schedule-repair'
   | 'historical-scores-repair'
   | 'conferences-refresh'
-  | 'team-database-sync';
+  | 'team-database-sync'
+  | 'score-attachment-recovery';
 
 export type MaintenanceActionDescriptor = {
   id: MaintenanceActionId;
@@ -159,6 +160,20 @@ export const MAINTENANCE_ACTIONS: Record<MaintenanceActionId, MaintenanceActionD
     durableMutations: ['Global team catalog (replaced)', 'Standings invalidation (all leagues)'],
     automationOwner: 'Manual only',
     actionClass: 'routine',
+  },
+  'score-attachment-recovery': {
+    id: 'score-attachment-recovery',
+    label: 'Refresh scores and run attachment trace',
+    provider: 'CFBD through the schedule, conference, and score adapters',
+    nominalCost:
+      'Normally 1–2 score requests; cold context may add 2 schedule partitions and 1 conferences request; a failed season read can fall back across provider weeks before retries',
+    durableMutations: [
+      'Score caches and scoped provider-refresh statuses',
+      'Standings invalidation when scores change',
+      'Schedule and conference caches/statuses when cold context rebuilds them',
+    ],
+    automationOwner: 'Operator diagnostic and recovery only',
+    actionClass: 'emergency',
   },
 };
 
