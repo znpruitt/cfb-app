@@ -571,7 +571,12 @@ test('the reader performs exactly one scope read and no writes', async () => {
 test('the default loader reads the real durable scheduler-execution scope', async (t) => {
   const mutableEnv = process.env as Record<string, string | undefined>;
   const prevNodeEnv = mutableEnv.NODE_ENV;
-  mutableEnv.NODE_ENV = 'development'; // file-fallback durable store
+  const prevDatabaseUrl = mutableEnv.DATABASE_URL;
+  // Select the FILE fallback — file fallback is chosen by DATABASE_URL ABSENCE
+  // (not NODE_ENV), so DATABASE_URL must be cleared or the destructive reset
+  // below would `DELETE FROM app_state` on a configured Postgres store.
+  delete mutableEnv.DATABASE_URL;
+  mutableEnv.NODE_ENV = 'development';
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
   t.after(async () => {
@@ -579,6 +584,8 @@ test('the default loader reads the real durable scheduler-execution scope', asyn
     __resetAppStateForTests();
     if (prevNodeEnv === undefined) delete mutableEnv.NODE_ENV;
     else mutableEnv.NODE_ENV = prevNodeEnv;
+    if (prevDatabaseUrl === undefined) delete mutableEnv.DATABASE_URL;
+    else mutableEnv.DATABASE_URL = prevDatabaseUrl;
   });
 
   const now = ms('2026-03-15T12:10:00Z');
