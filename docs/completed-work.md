@@ -2169,6 +2169,44 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2E2B — Scheduler Receipt Reader + Delivery Classifier — Complete
+
+- **Status:** Complete — merged to `main` via PR #437 (merge commit `f84b676`), 2026-07-31.
+- **PROMPT_ID(s):** `PLATFORM-086F2E2B-SCHEDULER-RECEIPT-READER-CLASSIFIER-v1` (the final
+  scheduler-receipt foundation before F2F).
+- **Outcome:** A cache-only SERVER reader + schedule-slot-aware delivery classifier over all seven
+  durable scheduler receipts, giving the later F2F System Health model truthful
+  scheduler-DELIVERY evidence without conflating delivery, execution outcome, provider activity, or
+  data freshness. `schedulerExecutionStatus.ts` gains `EXTERNAL_SCHEDULER_JOBS` (canonical ordered
+  tuple; `ExternalSchedulerJob` derived), `schedulerSourceForJob` (single ownership map), and the
+  exported `parseSchedulerExecutionReceipt` that validates AND rebuilds a stored receipt
+  field-by-field (no extra-field leakage, never a raw cast) — reused in the writer's prior-record
+  validation with monotonic ordering, replaceability, and the future-prior guard all unchanged. New
+  `src/lib/server/schedulerDeliveryHealth.ts` owns the seven fixed UTC policies (cron/cadence/grace;
+  source derived), a pure deterministic slot calculator (no cron-parser dep; UTC-only so DST is
+  irrelevant, correct across minute/hour/day/month/year boundaries, Rankings' uneven 04:00/22:00
+  gaps, and Vercel's 65-minute daily window), pure on-time/late classification, and ONE cache-only
+  scope read with an injected loader seam. It returns exactly seven state-bearing rows in canonical
+  order (`on-time`/`late`/`missing`/`invalid`/`unavailable`); timeliness is `startedAt` versus
+  `previousSlot(now − grace)` ONLY — never `result`/`reason`/`providerCallAttempted`/target or the
+  durable `updatedAt` — so a timely skip/no-op/failure is still `on-time`, and a missing/late
+  receipt never identifies a root cause. Server-only: no route, hook, UI, provider call, scheduler
+  mutation, settings change, receipt write, history, `vercel.json`/`package.json` change, or F2F
+  issue/severity logic. Policies are pinned by tests to the five management-script `CRON` exports
+  and both `vercel.json` entries; runtime code imports neither.
+- **Verification:** Full suite 3014 (+26: 23 delivery-health incl. all slot/boundary/DST/parity
+  cases + a real-store integration test, 3 authority parser/job/source); `npx tsc --noEmit`,
+  `npm run lint:all`, `npm run build`, `git diff --check` clean. Review converged: Claude
+  self-review (no P0–P2) + Codex round 1 one P1 (the default-loader integration test could
+  `DELETE FROM app_state` on a configured Postgres store — file fallback keys on `DATABASE_URL`
+  absence, not `NODE_ENV`; fixed by clearing/restoring `DATABASE_URL`) → round 2 clean. PR size:
+  4 files / ~1,000 net lines — under both soft signals.
+- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2F —
+  the consolidated System Health read model that consumes this reader and adds issue codes,
+  severity, and repair links — is the next F2 slice).
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped

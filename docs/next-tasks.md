@@ -132,8 +132,8 @@ Execution order within F2 (each slice is one independently deployable PR):
 7. **F2E2B — scheduler receipt reader + delivery classifier** (cache-only server reader over all
    seven `scheduler-execution-status/<job>` receipts + schedule-slot-aware delivery classifier;
    safe receipt parsing exposed on the authority; server-only — no route, UI, provider call,
-   scheduler mutation, settings change, or durable write) — ✅ **implemented, PR #437 open (not
-   merged)**.
+   scheduler mutation, settings change, or durable write) — ✅ **merged (PR #437, `f84b676`,
+   2026-07-31)**.
 8. **F2F — system-health read model** — **the next slice**: one server-side operational view model
    consuming the F2E2B reader plus automation gates, canonical data health, latest scoped attempts,
    quota, and storage — kept distinct — with stable issue codes, severity, explanation, and repair
