@@ -216,12 +216,18 @@ test('an all-season confirmation carries no week-scope note; year is serializati
   );
 
   // An exponent-sized year would serialize as 1e+22 and be parsed as year 1
-  // server-side — it must never reach confirmation.
+  // server-side, and a far-future year would be rejected upstream into an
+  // empty 200 "Trace loaded" with no refresh — neither may reach confirmation.
+  const maxSupportedYear = new Date().getUTCFullYear() + 1;
   const yearInput = container.querySelector('input[type="number"]')!;
-  setControl(yearInput, '1e22');
-  fireEvent.click(getByRole('button', { name: 'Refresh scores and run attachment trace' }));
-  getByText('Year must be a whole number between 2000 and 2100.');
-  assert.equal(confirmMessages.length, 1, 'no confirmation for an out-of-bounds year');
+  for (const bad of ['1e22', String(maxSupportedYear + 1)]) {
+    setControl(yearInput, bad);
+    fireEvent.click(getByRole('button', { name: 'Refresh scores and run attachment trace' }));
+    getByText(
+      `Year must be a whole number between 2000 and ${maxSupportedYear} (the provider routes' supported range).`
+    );
+  }
+  assert.equal(confirmMessages.length, 1, 'no confirmation for out-of-bounds years');
   assert.deepEqual(requests, []);
 });
 

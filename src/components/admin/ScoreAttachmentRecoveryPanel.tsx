@@ -101,11 +101,14 @@ export default function ScoreAttachmentRecoveryPanel({
     return Number.isSafeInteger(n) && n <= 99 ? n : 'invalid';
   })();
 
-  // Year gets the same serialization bound as the week: an exponent-sized value
-  // (1e22) passes an unbounded integer check but serializes as `1e+22`, which
-  // the route's parser reads as year 1 — running against a different year than
-  // the operator confirmed.
-  const yearInvalid = !Number.isInteger(year) || year < 2000 || year > 2100;
+  // Year matches the provider routes' supported range (2000 .. current UTC
+  // year + 1, the schedule/scores bound): a farther-future year would pass a
+  // loose client check, be rejected upstream into an empty context, and render
+  // a misleading "Trace loaded" with no refresh executed (Codex r3). The bound
+  // also blocks exponent-sized values that would serialize as `1e+22` and be
+  // parsed as year 1 server-side.
+  const maxSupportedYear = new Date().getUTCFullYear() + 1;
+  const yearInvalid = !Number.isInteger(year) || year < 2000 || year > maxSupportedYear;
   const targetInvalid = parsedWeek === 'invalid' || yearInvalid;
   const currentTarget = useMemo(
     () =>
@@ -119,7 +122,9 @@ export default function ScoreAttachmentRecoveryPanel({
     // Validate the exact target BEFORE any confirmation or request. An invalid
     // week or year must never silently reach a broader or different scope.
     if (yearInvalid) {
-      setValidationError('Year must be a whole number between 2000 and 2100.');
+      setValidationError(
+        `Year must be a whole number between 2000 and ${maxSupportedYear} (the provider routes' supported range).`
+      );
       return;
     }
     if (parsedWeek === 'invalid') {
