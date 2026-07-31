@@ -71,14 +71,22 @@ export const SCHEDULER_EXECUTION_STATUS_SCOPE = 'scheduler-execution-status';
 /** Bounded multi-year target summaries store at most this many entries. */
 export const MAX_SCHEDULER_TARGET_YEARS = 8;
 
-export type ExternalSchedulerJob =
-  | 'live-scores'
-  | 'game-stats'
-  | 'odds'
-  | 'schedule-refresh'
-  | 'rankings'
-  | 'season-transition'
-  | 'season-rollover';
+/**
+ * The canonical, ordered list of every externally scheduled job. Readers (F2E2B)
+ * iterate this to guarantee one deterministic row per job in a stable order;
+ * {@link ExternalSchedulerJob} is derived from it so the two can never drift.
+ */
+export const EXTERNAL_SCHEDULER_JOBS = [
+  'live-scores',
+  'game-stats',
+  'odds',
+  'schedule-refresh',
+  'rankings',
+  'season-transition',
+  'season-rollover',
+] as const;
+
+export type ExternalSchedulerJob = (typeof EXTERNAL_SCHEDULER_JOBS)[number];
 
 /**
  * How a job is scheduled. `source` is NEVER accepted from a route caller — it is
@@ -100,6 +108,11 @@ const JOB_SOURCE: Record<ExternalSchedulerJob, SchedulerSource> = {
   'season-transition': 'vercel-cron',
   'season-rollover': 'vercel-cron',
 };
+
+/** The configured scheduler owner for a job — the single derivation of `source`. */
+export function schedulerSourceForJob(job: ExternalSchedulerJob): SchedulerSource {
+  return JOB_SOURCE[job];
+}
 
 export type SchedulerExecutionResult =
   | 'skipped'
@@ -357,7 +370,9 @@ export async function recordSchedulerExecutionReceipt(
       // A thrown read propagates (rolling back the transaction): a real read
       // failure must never be mistaken for a replaceable missing record.
       const prior = await txn.read<unknown>();
-      const usablePrior = prior ? parseUsablePriorReceipt(prior.value, stored.job, nowMs) : null;
+      const usablePrior = prior
+        ? parseSchedulerExecutionReceipt(prior.value, stored.job, nowMs)
+        : null;
       if (usablePrior && !incomingReceiptWins(stored, usablePrior)) return;
       await txn.write(stored);
     });
@@ -659,12 +674,19 @@ function isValidLifecycleYearEntries(
 }
 
 /**
- * A prior record is usable ONLY when its version, job, source, invocation
- * identity, timestamps, result, provider flag, and job-compatible target shape
- * are all valid, AND its `startedAt` — the monotonic ordering key — is not dated
+ * Safely parse a stored scheduler-execution receipt for `expectedJob`, returning
+ * a REBUILT allowlisted receipt or `null`. The single reusable read contract: the
+ * writer uses it for prior-record validation (monotonic ordering / replaceability)
+ * and the F2E2B delivery-health reader uses it to parse durable rows.
+ *
+ * A record is usable ONLY when its version, job, source, invocation identity,
+ * timestamps, result, provider flag, and job-compatible target shape are all
+ * valid, AND its `startedAt` — the monotonic ordering key — is not dated
  * implausibly in the future. Anything else (missing, malformed, mismatched job,
- * obsolete version, corrupt fields, a future-dated `startedAt`) is replaceable
- * and returns `null`.
+ * mismatched derived source, wrong/obsolete version, corrupt fields, a
+ * future-dated `startedAt`) is replaceable and returns `null`. The accepted
+ * record is rebuilt field-by-field, so no extra top-level/target/nested property
+ * escapes and the raw stored object is never returned by cast.
  *
  * The future-`startedAt` guard is what actually closes the "malformed prior pins
  * health forever" vector: validating `reason` against the closed vocabulary is
@@ -675,27 +697,30 @@ function isValidLifecycleYearEntries(
  * pins health if its `startedAt` beats live cron runs — which the future guard
  * prevents; a sane PAST timestamp self-heals on the next run regardless.
  */
-function parseUsablePriorReceipt(
+export function parseSchedulerExecutionReceipt(
   value: unknown,
-  job: ExternalSchedulerJob,
+  expectedJob: ExternalSchedulerJob,
   nowMs: number
 ): SchedulerExecutionReceipt | null {
   if (typeof value !== 'object' || value === null) return null;
   const record = value as Record<string, unknown>;
   if (record.version !== 1) return null;
-  if (record.job !== job) return null;
+  if (record.job !== expectedJob) return null;
   // The source must be the one this job is wired to — a record claiming the wrong
   // source (e.g. a lifecycle job stored as `qstash`) is corrupt and replaceable.
-  if (record.source !== JOB_SOURCE[job]) return null;
+  if (record.source !== JOB_SOURCE[expectedJob]) return null;
   if (typeof record.invocationId !== 'string' || record.invocationId.length === 0) return null;
   if (!isValidIsoInstant(record.startedAt) || !isValidIsoInstant(record.completedAt)) return null;
-  if (Date.parse(record.startedAt) > nowMs + PRIOR_FUTURE_SKEW_TOLERANCE_MS) return null;
+  if (Date.parse(record.startedAt as string) > nowMs + PRIOR_FUTURE_SKEW_TOLERANCE_MS) return null;
   if (!isNonNegativeInteger(record.durationMs)) return null;
   if (typeof record.result !== 'string' || !RESULT_VALUES.has(record.result)) return null;
   if (typeof record.reason !== 'string' || record.reason.length === 0) return null;
   if (typeof record.providerCallAttempted !== 'boolean') return null;
-  if (!isValidStoredTarget(record.target, job)) return null;
-  return record as SchedulerExecutionReceipt;
+  if (!isValidStoredTarget(record.target, expectedJob)) return null;
+  // REBUILD field-by-field through the allowlist so no extra top-level, target,
+  // or nested target-entry property can escape — never return the raw stored
+  // object by cast. (Validation above already guarantees the rebuild succeeds.)
+  return rebuildReceipt(record as unknown as SchedulerExecutionReceipt);
 }
 
 /**

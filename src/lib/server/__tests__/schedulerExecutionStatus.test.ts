@@ -14,12 +14,15 @@ import {
   __setSchedulerReceiptDeferrerForTests,
   buildSchedulerExecutionReceipt,
   createSchedulerInvocationId,
+  EXTERNAL_SCHEDULER_JOBS,
+  parseSchedulerExecutionReceipt,
   rankingsYearsTarget,
   recordSchedulerExecutionReceipt,
   scheduleSchedulerExecutionReceipt,
   scheduleYearsTarget,
   seasonRolloverYearsTarget,
   seasonTransitionYearsTarget,
+  schedulerSourceForJob,
   SCHEDULER_EXECUTION_STATUS_SCOPE,
   type SchedulerExecutionReceipt,
   type SchedulerExecutionReceiptInput,
@@ -679,4 +682,87 @@ test('secret canaries and arbitrary attached properties never reach durable stat
   } finally {
     deferrer.restore();
   }
+});
+
+// ── F2E2B — exported job list, source helper, and safe read parser ───────────
+
+test('EXTERNAL_SCHEDULER_JOBS is the canonical seven jobs and derives each source', () => {
+  assert.deepEqual(
+    [...EXTERNAL_SCHEDULER_JOBS],
+    [
+      'live-scores',
+      'game-stats',
+      'odds',
+      'schedule-refresh',
+      'rankings',
+      'season-transition',
+      'season-rollover',
+    ]
+  );
+  for (const job of EXTERNAL_SCHEDULER_JOBS) {
+    const expected =
+      job === 'season-transition' || job === 'season-rollover' ? 'vercel-cron' : 'qstash';
+    assert.equal(schedulerSourceForJob(job), expected, `${job} source`);
+  }
+});
+
+test('parseSchedulerExecutionReceipt accepts a valid record and REBUILDS it (no cast, no extras)', () => {
+  const now = Date.now();
+  const built = receiptOf(liveScoresInput({ startedAtMs: now - 60_000 }));
+  // Attach canary fields at every level; the parser must strip them.
+  const withCanaries = {
+    ...built,
+    LEAK: 'x-MARKER',
+    target: {
+      ...built.target,
+      LEAK: 'y-MARKER',
+    },
+  };
+  const parsed = parseSchedulerExecutionReceipt(withCanaries, 'live-scores', now);
+  assert.ok(parsed, 'a valid record parses');
+  assert.notEqual(parsed, withCanaries, 'never returns the raw stored object by cast');
+  assert.deepEqual(Object.keys(parsed!).slice().sort(), RECEIPT_KEYS);
+  assert.ok(!JSON.stringify(parsed).includes('MARKER'), 'canaries stripped');
+  // Ordering-relevant fields are preserved verbatim.
+  assert.equal(parsed!.startedAt, built.startedAt);
+  assert.equal(parsed!.invocationId, built.invocationId);
+});
+
+test('parseSchedulerExecutionReceipt rejects wrong job, wrong source, and future-dated starts', () => {
+  const now = Date.now();
+  const good = receiptOf(
+    liveScoresInput({
+      job: 'season-transition',
+      result: 'success',
+      reason: 'season-transitioned',
+      providerCallAttempted: true,
+      startedAtMs: now - 60_000,
+      target: seasonTransitionYearsTarget([
+        { year: 2026, targetLeagues: 1, probed: true, transitionedLeagues: 1 },
+      ]),
+    })
+  );
+  // Wrong expected job.
+  assert.equal(parseSchedulerExecutionReceipt(good, 'season-rollover', now), null);
+  // Wrong derived source stored on the record.
+  assert.equal(
+    parseSchedulerExecutionReceipt({ ...good, source: 'qstash' }, 'season-transition', now),
+    null
+  );
+  // Obsolete version.
+  assert.equal(
+    parseSchedulerExecutionReceipt({ ...good, version: 2 }, 'season-transition', now),
+    null
+  );
+  // Materially future-dated startedAt.
+  assert.equal(
+    parseSchedulerExecutionReceipt(
+      { ...good, startedAt: new Date(now + 10 * 60_000).toISOString() },
+      'season-transition',
+      now
+    ),
+    null
+  );
+  // A correct record still parses.
+  assert.ok(parseSchedulerExecutionReceipt(good, 'season-transition', now));
 });
