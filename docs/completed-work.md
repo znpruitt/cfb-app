@@ -2130,6 +2130,45 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2E2A — Lifecycle Scheduler Receipts + Events — Complete
+
+- **Status:** Complete — merged to `main` via PR #436 (merge commit `fa6e967`), 2026-07-31.
+- **PROMPT_ID(s):** `PLATFORM-086F2E2A-LIFECYCLE-SCHEDULER-RECEIPTS-v1` (first half of the audited
+  F2E2 split).
+- **Outcome:** The merged F2E1 receipt authority now covers all SEVEN scheduled jobs: the two
+  Vercel-native lifecycle crons (season-transition, season-rollover) write one latest-only durable
+  receipt each under `scheduler-execution-status/<job>` with `source: 'vercel-cron'` (the five
+  QStash jobs stay `source: 'qstash'` byte-equivalent), and both crons now emit their
+  previously-missing secret-safe runtime execution-log events (`season-transition-cron` /
+  `season-rollover-cron`, auth failures included). `source` is DERIVED from `job` through a closed
+  map, never accepted from a caller; two bounded target variants (`season-transition-years`,
+  `season-rollover-years`) cap at eight ascending entries with per-shape validation. Both routes
+  were restructured to one outer `try/(catch)/finally` — `invocationId` created only after
+  successful auth, the finally emits the event then schedules one receipt only when authenticated.
+  Season-transition provider truth comes from E1A (`refresh.status`/`providerCallAttempted`);
+  rollover is always `providerCallAttempted: false`. Per-year classification is truthful (probe/
+  lifecycle-write throws; rollover complete/partial/failed keyed on rolled counts AND per-year
+  errors; a resolution throw records the failing year; an invalidation throw is a truthful partial)
+  while every existing HTTP response, lifecycle decision, E1A/probe behavior, archive-first
+  ordering, per-league failure isolation, standings invalidation, suppression clearing, and
+  presentation triggering is byte-preserved. No reader/UI (F2E2B); no scheduler/`vercel.json`
+  changes.
+- **Verification:** Full suite 2988 (+32: 7 authority + 15 season-transition + 10 season-rollover;
+  the 25 existing lifecycle route tests stay green unchanged); `npx tsc --noEmit`,
+  `npm run lint:all`, `npm run build`, `git diff --check` clean. Review converged: Claude
+  `/code-review` (xhigh — 1 correctness/drift finding fixed, 1 reuse note out-of-scope) + Codex
+  three cycles (r1 clean → r2 1 P2 ascending-sort fixed → r3 2 P2 rollover-accuracy gaps fixed
+  under explicit user authorization at the three-cycle gate). PR-size reassessment (in
+  `docs/prompt-registry.md`): ~13 files / ~1,900 net lines crossed the >1,500-net-line signal,
+  dominated by the §8-mandated test suites; user-approved as one cohesive lifecycle-observability
+  contract.
+- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2E2B —
+  the cache-only admin reader over all seven receipts + cadence-aware delivery-health
+  classification — is the next F2 slice; the lifecycle-aggregation duplication of the
+  rankings/schedule cron policy is a recorded cross-module cleanup follow-up).
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped

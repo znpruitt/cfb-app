@@ -127,8 +127,8 @@ Execution order within F2 (each slice is one independently deployable PR):
 6. **F2E2A — lifecycle scheduler receipts + events** (extend the receipt authority to
    season-transition and season-rollover with `source: 'vercel-cron'`, and add their
    previously-missing secret-safe runtime execution-log events; responses, lifecycle decisions,
-   provider behavior, cadence, and `vercel.json` unchanged; no reader/UI) — ✅ **implemented, PR
-   #436 open (not merged)**.
+   provider behavior, cadence, and `vercel.json` unchanged; no reader/UI) — ✅ **merged (PR #436,
+   `fa6e967`, 2026-07-31)**.
 7. **F2E2B — lifecycle scheduler reader + classifier** — **the next slice**: add the cache-only
    admin reader over all seven `scheduler-execution-status/<job>` receipts and the cadence-aware
    delivery-health classification.
