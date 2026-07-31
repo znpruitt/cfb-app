@@ -87,7 +87,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   clean. Browser smoke check unavailable (Chrome extension not installed) — deterministic render
   tests are the acceptance authority. No provider, scheduler, production, or rollover operation
   performed.
-- Status: Implemented — PR open (PR #432).
+- Status: Merged (PR #432, `5e2c021`, 2026-07-30).
 
 ### PLATFORM-086F2B-LIFECYCLE-AUTHORITY-SAFETY-v1
 

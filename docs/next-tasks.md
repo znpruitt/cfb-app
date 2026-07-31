@@ -109,8 +109,8 @@ Execution order within F2 (each slice is one independently deployable PR):
    (PR #431).
 3. **F2C — maintenance action model and page foundation** (Data Maintenance & Recovery rename,
    shared per-action cost/scope disclosure contract, rollover off the maintenance page,
-   historical-score repair provider-status instrumentation) — implemented, PR open.
-4. **F2D — operational mutation relocation** — next slice, after F2C merges.
+   historical-score repair provider-status instrumentation) — ✅ merged (PR #432).
+4. **F2D — operational mutation relocation** — the next slice.
 5. Then, in order: F2E1/F2E2 scheduler receipts → F2F system-health read model → F2G System
    Health UI → F2H Season Management consolidation → F2I Platform Configuration/Team Identity →
    F2J commissioner boundaries + navigation closeout.

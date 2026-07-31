@@ -2016,6 +2016,32 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2C — Maintenance Action Model + Data Maintenance & Recovery Foundation — Complete
+
+- **Status:** Complete — merged to `main` via PR #432 (merge commit `5e2c021`, 2026-07-30).
+- **PROMPT_ID(s):** `PLATFORM-086F2C-MAINTENANCE-ACTION-MODEL-v1` (third slice of the
+  PLATFORM-086F2 admin control-plane redesign).
+- **Outcome:** The stable `/admin/data/cache` route presents as **Data Maintenance & Recovery**:
+  three organized sections, and every one of the eight existing maintenance actions discloses its
+  provider, nominal cost, live target, durable mutations, automation owner, and
+  routine/recovery/emergency class through the shared presentation-only contract
+  (`src/lib/admin/maintenanceActions.ts`) — the full game-stats backfill visibly identifies as the
+  emergency action, and request construction is pinned unchanged. Lifecycle rollover left the
+  maintenance surface (the per-year status panel now renders on Season Management, its owner). The
+  historical-score repair records one truthful year-rollup `provider-refresh-status` attempt
+  whenever provider work is required, with shared empty/schema-drift classification before any
+  write, no empty commits, partial-write truth, and a panel that distinguishes a no-op from a
+  cache write — closing the status gap flagged at F2A.
+- **Verification:** 37 new focused tests; full suite 2883 green; `npx tsc --noEmit`,
+  `npm run lint:all`, `npm run build`, `git diff --check` clean. Review converged: Claude
+  self-review + three Codex rounds, with the round-3 P2 resolved by explicit user authorization
+  (details in `docs/prompt-registry.md`).
+- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2D is
+  the next F2 slice; the repair's lifecycle-active-year guard hardening is a named follow-up in
+  `docs/architecture/admin-control-plane.md`).
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
