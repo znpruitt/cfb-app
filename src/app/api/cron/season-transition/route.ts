@@ -162,6 +162,11 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       // classified into the right typed per-year reason before it reaches the
       // outer catch (which produces the SAME 500 response as before).
       let phase: 'other' | 'probe-read' | 'probe-write' | 'lifecycle-write' = 'other';
+      // The E1A refresh STATUS this run, captured verbatim from the typed result
+      // when a refresh ran (null when the year was not probed). The per-year event
+      // result is mapped from this status directly — never re-derived from the
+      // reason vocabulary, which could drift from E1A's actual status.
+      let refreshStatus: FullSeasonScheduleRefreshStatus | null = null;
       // Set when THIS run's probe cannot be trusted as a currently-valid schedule
       // (a failed/stale/rejected refresh) — the league must not flip off it; the
       // next cron run retries once the shared authority commits a clean schedule.
@@ -200,6 +205,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           // no pause gate. The cron consumes the authority's CONFIRMED result — it
           // never refetches the provider or re-records status.
           const refresh = await refreshFullSeasonSchedule({ year: targetYear, now: nowMs });
+          refreshStatus = refresh.status;
           yearEntry.scheduleRefreshReason = refresh.reason;
           yearEntry.providerCallAttempted = refresh.providerCallAttempted;
 
@@ -311,18 +317,11 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         if (yearEntry.transitionedLeagues > 0) {
           yearEntry.result = 'success';
           yearEntry.reason = 'season-transitioned';
-        } else if (yearEntry.probed) {
-          const refreshReason = yearEntry.scheduleRefreshReason;
-          yearEntry.result = e1aStatusToResult(
-            refreshReason === 'refresh-in-progress'
-              ? 'in-progress'
-              : refreshReason === 'empty-response' || refreshReason === 'stale-observation'
-                ? 'no-op'
-                : refreshReason === 'written-clean' || refreshReason === 'unchanged-clean'
-                  ? 'success'
-                  : 'failure'
-          );
-          yearEntry.reason = refreshReason ?? 'unexpected-error';
+        } else if (refreshStatus) {
+          // A refresh ran without a transition — report its exact E1A status and
+          // reason verbatim (the typed decision), never a re-derived guess.
+          yearEntry.result = e1aStatusToResult(refreshStatus);
+          yearEntry.reason = yearEntry.scheduleRefreshReason ?? 'unexpected-error';
         } else {
           yearEntry.result = 'skipped';
           yearEntry.reason = 'refresh-not-due';
