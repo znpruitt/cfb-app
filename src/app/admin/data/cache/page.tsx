@@ -5,6 +5,7 @@ import GlobalRefreshPanel from '@/components/admin/GlobalRefreshPanel';
 import GameStatsCachePanel from '@/components/admin/GameStatsCachePanel';
 import ProviderMaintenancePanel from '@/components/admin/ProviderMaintenancePanel';
 import ReferenceDataPanel from '@/components/admin/ReferenceDataPanel';
+import ScoreAttachmentRecoveryPanel from '@/components/admin/ScoreAttachmentRecoveryPanel';
 import SpRatingsCachePanel from '@/components/SpRatingsCachePanel';
 import WinTotalsUploadPanel from '@/components/WinTotalsUploadPanel';
 import HistoricalCachePanel from '@/components/admin/HistoricalCachePanel';
@@ -60,6 +61,11 @@ export default async function AdminDataCachePage() {
           <GlobalRefreshPanel defaultYear={leagueAwareYear} />
           <GameStatsCachePanel defaultYear={leagueAwareYear} />
           <ProviderMaintenancePanel defaultYear={leagueAwareYear} />
+        </section>
+
+        <section className="space-y-4">
+          <h2 className={sectionHeadingClass}>Diagnostic recovery</h2>
+          <ScoreAttachmentRecoveryPanel defaultYear={leagueAwareYear} />
         </section>
 
         <section className="space-y-4">

@@ -17,7 +17,7 @@ const platformCards = [
   {
     href: '/admin/diagnostics',
     title: 'Diagnostics',
-    desc: 'API usage, storage, score attachment',
+    desc: 'Provider status, automation controls, quota, and storage',
   },
   {
     href: '/admin/leagues',

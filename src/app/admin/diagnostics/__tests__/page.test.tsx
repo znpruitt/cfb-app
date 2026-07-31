@@ -34,18 +34,24 @@ function collectComponents(node: unknown, out: string[] = []): string[] {
   return out;
 }
 
-test('Diagnostics no longer composes the team-database mutation panel', async () => {
+test('Diagnostics composes only observation and safety controls — no repair mutations', async () => {
   await setAppState('leagues', 'registry', []);
   const element = await AdminDiagnosticsPage();
   const components = collectComponents(element);
 
-  assert.ok(!components.includes('AdminTeamDatabasePanel'), 'team-database sync relocated');
+  // Every provider-data repair trigger is gone (F2D1 + F2D2): no team-database
+  // sync, no score-attachment surface of any kind. The only mutation-capable
+  // controls left are the global/dataset automation-safety settings inside the
+  // provider status panel.
   for (const name of [
-    'ProviderDataStatusPanel',
-    'AdminUsagePanel',
-    'AdminStorageStatusPanel',
+    'AdminTeamDatabasePanel',
     'DiagnosticsScorePanel',
+    'ScoreAttachmentDebugPanel',
+    'ScoreAttachmentRecoveryPanel',
   ]) {
+    assert.ok(!components.includes(name), `${name} must not render on Diagnostics`);
+  }
+  for (const name of ['ProviderDataStatusPanel', 'AdminUsagePanel', 'AdminStorageStatusPanel']) {
     assert.ok(components.includes(name), `${name} still composed`);
   }
 });

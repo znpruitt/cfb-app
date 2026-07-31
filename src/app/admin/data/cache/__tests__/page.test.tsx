@@ -56,12 +56,17 @@ test('page renders as Data Maintenance & Recovery with three ordered sections, n
   assert.match(text, /Season Management/, 'lifecycle link copy present');
   assert.match(text, /nominal per successful attempt/, 'shared cost caveat stated');
 
-  // Sections appear in the intended order (Reference data added by F2D1).
+  // Sections appear in the intended order (Reference data added by F2D1,
+  // Diagnostic recovery by F2D2).
   const provider = text.indexOf('Provider maintenance & recovery');
+  const diagnostic = text.indexOf('Diagnostic recovery');
   const inputs = text.indexOf('Season inputs');
   const reference = text.indexOf('Reference data');
   const historical = text.indexOf('Historical recovery');
-  assert.ok(provider < inputs && inputs < reference && reference < historical, 'section order');
+  assert.ok(
+    provider < diagnostic && diagnostic < inputs && inputs < reference && reference < historical,
+    'section order'
+  );
 
   // Rollover is absent — Season Management owns it.
   assert.ok(!out.components.includes('SeasonRolloverPanel'), 'SeasonRolloverPanel not rendered');
@@ -73,6 +78,7 @@ test('page renders as Data Maintenance & Recovery with three ordered sections, n
     'GlobalRefreshPanel',
     'GameStatsCachePanel',
     'ProviderMaintenancePanel',
+    'ScoreAttachmentRecoveryPanel',
     'SpRatingsCachePanel',
     'WinTotalsUploadPanel',
     'ReferenceDataPanel',
@@ -92,4 +98,8 @@ test('the /admin landing card uses the new name while the href stays /admin/data
   assert.match(text, /Data Maintenance & Recovery/);
   assert.ok(out.strings.includes('/admin/data/cache'), 'href unchanged');
   assert.ok(!out.strings.includes('Data Cache'), 'old card title retired');
+
+  // F2D2 — the Diagnostics card no longer names the relocated score tool.
+  assert.ok(!/score attachment/i.test(text), 'stale score-attachment wording removed');
+  assert.match(text, /Provider status, automation controls, quota, and storage/);
 });

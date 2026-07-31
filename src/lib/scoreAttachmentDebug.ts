@@ -31,12 +31,15 @@ export type ScoreAttachmentDebugResponse = {
   };
 };
 
-export async function fetchScoreAttachmentDebug(params: {
-  year: number;
-  week?: number | null;
-  seasonType?: string | null;
-  source?: string | null;
-}): Promise<ScoreAttachmentDebugResponse> {
+export async function fetchScoreAttachmentDebug(
+  params: {
+    year: number;
+    week?: number | null;
+    seasonType?: string | null;
+    source?: string | null;
+  },
+  opts: { signal?: AbortSignal } = {}
+): Promise<ScoreAttachmentDebugResponse> {
   const search = new URLSearchParams();
   search.set('year', String(params.year));
   if (params.week != null) search.set('week', String(params.week));
@@ -46,6 +49,7 @@ export async function fetchScoreAttachmentDebug(params: {
   const res = await fetch(`/api/debug/scores-attachment?${search.toString()}`, {
     cache: 'no-store',
     headers: { ...(requireAdminAuthHeaders() as Record<string, string>) },
+    signal: opts.signal,
   });
   if (!res.ok) {
     throw new Error(`Debug scores endpoint failed (${res.status})`);
