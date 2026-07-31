@@ -261,7 +261,7 @@ activation evidence in `docs/deployment-runbook.md` §8e–§8j.
 | 086C (C1/C2/C3) | Odds refresh authority, polling activation, cache UI hydration | ✅ Complete — active in production (§8g; PRs #419–#421) |
 | 086E1 (E1A/E1B/E1B1/E1C1/E1C2) | Schedule refresh authority, weekly automation, presentation enrichment | ✅ Complete — active in production (§8h; §8i observation pending, passive; PRs #422–#426) |
 | 086E2 (E2A/E2B) | Rankings refresh authority, publication-aware automation | ✅ Complete — active in production (§8j; PRs #427–#428) |
-| 086F2 | Admin control-plane IA redesign (F2A audit/IA doc + F2B–F2J implementation slices; plan: `docs/architecture/admin-control-plane.md`) | In progress (F2A–F2C + F2D1 ✅ merged, PRs #430–#433; F2D2 next — queue in `docs/next-tasks.md`) |
+| 086F2 | Admin control-plane IA redesign (F2A audit/IA doc + F2B–F2J implementation slices; plan: `docs/architecture/admin-control-plane.md`) | In progress (F2A–F2C + F2D1 ✅ merged, PRs #430–#433; F2D2 implemented — PR open; queue in `docs/next-tasks.md`) |
 | 086D | Absorbed into 086A; retired — do not reuse the ID | — |
 
 Conferences remain manual — no automation task exists or is planned.

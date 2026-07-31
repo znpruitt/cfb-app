@@ -88,18 +88,30 @@ export default function ScoreAttachmentRecoveryPanel({
     setResult(null);
   }
 
+  // A digit string beyond a plausible week bound is INVALID, not a broad run:
+  // huge values serialize exponentially (`1e+22`), which the route's own week
+  // parser rejects — silently broadening a "week-scoped" run to the full
+  // season. Bounding here keeps the captured target and the server scope
+  // identical.
   const trimmedWeek = weekInput.trim();
-  const parsedWeek: number | null | 'invalid' =
-    trimmedWeek === ''
-      ? null
-      : /^\d+$/.test(trimmedWeek)
-        ? Number.parseInt(trimmedWeek, 10)
-        : 'invalid';
+  const parsedWeek: number | null | 'invalid' = (() => {
+    if (trimmedWeek === '') return null;
+    if (!/^\d+$/.test(trimmedWeek)) return 'invalid';
+    const n = Number.parseInt(trimmedWeek, 10);
+    return Number.isSafeInteger(n) && n <= 99 ? n : 'invalid';
+  })();
 
+  const targetInvalid = parsedWeek === 'invalid' || !Number.isInteger(year) || year < 2000;
   const currentTarget = useMemo(
     () =>
-      describeScoreAttachmentTarget(year, parsedWeek === 'invalid' ? null : parsedWeek, seasonType),
-    [year, parsedWeek, seasonType]
+      targetInvalid
+        ? 'invalid target — correct the controls before running'
+        : describeScoreAttachmentTarget(
+            year,
+            parsedWeek === 'invalid' ? null : parsedWeek,
+            seasonType
+          ),
+    [targetInvalid, year, parsedWeek, seasonType]
   );
 
   async function handleRun() {
@@ -110,7 +122,7 @@ export default function ScoreAttachmentRecoveryPanel({
       return;
     }
     if (parsedWeek === 'invalid') {
-      setValidationError('Week must be blank (all weeks) or a nonnegative whole number.');
+      setValidationError('Week must be blank (all weeks) or a whole number between 0 and 99.');
       return;
     }
     setValidationError('');

@@ -128,16 +128,41 @@ test('emergency classification is visible at page rest; target copy tracks the c
 });
 
 test('an invalid nonblank week shows an inline error and performs no confirmation or request', () => {
-  const { container, getByRole, getByText } = render(<ScoreAttachmentRecoveryPanel />);
+  const { container, getByRole, getByText, getAllByText } = render(
+    <ScoreAttachmentRecoveryPanel />
+  );
   const weekInput = Array.from(container.querySelectorAll('input')).find(
     (i) => i.getAttribute('placeholder') === 'all'
   )!;
   setControl(weekInput, 'x7');
 
+  // While the week is invalid, the target copy is honest — it never displays
+  // the broader all-season description beneath invalid controls.
+  assert.equal(
+    getAllByText('invalid target — correct the controls before running').length,
+    2,
+    'invalid target shown in the control row and the disclosure'
+  );
+
   fireEvent.click(getByRole('button', { name: 'Refresh scores and run attachment trace' }));
-  getByText('Week must be blank (all weeks) or a nonnegative whole number.');
+  getByText('Week must be blank (all weeks) or a whole number between 0 and 99.');
   assert.deepEqual(confirmMessages, [], 'no confirmation for an invalid target');
   assert.deepEqual(requests, [], 'no request');
+});
+
+test('a huge digit-string week is invalid — never silently broadened to a season run', () => {
+  const { container, getByRole, getByText } = render(<ScoreAttachmentRecoveryPanel />);
+  const weekInput = Array.from(container.querySelectorAll('input')).find(
+    (i) => i.getAttribute('placeholder') === 'all'
+  )!;
+  // Would parse to 1e+22, serialize exponentially, and be rejected server-side
+  // into an all-season scope if it ever reached the request.
+  setControl(weekInput, '9999999999999999999999');
+
+  fireEvent.click(getByRole('button', { name: 'Refresh scores and run attachment trace' }));
+  getByText('Week must be blank (all weeks) or a whole number between 0 and 99.');
+  assert.deepEqual(confirmMessages, []);
+  assert.deepEqual(requests, []);
 });
 
 test('cancelling the confirmation performs zero requests and mutates no feedback', () => {
