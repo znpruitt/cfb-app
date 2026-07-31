@@ -52,6 +52,43 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2C-MAINTENANCE-ACTION-MODEL-v1
+
+- Purpose: Establish the Data Maintenance & Recovery page foundation — truthful per-action
+  cost/scope/effect disclosure for every existing maintenance action, lifecycle rollover removed
+  from the maintenance surface, and closure of the historical-score repair's missing
+  provider-status record (the binding F2A round-3 decision).
+- Scope: New presentation-only contract `src/lib/admin/maintenanceActions.ts` +
+  `MaintenanceActionDetails` disclosure, wired into all five maintenance panels;
+  `/admin/data/cache` renamed/reorganized (URL stable) + `/admin` landing card;
+  `SeasonRolloverPanel` relocated to `/admin/season` (its owner); `POST
+  /api/admin/cache-historical-scores` instrumented with scoped provider-refresh status (+ shared
+  empty/drift classification); new pure `src/lib/scores/historicalScoreWrites.ts`. No new
+  endpoints, no Diagnostics relocation (F2D), no scheduler receipts, no rollover behavior change.
+- Outcome: Eight allowlisted descriptors (routine/recovery/emergency — only the full game-stats
+  backfill is emergency, identified at rest) render as compact keyboard-accessible `<details>`
+  disclosures adjacent to every action, with request construction pinned unchanged. The repair
+  route records ONE truthful year-rollup attempt whenever provider work is required
+  (begin-before-credential; `cfbd-api-key-missing` / `cfbd-fetch-failed` incl. schema-drift and
+  id-less-row parity with `/api/scores` / `cfbd-empty-unexpected` via the shared classifier over
+  prior-good rows + composed schedule evidence / `durable-write-failed` with partial-write truth /
+  valid-absence no-op with NO empty commit / success only after the attempted commits with
+  `committedAt`+`commitSeq`+rows); auth/validation/active-year/cached exits fabricate no attempt;
+  the panel distinguishes a no-op from a cache write.
+- Review / verification: Claude subagent self-review (1 P2 — the removal orphaned
+  `SeasonRolloverPanel`; relocated to Season Management — plus 4 P3s recorded). Codex round 1
+  (1 P2 — empty partitions could record success; fixed via the shared empty-scores classifier).
+  Round 2 (4 P2 — three fixed: schema-drift parity, composed schedule evidence via
+  `loadCachedScheduleItems`, throw-free independent evidence reads; one rejected as spec-pinned —
+  the active-year-guard extension is a named follow-up (`computeProtectedActiveYears`) in
+  `docs/architecture/admin-control-plane.md`). Round 3 (1 P2 — no-op rendered as "Cached 0
+  scores"; fixed with user authorization at the post-round-3 gate). 37 new focused tests; full
+  suite 2883 green; `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check`
+  clean. Browser smoke check unavailable (Chrome extension not installed) — deterministic render
+  tests are the acceptance authority. No provider, scheduler, production, or rollover operation
+  performed.
+- Status: Implemented — PR open.
+
 ### PLATFORM-086F2B-LIFECYCLE-AUTHORITY-SAFETY-v1
 
 - Purpose: Eliminate the three lifecycle correctness risks identified by PLATFORM-086F2A —
