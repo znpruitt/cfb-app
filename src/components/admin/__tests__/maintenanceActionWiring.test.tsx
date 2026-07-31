@@ -126,6 +126,23 @@ test('HistoricalCachePanel: both repair disclosures paired; POST bodies unchange
   assert.deepEqual(JSON.parse(requests[1]!.body!), { year, force: false });
 });
 
+test('HistoricalCachePanel: a no-op repair result is never presented as a cache write', async () => {
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    requests.push({
+      url: String(input),
+      method: init?.method ?? 'GET',
+      body: init?.body ? String(init.body) : null,
+    });
+    return Response.json({ success: true, year: 2019, scoreCount: 0, noOp: true });
+  }) as typeof globalThis.fetch;
+
+  const { getByText, getByRole, queryByText } = render(<HistoricalCachePanel leagues={[]} />);
+  fireEvent.click(getByRole('button', { name: 'Cache Historical Scores' }));
+
+  await waitFor(() => getByText(/Provider returned no score rows for 2019 — nothing cached/));
+  assert.equal(queryByText(/Cached 0 scores/), null, 'no-op never reads as a persisted write');
+});
+
 test('SpRatingsCachePanel: routine disclosure paired; POST unchanged', async () => {
   const { getByText, getByRole } = render(<SpRatingsCachePanel />);
 

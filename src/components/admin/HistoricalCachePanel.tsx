@@ -13,6 +13,8 @@ type Props = {
 type CacheResult = {
   success?: boolean;
   alreadyCached?: boolean;
+  /** PLATFORM-086F2C — a valid-absence repair: provider had no rows, nothing was written. */
+  noOp?: boolean;
   year?: number;
   gameCount?: number;
   scoreCount?: number;
@@ -149,7 +151,9 @@ export default function HistoricalCachePanel({ leagues }: Props) {
             <p className="text-xs text-gray-500 dark:text-zinc-400">
               {scoresResult.alreadyCached
                 ? `Already cached for ${scoresResult.year}`
-                : `Cached ${scoresResult.scoreCount} scores for ${scoresResult.year}`}
+                : scoresResult.noOp
+                  ? `Provider returned no score rows for ${scoresResult.year} — nothing cached`
+                  : `Cached ${scoresResult.scoreCount} scores for ${scoresResult.year}`}
             </p>
           )}
           <MaintenanceActionDetails
