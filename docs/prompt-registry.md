@@ -52,6 +52,49 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2E1-EXTERNAL-SCHEDULER-RECEIPTS-v1
+
+- Purpose: First scheduler-health slice of the F2 admin control-plane redesign — add latest-only,
+  secret-safe durable execution receipts for the five QStash-triggered cron routes so future
+  System Health diagnostics can distinguish scheduler delivery from provider-refresh activity.
+- Scope: New shared authority `src/lib/server/schedulerExecutionStatus.ts`
+  (`scheduler-execution-status/<job>`); the five routes (`live-scores`, `game-stats`, `odds`,
+  `schedule-refresh`, `rankings`) each create an application-owned `crypto.randomUUID`
+  invocation id ONLY after `verifyCronSecret` returns `ok` and schedule one receipt from the
+  existing `finally` (after the unchanged runtime event) via Next.js `after`; the five stale
+  execution-log module comments updated; the weekly-schedule route's `exec.years = entries`
+  moved before the per-year loop (matching rankings) so an authenticated defensive throw retains
+  completed per-year/provider truth. No reader/UI, no lifecycle-cron instrumentation, no
+  scheduler/QStash/`vercel.json`/provider/quota/response/runtime-event-schema changes.
+- Outcome: Each successfully authenticated invocation writes ONE allowlisted receipt
+  (`version`/job/`source:'qstash'`/`invocationId`/start+complete instants/nonnegative-integer
+  duration/result/reason/`providerCallAttempted`/bounded target — multi-year jobs cap at eight
+  entries). Monotonic latest-only persistence inside `withAppStateKeyTransaction`: an
+  equal-or-newer prior wins by `(startedAt, invocationId)`; malformed/mismatched/obsolete/
+  future-dated priors are replaceable (future-skew reference read INSIDE the transaction after
+  the lock wait); a genuine read failure writes nothing; row count stays one per job. Fully
+  best-effort and post-response — a receipt failure never changes a cron response, masks a throw,
+  or alters provider/runtime-event behavior. Auth failures never create or advance a receipt.
+- Review / verification: Claude self-review (no P0–P2). Codex round 1 (1 P2 — an unknown-reason
+  prior could win future-dated ordering and pin health; fixed with a future-`startedAt` guard,
+  chosen over reason-enumeration as more robust and non-fragile). Round 2 (1 P2 — the round-1
+  guard's skew reference was captured before the transaction and could go stale under long
+  lock contention, letting an older receipt overwrite a newer one; fixed by reading `nowMs`
+  inside the callback). Round 3 clean. Full suite 2956 green (+52 receipt tests: 17 authority +
+  35 route/harness); `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check`
+  clean. No browser verification required (no reader/UI). **PR-size reassessment (factual):** 24
+  files, ~2,950 net lines — ~726 non-test source (554 authority module incl. per-job allowlist
+  validation + heavy docs, 148 route wiring, 24 comment edits), ~2,175 hand-written tests (the §8
+  mandate: 13 authority scenarios + ~7 per-route scenarios × 5 + shared harness), ~74 docs. This
+  **crosses BOTH soft stop-and-reassess signals** (>15 files and >1,500 net lines). Reassessed as
+  one cohesive, independently revertible receipt contract with no route-specific redesign and no
+  reader/UI leakage: the overage is entirely the prompt-mandated test suite plus a
+  heavily-documented single-file authority, not scope creep, and splitting per-route would be the
+  artificial fragmentation the audit warned against. Surfaced for the user's merge decision (PR
+  left unmerged). No provider, scheduler, production, or BotID-stash operation.
+- Status: **Implemented; PR open to `main` (not merged) — feature branch
+  `platform/086f2e1-external-scheduler-receipts`.**
+
 ### PLATFORM-086F2D2-SCORE-ATTACHMENT-RECOVERY-RELOCATION-v1
 
 - Purpose: Complete the F2D operational-mutation relocation — move the mutating score-attachment

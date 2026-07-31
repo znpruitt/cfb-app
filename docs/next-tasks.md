@@ -119,10 +119,17 @@ Execution order within F2 (each slice is one independently deployable PR):
    - **F2D2 — score-attachment recovery relocation** (the mutating score tool becomes an
      explicitly confirmed emergency-class Data Maintenance action; Diagnostics keeps only
      observation + safety controls) — ✅ merged (PR #434).
-5. **F2E1 — external scheduler receipts** — the next slice.
-6. Then, in order: F2E2 lifecycle receipts + reader → F2F system-health read model → F2G System
-   Health UI → F2H Season Management consolidation → F2I Platform Configuration/Team Identity →
-   F2J commissioner boundaries + navigation closeout.
+5. **F2E1 — external scheduler receipts** (shared receipt authority
+   `src/lib/server/schedulerExecutionStatus.ts` + latest-only durable
+   `scheduler-execution-status/<job>` receipts written after successful cron auth on all five
+   QStash routes; responses, provider behavior, cadence, runtime-event schemas, QStash contracts,
+   and `vercel.json` unchanged; no reader/UI) — ✅ **implemented, PR open (not merged)**.
+6. **F2E2 — lifecycle receipts + reader** — the next slice: instrument the season-transition and
+   season-rollover crons (including their currently-missing execution-log events), then add the
+   cache-only admin reader and cadence-aware delivery-health classification for the receipts.
+7. Then, in order: F2F system-health read model → F2G System Health UI → F2H Season Management
+   consolidation → F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
+   navigation closeout.
 
 The legacy diagnostics tools remain available and unmoved until the corresponding slice ships.
 
