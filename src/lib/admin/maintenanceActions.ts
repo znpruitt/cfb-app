@@ -17,10 +17,14 @@ export type MaintenanceActionId =
   | 'scores-aggregate-refresh'
   | 'game-stats-partition-refresh'
   | 'game-stats-full-backfill'
+  | 'odds-refresh'
+  | 'rankings-refresh'
   | 'sp-ratings-refresh'
   | 'win-totals-upload'
   | 'historical-schedule-repair'
-  | 'historical-scores-repair';
+  | 'historical-scores-repair'
+  | 'conferences-refresh'
+  | 'team-database-sync';
 
 export type MaintenanceActionDescriptor = {
   id: MaintenanceActionId;
@@ -80,6 +84,28 @@ export const MAINTENANCE_ACTIONS: Record<MaintenanceActionId, MaintenanceActionD
     automationOwner: 'Operator recovery only',
     actionClass: 'emergency',
   },
+  'odds-refresh': {
+    id: 'odds-refresh',
+    label: 'Odds refresh',
+    provider: 'The Odds API',
+    nominalCost: 'One /odds request (≈3 billing credits), with a quota observation',
+    durableMutations: [
+      'Raw and canonical Odds caches',
+      'Odds usage snapshot',
+      'Provider-refresh status',
+    ],
+    automationOwner: 'Hourly QStash schedule',
+    actionClass: 'recovery',
+  },
+  'rankings-refresh': {
+    id: 'rankings-refresh',
+    label: 'Rankings refresh',
+    provider: 'CFBD',
+    nominalCost: '2 CFBD rankings partitions (regular + postseason)',
+    durableMutations: ['Rankings cache', 'Provider-refresh status'],
+    automationOwner: 'Publication-aware QStash schedule',
+    actionClass: 'recovery',
+  },
   'sp-ratings-refresh': {
     id: 'sp-ratings-refresh',
     label: 'SP+ ratings refresh',
@@ -115,6 +141,24 @@ export const MAINTENANCE_ACTIONS: Record<MaintenanceActionId, MaintenanceActionD
     durableMutations: ['Regular/postseason score caches', 'Scoped year provider-refresh status'],
     automationOwner: 'Manual recovery',
     actionClass: 'recovery',
+  },
+  'conferences-refresh': {
+    id: 'conferences-refresh',
+    label: 'Conferences refresh',
+    provider: 'CFBD',
+    nominalCost: 'One global reference-data request',
+    durableMutations: ['Global conference cache', 'Provider-refresh status'],
+    automationOwner: 'Manual only',
+    actionClass: 'routine',
+  },
+  'team-database-sync': {
+    id: 'team-database-sync',
+    label: 'Team database sync',
+    provider: 'CFBD',
+    nominalCost: 'One CFBD teams request',
+    durableMutations: ['Global team catalog (replaced)', 'Standings invalidation (all leagues)'],
+    automationOwner: 'Manual only',
+    actionClass: 'routine',
   },
 };
 

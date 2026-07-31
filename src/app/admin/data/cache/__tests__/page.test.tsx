@@ -56,22 +56,26 @@ test('page renders as Data Maintenance & Recovery with three ordered sections, n
   assert.match(text, /Season Management/, 'lifecycle link copy present');
   assert.match(text, /nominal per successful attempt/, 'shared cost caveat stated');
 
-  // Sections appear in the intended order.
+  // Sections appear in the intended order (Reference data added by F2D1).
   const provider = text.indexOf('Provider maintenance & recovery');
   const inputs = text.indexOf('Season inputs');
+  const reference = text.indexOf('Reference data');
   const historical = text.indexOf('Historical recovery');
-  assert.ok(provider < inputs && inputs < historical, 'section order');
+  assert.ok(provider < inputs && inputs < reference && reference < historical, 'section order');
 
   // Rollover is absent — Season Management owns it.
   assert.ok(!out.components.includes('SeasonRolloverPanel'), 'SeasonRolloverPanel not rendered');
   assert.ok(!text.includes('Season Rollover'), 'no rollover copy');
 
-  // The five maintenance panels are all still composed.
+  // All maintenance panels are composed (F2D1 added the relocated Odds/
+  // Rankings surface and the Reference Data section).
   for (const name of [
     'GlobalRefreshPanel',
     'GameStatsCachePanel',
+    'ProviderMaintenancePanel',
     'SpRatingsCachePanel',
     'WinTotalsUploadPanel',
+    'ReferenceDataPanel',
     'HistoricalCachePanel',
   ]) {
     assert.ok(out.components.includes(name), `${name} rendered`);

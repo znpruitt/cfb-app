@@ -325,3 +325,47 @@ test('retry clears the stale alert while pending and applies the confirmed setti
   );
   assert.equal(checkbox.disabled, false);
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2D1 — System Health is observational plus operational safety
+// controls only: no manual-refresh buttons, cost strings, or game-stats
+// partition inputs remain, while the pause control, dataset toggles, status
+// fields, and quota blocks are preserved.
+// ---------------------------------------------------------------------------
+
+test('no manual-refresh controls or partition inputs remain; gates and status stay', async () => {
+  currentFeed = makeFeed();
+
+  const rendered = render(<ProviderDataStatusPanel defaultYear={YEAR} />);
+  await waitFor(() => {
+    findPauseButton(rendered.container);
+  });
+
+  const buttonLabels = Array.from(rendered.container.querySelectorAll('button')).map((b) =>
+    (b.textContent ?? '').trim()
+  );
+  assert.ok(
+    buttonLabels.every((label) => !/manual refresh/i.test(label)),
+    `no manual-refresh buttons (got: ${buttonLabels.join(' | ')})`
+  );
+  assert.equal(
+    rendered.container.querySelectorAll('input[type="number"]').length,
+    1,
+    'only the status-year input remains — no game-stats week input'
+  );
+  assert.ok(!/for manual refresh/.test(rendered.container.textContent ?? ''));
+  assert.ok(
+    /Manual refreshes and repairs live on Data Maintenance/.test(
+      rendered.container.textContent ?? ''
+    ),
+    'operators are pointed at the maintenance surface'
+  );
+
+  // Preserved: the global pause control, the interactive toggle, status fields,
+  // and both quota blocks.
+  findPauseButton(rendered.container);
+  findGameStatsCheckbox(rendered.container);
+  assert.match(rendered.container.textContent ?? '', /CFBD quota/);
+  assert.match(rendered.container.textContent ?? '', /Odds quota/);
+  assert.match(rendered.container.textContent ?? '', /Last success/);
+});

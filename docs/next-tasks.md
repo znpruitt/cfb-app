@@ -110,7 +110,15 @@ Execution order within F2 (each slice is one independently deployable PR):
 3. **F2C — maintenance action model and page foundation** (Data Maintenance & Recovery rename,
    shared per-action cost/scope disclosure contract, rollover off the maintenance page,
    historical-score repair provider-status instrumentation) — ✅ merged (PR #432).
-4. **F2D — operational mutation relocation** — the next slice.
+4. **F2D — operational mutation relocation** — split at its audit into two independently
+   reviewable slices:
+   - **F2D1 — provider maintenance relocation** (System Health keeps gates + observation;
+     Odds/Rankings refreshes, Conferences, and the Team Database sync live on Data Maintenance &
+     Recovery with disclosures; drifted co-located team-database test removed) — implemented, PR
+     open.
+   - **F2D2 — score-attachment recovery relocation** (the mutating score tool becomes an
+     explicitly confirmed emergency-class Data Maintenance action) — next slice, after F2D1
+     merges.
 5. Then, in order: F2E1/F2E2 scheduler receipts → F2F system-health read model → F2G System
    Health UI → F2H Season Management consolidation → F2I Platform Configuration/Team Identity →
    F2J commissioner boundaries + navigation closeout.
@@ -217,10 +225,12 @@ unless verified in merged work.
   badge; `liveCountByOwner` staleness alignment), PLATFORM-054/055/056 (canonical-layer candidates:
   score cache warming, global alias merge, insights canonical owner sourcing), canonical ownership
   IDs for current-season draft ownership, 086H4 (broader game-stats presentation/copy audit), the
-  game-stats legacy-row migration, and the co-located `route.test.ts` relocation (four remaining
+  game-stats legacy-row migration, the co-located `route.test.ts` relocation (four remaining
   files — one admin (`odds-usage`), three non-admin; see
-  `docs/architecture/admin-control-plane.md` → operational clarity findings). See
-  `docs/prompt-registry.md` and `docs/completed-work.md`.
+  `docs/architecture/admin-control-plane.md` → operational clarity findings), and the
+  `manualRefresh.ts` dead-surface trim (the scores/schedule/game-stats URL branches and
+  `manualActionKey`/`isSelectedYear`/`combineOutcomes` have no live caller since F2D1 — the
+  module doc marks them). See `docs/prompt-registry.md` and `docs/completed-work.md`.
 
 _Resolved during the audit sequence (no longer open): `AdminDebugSurface` → deleted in
 PLATFORM-079b; public odds/scores fetch policy → PLATFORM-075 pure-cache-reader model._
