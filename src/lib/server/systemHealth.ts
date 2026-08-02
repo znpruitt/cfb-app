@@ -199,14 +199,24 @@ function toCfbdQuota(settled: Settled<CfbdUsage>): CfbdQuotaFact {
   };
 }
 
+function isFiniteNonNeg(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
 function toOddsQuota(settled: Settled<OddsUsageReadState>): OddsQuotaFact {
   if (!settled.ok) return { state: 'unavailable' };
   const read = settled.value;
   if (read.state === 'unavailable') return { state: 'unavailable' };
   if (read.state === 'absent') return { state: 'absent' };
   const { used, remaining, limit } = read.snapshot;
+  // The durable snapshot is a raw read: a malformed/legacy value (e.g. a string
+  // `remaining`) must never be serialized into the model or classified `ok` on a
+  // non-numeric field. Any invalid numeric field → treat as an unavailable read.
+  if (!isFiniteNonNeg(used) || !isFiniteNonNeg(remaining) || !isFiniteNonNeg(limit)) {
+    return { state: 'unavailable' };
+  }
   const classification: 'ok' | 'reserve-reached' =
-    Number.isFinite(remaining) && remaining < ODDS_AUTOMATION_THRESHOLD ? 'reserve-reached' : 'ok';
+    remaining < ODDS_AUTOMATION_THRESHOLD ? 'reserve-reached' : 'ok';
   return {
     state: 'available',
     used,

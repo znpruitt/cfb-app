@@ -204,6 +204,43 @@ test('odds usage absent and unavailable map to distinct quota facts', async () =
   assert.equal(unavailable.quota.odds.state, 'unavailable');
 });
 
+// Finding 2 — a malformed durable Odds snapshot is treated as unavailable, and its
+// raw non-numeric fields never serialize into the model.
+test('a malformed durable Odds snapshot → quota unavailable, raw value not serialized', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      oddsUsage: () =>
+        Promise.resolve({
+          state: 'available',
+          // A legacy/corrupt snapshot: `remaining` is a raw string, not a number.
+          snapshot: {
+            used: 100,
+            remaining: 'CORRUPT_REMAINING' as unknown as number,
+            lastCost: 3,
+            limit: 500,
+            capturedAt: new Date(NOW).toISOString(),
+            source: 'odds-response-headers',
+          },
+        }),
+    }),
+  });
+  assert.equal(model.quota.odds.state, 'unavailable');
+  assert.ok(!JSON.stringify(model).includes('CORRUPT_REMAINING'));
+});
+
+// Finding 3 — a rejected diagnostics loader surfaces a global issue (not silent-healthy).
+test('a diagnostics loader failure surfaces a global data-diagnostics-unavailable issue', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({ diagnostics: () => Promise.reject(new Error('diag boom')) }),
+  });
+  assert.ok(model.issues.some((i) => i.code === 'data-diagnostics-unavailable'));
+  assert.equal(model.overallState, 'degraded');
+});
+
 // Case 31 — one failed subsystem still returns truthful results from the rest.
 test('one failed subsystem does not erase truthful results from the others', async () => {
   const model = await buildSystemHealthViewModel({

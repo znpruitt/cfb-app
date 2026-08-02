@@ -73,12 +73,16 @@ export type QuotaIssueCode =
 
 export type StorageIssueCode = 'storage-production-misconfigured';
 
+/** Canonical-data subsystem-level codes (distinct from per-branch ProviderDiagnosticCode). */
+export type CanonicalDataIssueCode = 'data-diagnostics-unavailable';
+
 export type SystemHealthIssueCode =
   | StorageIssueCode
   | SchedulerIssueCode
   | ProviderAttemptIssueCode
   | AutomationIssueCode
   | QuotaIssueCode
+  | CanonicalDataIssueCode
   | ProviderDiagnosticCode;
 
 export type SystemHealthIssue = {
@@ -443,7 +447,15 @@ function providerAttemptIssues(
     for (const status of facts) {
       if (evaluated.has(status.scopeKey)) continue;
       evaluated.add(status.scopeKey);
-      const issue = attemptFaultIssue(row.dataset, status, cacheStates[row.dataset], nowMs);
+      // The cache probe describes the dataset's CANONICAL target only. A fault
+      // on a NONCANONICAL scoped activity (a filtered Odds target, one scores
+      // week) has no matching cache signal, so its availability is `unknown`
+      // rather than the canonical cache's — never manufacturing (or clearing) a
+      // critical "no cached data" claim from an unrelated cache (AGENTS.md scoped
+      // -status invariant).
+      const cacheState =
+        status.scopeKey === row.canonicalScopeKey ? cacheStates[row.dataset] : 'unknown';
+      const issue = attemptFaultIssue(row.dataset, status, cacheState, nowMs);
       if (issue) issues.push(issue);
     }
     // A merely-absent canonical status or latest activity is NOT an issue.
@@ -452,7 +464,22 @@ function providerAttemptIssues(
 }
 
 function canonicalDataIssues(diagnostics: DiagnosticsFact): SystemHealthIssue[] {
-  if (diagnostics.state !== 'available') return [];
+  if (diagnostics.state === 'unavailable') {
+    // A failed diagnostics pass must be VISIBLE (parity with the scheduler- and
+    // provider-status subsystem-unavailable globals) — never silently collapsed
+    // into "no data issues", which would read as healthy.
+    return [
+      {
+        code: 'data-diagnostics-unavailable',
+        severity: 'warning',
+        subject: { axis: 'global', id: 'data-diagnostics' },
+        title: 'Canonical data diagnostics are unavailable',
+        explanation:
+          'The canonical data diagnostics pass could not be completed, so data-health issues cannot be evaluated.',
+        repair: null,
+      },
+    ];
+  }
   return diagnostics.diagnostics.map((diag) => ({
     code: diag.code,
     severity: diagnosticSeverityToIssue(diag.severity),
@@ -493,16 +520,25 @@ function automationIssues(automation: AutomationHealth): SystemHealthIssue[] {
     });
   }
   for (const dataset of PROVIDER_DATASETS) {
-    if (!automation.datasets[dataset].enabled) {
-      issues.push({
-        code: 'automation-dataset-disabled',
-        severity: 'info',
-        subject: { axis: 'dataset', id: dataset },
-        title: `${datasetLabel(dataset)} automatic refresh is disabled`,
-        explanation: 'Automatic refresh for this dataset is turned off by an operator setting.',
-        repair: null,
-      });
-    }
+    if (automation.datasets[dataset].enabled) continue;
+    const descriptor = getProviderDatasetDescriptor(dataset);
+    // Only a dataset whose toggle an ACTIVE job actually consumes has a real
+    // "disabled" effect — surfacing it for a dataset no job consumes (e.g.
+    // Conferences) would imply a runtime effect that does not exist.
+    if (!descriptor.autoRefreshSettingConsumed) continue;
+    issues.push({
+      code: 'automation-dataset-disabled',
+      severity: 'info',
+      subject: { axis: 'dataset', id: dataset },
+      title: `${datasetLabel(dataset)} automatic refresh is disabled`,
+      // A lifecycle-critical dataset's toggle pauses only ORDINARY maintenance;
+      // the lifecycle-critical operations stay exempt, so say so rather than
+      // claiming all of its automation is stopped.
+      explanation: descriptor.lifecycleCritical
+        ? 'Ordinary automatic refresh for this dataset is turned off by an operator setting; lifecycle-critical operations remain exempt.'
+        : 'Automatic refresh for this dataset is turned off by an operator setting.',
+      repair: null,
+    });
   }
   return issues;
 }

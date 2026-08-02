@@ -28,7 +28,7 @@ import {
   YEAR,
 } from './systemHealthFixtures.ts';
 import { EXTERNAL_SCHEDULER_JOBS } from '../schedulerExecutionStatus.ts';
-import { weekPartitionScope } from '../../providerRefreshScope.ts';
+import { oddsTargetScope, weekPartitionScope } from '../../providerRefreshScope.ts';
 
 function codes(issues: SystemHealthIssue[]): string[] {
   return issues.map((i) => i.code);
@@ -303,6 +303,87 @@ test('a failed latest scoped activity is surfaced even when canonical succeeded'
   const failed = issues.filter((i) => i.code === 'provider-refresh-failed');
   assert.equal(failed.length, 1);
   assert.equal(failed[0].subject.id, 'scores');
+  // The failed activity is a NONCANONICAL week partition, so the canonical cache
+  // signal does not apply → warning (never critical) regardless of canonical cache.
+  assert.equal(failed[0].severity, 'warning');
+});
+
+// Finding 1 — a noncanonical failed activity is never made critical by an absent
+// CANONICAL cache (the cache probe describes the canonical target only).
+test('a failed noncanonical activity stays warning even when the canonical cache is absent', () => {
+  const dataset = 'odds' as const;
+  const filteredScope = oddsTargetScope(YEAR, 'filtered', 'k');
+  const cacheStates = baseInputs().cacheStates;
+  cacheStates.odds = 'absent'; // canonical odds cache absent
+  const issues = deriveSystemHealthIssues(
+    baseInputs({
+      cacheStates,
+      providerRefresh: refreshSnapshot({
+        [dataset]: {
+          latest: {
+            state: 'available',
+            status: safeStatus(dataset, filteredScope, {
+              latestAttemptOutcome: 'failed',
+              lastAttemptAt: new Date(NOW - 60_000).toISOString(),
+            }),
+          },
+        },
+      }),
+    })
+  );
+  const failed = find(issues, 'provider-refresh-failed');
+  assert.ok(failed);
+  assert.equal(failed!.severity, 'warning', 'noncanonical cache is unknown, not absent');
+});
+
+// Finding 3 — a failed diagnostics subsystem is surfaced as a global warning.
+test('diagnostics subsystem unavailable → global data-diagnostics-unavailable warning (degrades)', () => {
+  const issues = deriveSystemHealthIssues(baseInputs({ diagnostics: { state: 'unavailable' } }));
+  const diag = find(issues, 'data-diagnostics-unavailable');
+  assert.ok(diag);
+  assert.equal(diag!.severity, 'warning');
+  assert.equal(diag!.subject.axis, 'global');
+  assert.equal(diag!.repair, null);
+  assert.equal(summarizeSystemHealthIssues(issues).overallState, 'degraded');
+});
+
+// Finding 4 — a dataset whose toggle no active job consumes never claims a disabled effect.
+test('a disabled dataset whose toggle no job consumes (conferences) emits no issue', () => {
+  const automation = {
+    state: 'available' as const,
+    globalPause: false,
+    datasets: {
+      scores: { enabled: true },
+      schedule: { enabled: true },
+      odds: { enabled: true },
+      rankings: { enabled: true },
+      conferences: { enabled: false }, // no job consumes this toggle
+      'game-stats': { enabled: true },
+    },
+  };
+  const issues = deriveSystemHealthIssues(baseInputs({ automation }));
+  assert.ok(!issues.some((i) => i.code === 'automation-dataset-disabled'));
+});
+
+// Finding 4 — a lifecycle-critical dataset (schedule) qualifies its disabled wording.
+test('a disabled lifecycle-critical dataset (schedule) qualifies that exempt ops remain', () => {
+  const automation = {
+    state: 'available' as const,
+    globalPause: false,
+    datasets: {
+      scores: { enabled: true },
+      schedule: { enabled: false },
+      odds: { enabled: true },
+      rankings: { enabled: true },
+      conferences: { enabled: true },
+      'game-stats': { enabled: true },
+    },
+  };
+  const issues = deriveSystemHealthIssues(baseInputs({ automation }));
+  const disabled = find(issues, 'automation-dataset-disabled');
+  assert.ok(disabled);
+  assert.equal(disabled!.subject.id, 'schedule');
+  assert.match(disabled!.explanation, /lifecycle-critical operations remain exempt/);
 });
 
 // Case 18 (routing) — identity mismatch → Team Identity; duplicate/conflict → Data Maintenance.
