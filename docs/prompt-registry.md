@@ -72,17 +72,22 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   and Odds vs the real 53-credit threshold; nullable truthful repair destinations (Data Maintenance /
   Season Management / Team Identity / none — never an ineffective action); subsystem failures degrade
   independently without leaking raw errors/paths/credentials.
-- Review / verification: Claude self-review (no P0–P2). Codex r1 3 P2 (scope-mismatched cache
+- Review / verification: Claude self-review (no P0–P2). Codex r1 4 P2 (scope-mismatched cache
   availability; unvalidated durable Odds usage serialized; silent diagnostics-subsystem failure;
   overstated automation-gate effects) → r2 3 P2 (ineffective repair on manual-only evidence; impossible
   Odds balance; cross-dataset activity scopes) → r3 3 P2 (legacy null-outcome failures dropped; missing
-  Odds observation age; internally inconsistent Odds balance) — all remediated (r3 fixes user-authorized;
-  finding-3 balance fix rejects over-count rather than requiring exact equality to avoid over-rejecting
-  clamped estimates), then one confirming round. Full suite 3092 green (+78 F2F tests incl. the 32
-  enumerated cases); `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean.
-  No browser verification (no UI). No provider/scheduler/production/BotID-stash operation. PR size:
-  ~13 files / ~+3.6k net — crosses both soft signals, dominated by the mandated 4-module split + 32-case
-  test matrix + six doc projections (no single oversized module); surfaced to the user.
+  Odds observation age; internally inconsistent Odds balance) → a confirming round 3 P2 (CFBD health vs
+  the real automation gate; identity-only slate offering an ineffective refresh; lenient-`Date.parse`
+  timestamp leak). All 13 remediated (r3 and confirming-round fixes user-authorized; the over-count
+  balance fix rejects `used+remaining > limit` rather than requiring exact equality, to avoid
+  over-rejecting clamped estimates). **The confirming round surfaced new findings rather than confirming
+  clean; its three fixes are covered by tests and self-review but received no further Codex pass — the
+  review process was closed by user evaluation, and the PR is the final checkpoint.** Full suite 3096
+  green (+82 F2F tests incl. the 32 enumerated cases); `npx tsc --noEmit`, `npm run lint:all`,
+  `npm run build`, `git diff --check` clean. No browser verification (no UI). No provider/scheduler/
+  production/BotID-stash operation. PR size: 17 files / ~+4.0k net — crosses both soft signals,
+  dominated by the mandated 4-module split + 32-case test matrix (three new suites + shared fixtures +
+  one extended suite) + six doc projections (no single oversized module); surfaced to the user.
 - Status: **Implemented — PR open (not merged).**
 
 ### PLATFORM-086F2E2B-SCHEDULER-RECEIPT-READER-CLASSIFIER-v1
