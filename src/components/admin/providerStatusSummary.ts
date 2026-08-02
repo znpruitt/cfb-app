@@ -12,6 +12,7 @@
 
 import { describeFreshness } from '@/lib/freshness';
 import type { ProviderDatasetDescriptor } from '@/lib/providerDatasets';
+import { INTERRUPTED_ATTEMPT_AFTER_MS } from '@/lib/providerRefreshConstants';
 import type { ProviderCacheAvailability } from '@/lib/server/providerCacheState';
 import type { ProviderRefreshStatus } from '@/lib/server/providerRefreshStatus';
 
@@ -19,11 +20,11 @@ export type SummaryTone = 'ok' | 'warn' | 'bad' | 'muted';
 export type StateSummary = { label: string; tone: SummaryTone };
 
 /**
- * An in-progress attempt older than this is treated as interrupted (the process
- * likely died mid-refresh and never resolved it). Fixed in code — not an
- * operator-editable value (per the task constraint).
+ * Re-exported so existing consumers/tests that import it from this module keep
+ * working; the single definition now lives in the dependency-free
+ * `providerRefreshConstants.ts` (shared with the System Health model).
  */
-export const INTERRUPTED_ATTEMPT_AFTER_MS = 10 * 60 * 1000;
+export { INTERRUPTED_ATTEMPT_AFTER_MS };
 
 export function summarizeProviderState(
   status: ProviderRefreshStatus,

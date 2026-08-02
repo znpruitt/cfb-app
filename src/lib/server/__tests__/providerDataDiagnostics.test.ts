@@ -771,3 +771,235 @@ test('an old rankings record with usable weeks warns as stale during an active s
     'usable-but-old rankings warn as stale'
   );
 });
+
+// ===========================================================================
+// PLATFORM-086F2F — stable diagnostic codes + truthful repair surfaces.
+// ===========================================================================
+
+const F2F_CODES = new Set([
+  'schedule-cache-missing',
+  'schedule-refresh-partial',
+  'schedule-cache-stale',
+  'schedule-diagnostics-unavailable',
+  'scores-terminal-coverage-missing',
+  'scores-terminal-coverage-partial',
+  'scores-diagnostics-unavailable',
+  'game-stats-context-unavailable',
+  'game-stats-latest-slate-missing',
+  'game-stats-older-slate-missing',
+  'game-stats-evidence-partial',
+  'game-stats-duplicate-conflict',
+  'game-stats-identity-mismatch',
+  'game-stats-participant-validation-unavailable',
+  'game-stats-record-unservable',
+  'game-stats-diagnostics-unavailable',
+  'rankings-cache-missing',
+  'rankings-cache-stale',
+  'rankings-diagnostics-unavailable',
+  'odds-cache-missing',
+  'odds-cache-stale',
+  'odds-diagnostics-unavailable',
+]);
+const F2F_REPAIR_SURFACES = new Set(['data-maintenance', 'season-management', 'team-identity']);
+
+function findByCode(
+  diagnostics: Awaited<ReturnType<typeof getProviderDataDiagnostics>>['diagnostics'],
+  code: string
+) {
+  return diagnostics.find((d) => d.code === code);
+}
+
+test('F2F: every emitted diagnostic carries a closed code + valid repair surface', async () => {
+  // A broad scenario that trips several branches at once.
+  await seedScheduleItems([
+    {
+      id: '101',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: '102',
+      week: 2,
+      seasonType: 'regular',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Gamma',
+      awayTeam: 'Delta',
+    },
+  ]);
+  // No scores, no game-stats, no rankings, no odds cached → several diagnostics.
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.ok(diagnostics.length > 0, 'expected diagnostics for the bare scenario');
+  for (const d of diagnostics) {
+    assert.ok(F2F_CODES.has(d.code), `unexpected code ${d.code}`);
+    assert.ok(
+      d.repair === null || F2F_REPAIR_SURFACES.has(d.repair),
+      `unexpected repair ${String(d.repair)}`
+    );
+  }
+});
+
+test('F2F: missing schedule → schedule-cache-missing (error, data-maintenance)', async () => {
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const d = findByCode(diagnostics, 'schedule-cache-missing');
+  assert.ok(d);
+  assert.equal(d!.severity, 'error');
+  assert.equal(d!.repair, 'data-maintenance');
+});
+
+test('F2F: partial schedule refresh → schedule-refresh-partial (data-maintenance)', async () => {
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: NOW - 3 * 60 * 60 * 1000,
+    partialFailure: true,
+    failedSeasonTypes: ['postseason'],
+    items: [
+      {
+        id: '101',
+        week: 1,
+        seasonType: 'regular',
+        startDate: FUTURE_KICKOFF,
+        status: 'STATUS_SCHEDULED',
+        homeTeam: 'Alpha',
+        awayTeam: 'Beta',
+        neutralSite: false,
+        conferenceGame: false,
+        homeConference: 'SEC',
+        awayConference: 'Big Ten',
+        homeId: 1011,
+        awayId: 1012,
+      },
+    ],
+  });
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const d = findByCode(diagnostics, 'schedule-refresh-partial');
+  assert.ok(d);
+  assert.equal(d!.repair, 'data-maintenance');
+});
+
+test('F2F: stale schedule during active season → schedule-cache-stale', async () => {
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: NOW - 9 * 24 * 60 * 60 * 1000,
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: [
+      {
+        id: '101',
+        week: 1,
+        seasonType: 'regular',
+        startDate: FUTURE_KICKOFF,
+        status: 'STATUS_SCHEDULED',
+        homeTeam: 'Alpha',
+        awayTeam: 'Beta',
+        neutralSite: false,
+        conferenceGame: false,
+        homeConference: 'SEC',
+        awayConference: 'Big Ten',
+        homeId: 1011,
+        awayId: 1012,
+      },
+    ],
+  });
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const d = findByCode(diagnostics, 'schedule-cache-stale');
+  assert.ok(d);
+  assert.equal(d!.repair, 'data-maintenance');
+});
+
+test('F2F: no scores for completed slates → scores-terminal-coverage-missing', async () => {
+  await seedSchedule();
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const d = findByCode(diagnostics, 'scores-terminal-coverage-missing');
+  assert.ok(d);
+  assert.equal(d!.severity, 'error');
+  assert.equal(d!.repair, 'data-maintenance');
+});
+
+test('F2F: completed slate without game-stats → game-stats-latest-slate-missing', async () => {
+  await seedSchedule();
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const d = findByCode(diagnostics, 'game-stats-latest-slate-missing');
+  assert.ok(d);
+  assert.equal(d!.repair, 'data-maintenance');
+});
+
+test('F2F: game-stat identity mismatch → game-stats-identity-mismatch (team-identity), never duplicate-conflict', async () => {
+  await seedSchedule();
+  await setAppState('game-stats', `${YEAR}:1:regular`, {
+    year: YEAR,
+    week: 1,
+    seasonType: 'regular',
+    fetchedAt: new Date(NOW).toISOString(),
+    // Stored home participant id (999999) is known but disagrees with the schedule's
+    // numeric id (1011) → a fail-closed identity mismatch (PLATFORM-086H3C5).
+    games: [
+      legacyRowFromWire(
+        wireGame({
+          id: 101,
+          home: { school: 'Alpha', teamId: 999_999 },
+          away: { school: 'Beta', teamId: 1012 },
+        }),
+        1
+      ),
+    ],
+  });
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const mismatch = findByCode(diagnostics, 'game-stats-identity-mismatch');
+  assert.ok(mismatch, 'identity mismatch is surfaced under its own code');
+  assert.equal(mismatch!.severity, 'warning');
+  assert.equal(mismatch!.repair, 'team-identity');
+  assert.equal(findByCode(diagnostics, 'game-stats-duplicate-conflict'), undefined);
+});
+
+test('F2F: rankings absent → rankings-cache-missing (info, data-maintenance)', async () => {
+  await seedSchedule();
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const d = findByCode(diagnostics, 'rankings-cache-missing');
+  assert.ok(d);
+  assert.equal(d!.severity, 'info');
+  assert.equal(d!.repair, 'data-maintenance');
+});
+
+test('F2F: stale rankings → rankings-cache-stale (warning, data-maintenance)', async () => {
+  await seedSchedule();
+  await seedRankings(NOW - 9 * 24 * 60 * 60 * 1000, [{ week: 1, teams: [{ teamId: 'x' }] }]);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const d = findByCode(diagnostics, 'rankings-cache-stale');
+  assert.ok(d);
+  assert.equal(d!.repair, 'data-maintenance');
+});
+
+test('F2F: odds snapshot absent → odds-cache-missing (info); stale canonical → odds-cache-stale (2d boundary)', async () => {
+  await seedSchedule();
+  const absent = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const missing = findByCode(absent.diagnostics, 'odds-cache-missing');
+  assert.ok(missing);
+  assert.equal(missing!.severity, 'info');
+
+  // 2-day staleness boundary: a >2d-old canonical snapshot warns.
+  await seedCanonicalOddsCache(YEAR, NOW - 3 * 24 * 60 * 60 * 1000);
+  const stale = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const staleOdds = findByCode(stale.diagnostics, 'odds-cache-stale');
+  assert.ok(staleOdds);
+  assert.equal(staleOdds!.repair, 'data-maintenance');
+});
+
+test('F2F: scores/game-stats remain evidence-based, not age-based (final score covers the slate)', async () => {
+  await seedSchedule();
+  await seedScores('STATUS_FINAL', 21, 14);
+  await setAppState('game-stats', `${YEAR}:1:regular`, {
+    year: YEAR,
+    week: 1,
+    seasonType: 'regular',
+    fetchedAt: new Date(NOW).toISOString(),
+    games: [satisfiedRow(101)],
+  });
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  // A recent, fully-covered slate yields NO scores/game-stats codes (evidence, not age).
+  assert.equal(findByCode(diagnostics, 'scores-terminal-coverage-missing'), undefined);
+  assert.equal(findByCode(diagnostics, 'scores-terminal-coverage-partial'), undefined);
+  assert.equal(findByCode(diagnostics, 'game-stats-latest-slate-missing'), undefined);
+});

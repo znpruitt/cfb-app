@@ -1,0 +1,333 @@
+/**
+ * PLATFORM-086F2F — orchestrator tests. Every external boundary is injected, so
+ * the build performs no real I/O; the model is asserted for axis separation,
+ * failure isolation, one-CFBD-observation discipline, and canary-free output.
+ */
+
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { buildSystemHealthViewModel, type SystemHealthLoaders } from '../systemHealth.ts';
+import { readProviderRefreshHealth } from '../providerRefreshHealth.ts';
+import { readSchedulerDeliveryHealth } from '../schedulerDeliveryHealth.ts';
+import type { ProviderRefreshSettings } from '../providerRefreshSettings.ts';
+import type { ProviderDataDiagnosticsResult } from '../providerDataDiagnostics.ts';
+import type { CfbdUsage } from '../../api/cfbdUsage.ts';
+import type { OddsUsageReadState } from '../oddsUsageStore.ts';
+import type { AppStateStorageStatus } from '../appStateStore.ts';
+import { PROVIDER_DATASETS, type ProviderDataset } from '../../providerDatasets.ts';
+import { EXTERNAL_SCHEDULER_JOBS } from '../schedulerExecutionStatus.ts';
+import { NOW, YEAR, healthyDelivery, refreshSnapshot } from './systemHealthFixtures.ts';
+
+function healthySettings(): ProviderRefreshSettings {
+  const datasets = {} as ProviderRefreshSettings['datasets'];
+  for (const dataset of PROVIDER_DATASETS) datasets[dataset] = { enabled: true };
+  return { globalPause: false, datasets };
+}
+
+function healthyDiagnostics(): ProviderDataDiagnosticsResult {
+  return {
+    year: YEAR,
+    generatedAt: new Date(NOW).toISOString(),
+    diagnostics: [],
+    scoreSeasonTypes: ['regular'],
+  };
+}
+
+function healthyStorageStatus(): AppStateStorageStatus {
+  return {
+    mode: 'postgres',
+    isProduction: false,
+    databaseConfigured: true,
+    filePath: '/tmp/app-state.json',
+  };
+}
+
+function healthyCfbd(): CfbdUsage {
+  return { patronLevel: 1, used: 100, remaining: 4900, limit: 5000 };
+}
+
+function healthyOdds(): OddsUsageReadState {
+  return {
+    state: 'available',
+    snapshot: {
+      used: 100,
+      remaining: 400,
+      lastCost: 3,
+      limit: 500,
+      capturedAt: new Date(NOW).toISOString(),
+      source: 'odds-response-headers',
+    },
+  };
+}
+
+function healthyLoaders(
+  overrides: Partial<SystemHealthLoaders> = {}
+): Partial<SystemHealthLoaders> {
+  return {
+    storage: () => healthyStorageStatus(),
+    schedulerDelivery: () => Promise.resolve(healthyDelivery()),
+    automationSettings: () => Promise.resolve(healthySettings()),
+    providerRefresh: () => Promise.resolve(refreshSnapshot()),
+    cacheStates: () => Promise.resolve(allAvailable()),
+    diagnostics: () => Promise.resolve(healthyDiagnostics()),
+    cfbdUsage: () => Promise.resolve(healthyCfbd()),
+    oddsUsage: () => Promise.resolve(healthyOdds()),
+    ...overrides,
+  };
+}
+
+function allAvailable() {
+  const states = {} as Record<ProviderDataset, 'available'>;
+  for (const dataset of PROVIDER_DATASETS) states[dataset] = 'available';
+  return states;
+}
+
+// Case 1 — seven scheduler jobs + six datasets remain separate collections.
+test('model exposes exactly seven scheduler jobs and six datasets', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders(),
+  });
+  assert.equal(model.schedulerJobs.length, 7);
+  assert.equal(model.datasets.length, 6);
+  assert.deepEqual(
+    model.schedulerJobs.map((j) => j.job),
+    [...EXTERNAL_SCHEDULER_JOBS]
+  );
+  assert.deepEqual(
+    model.datasets.map((d) => d.dataset),
+    [...PROVIDER_DATASETS]
+  );
+  assert.equal(model.overallState, 'healthy');
+});
+
+// Case 2 — Schedule has multiple related jobs and is not collapsed into one row.
+test('schedule-refresh and season-transition are both jobs; schedule is one dataset', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders(),
+  });
+  const jobIds = model.schedulerJobs.map((j) => j.job);
+  assert.ok(jobIds.includes('schedule-refresh'));
+  assert.ok(jobIds.includes('season-transition'));
+  assert.equal(model.datasets.filter((d) => d.dataset === 'schedule').length, 1);
+});
+
+// Case 23 — exactly one CFBD usage loader invocation per build.
+test('CFBD usage loader is invoked exactly once per build', async () => {
+  let calls = 0;
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      cfbdUsage: () => {
+        calls += 1;
+        return Promise.resolve(healthyCfbd());
+      },
+    }),
+  });
+  assert.equal(calls, 1);
+  assert.equal(model.quota.cfbd.state, 'available');
+});
+
+// Case 7 — a scheduler scope-read failure yields seven unavailable rows + one global issue.
+test('scheduler scope-read failure → seven unavailable rows, one global issue', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      schedulerDelivery: () =>
+        readSchedulerDeliveryHealth({
+          nowMs: NOW,
+          loadEntries: () => Promise.reject(new Error('scope boom')),
+        }),
+    }),
+  });
+  assert.equal(model.schedulerJobs.length, 7);
+  assert.ok(model.schedulerJobs.every((j) => j.deliveryState === 'unavailable'));
+  const global = model.issues.filter((i) => i.code === 'scheduler-delivery-unavailable');
+  assert.equal(global.length, 1);
+  assert.equal(global[0].subject.axis, 'global');
+});
+
+// Case 12 — provider-status scope-read failure degrades without throwing the model.
+test('provider-status scope-read failure → unavailable facts, six datasets, model still builds', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      providerRefresh: () =>
+        readProviderRefreshHealth({
+          year: YEAR,
+          loadEntries: () => Promise.reject(new Error('scope boom')),
+        }),
+    }),
+  });
+  assert.equal(model.datasets.length, 6);
+  assert.ok(model.datasets.every((d) => d.canonicalStatus.state === 'unavailable'));
+  assert.equal(model.issues.filter((i) => i.code === 'provider-status-unavailable').length, 1);
+});
+
+// Case 21 — a settings read failure never fabricates open gates.
+test('settings loader failure → automation unavailable, no fabricated gates', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      automationSettings: () => Promise.reject(new Error('settings boom')),
+    }),
+  });
+  assert.equal(model.automation.state, 'unavailable');
+  assert.ok(model.issues.some((i) => i.code === 'automation-settings-unavailable'));
+  assert.ok(!model.issues.some((i) => i.code === 'automation-global-pause-active'));
+});
+
+// Case 26 — odds usage absent vs unavailable stay distinct at the model level.
+test('odds usage absent and unavailable map to distinct quota facts', async () => {
+  const absent = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({ oddsUsage: () => Promise.resolve({ state: 'absent' }) }),
+  });
+  assert.equal(absent.quota.odds.state, 'absent');
+
+  const unavailable = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      oddsUsage: () => Promise.resolve({ state: 'unavailable', error: 'boom' }),
+    }),
+  });
+  assert.equal(unavailable.quota.odds.state, 'unavailable');
+});
+
+// Case 31 — one failed subsystem still returns truthful results from the rest.
+test('one failed subsystem does not erase truthful results from the others', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({ cfbdUsage: () => Promise.reject(new Error('cfbd boom')) }),
+  });
+  assert.equal(model.quota.cfbd.state, 'unavailable');
+  // Everything else stays truthful.
+  assert.equal(model.schedulerJobs.length, 7);
+  assert.ok(model.schedulerJobs.every((j) => j.deliveryState === 'on-time'));
+  assert.equal(model.storage.state, 'available');
+  assert.equal(model.automation.state, 'available');
+  assert.equal(model.quota.odds.state, 'available');
+});
+
+// Case 30 — no raw error / credential / path / provider-payload canary escapes.
+test('raw error, source, and filesystem-path canaries never appear in the model', async () => {
+  const CANARY = 'DO_NOT_LEAK_CANARY';
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      // A valid provider-refresh record whose lastError.message + source carry canaries.
+      providerRefresh: () =>
+        readProviderRefreshHealth({
+          year: YEAR,
+          loadEntries: () =>
+            Promise.resolve([
+              {
+                key: 'scores:year:2026',
+                value: {
+                  dataset: 'scores',
+                  scope: { kind: 'year', year: 2026 },
+                  scopeKey: 'scores:year:2026',
+                  lastAttemptAt: new Date(NOW - 1000).toISOString(),
+                  lastAttemptId: 'attempt-1',
+                  latestAttemptOutcome: 'failed',
+                  latestAttemptResolvedAt: new Date(NOW).toISOString(),
+                  lastSuccessAt: null,
+                  lastError: { message: `err-${CANARY}`, code: 'RATE_LIMIT', status: 429 },
+                  source: `src-${CANARY}`,
+                  rowsCommitted: 0,
+                  partialFailure: false,
+                },
+                updatedAt: new Date(NOW).toISOString(),
+              },
+            ]),
+        }),
+      // Storage filePath carries a canary; the fact drops the path entirely.
+      storage: () => ({
+        mode: 'file-fallback',
+        isProduction: false,
+        databaseConfigured: false,
+        filePath: `/private/${CANARY}/app-state.json`,
+      }),
+      // A diagnostic message carries a canary; the safe diagnostic drops the message.
+      diagnostics: () =>
+        Promise.resolve({
+          year: YEAR,
+          generatedAt: new Date(NOW).toISOString(),
+          diagnostics: [
+            {
+              dataset: 'schedule',
+              severity: 'warning',
+              code: 'schedule-diagnostics-unavailable',
+              message: `diag-${CANARY}`,
+              repair: null,
+            },
+          ],
+          scoreSeasonTypes: [],
+        }),
+      // A thrown error whose message carries a canary is discarded by the settle wrapper.
+      cfbdUsage: () => {
+        throw new Error(`thrown-${CANARY}`);
+      },
+    }),
+  });
+
+  const serialized = JSON.stringify(model);
+  assert.ok(!serialized.includes(CANARY), 'no canary string leaked into the serialized model');
+  // Sanity: the safe error code (not the message) IS retained.
+  const scores = model.datasets.find((d) => d.dataset === 'scores');
+  assert.equal(
+    scores?.canonicalStatus.state === 'available' ? scores.canonicalStatus.status.errorCode : null,
+    'RATE_LIMIT'
+  );
+});
+
+// Case 32 — the build performs no internal HTTP request (and no write path is invoked).
+test('the model build issues no internal HTTP request', async () => {
+  const originalFetch = globalThis.fetch;
+  let fetched = 0;
+  globalThis.fetch = (async () => {
+    fetched += 1;
+    throw new Error('fetch must not be called');
+  }) as typeof fetch;
+  try {
+    await buildSystemHealthViewModel({ year: YEAR, nowMs: NOW, loaders: healthyLoaders() });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+  assert.equal(fetched, 0);
+});
+
+// Year validation is explicit; never derived from wall-clock or leagues.
+test('an invalid year is rejected', async () => {
+  await assert.rejects(
+    () => buildSystemHealthViewModel({ year: 1999, nowMs: NOW, loaders: healthyLoaders() }),
+    /invalid season year/
+  );
+  await assert.rejects(
+    () => buildSystemHealthViewModel({ year: Number.NaN, nowMs: NOW, loaders: healthyLoaders() }),
+    /invalid season year/
+  );
+});
+
+// generatedAt derives from the single injected nowMs (never the wall-clock).
+test('generatedAt reflects the injected nowMs', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders(),
+  });
+  assert.equal(model.generatedAt, new Date(NOW).toISOString());
+  assert.equal(model.year, YEAR);
+});

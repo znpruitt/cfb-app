@@ -28,10 +28,56 @@ type OddsCacheFreshness = { lastFetch?: number | null };
 
 export type DiagnosticSeverity = 'info' | 'warning' | 'error';
 
+/**
+ * Stable, machine-readable diagnostic code (PLATFORM-086F2F). The closed
+ * vocabulary lets the System Health issue model consume the diagnostic's
+ * IDENTITY and structured fields rather than parse its human `message`. Each
+ * code maps 1:1 to an existing diagnostic branch below; adding a code never
+ * changes the domain logic or freshness policy that emits it.
+ */
+export type ProviderDiagnosticCode =
+  | 'schedule-cache-missing'
+  | 'schedule-refresh-partial'
+  | 'schedule-cache-stale'
+  | 'schedule-diagnostics-unavailable'
+  | 'scores-terminal-coverage-missing'
+  | 'scores-terminal-coverage-partial'
+  | 'scores-diagnostics-unavailable'
+  | 'game-stats-context-unavailable'
+  | 'game-stats-latest-slate-missing'
+  | 'game-stats-older-slate-missing'
+  | 'game-stats-evidence-partial'
+  | 'game-stats-duplicate-conflict'
+  | 'game-stats-identity-mismatch'
+  | 'game-stats-participant-validation-unavailable'
+  | 'game-stats-record-unservable'
+  | 'game-stats-diagnostics-unavailable'
+  | 'rankings-cache-missing'
+  | 'rankings-cache-stale'
+  | 'rankings-diagnostics-unavailable'
+  | 'odds-cache-missing'
+  | 'odds-cache-stale'
+  | 'odds-diagnostics-unavailable';
+
+/**
+ * The in-app operator surface that can act on a diagnostic, or `null` when no
+ * in-app repair exists (e.g. an observability read that merely failed). This is
+ * only a SURFACE hint; the System Health model materializes the full repair
+ * destination (href + label) so this module stays free of any UI/route detail.
+ */
+export type ProviderDiagnosticRepairSurface =
+  | 'data-maintenance'
+  | 'season-management'
+  | 'team-identity';
+
 export type ProviderDiagnostic = {
   dataset: ProviderDataset;
   severity: DiagnosticSeverity;
   message: string;
+  /** Stable identity of this diagnostic branch (PLATFORM-086F2F). */
+  code: ProviderDiagnosticCode;
+  /** In-app repair surface hint, or `null` when no in-app repair applies. */
+  repair: ProviderDiagnosticRepairSurface | null;
 };
 
 export type ProviderDataDiagnosticsResult = {
@@ -121,8 +167,14 @@ export async function getProviderDataDiagnostics(
 ): Promise<ProviderDataDiagnosticsResult> {
   const now = options.now ?? Date.now();
   const diagnostics: ProviderDiagnostic[] = [];
-  const push = (dataset: ProviderDataset, severity: DiagnosticSeverity, message: string) => {
-    diagnostics.push({ dataset, severity, message });
+  const push = (
+    dataset: ProviderDataset,
+    severity: DiagnosticSeverity,
+    code: ProviderDiagnosticCode,
+    message: string,
+    repair: ProviderDiagnosticRepairSurface | null
+  ) => {
+    diagnostics.push({ dataset, severity, code, message, repair });
   };
 
   // ---- Schedule (also the source of "completed slate" expectations) ----
@@ -135,7 +187,13 @@ export async function getProviderDataDiagnostics(
     seasonActive = isSeasonActive(scheduleItems, now);
 
     if (!entry || scheduleItems.length === 0) {
-      push('schedule', 'error', `No current-season schedule cached for ${year}.`);
+      push(
+        'schedule',
+        'error',
+        'schedule-cache-missing',
+        `No current-season schedule cached for ${year}.`,
+        'data-maintenance'
+      );
     } else {
       if (entry.partialFailure) {
         const missing = entry.failedSeasonTypes?.length
@@ -144,7 +202,9 @@ export async function getProviderDataDiagnostics(
         push(
           'schedule',
           'warning',
-          `Last schedule refresh was partial${missing}; some partitions are uncertain.`
+          'schedule-refresh-partial',
+          `Last schedule refresh was partial${missing}; some partitions are uncertain.`,
+          'data-maintenance'
         );
       }
       const ageMs = now - entry.at;
@@ -152,12 +212,20 @@ export async function getProviderDataDiagnostics(
         push(
           'schedule',
           'warning',
-          `Schedule last refreshed ${formatRelativeTimestamp(entry.at, now)} — older than the weekly policy.`
+          'schedule-cache-stale',
+          `Schedule last refreshed ${formatRelativeTimestamp(entry.at, now)} — older than the weekly policy.`,
+          'data-maintenance'
         );
       }
     }
   } catch (error) {
-    push('schedule', 'warning', `Schedule diagnostics unavailable: ${errText(error)}`);
+    push(
+      'schedule',
+      'warning',
+      'schedule-diagnostics-unavailable',
+      `Schedule diagnostics unavailable: ${errText(error)}`,
+      null
+    );
   }
 
   const completedSlates = deriveCompletedSlates(scheduleItems, now);
@@ -195,18 +263,28 @@ export async function getProviderDataDiagnostics(
         push(
           'scores',
           'error',
-          `No cached scores for any of ${completedSlates.length} completed slate(s).`
+          'scores-terminal-coverage-missing',
+          `No cached scores for any of ${completedSlates.length} completed slate(s).`,
+          'data-maintenance'
         );
       } else if (missingScoreSlates.length > 0) {
         push(
           'scores',
           'warning',
-          `${describeSlates(missingScoreSlates)} complete but missing cached scores.`
+          'scores-terminal-coverage-partial',
+          `${describeSlates(missingScoreSlates)} complete but missing cached scores.`,
+          'data-maintenance'
         );
       }
     }
   } catch (error) {
-    push('scores', 'warning', `Score diagnostics unavailable: ${errText(error)}`);
+    push(
+      'scores',
+      'warning',
+      'scores-diagnostics-unavailable',
+      `Score diagnostics unavailable: ${errText(error)}`,
+      null
+    );
   }
 
   // ---- Game stats: PARTICIPANT-VERIFIED evidence coverage through the shared
@@ -224,7 +302,9 @@ export async function getProviderDataDiagnostics(
         push(
           'game-stats',
           'warning',
-          `Game-stats canonical context unavailable (${slateResult.reason}).`
+          'game-stats-context-unavailable',
+          `Game-stats canonical context unavailable (${slateResult.reason}).`,
+          null
         );
       } else {
         const nowDate = new Date(now);
@@ -235,7 +315,13 @@ export async function getProviderDataDiagnostics(
         const missing: CompletedSlate[] = [];
         const unservable: CompletedSlate[] = [];
         const partialSummaries: string[] = [];
-        const defectSummaries: string[] = [];
+        // Defect streams are kept SEPARATE (PLATFORM-086F2F) so each routes to its
+        // correct repair surface: duplicate/conflict recovery is a Data Maintenance
+        // action, an identity mismatch is a Team Identity fix, and a
+        // participant-validation gap is recoverable via a full-year schedule refresh.
+        const duplicateConflictSummaries: string[] = [];
+        const identityMismatchSummaries: string[] = [];
+        const participantUnavailableSummaries: string[] = [];
 
         for (const slate of completedSlates) {
           // Raw durable read + the ONE shared envelope validation: only an
@@ -284,14 +370,19 @@ export async function getProviderDataDiagnostics(
           const participantUnavailable = count('participant-validation-unavailable');
           const manualOnly = count('manual-only');
 
-          if (duplicateConflict > 0 || identityMismatch > 0) {
-            defectSummaries.push(
-              `week ${slate.week} ${slate.seasonType}: ${duplicateConflict} duplicate-conflict, ${identityMismatch} identity-mismatch`
+          if (duplicateConflict > 0) {
+            duplicateConflictSummaries.push(
+              `week ${slate.week} ${slate.seasonType}: ${duplicateConflict} duplicate-conflict`
+            );
+          }
+          if (identityMismatch > 0) {
+            identityMismatchSummaries.push(
+              `week ${slate.week} ${slate.seasonType}: ${identityMismatch} identity-mismatch`
             );
           }
           if (participantUnavailable > 0) {
-            defectSummaries.push(
-              `week ${slate.week} ${slate.seasonType}: ${participantUnavailable} participant-validation-unavailable (full-year schedule refresh required)`
+            participantUnavailableSummaries.push(
+              `week ${slate.week} ${slate.seasonType}: ${participantUnavailable} participant-validation-unavailable`
             );
           }
 
@@ -317,7 +408,9 @@ export async function getProviderDataDiagnostics(
             push(
               'game-stats',
               'warning',
-              `Latest completed slate (week ${latest.week} ${latest.seasonType}) has no verified game-stat evidence.`
+              'game-stats-latest-slate-missing',
+              `Latest completed slate (week ${latest.week} ${latest.seasonType}) has no verified game-stat evidence.`,
+              'data-maintenance'
             );
           }
           const older = missing.filter(
@@ -327,7 +420,9 @@ export async function getProviderDataDiagnostics(
             push(
               'game-stats',
               'info',
-              `${describeSlates(older)} missing verified game-stat evidence (recoverable via manual refresh).`
+              'game-stats-older-slate-missing',
+              `${describeSlates(older)} missing verified game-stat evidence (recoverable via manual refresh).`,
+              'data-maintenance'
             );
           }
         }
@@ -335,27 +430,59 @@ export async function getProviderDataDiagnostics(
           push(
             'game-stats',
             'info',
-            `Partially verified game-stat evidence — ${partialSummaries.slice(0, MAX_LISTED_SLATES).join('; ')}.`
+            'game-stats-evidence-partial',
+            `Partially verified game-stat evidence — ${partialSummaries.slice(0, MAX_LISTED_SLATES).join('; ')}.`,
+            'data-maintenance'
           );
         }
-        if (defectSummaries.length > 0) {
+        if (duplicateConflictSummaries.length > 0) {
           push(
             'game-stats',
             'warning',
-            `Game-stat evidence defects — ${defectSummaries.slice(0, MAX_LISTED_SLATES).join('; ')}.`
+            'game-stats-duplicate-conflict',
+            `Game-stat evidence conflicts — ${duplicateConflictSummaries.slice(0, MAX_LISTED_SLATES).join('; ')}.`,
+            'data-maintenance'
+          );
+        }
+        if (identityMismatchSummaries.length > 0) {
+          push(
+            'game-stats',
+            'warning',
+            'game-stats-identity-mismatch',
+            `Game-stat identity mismatches — ${identityMismatchSummaries.slice(0, MAX_LISTED_SLATES).join('; ')}.`,
+            'team-identity'
+          );
+        }
+        if (participantUnavailableSummaries.length > 0) {
+          push(
+            'game-stats',
+            'warning',
+            'game-stats-participant-validation-unavailable',
+            `Game-stat participant validation unavailable — ${participantUnavailableSummaries
+              .slice(0, MAX_LISTED_SLATES)
+              .join('; ')} (full-year schedule refresh required).`,
+            'data-maintenance'
           );
         }
         if (unservable.length > 0) {
           push(
             'game-stats',
             'warning',
-            `${describeSlates(unservable)} stored game-stat records are malformed or unreadable.`
+            'game-stats-record-unservable',
+            `${describeSlates(unservable)} stored game-stat records are malformed or unreadable.`,
+            'data-maintenance'
           );
         }
       }
     }
   } catch (error) {
-    push('game-stats', 'warning', `Game-stats diagnostics unavailable: ${errText(error)}`);
+    push(
+      'game-stats',
+      'warning',
+      'game-stats-diagnostics-unavailable',
+      `Game-stats diagnostics unavailable: ${errText(error)}`,
+      null
+    );
   }
 
   // ---- Rankings: usable CONTENT + staleness during an active season ----
@@ -371,19 +498,33 @@ export async function getProviderDataDiagnostics(
     const weeks = rankingsRec?.value?.response?.weeks;
     const hasUsableRankings = Array.isArray(weeks) && weeks.length > 0;
     if (!hasUsableRankings) {
-      push('rankings', 'info', `No rankings cached for ${year}.`);
+      push(
+        'rankings',
+        'info',
+        'rankings-cache-missing',
+        `No rankings cached for ${year}.`,
+        'data-maintenance'
+      );
     } else if (seasonActive) {
       const ageMs = now - rankingsRec!.value.at;
       if (ageMs > STALE_RANKINGS_AFTER_MS) {
         push(
           'rankings',
           'warning',
-          `Rankings last refreshed ${formatRelativeTimestamp(rankingsRec!.value.at, now)} — older than the weekly policy.`
+          'rankings-cache-stale',
+          `Rankings last refreshed ${formatRelativeTimestamp(rankingsRec!.value.at, now)} — older than the weekly policy.`,
+          'data-maintenance'
         );
       }
     }
   } catch (error) {
-    push('rankings', 'warning', `Rankings diagnostics unavailable: ${errText(error)}`);
+    push(
+      'rankings',
+      'warning',
+      'rankings-diagnostics-unavailable',
+      `Rankings diagnostics unavailable: ${errText(error)}`,
+      null
+    );
   }
 
   // ---- Odds: freshness of the SELECTED SEASON's CANONICAL served odds cache. ----
@@ -399,19 +540,33 @@ export async function getProviderDataDiagnostics(
     const oddsRec = await getAppState<OddsCacheFreshness>('odds-cache', defaultOddsCacheKey(year));
     const latestFetch = oddsRec?.value?.lastFetch;
     if (typeof latestFetch !== 'number' || !Number.isFinite(latestFetch)) {
-      push('odds', 'info', `No odds snapshot cached for ${year} yet.`);
+      push(
+        'odds',
+        'info',
+        'odds-cache-missing',
+        `No odds snapshot cached for ${year} yet.`,
+        'data-maintenance'
+      );
     } else if (seasonActive) {
       const ageMs = now - latestFetch;
       if (Number.isFinite(ageMs) && ageMs > STALE_ODDS_AFTER_MS) {
         push(
           'odds',
           'warning',
-          `Odds snapshot last captured ${formatRelativeTimestamp(latestFetch, now)}.`
+          'odds-cache-stale',
+          `Odds snapshot last captured ${formatRelativeTimestamp(latestFetch, now)}.`,
+          'data-maintenance'
         );
       }
     }
   } catch (error) {
-    push('odds', 'warning', `Odds diagnostics unavailable: ${errText(error)}`);
+    push(
+      'odds',
+      'warning',
+      'odds-diagnostics-unavailable',
+      `Odds diagnostics unavailable: ${errText(error)}`,
+      null
+    );
   }
 
   return {
