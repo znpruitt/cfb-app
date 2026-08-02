@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-07-30
+Last verified: 2026-08-02
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -51,6 +51,39 @@ Rules:
 ## Prompt ledger (most recent first)
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
+
+### PLATFORM-086F2F-SYSTEM-HEALTH-READ-MODEL-v1
+
+- Purpose: The consolidated server-side System Health read model that F2G will render — composing
+  scheduler delivery, execution outcome, canonical data health, automation gates, quota, and storage
+  as SEPARATE facts across two axes (seven scheduler jobs / six datasets, not 1:1), then deriving a
+  deterministic prioritized issue list. Ends the incremental Provider panel's conflations.
+- Scope: New `src/lib/server/systemHealth.ts` (`buildSystemHealthViewModel({year,nowMs?,loaders?})`,
+  validated year, one nowMs, concurrent injectable loaders, per-subsystem degradation, no writes/HTTP,
+  one deliberate 600 s-cached CFBD observation), `providerRefreshHealth.ts` (safe cache-only
+  `provider-refresh-status` reader — six rows with separate canonical/latest-activity facts, field-by
+  -field rebuild dropping `lastError.message`/`source`, dataset-scope-ownership eligibility, malformed
+  isolation), `systemHealthIssues.ts` (pure derivation + deterministic order/dedup + overallState),
+  stable `ProviderDiagnosticCode` + repair surfaces on `providerDataDiagnostics.ts` (game-stat defect
+  split), and `providerRefreshConstants.ts` (shared interrupted-attempt threshold). Server-only: no
+  route, UI, mutation, durable schema change, or scheduler/provider behavior change.
+- Outcome: Six independent facts; gates never demote a missing/late delivery; canonical freshness stays
+  cache/evidence-sourced (never provider-status timestamps); one CFBD observation vs the 1,007 reserve
+  and Odds vs the real 53-credit threshold; nullable truthful repair destinations (Data Maintenance /
+  Season Management / Team Identity / none — never an ineffective action); subsystem failures degrade
+  independently without leaking raw errors/paths/credentials.
+- Review / verification: Claude self-review (no P0–P2). Codex r1 3 P2 (scope-mismatched cache
+  availability; unvalidated durable Odds usage serialized; silent diagnostics-subsystem failure;
+  overstated automation-gate effects) → r2 3 P2 (ineffective repair on manual-only evidence; impossible
+  Odds balance; cross-dataset activity scopes) → r3 3 P2 (legacy null-outcome failures dropped; missing
+  Odds observation age; internally inconsistent Odds balance) — all remediated (r3 fixes user-authorized;
+  finding-3 balance fix rejects over-count rather than requiring exact equality to avoid over-rejecting
+  clamped estimates), then one confirming round. Full suite 3092 green (+78 F2F tests incl. the 32
+  enumerated cases); `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean.
+  No browser verification (no UI). No provider/scheduler/production/BotID-stash operation. PR size:
+  ~13 files / ~+3.6k net — crosses both soft signals, dominated by the mandated 4-module split + 32-case
+  test matrix + six doc projections (no single oversized module); surfaced to the user.
+- Status: **Implemented — PR open (not merged).**
 
 ### PLATFORM-086F2E2B-SCHEDULER-RECEIPT-READER-CLASSIFIER-v1
 

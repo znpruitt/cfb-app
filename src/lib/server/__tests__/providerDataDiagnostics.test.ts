@@ -952,6 +952,10 @@ test('F2F: game-stat identity mismatch → game-stats-identity-mismatch (team-id
   assert.equal(mismatch!.severity, 'warning');
   assert.equal(mismatch!.repair, 'team-identity');
   assert.equal(findByCode(diagnostics, 'game-stats-duplicate-conflict'), undefined);
+  // An identity-only slate (no genuinely refresh-repairable absence) must NOT also
+  // emit the generic Data-Maintenance "missing" diagnostic (r4 finding).
+  assert.equal(findByCode(diagnostics, 'game-stats-latest-slate-missing'), undefined);
+  assert.equal(findByCode(diagnostics, 'game-stats-older-slate-missing'), undefined);
 });
 
 test('F2F: rankings absent → rankings-cache-missing (info, data-maintenance)', async () => {

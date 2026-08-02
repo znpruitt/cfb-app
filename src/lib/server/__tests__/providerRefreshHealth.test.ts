@@ -295,6 +295,27 @@ test('a record without a valid lastAttemptAt is not selectable as latest activit
   assert.equal(rankings.latestScopedActivity.state, 'absent');
 });
 
+// r4 Finding — a lenient-but-non-canonical timestamp string is rejected, never serialized.
+test('a malformed non-ISO timestamp is dropped (not serialized) and not usable for ordering', async () => {
+  const snapshot = await read([
+    entry('scores', yearScope(YEAR), {
+      latestAttemptOutcome: 'succeeded',
+      lastAttemptAt: '2026-10-15 (/private/tmp)', // Date.parse accepts this, ISO round-trip does not
+    }),
+  ]);
+  const scores = rowFor(snapshot, 'scores');
+  assert.equal(scores.canonicalStatus.state, 'available');
+  if (scores.canonicalStatus.state === 'available') {
+    assert.equal(scores.canonicalStatus.status.lastAttemptAt, null);
+  }
+  // Without a valid lastAttemptAt the record is not selectable as latest activity.
+  assert.equal(scores.latestScopedActivity.state, 'absent');
+  assert.ok(
+    !JSON.stringify(snapshot).includes('/private/tmp'),
+    'malformed timestamp never serialized'
+  );
+});
+
 // Case 12 (reader) — a failed scope read → subsystem unavailable, six unavailable rows.
 test('a failed scope read → subsystem unavailable with six unavailable rows', async () => {
   const snapshot = await readProviderRefreshHealth({

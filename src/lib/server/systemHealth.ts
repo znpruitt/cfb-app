@@ -46,7 +46,10 @@ import {
 import { readLatestKnownOddsUsageState, type OddsUsageReadState } from './oddsUsageStore.ts';
 import { fetchCfbdUsage, type CfbdUsage } from '../api/cfbdUsage.ts';
 import { cfbdCanonicalLimitForTier, normalizeProviderQuota } from '../api/providerQuota.ts';
-import { RANKINGS_AUTOMATION_MIN_REMAINING } from '../rankings/quotaPolicy.ts';
+import {
+  evaluateRankingsAutomationQuota,
+  RANKINGS_AUTOMATION_MIN_REMAINING,
+} from '../rankings/quotaPolicy.ts';
 import { estimateOddsRequestCost, oddsAutomationMinRemaining } from '../odds/quotaPolicy.ts';
 import { ODDS_DEFAULT_BOOKMAKERS, ODDS_DEFAULT_MARKETS } from '@/app/api/odds/routeInternals';
 import { PROVIDER_DATASETS, type ProviderDataset } from '../providerDatasets.ts';
@@ -182,12 +185,23 @@ function toCfbdQuota(settled: Settled<CfbdUsage>): CfbdQuotaFact {
     source: 'live provider observation',
   });
   const reserve = RANKINGS_AUTOMATION_MIN_REMAINING;
+  // Classify headroom from the ACTUAL automation gate (`evaluateAutomationQuota`
+  // via the rankings reserve), not from `normalizeProviderQuota` — the two apply
+  // different trust rules (e.g. a valid integer `remainingCalls` with no
+  // `patronLevel` is usable to the gate but discarded by normalization; a
+  // fractional count can survive normalization but the gate rejects it). This
+  // makes the dashboard agree with whether automation will actually run. The
+  // normalized triple is still used for DISPLAY values only.
+  const decision = evaluateRankingsAutomationQuota({
+    remainingCalls: usage.remaining,
+    monthlyLimit: usage.limit,
+  });
   const classification: 'ok' | 'untrustworthy' | 'reserve-reached' =
-    normalized.remaining == null
-      ? 'untrustworthy'
-      : normalized.remaining < reserve
+    decision.kind === 'allowed'
+      ? 'ok'
+      : decision.reason === 'below-reserve'
         ? 'reserve-reached'
-        : 'ok';
+        : 'untrustworthy';
   return {
     state: 'available',
     used: normalized.used,
@@ -201,6 +215,18 @@ function toCfbdQuota(settled: Settled<CfbdUsage>): CfbdQuotaFact {
 
 function isSafeCount(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+/**
+ * A strict canonical-ISO validator: `Date.parse` is lenient (it accepts trailing
+ * junk such as an embedded path), so require the exact `toISOString()` round-trip
+ * before exposing a durable timestamp.
+ */
+function canonicalIsoOrNull(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const ms = Date.parse(value);
+  if (!Number.isFinite(ms)) return null;
+  return new Date(ms).toISOString() === value ? value : null;
 }
 
 function toOddsQuota(settled: Settled<OddsUsageReadState>): OddsQuotaFact {
@@ -234,8 +260,7 @@ function toOddsQuota(settled: Settled<OddsUsageReadState>): OddsQuotaFact {
     remaining,
     limit,
     threshold: ODDS_AUTOMATION_THRESHOLD,
-    capturedAt:
-      typeof capturedAt === 'string' && Number.isFinite(Date.parse(capturedAt)) ? capturedAt : null,
+    capturedAt: canonicalIsoOrNull(capturedAt),
     classification,
   };
 }

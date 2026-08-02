@@ -394,7 +394,14 @@ export async function getProviderDataDiagnostics(
 
           if (coverage.state === 'complete') continue;
           if (satisfied === 0 && incomplete === 0 && manualOnly === 0) {
-            missing.push(slate);
+            // "Missing" is reserved for a genuinely refresh-repairable absence
+            // (`absent > 0`). A slate whose only gaps are specialized defects —
+            // identity-mismatch, duplicate-conflict, or participant-validation-
+            // unavailable — is already reported under its own code with the
+            // correct repair surface (Team Identity / Data Maintenance), so it
+            // must NOT also emit the generic Data-Maintenance "missing"
+            // diagnostic, which would offer a known-ineffective refresh.
+            if (absent > 0) missing.push(slate);
             continue;
           }
           if (incomplete > 0 || absent > 0) partialRepairable = true;

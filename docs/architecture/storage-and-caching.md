@@ -1,7 +1,7 @@
 # Storage & Caching
 
 Status: Current
-Last verified: 2026-07-26
+Last verified: 2026-08-02
 Owner: Project documentation
 Canonical for: app-state store, alias/app-state storage layout, provider caches, standings cache keys/tags, season archive read cache keys/tags, Insights output cache keys/tags/freshness, legacy-alias cleanup status
 Supersedes: (none — complements [standings.md](standings.md) for the standings cache and [game-data-flow.md](game-data-flow.md) for provider caches)
@@ -143,6 +143,15 @@ The admin surface (`GET/POST /api/admin/provider-status` → the `/admin/diagnos
 - **Latest-only, monotonic.** Row count stays constant at one per job. The write runs inside `withAppStateKeyTransaction('scheduler-execution-status', job, …)`; a valid prior is preserved unless the incoming receipt is strictly newer by `(startedAt, invocationId)` — later `startedAt` wins, equal instants tie-break on lexical `invocationId`, and an exact duplicate identity never rewrites. `completedAt` and app-state `updated_at` never decide freshness, so an older overlapping invocation that completes late cannot overwrite a newer delivery.
 - **Malformed / future-dated priors are replaceable.** A prior is usable only when its version, job, source, invocation identity, timestamps, result, provider flag, and job-compatible target shape are all valid AND its `startedAt` is not implausibly ahead of real time (a 5-minute skew tolerance; the skew reference is read INSIDE the transaction, after the lock wait, so contention can't make it stale). Anything else — missing, malformed, job-mismatched, obsolete-version, or future-dated — is replaced. A genuine prior-record READ failure aborts the transaction without writing (never mistaken for a replaceable absent record).
 - **Post-response, best-effort.** Persistence is deferred via stable Next.js `after` (a test-injectable deferral seam replaces it under `node:test`), so it adds no latency to the cron response, and the receipt snapshot is built immutably before the callback registers (never closing over the mutable route tracker). Every read/lock/transaction/serialization/write failure — and any deferral-registration failure — is swallowed: a receipt can never change a cron response, mask a thrown exception, alter provider/status behavior, or emit storage error details. **There is no process memo, durable history, heartbeat table, cleanup job, or backfill.**
+
+### System Health read model inputs (PLATFORM-086F2F)
+
+`buildSystemHealthViewModel` (`src/lib/server/systemHealth.ts`) composes its facts from **cache-only reads and one deliberate cached quota observation, and performs no durable write and no internal HTTP.** Every boundary is an injectable loader (tests stub all of them); the defaults are:
+
+- **`provider-refresh-status`** read ONCE via `getAppStateEntries` (`src/lib/server/providerRefreshHealth.ts`) — no write, no memo mutation beyond the imported readers' own behavior.
+- **`scheduler-execution-status`** via the F2E2B cache-only reader; **provider-data diagnostics**, **per-dataset cache availability** (`getProviderCacheStates`), and **`AppStateStorageStatus`** (mode/production flags only — the filesystem path is dropped) all cache-only.
+- **CFBD quota:** at most ONE `fetchCfbdUsage()` per build using the ordinary **600 s** framework cache (NOT `fresh: true`), reconciled through the shared `normalizeProviderQuota`. This deliberately replaces the eventual duplicate-load pattern with a single cached observation.
+- **Odds quota:** one durable `readLatestKnownOddsUsageState({ forceRefresh: true })`; the snapshot is validated to safe nonnegative integer counts bounded by (and not over-counting) the limit before it is exposed, its `capturedAt` provenance is preserved, and a malformed/legacy snapshot resolves to `unavailable` rather than serializing a raw value. Canonical data **freshness** stays sourced from the cache/evidence diagnostics authority, never provider-status timestamps. No new durable scope, schema, or write is introduced.
 
 ### Game-stats durable partitions & polling (PLATFORM-086H3E)
 

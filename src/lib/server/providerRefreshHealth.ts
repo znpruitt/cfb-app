@@ -122,9 +122,14 @@ export type ProviderRefreshStatusLoader = (
 // -- Safe primitive validators -------------------------------------------------
 
 function isIsoTimestamp(value: unknown): value is string {
+  // `Date.parse` is lenient (it accepts `2026-10-15 (/private/tmp)` and similar),
+  // which would let a malformed string — potentially carrying a path or other raw
+  // text — be accepted and serialized. Require the EXACT canonical ISO form the
+  // writers produce (`new Date(ms).toISOString()`) via a round-trip.
   if (typeof value !== 'string') return false;
   const ms = Date.parse(value);
-  return Number.isFinite(ms);
+  if (!Number.isFinite(ms)) return false;
+  return new Date(ms).toISOString() === value;
 }
 
 function nullableIso(value: unknown): string | null {

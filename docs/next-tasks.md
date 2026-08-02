@@ -134,12 +134,18 @@ Execution order within F2 (each slice is one independently deployable PR):
    safe receipt parsing exposed on the authority; server-only — no route, UI, provider call,
    scheduler mutation, settings change, or durable write) — ✅ **merged (PR #437, `f84b676`,
    2026-07-31)**.
-8. **F2F — system-health read model** — **the next slice**: one server-side operational view model
+8. **F2F — system-health read model** — one server-side view model (`src/lib/server/systemHealth.ts`)
    consuming the F2E2B reader plus automation gates, canonical data health, latest scoped attempts,
-   quota, and storage — kept distinct — with stable issue codes, severity, explanation, and repair
-   links.
-9. Then, in order: F2G System Health UI → F2H Season Management consolidation → F2I Platform
-   Configuration/Team Identity → F2J commissioner boundaries + navigation closeout.
+   quota, and storage — kept distinct — with stable issue codes, severity, safe static explanation,
+   and a **nullable** repair destination (Data Maintenance / Season Management / Team Identity, or
+   none). Server-only (no route/UI/mutation). ✅ **Implemented — PR open (not merged);** review
+   converged after three Codex rounds plus one user-authorized round (all P2 findings remediated).
+9. **F2G — System Health UI** — **the next slice**: render the F2F model on `/admin/diagnostics`,
+   splitting the oversized Provider panel, showing scheduler and provider truth separately, removing
+   stale policy wording, deduplicating quota loading, and linking every actionable issue to its
+   owning surface.
+10. Then, in order: F2H Season Management consolidation → F2I Platform Configuration/Team Identity →
+    F2J commissioner boundaries + navigation closeout.
 
 The legacy diagnostics tools remain available and unmoved until the corresponding slice ships.
 

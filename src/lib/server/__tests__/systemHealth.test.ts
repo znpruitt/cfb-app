@@ -404,6 +404,59 @@ test('raw error, source, and filesystem-path canaries never appear in the model'
   );
 });
 
+// r4 Finding — CFBD health matches the ACTUAL automation gate, not normalizeProviderQuota.
+test('CFBD health: integer remaining with no patronLevel is not flagged untrustworthy/reserve', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      cfbdUsage: () =>
+        Promise.resolve({ patronLevel: null, used: null, remaining: 3000, limit: null }),
+    }),
+  });
+  assert.equal(model.quota.cfbd.state, 'available');
+  // The gate allows 3000 ≥ 1007 (no limit needed), so no fault issue is emitted.
+  assert.ok(!model.issues.some((i) => i.code === 'cfbd-quota-untrustworthy'));
+  assert.ok(!model.issues.some((i) => i.code === 'cfbd-automation-reserve-reached'));
+});
+
+test('CFBD health: a fractional remaining is untrustworthy (matches the gate)', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      cfbdUsage: () =>
+        Promise.resolve({ patronLevel: 1, used: null, remaining: 1500.5, limit: 5000 }),
+    }),
+  });
+  assert.ok(model.issues.some((i) => i.code === 'cfbd-quota-untrustworthy'));
+});
+
+// r4 Finding — a malformed Odds capturedAt is dropped, never serialized.
+test('a malformed Odds capturedAt is dropped (not serialized)', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      oddsUsage: () =>
+        Promise.resolve({
+          state: 'available',
+          snapshot: {
+            used: 100,
+            remaining: 400,
+            lastCost: 3,
+            limit: 500,
+            capturedAt: '2026-10-15 (/private/tmp)',
+            source: 'odds-response-headers',
+          },
+        }),
+    }),
+  });
+  assert.equal(model.quota.odds.state, 'available');
+  assert.equal(model.quota.odds.state === 'available' ? model.quota.odds.capturedAt : 'x', null);
+  assert.ok(!JSON.stringify(model).includes('/private/tmp'));
+});
+
 // Case 32 — the build performs no internal HTTP request (and no write path is invoked).
 test('the model build issues no internal HTTP request', async () => {
   const originalFetch = globalThis.fetch;
