@@ -76,6 +76,12 @@ export type SafeProviderRefreshStatus = {
   partialFailure: boolean;
   failedPartitions: string[];
   durationMs: number | null;
+  /**
+   * Whether the record carried a `lastError` object (sanitized to a boolean — the
+   * raw message never survives). Lets the issue model infer a fault from a legacy
+   * pre-`latestAttemptOutcome` record that still encodes its last result here.
+   */
+  hasError: boolean;
   errorCode: string | null;
   errorStatus: number | null;
 };
@@ -252,6 +258,7 @@ function rebuildStatus(key: string, value: unknown): SafeProviderRefreshStatus |
     partialFailure: value.partialFailure === true,
     failedPartitions: sanitizeFailedPartitions(value.failedPartitions),
     durationMs: nullableNonNegNumber(value.durationMs),
+    hasError: error !== null,
     errorCode: error ? validErrorCode(error.code) : null,
     errorStatus: error ? validErrorStatus(error.status) : null,
   };

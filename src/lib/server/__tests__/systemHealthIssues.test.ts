@@ -243,6 +243,67 @@ test('a recent in-progress attempt raises no issue', () => {
   assert.deepEqual(issues, []);
 });
 
+// r3 Finding 1 — a legacy pre-outcome record's failure/partial is still surfaced.
+test('a legacy null-outcome record with lastError → failed issue (not silent-healthy)', () => {
+  const dataset = 'scores' as const;
+  const scope = canonicalScopeFor(dataset);
+  const issues = deriveSystemHealthIssues(
+    baseInputs({
+      providerRefresh: refreshSnapshot({
+        [dataset]: {
+          canonical: {
+            state: 'available',
+            status: safeStatus(dataset, scope, { latestAttemptOutcome: null, hasError: true }),
+          },
+        },
+      }),
+    })
+  );
+  const failed = find(issues, 'provider-refresh-failed');
+  assert.ok(failed, 'legacy error record surfaces a failed issue');
+  assert.equal(failed!.subject.id, 'scores');
+});
+
+test('a legacy null-outcome record with partialFailure → partial issue', () => {
+  const dataset = 'schedule' as const;
+  const scope = canonicalScopeFor(dataset);
+  const issues = deriveSystemHealthIssues(
+    baseInputs({
+      providerRefresh: refreshSnapshot({
+        [dataset]: {
+          canonical: {
+            state: 'available',
+            status: safeStatus(dataset, scope, {
+              latestAttemptOutcome: null,
+              hasError: false,
+              partialFailure: true,
+            }),
+          },
+        },
+      }),
+    })
+  );
+  assert.ok(find(issues, 'provider-refresh-partial'));
+});
+
+test('a legacy null-outcome record with no error/partial → no issue', () => {
+  const dataset = 'scores' as const;
+  const scope = canonicalScopeFor(dataset);
+  const issues = deriveSystemHealthIssues(
+    baseInputs({
+      providerRefresh: refreshSnapshot({
+        [dataset]: {
+          canonical: {
+            state: 'available',
+            status: safeStatus(dataset, scope, { latestAttemptOutcome: null }),
+          },
+        },
+      }),
+    })
+  );
+  assert.deepEqual(issues, []);
+});
+
 // Case 16 — no refresh history alone produces no issue.
 test('absent refresh history produces no provider issue', () => {
   // baseInputs already has all-absent canonical + latest; succeeded/no-op likewise silent.
@@ -583,6 +644,7 @@ test('Odds reserve boundary: 53 permits, 52 reaches the reserve', () => {
           remaining: 53,
           limit: 500,
           threshold: 53,
+          capturedAt: null,
           classification: 'ok',
         },
       },
@@ -600,6 +662,7 @@ test('Odds reserve boundary: 53 permits, 52 reaches the reserve', () => {
           remaining: 52,
           limit: 500,
           threshold: 53,
+          capturedAt: null,
           classification: 'reserve-reached',
         },
       },

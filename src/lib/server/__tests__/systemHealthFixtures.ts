@@ -170,6 +170,7 @@ export function safeStatus(
     partialFailure: false,
     failedPartitions: [],
     durationMs: null,
+    hasError: false,
     errorCode: null,
     errorStatus: null,
     ...overrides,
@@ -256,6 +257,7 @@ export function healthyQuota(): SystemHealthQuota {
       remaining: 400,
       limit: 500,
       threshold: 53,
+      capturedAt: new Date(NOW).toISOString(),
       classification: 'ok',
     },
   };

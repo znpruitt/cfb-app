@@ -208,17 +208,21 @@ function toOddsQuota(settled: Settled<OddsUsageReadState>): OddsQuotaFact {
   const read = settled.value;
   if (read.state === 'unavailable') return { state: 'unavailable' };
   if (read.state === 'absent') return { state: 'absent' };
-  const { used, remaining, limit } = read.snapshot;
+  const { used, remaining, limit, capturedAt } = read.snapshot;
   // The durable snapshot is a raw read: a malformed/legacy value (a string field,
-  // or an impossible balance like remaining/used exceeding the limit) must never
-  // be serialized into the model or classified `ok`. Require safe nonnegative
-  // integer counts bounded by the limit; anything else → an unavailable read.
+  // or an impossible balance) must never be serialized into the model or
+  // classified `ok`. Require safe nonnegative integer counts, each bounded by the
+  // limit, AND a total that does not OVER-count the limit (used + remaining >
+  // limit is impossible). A total BELOW the limit is allowed — clamped
+  // near-exhaustion estimates legitimately under-count. Anything else →
+  // unavailable read.
   if (
     !isSafeCount(used) ||
     !isSafeCount(remaining) ||
     !isSafeCount(limit) ||
     remaining > limit ||
-    used > limit
+    used > limit ||
+    used + remaining > limit
   ) {
     return { state: 'unavailable' };
   }
@@ -230,6 +234,8 @@ function toOddsQuota(settled: Settled<OddsUsageReadState>): OddsQuotaFact {
     remaining,
     limit,
     threshold: ODDS_AUTOMATION_THRESHOLD,
+    capturedAt:
+      typeof capturedAt === 'string' && Number.isFinite(Date.parse(capturedAt)) ? capturedAt : null,
     classification,
   };
 }

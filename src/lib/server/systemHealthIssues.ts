@@ -139,6 +139,8 @@ export type OddsQuotaFact =
       remaining: number;
       limit: number;
       threshold: number;
+      /** Validated ISO observation time of the durable snapshot, or null. */
+      capturedAt: string | null;
       classification: 'ok' | 'reserve-reached';
     };
 
@@ -351,6 +353,35 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
   return issues;
 }
 
+function failedAttemptIssue(
+  dataset: ProviderDataset,
+  cacheState: ProviderCacheStates[ProviderDataset]
+): SystemHealthIssue {
+  // Critical only when the cache is PROVEN absent; available/unknown → warning.
+  const critical = cacheState === 'absent';
+  return {
+    code: 'provider-refresh-failed',
+    severity: critical ? 'critical' : 'warning',
+    subject: { axis: 'dataset', id: dataset },
+    title: `${datasetLabel(dataset)} refresh failed`,
+    explanation: critical
+      ? 'The latest refresh attempt failed and no cached data is available to serve.'
+      : 'The latest refresh attempt failed; prior-good cached data may still be serving.',
+    repair: repairFor('data-maintenance'),
+  };
+}
+
+function partialAttemptIssue(dataset: ProviderDataset): SystemHealthIssue {
+  return {
+    code: 'provider-refresh-partial',
+    severity: 'warning',
+    subject: { axis: 'dataset', id: dataset },
+    title: `${datasetLabel(dataset)} refresh was partial`,
+    explanation: 'The latest refresh attempt committed only some partitions.',
+    repair: repairFor('data-maintenance'),
+  };
+}
+
 function attemptFaultIssue(
   dataset: ProviderDataset,
   status: SafeProviderRefreshStatus,
@@ -359,29 +390,10 @@ function attemptFaultIssue(
 ): SystemHealthIssue | null {
   const label = datasetLabel(dataset);
   switch (status.latestAttemptOutcome) {
-    case 'failed': {
-      // Critical only when the cache is PROVEN absent; available/unknown → warning.
-      const critical = cacheState === 'absent';
-      return {
-        code: 'provider-refresh-failed',
-        severity: critical ? 'critical' : 'warning',
-        subject: { axis: 'dataset', id: dataset },
-        title: `${label} refresh failed`,
-        explanation: critical
-          ? 'The latest refresh attempt failed and no cached data is available to serve.'
-          : 'The latest refresh attempt failed; prior-good cached data may still be serving.',
-        repair: repairFor('data-maintenance'),
-      };
-    }
+    case 'failed':
+      return failedAttemptIssue(dataset, cacheState);
     case 'partial':
-      return {
-        code: 'provider-refresh-partial',
-        severity: 'warning',
-        subject: { axis: 'dataset', id: dataset },
-        title: `${label} refresh was partial`,
-        explanation: 'The latest refresh attempt committed only some partitions.',
-        repair: repairFor('data-maintenance'),
-      };
+      return partialAttemptIssue(dataset);
     case 'in-progress': {
       if (status.lastAttemptAt) {
         const startedMs = Date.parse(status.lastAttemptAt);
@@ -399,8 +411,15 @@ function attemptFaultIssue(
       }
       return null; // still in progress, not yet interrupted
     }
+    case null:
+      // Legacy pre-`latestAttemptOutcome` record: infer the fault from the
+      // preserved fields it still encodes (mirrors the admin panel's fallback),
+      // so an old failed/partial refresh is never silently read as healthy.
+      if (status.hasError) return failedAttemptIssue(dataset, cacheState);
+      if (status.partialFailure) return partialAttemptIssue(dataset);
+      return null;
     default:
-      return null; // succeeded / no-op / null → no fault
+      return null; // succeeded / no-op → no fault
   }
 }
 

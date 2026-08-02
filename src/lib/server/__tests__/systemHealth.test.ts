@@ -253,6 +253,57 @@ test('an impossible Odds balance (remaining exceeds limit) → quota unavailable
   assert.equal(model.quota.odds.state, 'unavailable');
 });
 
+// r3 Finding — an internally inconsistent Odds balance (over-count) → unavailable.
+test('an over-counting Odds balance (used + remaining exceeds limit) → quota unavailable', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      oddsUsage: () =>
+        Promise.resolve({
+          state: 'available',
+          snapshot: {
+            used: 400,
+            remaining: 400, // 400 + 400 = 800 > 500
+            lastCost: 3,
+            limit: 500,
+            capturedAt: new Date(NOW).toISOString(),
+            source: 'odds-response-headers',
+          },
+        }),
+    }),
+  });
+  assert.equal(model.quota.odds.state, 'unavailable');
+});
+
+// r3 Finding — the Odds observation timestamp is preserved (provenance for staleness).
+test('the Odds quota fact preserves a validated capturedAt', async () => {
+  const captured = '2026-10-15T11:30:00.000Z';
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      oddsUsage: () =>
+        Promise.resolve({
+          state: 'available',
+          snapshot: {
+            used: 100,
+            remaining: 400,
+            lastCost: 3,
+            limit: 500,
+            capturedAt: captured,
+            source: 'odds-response-headers',
+          },
+        }),
+    }),
+  });
+  assert.equal(model.quota.odds.state, 'available');
+  assert.equal(
+    model.quota.odds.state === 'available' ? model.quota.odds.capturedAt : 'MISSING',
+    captured
+  );
+});
+
 // Finding 3 — a rejected diagnostics loader surfaces a global issue (not silent-healthy).
 test('a diagnostics loader failure surfaces a global data-diagnostics-unavailable issue', async () => {
   const model = await buildSystemHealthViewModel({
