@@ -322,6 +322,12 @@ export async function getProviderDataDiagnostics(
         const duplicateConflictSummaries: string[] = [];
         const identityMismatchSummaries: string[] = [];
         const participantUnavailableSummaries: string[] = [];
+        // Whether ANY partial slate has a genuinely REPAIRABLE gap (incomplete or
+        // absent evidence a refresh could fill). A partial made up only of
+        // satisfied + manual-only evidence is an accepted upstream limitation with
+        // NO repair path (AGENTS.md game-stats deferral), so its diagnostic must
+        // not offer a known-ineffective Data Maintenance action.
+        let partialRepairable = false;
 
         for (const slate of completedSlates) {
           // Raw durable read + the ONE shared envelope validation: only an
@@ -391,6 +397,7 @@ export async function getProviderDataDiagnostics(
             missing.push(slate);
             continue;
           }
+          if (incomplete > 0 || absent > 0) partialRepairable = true;
           partialSummaries.push(
             `week ${slate.week} ${slate.seasonType}: ${satisfied}/${coverage.games.length} verified-complete` +
               `${incomplete > 0 ? `, ${incomplete} incomplete` : ''}` +
@@ -432,7 +439,10 @@ export async function getProviderDataDiagnostics(
             'info',
             'game-stats-evidence-partial',
             `Partially verified game-stat evidence — ${partialSummaries.slice(0, MAX_LISTED_SLATES).join('; ')}.`,
-            'data-maintenance'
+            // Only offer a repair when at least one partial slate is actually
+            // refresh-repairable; a purely satisfied + manual-only partial is an
+            // accepted upstream limitation with no effective repair.
+            partialRepairable ? 'data-maintenance' : null
           );
         }
         if (duplicateConflictSummaries.length > 0) {

@@ -265,16 +265,42 @@ function canonicalScopeFor(dataset: ProviderDataset, year: number): ProviderRefr
 }
 
 /**
+ * The scope KINDS each dataset legitimately writes provider-refresh-status under.
+ * A structurally-valid but MISROUTED record (e.g. `rankings:week:…`, which
+ * Rankings never writes) must not become that dataset's latest activity, so
+ * activity eligibility is gated by this ownership map — not merely by scope shape.
+ */
+const DATASET_ACTIVITY_SCOPE_KINDS: Record<
+  ProviderDataset,
+  ReadonlySet<ProviderRefreshScope['kind']>
+> = {
+  scores: new Set(['year', 'season-partition', 'week-partition']),
+  schedule: new Set([
+    'year',
+    'season-partition',
+    'week-partition',
+    'schedule-media',
+    'venue-catalog',
+  ]),
+  odds: new Set(['odds-target']),
+  rankings: new Set(['year']),
+  conferences: new Set(['global']),
+  'game-stats': new Set(['year', 'season-partition', 'week-partition']),
+};
+
+/**
  * Whether a parsed record's scope is eligible to be `latestScopedActivity` for
- * `dataset` in `year`. Year-bearing scopes count only for the selected year;
- * `global` counts only for Conferences; `venue-catalog` counts only for
- * Schedule. `legacy-unscoped` and every other year are excluded.
+ * `dataset` in `year`. The scope kind must be one this dataset actually owns
+ * (per {@link DATASET_ACTIVITY_SCOPE_KINDS}), and year-bearing scopes must match
+ * the selected year. `legacy-unscoped`, every other year, and every
+ * cross-dataset scope kind are excluded.
  */
 function isEligibleActivity(
   dataset: ProviderDataset,
   year: number,
   scope: ProviderRefreshScope
 ): boolean {
+  if (!DATASET_ACTIVITY_SCOPE_KINDS[dataset].has(scope.kind)) return false;
   switch (scope.kind) {
     case 'year':
     case 'season-partition':
@@ -283,11 +309,8 @@ function isEligibleActivity(
     case 'schedule-media':
       return scope.year === year;
     case 'global':
-      return dataset === 'conferences';
     case 'venue-catalog':
-      return dataset === 'schedule';
-    case 'legacy-unscoped':
-      return false;
+      return true;
     default:
       return false;
   }

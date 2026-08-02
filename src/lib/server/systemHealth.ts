@@ -199,8 +199,8 @@ function toCfbdQuota(settled: Settled<CfbdUsage>): CfbdQuotaFact {
   };
 }
 
-function isFiniteNonNeg(value: unknown): value is number {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+function isSafeCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 function toOddsQuota(settled: Settled<OddsUsageReadState>): OddsQuotaFact {
@@ -209,10 +209,17 @@ function toOddsQuota(settled: Settled<OddsUsageReadState>): OddsQuotaFact {
   if (read.state === 'unavailable') return { state: 'unavailable' };
   if (read.state === 'absent') return { state: 'absent' };
   const { used, remaining, limit } = read.snapshot;
-  // The durable snapshot is a raw read: a malformed/legacy value (e.g. a string
-  // `remaining`) must never be serialized into the model or classified `ok` on a
-  // non-numeric field. Any invalid numeric field → treat as an unavailable read.
-  if (!isFiniteNonNeg(used) || !isFiniteNonNeg(remaining) || !isFiniteNonNeg(limit)) {
+  // The durable snapshot is a raw read: a malformed/legacy value (a string field,
+  // or an impossible balance like remaining/used exceeding the limit) must never
+  // be serialized into the model or classified `ok`. Require safe nonnegative
+  // integer counts bounded by the limit; anything else → an unavailable read.
+  if (
+    !isSafeCount(used) ||
+    !isSafeCount(remaining) ||
+    !isSafeCount(limit) ||
+    remaining > limit ||
+    used > limit
+  ) {
     return { state: 'unavailable' };
   }
   const classification: 'ok' | 'reserve-reached' =

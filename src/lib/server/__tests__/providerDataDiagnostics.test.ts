@@ -1003,3 +1003,98 @@ test('F2F: scores/game-stats remain evidence-based, not age-based (final score c
   assert.equal(findByCode(diagnostics, 'scores-terminal-coverage-partial'), undefined);
   assert.equal(findByCode(diagnostics, 'game-stats-latest-slate-missing'), undefined);
 });
+
+test('F2F: a refresh-repairable partial (some absent) → evidence-partial with data-maintenance repair', async () => {
+  await seedScheduleItems([
+    {
+      id: '101',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: '104',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Echo',
+      awayTeam: 'Foxtrot',
+    },
+    {
+      id: '102',
+      week: 2,
+      seasonType: 'regular',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Gamma',
+      awayTeam: 'Delta',
+    },
+  ]);
+  // One of two expected week-1 games verified; the other is absent (current season →
+  // refresh-repairable) → partial WITH a Data Maintenance repair.
+  await setAppState('game-stats', `${YEAR}:1:regular`, {
+    year: YEAR,
+    week: 1,
+    seasonType: 'regular',
+    fetchedAt: new Date(NOW).toISOString(),
+    games: [satisfiedRow(101)],
+  });
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const partial = findByCode(diagnostics, 'game-stats-evidence-partial');
+  assert.ok(partial);
+  assert.equal(partial!.repair, 'data-maintenance');
+});
+
+test('F2F: a historical manual-only partial → evidence-partial with NULL repair (accepted limitation)', async () => {
+  const HIST = 2024;
+  const HIST_KICK = '2024-10-11T20:00:00.000Z'; // long before NOW (2026) → completed & historical
+  await setAppState('schedule', `${HIST}-all-all`, {
+    at: NOW,
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: [
+      {
+        id: '201',
+        week: 1,
+        seasonType: 'regular',
+        startDate: HIST_KICK,
+        status: 'STATUS_FINAL',
+        homeTeam: 'Alpha',
+        awayTeam: 'Beta',
+        neutralSite: false,
+        conferenceGame: false,
+        homeConference: 'SEC',
+        awayConference: 'Big Ten',
+        homeId: 2011,
+        awayId: 2012,
+      },
+    ],
+  });
+  // A legacy-malformed (defective) row whose participants MATCH the schedule ids →
+  // for a HISTORICAL season this is the terminal `manual-only` state, an accepted
+  // upstream limitation with no repair path.
+  await setAppState('game-stats', `${HIST}:1:regular`, {
+    year: HIST,
+    week: 1,
+    seasonType: 'regular',
+    fetchedAt: new Date(NOW).toISOString(),
+    games: [
+      legacyRowFromWire(
+        wireGame({
+          id: 201,
+          home: { school: 'Alpha', teamId: 2011, statOverrides: { totalYards: 'not-a-number' } },
+          away: { school: 'Beta', teamId: 2012 },
+        }),
+        1
+      ),
+    ],
+  });
+  const { diagnostics } = await getProviderDataDiagnostics(HIST, { now: NOW });
+  const partial = findByCode(diagnostics, 'game-stats-evidence-partial');
+  assert.ok(partial, 'historical manual-only surfaces as a partial');
+  assert.equal(partial!.repair, null);
+});

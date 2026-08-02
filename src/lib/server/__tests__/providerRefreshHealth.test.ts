@@ -270,6 +270,20 @@ test('scope eligibility is dataset-specific (global→conferences, venue-catalog
   assert.equal(odds.latestScopedActivity.state, 'available');
 });
 
+// A structurally-valid record under a scope kind the dataset never owns is excluded.
+test('a scope kind the dataset never owns (rankings week partition) is not eligible activity', async () => {
+  const snapshot = await read([
+    entry('rankings', weekPartitionScope(YEAR, 3, 'regular'), {
+      latestAttemptOutcome: 'succeeded',
+      lastAttemptAt: iso(NOW),
+    }),
+  ]);
+  const rankings = rowFor(snapshot, 'rankings');
+  // Rankings only writes year-scoped status; a week-partition record is misrouted
+  // and must never become its latest activity.
+  assert.equal(rankings.latestScopedActivity.state, 'absent');
+});
+
 // A record with no valid lastAttemptAt is not selectable as latest activity.
 test('a record without a valid lastAttemptAt is not selectable as latest activity', async () => {
   const snapshot = await read([

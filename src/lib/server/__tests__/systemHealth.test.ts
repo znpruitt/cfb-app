@@ -230,6 +230,29 @@ test('a malformed durable Odds snapshot → quota unavailable, raw value not ser
   assert.ok(!JSON.stringify(model).includes('CORRUPT_REMAINING'));
 });
 
+// Codex r2 Finding — an impossible Odds balance (remaining exceeds limit) → unavailable.
+test('an impossible Odds balance (remaining exceeds limit) → quota unavailable', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      oddsUsage: () =>
+        Promise.resolve({
+          state: 'available',
+          snapshot: {
+            used: 100,
+            remaining: 1_000_000,
+            lastCost: 3,
+            limit: 500,
+            capturedAt: new Date(NOW).toISOString(),
+            source: 'odds-response-headers',
+          },
+        }),
+    }),
+  });
+  assert.equal(model.quota.odds.state, 'unavailable');
+});
+
 // Finding 3 — a rejected diagnostics loader surfaces a global issue (not silent-healthy).
 test('a diagnostics loader failure surfaces a global data-diagnostics-unavailable issue', async () => {
   const model = await buildSystemHealthViewModel({
