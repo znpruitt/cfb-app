@@ -88,7 +88,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   production/BotID-stash operation. PR size: 17 files / ~+4.0k net — crosses both soft signals,
   dominated by the mandated 4-module split + 32-case test matrix (three new suites + shared fixtures +
   one extended suite) + six doc projections (no single oversized module); surfaced to the user.
-- Status: **Implemented — PR open (not merged).**
+- Status: **Merged (PR #438, merge commit `b9a1688`, 2026-08-02).**
 
 ### PLATFORM-086F2E2B-SCHEDULER-RECEIPT-READER-CLASSIFIER-v1
 

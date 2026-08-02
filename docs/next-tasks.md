@@ -138,8 +138,9 @@ Execution order within F2 (each slice is one independently deployable PR):
    consuming the F2E2B reader plus automation gates, canonical data health, latest scoped attempts,
    quota, and storage — kept distinct — with stable issue codes, severity, safe static explanation,
    and a **nullable** repair destination (Data Maintenance / Season Management / Team Identity, or
-   none). Server-only (no route/UI/mutation). ✅ **Implemented — PR open (not merged);** review
-   converged after three Codex rounds plus one user-authorized round (all P2 findings remediated).
+   none). Server-only (no route/UI/mutation). ✅ **Merged (PR #438, `b9a1688`, 2026-08-02);** review
+   closed by user evaluation after four Codex rounds (all 13 P2 findings remediated; the confirming
+   round's three fixes had no further Codex pass).
 9. **F2G — System Health UI** — **the next slice**: render the F2F model on `/admin/diagnostics`,
    splitting the oversized Provider panel, showing scheduler and provider truth separately, removing
    stale policy wording, deduplicating quota loading, and linking every actionable issue to its

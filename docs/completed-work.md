@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-07-30
+Last verified: 2026-08-02
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -2204,6 +2204,46 @@ Key architectural decisions across Phase 5:
 - **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` (F2F —
   the consolidated System Health read model that consumes this reader and adds issue codes,
   severity, and repair links — is the next F2 slice).
+
+---
+
+### PLATFORM-086F2F — System Health Read Model — Complete
+
+- **Status:** Complete — merged to `main` via PR #438 (merge commit `b9a1688`), 2026-08-02.
+- **PROMPT_ID(s):** `PLATFORM-086F2F-SYSTEM-HEALTH-READ-MODEL-v1` (the server-side data authority
+  the F2G UI will render).
+- **Outcome:** One server-side view model, `buildSystemHealthViewModel({ year, nowMs?, loaders? })`
+  (`src/lib/server/systemHealth.ts`), that composes SIX independent fact domains for an explicit,
+  validated year and derives a deterministic, prioritized issue list — ending the incremental
+  Provider panel's conflations. The two axes stay separate (seven scheduler jobs / six provider
+  datasets, not 1:1); delivery ≠ execution ≠ data freshness ≠ gates ≠ quota ≠ storage; a closed
+  automation gate never demotes a missing/late delivery and info-only gate issues never degrade
+  overall state. A new cache-only safe reader (`providerRefreshHealth.ts`) exposes each dataset's
+  canonical status and latest scoped activity separately, rebuilding records field-by-field (never
+  raw-cast; drops `lastError.message`/`source`, keeps a sanitized `hasError` + validated error
+  code/status), gating latest-activity to dataset-owned scope kinds, and requiring a canonical-ISO
+  round-trip so a lenient-`Date.parse` string (with an embedded path) can never be serialized.
+  Canonical freshness stays sourced from the cache/evidence authority (never provider-status
+  timestamps); `providerDataDiagnostics.ts` gains stable codes + repair surfaces with the game-stat
+  defect split (identity → Team Identity, duplicate/conflict → Data Maintenance), and manual-only /
+  identity-only gaps carry no ineffective repair. Quota uses one deliberate 600 s-cached CFBD
+  observation classified by the ACTUAL automation gate (1,007 reserve) and the real 53-credit Odds
+  threshold, rejecting malformed/impossible/legacy snapshots. Issues carry a stable code, severity,
+  a safe STATIC explanation, and a NULLABLE truthful repair destination (Data Maintenance / Season
+  Management / Team Identity / none). Server-only: no route, UI, mutation, durable schema change, or
+  scheduler/provider behavior change; F2G owns the UI.
+- **Verification:** Full suite 3096 (+82 F2F tests incl. all 32 enumerated cases); `npx tsc
+  --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean. No browser verification
+  (no UI). Review process: Claude self-review (no P0–P2) → Codex r1 (4 P2) → r2 (3 P2) → r3 (3 P2,
+  user-authorized) → a confirming round (3 P2, user-authorized); all 13 P2s remediated, no P0/P1
+  ever surfaced. The confirming round surfaced new findings rather than confirming clean — its three
+  fixes are test- and self-review-covered but received no further Codex pass, so the review was
+  closed by user evaluation with the PR as the final checkpoint. PR size: 17 files / ~+4.0k net —
+  crossed both soft signals (mandated four-module split + 32-case test matrix + six doc
+  projections; no single oversized module), surfaced to the user.
+- **Open follow-ups:** See `docs/next-tasks.md` — **F2G (System Health UI)** is the next F2 slice
+  (render this model, split the oversized Provider panel, link every actionable issue to its owning
+  surface).
 
 ---
 
