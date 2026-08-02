@@ -1,7 +1,7 @@
 # Diagnostics & Debugging
 
 Status: Current
-Last verified: 2026-07-26
+Last verified: 2026-08-02
 Owner: Project documentation
 Canonical for: diagnostic endpoints, debug-surface auth, upstream-first debugging order
 Supersedes: (none — complements [../architecture/game-data-flow.md](../architecture/game-data-flow.md) and [../architecture/auth-and-privacy.md](../architecture/auth-and-privacy.md))
@@ -218,6 +218,18 @@ Exact behavior to know when reading it:
 
 - **`event: 'season-transition-cron'`** — `result` (`skipped` | `success` | `partial` | `no-op` | `failure` | `in-progress`), aggregated over the per-year entries; `reason` is the uniform per-year reason or `year-results`, with route-level literals `cron-secret-not-configured` / `cron-authorization-invalid` (auth), `no-preseason-leagues`, `registry-unavailable`, and `unexpected-error`. Each `years[]` entry carries `year`, `result`, `reason` (a control reason — `probe-state-unavailable`, `probe-write-failed`, `lifecycle-write-failed`, `refresh-not-due`, `season-transitioned` — or the exact E1A `FullSeasonScheduleRefreshReason`), `scheduleRefreshReason` (the exact E1A reason when a refresh ran, else null), `providerCallAttempted` (E1A's field, copied verbatim), `targetLeagues`, `probed`, `cached`, `transitionedLeagues`, and `failedSeasonTypes`. Controlled operational failures keep their existing HTTP status (a registry read failure and a genuine schedule store outage are 500 exactly as before; data/partition failures stay 200); only lifecycle/provider truth drives the event.
 - **`event: 'season-rollover-cron'`** — `result` aggregated the same way; `reason` uniform-or-`year-results` with route-level `cron-secret-not-configured` / `cron-authorization-invalid`, `no-season-leagues`, `registry-unavailable`, and `unexpected-error`. Each `years[]` entry carries `year`, `result`, `reason` (`read-failed`, `rollover-complete`, `rollover-partial`, `rollover-failed`, or the exact `ChampionshipRolloverSkipReason`), `providerCallAttempted` (**always `false`** — rollover is cache-only), `targetLeagues`, `rolledOverLeagues`, and `suppressionCleared`. Archive-first per-league failure isolation, the guarded conditional transition, standings invalidation, and best-effort suppression clearing are all unchanged; a per-league archive/status failure makes its year `partial` (some rolled) or `failure` (none rolled) without changing the existing response body.
+
+### System Health read model (PLATFORM-086F2F)
+
+**PLATFORM-086F2F** adds the server-side view model `buildSystemHealthViewModel` (`src/lib/server/systemHealth.ts`) that F2G will render on `/admin/diagnostics`. It is server-only — no route, UI, mutation, durable schema change, or provider/scheduler behavior change — and keeps **six independent facts distinct** rather than reproducing the old panel's conflations:
+
+- **Scheduler delivery** — did an authenticated invocation arrive on time (from the F2E2B reader) — vs **scheduler execution outcome** — what the parsed receipt reported. A late-but-successful run raises a delivery-late issue but no execution fault; an on-time failed run raises an execution fault but no delivery issue.
+- **Canonical data health** — cache/evidence freshness from `providerDataDiagnostics` (unchanged freshness policies: schedule/rankings 8-day, odds 2-day in the active-season window, scores terminal-coverage, game-stats participant-verified evidence) — never inferred from provider-status timestamps.
+- **Automation gates** — pause/disable state, surfaced only as INFORMATIONAL issues that never demote a missing/late delivery and never make `overallState` degraded by themselves.
+- **Quota** — one deliberate cached CFBD observation against the 1,007 reserve; Odds against the real 53-credit automatic threshold.
+- **Storage** — configuration mode (never a "healthy database" claim from mode alone; the filesystem path is never serialized).
+
+Two axes stay separate (seven scheduler jobs, six provider datasets — not 1:1). **Stable issue vocabulary:** every issue carries a machine-readable `code`, a `severity` (`critical`/`warning`/`info`), a `subject` (`global`/`job`/`dataset`), a safe STATIC `explanation` (never a copied diagnostic message or thrown-error text), and a **nullable** `repair` — Data Maintenance (`/admin/data/cache`), Season Management (`/admin/season`), Team Identity (`/admin/aliases`), or `null` when nothing in-app repairs it (missing/late delivery, quota exhaustion, storage misconfiguration, unavailable observability reads, manual-only game-stat evidence). Diagnostics gain matching stable `ProviderDiagnosticCode`s; a game-stat identity mismatch routes to Team Identity while duplicate/conflict routes to Data Maintenance. Issue order is deterministic (severity → axis → canonical job/dataset order → subject → code); `overallState` is `critical` / `degraded` / `healthy` with info-only staying `healthy`. Subsystem read failures degrade only their own fact to `unavailable` (surfaced, e.g. `provider-status-unavailable`, `scheduler-delivery-unavailable`, `data-diagnostics-unavailable`, `automation-settings-unavailable`) without leaking raw errors or failing the whole model. **F2G owns the UI.**
 
 ### Odds refresh authority (PLATFORM-086C1, DORMANT — C2-ready)
 
