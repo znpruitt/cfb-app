@@ -220,10 +220,18 @@ test('a malformed legacy status is a 409 invalid-legacy-record, never repaired',
     makeLeague('alpha', 2024, {} as League['status']),
     makeLeague('bravo', 2024, { state: 'bogus' } as unknown as League['status']),
     makeLeague('charlie', 2024, { state: 'preseason' } as unknown as League['status']),
+    // A non-boolean `setupComplete` makes the preseason variant unassignable —
+    // it must surface as the malformed-record code, not status-already-present
+    // (F2H1 Codex review round 2).
+    makeLeague('delta', 2026, {
+      state: 'preseason',
+      year: 2026,
+      setupComplete: 'yes',
+    } as unknown as League['status']),
   ]);
   const before = await readRegistry();
 
-  for (const slug of ['alpha', 'bravo', 'charlie']) {
+  for (const slug of ['alpha', 'bravo', 'charlie', 'delta']) {
     const res = await POST(postRequest({ leagueSlug: slug, confirmed: true }));
     assert.equal(res.status, 409, `${slug} refused`);
     assert.equal(

@@ -27,17 +27,27 @@ function isValidLifecycleYear(year: unknown): year is number {
 }
 
 /**
- * Whether a stored `status` value is a structurally valid `LeagueStatus`. Used
- * only by the missing-status recovery authority to tell "this league already has
- * a lifecycle status" from "this league has a malformed status object" — the
- * latter is refused, never silently repaired.
+ * Whether a stored `status` value is a structurally valid `LeagueStatus` — i.e.
+ * genuinely assignable to the union in `league.ts`, not merely
+ * discriminant-shaped. Used only by the missing-status recovery authority to
+ * tell "this league already has a lifecycle status" from "this league has a
+ * malformed status object" — the latter is refused, never silently repaired.
+ *
+ * `setupComplete` is declared ONLY on the `preseason` variant (`?: boolean`), so
+ * a non-boolean value there makes the record unassignable and must classify as
+ * malformed. On `season`/`offseason` the property is not part of the variant at
+ * all, so an extra key is still structurally valid and must NOT be rejected.
  */
 function isValidLeagueStatus(status: unknown): status is LeagueStatus {
   if (!status || typeof status !== 'object') return false;
-  const candidate = status as { state?: unknown; year?: unknown };
+  const candidate = status as { state?: unknown; year?: unknown; setupComplete?: unknown };
   if (candidate.state === 'offseason') return true;
-  if (candidate.state === 'season' || candidate.state === 'preseason') {
-    return isValidLifecycleYear(candidate.year);
+  if (candidate.state === 'season') return isValidLifecycleYear(candidate.year);
+  if (candidate.state === 'preseason') {
+    return (
+      isValidLifecycleYear(candidate.year) &&
+      (candidate.setupComplete === undefined || typeof candidate.setupComplete === 'boolean')
+    );
   }
   return false;
 }

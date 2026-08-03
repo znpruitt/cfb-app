@@ -307,10 +307,20 @@ test('initialization refuses every league that already has a valid lifecycle sta
     makeLeague('alpha', 2024, { state: 'season', year: 2024 }),
     makeLeague('bravo', 2026, { state: 'preseason', year: 2026 }),
     makeLeague('charlie', 2025, { state: 'offseason' }),
+    makeLeague('delta', 2026, { state: 'preseason', year: 2026, setupComplete: true }),
+    makeLeague('echo', 2026, { state: 'preseason', year: 2026, setupComplete: false }),
+    // `setupComplete` is declared ONLY on the preseason variant, so an extra key
+    // on season/offseason leaves the record structurally assignable — it is a
+    // valid status, not a malformed one.
+    makeLeague('foxtrot', 2024, {
+      state: 'season',
+      year: 2024,
+      setupComplete: true,
+    } as unknown as League['status']),
   ]);
   const before = await readRegistry();
 
-  for (const slug of ['alpha', 'bravo', 'charlie']) {
+  for (const slug of ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot']) {
     const result = await initializeMissingLifecycleStatus(slug);
     assert.equal(result.outcome, 'status-already-present', `${slug} refused`);
   }
@@ -325,10 +335,24 @@ test('initialization refuses a malformed status object rather than repairing it'
     makeLeague('charlie', 2024, { state: 'season' } as unknown as League['status']),
     makeLeague('delta', 2024, { state: 'season', year: 'nope' } as unknown as League['status']),
     makeLeague('echo', 2024, null as unknown as League['status']),
+    // `setupComplete` is `?: boolean` on the preseason variant — a non-boolean
+    // value makes the record unassignable to `LeagueStatus`, so the type guard
+    // must classify it as MALFORMED rather than as an existing valid status
+    // (raised at F2H1 Codex review round 2).
+    makeLeague('golf', 2026, {
+      state: 'preseason',
+      year: 2026,
+      setupComplete: 'yes',
+    } as unknown as League['status']),
+    makeLeague('hotel', 2026, {
+      state: 'preseason',
+      year: 2026,
+      setupComplete: null,
+    } as unknown as League['status']),
   ]);
   const before = await readRegistry();
 
-  for (const slug of ['alpha', 'bravo', 'charlie', 'delta', 'echo']) {
+  for (const slug of ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'golf', 'hotel']) {
     const result = await initializeMissingLifecycleStatus(slug);
     assert.equal(result.outcome, 'invalid-existing-status', `${slug} refused`);
   }
