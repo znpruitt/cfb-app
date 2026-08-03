@@ -383,7 +383,6 @@ export async function buildSystemHealthViewModel(params: {
 
   const panels = deriveSystemHealthPanels({
     generatedAt,
-    overallState,
     issues,
     automation,
     quota,

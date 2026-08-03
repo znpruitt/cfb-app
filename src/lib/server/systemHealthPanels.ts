@@ -15,7 +15,6 @@ import type {
   AutomationHealth,
   StorageHealthFact,
   SystemHealthIssue,
-  SystemHealthOverallState,
   SystemHealthQuota,
 } from './systemHealthIssues.ts';
 import type { DiagnosticSeverity, ProviderDiagnosticCode } from './providerDataDiagnostics.ts';
@@ -48,7 +47,6 @@ export type SystemHealthPanel = {
 
 export type SystemHealthPanelsInput = {
   generatedAt: string;
-  overallState: SystemHealthOverallState;
   issues: SystemHealthIssue[];
   automation: AutomationHealth;
   quota: SystemHealthQuota;
@@ -97,13 +95,23 @@ function severityStatus(issues: SystemHealthIssue[]): 'red' | 'yellow' | 'info-o
   return 'none';
 }
 
-function overallPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
-  const status: PanelStatus =
-    input.overallState === 'critical'
-      ? 'red'
-      : input.overallState === 'degraded'
-        ? 'yellow'
-        : 'green';
+const STATUS_RANK: Record<PanelStatus, number> = { green: 0, gray: 1, yellow: 2, red: 3 };
+
+function worseStatus(a: PanelStatus, b: PanelStatus): PanelStatus {
+  return STATUS_RANK[a] >= STATUS_RANK[b] ? a : b;
+}
+
+function overallPanel(
+  input: SystemHealthPanelsInput,
+  sections: SystemHealthPanel[]
+): SystemHealthPanel {
+  // Holistic verdict: the WORST section status (so Overall can never say "all
+  // normal" above a yellow/red tile — including provider-data yellow from
+  // freshness alone). Intentional gray (paused/awaiting) does NOT degrade.
+  const status = sections.reduce<PanelStatus>(
+    (worst, p) => worseStatus(worst, p.status === 'gray' ? 'green' : p.status),
+    'green'
+  );
   const stateLabel =
     status === 'red' ? 'Action required' : status === 'yellow' ? 'Attention needed' : 'Healthy';
   const detail =
@@ -145,12 +153,6 @@ function schedulerPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
     timestamp: input.generatedAt,
     timestampPrefix: 'Checked',
   };
-}
-
-const STATUS_RANK: Record<PanelStatus, number> = { green: 0, gray: 1, yellow: 2, red: 3 };
-
-function worseStatus(a: PanelStatus, b: PanelStatus): PanelStatus {
-  return STATUS_RANK[a] >= STATUS_RANK[b] ? a : b;
 }
 
 function providerDataPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
@@ -208,15 +210,29 @@ function automationPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
       timestampPrefix: null,
     };
   }
-  const gate = input.issues.filter((i) => AUTOMATION_CODES.has(i.code));
-  if (gate.length > 0) {
-    // Global pause / disabled datasets are intentional operator state → gray.
+  // A global pause and a single disabled dataset are different intentional
+  // states — never conflate one dataset's toggle with pausing everything.
+  if (input.automation.globalPause) {
     return {
       key: 'automation',
       title: 'Automation',
       status: 'gray',
       stateLabel: 'Paused',
-      detail: gate[0].title,
+      detail: 'Global automatic refresh is paused.',
+      timestamp: null,
+      timestampPrefix: null,
+    };
+  }
+  const disabled = input.issues.filter((i) => i.code === 'automation-dataset-disabled');
+  if (disabled.length > 0) {
+    return {
+      key: 'automation',
+      title: 'Automation',
+      status: 'gray',
+      stateLabel: 'Partially disabled',
+      detail: `${disabled.length} dataset${disabled.length === 1 ? '' : 's'} ${
+        disabled.length === 1 ? 'has' : 'have'
+      } automatic refresh disabled; the rest remain enabled.`,
       timestamp: null,
       timestampPrefix: null,
     };
@@ -346,12 +362,12 @@ export function deriveDatasetFreshness(input: {
 
 /** Derive the six stoplight panels in fixed order. Pure + deterministic. */
 export function deriveSystemHealthPanels(input: SystemHealthPanelsInput): SystemHealthPanel[] {
-  return [
-    overallPanel(input),
-    schedulerPanel(input),
-    providerDataPanel(input),
-    automationPanel(input),
-    quotaPanel(input),
-    storagePanel(input),
-  ];
+  // Sections first; Overall is a holistic rollup of them (never contradicts a tile).
+  const scheduler = schedulerPanel(input);
+  const providerData = providerDataPanel(input);
+  const automation = automationPanel(input);
+  const quota = quotaPanel(input);
+  const storage = storagePanel(input);
+  const overall = overallPanel(input, [scheduler, providerData, automation, quota, storage]);
+  return [overall, scheduler, providerData, automation, quota, storage];
 }

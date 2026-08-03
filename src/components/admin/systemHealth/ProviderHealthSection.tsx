@@ -2,7 +2,10 @@ import React from 'react';
 
 import { getProviderDatasetDescriptor } from '@/lib/providerDatasets';
 import type { AutomationHealth } from '@/lib/server/systemHealthIssues';
-import type { CanonicalRefreshFact } from '@/lib/server/providerRefreshHealth';
+import type {
+  CanonicalRefreshFact,
+  SafeProviderRefreshStatus,
+} from '@/lib/server/providerRefreshHealth';
 import type { ProviderDatasetHealthRow } from '@/lib/server/systemHealth';
 import {
   attemptOutcomeDisplay,
@@ -103,6 +106,32 @@ export default function ProviderHealthSection({
                     value={lastSuccessDetail(row.canonicalStatus, nowMs)}
                   />
                   <Detail label="Latest activity" value={latestActivityDetail(row, nowMs)} />
+                  {row.canonicalStatus.state === 'available' && (
+                    <>
+                      {(row.canonicalStatus.status.errorCode ||
+                        row.canonicalStatus.status.errorStatus != null) && (
+                        <Detail label="Error" value={errorDetail(row.canonicalStatus.status)} />
+                      )}
+                      {row.canonicalStatus.status.partialFailure && (
+                        <Detail
+                          label="Failed partitions"
+                          value={row.canonicalStatus.status.failedPartitions.join(', ') || 'yes'}
+                        />
+                      )}
+                      {row.canonicalStatus.status.rowsCommitted != null && (
+                        <Detail
+                          label="Rows committed"
+                          value={String(row.canonicalStatus.status.rowsCommitted)}
+                        />
+                      )}
+                      {row.canonicalStatus.status.durationMs != null && (
+                        <Detail
+                          label="Duration"
+                          value={`${row.canonicalStatus.status.durationMs} ms`}
+                        />
+                      )}
+                    </>
+                  )}
                   {row.diagnostics.length > 0 && (
                     <Detail
                       label="Diagnostics"
@@ -146,6 +175,12 @@ function lastSuccessDetail(fact: CanonicalRefreshFact, nowMs: number): string {
   return formatMoment(fact.status.lastSuccessAt, nowMs);
 }
 
+// Sanitized failure detail (validated code/status only — never a raw message).
+function errorDetail(status: SafeProviderRefreshStatus): string {
+  const code = status.errorCode ?? 'error';
+  return status.errorStatus != null ? `${code} (${status.errorStatus})` : code;
+}
+
 function latestActivityDetail(row: ProviderDatasetHealthRow, nowMs: number): string {
   const fact = row.latestScopedActivity;
   if (fact.state !== 'available') return fact.state === 'unavailable' ? 'unavailable' : 'none';
@@ -164,8 +199,14 @@ function datasetAutomationLabel(
   const descriptor = getProviderDatasetDescriptor(dataset);
   if (!descriptor.autoRefreshSettingConsumed) return 'Manual only';
   if (automation.state === 'unavailable') return 'Automation unknown';
-  if (automation.globalPause) return 'Paused';
-  return automation.datasets[dataset]?.enabled ? 'Automatic' : 'Disabled';
+  // A lifecycle-critical dataset's ORDINARY maintenance is what a pause/disable
+  // affects; its lifecycle-critical operations keep running (exempt), so say so.
+  const lifecycle = descriptor.lifecycleCritical;
+  if (automation.globalPause) return lifecycle ? 'Ordinary paused · lifecycle exempt' : 'Paused';
+  if (!automation.datasets[dataset]?.enabled) {
+    return lifecycle ? 'Ordinary off · lifecycle exempt' : 'Disabled';
+  }
+  return 'Automatic';
 }
 
 function Detail({ label, value }: { label: string; value: string }): React.ReactElement {

@@ -19,22 +19,21 @@ import type {
   SystemHealthIssue,
   SystemHealthQuota,
 } from '../systemHealthIssues.ts';
+import { PROVIDER_DATASETS, type ProviderDataset } from '../../providerDatasets.ts';
 
 const NOW = new Date('2026-10-15T12:00:00.000Z').toISOString();
 
+function automationAvailable(
+  globalPause: boolean,
+  disabled: ProviderDataset[] = []
+): AutomationHealth {
+  const datasets = {} as Record<ProviderDataset, { enabled: boolean }>;
+  for (const d of PROVIDER_DATASETS) datasets[d] = { enabled: !disabled.includes(d) };
+  return { state: 'available', globalPause, datasets };
+}
+
 function automationOn(): AutomationHealth {
-  return {
-    state: 'available',
-    globalPause: false,
-    datasets: {
-      scores: { enabled: true },
-      schedule: { enabled: true },
-      odds: { enabled: true },
-      rankings: { enabled: true },
-      conferences: { enabled: true },
-      'game-stats': { enabled: true },
-    },
-  };
+  return automationAvailable(false);
 }
 
 function quotaOk(): SystemHealthQuota {
@@ -77,7 +76,6 @@ const ALL_GREEN: PanelStatus[] = ['green', 'green', 'green', 'green', 'green', '
 function baseInput(overrides: Partial<SystemHealthPanelsInput> = {}): SystemHealthPanelsInput {
   return {
     generatedAt: NOW,
-    overallState: 'healthy',
     issues: [],
     automation: automationOn(),
     quota: quotaOk(),
@@ -131,10 +129,38 @@ test('provider-data panel folds dataset freshness: an absent-cache row (no issue
   );
 });
 
-test('overall maps critical→red, degraded→yellow, healthy→green', () => {
-  assert.equal(panel(baseInput({ overallState: 'critical' }), 'overall').status, 'red');
-  assert.equal(panel(baseInput({ overallState: 'degraded' }), 'overall').status, 'yellow');
-  assert.equal(panel(baseInput({ overallState: 'healthy' }), 'overall').status, 'green');
+test('overall is a holistic rollup of the sections (never contradicts a tile)', () => {
+  // All green → green.
+  assert.equal(panel(baseInput(), 'overall').status, 'green');
+  // A yellow section (freshness alone, no issue) → overall yellow (fixes the
+  // "all normal" over a yellow tile contradiction).
+  assert.equal(
+    panel(
+      baseInput({ datasetFreshness: ['green', 'green', 'yellow', 'green', 'green', 'green'] }),
+      'overall'
+    ).status,
+    'yellow'
+  );
+  // A red section (storage misconfigured) → overall red.
+  assert.equal(
+    panel(
+      baseInput({
+        storage: {
+          state: 'available',
+          mode: 'production-misconfigured',
+          isProduction: true,
+          databaseConfigured: false,
+        },
+      }),
+      'overall'
+    ).status,
+    'red'
+  );
+  // Intentional gray (automation paused) alone does NOT degrade overall.
+  assert.equal(
+    panel(baseInput({ automation: automationAvailable(true) }), 'overall').status,
+    'green'
+  );
 });
 
 test('a scheduler warning → scheduler yellow / Attention needed', () => {
@@ -185,13 +211,34 @@ test('a critical provider issue → provider-data red / Action required, repair 
   assert.equal(p.stateLabel, 'Action required');
 });
 
-test('automation paused (info gate issue) → gray / Paused', () => {
+test('automation global pause → gray / Paused', () => {
   const p = panel(
-    baseInput({ issues: [issue({ code: 'automation-global-pause-active', severity: 'info' })] }),
+    baseInput({
+      automation: automationAvailable(true),
+      issues: [issue({ code: 'automation-global-pause-active', severity: 'info' })],
+    }),
     'automation'
   );
   assert.equal(p.status, 'gray');
   assert.equal(p.stateLabel, 'Paused');
+});
+
+test('one disabled dataset (not a global pause) → gray / Partially disabled', () => {
+  const p = panel(
+    baseInput({
+      automation: automationAvailable(false, ['game-stats']),
+      issues: [
+        issue({
+          code: 'automation-dataset-disabled',
+          severity: 'info',
+          subject: { axis: 'dataset', id: 'game-stats' },
+        }),
+      ],
+    }),
+    'automation'
+  );
+  assert.equal(p.status, 'gray');
+  assert.equal(p.stateLabel, 'Partially disabled');
 });
 
 test('automation settings unavailable → yellow / Unknown', () => {
