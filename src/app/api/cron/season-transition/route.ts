@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
+import { completeSeasonTransition, getLeagues } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
@@ -52,6 +52,11 @@ type YearResult = {
   // committed and prior-good durable state was retained.
   partialFailure?: boolean;
   failedSeasonTypes?: ScheduleSeasonType[];
+  // PLATFORM-086F2H1: set only when the guarded transition REFUSED a league
+  // because it was no longer in `preseason` for this target year at write time.
+  // Absent on the ordinary path, so unchanged runs stay byte-identical. Refused
+  // leagues never appear in `leagues` and never set `transitioned`.
+  refusedLeagues?: string[];
 };
 
 type CronResult = {
@@ -171,6 +176,10 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       // (a failed/stale/rejected refresh) — the league must not flip off it; the
       // next cron run retries once the shared authority commits a clean schedule.
       let transitionBlocked = false;
+      // PLATFORM-086F2H1: leagues the guarded transition refused this year — this
+      // run's snapshot had gone stale for them. Refusals are neither successes nor
+      // failures, so they are tracked separately from `yearResult.leagues`.
+      const refusedLeagues: string[] = [];
       // PLATFORM-086E1C2: set ONLY by a qualifying populated E1A success this run
       // and consumed AFTER this year's probe/lifecycle/standings work, so the
       // optional presentation refresh can never precede or delay lifecycle truth.
@@ -275,20 +284,34 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           if (nowMs >= oneDayBeforeMs) {
             phase = 'lifecycle-write';
             for (const league of yearLeagues) {
-              // One lifecycle write — the authority synchronizes league.year to
-              // targetYear in the same registry record, so there is no separate
-              // year-sync write that could strand a transitioned league.
-              await updateLeagueStatus(league.slug, { state: 'season', year: targetYear });
+              // PLATFORM-086F2H1 — GUARDED transition. `yearLeagues` came from the
+              // registry snapshot read at the top of this run, before the schedule
+              // work above; by now another actor may have rolled this league over,
+              // moved it to a different preseason year, or transitioned it already.
+              // The authority re-checks `preseason` + the exact target year inside
+              // its transaction and refuses otherwise, so a stale snapshot can never
+              // overwrite newer lifecycle state. One lifecycle write per confirmed
+              // transition synchronizes league.year to targetYear in the same
+              // registry record, so there is no separate year-sync write that could
+              // strand a transitioned league.
+              const transition = await completeSeasonTransition(league.slug, targetYear);
+              if (transition.outcome !== 'transitioned') {
+                // Refused, not failed: record it truthfully and count nothing.
+                refusedLeagues.push(league.slug);
+                continue;
+              }
               yearResult.leagues.push(league.slug);
               yearEntry.transitionedLeagues = yearResult.leagues.length;
-              // Invalidate immediately on the status flip — this is the change that
-              // alters the standings surface (preseason owner list → live season
-              // standings) AND drops the league from future cron-transition retries
-              // (the route only re-processes `preseason` leagues).
+              // Invalidate immediately on the CONFIRMED status flip — this is the
+              // change that alters the standings surface (preseason owner list →
+              // live season standings) AND drops the league from future
+              // cron-transition retries (the route only re-processes `preseason`
+              // leagues).
               invalidateStandings(league.slug);
             }
             phase = 'other';
             yearResult.transitioned = yearResult.leagues.length > 0;
+            if (refusedLeagues.length > 0) yearResult.refusedLeagues = [...refusedLeagues];
           }
         }
 
@@ -314,9 +337,17 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         // Classify the per-year event result from the SAME confirmed truth the
         // response uses: a transition supersedes the E1A reason; otherwise a
         // refresh reports its exact E1A outcome; otherwise the year was not due.
-        if (yearEntry.transitionedLeagues > 0) {
+        if (yearEntry.transitionedLeagues > 0 && refusedLeagues.length === 0) {
           yearEntry.result = 'success';
           yearEntry.reason = 'season-transitioned';
+        } else if (refusedLeagues.length > 0) {
+          // PLATFORM-086F2H1 — at least one league in this year's target set had
+          // moved on by write time. Never `success`: `partial` when some sibling
+          // still transitioned this run, otherwise `no-op` (every target had
+          // already advanced — nothing was left for this run to do, and nothing
+          // failed).
+          yearEntry.result = yearEntry.transitionedLeagues > 0 ? 'partial' : 'no-op';
+          yearEntry.reason = 'lifecycle-transition-refused';
         } else if (refreshStatus) {
           // A refresh ran without a transition — report its exact E1A status and
           // reason verbatim (the typed decision), never a re-derived guess.

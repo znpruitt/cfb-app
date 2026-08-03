@@ -2,9 +2,45 @@ import { cache } from 'react';
 
 import { getAppState, withAppStateKeyTransaction } from './server/appStateStore.ts';
 import type { League, LeagueStatus } from './league.ts';
+import { TEST_LEAGUE_SLUG } from './rolloverTargeting.ts';
 
 const REGISTRY_SCOPE = 'leagues';
 const REGISTRY_KEY = 'registry';
+
+/**
+ * The accepted range for any stored or derived lifecycle year (PLATFORM-086F2H1).
+ * Deliberately wide — it exists to reject corrupt/legacy garbage (`NaN`, a
+ * float, `1e21`, a string year) before it can be written back or incremented
+ * into a nonsense season, not to encode product policy about which seasons the
+ * app supports.
+ */
+const MIN_LIFECYCLE_YEAR = 2000;
+const MAX_LIFECYCLE_YEAR = 2200;
+
+function isValidLifecycleYear(year: unknown): year is number {
+  return (
+    typeof year === 'number' &&
+    Number.isInteger(year) &&
+    year >= MIN_LIFECYCLE_YEAR &&
+    year <= MAX_LIFECYCLE_YEAR
+  );
+}
+
+/**
+ * Whether a stored `status` value is a structurally valid `LeagueStatus`. Used
+ * only by the missing-status recovery authority to tell "this league already has
+ * a lifecycle status" from "this league has a malformed status object" — the
+ * latter is refused, never silently repaired.
+ */
+function isValidLeagueStatus(status: unknown): status is LeagueStatus {
+  if (!status || typeof status !== 'object') return false;
+  const candidate = status as { state?: unknown; year?: unknown };
+  if (candidate.state === 'offseason') return true;
+  if (candidate.state === 'season' || candidate.state === 'preseason') {
+    return isValidLifecycleYear(candidate.year);
+  }
+  return false;
+}
 
 /** Slug must be lowercase alphanumeric words separated by single hyphens */
 export const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -92,33 +128,200 @@ function lastAuthoritativeYear(league: League): number {
 }
 
 /**
- * The single lifecycle mutation authority (PLATFORM-086F2B). Performs ONE
- * serialized registry write per call:
+ * The ONE lifecycle status projection (PLATFORM-086F2B): applying a status to a
+ * record always derives the synchronized top-level `league.year` in the same
+ * value, so no call site can write `status` without its projection.
  *
- *   - `season` / `preseason` → sets `status` AND synchronizes the top-level
- *     `league.year` to `status.year` in the same written record;
- *   - `offseason` → sets `status` and writes the last authoritative season
- *     year (the outgoing `status.year` when present) into `league.year` — the
- *     archived-season compatibility projection.
+ *   - `season` / `preseason` → `league.year = status.year`;
+ *   - `offseason` → `league.year` = the last authoritative season year (the
+ *     outgoing `status.year` when present) — the archived-season projection.
+ */
+function applyLifecycleStatus(current: League, status: LeagueStatus): League {
+  return status.state === 'offseason'
+    ? { ...current, status, year: lastAuthoritativeYear(current) }
+    : { ...current, status, year: status.year };
+}
+
+/**
+ * A guarded lifecycle decision, made against the record read UNDER the registry
+ * lock: either commit exactly one status (projecting the written record into the
+ * caller's typed outcome) or refuse and write nothing.
+ */
+type LifecycleWriteDecision<T> =
+  | { commit: LeagueStatus; onWritten: (written: League) => T }
+  | { commit: null; refusal: T };
+
+/**
+ * The ONE guarded lifecycle-write path (PLATFORM-086F2H1). Every typed
+ * transition below routes its expected-state validation, its year derivation,
+ * and its write through here, so a single `withAppStateKeyTransaction` callback
+ * covers registry read → expected-state validation → state derivation → write.
  *
- * Because both fields land in one transactional write, a failed registry write
- * can never leave `status.year` and `league.year` partially synchronized.
+ * Consequences that hold for every operation built on it, by construction:
+ *
+ *   - a caller can never derive a lifecycle year from a snapshot read outside
+ *     the lock (`decide` only ever sees the locked record);
+ *   - a stale caller can never overwrite a newer lifecycle state — its
+ *     expected-state predicate re-runs against the locked record and refuses;
+ *   - a refusal writes NOTHING (no `next`), so it is a typed outcome rather
+ *     than a silent overwrite;
+ *   - `status` and `league.year` land in one written record via
+ *     `applyLifecycleStatus`, so a failed write cannot partially update them.
+ *
+ * `notFound` is returned when the slug has no record; `decide` therefore only
+ * ever runs against a real league, which is what keeps the commit path free of
+ * a "found?" assertion.
+ */
+async function guardedLifecycleWrite<T>(
+  slug: string,
+  notFound: T,
+  decide: (current: League) => LifecycleWriteDecision<T>
+): Promise<T> {
+  return mutateRegistry<T>((leagues) => {
+    const idx = leagues.findIndex((l) => l.slug === slug);
+    if (idx === -1) return { result: notFound };
+    const current = leagues[idx]!;
+    const decision = decide(current);
+    if (decision.commit === null) return { result: decision.refusal };
+    const written = applyLifecycleStatus(current, decision.commit);
+    return {
+      next: leagues.map((l, i) => (i === idx ? written : l)),
+      result: decision.onWritten(written),
+    };
+  });
+}
+
+/**
+ * The single UNGUARDED lifecycle mutation authority (PLATFORM-086F2B). Performs
+ * ONE serialized registry write per call, synchronizing `status` and the
+ * top-level `league.year` through `applyLifecycleStatus` — so a failed registry
+ * write can never leave the two partially synchronized.
+ *
+ * It applies NO expected-state precondition, so it is reserved for the test
+ * league's independent lifecycle controls (`src/app/admin/[slug]/actions.ts`),
+ * which deliberately set an arbitrary state. Every PRODUCTION transition goes
+ * through a guarded operation below instead — `beginPreseasonTransition`,
+ * `completePreseasonSetup`, `completeSeasonTransition`, `completeSeasonRollover`,
+ * or `initializeMissingLifecycleStatus`. `leagueRegistry.lifecycleCallers.test.ts`
+ * pins that allowlist against the repository source.
  */
 export async function updateLeagueStatus(
   slug: string,
   status: LeagueStatus
 ): Promise<League | null> {
-  return mutateRegistry((leagues) => {
-    const idx = leagues.findIndex((l) => l.slug === slug);
-    if (idx === -1) return { result: null };
-    const current = leagues[idx]!;
-    const next: League =
-      status.state === 'offseason'
-        ? { ...current, status, year: lastAuthoritativeYear(current) }
-        : { ...current, status, year: status.year };
-    const updated = leagues.map((l, i) => (i === idx ? next : l));
-    return { next: updated, result: next };
-  });
+  return guardedLifecycleWrite<League | null>(slug, null, () => ({
+    commit: status,
+    onWritten: (written) => written,
+  }));
+}
+
+export type BeginPreseasonTransition =
+  | { outcome: 'transitioned'; league: League }
+  | { outcome: 'league-not-found' }
+  | { outcome: 'not-in-offseason'; league: League }
+  | { outcome: 'invalid-year'; league: League };
+
+/**
+ * The GUARDED offseason→preseason transition (PLATFORM-086F2H1). The next
+ * preseason year is computed INSIDE the transaction from the record read under
+ * the lock, so a double invocation, a stale tab, or a concurrent lifecycle actor
+ * can never increment twice or overwrite a league that has already advanced:
+ * the second attempt observes `preseason`/`season` and refuses.
+ */
+export async function beginPreseasonTransition(slug: string): Promise<BeginPreseasonTransition> {
+  return guardedLifecycleWrite<BeginPreseasonTransition>(
+    slug,
+    { outcome: 'league-not-found' },
+    (current) => {
+      if (current.status?.state !== 'offseason') {
+        return { commit: null, refusal: { outcome: 'not-in-offseason', league: current } };
+      }
+      // Derived under the lock — never from a pre-transaction read.
+      const nextYear = isValidLifecycleYear(current.year) ? current.year + 1 : null;
+      if (nextYear === null || !isValidLifecycleYear(nextYear)) {
+        return { commit: null, refusal: { outcome: 'invalid-year', league: current } };
+      }
+      return {
+        commit: { state: 'preseason', year: nextYear },
+        onWritten: (league) => ({ outcome: 'transitioned', league }),
+      };
+    }
+  );
+}
+
+export type PreseasonSetupCompletion =
+  | { outcome: 'completed'; league: League }
+  | { outcome: 'already-complete'; league: League }
+  | { outcome: 'league-not-found' }
+  | { outcome: 'not-in-preseason'; league: League }
+  | { outcome: 'year-mismatch'; league: League };
+
+/**
+ * The GUARDED preseason setup completion (PLATFORM-086F2H1). Requires, inside
+ * the transaction, that the league is STILL in `preseason` for EXACTLY the
+ * submitted year — a stale setup form (submitted for a year the league has since
+ * left, or from a league that has already transitioned) writes nothing and
+ * cannot move the lifecycle year forward or backward. An already-complete
+ * matching setup is a typed no-op rather than a redundant rewrite.
+ */
+export async function completePreseasonSetup(
+  slug: string,
+  year: number
+): Promise<PreseasonSetupCompletion> {
+  return guardedLifecycleWrite<PreseasonSetupCompletion>(
+    slug,
+    { outcome: 'league-not-found' },
+    (current) => {
+      const status = current.status;
+      if (status?.state !== 'preseason') {
+        return { commit: null, refusal: { outcome: 'not-in-preseason', league: current } };
+      }
+      if (status.year !== year) {
+        return { commit: null, refusal: { outcome: 'year-mismatch', league: current } };
+      }
+      if (status.setupComplete === true) {
+        return { commit: null, refusal: { outcome: 'already-complete', league: current } };
+      }
+      return {
+        commit: { state: 'preseason', year, setupComplete: true },
+        onWritten: (league) => ({ outcome: 'completed', league }),
+      };
+    }
+  );
+}
+
+export type SeasonTransition =
+  | { outcome: 'transitioned'; league: League }
+  | { outcome: 'not-in-target-preseason'; league: League | null };
+
+/**
+ * The GUARDED preseason→season transition (PLATFORM-086F2H1), consumed by the
+ * daily season-transition cron. Inside the transaction the league must STILL be
+ * in `preseason` for the exact target year — the cron's registry snapshot is
+ * read once at the top of a run that then performs lengthy schedule work, so by
+ * write time another actor may have rolled the league over, moved it to a
+ * different preseason year, or transitioned it already. A refusal is a typed
+ * outcome the cron reports truthfully, never a silent overwrite and never a
+ * counted transition.
+ */
+export async function completeSeasonTransition(
+  slug: string,
+  year: number
+): Promise<SeasonTransition> {
+  return guardedLifecycleWrite<SeasonTransition>(
+    slug,
+    { outcome: 'not-in-target-preseason', league: null },
+    (current) => {
+      const status = current.status;
+      if (status?.state !== 'preseason' || status.year !== year) {
+        return { commit: null, refusal: { outcome: 'not-in-target-preseason', league: current } };
+      }
+      return {
+        commit: { state: 'season', year },
+        onWritten: (league) => ({ outcome: 'transitioned', league }),
+      };
+    }
+  );
 }
 
 export type SeasonRolloverTransition =
@@ -138,17 +341,87 @@ export async function completeSeasonRollover(
   slug: string,
   year: number
 ): Promise<SeasonRolloverTransition> {
-  return mutateRegistry<SeasonRolloverTransition>((leagues) => {
-    const idx = leagues.findIndex((l) => l.slug === slug);
-    if (idx === -1) return { result: { outcome: 'not-in-target-season', league: null } };
-    const current = leagues[idx]!;
-    if (current.status?.state !== 'season' || current.status.year !== year) {
-      return { result: { outcome: 'not-in-target-season', league: current } };
+  // PLATFORM-086F2H1: the guard, the ordering, and the outcomes are UNCHANGED —
+  // only the write now shares `guardedLifecycleWrite` with its sibling
+  // transitions. The written record is byte-identical: the guard has already
+  // established `status.state === 'season' && status.year === year`, so the
+  // offseason projection (`lastAuthoritativeYear` → the outgoing `status.year`)
+  // is exactly the `year: year` this previously wrote inline.
+  return guardedLifecycleWrite<SeasonRolloverTransition>(
+    slug,
+    { outcome: 'not-in-target-season', league: null },
+    (current) => {
+      if (current.status?.state !== 'season' || current.status.year !== year) {
+        return { commit: null, refusal: { outcome: 'not-in-target-season', league: current } };
+      }
+      return {
+        commit: { state: 'offseason' },
+        onWritten: (league) => ({ outcome: 'transitioned', league }),
+      };
     }
-    const next: League = { ...current, status: { state: 'offseason' }, year };
-    const updated = leagues.map((l, i) => (i === idx ? next : l));
-    return { next: updated, result: { outcome: 'transitioned', league: next } };
-  });
+  );
+}
+
+export type LifecycleStatusInitialization =
+  | { outcome: 'initialized'; league: League }
+  | { outcome: 'league-not-found' }
+  | { outcome: 'status-already-present'; league: League }
+  | { outcome: 'invalid-existing-status'; league: League }
+  | { outcome: 'invalid-legacy-year'; league: League }
+  | { outcome: 'test-league-managed-separately' };
+
+/**
+ * Explicit recovery for a LEGACY record whose `status` property is genuinely
+ * absent (PLATFORM-086F2H1 — the repair path F2B deliberately deferred).
+ *
+ * It installs exactly the read-only compatibility interpretation those records
+ * already render under (`{ state: 'season', year: league.year }`) and nothing
+ * else. Deliberately NOT a generic lifecycle setter:
+ *
+ *   - it refuses any record that already carries a `status`, valid
+ *     (`status-already-present`) or malformed (`invalid-existing-status`) — it
+ *     never alters a valid lifecycle status and never repairs an arbitrary
+ *     malformed one;
+ *   - it offers no season/preseason/offseason choice, never increments the year,
+ *     never archives, and never substitutes for rollover;
+ *   - it refuses the `test` league, whose lifecycle stays owned by its own test
+ *     controls;
+ *   - it refuses an unusable stored year rather than inventing one;
+ *   - it runs entirely inside the registry transaction, so a concurrent actor
+ *     that installs a status first wins and this call refuses.
+ *
+ * Nothing infers or writes during page rendering — the read-only inference on
+ * admin pages is unchanged (`AGENTS.md` → Lifecycle Authority Invariants #2).
+ */
+export async function initializeMissingLifecycleStatus(
+  slug: string
+): Promise<LifecycleStatusInitialization> {
+  return guardedLifecycleWrite<LifecycleStatusInitialization>(
+    slug,
+    { outcome: 'league-not-found' },
+    (current) => {
+      if (current.slug === TEST_LEAGUE_SLUG) {
+        return { commit: null, refusal: { outcome: 'test-league-managed-separately' } };
+      }
+      if (current.status !== undefined) {
+        return {
+          commit: null,
+          refusal: isValidLeagueStatus(current.status)
+            ? { outcome: 'status-already-present', league: current }
+            : { outcome: 'invalid-existing-status', league: current },
+        };
+      }
+      if (!isValidLifecycleYear(current.year)) {
+        return { commit: null, refusal: { outcome: 'invalid-legacy-year', league: current } };
+      }
+      return {
+        // The top-level year is preserved, not recomputed: the season projection
+        // writes `league.year = status.year = current.year`.
+        commit: { state: 'season', year: current.year },
+        onWritten: (league) => ({ outcome: 'initialized', league }),
+      };
+    }
+  );
 }
 
 /**

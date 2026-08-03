@@ -2,7 +2,13 @@
 
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { getLeague, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
+import {
+  beginPreseasonTransition,
+  completePreseasonSetup,
+  getLeague,
+  updateLeague,
+  updateLeagueStatus,
+} from '@/lib/leagueRegistry';
 import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import {
@@ -88,17 +94,21 @@ export async function resetTestLeague(): Promise<void> {
 
 /** Transition a league from offseason to preseason and redirect to the setup page. */
 export async function beginPreseason(slug: string): Promise<void> {
-  const league = await getLeague(slug);
-  if (!league) throw new Error('League not found');
-  // Offseason-only guard (PLATFORM-086F2B): the lifecycle authority now syncs
-  // league.year to the preseason year immediately, so an unguarded re-invocation
-  // (double-click, stale tab) would increment the year again on every call.
-  if (league.status?.state !== 'offseason') throw new Error('League is not in offseason');
-  await updateLeagueStatus(slug, { state: 'preseason', year: league.year + 1 });
+  // PLATFORM-086F2H1: the offseason precondition AND the next-year derivation
+  // now happen inside the registry transaction. The pre-F2H1 form read the
+  // league first and computed `league.year + 1` from that pre-transaction
+  // snapshot, so two concurrent submissions (double-click, stale tab, a second
+  // lifecycle actor) could each pass the guard and increment the year twice.
+  const transition = await beginPreseasonTransition(slug);
+  if (transition.outcome === 'league-not-found') throw new Error('League not found');
+  if (transition.outcome === 'not-in-offseason') throw new Error('League is not in offseason');
+  if (transition.outcome === 'invalid-year') {
+    throw new Error('League has an unusable season year — lifecycle recovery is required');
+  }
   // Offseason→preseason changes the league's standings surface (prior-season
   // final → preseason owner list). Bust its cached snapshots (umbrella, all
-  // years) so the public page reflects the new lifecycle state. Before the
-  // redirect, which throws.
+  // years) so the public page reflects the new lifecycle state — only after a
+  // CONFIRMED transition, and before the redirect, which throws.
   invalidateStandings(slug);
   redirect(`/admin/${slug}/preseason`);
 }
@@ -126,12 +136,18 @@ export async function confirmPreseasonOwners(
 
 /** Mark preseason setup as complete. Season transition happens automatically via cron. */
 export async function completeSetup(slug: string, year: number): Promise<void> {
-  const league = await getLeague(slug);
-  if (!league) throw new Error('League not found');
-  if (league.status?.state !== 'preseason') throw new Error('League is not in preseason');
-  // One lifecycle write — the authority synchronizes league.year to the
-  // preseason year in the same registry record.
-  await updateLeagueStatus(slug, { state: 'preseason', year, setupComplete: true });
+  // PLATFORM-086F2H1: the preseason precondition AND the exact-year check now
+  // happen inside the registry transaction. The pre-F2H1 form validated only
+  // the state, so a setup form rendered for a year the league had since left
+  // could rewrite the lifecycle year from its stale bound argument. An
+  // already-complete matching setup is a typed no-op — it still redirects, but
+  // it does not rewrite the registry.
+  const completion = await completePreseasonSetup(slug, year);
+  if (completion.outcome === 'league-not-found') throw new Error('League not found');
+  if (completion.outcome === 'not-in-preseason') throw new Error('League is not in preseason');
+  if (completion.outcome === 'year-mismatch') {
+    throw new Error(`League is no longer in preseason for ${year}`);
+  }
   revalidatePath(`/admin/${slug}`);
   revalidatePath(`/admin/${slug}`, 'layout');
   revalidatePath(`/admin/${slug}/preseason`);

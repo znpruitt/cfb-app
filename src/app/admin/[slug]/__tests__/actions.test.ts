@@ -146,3 +146,108 @@ test('beginPreseason synchronizes league.year to the preseason year', async () =
   assert.deepEqual(league?.status, { state: 'preseason', year: 2026 });
   assert.equal(league?.year, 2026);
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1 — both commissioner lifecycle actions now consume a GUARDED
+// transaction-local transition. The precondition and (for begin-preseason) the
+// year derivation happen under the registry lock, so a double submission or a
+// stale form can no longer double-increment or rewrite the lifecycle year.
+// ---------------------------------------------------------------------------
+
+async function readLeague(slug: string): Promise<League | undefined> {
+  const record = await getAppState<League[]>('leagues', 'registry');
+  return record?.value?.find((l) => l.slug === slug);
+}
+
+test('two concurrent beginPreseason submissions increment the year exactly once', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('alpha', { state: 'offseason' })]);
+
+  // The loser's guard re-runs under the lock and refuses; only one submission
+  // may complete (the other throws before its redirect).
+  const outcomes = await Promise.allSettled([
+    runCapturingTags(() => beginPreseason('alpha')),
+    runCapturingTags(() => beginPreseason('alpha')),
+  ]);
+
+  const rejected = outcomes.filter((o) => o.status === 'rejected');
+  assert.equal(rejected.length, 1, 'exactly one submission is refused');
+  assert.match(String((rejected[0] as PromiseRejectedResult).reason), /League is not in offseason/);
+
+  const league = await readLeague('alpha');
+  assert.deepEqual(league?.status, { state: 'preseason', year: 2026 }, 'no double increment');
+  assert.equal(league?.year, 2026);
+});
+
+test('beginPreseason reports an unusable stored year instead of writing one', async () => {
+  await setAppState('leagues', 'registry', [
+    { ...makeLeague('alpha', { state: 'offseason' }), year: Number.NaN as number },
+  ]);
+
+  await assert.rejects(
+    () => runCapturingTags(() => beginPreseason('alpha')),
+    /unusable season year/
+  );
+
+  assert.equal((await readLeague('alpha'))?.status?.state, 'offseason', 'nothing was written');
+});
+
+test('a stale completeSetup form for another year writes nothing', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }),
+  ]);
+  const before = await readLeague('alpha');
+
+  // The bound argument comes from a page rendered while the league was in an
+  // earlier preseason year; submitting it must not move the lifecycle year.
+  await assert.rejects(
+    () => runCapturingTags(() => completeSetup('alpha', 2025)),
+    /no longer in preseason for 2025/
+  );
+  await assert.rejects(
+    () => runCapturingTags(() => completeSetup('alpha', 2027)),
+    /no longer in preseason for 2027/
+  );
+
+  assert.deepEqual(await readLeague('alpha'), before, 'the lifecycle record is untouched');
+});
+
+test('completeSetup refuses a league that has left preseason', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('alpha', { state: 'season', year: 2026 })]);
+
+  await assert.rejects(
+    () => runCapturingTags(() => completeSetup('alpha', 2026)),
+    /League is not in preseason/
+  );
+
+  assert.deepEqual((await readLeague('alpha'))?.status, { state: 'season', year: 2026 });
+});
+
+test('completeSetup on an unknown league reports not found', async () => {
+  await setAppState('leagues', 'registry', []);
+
+  await assert.rejects(
+    () => runCapturingTags(() => completeSetup('ghost', 2026)),
+    /League not found/
+  );
+});
+
+test('a repeated completeSetup still redirects but rewrites nothing', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }),
+  ]);
+
+  await runCapturingTags(() => completeSetup('alpha', 2026));
+  const afterFirst = await getAppState<League[]>('leagues', 'registry');
+
+  // Resolves normally (the redirect throw is swallowed by the harness) —
+  // an already-complete matching setup is a harmless no-op, not an error.
+  await runCapturingTags(() => completeSetup('alpha', 2026));
+
+  const afterRepeat = await getAppState<League[]>('leagues', 'registry');
+  assert.deepEqual(afterRepeat?.value, afterFirst?.value);
+  assert.deepEqual((await readLeague('alpha'))?.status, {
+    state: 'preseason',
+    year: 2026,
+    setupComplete: true,
+  });
+});

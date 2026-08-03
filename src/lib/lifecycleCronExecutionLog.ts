@@ -47,6 +47,12 @@ export type SeasonTransitionCronControlReason =
   | 'probe-state-unavailable'
   | 'probe-write-failed'
   | 'lifecycle-write-failed'
+  // PLATFORM-086F2H1 — the guarded preseason→season transition refused at least
+  // one league because it was no longer in `preseason` for the target year at
+  // write time (this run's registry snapshot predates its schedule work). A
+  // refusal is NOT a failure and NOT a counted transition; it records that the
+  // cron's target set had gone stale.
+  | 'lifecycle-transition-refused'
   | 'refresh-not-due'
   | 'season-transitioned'
   | 'year-results'
