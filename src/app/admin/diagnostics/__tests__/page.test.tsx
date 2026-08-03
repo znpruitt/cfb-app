@@ -1,57 +1,70 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import AdminDiagnosticsPage from '../page';
+import AdminSystemHealthPage from '../page';
+import SystemHealthDashboard from '@/components/admin/systemHealth/SystemHealthDashboard';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   setAppState,
-} from '../../../../lib/server/appStateStore.ts';
+} from '@/lib/server/appStateStore';
 
-// ---------------------------------------------------------------------------
-// PLATFORM-086F2D1 — Diagnostics (System Health) composition after the
-// operational-mutation relocation: the team-database sync no longer renders
-// here (it lives on Data Maintenance & Recovery → Reference data); the
-// remaining composition is provider status/gates, API usage, storage, and —
-// until F2D2 — the score tool.
-// ---------------------------------------------------------------------------
+// PLATFORM-086F2G — System Health page. A current-status surface: it builds ONE
+// F2F model for the SERVER-RESOLVED operational season and renders the dashboard.
+// There is no `?year=` selection seam (the page function takes no searchParams).
 
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
+  // Guarantee no provider network in this test (quota loader fails closed).
+  delete process.env.CFBD_API_KEY;
+  delete process.env.ODDS_API_KEY;
 });
 
-function collectComponents(node: unknown, out: string[] = []): string[] {
-  if (Array.isArray(node)) {
-    for (const child of node) collectComponents(child, out);
-    return out;
-  }
-  if (node && typeof node === 'object') {
-    const el = node as { type?: unknown; props?: { children?: unknown } };
-    if (typeof el.type === 'function' && el.type.name) out.push(el.type.name);
-    if (el.props) collectComponents(el.props.children, out);
-  }
-  return out;
-}
+test('builds exactly one dashboard model for the resolved operational season', async () => {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'a',
+      name: 'A',
+      year: 2019,
+      createdAt: '2019-01-01T00:00:00.000Z',
+      status: { state: 'season', year: 2026 },
+    },
+  ]);
 
-test('Diagnostics composes only observation and safety controls — no repair mutations', async () => {
-  await setAppState('leagues', 'registry', []);
-  const element = await AdminDiagnosticsPage();
-  const components = collectComponents(element);
+  const element = await AdminSystemHealthPage();
 
-  // Every provider-data repair trigger is gone (F2D1 + F2D2): no team-database
-  // sync, no score-attachment surface of any kind. The only mutation-capable
-  // controls left are the global/dataset automation-safety settings inside the
-  // provider status panel.
-  for (const name of [
-    'AdminTeamDatabasePanel',
-    'DiagnosticsScorePanel',
-    'ScoreAttachmentDebugPanel',
-    'ScoreAttachmentRecoveryPanel',
-  ]) {
-    assert.ok(!components.includes(name), `${name} must not render on Diagnostics`);
-  }
-  for (const name of ['ProviderDataStatusPanel', 'AdminUsagePanel', 'AdminStorageStatusPanel']) {
-    assert.ok(components.includes(name), `${name} still composed`);
-  }
+  // One dashboard, one model.
+  assert.equal(element.type, SystemHealthDashboard);
+  const model = (
+    element.props as {
+      model: { year: number; panels: unknown[]; schedulerJobs: unknown[]; datasets: unknown[] };
+    }
+  ).model;
+  // Operational season from active-league status.year (never top-level league.year 2019).
+  assert.equal(model.year, 2026);
+  // The two axes stay separate and complete.
+  assert.equal(model.schedulerJobs.length, 7);
+  assert.equal(model.datasets.length, 6);
+  assert.equal(model.panels.length, 6);
+});
+
+test('falls back deterministically when no league is active', async () => {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'a',
+      name: 'A',
+      year: 2024,
+      createdAt: '2024-01-01T00:00:00.000Z',
+      status: { state: 'offseason' },
+    },
+  ]);
+  const element = await AdminSystemHealthPage();
+  const model = (element.props as { model: { year: number } }).model;
+  assert.equal(model.year, 2024); // highest stored league.year
+});
+
+test('the page exposes no ?year= selection seam (takes no arguments)', () => {
+  // A caller cannot supply a year: the page component accepts no props/searchParams.
+  assert.equal(AdminSystemHealthPage.length, 0);
 });

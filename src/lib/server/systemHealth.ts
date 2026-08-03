@@ -67,6 +67,12 @@ import {
   type SystemHealthOverallState,
   type SystemHealthQuota,
 } from './systemHealthIssues.ts';
+import {
+  deriveDatasetFreshness,
+  deriveSystemHealthPanels,
+  type DatasetFreshness,
+  type SystemHealthPanel,
+} from './systemHealthPanels.ts';
 
 // The canonical automatic Odds request cost (3) and its reserve threshold (53).
 const ODDS_REQUEST_COST = estimateOddsRequestCost(ODDS_DEFAULT_MARKETS, ODDS_DEFAULT_BOOKMAKERS);
@@ -80,6 +86,8 @@ export type ProviderDatasetHealthRow = {
   canonicalStatus: CanonicalRefreshFact;
   latestScopedActivity: LatestScopedActivityFact;
   cacheState: ProviderCacheAvailability;
+  /** Server-derived freshness stoplight (cache + diagnostics), separate from refresh outcome. */
+  freshness: DatasetFreshness;
   /** Per-dataset diagnostics WITHOUT their human message (code/severity/repair only). */
   diagnostics: SafeDiagnostic[];
 };
@@ -89,6 +97,8 @@ export type SystemHealthViewModel = {
   year: number;
   overallState: SystemHealthOverallState;
   issueCounts: { critical: number; warning: number; info: number };
+  /** Section-level "stoplight" status panels, server-derived (fixed order). */
+  panels: SystemHealthPanel[];
   automation: AutomationHealth;
   /** Delivery axis — exactly seven scheduler jobs. */
   schedulerJobs: SchedulerDeliveryHealthRow[];
@@ -329,25 +339,43 @@ export async function buildSystemHealthViewModel(params: {
     quota,
   });
   const { overallState, issueCounts } = summarizeSystemHealthIssues(issues);
+  const generatedAt = new Date(nowMs).toISOString();
+  const panels = deriveSystemHealthPanels({
+    generatedAt,
+    overallState,
+    issues,
+    automation,
+    quota,
+    storage,
+  });
 
-  const datasets: ProviderDatasetHealthRow[] = providerRefresh.rows.map((row) => ({
-    dataset: row.dataset,
-    canonicalScope: row.canonicalScope,
-    canonicalScopeKey: row.canonicalScopeKey,
-    canonicalStatus: row.canonicalStatus,
-    latestScopedActivity: row.latestScopedActivity,
-    cacheState: cacheStates[row.dataset],
-    diagnostics:
+  const datasets: ProviderDatasetHealthRow[] = providerRefresh.rows.map((row) => {
+    const datasetDiagnostics =
       diagnostics.state === 'available'
         ? diagnostics.diagnostics.filter((diag) => diag.dataset === row.dataset)
-        : [],
-  }));
+        : [];
+    return {
+      dataset: row.dataset,
+      canonicalScope: row.canonicalScope,
+      canonicalScopeKey: row.canonicalScopeKey,
+      canonicalStatus: row.canonicalStatus,
+      latestScopedActivity: row.latestScopedActivity,
+      cacheState: cacheStates[row.dataset],
+      freshness: deriveDatasetFreshness({
+        dataset: row.dataset,
+        cacheState: cacheStates[row.dataset],
+        diagnostics: datasetDiagnostics,
+      }),
+      diagnostics: datasetDiagnostics,
+    };
+  });
 
   return {
-    generatedAt: new Date(nowMs).toISOString(),
+    generatedAt,
     year,
     overallState,
     issueCounts,
+    panels,
     automation,
     schedulerJobs: schedulerDelivery.jobs,
     datasets,

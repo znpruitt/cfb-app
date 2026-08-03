@@ -16,8 +16,8 @@ const platformCards = [
   },
   {
     href: '/admin/diagnostics',
-    title: 'Diagnostics',
-    desc: 'Provider status, automation controls, quota, and storage',
+    title: 'System Health',
+    desc: 'Scheduler delivery, provider data health, automation controls, quota, and storage',
   },
   {
     href: '/admin/leagues',

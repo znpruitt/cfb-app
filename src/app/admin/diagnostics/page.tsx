@@ -1,40 +1,26 @@
-import Breadcrumbs from '@/components/navigation/Breadcrumbs';
-import AdminUsagePanel from '@/components/AdminUsagePanel';
-import AdminStorageStatusPanel from '@/components/AdminStorageStatusPanel';
-import ProviderDataStatusPanel from '@/components/admin/ProviderDataStatusPanel';
+import React from 'react';
+
+import SystemHealthDashboard from '@/components/admin/systemHealth/SystemHealthDashboard';
 import { getLeagues } from '@/lib/leagueRegistry';
+import { buildSystemHealthViewModel } from '@/lib/server/systemHealth';
+import { resolveOperationalSeasonYear } from '@/lib/server/systemHealthYear';
 
 export const dynamic = 'force-dynamic';
 
-export default async function AdminDiagnosticsPage() {
+/**
+ * PLATFORM-086F2G — System Health. A current-status surface: it builds exactly
+ * ONE F2F view model for the SERVER-RESOLVED operational season and renders it.
+ * There is no `?year=` selection — a caller cannot make the page browse a
+ * historical year (scheduler/automation/quota/storage are current/global; only
+ * provider-data is season-scoped). No `/api/admin/system-health`, no internal
+ * HTTP, no client fetch. Admin-authenticated via existing middleware; route stays
+ * `/admin/diagnostics`.
+ */
+export default async function AdminSystemHealthPage(): Promise<React.ReactElement> {
+  const nowMs = Date.now();
   const leagues = await getLeagues();
-  const season = leagues[0]?.year ?? new Date().getUTCFullYear();
+  const year = resolveOperationalSeasonYear({ leagues, nowMs });
+  const model = await buildSystemHealthViewModel({ year, nowMs });
 
-  return (
-    <main className="min-h-screen bg-white px-6 py-10 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <div className="mx-auto max-w-3xl space-y-6">
-        <div className="space-y-1">
-          <Breadcrumbs
-            segments={[
-              { label: 'Home', href: '/' },
-              { label: 'Admin', href: '/admin' },
-              { label: 'Diagnostics' },
-            ]}
-          />
-          <h1 className="text-2xl font-semibold">Diagnostics</h1>
-        </div>
-
-        <ProviderDataStatusPanel defaultYear={season} />
-
-        {/* PLATFORM-086F2D1/D2 — every provider-data repair mutation moved to
-            Data Maintenance & Recovery. Diagnostics keeps operational
-            observation (status, quota, storage) plus the automation safety
-            controls inside the provider panel. */}
-        <div className="space-y-4 rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-zinc-700 dark:bg-zinc-900">
-          <AdminUsagePanel />
-          <AdminStorageStatusPanel />
-        </div>
-      </div>
-    </main>
-  );
+  return <SystemHealthDashboard model={model} nowMs={nowMs} />;
 }
