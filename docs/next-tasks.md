@@ -141,12 +141,15 @@ Execution order within F2 (each slice is one independently deployable PR):
    none). Server-only (no route/UI/mutation). ✅ **Merged (PR #438, `b9a1688`, 2026-08-02);** review
    closed by user evaluation after four Codex rounds (all 13 P2 findings remediated; the confirming
    round's three fixes had no further Codex pass).
-9. **F2G — System Health UI** — **the next slice**: render the F2F model on `/admin/diagnostics`,
-   splitting the oversized Provider panel, showing scheduler and provider truth separately, removing
-   stale policy wording, deduplicating quota loading, and linking every actionable issue to its
-   owning surface.
-10. Then, in order: F2H Season Management consolidation → F2I Platform Configuration/Team Identity →
-    F2J commissioner boundaries + navigation closeout.
+9. **F2G — System Health UI** — `/admin/diagnostics` renders the F2F model as a current-status
+   dashboard (stoplight overview → prioritized issues → always-visible scheduler/provider/quota-storage
+   rows with row-level disclosure → Automation safety controls); server-resolved operational season
+   (no `?year=` seam); the three incremental panels are retired; repair links route to owning surfaces.
+   ✅ **Implemented — PR open (not merged);** visual direction user-approved (desktop + 390px, light +
+   dark), review closed after three Codex rounds plus one user-authorized round (all P2 remediated).
+10. **F2H — Season Management consolidation** — **the next slice**.
+11. Then, in order: F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
+    navigation closeout.
 
 The legacy diagnostics tools remain available and unmoved until the corresponding slice ships.
 
