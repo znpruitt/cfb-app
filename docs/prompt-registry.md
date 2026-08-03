@@ -52,6 +52,45 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2G-SYSTEM-HEALTH-UI-v1
+
+- Purpose: The System Health UI for the admin control plane — replace the incremental
+  `/admin/diagnostics` composition with a coherent current-status dashboard that renders the merged
+  F2F model, keeps scheduler delivery and provider-data health separate, and supports rapid local
+  fixture-driven visual iteration without depending on Vercel Preview.
+- Scope: `src/app/admin/diagnostics/page.tsx` (server-only; `resolveOperationalSeasonYear` — no
+  `?year=` seam — + `buildSystemHealthViewModel`); `src/components/admin/systemHealth/*`
+  (SystemHealthDashboard/Header/StoplightPanel/Issues/SchedulerHealthSection/ProviderHealthSection/
+  QuotaStorageSection/AutomationSafetyControls/RefreshViewButton + pure `systemHealthPresentation`);
+  server read-model extensions `systemHealthPanels.ts` (`deriveSystemHealthPanels` +
+  `deriveDatasetFreshness`) and `systemHealthYear.ts`; `SystemHealthViewModel` gains `panels` +
+  per-dataset `freshness`. Retired `ProviderDataStatusPanel`/`AdminUsagePanel`/
+  `AdminStorageStatusPanel` (+ tests); kept shared `manualRefresh`/descriptors. `/admin` landing card
+  renamed System Health (route unchanged).
+- Outcome: Current-status dashboard — stoplight overview → prioritized issues → always-visible
+  scheduler (7) / provider (6) / quota-storage (3) rows with row-level forensic disclosure →
+  Automation safety controls last. Health policy stays server-side (panels/freshness derived +
+  tested); React maps status → color. Two axes separate; delivery vs execution and freshness vs
+  outcome vs automation kept distinct; repair links ONLY in Prioritized issues (nullable); stoplight
+  green/yellow/red/gray with text labels (small yellow approved for this admin surface); Overall is a
+  holistic rollup; storage configuration-only; automation distinguishes pause vs partial-disable and
+  names Schedule's lifecycle exemption; loaders bounded (8 s) so a stalled read degrades to
+  unavailable; no browser polling; no client GET to provider-status/usage; only mutation is the
+  unchanged settings POST with PLATFORM-086I feedback.
+- Review / verification: Local fixture-driven visual checkpoint (env-gated Clerk/middleware/layout
+  bypass, all removed before commit; user approved desktop + 390px, light + dark). Claude self-review,
+  then Codex round 1 (8 P2: unbounded quota fetch, timestamp/freshness/label truthfulness, panel
+  folding, wording, latest-activity scope) → round 2 (4 P2: holistic Overall, restored failure
+  diagnostics,
+  pause-vs-partial-disable, lifecycle-exempt Schedule) → round 3 (1 P2: distinct missing/invalid/
+  unavailable receipt text) — all remediated (r3 fix user-authorized). Full suite 3140 green (+~50
+  F2G tests: panels/freshness, operational-year, page, section renders, automation controls); `npx
+  tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean; fixture harness +
+  bypasses fully removed (0 residual references). PR size: ~13 changed src files (mandated component
+  split + 3 panel-retirement deletions), net ~+1.1k — file count over the soft signal, net under;
+  surfaced to the user. No provider/scheduler/production/BotID-stash operation.
+- Status: **Implemented — PR open (not merged).**
+
 ### PLATFORM-086F2F-SYSTEM-HEALTH-READ-MODEL-v1
 
 - Purpose: The consolidated server-side System Health read model that F2G will render — composing

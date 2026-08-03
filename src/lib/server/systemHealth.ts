@@ -67,6 +67,12 @@ import {
   type SystemHealthOverallState,
   type SystemHealthQuota,
 } from './systemHealthIssues.ts';
+import {
+  deriveDatasetFreshness,
+  deriveSystemHealthPanels,
+  type DatasetFreshness,
+  type SystemHealthPanel,
+} from './systemHealthPanels.ts';
 
 // The canonical automatic Odds request cost (3) and its reserve threshold (53).
 const ODDS_REQUEST_COST = estimateOddsRequestCost(ODDS_DEFAULT_MARKETS, ODDS_DEFAULT_BOOKMAKERS);
@@ -80,6 +86,8 @@ export type ProviderDatasetHealthRow = {
   canonicalStatus: CanonicalRefreshFact;
   latestScopedActivity: LatestScopedActivityFact;
   cacheState: ProviderCacheAvailability;
+  /** Server-derived freshness stoplight (cache + diagnostics), separate from refresh outcome. */
+  freshness: DatasetFreshness;
   /** Per-dataset diagnostics WITHOUT their human message (code/severity/repair only). */
   diagnostics: SafeDiagnostic[];
 };
@@ -89,6 +97,8 @@ export type SystemHealthViewModel = {
   year: number;
   overallState: SystemHealthOverallState;
   issueCounts: { critical: number; warning: number; info: number };
+  /** Section-level "stoplight" status panels, server-derived (fixed order). */
+  panels: SystemHealthPanel[];
   automation: AutomationHealth;
   /** Delivery axis — exactly seven scheduler jobs. */
   schedulerJobs: SchedulerDeliveryHealthRow[];
@@ -127,13 +137,29 @@ const defaultLoaders: SystemHealthLoaders = {
 
 type Settled<T> = { ok: true; value: T } | { ok: false };
 
+/**
+ * Per-loader bound so no single stalled boundary (e.g. an unresponsive CFBD
+ * `/info`, or a hung durable read) can block the whole page render — a timeout
+ * degrades that fact to `unavailable` while the other domains still render.
+ */
+const LOADER_TIMEOUT_MS = 8000;
+
 async function settle<T>(fn: () => T | Promise<T>): Promise<Settled<T>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return { ok: true, value: await fn() };
+    const value = await Promise.race([
+      Promise.resolve().then(fn),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('loader-timeout')), LOADER_TIMEOUT_MS);
+      }),
+    ]);
+    return { ok: true, value };
   } catch {
-    // The raw error (message/stack) is intentionally discarded — a failed
-    // subsystem degrades to its own explicit `unavailable` fact.
+    // The raw error (message/stack) is intentionally discarded — a failed or
+    // timed-out subsystem degrades to its own explicit `unavailable` fact.
     return { ok: false };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -329,25 +355,47 @@ export async function buildSystemHealthViewModel(params: {
     quota,
   });
   const { overallState, issueCounts } = summarizeSystemHealthIssues(issues);
+  const generatedAt = new Date(nowMs).toISOString();
 
-  const datasets: ProviderDatasetHealthRow[] = providerRefresh.rows.map((row) => ({
-    dataset: row.dataset,
-    canonicalScope: row.canonicalScope,
-    canonicalScopeKey: row.canonicalScopeKey,
-    canonicalStatus: row.canonicalStatus,
-    latestScopedActivity: row.latestScopedActivity,
-    cacheState: cacheStates[row.dataset],
-    diagnostics:
-      diagnostics.state === 'available'
-        ? diagnostics.diagnostics.filter((diag) => diag.dataset === row.dataset)
-        : [],
-  }));
+  // Datasets (with server-derived freshness) are computed BEFORE the panels so
+  // the provider-data panel can fold per-dataset freshness into its status.
+  const diagnosticsAvailable = diagnostics.state === 'available';
+  const datasets: ProviderDatasetHealthRow[] = providerRefresh.rows.map((row) => {
+    const datasetDiagnostics = diagnosticsAvailable
+      ? diagnostics.diagnostics.filter((diag) => diag.dataset === row.dataset)
+      : [];
+    return {
+      dataset: row.dataset,
+      canonicalScope: row.canonicalScope,
+      canonicalScopeKey: row.canonicalScopeKey,
+      canonicalStatus: row.canonicalStatus,
+      latestScopedActivity: row.latestScopedActivity,
+      cacheState: cacheStates[row.dataset],
+      freshness: deriveDatasetFreshness({
+        dataset: row.dataset,
+        cacheState: cacheStates[row.dataset],
+        diagnosticsAvailable,
+        diagnostics: datasetDiagnostics,
+      }),
+      diagnostics: datasetDiagnostics,
+    };
+  });
+
+  const panels = deriveSystemHealthPanels({
+    generatedAt,
+    issues,
+    automation,
+    quota,
+    storage,
+    datasetFreshness: datasets.map((d) => d.freshness.status),
+  });
 
   return {
-    generatedAt: new Date(nowMs).toISOString(),
+    generatedAt,
     year,
     overallState,
     issueCounts,
+    panels,
     automation,
     schedulerJobs: schedulerDelivery.jobs,
     datasets,

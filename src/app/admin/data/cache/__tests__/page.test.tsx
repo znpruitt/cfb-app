@@ -99,7 +99,14 @@ test('the /admin landing card uses the new name while the href stays /admin/data
   assert.ok(out.strings.includes('/admin/data/cache'), 'href unchanged');
   assert.ok(!out.strings.includes('Data Cache'), 'old card title retired');
 
-  // F2D2 — the Diagnostics card no longer names the relocated score tool.
+  // F2D2 — the card no longer names the relocated score tool.
   assert.ok(!/score attachment/i.test(text), 'stale score-attachment wording removed');
-  assert.match(text, /Provider status, automation controls, quota, and storage/);
+  // F2G — the observability card is renamed System Health (route unchanged) and
+  // its description now names the scheduler-delivery + provider-data axes.
+  assert.match(text, /System Health/);
+  assert.ok(out.strings.includes('/admin/diagnostics'), 'System Health href unchanged');
+  assert.match(
+    text,
+    /Scheduler delivery, provider data health, automation controls, quota, and storage/
+  );
 });
