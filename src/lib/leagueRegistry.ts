@@ -218,23 +218,36 @@ async function guardedLifecycleWrite<T>(
 }
 
 /**
- * The single UNGUARDED lifecycle mutation authority (PLATFORM-086F2B). Performs
- * ONE serialized registry write per call, synchronizing `status` and the
- * top-level `league.year` through `applyLifecycleStatus` — so a failed registry
- * write can never leave the two partially synchronized.
+ * The state-UNGUARDED lifecycle mutation, restricted to the `test` league
+ * (PLATFORM-086F2B; runtime restriction added at PLATFORM-086F2H1 review).
+ * Performs ONE serialized registry write per call, synchronizing `status` and
+ * the top-level `league.year` through `applyLifecycleStatus` — so a failed
+ * registry write can never leave the two partially synchronized.
  *
- * It applies NO expected-state precondition, so it is reserved for the test
- * league's independent lifecycle controls (`src/app/admin/[slug]/actions.ts`),
- * which deliberately set an arbitrary state. Every PRODUCTION transition goes
- * through a guarded operation below instead — `beginPreseasonTransition`,
+ * It applies no expected-state precondition, which is why it exists ONLY for the
+ * test league's independent lifecycle controls (`src/app/admin/[slug]/actions.ts`),
+ * whose whole purpose is to set an arbitrary state. Every PRODUCTION transition
+ * goes through a guarded operation instead — `beginPreseasonTransition`,
  * `completePreseasonSetup`, `completeSeasonTransition`, `completeSeasonRollover`,
- * or `initializeMissingLifecycleStatus`. `leagueRegistry.lifecycleCallers.test.ts`
- * pins that allowlist against the repository source.
+ * or `initializeMissingLifecycleStatus`.
+ *
+ * That restriction is enforced HERE, at runtime, and rejects before any
+ * transaction is opened or any registry read/write occurs — so no non-test slug
+ * can reach a lifecycle write through this path regardless of how the call is
+ * constructed (an aliased import, a barrel re-export, a dynamic `import()`, or an
+ * indirect reference). `leagueRegistry.lifecycleCallers.test.ts` additionally
+ * pins the caller allowlist by source scan; that scan is defense-in-depth, not
+ * the enforcement mechanism.
  */
 export async function updateLeagueStatus(
   slug: string,
   status: LeagueStatus
 ): Promise<League | null> {
+  if (slug !== TEST_LEAGUE_SLUG) {
+    throw new Error(
+      `updateLeagueStatus is restricted to the '${TEST_LEAGUE_SLUG}' league — use a guarded lifecycle operation (beginPreseasonTransition / completePreseasonSetup / completeSeasonTransition / completeSeasonRollover / initializeMissingLifecycleStatus)`
+    );
+  }
   return guardedLifecycleWrite<League | null>(slug, null, () => ({
     commit: status,
     onWritten: (written) => written,

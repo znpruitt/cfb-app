@@ -166,7 +166,11 @@ Execution order within F2 (each slice is one independently deployable PR):
       existing strict guard unchanged. Adds the explicit missing-status recovery authority F2B
       deferred and its dormant `POST /api/admin/lifecycle-recovery`. Backend only — no UI,
       archive/backfill, provider, or scheduler change. Implemented; in final pre-merge review (PR #441).
-    - **F2H2 — Archive/backfill safety** — **the next slice after F2H1 merges.**
+    - **F2H2 — Archive/backfill safety** — **the next slice after F2H1 merges.** Carries one
+      REQUIRED lifecycle-reporting fix registered under "Unresolved decisions & known
+      deferrals" below: the season-rollover cron must stop reporting a benign
+      overlapping/redelivered invocation as a hard refusal, while keeping genuinely stale
+      targets visible (pre-existing F2B behavior, not an F2H1 regression).
     - **F2H3 — State-first Season Management UI consolidation** with detailed operator
       explanations; it is the surface that finally invokes the F2H1 recovery authority.
 12. Then, in order: F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
@@ -269,6 +273,27 @@ unless verified in merged work.
 - **Per-game live-overlay freshness granularity (deferred at PLATFORM-086B2B, owner decision 2026-07-28).** The scores freshness signals are per-partition/global, not per-game: `snapshotAt` (the "Scores updated …" label) is the oldest contributing partition's `meta.generatedAt`, and `isStale` (live-overlay dimming) is a single successful-observation flag for the whole overlay. In a provider-gap scenario — a game that drops out of the scoreboard while still live, so the cron preserves its stale row while other games in the partition keep updating — a fresh sibling can ride over that stale game (the partition's newest-row timestamp), and the global `isStale` cannot dim just that game. This is strictly better than pre-086B2B (which reported every game fresh on any client poll) and does not affect standings/records (server canonical). The true fix is per-game freshness: thread per-game effective timestamps (`itemUpdatedAtById`) to the client and make `selectLiveDelta` compute per-game staleness. Documented in `src/lib/scores.ts` (`noteSnapshot`). Not scheduled.
 - **Accepted — synthetic-only empty-usable catalog (PLATFORM-086H3C1), not production-reachable.** A nonempty-but-registry-unusable team catalog (e.g. `[{ school: '' }]`) can bypass `buildCanonicalGameStatsSlate`'s `teams.length === 0` catalog-authority guard **only via a direct synthetic call**: production `getTeamDatabaseItems()` sanitizes every entry through `toTeamCatalogItem` (drops empty-`school` items), so an unusable catalog collapses to `[]` and is already caught as `catalog-load-failed`. Accepted as test-only robustness — the pure builder stays exported for unit tests (not privatized); if ever hardened, tighten the precondition to require ≥1 registry-usable entry.
 - **Cron `maxDuration`/latency-envelope hardening (deferred P3 from the PLATFORM-086E1C2 review, 2026-07-30).** The weekly schedule-refresh and season-transition cron routes declare no explicit `maxDuration` (nothing in the routes or `vercel.json`), so their latency envelope is the platform default; in a sustained provider-brownout worst case the E1C2 presentation wiring roughly doubles a pre-existing E1A exposure (the qualifying-year presentation calls run after the canonical work in the same invocation). Self-healing (leases/backoff/TTLs recover on a later delivery) and speculative — no observed incident. Harden when either cron route is next touched. Full record: `docs/prompt-registry.md` → `PLATFORM-086E1C2-SCHEDULE-PRESENTATION-AUTOMATION-WIRING-v1`. Not scheduled.
+- **Season-rollover cron misclassifies a benign duplicate delivery as a hard refusal — REQUIRED for
+  F2H2 (raised at PLATFORM-086F2H1 review, 2026-08-03; PRE-EXISTING F2B behavior, NOT an F2H1
+  regression).** `GET /api/cron/season-rollover` and `POST /api/admin/rollover` both treat any
+  non-`transitioned` result from the guarded `completeSeasonRollover` as a status-stage ERROR. The
+  Vercel/QStash schedulers deliver at-least-once, and the rollover path spends real time in
+  `buildSeasonArchive`/`saveSeasonArchive` between its `groupRolloverTargets` snapshot and its status
+  write, so two overlapping invocations are reachable: invocation A commits `offseason`, invocation B
+  then sees the league already rolled over — the DESIRED end state — and reports
+  `league is no longer in the <year> season group`, yielding `complete=false` → per-year
+  `rollover-partial` → receipt `partial` → a `scheduler-execution-partial` System Health issue for an
+  operator with nothing to fix. F2H1 fixed exactly this class in the sibling season-transition cron
+  (the benign `already-in-target-season` outcome) but deliberately did NOT touch rollover: prompt §6
+  of `PLATFORM-086F2H1-LIFECYCLE-TRANSITION-RECOVERY-SAFETY-v1` forbids redesigning it. **F2H2 must
+  satisfy both halves:** (a) a benign overlapping or redelivered rollover invocation that finds its
+  target ALREADY rolled over for the requested year must not report a hard refusal, must not produce
+  `partial`, and must not raise a System Health issue; and (b) a genuinely stale or otherwise refused
+  rollover target — a league that moved to `preseason`, to a different season year, or vanished —
+  must remain visible as a failure/partial condition. The two cases are distinguishable in the
+  authority (`completeSeasonRollover` already returns the current record), so the fix belongs there
+  plus its two callers, mirroring `already-in-target-season`. Archive-before-status ordering, the
+  strict eligibility gate, `groupRolloverTargets`, and the no-force-bypass rule all stay unchanged.
 - **Candidate follow-ups recorded in historical entries (pointers only — descriptions live in their
   records):** PLATFORM-045 (league-route canonical-loader dedup), PLATFORM-052 (podium/hero live
   badge; `liveCountByOwner` staleness alignment), PLATFORM-054/055/056 (canonical-layer candidates:
