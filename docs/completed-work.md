@@ -2247,6 +2247,43 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2G — System Health UI — Complete
+
+- **Status:** Complete — merged to `main` via PR #439 (merge commit `c5e38be`), 2026-08-03.
+- **PROMPT_ID(s):** `PLATFORM-086F2G-SYSTEM-HEALTH-UI-v1` (the System Health UI for the admin control
+  plane).
+- **Outcome:** `/admin/diagnostics` is now **System Health**, a current-status dashboard that renders
+  the merged F2F model server-side and presents a stoplight overview → prioritized issues →
+  always-visible scheduler (7) / provider (6) / quota-storage (3) rows with row-level forensic
+  disclosure → Automation safety controls (the only mutation surface, last). It builds ONE model for
+  the server-resolved OPERATIONAL season (`resolveOperationalSeasonYear` — no `?year=` seam; only the
+  provider-data section is season-scoped, everything else current/global). Health policy stays
+  server-side and tested (`systemHealthPanels.ts` — `deriveSystemHealthPanels` + `deriveDatasetFreshness`
+  — and `systemHealthYear.ts`; `SystemHealthViewModel` gains `panels` + per-dataset `freshness`); React
+  only maps status → color. The two axes stay separate; delivery vs execution, and freshness vs refresh
+  outcome vs automation, are distinct facts; the Overall tile is a holistic rollup that never
+  contradicts a section; repair links live ONLY in prioritized issues (nullable); stoplight
+  green/yellow/red/gray always carries a text label; storage is configuration-only (never a DB-liveness
+  claim); automation distinguishes a global pause from a per-dataset "Partially disabled" and names
+  Schedule's lifecycle exemption; missing/invalid/unavailable receipts read distinctly; loaders are
+  bounded (8 s) so a stalled read degrades to `unavailable` rather than blocking render; there is no
+  browser polling and no client GET to provider-status/usage. The settings POST + PLATFORM-086I
+  feedback are unchanged. The incremental `ProviderDataStatusPanel` / `AdminUsagePanel` /
+  `AdminStorageStatusPanel` are retired; the `/admin` landing card is renamed System Health (route
+  unchanged).
+- **Verification:** Full suite 3140 (+~50 F2G tests: panels/freshness, operational-year, page, section
+  renders, automation controls); `npx tsc --noEmit`, `npm run lint:all`, `npm run build`,
+  `git diff --check` clean. Local fixture-driven visual checkpoint (env-gated Clerk/middleware/layout
+  bypass, all removed before commit — 0 residual references); user approved desktop + 390px, light +
+  dark. Review: Claude self-review, then Codex r1 (8 P2) → r2 (4 P2) → r3 (1 P2, user-authorized) — all
+  remediated, no P0/P1. PR size: 31 git-counted files (mandated component split + three panel-retirement
+  deletions + docs), net ~+1.5k (mostly deletions); file count crossed the soft signal, surfaced to the
+  user. No provider/scheduler/production/BotID-stash operation.
+- **Open follow-ups:** See `docs/next-tasks.md` — **F2H (Season Management consolidation)** is the next
+  F2 slice.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped

@@ -145,8 +145,9 @@ Execution order within F2 (each slice is one independently deployable PR):
    dashboard (stoplight overview → prioritized issues → always-visible scheduler/provider/quota-storage
    rows with row-level disclosure → Automation safety controls); server-resolved operational season
    (no `?year=` seam); the three incremental panels are retired; repair links route to owning surfaces.
-   ✅ **Implemented — PR open (not merged);** visual direction user-approved (desktop + 390px, light +
-   dark), review closed after three Codex rounds plus one user-authorized round (all P2 remediated).
+   ✅ **Merged (PR #439, merge commit `c5e38be`, 2026-08-03);** visual direction user-approved
+   (desktop + 390px, light + dark), review closed after three Codex rounds plus one user-authorized
+   round (all P2 remediated).
 10. **F2H — Season Management consolidation** — **the next slice**.
 11. Then, in order: F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
     navigation closeout.

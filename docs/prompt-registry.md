@@ -89,7 +89,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   bypasses fully removed (0 residual references). PR size: ~13 changed src files (mandated component
   split + 3 panel-retirement deletions), net ~+1.1k — file count over the soft signal, net under;
   surfaced to the user. No provider/scheduler/production/BotID-stash operation.
-- Status: **Implemented — PR open (not merged).**
+- Status: **Merged (PR #439, merge commit `c5e38be`, 2026-08-03).**
 
 ### PLATFORM-086F2F-SYSTEM-HEALTH-READ-MODEL-v1
 
