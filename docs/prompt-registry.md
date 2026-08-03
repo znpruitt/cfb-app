@@ -96,7 +96,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   allowlisted `{ leagueSlug, status, year }`. No GET, and no UI invokes it until F2H3. Rollover
   behavior is unchanged end-to-end.
 - Review / verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check`
-  all clean; full suite 3210 green; focused lifecycle/action/cron/recovery suites 150 green. New
+  all clean; full suite 3213 green; focused lifecycle/action/cron/recovery suites 153 green. New
   deterministic tests: `leagueRegistry.guardedTransitions.test.ts` (23 — next-year derivation under
   the lock, two concurrent begin-preseason attempts producing exactly one increment, stale
   begin-preseason vs preseason/season, exact-year setup completion, stale setup form in both
@@ -113,18 +113,31 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   that nothing invokes the dormant API, and a self-check that the scan actually inspected each
   guarded source); `season-transition/__tests__/guardedTransition.test.ts` (7 — ordinary path
   byte-unchanged, stale refusals across three newer states, a mixed year, receipt truthfulness, and
-  a league deleted mid-run); `lifecycle-recovery/__tests__/route.test.ts` (17 — auth before any
+  a league deleted mid-run); `lifecycle-recovery/__tests__/route.test.ts` (20 — auth before any
   registry read proven by a store fault that never surfaces, malformed JSON, non-object bodies,
-  eight invalid slugs, six unconfirmed values, every refusal mapping, success, repeat-refusal, read
-  and write faults, and canary assertions that no password hash/salt, admin token, credential field
-  name, raw storage error, or stack appears in any response); plus six new server-action tests.
-  Existing F2B rollover and lifecycle suites remain green and unweakened. `/code-review` is not
-  model-invocable in this environment (reported as a limitation); a manual self-review substituted,
-  followed by an independent Codex review. Browser verification is not applicable — F2H1 ships no
-  UI. Diff: 12 files, ~+2,000/−56; net lines exceed the 1,500 soft signal, dominated by the
-  prompt-mandated concurrency/stale-state and route-contract coverage (~1,450 test lines against
-  ~500 production lines across five files) — surfaced to the user rather than split. BotID stash
-  preserved.
+  eight invalid slugs, six unconfirmed values, every refusal mapping, success, repeat-refusal,
+  indeterminate vs definite store faults, read and write faults, and canary assertions that no
+  password hash/salt, admin token, credential field name, raw storage error, cleanup cause, or stack
+  appears in any response); plus six new server-action tests. Existing F2B rollover and lifecycle
+  suites remain green and unweakened. `/code-review` is not model-invocable in this environment
+  (reported as a limitation); a manual self-review substituted — it corrected three doc-accuracy
+  defects in the diff (a stale `updateLeague` comment, a stale cron classification comment, and an
+  `AGENTS.md` invariant cross-reference shifted by renumbering) and verified the source-scan guard is
+  non-vacuous. Independent Codex review converged in three rounds: round 1 raised one P2 (the
+  recovery 503 promised “No lifecycle status was installed” even when
+  `AppStateTxnFinalizeError.writeAttempted` was true, i.e. a lost COMMIT acknowledgement may already
+  be durable) — accepted and fixed by classifying finalize/cleanup errors on the documented
+  `writeAttempted` uncertainty threshold (the same rule `writerControlTransition.ts` uses under
+  PLATFORM-086H3D), keeping the specified error code and varying only the detail; round 2 raised one
+  P2 (`isValidLeagueStatus` is declared `status is LeagueStatus` but ignored `setupComplete`, so a
+  non-boolean value classified as `status-already-present` instead of `invalid-existing-status`) —
+  accepted and fixed as a type-guard soundness defect, validating `setupComplete` on the preseason
+  variant ONLY, since the property is not part of the season/offseason variants and tightening those
+  would over-reject structurally valid records; round 3 identified no actionable regression, so
+  review closed. Browser verification is not applicable — F2H1 ships no UI. Diff: 15 files,
+  +2,222/−76; net lines exceed the 1,500 soft signal, dominated by the prompt-mandated
+  concurrency/stale-state and route-contract coverage (~1,650 test lines against ~570 production
+  lines across five files) — surfaced to the user rather than split. BotID stash preserved.
 - Status: **Implemented; in final pre-merge review.**
 
 ### PLATFORM-086F2G1-DRAFT-ASSISTANCE-RETIREMENT-v1
