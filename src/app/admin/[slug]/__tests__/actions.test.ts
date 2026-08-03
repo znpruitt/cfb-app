@@ -178,7 +178,7 @@ test('two concurrent beginPreseason submissions increment the year exactly once'
   assert.equal(league?.year, 2026);
 });
 
-test('beginPreseason reports an unusable stored year instead of writing one', async () => {
+test('beginPreseason reports a non-year stored value instead of writing one', async () => {
   await setAppState('leagues', 'registry', [
     { ...makeLeague('alpha', { state: 'offseason' }), year: Number.NaN as number },
   ]);

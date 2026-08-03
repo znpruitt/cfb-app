@@ -7,6 +7,29 @@
  */
 export const TEST_LEAGUE_SLUG = 'test';
 
+/**
+ * The season years this application supports MINTING. This is an INGRESS rule,
+ * enforced where a new lifecycle year enters the system (league creation), so
+ * the app cannot create additional corrupt lifecycle records.
+ *
+ * It is deliberately NOT applied to already-persisted records: the guarded
+ * lifecycle transitions tolerate any structurally valid stored year (a legacy
+ * `1999` season is real data), because refusing it there would freeze such a
+ * league's lifecycle with no repair path while a daily cron re-reported it
+ * forever. Structural validity — an integer — is the transition-path bar.
+ */
+export const MIN_SUPPORTED_SEASON_YEAR = 2000;
+export const MAX_SUPPORTED_SEASON_YEAR = 2100;
+
+export function isSupportedSeasonYear(year: unknown): year is number {
+  return (
+    typeof year === 'number' &&
+    Number.isInteger(year) &&
+    year >= MIN_SUPPORTED_SEASON_YEAR &&
+    year <= MAX_SUPPORTED_SEASON_YEAR
+  );
+}
+
 export type LeagueStatus =
   | { state: 'season'; year: number }
   | { state: 'offseason' }

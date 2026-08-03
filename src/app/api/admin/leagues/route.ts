@@ -1,7 +1,7 @@
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getLeagues, addLeague, isValidSlug } from '@/lib/leagueRegistry';
 import { sanitizeLeague, sanitizeLeagues } from '@/lib/leagueSanitize';
-import type { League } from '@/lib/league';
+import { isSupportedSeasonYear, type League } from '@/lib/league';
 
 /** Slugs that collide with static /admin/* routes and cannot be used for leagues. */
 const RESERVED_ADMIN_SLUGS = new Set([
@@ -55,12 +55,12 @@ export async function POST(req: Request): Promise<Response> {
       { status: 400 }
     );
   if (!displayName) return new Response('displayName is required', { status: 400 });
-  // PLATFORM-086F2H1 (F2H review): validate at the boundary that MINTS the
-  // lifecycle year, not only at the transitions that consume it. The guarded
-  // transitions refuse a non-integer/out-of-range year, so a league created with
-  // one (a typo like 3000 or 2024.5, previously accepted by `Number.isFinite`
-  // alone) would have its lifecycle permanently frozen with no repair path.
-  if (!Number.isInteger(year) || year < 2000 || year > 2100)
+  // PLATFORM-086F2H1 (F2H review) — the INGRESS rule for lifecycle years, and
+  // the only place the supported range is enforced. `Number.isFinite` alone
+  // admitted `3000` and `2024.5`, minting corrupt lifecycle records. The bound
+  // lives in ONE exported predicate (`isSupportedSeasonYear`) so this boundary
+  // and any future consumer cannot drift apart.
+  if (!isSupportedSeasonYear(year))
     return new Response('year must be a valid season year', { status: 400 });
 
   const existing = await getLeagues();

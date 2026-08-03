@@ -52,11 +52,15 @@ type YearResult = {
   // committed and prior-good durable state was retained.
   partialFailure?: boolean;
   failedSeasonTypes?: ScheduleSeasonType[];
-  // PLATFORM-086F2H1: set only when the guarded transition REFUSED a league
-  // because it was no longer in `preseason` for this target year at write time.
-  // Absent on the ordinary path, so unchanged runs stay byte-identical. Refused
-  // leagues never appear in `leagues` and never set `transitioned`.
+  // PLATFORM-086F2H1 — the three non-transitioned dispositions, reported
+  // SEPARATELY (F2H review). Each is absent on the ordinary path, so unchanged
+  // runs stay byte-identical. Only `refusedLeagues` is an anomaly:
+  //   - refused: genuinely stale (moved to another state/year since selection);
+  //   - alreadyInSeason: already at the target — a benign idempotent redelivery;
+  //   - removed: deleted from the registry after selection — a normal admin action.
   refusedLeagues?: string[];
+  alreadyInSeason?: string[];
+  removedLeagues?: string[];
 };
 
 type CronResult = {
@@ -162,6 +166,8 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         cached: false,
         transitionedLeagues: 0,
         refusedLeagues: 0,
+        alreadyInSeasonLeagues: 0,
+        removedLeagues: 0,
         failedSeasonTypes: [],
       };
       // Marks which throwable operation is in flight, so a propagating throw is
@@ -177,10 +183,12 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       // (a failed/stale/rejected refresh) — the league must not flip off it; the
       // next cron run retries once the shared authority commits a clean schedule.
       let transitionBlocked = false;
-      // PLATFORM-086F2H1: leagues the guarded transition refused this year — this
-      // run's snapshot had gone stale for them. Refusals are neither successes nor
-      // failures, so they are tracked separately from `yearResult.leagues`.
-      const refusedLeagues: string[] = [];
+      // PLATFORM-086F2H1 — the per-year dispositions, tracked independently.
+      // Named `*Slugs` to keep them visibly distinct from the numeric
+      // `yearEntry.*Leagues` counters they feed (F2H review).
+      const refusedSlugs: string[] = [];
+      const alreadyInSeasonSlugs: string[] = [];
+      const removedSlugs: string[] = [];
       // PLATFORM-086E1C2: set ONLY by a qualifying populated E1A success this run
       // and consumed AFTER this year's probe/lifecycle/standings work, so the
       // optional presentation refresh can never precede or delay lifecycle truth.
@@ -300,15 +308,32 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
                 // Benign and idempotent — the league is already exactly where
                 // this run wanted it, which is what an overlapping at-least-once
                 // delivery looks like. NOT a stale target set, so it must not
-                // raise an operator issue; it is simply not this run's work.
+                // raise an operator issue.
+                //
+                // The standings bust still runs (F2H review): an earlier
+                // invocation can be killed AFTER its durable status commit and
+                // BEFORE its invalidation, and because the league is no longer
+                // `preseason` no later run would revisit it — so the redelivery
+                // is the only remaining chance to close that window. Busting an
+                // already-fresh snapshot is harmless.
+                alreadyInSeasonSlugs.push(league.slug);
+                yearEntry.alreadyInSeasonLeagues = alreadyInSeasonSlugs.length;
+                invalidateStandings(league.slug);
+                continue;
+              }
+              if (transition.outcome === 'league-removed') {
+                // An operator deleted the league after target selection. A normal
+                // admin action, never an anomaly — and nothing to invalidate.
+                removedSlugs.push(league.slug);
+                yearEntry.removedLeagues = removedSlugs.length;
                 continue;
               }
               if (transition.outcome !== 'transitioned') {
-                // Refused, not failed: record it truthfully and count nothing
-                // toward transitions. The count lands on the event entry
-                // immediately so a later throw in this loop cannot erase it.
-                refusedLeagues.push(league.slug);
-                yearEntry.refusedLeagues = refusedLeagues.length;
+                // Genuinely stale: refused, not failed. Counted toward nothing,
+                // and recorded on the event entry immediately so a later throw
+                // in this loop cannot erase it.
+                refusedSlugs.push(league.slug);
+                yearEntry.refusedLeagues = refusedSlugs.length;
                 continue;
               }
               yearResult.leagues.push(league.slug);
@@ -321,8 +346,20 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
               invalidateStandings(league.slug);
             }
             phase = 'other';
-            yearResult.transitioned = yearResult.leagues.length > 0;
-            if (refusedLeagues.length > 0) yearResult.refusedLeagues = [...refusedLeagues];
+            // `transitioned` reports the year's STATE, not merely this run's
+            // actions (F2H review): an all-idempotent redelivery of a fully
+            // transitioned year previously reported `transitioned: false`, which
+            // reads as a failed transition to any external monitor. It is true
+            // when every league that still exists reached the target season and
+            // none was refused. Removed leagues are excluded from the
+            // denominator — they are not pending.
+            yearResult.transitioned =
+              refusedSlugs.length === 0 &&
+              yearResult.leagues.length + alreadyInSeasonSlugs.length > 0;
+            if (refusedSlugs.length > 0) yearResult.refusedLeagues = [...refusedSlugs];
+            if (alreadyInSeasonSlugs.length > 0)
+              yearResult.alreadyInSeason = [...alreadyInSeasonSlugs];
+            if (removedSlugs.length > 0) yearResult.removedLeagues = [...removedSlugs];
           }
         }
 
@@ -351,10 +388,10 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         // exact E1A reason is still preserved in `scheduleRefreshReason`);
         // otherwise a refresh reports its exact E1A outcome; otherwise the year
         // was not due.
-        if (yearEntry.transitionedLeagues > 0 && refusedLeagues.length === 0) {
+        if (yearEntry.transitionedLeagues > 0 && refusedSlugs.length === 0) {
           yearEntry.result = 'success';
           yearEntry.reason = 'season-transitioned';
-        } else if (refusedLeagues.length > 0) {
+        } else if (refusedSlugs.length > 0) {
           // PLATFORM-086F2H1 — at least one league in this year's target set had
           // moved on by write time, so the run did NOT fully accomplish its
           // lifecycle intent. Always `partial`, never `success` and never

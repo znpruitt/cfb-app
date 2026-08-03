@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  beginPreseasonTransition,
   completeSeasonRollover,
   getLeagues,
   updateLeague,
@@ -186,7 +187,7 @@ test('entering offseason heals a desynchronized top-level year from the outgoing
 test('concurrent registry mutations are serialized — neither update is dropped', async () => {
   await setAppState('leagues', 'registry', [
     makeLeague('test', 2023, { state: 'season', year: 2023 }),
-    makeLeague('bravo', 2024, { state: 'season', year: 2024 }),
+    makeLeague('bravo', 2024, { state: 'offseason' }),
   ]);
 
   // Two independent per-slug lifecycle writes racing on the ONE whole-array
@@ -195,15 +196,27 @@ test('concurrent registry mutations are serialized — neither update is dropped
   // state. One side uses the test-league unguarded path and the other a guarded
   // production transition — the serialization under test is a property of the
   // registry key, not of either caller.
+  //
+  // BOTH writes advance their league to a value that does not exist in the
+  // seeded snapshot (test → preseason 2030; bravo → preseason 2025 with the
+  // year projected), so EVERY assertion below fails if either write is dropped.
+  // An earlier version of this test raced a rollover whose offseason projection
+  // wrote back the year already stored, leaving the year assertion unable to
+  // discriminate a lost update (F2H review).
   await Promise.all([
-    updateLeagueStatus('test', { state: 'offseason' }),
-    completeSeasonRollover('bravo', 2024),
+    updateLeagueStatus('test', { state: 'preseason', year: 2030 }),
+    beginPreseasonTransition('bravo'),
   ]);
 
   const bySlug = Object.fromEntries((await readRegistry()).map((l) => [l.slug, l]));
-  assert.deepEqual(bySlug.test!.status, { state: 'offseason' }, 'test-league update persisted');
-  assert.deepEqual(bySlug.bravo!.status, { state: 'offseason' }, 'bravo update persisted');
-  assert.equal(bySlug.bravo!.year, 2024);
+  assert.deepEqual(bySlug.test!.status, { state: 'preseason', year: 2030 }, 'test write persisted');
+  assert.equal(bySlug.test!.year, 2030, 'test projection persisted');
+  assert.deepEqual(
+    bySlug.bravo!.status,
+    { state: 'preseason', year: 2025 },
+    'bravo write persisted'
+  );
+  assert.equal(bySlug.bravo!.year, 2025, 'bravo projection persisted');
 });
 
 // ---------------------------------------------------------------------------

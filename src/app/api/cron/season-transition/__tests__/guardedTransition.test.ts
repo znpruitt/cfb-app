@@ -104,6 +104,8 @@ type CronYear = {
   transitioned: boolean;
   leagues: string[];
   refusedLeagues?: string[];
+  alreadyInSeason?: string[];
+  removedLeagues?: string[];
 };
 
 type RunResult = {
@@ -267,7 +269,7 @@ test('an overlapping duplicate delivery is benign — no refusal, no operator is
     await seedRegistry([makeLeague('alpha', { state: 'season', year: YEAR })]);
   });
 
-  const { res, body, event } = await runRoute();
+  const { res, body, event, tags } = await runRoute();
 
   assert.equal(res.status, 200);
   assert.deepEqual(body.years[0]!.leagues, [], 'this run confirmed no transition of its own');
@@ -275,15 +277,27 @@ test('an overlapping duplicate delivery is benign — no refusal, no operator is
     !('refusedLeagues' in body.years[0]!),
     'the idempotent case is not reported as a refusal'
   );
+  assert.deepEqual(body.years[0]!.alreadyInSeason, ['alpha']);
+  assert.equal(
+    body.years[0]!.transitioned,
+    true,
+    'the year IS transitioned — reporting false read as a failed transition (F2H review)'
+  );
+  // An earlier invocation can be killed AFTER its durable commit and BEFORE its
+  // invalidation; because the league is no longer `preseason`, this redelivery
+  // is the last run that will ever see it.
+  assert.ok(
+    tags.includes('standings:alpha'),
+    'the redelivery still busts standings, closing the interrupted-post-commit gap'
+  );
   const stored = await readLeague('alpha');
   assert.deepEqual(stored?.status, { state: 'season', year: YEAR }, 'the end state is intact');
-  assert.equal(event.years[0]!.transitionedLeagues, 0);
-  assert.notEqual(
-    event.years[0]!.reason,
-    'lifecycle-transition-refused',
-    'no stale-target anomaly is recorded'
-  );
-  assert.notEqual(event.years[0]!.result, 'partial', 'no System Health issue is raised');
+  const entry = event.years[0]!;
+  assert.equal(entry.transitionedLeagues, 0);
+  assert.equal(entry.alreadyInSeasonLeagues, 1);
+  assert.equal(entry.refusedLeagues, 0);
+  assert.notEqual(entry.reason, 'lifecycle-transition-refused', 'no stale-target anomaly');
+  assert.notEqual(entry.result, 'partial', 'no System Health issue is raised');
 });
 
 test('a genuinely stale target IS still reported, alongside the idempotent case', async () => {
@@ -304,8 +318,16 @@ test('a genuinely stale target IS still reported, alongside the idempotent case'
   const { body, event } = await runRoute();
 
   assert.deepEqual(body.years[0]!.refusedLeagues, ['bravo'], 'only the stale league is refused');
+  assert.deepEqual(body.years[0]!.alreadyInSeason, ['alpha'], 'categories stay independent');
+  assert.equal(
+    body.years[0]!.transitioned,
+    false,
+    'a refused target means the year is not complete'
+  );
   assert.equal(event.years[0]!.result, 'partial');
   assert.equal(event.years[0]!.reason, 'lifecycle-transition-refused');
+  assert.equal(event.years[0]!.refusedLeagues, 1);
+  assert.equal(event.years[0]!.alreadyInSeasonLeagues, 1);
 });
 
 test('a mixed year reports the confirmed transition and the refusal truthfully', async () => {
@@ -326,7 +348,10 @@ test('a mixed year reports the confirmed transition and the refusal truthfully',
   const year = body.years[0]!;
   assert.deepEqual(year.leagues, ['bravo'], 'only the confirmed transition is counted');
   assert.deepEqual(year.refusedLeagues, ['alpha']);
-  assert.equal(year.transitioned, true, 'a real transition still happened this run');
+  // `transitioned` reports the YEAR'S completion state, not "did anything
+  // happen" (F2H review): a refused target means the year is not complete. The
+  // run's own action stays visible in `leagues` and `transitionedLeagues`.
+  assert.equal(year.transitioned, false, 'a refused target leaves the year incomplete');
   assert.ok(tags.includes('standings:bravo'));
   assert.ok(!tags.includes('standings:alpha'));
 
@@ -400,17 +425,26 @@ test('a refusal after a POPULATED schedule commit is never reported as a no-op r
   assert.ok(entry.scheduleRefreshReason, 'the exact E1A reason is still preserved on the entry');
 });
 
-test('a league that vanished from the registry mid-run is refused, not recreated', async () => {
+test('a league deleted mid-run is a NEUTRAL removed target, not a refusal or an incident', async () => {
+  // Deleting a league is a normal admin action. Reporting it as a stale
+  // lifecycle target raised a System Health issue with nothing to fix (F2H
+  // review).
   await seedRegistry([makeLeague('alpha', { state: 'preseason', year: YEAR })]);
   await seedPastProbe();
   stubFetchEmptySchedule(async () => {
     await seedRegistry([]);
   });
 
-  const { res, body } = await runRoute();
+  const { res, body, event } = await runRoute();
 
   assert.equal(res.status, 200);
   assert.deepEqual(body.years[0]!.leagues, []);
-  assert.deepEqual(body.years[0]!.refusedLeagues, ['alpha']);
+  assert.ok(!('refusedLeagues' in body.years[0]!), 'a deletion is not a refusal');
+  assert.deepEqual(body.years[0]!.removedLeagues, ['alpha']);
   assert.deepEqual(await readRegistry(), [], 'the deleted league was not resurrected');
+
+  const entry = event.years[0]!;
+  assert.equal(entry.removedLeagues, 1);
+  assert.equal(entry.refusedLeagues, 0);
+  assert.notEqual(entry.result, 'partial', 'no System Health issue for an intentional deletion');
 });

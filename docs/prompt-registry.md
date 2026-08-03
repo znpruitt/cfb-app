@@ -55,145 +55,30 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 ### PLATFORM-086F2H1-LIFECYCLE-TRANSITION-RECOVERY-SAFETY-v1
 
 - Purpose: Harden every normal production lifecycle transition against stale-state and stale-year
-  races, and add the explicit legacy missing-status recovery authority F2B deferred — the safe
-  backend contract the later Season Management UI will explain and consume. First of three audited
-  F2H slices (F2H1 guarded transitions + recovery; F2H2 archive/backfill safety; F2H3 state-first
-  Season Management UI).
-- Scope: `src/lib/leagueRegistry.ts` (one shared `guardedLifecycleWrite` primitive + the single
-  `applyLifecycleStatus` projection; four new typed guarded operations; `completeSeasonRollover`
-  rerouted through the same primitive with its guard/ordering/outcomes unchanged);
-  `src/app/admin/[slug]/actions.ts` (`beginPreseason`, `completeSetup`);
-  `src/app/api/cron/season-transition/route.ts`; `src/lib/lifecycleCronExecutionLog.ts` (one new
-  reason value); new `src/app/api/admin/lifecycle-recovery/route.ts`. No UI, archive/backfill,
-  provider, scheduler, `vercel.json`, QStash, rollover-eligibility, or auth change.
-- Outcome: Registry read, expected-state validation, year derivation, and the write all happen in
-  ONE `withAppStateKeyTransaction('leagues','registry', …)` callback, so a caller can never derive a
-  lifecycle year from a snapshot read outside the lock, a stale caller can never overwrite newer
-  state (refusals are typed outcomes that write nothing), and a failed write can never partially
-  update `status`/`year`. Operations and outcomes: `beginPreseasonTransition`
-  (`transitioned`/`league-not-found`/`not-in-offseason`/`invalid-year`) derives `year + 1` under the
-  lock, so a double-click, stale tab, or concurrent actor cannot increment twice;
-  `completePreseasonSetup`
-  (`completed`/`already-complete`/`league-not-found`/`not-in-preseason`/`year-mismatch`/`invalid-year`)
-  requires preseason at EXACTLY the submitted year and treats an already-complete match as a no-op
-  that rewrites nothing — unless the top-level year projection is stale, where it still commits the
-  healing write the pre-F2H1 unconditional rewrite performed; `completeSeasonTransition`
-  (`transitioned`/`already-in-target-season`/`not-in-target-preseason`) is the cron's authority; and
-  `initializeMissingLifecycleStatus`
-  (`initialized`/`league-not-found`/`status-already-present`/`invalid-existing-status`/
-  `invalid-legacy-year`/`test-league-managed-separately`) installs exactly
-  `{ state: 'season', year: league.year }` and only when `status` is genuinely absent — never
-  repairing a malformed status, never offering a state choice, never incrementing the year,
-  archiving, or bypassing rollover, and never operating on the `test` league. The season-transition
-  cron counts only CONFIRMED transitions; a genuinely stale refusal is recorded as
-  `lifecycle-transition-refused` with per-year `partial` (never `no-op`, which would be untruthful
-  after a billed provider call plus a durable schedule commit, and which System Health would not
-  surface at all) plus an optional `refusedLeagues` field absent on the ordinary path, so unchanged
-  runs stay byte-identical in response, event, and receipt. A league already in `season` at the
-  target year is the separate benign `already-in-target-season` outcome — an overlapping
-  at-least-once delivery is idempotent, not an anomaly, and raises no operator issue. Deliberately NO
-  `setupComplete` gate was added to the cron (production still transitions near kickoff with setup
-  incomplete — a product decision left to F2H3). New dormant `POST /api/admin/lifecycle-recovery`:
-  authenticates before any registry work, requires a canonical slug and literal `confirmed: true`,
-  and maps to `400 lifecycle-recovery-invalid-request`, `404 lifecycle-recovery-league-not-found`,
-  `409 lifecycle-status-already-present` / `test-league-lifecycle-managed-separately` /
-  `lifecycle-recovery-invalid-legacy-record`, `503 lifecycle-recovery-unavailable`, or `200` with an
-  allowlisted `{ leagueSlug, status, year }`. No GET, and no UI invokes it until F2H3. Rollover
-  behavior is unchanged end-to-end.
-- Review / verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check`
-  all clean; full suite 3231 green; focused lifecycle/action/cron/recovery suites 171 green. New
-  deterministic tests: `leagueRegistry.guardedTransitions.test.ts` (30 — next-year derivation under
-  the lock, two concurrent begin-preseason attempts producing exactly one increment, stale
-  begin-preseason vs preseason/season, exact-year setup completion, stale setup form in both
-  directions, repeated-setup no-op, exact-year season transition, stale cron snapshot vs
-  offseason/season/other-preseason-year/legacy-missing-status, concurrent season transitions,
-  recovery installation/refusals including malformed status and invalid legacy years and the test
-  league, credential-field preservation, sibling isolation, year synchronization on every confirmed
-  transition, and write-failure atomicity for all four operations);
-  `leagueRegistry.lifecycleCallers.test.ts` (12 — a repo-wide source scan pinning that unguarded
-  `updateLeagueStatus` has no production caller beyond the test-league controls and only ever for
-  the literal `'test'` slug, that both rollover callers still use `completeSeasonRollover` behind
-  `groupRolloverTargets` + `resolveNationalChampionshipRollover`, that the lifecycle projection
-  exists in exactly one module, that the recovery route exposes no other authority and has no GET,
-  that nothing invokes the dormant API, and a self-check that the scan actually inspected each
-  guarded source); `season-transition/__tests__/guardedTransition.test.ts` (9 — ordinary path
-  byte-unchanged, stale refusals across three newer states, a mixed year, receipt truthfulness, and
-  a league deleted mid-run); `lifecycle-recovery/__tests__/route.test.ts` (20 — auth before any
-  registry read proven by a store fault that never surfaces, malformed JSON, non-object bodies,
-  eight invalid slugs, six unconfirmed values, every refusal mapping, success, repeat-refusal,
-  indeterminate vs definite store faults, read and write faults, and canary assertions that no
-  password hash/salt, admin token, credential field name, raw storage error, cleanup cause, or stack
-  appears in any response); plus six new server-action tests. Existing F2B rollover and lifecycle
-  suites remain green and unweakened. `/code-review` is not model-invocable in this environment
-  (reported as a limitation); a manual self-review substituted — it corrected three doc-accuracy
-  defects in the diff (a stale `updateLeague` comment, a stale cron classification comment, and an
-  `AGENTS.md` invariant cross-reference shifted by renumbering) and verified the source-scan guard is
-  non-vacuous. Independent Codex review converged in three rounds: round 1 raised one P2 (the
-  recovery 503 promised “No lifecycle status was installed” even when
-  `AppStateTxnFinalizeError.writeAttempted` was true, i.e. a lost COMMIT acknowledgement may already
-  be durable) — accepted and fixed by classifying finalize/cleanup errors on the documented
-  `writeAttempted` uncertainty threshold (the same rule `writerControlTransition.ts` uses under
-  PLATFORM-086H3D), keeping the specified error code and varying only the detail; round 2 raised one
-  P2 (`isValidLeagueStatus` is declared `status is LeagueStatus` but ignored `setupComplete`, so a
-  non-boolean value classified as `status-already-present` instead of `invalid-existing-status`) —
-  accepted and fixed as a type-guard soundness defect, validating `setupComplete` on the preseason
-  variant ONLY, since the property is not part of the season/offseason variants and tightening those
-  would over-reject structurally valid records; round 3 identified no actionable regression. `/code-review` then became
-  available (user-invoked) and ran twice against the same branch, surfacing defects Codex had not:
-  round A (11 findings) — the all-refused cron year was classified `no-op`, which System Health
-  never surfaces (`systemHealthIssues.ts` raises only on `failure`/`partial`), so a fully-stale
-  target set was silent while a MIXED year surfaced; a persisted `status: null` was refused as
-  malformed even though every reader treats it as absent, closing the only repair path for the
-  record class this slice exists to fix; the two exact-year operations laundered a corrupt stored
-  year; the source-scan guard was defeated by an aliased import; and `admin-control-plane.md` still
-  contradicted the rewritten AGENTS.md invariant — eight remediated. Round B (14 findings) — the
-  round-A `partial` fix made a benign overlapping at-least-once delivery raise a false operator
-  issue (fixed with the `already-in-target-season` outcome); the `already-complete` no-op silently
-  dropped the legacy year-healing write the pre-F2H1 code performed; `beginPreseason`'s new error
-  pointed operators at a recovery path that categorically refuses them; the registry's year bound
-  (2200) exceeded the health builder's (2100), making a writable year that throws the dashboard;
-  the `updateLeague` error still named the now-restricted authority; and the lifecycle-field scan
-  was both over-broad and un-stripped — eleven remediated. Deferred with recommendations rather
-  than changed unilaterally: outcome types carry `League` rather than `PublicLeague` (no live leak;
-  follows the pre-existing F2B `SeasonRolloverTransition` convention, so a split would be worse
-  than a uniform follow-up), `completeSeasonRollover` lacks the corrupt-year guard its siblings
-  gained (prompt §6 forbids redesigning it, and the eligibility gate makes the path unreachable),
-  a mid-run deleted league reads like a benign stale advance, recovery does not invalidate
-  standings (provably a no-op — the installed status equals the inference already in use), and
-  malformed/invalid-year records remain detectable but unrepairable (the prompt scopes recovery to
-  missing status only). A fourth Codex pass and a third `/code-review` pass then ran: Codex found no
-  actionable regression; `/code-review` raised twelve more, ten remediated and two deferred (an earlier report of "eleven remediated, two deferred" totalled thirteen and was wrong: the shared-season-year-predicate finding was dispositioned as part of the `MAX_LIFECYCLE_YEAR` comment correction — the false coupling claim removed, the extraction itself recorded as a follow-up — not fixed separately) — the guarded
-  transitions had been enforcing a year range that league CREATION did not
-  (`POST /api/admin/leagues` accepted any finite `year >= 2000`), so a typo like `3000`/`2024.5`
-  minted a league whose lifecycle was then permanently frozen with no repair path (validation moved
-  to the boundary that mints the year); the refusal signal lived only in the single `reason` slot and
-  was erased by a later throw (now a first-class `refusedLeagues` count on the event entry);
-  `completePreseasonSetup` conflated a stale form with a corrupt stored year, throwing "no longer in
-  preseason for X" about a league in preseason for exactly X (now a distinct `invalid-year`);
-  `isValidLeagueStatus` applied the write-time RANGE to a structural assignability question, so a
-  legacy `{state:'season', year:1999}` was reported malformed instead of already-present; the
-  `MAX_LIFECYCLE_YEAR` comment justified the bound with a failure mode that cannot occur (the health
-  page clamps before `validateYear`), and the fixture meant to cover the derived-year branch was
-  rejected by the stored-year check first, leaving that branch untested; four guard scans still used
-  raw file text after the module introduced comment stripping; and AGENTS.md plus both companion docs
-  still described `already-complete` as rewriting nothing after it gained the healing write. Two more
-  deferred: the sibling season-rollover cron reports a benign at-least-once duplicate as a hard error
-  (the same anomaly `already-in-target-season` fixes one file over, but PRE-EXISTING since F2B and
-  prompt §6 forbids redesigning rollover — recommended for F2H2), and `updateLeagueStatus`'s
-  test-league restriction was enforced by source scan rather than a runtime guard. **The second
-  deferral was subsequently closed at user direction:** `updateLeagueStatus` now rejects any slug
-  other than `TEST_LEAGUE_SLUG` before opening a transaction or touching the registry, with tests
-  proving zero mutation on rejection (including under a store poisoned to fail on read AND write, so
-  the guard is proven to run first), that the test league still transitions, and that the source scan
-  remains intact; F2B's lifecycle tests were retargeted to the `test` slug with their assertions
-  unchanged, and the concurrency test now races the test-league path against a guarded production
-  transition (the serialization under test is a property of the registry key, not either caller). The
-  rollover deferral is registered as a REQUIRED F2H2 item in `docs/next-tasks.md` → "Unresolved
-  decisions & known deferrals", explicitly marked pre-existing F2B behavior rather than an F2H1
-  regression. Browser verification is not applicable — F2H1 ships no UI. Diff: 20 files,
-  +2,944/−109; net lines exceed the 1,500 soft signal, dominated by the prompt-mandated
-  concurrency/stale-state and route-contract coverage (~1,900 test lines against ~640 production
-  lines across seven files) — surfaced to the user rather than split. BotID stash preserved.
+  races, and add the explicit legacy missing-status recovery authority F2B deferred. First of three
+  audited F2H slices (F2H1 guarded transitions + recovery; F2H2 archive/backfill safety; F2H3
+  state-first Season Management UI).
+- Scope: `src/lib/leagueRegistry.ts` (one shared guarded-write primitive + four typed guarded
+  operations), `src/lib/league.ts` (the ingress season-year rule), the two commissioner lifecycle
+  server actions, `GET /api/cron/season-transition`, `POST /api/admin/leagues` (ingress validation),
+  `src/lib/lifecycleCronExecutionLog.ts`, and the new `POST /api/admin/lifecycle-recovery`. No UI,
+  archive/backfill, rollover-eligibility, provider, scheduler, or auth change.
+- Outcome: Binding behavior is recorded in [`AGENTS.md`](../AGENTS.md) → **Lifecycle Authority
+  Invariants** (canonical) and the operational model in
+  [`docs/architecture/admin-control-plane.md`](architecture/admin-control-plane.md) → **Lifecycle
+  transition safety and recovery**. In brief: expected-state validation, year derivation, and the
+  write share ONE registry transaction, so no caller derives a year outside the lock and a stale
+  caller writes nothing; the supported season-year range is an INGRESS rule only (league creation),
+  leaving already-persisted legacy years advanceable; the season-transition cron counts only
+  confirmed transitions and keeps refused / already-in-season / removed dispositions independent;
+  and recovery installs the read-only compatibility status solely when one is genuinely absent.
+- Review / verification: Full gate green (`npx tsc --noEmit`, `npm run lint:all`, `npm test`,
+  `npm run build`, `git diff --check`). Four Codex passes (2 accepted P2 remediations, then clean)
+  and four `/code-review` passes (11/14/12/13 findings; the fourth drove a deliberate SCOPE
+  REDUCTION — the supported-range refusal was removed from the transition paths because it froze
+  legitimate legacy records with no repair path, and the regex source guard was replaced with an
+  AST-based scanner). Deferrals are registered in
+  [`docs/next-tasks.md`](next-tasks.md) → "Unresolved decisions & known deferrals".
 - Status: **Implemented; in final pre-merge review (PR #441).**
 
 ### PLATFORM-086F2G1-DRAFT-ASSISTANCE-RETIREMENT-v1

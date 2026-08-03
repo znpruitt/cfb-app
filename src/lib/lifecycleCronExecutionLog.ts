@@ -78,13 +78,21 @@ export type SeasonTransitionCronYearExecution = {
   cached: boolean;
   transitionedLeagues: number;
   /**
-   * Leagues the guarded transition REFUSED as stale this year (PLATFORM-086F2H1,
-   * F2H review). Recorded as its own field rather than only in `reason` so the
-   * signal survives a later throw — which reclassifies `reason` to
-   * `lifecycle-write-failed` — and remains legible when multi-year aggregation
-   * collapses the top-level reason to `year-results`.
+   * The three non-transitioned dispositions, kept INDEPENDENT (F2H review) —
+   * collapsing them into one count made a benign redelivery and an intentional
+   * deletion indistinguishable from a genuinely stale target. Each is recorded
+   * as its own field rather than only in `reason`, so the signal survives a
+   * later throw (which reclassifies `reason` to `lifecycle-write-failed`) and
+   * stays legible when multi-year aggregation collapses the top-level reason to
+   * `year-results`.
+   *
+   * Only `refusedLeagues` is an anomaly; the other two are normal outcomes.
    */
   refusedLeagues: number;
+  /** Already in the target season — an idempotent at-least-once redelivery. */
+  alreadyInSeasonLeagues: number;
+  /** Removed from the registry after target selection — a normal admin action. */
+  removedLeagues: number;
   failedSeasonTypes: ScheduleSeasonType[];
 };
 
@@ -242,6 +250,8 @@ export function emitSeasonTransitionCronExecutionEvent(
         cached: entry.cached,
         transitionedLeagues: entry.transitionedLeagues,
         refusedLeagues: entry.refusedLeagues,
+        alreadyInSeasonLeagues: entry.alreadyInSeasonLeagues,
+        removedLeagues: entry.removedLeagues,
         failedSeasonTypes: [...entry.failedSeasonTypes],
       })),
       durationMs,

@@ -243,8 +243,10 @@ test('a malformed legacy status is a 409 invalid-legacy-record, never repaired',
   assert.deepEqual(await readRegistry(), before);
 });
 
-test('an invalid legacy year is a 409 invalid-legacy-record', async () => {
-  await seed([makeLeague('alpha', 1900), makeLeague('bravo', Number.NaN as number)]);
+test('a stored value that is not a year at all is a 409 invalid-legacy-record', async () => {
+  // An out-of-range but structurally valid year (1999) is REPAIRABLE — the
+  // supported range is an ingress rule, not a recovery rule (F2H review).
+  await seed([makeLeague('alpha', 2024.5), makeLeague('bravo', Number.NaN as number)]);
   const before = await readRegistry();
 
   for (const slug of ['alpha', 'bravo']) {
@@ -261,6 +263,17 @@ test('an invalid legacy year is a 409 invalid-legacy-record', async () => {
 
 // ---------------------------------------------------------------------------
 // Success
+
+test('an out-of-range but valid legacy year is repaired, not refused', async () => {
+  await seed([makeLeague('alpha', 1999)]);
+
+  const res = await POST(postRequest({ leagueSlug: 'alpha', confirmed: true }));
+
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as SuccessBody;
+  assert.deepEqual(body.status, { state: 'season', year: 1999 });
+  assert.deepEqual((await readRegistry())[0]!.status, { state: 'season', year: 1999 });
+});
 
 test('a confirmed request initializes the missing status and returns the installed value', async () => {
   await seed([makeLeague('alpha', 2024)]);

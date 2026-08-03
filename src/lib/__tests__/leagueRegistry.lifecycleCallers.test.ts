@@ -2,24 +2,24 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
+import ts from 'typescript';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-086F2H1 — deterministic lifecycle-authority guard.
 //
-// Proves by source scan that lifecycle writes stay centralized in
-// `src/lib/leagueRegistry.ts` and that every PRODUCTION transition goes through
-// a GUARDED operation:
+// Proves by SOURCE ANALYSIS that lifecycle writes stay centralized in
+// `src/lib/leagueRegistry.ts` and that every production transition goes through
+// a guarded operation. This is defense-in-depth: the binding restriction on the
+// unguarded `updateLeagueStatus` is enforced at RUNTIME inside that function.
 //
-//   - the unguarded `updateLeagueStatus` has exactly one non-registry caller —
-//     the test league's own lifecycle controls, which deliberately set an
-//     arbitrary state and are excluded from global lifecycle policy;
-//   - season rollover was NOT rerouted through an unrestricted mutation by this
-//     slice: both rollover callers still use the exact-year guarded
-//     `completeSeasonRollover`;
-//   - the season-transition cron and the two commissioner lifecycle actions use
-//     their guarded authorities;
-//   - no module outside the registry writes `status`/`year` onto a league
-//     record itself (the synchronization projection lives in exactly one place).
+// The scan is AST-based (TypeScript compiler API), not regex over text. An
+// earlier regex form was wrong in both directions (F2H review): it was defeated
+// by `import { updateLeagueStatus as alias }`, and its comment-stripping
+// truncated every line at the first `//` — including `//` inside string literals
+// such as `https://` URLs — creating a silent false-negative channel in the very
+// guard meant to detect a reintroduced lifecycle write. A real parser has
+// neither failure mode: comments and string contents are structurally distinct
+// from code.
 //
 // Test files are excluded — the lifecycle suites legitimately name every
 // authority they assert against.
@@ -27,7 +27,7 @@ import { join, relative, sep } from 'node:path';
 
 const SRC = join(process.cwd(), 'src');
 const REGISTRY_MODULE = join('lib', 'leagueRegistry.ts');
-/** The test league's independent lifecycle controls (see `AGENTS.md` → rollover targeting). */
+/** The test league's independent lifecycle controls. */
 const TEST_LEAGUE_CONTROLS = join('app', 'admin', '[slug]', 'actions.ts');
 
 function collectSourceFiles(dir: string, acc: string[] = []): string[] {
@@ -44,93 +44,150 @@ function collectSourceFiles(dir: string, acc: string[] = []): string[] {
   return acc;
 }
 
-const SOURCE_FILES = collectSourceFiles(SRC);
-
 function relativeToSrc(file: string): string {
   return relative(SRC, file);
 }
 
-/**
- * Strip block and line comments so a doc comment that merely NAMES an authority
- * cannot trip (or satisfy) a scan — the exact false positive this module would
- * otherwise produce, since the codebase documents these authorities heavily
- * (F2H review). Crude but sufficient: the sources are ordinary TS/TSX and no
- * string literal in them contains a comment opener.
- */
-function stripComments(text: string): string {
-  return text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+function parseSource(fileName: string, text: string): ts.SourceFile {
+  return ts.createSourceFile(
+    fileName,
+    text,
+    ts.ScriptTarget.Latest,
+    /* setParentNodes */ true,
+    fileName.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+  );
 }
 
-/**
- * Every production source read and comment-stripped ONCE (F2H review — the
- * scans below previously re-read and re-stripped the whole tree five times).
- * `code` is what every scan keys on; only the recovery-route inspection uses
- * raw text, and it does so deliberately.
- */
-const SOURCE_CODE: ReadonlyMap<string, string> = new Map(
-  SOURCE_FILES.map((file) => [relativeToSrc(file), stripComments(readFileSync(file, 'utf8'))])
+/** Every production source parsed ONCE into a real AST. */
+const SOURCES: ReadonlyArray<{ file: string; ast: ts.SourceFile }> = collectSourceFiles(SRC).map(
+  (full) => ({ file: relativeToSrc(full), ast: parseSource(full, readFileSync(full, 'utf8')) })
 );
 
-/** Files whose CODE (comments stripped) contains `needle`. */
-function filesContaining(needle: string): string[] {
-  return [...SOURCE_CODE.entries()]
-    .filter(([, code]) => code.includes(needle))
-    .map(([file]) => file)
-    .sort();
+const BY_FILE = new Map(SOURCES.map((s) => [s.file, s.ast]));
+
+function astOf(relativePath: string): ts.SourceFile {
+  const ast = BY_FILE.get(relativePath);
+  assert.ok(ast, `${relativePath.split(sep).join('/')} was scanned`);
+  return ast;
 }
 
-function codeOf(relativePath: string): string {
-  const code = SOURCE_CODE.get(relativePath);
-  assert.ok(code !== undefined, `${relativePath} was scanned`);
-  return code;
+/** Depth-first walk over every node. */
+function walk(node: ts.Node, visit: (n: ts.Node) => void): void {
+  visit(node);
+  node.forEachChild((child) => walk(child, visit));
+}
+
+function some(ast: ts.Node, predicate: (n: ts.Node) => boolean): boolean {
+  let found = false;
+  walk(ast, (n) => {
+    if (!found && predicate(n)) found = true;
+  });
+  return found;
+}
+
+function moduleSpecifierOf(node: ts.ImportDeclaration): string {
+  return ts.isStringLiteral(node.moduleSpecifier) ? node.moduleSpecifier.text : '';
+}
+
+const REGISTRY_SPECIFIER = /(?:^|\/)leagueRegistry(?:\.ts)?$/;
+const LEAGUE_MODULE_SPECIFIER = /(?:^|\/)league(?:\.ts)?$/;
+
+/** Whether `ast` imports `name` from the registry under ANY binding. */
+function importsRegistrySymbol(ast: ts.SourceFile, name: string): boolean {
+  return some(ast, (n) => {
+    if (!ts.isImportDeclaration(n)) return false;
+    if (!REGISTRY_SPECIFIER.test(moduleSpecifierOf(n))) return false;
+    const bindings = n.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) return false;
+    // `propertyName` is the ORIGINAL export when aliased; `name` otherwise.
+    return bindings.elements.some((el) => (el.propertyName ?? el.name).text === name);
+  });
 }
 
 /**
- * Files that IMPORT `name` from the league registry, however it is bound —
- * `{ name }`, `{ name as alias }`, or across a multi-line import list. Import
- * binding is what a scan must key on: matching only `name(` call syntax is
- * defeated by a single `import { updateLeagueStatus as setStatus }` (raised at
- * F2H1 review), which is exactly how the invariant would be reintroduced.
+ * Files importing `name` from the registry, under ANY binding — `{ name }`,
+ * `{ name as alias }`, or across a multi-line list. Import binding is what a
+ * scan must key on: matching call syntax alone is defeated by a single alias.
  */
 function filesImportingFromRegistry(name: string): string[] {
-  const importRe = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;
-  return [...SOURCE_CODE.entries()]
-    .filter(([, text]) => {
-      for (const match of text.matchAll(importRe)) {
-        const [, bindings = '', source = ''] = match;
-        if (!/leagueRegistry/.test(source)) continue;
-        const imported = bindings
-          .split(',')
-          .map((binding) =>
-            binding
-              .trim()
-              .split(/\s+as\s+/)[0]
-              ?.trim()
-          )
-          .filter(Boolean);
-        if (imported.includes(name)) return true;
-      }
-      return false;
-    })
-    .map(([file]) => file)
+  return SOURCES.filter(({ ast }) => importsRegistrySymbol(ast, name))
+    .map(({ file }) => file)
     .sort();
 }
 
-test('the unguarded updateLeagueStatus has no production caller beyond the test-league controls', () => {
-  // Call-syntax scan (catches a same-module call) …
-  const callers = filesContaining('updateLeagueStatus(').filter(
-    (file) => file !== REGISTRY_MODULE && file !== TEST_LEAGUE_CONTROLS
+/** Every direct call `name(...)` in one file, as AST nodes. */
+function callsTo(ast: ts.SourceFile, name: string): ts.CallExpression[] {
+  const calls: ts.CallExpression[] = [];
+  walk(ast, (n) => {
+    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === name) {
+      calls.push(n);
+    }
+  });
+  return calls;
+}
+
+/** Files containing a direct call `name(...)`. */
+function filesCalling(name: string): string[] {
+  return SOURCES.filter(({ ast }) => callsTo(ast, name).length > 0)
+    .map(({ file }) => file)
+    .sort();
+}
+
+/** Whether the AST contains the EXACT string literal `value` (never a comment). */
+function hasStringLiteral(ast: ts.Node, value: string): boolean {
+  return some(
+    ast,
+    (n) => (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) && n.text === value
   );
+}
+
+/**
+ * Whether the AST spreads an existing RECORD and then OVERRIDES a lifecycle
+ * field on it — i.e. `{ ...record, status, year: … }`, the projection shape.
+ *
+ * Two structural conditions keep this from firing on unrelated object literals
+ * (F2H review — the looser form flagged the rollover route's response body,
+ * `{ success, year, …, ...(cond ? { message } : {}) }`):
+ *   1. the spread expression must be a record reference (an identifier or a
+ *      property access), never a conditional/call that merely contributes
+ *      optional keys;
+ *   2. the lifecycle property must come AFTER that spread, since only then does
+ *      it override the spread record's own value.
+ */
+function hasLifecycleProjection(ast: ts.Node): boolean {
+  return some(ast, (n) => {
+    if (!ts.isObjectLiteralExpression(n)) return false;
+    const firstRecordSpread = n.properties.findIndex(
+      (prop) =>
+        ts.isSpreadAssignment(prop) &&
+        (ts.isIdentifier(prop.expression) || ts.isPropertyAccessExpression(prop.expression))
+    );
+    if (firstRecordSpread === -1) return false;
+    return n.properties
+      .slice(firstRecordSpread + 1)
+      .some(
+        (prop) =>
+          (ts.isPropertyAssignment(prop) || ts.isShorthandPropertyAssignment(prop)) &&
+          ts.isIdentifier(prop.name) &&
+          (prop.name.text === 'status' || prop.name.text === 'year')
+      );
+  });
+}
+
+// ---------------------------------------------------------------------------
+
+test('the unguarded updateLeagueStatus has no production caller beyond the test-league controls', () => {
+  const allowed = new Set([REGISTRY_MODULE, TEST_LEAGUE_CONTROLS]);
+
+  const callers = filesCalling('updateLeagueStatus').filter((f) => !allowed.has(f));
   assert.deepEqual(
     callers,
     [],
     `updateLeagueStatus must not be called outside the registry and the test-league controls:\n${callers.join('\n')}`
   );
 
-  // … and an IMPORT-BINDING scan, which an alias cannot evade.
-  const importers = filesImportingFromRegistry('updateLeagueStatus').filter(
-    (file) => file !== REGISTRY_MODULE && file !== TEST_LEAGUE_CONTROLS
-  );
+  // An alias cannot evade an import-binding scan.
+  const importers = filesImportingFromRegistry('updateLeagueStatus').filter((f) => !allowed.has(f));
   assert.deepEqual(
     importers,
     [],
@@ -138,62 +195,16 @@ test('the unguarded updateLeagueStatus has no production caller beyond the test-
   );
 });
 
-test('the import-binding scan actually detects an aliased import', () => {
-  // Guards the guard: proves the binding parser sees `as`-aliased and
-  // multi-line import lists, so the assertion above is not vacuous.
-  const parsed = (source: string): string[] => {
-    const importRe = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;
-    const found: string[] = [];
-    for (const match of stripComments(source).matchAll(importRe)) {
-      const [, bindings = '', from = ''] = match;
-      if (!/leagueRegistry/.test(from)) continue;
-      for (const binding of bindings.split(',')) {
-        const name = binding
-          .trim()
-          .split(/\s+as\s+/)[0]
-          ?.trim();
-        if (name) found.push(name);
-      }
-    }
-    return found;
-  };
-
-  assert.ok(
-    parsed(`import { updateLeagueStatus as setStatus } from '@/lib/leagueRegistry';`).includes(
-      'updateLeagueStatus'
-    ),
-    'an aliased import is detected'
-  );
-  assert.ok(
-    parsed(
-      `import {\n  getLeague,\n  updateLeagueStatus,\n} from '@/lib/leagueRegistry';`
-    ).includes('updateLeagueStatus'),
-    'a multi-line import list is detected'
-  );
-  assert.ok(
-    !parsed(`// updateLeagueStatus(slug, status) is the unguarded authority\n`).includes(
-      'updateLeagueStatus'
-    ),
-    'a comment mentioning the symbol is not a violation'
-  );
-  assert.ok(
-    !parsed(`import { updateLeagueStatus } from './someOtherModule';`).includes(
-      'updateLeagueStatus'
-    ),
-    'only registry imports are considered'
-  );
-});
-
-test('the test-league controls call updateLeagueStatus only for the test league', () => {
-  const text = codeOf(TEST_LEAGUE_CONTROLS);
-  const calls = text.match(/updateLeagueStatus\(\s*[^,)]+/g) ?? [];
+test('the test-league controls call updateLeagueStatus only for the literal test slug', () => {
+  const ast = astOf(TEST_LEAGUE_CONTROLS);
+  const calls = callsTo(ast, 'updateLeagueStatus');
 
   assert.ok(calls.length > 0, 'the test-league controls still set the test league lifecycle');
   for (const call of calls) {
-    assert.match(
-      call,
-      /updateLeagueStatus\(\s*'test'/,
-      `every unguarded lifecycle write names the test league literally: ${call}`
+    const first = call.arguments[0];
+    assert.ok(
+      first && ts.isStringLiteral(first) && first.text === 'test',
+      'every unguarded lifecycle write names the test league literally'
     );
   }
 });
@@ -203,66 +214,65 @@ test('both rollover callers still use the exact-year guarded completeSeasonRollo
     join('app', 'api', 'admin', 'rollover', 'route.ts'),
     join('app', 'api', 'cron', 'season-rollover', 'route.ts'),
   ]) {
-    // Comment-stripped: this codebase documents these authorities heavily, and a
-    // doc comment naming one is not a call (F2H review).
-    const text = codeOf(route);
+    const ast = astOf(route);
     assert.ok(
-      text.includes('completeSeasonRollover('),
+      callsTo(ast, 'completeSeasonRollover').length > 0,
       `${route}: rollover still goes through the guarded transition`
     );
-    assert.ok(
-      !text.includes('updateLeagueStatus'),
+    assert.equal(
+      callsTo(ast, 'updateLeagueStatus').length,
+      0,
       `${route}: rollover was not rerouted through an unrestricted mutation`
     );
     assert.ok(
-      text.includes('groupRolloverTargets'),
+      !importsRegistrySymbol(ast, 'updateLeagueStatus'),
+      `${route}: the unguarded authority is not even imported`
+    );
+    assert.ok(
+      callsTo(ast, 'groupRolloverTargets').length > 0,
       `${route}: rollover still uses the shared target-selection policy`
     );
     assert.ok(
-      text.includes('resolveNationalChampionshipRollover'),
+      callsTo(ast, 'resolveNationalChampionshipRollover').length > 0,
       `${route}: rollover still executes behind the strict eligibility authority`
     );
   }
 });
 
 test('the season-transition cron uses the guarded preseason→season authority', () => {
-  const text = codeOf(join('app', 'api', 'cron', 'season-transition', 'route.ts'));
+  const ast = astOf(join('app', 'api', 'cron', 'season-transition', 'route.ts'));
 
-  assert.ok(text.includes('completeSeasonTransition('), 'guarded transition consumed');
-  assert.ok(!text.includes('updateLeagueStatus'), 'no unrestricted lifecycle write remains');
+  assert.ok(callsTo(ast, 'completeSeasonTransition').length > 0, 'guarded transition consumed');
+  assert.equal(callsTo(ast, 'updateLeagueStatus').length, 0, 'no unrestricted lifecycle write');
+  assert.ok(
+    !importsRegistrySymbol(ast, 'updateLeagueStatus'),
+    'the unguarded authority is not even imported'
+  );
 });
 
 test('the commissioner lifecycle actions use their guarded authorities', () => {
-  const text = codeOf(TEST_LEAGUE_CONTROLS);
+  const ast = astOf(TEST_LEAGUE_CONTROLS);
 
-  assert.ok(text.includes('beginPreseasonTransition('), 'offseason→preseason is guarded');
-  assert.ok(text.includes('completePreseasonSetup('), 'setup completion is guarded');
+  assert.ok(callsTo(ast, 'beginPreseasonTransition').length > 0, 'offseason→preseason is guarded');
+  assert.ok(callsTo(ast, 'completePreseasonSetup').length > 0, 'setup completion is guarded');
 });
 
-test('no module outside the registry spreads a LEAGUE record and rewrites a lifecycle field', () => {
+test('no module outside the registry spreads a record while rewriting a lifecycle field', () => {
   // The synchronized `status` + `year` projection lives in exactly one place.
-  //
-  // Scope note (F2H review): the earlier form keyed on any file whose text
-  // merely contained "League" plus any spread setting `year:`/`status:`, which
-  // false-positives on unrelated records that legitimately carry a `year`
-  // (schedule probe state, health view models, React action state). Guessing at
-  // identifier NAMES fares no better — `{ ...prev, [key]: { status } }` in an
-  // admin component is not a lifecycle write. So the scan is scoped
-  // SEMANTICALLY: only files that actually import the league record type or the
-  // registry can be constructing a league. It stays a tripwire for the obvious
-  // reintroduction, not a proof — `const n = {...league}; n.year = y;` is out of
-  // a regex's reach, which is why the import-binding scan above is the primary
-  // enforcement.
-  const pattern = /\{\s*\.\.\.[A-Za-z_$][\w$]*\s*,[^}]*\b(status|year)\s*:/;
-  const offenders = [...SOURCE_CODE.entries()]
-    .filter(([file, code]) => {
-      if (file === REGISTRY_MODULE) return false;
-      if (!/from\s*['"][^'"]*(?:lib\/league|\.\/league|leagueRegistry)(?:\.ts)?['"]/.test(code)) {
-        return false;
-      }
-      return pattern.test(code);
-    })
-    .map(([file]) => file);
+  // Scoped to files that import the league record or the registry — a spread
+  // setting `year:` in an unrelated module (schedule probe state, health view
+  // models, React action state) is not a lifecycle write.
+  const offenders = SOURCES.filter(({ file, ast }) => {
+    if (file === REGISTRY_MODULE) return false;
+    const importsLeagueShape = some(
+      ast,
+      (n) =>
+        ts.isImportDeclaration(n) &&
+        (REGISTRY_SPECIFIER.test(moduleSpecifierOf(n)) ||
+          LEAGUE_MODULE_SPECIFIER.test(moduleSpecifierOf(n)))
+    );
+    return importsLeagueShape && hasLifecycleProjection(ast);
+  }).map(({ file }) => file);
 
   assert.deepEqual(
     offenders,
@@ -271,30 +281,11 @@ test('no module outside the registry spreads a LEAGUE record and rewrites a life
   );
 });
 
-test('the lifecycle-field scan detects the pattern it claims to guard', () => {
-  // Guards the guard on BOTH axes: the pattern still matches a reintroduced
-  // projection (the registry itself is excluded by path, not because the scan is
-  // inert), and the import scope excludes a file that never touches leagues.
-  const pattern = /\{\s*\.\.\.[A-Za-z_$][\w$]*\s*,[^}]*\b(status|year)\s*:/;
-  const importScope = /from\s*['"][^'"]*(?:lib\/league|\.\/league|leagueRegistry)(?:\.ts)?['"]/;
-
-  assert.ok(pattern.test(codeOf(REGISTRY_MODULE)), 'the registry projection still matches');
-  assert.ok(importScope.test(codeOf(REGISTRY_MODULE)), 'the registry is in the import scope');
-  assert.ok(
-    pattern.test('const next: League = { ...current, status, year: status.year };'),
-    'a reintroduced projection matches'
-  );
-  assert.ok(
-    !importScope.test(`import { useState } from 'react';`),
-    'a module that never imports a league record is out of scope'
-  );
-});
-
 test('the recovery route exposes only the missing-status initializer', () => {
   const route = join('app', 'api', 'admin', 'lifecycle-recovery', 'route.ts');
-  const text = codeOf(route);
+  const ast = astOf(route);
 
-  assert.ok(text.includes('initializeMissingLifecycleStatus('), 'the one recovery authority');
+  assert.ok(callsTo(ast, 'initializeMissingLifecycleStatus').length > 0, 'the one authority');
   for (const forbidden of [
     'updateLeagueStatus',
     'completeSeasonRollover',
@@ -302,19 +293,20 @@ test('the recovery route exposes only the missing-status initializer', () => {
     'beginPreseasonTransition',
     'completePreseasonSetup',
   ]) {
-    assert.ok(!text.includes(forbidden), `${route}: must not expose ${forbidden}`);
+    assert.equal(callsTo(ast, forbidden).length, 0, `${route}: must not call ${forbidden}`);
+    assert.ok(!importsRegistrySymbol(ast, forbidden), `${route}: must not import ${forbidden}`);
   }
   assert.ok(
-    !/export\s+async\s+function\s+GET/.test(text),
+    !some(ast, (n) => ts.isFunctionDeclaration(n) && n.name?.text === 'GET'),
     `${route}: there is deliberately no GET route`
   );
 });
 
 test('no UI or server action invokes the dormant recovery API in F2H1', () => {
   const routeFile = join('app', 'api', 'admin', 'lifecycle-recovery', 'route.ts');
-  const callers = [...SOURCE_CODE.entries()]
-    .filter(([file, code]) => file !== routeFile && code.includes('/api/admin/lifecycle-recovery'))
-    .map(([file]) => file);
+  const callers = SOURCES.filter(
+    ({ file, ast }) => file !== routeFile && hasStringLiteral(ast, '/api/admin/lifecycle-recovery')
+  ).map(({ file }) => file);
 
   assert.deepEqual(
     callers,
@@ -323,20 +315,26 @@ test('no UI or server action invokes the dormant recovery API in F2H1', () => {
   );
 });
 
-test('the registry module is the only place holding the registry key transaction for leagues', () => {
-  const offenders = [...SOURCE_CODE.entries()]
-    .filter(
-      ([file, code]) =>
-        file !== REGISTRY_MODULE && /withAppStateKeyTransaction\(\s*'leagues'/.test(code)
-    )
-    .map(([file]) => file);
+test('the registry module is the only place holding the registry key transaction', () => {
+  const offenders = SOURCES.filter(({ file, ast }) => {
+    if (file === REGISTRY_MODULE) return false;
+    return some(ast, (n) => {
+      if (!ts.isCallExpression(n)) return false;
+      if (!ts.isIdentifier(n.expression) || n.expression.text !== 'withAppStateKeyTransaction') {
+        return false;
+      }
+      const first = n.arguments[0];
+      return Boolean(first && ts.isStringLiteral(first) && first.text === 'leagues');
+    });
+  }).map(({ file }) => file);
 
   assert.deepEqual(offenders, [], `registry writes stay centralized:\n${offenders.join('\n')}`);
 });
 
-test('the scan actually inspected the lifecycle sources it claims to guard', () => {
-  // Guards the guard: a path typo or a moved module would otherwise make every
-  // assertion above vacuously pass.
+// ---------------------------------------------------------------------------
+// Guards on the guard — a scan that silently matches nothing is worse than none.
+
+test('the AST scan actually inspected the lifecycle sources it claims to guard', () => {
   for (const expected of [
     REGISTRY_MODULE,
     TEST_LEAGUE_CONTROLS,
@@ -345,9 +343,116 @@ test('the scan actually inspected the lifecycle sources it claims to guard', () 
     join('app', 'api', 'admin', 'rollover', 'route.ts'),
     join('app', 'api', 'admin', 'lifecycle-recovery', 'route.ts'),
   ]) {
-    assert.ok(
-      SOURCE_FILES.some((file) => relativeToSrc(file) === expected),
-      `${expected.split(sep).join('/')} was scanned`
-    );
+    assert.ok(BY_FILE.has(expected), `${expected.split(sep).join('/')} was scanned`);
   }
+});
+
+test('the scanner reads code structurally — comments and string contents are not code', () => {
+  const probe = (source: string): ts.SourceFile => parseSource('probe.ts', source);
+
+  // Aliased and multi-line imports are caught; other modules are not.
+  assert.ok(
+    importsRegistrySymbol(
+      probe(`import { updateLeagueStatus as setStatus } from '@/lib/leagueRegistry';`),
+      'updateLeagueStatus'
+    ),
+    'an aliased import is detected'
+  );
+  assert.ok(
+    importsRegistrySymbol(
+      probe(`import {\n  getLeague,\n  updateLeagueStatus,\n} from '../leagueRegistry.ts';`),
+      'updateLeagueStatus'
+    ),
+    'a multi-line import list is detected'
+  );
+  assert.ok(
+    !importsRegistrySymbol(
+      probe(`import { updateLeagueStatus } from './someOtherModule';`),
+      'updateLeagueStatus'
+    ),
+    'only registry imports count'
+  );
+
+  // A comment naming an authority is not a call.
+  assert.equal(
+    callsTo(
+      probe(`// updateLeagueStatus(slug, s) is the unguarded authority\nexport const a = 1;`),
+      'updateLeagueStatus'
+    ).length,
+    0,
+    'a line comment is not a call'
+  );
+  assert.equal(
+    callsTo(probe(`/* updateLeagueStatus(slug, s) */\nexport const a = 1;`), 'updateLeagueStatus')
+      .length,
+    0,
+    'a block comment is not a call'
+  );
+
+  // The regression that motivated dropping regex comment-stripping: a `//`
+  // inside a string literal must NOT blind the scanner to code after it.
+  assert.equal(
+    callsTo(
+      probe(`const url = 'https://api.example.com/v1'; updateLeagueStatus('x', s);`),
+      'updateLeagueStatus'
+    ).length,
+    1,
+    'code following a URL literal on the same line is still seen'
+  );
+  assert.equal(
+    callsTo(
+      probe(
+        `const u = \`https://a.example/\${p}\`; withAppStateKeyTransaction('leagues', 'registry', f);`
+      ),
+      'withAppStateKeyTransaction'
+    ).length,
+    1,
+    'code following a template literal containing // is still seen'
+  );
+
+  // A path mentioned in a comment is not a string literal.
+  assert.ok(
+    hasStringLiteral(
+      probe(`fetch('/api/admin/lifecycle-recovery');`),
+      '/api/admin/lifecycle-recovery'
+    )
+  );
+  assert.ok(
+    !hasStringLiteral(
+      probe(`// see /api/admin/lifecycle-recovery\nconst a = 1;`),
+      '/api/admin/lifecycle-recovery'
+    )
+  );
+});
+
+test('the lifecycle-projection scan matches a reintroduced projection', () => {
+  // Proves the object-literal detector is not inert: the registry's own
+  // projection matches (it is excluded by path, not by the predicate failing),
+  // and an unrelated spread does not.
+  assert.ok(hasLifecycleProjection(astOf(REGISTRY_MODULE)), 'the registry projection matches');
+  assert.ok(
+    hasLifecycleProjection(
+      parseSource('probe.ts', `const next = { ...current, status, year: status.year };`)
+    ),
+    'a reintroduced projection matches'
+  );
+  assert.ok(
+    !hasLifecycleProjection(
+      parseSource('probe.ts', `const next = { ...probeState, baseCachedAt: now };`)
+    ),
+    'a spread without a lifecycle field does not match'
+  );
+  assert.ok(
+    !hasLifecycleProjection(
+      parseSource(
+        'probe.ts',
+        `const body = { success: true, year, ...(bad ? { message: 'x' } : {}) };`
+      )
+    ),
+    'a response body whose only spread contributes optional keys does not match'
+  );
+  assert.ok(
+    !hasLifecycleProjection(parseSource('probe.ts', `const body = { year, ...extra };`)),
+    'a lifecycle field BEFORE the spread is not an override'
+  );
 });
