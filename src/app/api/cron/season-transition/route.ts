@@ -161,6 +161,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         probed: false,
         cached: false,
         transitionedLeagues: 0,
+        refusedLeagues: 0,
         failedSeasonTypes: [],
       };
       // Marks which throwable operation is in flight, so a propagating throw is
@@ -303,8 +304,11 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
                 continue;
               }
               if (transition.outcome !== 'transitioned') {
-                // Refused, not failed: record it truthfully and count nothing.
+                // Refused, not failed: record it truthfully and count nothing
+                // toward transitions. The count lands on the event entry
+                // immediately so a later throw in this loop cannot erase it.
                 refusedLeagues.push(league.slug);
+                yearEntry.refusedLeagues = refusedLeagues.length;
                 continue;
               }
               yearResult.leagues.push(league.slug);

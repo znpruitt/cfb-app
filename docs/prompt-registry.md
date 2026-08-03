@@ -74,10 +74,11 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   (`transitioned`/`league-not-found`/`not-in-offseason`/`invalid-year`) derives `year + 1` under the
   lock, so a double-click, stale tab, or concurrent actor cannot increment twice;
   `completePreseasonSetup`
-  (`completed`/`already-complete`/`league-not-found`/`not-in-preseason`/`year-mismatch`) requires
-  preseason at EXACTLY the submitted year and treats an already-complete match as a no-op that
-  rewrites nothing; `completeSeasonTransition`
-  (`transitioned`/`not-in-target-preseason`) is the cron's authority; and
+  (`completed`/`already-complete`/`league-not-found`/`not-in-preseason`/`year-mismatch`/`invalid-year`)
+  requires preseason at EXACTLY the submitted year and treats an already-complete match as a no-op
+  that rewrites nothing — unless the top-level year projection is stale, where it still commits the
+  healing write the pre-F2H1 unconditional rewrite performed; `completeSeasonTransition`
+  (`transitioned`/`already-in-target-season`/`not-in-target-preseason`) is the cron's authority; and
   `initializeMissingLifecycleStatus`
   (`initialized`/`league-not-found`/`status-already-present`/`invalid-existing-status`/
   `invalid-legacy-year`/`test-league-managed-separately`) installs exactly
@@ -100,7 +101,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   allowlisted `{ leagueSlug, status, year }`. No GET, and no UI invokes it until F2H3. Rollover
   behavior is unchanged end-to-end.
 - Review / verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check`
-  all clean; full suite 3224 green; focused lifecycle/action/cron/recovery suites 164 green. New
+  all clean; full suite 3227 green; focused lifecycle/action/cron/recovery suites 167 green. New
   deterministic tests: `leagueRegistry.guardedTransitions.test.ts` (30 — next-year derivation under
   the lock, two concurrent begin-preseason attempts producing exactly one increment, stale
   begin-preseason vs preseason/season, exact-year setup completion, stale setup form in both
@@ -160,8 +161,28 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   a mid-run deleted league reads like a benign stale advance, recovery does not invalidate
   standings (provably a no-op — the installed status equals the inference already in use), and
   malformed/invalid-year records remain detectable but unrepairable (the prompt scopes recovery to
-  missing status only). Browser verification is not applicable — F2H1 ships no UI. Diff: 17 files,
-  +2,668/−81; net lines exceed the 1,500 soft signal, dominated by the prompt-mandated
+  missing status only). A fourth Codex pass and a third `/code-review` pass then ran: Codex found no
+  actionable regression; `/code-review` raised twelve more, eleven remediated — the guarded
+  transitions had been enforcing a year range that league CREATION did not
+  (`POST /api/admin/leagues` accepted any finite `year >= 2000`), so a typo like `3000`/`2024.5`
+  minted a league whose lifecycle was then permanently frozen with no repair path (validation moved
+  to the boundary that mints the year); the refusal signal lived only in the single `reason` slot and
+  was erased by a later throw (now a first-class `refusedLeagues` count on the event entry);
+  `completePreseasonSetup` conflated a stale form with a corrupt stored year, throwing "no longer in
+  preseason for X" about a league in preseason for exactly X (now a distinct `invalid-year`);
+  `isValidLeagueStatus` applied the write-time RANGE to a structural assignability question, so a
+  legacy `{state:'season', year:1999}` was reported malformed instead of already-present; the
+  `MAX_LIFECYCLE_YEAR` comment justified the bound with a failure mode that cannot occur (the health
+  page clamps before `validateYear`), and the fixture meant to cover the derived-year branch was
+  rejected by the stored-year check first, leaving that branch untested; four guard scans still used
+  raw file text after the module introduced comment stripping; and AGENTS.md plus both companion docs
+  still described `already-complete` as rewriting nothing after it gained the healing write. Two more
+  deferred: the sibling season-rollover cron reports a benign at-least-once duplicate as a hard error
+  (the same anomaly `already-in-target-season` fixes one file over, but PRE-EXISTING since F2B and
+  prompt §6 forbids redesigning rollover — recommended for F2H2), and `updateLeagueStatus`'s
+  test-league restriction is enforced by source scan rather than a runtime guard (making it
+  structural would require rewriting F2B's existing lifecycle test fixtures). Browser verification is not applicable — F2H1 ships no UI. Diff: 19 files,
+  +2,800/−83; net lines exceed the 1,500 soft signal, dominated by the prompt-mandated
   concurrency/stale-state and route-contract coverage (~1,900 test lines against ~640 production
   lines across seven files) — surfaced to the user rather than split. BotID stash preserved.
 - Status: **Implemented; in final pre-merge review (PR #441).**

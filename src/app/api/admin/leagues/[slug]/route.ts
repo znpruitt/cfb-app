@@ -30,7 +30,8 @@ export async function PATCH(
   const obj = body as Record<string, unknown>;
 
   // PLATFORM-086F2B — the season year and lifecycle status are managed only by
-  // the lifecycle mutation authority (`updateLeagueStatus`); this configuration
+  // a guarded lifecycle operation in `leagueRegistry.ts` (PLATFORM-086F2H1 —
+  // NOT `updateLeagueStatus`, which is the unguarded test-league path); this configuration
   // route must not offer a second, competing year authority. Reject explicitly
   // rather than silently ignoring the field.
   if ('year' in obj) {

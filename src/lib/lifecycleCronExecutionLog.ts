@@ -77,6 +77,14 @@ export type SeasonTransitionCronYearExecution = {
   probed: boolean;
   cached: boolean;
   transitionedLeagues: number;
+  /**
+   * Leagues the guarded transition REFUSED as stale this year (PLATFORM-086F2H1,
+   * F2H review). Recorded as its own field rather than only in `reason` so the
+   * signal survives a later throw — which reclassifies `reason` to
+   * `lifecycle-write-failed` — and remains legible when multi-year aggregation
+   * collapses the top-level reason to `year-results`.
+   */
+  refusedLeagues: number;
   failedSeasonTypes: ScheduleSeasonType[];
 };
 
@@ -233,6 +241,7 @@ export function emitSeasonTransitionCronExecutionEvent(
         probed: entry.probed,
         cached: entry.cached,
         transitionedLeagues: entry.transitionedLeagues,
+        refusedLeagues: entry.refusedLeagues,
         failedSeasonTypes: [...entry.failedSeasonTypes],
       })),
       durationMs,

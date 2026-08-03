@@ -79,10 +79,6 @@ function filesContaining(needle: string): string[] {
     .sort();
 }
 
-function readSource(relativePath: string): string {
-  return readFileSync(join(SRC, relativePath), 'utf8');
-}
-
 function codeOf(relativePath: string): string {
   const code = SOURCE_CODE.get(relativePath);
   assert.ok(code !== undefined, `${relativePath} was scanned`);
@@ -189,7 +185,7 @@ test('the import-binding scan actually detects an aliased import', () => {
 });
 
 test('the test-league controls call updateLeagueStatus only for the test league', () => {
-  const text = readSource(TEST_LEAGUE_CONTROLS);
+  const text = codeOf(TEST_LEAGUE_CONTROLS);
   const calls = text.match(/updateLeagueStatus\(\s*[^,)]+/g) ?? [];
 
   assert.ok(calls.length > 0, 'the test-league controls still set the test league lifecycle');
@@ -207,7 +203,9 @@ test('both rollover callers still use the exact-year guarded completeSeasonRollo
     join('app', 'api', 'admin', 'rollover', 'route.ts'),
     join('app', 'api', 'cron', 'season-rollover', 'route.ts'),
   ]) {
-    const text = readSource(route);
+    // Comment-stripped: this codebase documents these authorities heavily, and a
+    // doc comment naming one is not a call (F2H review).
+    const text = codeOf(route);
     assert.ok(
       text.includes('completeSeasonRollover('),
       `${route}: rollover still goes through the guarded transition`
@@ -228,14 +226,14 @@ test('both rollover callers still use the exact-year guarded completeSeasonRollo
 });
 
 test('the season-transition cron uses the guarded preseason→season authority', () => {
-  const text = readSource(join('app', 'api', 'cron', 'season-transition', 'route.ts'));
+  const text = codeOf(join('app', 'api', 'cron', 'season-transition', 'route.ts'));
 
   assert.ok(text.includes('completeSeasonTransition('), 'guarded transition consumed');
   assert.ok(!text.includes('updateLeagueStatus'), 'no unrestricted lifecycle write remains');
 });
 
 test('the commissioner lifecycle actions use their guarded authorities', () => {
-  const text = readSource(TEST_LEAGUE_CONTROLS);
+  const text = codeOf(TEST_LEAGUE_CONTROLS);
 
   assert.ok(text.includes('beginPreseasonTransition('), 'offseason→preseason is guarded');
   assert.ok(text.includes('completePreseasonSetup('), 'setup completion is guarded');
@@ -294,7 +292,7 @@ test('the lifecycle-field scan detects the pattern it claims to guard', () => {
 
 test('the recovery route exposes only the missing-status initializer', () => {
   const route = join('app', 'api', 'admin', 'lifecycle-recovery', 'route.ts');
-  const text = readSource(route);
+  const text = codeOf(route);
 
   assert.ok(text.includes('initializeMissingLifecycleStatus('), 'the one recovery authority');
   for (const forbidden of [

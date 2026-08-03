@@ -13,11 +13,13 @@ const REGISTRY_KEY = 'registry';
  * not to encode product policy about which seasons the app supports.
  */
 const MIN_LIFECYCLE_YEAR = 2000;
-// Deliberately matches the System Health builder's accepted range
-// (`systemHealth.ts` → `validateYear`, 2000–2100, which THROWS outside it). A
-// wider registry bound would let a lifecycle write durably store a year that
-// then makes the health dashboard throw (F2H review). Extracting one shared
-// season-year predicate across both modules is a follow-up.
+// A sanity ceiling, chosen to line up with the other server-side season-year
+// bounds (`systemHealth.ts` → `validateYear`; `systemHealthYear.ts` → `MIN_YEAR`
+// + its `currentUTCYear + 1` clamp). NOTE: this is alignment, not a dependency —
+// the health page clamps the year BEFORE `validateYear` sees it, so a wider
+// registry bound could not actually make the dashboard throw (an earlier comment
+// here claimed it could; corrected at F2H review). Extracting one shared
+// season-year predicate across the three modules remains a follow-up.
 const MAX_LIFECYCLE_YEAR = 2100;
 
 function isValidLifecycleYear(year: unknown): year is number {
@@ -40,15 +42,26 @@ function isValidLifecycleYear(year: unknown): year is number {
  * a non-boolean value there makes the record unassignable and must classify as
  * malformed. On `season`/`offseason` the property is not part of the variant at
  * all, so an extra key is still structurally valid and must NOT be rejected.
+ *
+ * The year check here is STRUCTURAL (`year: number`), deliberately NOT the
+ * narrower `isValidLifecycleYear` range: the question this predicate answers is
+ * "does this league already have a lifecycle status?", and a legacy
+ * `{ state: 'season', year: 1999 }` plainly does. Reporting it as malformed
+ * would tell an operator their well-formed record is corrupt (F2H review). The
+ * range bound belongs on WRITES, which is where `isValidLifecycleYear` is used.
  */
+function isStructurallyValidYear(year: unknown): year is number {
+  return typeof year === 'number' && Number.isInteger(year);
+}
+
 function isValidLeagueStatus(status: unknown): status is LeagueStatus {
   if (!status || typeof status !== 'object') return false;
   const candidate = status as { state?: unknown; year?: unknown; setupComplete?: unknown };
   if (candidate.state === 'offseason') return true;
-  if (candidate.state === 'season') return isValidLifecycleYear(candidate.year);
+  if (candidate.state === 'season') return isStructurallyValidYear(candidate.year);
   if (candidate.state === 'preseason') {
     return (
-      isValidLifecycleYear(candidate.year) &&
+      isStructurallyValidYear(candidate.year) &&
       (candidate.setupComplete === undefined || typeof candidate.setupComplete === 'boolean')
     );
   }
@@ -271,7 +284,12 @@ export type PreseasonSetupCompletion =
   | { outcome: 'already-complete'; league: League }
   | { outcome: 'league-not-found' }
   | { outcome: 'not-in-preseason'; league: League }
-  | { outcome: 'year-mismatch'; league: League };
+  | { outcome: 'year-mismatch'; league: League }
+  // The submitted year MATCHES the record, but the stored year is unusable —
+  // a corrupt record, not a stale form. Kept distinct so the caller cannot tell
+  // the operator "no longer in preseason for X" about a league that is, right
+  // now, in preseason for exactly X (F2H review).
+  | { outcome: 'invalid-year'; league: League };
 
 /**
  * The GUARDED preseason setup completion (PLATFORM-086F2H1). Requires, inside
@@ -293,11 +311,14 @@ export async function completePreseasonSetup(
       if (status?.state !== 'preseason') {
         return { commit: null, refusal: { outcome: 'not-in-preseason', league: current } };
       }
-      // A corrupt stored year must not be laundered forward by a matching
-      // submission, so validate it as well as match it (F2H1 review) — the
-      // same guard the deriving operations apply.
-      if (status.year !== year || !isValidLifecycleYear(status.year)) {
+      if (status.year !== year) {
         return { commit: null, refusal: { outcome: 'year-mismatch', league: current } };
+      }
+      // A corrupt stored year must not be laundered forward by a matching
+      // submission, so validate it as well as match it — the same guard the
+      // deriving operations apply, reported as its own cause.
+      if (!isValidLifecycleYear(status.year)) {
+        return { commit: null, refusal: { outcome: 'invalid-year', league: current } };
       }
       if (status.setupComplete === true) {
         // Pre-F2H1 this path rewrote the status unconditionally, which also

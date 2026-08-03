@@ -127,8 +127,7 @@ test('beginPreseasonTransition reports an unknown league and an unusable stored 
     makeLeague('bravo', 1900, { state: 'offseason' }),
     makeLeague('charlie', 2024.5, { state: 'offseason' }),
     makeLeague('delta', '2024' as unknown as number, { state: 'offseason' }),
-    // At the top of the accepted range: the DERIVED next year is out of range,
-    // so the increment is refused rather than written.
+    // Out of range outright (rejected by the STORED-year check).
     makeLeague('echo', 2200, { state: 'offseason' }),
   ]);
   const before = await readRegistry();
@@ -139,6 +138,45 @@ test('beginPreseasonTransition reports an unknown league and an unusable stored 
   }
 
   assert.deepEqual(await readRegistry(), before, 'no year was invented');
+});
+
+test('beginPreseasonTransition refuses when only the DERIVED year is out of range', async () => {
+  // At the very top of the accepted range the STORED year is valid, so this is
+  // the only fixture that actually reaches the derived-year guard — the previous
+  // fixture (2200) was rejected by the stored-year check first, leaving that
+  // branch untested (F2H review).
+  await seed([makeLeague('alpha', 2100, { state: 'offseason' })]);
+  const before = await readRegistry();
+
+  const transition = await beginPreseasonTransition('alpha');
+
+  assert.equal(transition.outcome, 'invalid-year');
+  assert.deepEqual(await readRegistry(), before, 'the out-of-range increment was not written');
+});
+
+test('completePreseasonSetup separates a stale form from a corrupt stored year', async () => {
+  const corrupt = 1e21;
+  await seed([
+    makeLeague('alpha', 2026, { state: 'preseason', year: 2026 }),
+    makeLeague('bravo', corrupt, { state: 'preseason', year: corrupt }),
+  ]);
+
+  // Submitted year does not match what is stored → a stale form.
+  assert.equal((await completePreseasonSetup('alpha', 2025)).outcome, 'year-mismatch');
+  // Submitted year MATCHES the record, but the record itself is unusable —
+  // reporting `year-mismatch` here would be self-contradictory.
+  assert.equal((await completePreseasonSetup('bravo', corrupt)).outcome, 'invalid-year');
+});
+
+test('a structurally valid but out-of-range legacy status is NOT called malformed', async () => {
+  // `{ state: 'season', year: 1999 }` is assignable to `LeagueStatus`; it is a
+  // real status, so recovery must report `status-already-present` rather than
+  // telling the operator their well-formed record is corrupt (F2H review).
+  await seed([makeLeague('alpha', 1999, { state: 'season', year: 1999 })]);
+
+  const result = await initializeMissingLifecycleStatus('alpha');
+
+  assert.equal(result.outcome, 'status-already-present');
 });
 
 // ---------------------------------------------------------------------------
@@ -235,7 +273,7 @@ test('the exact-year operations refuse a corrupt stored year rather than launder
   ]);
   const before = await readRegistry();
 
-  assert.equal((await completePreseasonSetup('alpha', corrupt)).outcome, 'year-mismatch');
+  assert.equal((await completePreseasonSetup('alpha', corrupt)).outcome, 'invalid-year');
   assert.equal(
     (await completeSeasonTransition('bravo', corrupt)).outcome,
     'not-in-target-preseason'

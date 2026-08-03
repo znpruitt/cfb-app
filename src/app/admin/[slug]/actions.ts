@@ -154,6 +154,13 @@ export async function completeSetup(slug: string, year: number): Promise<void> {
   if (completion.outcome === 'year-mismatch') {
     throw new Error(`League is no longer in preseason for ${year}`);
   }
+  if (completion.outcome === 'invalid-year') {
+    // The submitted year MATCHES the record — telling the operator the league is
+    // "no longer in preseason for X" would be self-contradictory (F2H review).
+    throw new Error(
+      'League has an unusable stored season year and setup cannot be completed. This needs a data correction.'
+    );
+  }
   revalidatePath(`/admin/${slug}`);
   revalidatePath(`/admin/${slug}`, 'layout');
   revalidatePath(`/admin/${slug}/preseason`);

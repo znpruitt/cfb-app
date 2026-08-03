@@ -55,7 +55,12 @@ export async function POST(req: Request): Promise<Response> {
       { status: 400 }
     );
   if (!displayName) return new Response('displayName is required', { status: 400 });
-  if (!Number.isFinite(year) || year < 2000)
+  // PLATFORM-086F2H1 (F2H review): validate at the boundary that MINTS the
+  // lifecycle year, not only at the transitions that consume it. The guarded
+  // transitions refuse a non-integer/out-of-range year, so a league created with
+  // one (a typo like 3000 or 2024.5, previously accepted by `Number.isFinite`
+  // alone) would have its lifecycle permanently frozen with no repair path.
+  if (!Number.isInteger(year) || year < 2000 || year > 2100)
     return new Response('year must be a valid season year', { status: 400 });
 
   const existing = await getLeagues();
