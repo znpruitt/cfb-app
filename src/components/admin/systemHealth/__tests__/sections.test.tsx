@@ -223,6 +223,28 @@ test('provider renders 6 rows with freshness, outcome, automation as separate fa
   );
 });
 
+test('scheduler execution column distinguishes missing / invalid / unavailable receipts', async () => {
+  const model = await buildModel({
+    schedulerDelivery: () =>
+      Promise.resolve(
+        deliverySnapshot(
+          EXTERNAL_SCHEDULER_JOBS.map((job) => {
+            if (job === 'live-scores') return deliveryRow('live-scores', 'missing', null);
+            if (job === 'game-stats') return deliveryRow('game-stats', 'invalid', null);
+            if (job === 'odds') return deliveryRow('odds', 'unavailable', null);
+            return deliveryRow(job, 'on-time', receiptFor(job, 'success'));
+          })
+        )
+      ),
+  });
+  const html = renderToStaticMarkup(
+    <SchedulerHealthSection jobs={model.schedulerJobs} nowMs={NOW} />
+  );
+  assert.ok(html.includes('no receipt'), 'missing → no receipt');
+  assert.ok(html.includes('receipt unparseable'), 'invalid → receipt unparseable');
+  assert.ok(html.includes('unavailable'), 'unavailable → unavailable');
+});
+
 test('provider row timestamps the latest attempt (not prior success) and shows latest-activity scope', async () => {
   const recent = new Date(NOW - 60_000).toISOString();
   const old = new Date(NOW - 5 * 86_400_000).toISOString(); // 5 days ago

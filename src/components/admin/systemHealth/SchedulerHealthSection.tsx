@@ -73,7 +73,12 @@ export default function SchedulerHealthSection({
                       {execution ? (
                         <span className={TONE_TEXT_CLASS[execution.tone]}>{execution.label}</span>
                       ) : (
-                        <span className="text-gray-400 dark:text-zinc-500">no receipt</span>
+                        // A null receipt is not always "no receipt": distinguish a
+                        // genuinely missing delivery from a malformed (invalid) or
+                        // unreadable (unavailable) receipt (they are distinct states).
+                        <span className="text-gray-400 dark:text-zinc-500">
+                          {noReceiptExecutionLabel(row.deliveryState)}
+                        </span>
                       )}
                       <span className="text-gray-400 dark:text-zinc-500">
                         {formatMoment(receipt?.startedAt, nowMs)}
@@ -116,6 +121,21 @@ export default function SchedulerHealthSection({
       </ul>
     </section>
   );
+}
+
+/** Execution-column text when there is no parsed receipt — reserving "no receipt"
+ *  for a genuinely missing delivery, distinct from a malformed or unreadable one. */
+function noReceiptExecutionLabel(
+  deliveryState: SchedulerDeliveryHealthRow['deliveryState']
+): string {
+  switch (deliveryState) {
+    case 'invalid':
+      return 'receipt unparseable';
+    case 'unavailable':
+      return 'unavailable';
+    default:
+      return 'no receipt';
+  }
 }
 
 function Detail({ label, value }: { label: string; value: string }): React.ReactElement {
