@@ -96,10 +96,13 @@ export async function POST(req: Request): Promise<Response> {
 
   switch (result.outcome) {
     case 'initialized':
-      // Allowlisted success body — slug plus the installed public status/year.
+      // Allowlisted success body — slug plus the status the AUTHORITY installed,
+      // reported verbatim rather than re-derived here, so the route can never
+      // drift from what the registry actually holds (F2H1 review). `status`
+      // carries no credential material.
       return Response.json({
         leagueSlug,
-        status: { state: 'season' as const, year: result.league.year },
+        status: result.status,
         year: result.league.year,
       });
     case 'league-not-found':

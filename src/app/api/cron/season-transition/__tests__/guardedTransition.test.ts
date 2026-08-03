@@ -230,8 +230,12 @@ test('a stale snapshot cannot overwrite a league another actor rolled to offseas
 
   assert.equal(event.years[0]!.transitionedLeagues, 0);
   assert.equal(event.years[0]!.reason, 'lifecycle-transition-refused');
-  assert.equal(event.years[0]!.result, 'no-op');
-  assert.equal(event.result, 'no-op', 'the aggregate is never success');
+  assert.equal(
+    event.years[0]!.result,
+    'partial',
+    'a refusal is surfaced (System Health raises an issue only for failure/partial)'
+  );
+  assert.equal(event.result, 'partial', 'the aggregate is never success');
 });
 
 test('a stale snapshot cannot overwrite a league already advanced to a different preseason year', async () => {
@@ -247,7 +251,7 @@ test('a stale snapshot cannot overwrite a league already advanced to a different
   assert.deepEqual(body.years[0]!.refusedLeagues, ['alpha']);
   const stored = await readLeague('alpha');
   assert.deepEqual(stored?.status, { state: 'preseason', year: YEAR + 1 });
-  assert.equal(event.result, 'no-op');
+  assert.equal(event.result, 'partial');
   assert.equal(event.reason, 'lifecycle-transition-refused');
 });
 
@@ -313,8 +317,53 @@ test('a refused transition is recorded in the durable receipt, never as success'
 
   const receipt = await readSchedulerReceipt('season-transition');
   assert.ok(receipt, 'a receipt was written for the authenticated invocation');
-  assert.equal(receipt.value.result, 'no-op');
+  assert.equal(receipt.value.result, 'partial');
   assert.equal(receipt.value.reason, 'lifecycle-transition-refused');
+});
+
+test('a refusal after a POPULATED schedule commit is never reported as a no-op run', async () => {
+  // Coverage gap raised at F2H1 review: every other refusal test stubs an empty
+  // schedule, so `cached` is always false. Here the E1A refresh genuinely
+  // succeeds with rows — a billed provider call plus a durable canonical commit
+  // — and THEN every league is refused. Reporting `no-op` would assert that
+  // nothing was left to do on a run that actually performed provider I/O.
+  const games = JSON.stringify([
+    {
+      id: '1-Alpha U-Beta U',
+      week: 1,
+      home_team: 'Alpha U',
+      away_team: 'Beta U',
+      start_date: '2023-08-26T00:00:00.000Z',
+      completed: false,
+    },
+  ]);
+  await seedRegistry([makeLeague('alpha', { state: 'preseason', year: YEAR })]);
+  await seedPastProbe();
+
+  let fired = false;
+  globalThis.fetch = (async (input: URL | string) => {
+    if (!fired) {
+      fired = true;
+      await seedRegistry([makeLeague('alpha', { state: 'offseason' })]);
+    }
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const body = url.searchParams.get('seasonType') === 'postseason' ? '[]' : games;
+    return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+
+  const { res, body, event } = await runRoute();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(body.years[0]!.leagues, []);
+  assert.deepEqual(body.years[0]!.refusedLeagues, ['alpha']);
+
+  const entry = event.years[0]!;
+  assert.equal(entry.cached, true, 'a populated schedule was durably committed this run');
+  assert.equal(entry.providerCallAttempted, true, 'the run made a provider call');
+  assert.notEqual(entry.result, 'no-op', 'a run that committed canonical work is not a no-op');
+  assert.equal(entry.result, 'partial');
+  assert.equal(entry.reason, 'lifecycle-transition-refused');
+  assert.ok(entry.scheduleRefreshReason, 'the exact E1A reason is still preserved on the entry');
 });
 
 test('a league that vanished from the registry mid-run is refused, not recreated', async () => {

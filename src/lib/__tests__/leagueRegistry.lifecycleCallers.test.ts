@@ -61,15 +61,111 @@ function readSource(relativePath: string): string {
   return readFileSync(join(SRC, relativePath), 'utf8');
 }
 
+/**
+ * Strip block and line comments so a doc comment that merely NAMES an authority
+ * cannot trip (or satisfy) a scan. Crude but sufficient here — the sources are
+ * ordinary TS/TSX and no string literal in them contains a comment opener.
+ */
+function stripComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+}
+
+/**
+ * Files that IMPORT `name` from the league registry, however it is bound —
+ * `{ name }`, `{ name as alias }`, or across a multi-line import list. Import
+ * binding is what a scan must key on: matching only `name(` call syntax is
+ * defeated by a single `import { updateLeagueStatus as setStatus }` (raised at
+ * F2H1 review), which is exactly how the invariant would be reintroduced.
+ */
+function filesImportingFromRegistry(name: string): string[] {
+  const importRe = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;
+  return SOURCE_FILES.filter((file) => {
+    const text = stripComments(readFileSync(file, 'utf8'));
+    for (const match of text.matchAll(importRe)) {
+      const [, bindings = '', source = ''] = match;
+      if (!/leagueRegistry/.test(source)) continue;
+      const imported = bindings
+        .split(',')
+        .map((binding) =>
+          binding
+            .trim()
+            .split(/\s+as\s+/)[0]
+            ?.trim()
+        )
+        .filter(Boolean);
+      if (imported.includes(name)) return true;
+    }
+    return false;
+  })
+    .map(relativeToSrc)
+    .sort();
+}
+
 test('the unguarded updateLeagueStatus has no production caller beyond the test-league controls', () => {
+  // Call-syntax scan (catches a same-module call) …
   const callers = filesContaining('updateLeagueStatus(').filter(
     (file) => file !== REGISTRY_MODULE && file !== TEST_LEAGUE_CONTROLS
   );
-
   assert.deepEqual(
     callers,
     [],
     `updateLeagueStatus must not be called outside the registry and the test-league controls:\n${callers.join('\n')}`
+  );
+
+  // … and an IMPORT-BINDING scan, which an alias cannot evade.
+  const importers = filesImportingFromRegistry('updateLeagueStatus').filter(
+    (file) => file !== REGISTRY_MODULE && file !== TEST_LEAGUE_CONTROLS
+  );
+  assert.deepEqual(
+    importers,
+    [],
+    `updateLeagueStatus must not be imported (aliased or otherwise) outside the allowlist:\n${importers.join('\n')}`
+  );
+});
+
+test('the import-binding scan actually detects an aliased import', () => {
+  // Guards the guard: proves the binding parser sees `as`-aliased and
+  // multi-line import lists, so the assertion above is not vacuous.
+  const parsed = (source: string): string[] => {
+    const importRe = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;
+    const found: string[] = [];
+    for (const match of stripComments(source).matchAll(importRe)) {
+      const [, bindings = '', from = ''] = match;
+      if (!/leagueRegistry/.test(from)) continue;
+      for (const binding of bindings.split(',')) {
+        const name = binding
+          .trim()
+          .split(/\s+as\s+/)[0]
+          ?.trim();
+        if (name) found.push(name);
+      }
+    }
+    return found;
+  };
+
+  assert.ok(
+    parsed(`import { updateLeagueStatus as setStatus } from '@/lib/leagueRegistry';`).includes(
+      'updateLeagueStatus'
+    ),
+    'an aliased import is detected'
+  );
+  assert.ok(
+    parsed(
+      `import {\n  getLeague,\n  updateLeagueStatus,\n} from '@/lib/leagueRegistry';`
+    ).includes('updateLeagueStatus'),
+    'a multi-line import list is detected'
+  );
+  assert.ok(
+    !parsed(`// updateLeagueStatus(slug, status) is the unguarded authority\n`).includes(
+      'updateLeagueStatus'
+    ),
+    'a comment mentioning the symbol is not a violation'
+  );
+  assert.ok(
+    !parsed(`import { updateLeagueStatus } from './someOtherModule';`).includes(
+      'updateLeagueStatus'
+    ),
+    'only registry imports are considered'
   );
 });
 

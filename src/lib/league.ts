@@ -1,3 +1,12 @@
+/**
+ * The built-in demo/test league. Its lifecycle is managed independently by the
+ * test controls on `/admin/[slug]`, so platform-wide lifecycle policy (rollover
+ * targeting, missing-status recovery) excludes it. Lives here — the lowest-level
+ * league module — so neither the registry nor rollover policy has to depend on
+ * the other for it (F2H1 review).
+ */
+export const TEST_LEAGUE_SLUG = 'test';
+
 export type LeagueStatus =
   | { state: 'season'; year: number }
   | { state: 'offseason' }

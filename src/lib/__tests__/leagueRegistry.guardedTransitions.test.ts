@@ -225,6 +225,25 @@ test('completeSeasonTransition succeeds only for the exact current preseason yea
   assertYearSynchronized(stored);
 });
 
+test('the exact-year operations refuse a corrupt stored year rather than laundering it forward', async () => {
+  // A matching submission must not promote a corrupt stored year into a new
+  // status (or onto the top-level projection) — validate as well as match.
+  const corrupt = 1e21;
+  await seed([
+    makeLeague('alpha', corrupt, { state: 'preseason', year: corrupt }),
+    makeLeague('bravo', corrupt, { state: 'preseason', year: corrupt }),
+  ]);
+  const before = await readRegistry();
+
+  assert.equal((await completePreseasonSetup('alpha', corrupt)).outcome, 'year-mismatch');
+  assert.equal(
+    (await completeSeasonTransition('bravo', corrupt)).outcome,
+    'not-in-target-preseason'
+  );
+
+  assert.deepEqual(await readRegistry(), before, 'corrupt years are never propagated');
+});
+
 test('a stale cron snapshot cannot overwrite offseason, season, or a different preseason year', async () => {
   await seed([
     // Rolled over by another actor since this run's snapshot was taken.
@@ -282,6 +301,37 @@ test('initializeMissingLifecycleStatus installs season at the stored legacy year
   assertYearSynchronized(stored);
 });
 
+test('a persisted null status counts as ABSENT and is initialized, like every reader treats it', async () => {
+  // `leagueStandings.ts` (`league.status ?? …`) and `rolloverTargeting.ts`
+  // (`!status`) both render a null status under the read-only compatibility
+  // inference — indistinguishable from a missing one. Recovery must be able to
+  // repair exactly that record class (F2H1 review).
+  await seed([makeLeague('alpha', 2024, null as unknown as League['status'])]);
+
+  const result = await initializeMissingLifecycleStatus('alpha');
+
+  assert.equal(result.outcome, 'initialized');
+  const stored = await readLeague('alpha');
+  assert.deepEqual(stored.status, { state: 'season', year: 2024 });
+  assert.equal(stored.year, 2024);
+  assertYearSynchronized(stored);
+});
+
+test('the initialized outcome reports the status it actually installed', async () => {
+  await seed([makeLeague('alpha', 2024)]);
+
+  const result = await initializeMissingLifecycleStatus('alpha');
+
+  assert.equal(result.outcome, 'initialized');
+  if (result.outcome !== 'initialized') return;
+  assert.deepEqual(result.status, { state: 'season', year: 2024 });
+  assert.deepEqual(
+    result.status,
+    (await readLeague('alpha')).status,
+    'the reported status matches the stored record exactly'
+  );
+});
+
 test('initialization preserves every other field of the legacy record', async () => {
   await seed([
     {
@@ -334,7 +384,6 @@ test('initialization refuses a malformed status object rather than repairing it'
     makeLeague('bravo', 2024, { state: 'bogus' } as unknown as League['status']),
     makeLeague('charlie', 2024, { state: 'season' } as unknown as League['status']),
     makeLeague('delta', 2024, { state: 'season', year: 'nope' } as unknown as League['status']),
-    makeLeague('echo', 2024, null as unknown as League['status']),
     // `setupComplete` is `?: boolean` on the preseason variant — a non-boolean
     // value makes the record unassignable to `LeagueStatus`, so the type guard
     // must classify it as MALFORMED rather than as an existing valid status
@@ -352,7 +401,7 @@ test('initialization refuses a malformed status object rather than repairing it'
   ]);
   const before = await readRegistry();
 
-  for (const slug of ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'golf', 'hotel']) {
+  for (const slug of ['alpha', 'bravo', 'charlie', 'delta', 'golf', 'hotel']) {
     const result = await initializeMissingLifecycleStatus(slug);
     assert.equal(result.outcome, 'invalid-existing-status', `${slug} refused`);
   }

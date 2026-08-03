@@ -345,11 +345,20 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           yearEntry.reason = 'season-transitioned';
         } else if (refusedLeagues.length > 0) {
           // PLATFORM-086F2H1 — at least one league in this year's target set had
-          // moved on by write time. Never `success`: `partial` when some sibling
-          // still transitioned this run, otherwise `no-op` (every target had
-          // already advanced — nothing was left for this run to do, and nothing
-          // failed).
-          yearEntry.result = yearEntry.transitionedLeagues > 0 ? 'partial' : 'no-op';
+          // moved on by write time, so the run did NOT fully accomplish its
+          // lifecycle intent. Always `partial`, never `success` and never
+          // `no-op`, for two reasons (both raised at F2H1 review):
+          //   1. `no-op` would be untruthful whenever this year's E1A refresh
+          //      made a billed provider call and durably committed a schedule
+          //      (`cached`) — real work happened, it just wasn't the transition;
+          //   2. System Health raises a scheduler-execution issue only for
+          //      `failure`/`partial` (`systemHealthIssues.ts`), so `no-op` would
+          //      silently hide a fully-stale target set while a MIXED year
+          //      surfaced — the same anomaly reported inconsistently by group
+          //      size. `partial` surfaces every refusal identically.
+          // The exact E1A outcome is not lost: `scheduleRefreshReason` still
+          // carries it verbatim on the same entry.
+          yearEntry.result = 'partial';
           yearEntry.reason = 'lifecycle-transition-refused';
         } else if (refreshStatus) {
           // A refresh ran without a transition — report its exact E1A status and

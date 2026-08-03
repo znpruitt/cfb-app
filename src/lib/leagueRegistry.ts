@@ -1,8 +1,7 @@
 import { cache } from 'react';
 
 import { getAppState, withAppStateKeyTransaction } from './server/appStateStore.ts';
-import type { League, LeagueStatus } from './league.ts';
-import { TEST_LEAGUE_SLUG } from './rolloverTargeting.ts';
+import { TEST_LEAGUE_SLUG, type League, type LeagueStatus } from './league.ts';
 
 const REGISTRY_SCOPE = 'leagues';
 const REGISTRY_KEY = 'registry';
@@ -286,14 +285,19 @@ export async function completePreseasonSetup(
       if (status?.state !== 'preseason') {
         return { commit: null, refusal: { outcome: 'not-in-preseason', league: current } };
       }
-      if (status.year !== year) {
+      // A corrupt stored year must not be laundered forward by a matching
+      // submission, so validate it as well as match it (F2H1 review) — the
+      // same guard the deriving operations apply.
+      if (status.year !== year || !isValidLifecycleYear(status.year)) {
         return { commit: null, refusal: { outcome: 'year-mismatch', league: current } };
       }
       if (status.setupComplete === true) {
         return { commit: null, refusal: { outcome: 'already-complete', league: current } };
       }
       return {
-        commit: { state: 'preseason', year, setupComplete: true },
+        // Commit the year narrowed from the record, not the caller's parameter —
+        // they are equal here, and this makes the guard's purpose explicit.
+        commit: { state: 'preseason', year: status.year, setupComplete: true },
         onWritten: (league) => ({ outcome: 'completed', league }),
       };
     }
@@ -323,11 +327,18 @@ export async function completeSeasonTransition(
     { outcome: 'not-in-target-preseason', league: null },
     (current) => {
       const status = current.status;
-      if (status?.state !== 'preseason' || status.year !== year) {
+      // A corrupt stored preseason year must not be promoted into a season
+      // status (and projected onto `league.year`) just because the caller
+      // grouped by it — validate as well as match (F2H1 review).
+      if (
+        status?.state !== 'preseason' ||
+        status.year !== year ||
+        !isValidLifecycleYear(status.year)
+      ) {
         return { commit: null, refusal: { outcome: 'not-in-target-preseason', league: current } };
       }
       return {
-        commit: { state: 'season', year },
+        commit: { state: 'season', year: status.year },
         onWritten: (league) => ({ outcome: 'transitioned', league }),
       };
     }
@@ -373,7 +384,9 @@ export async function completeSeasonRollover(
 }
 
 export type LifecycleStatusInitialization =
-  | { outcome: 'initialized'; league: League }
+  // `status` is the value ACTUALLY installed, so a caller reporting the outcome
+  // never has to re-derive (and thus never drifts from) the authority's decision.
+  | { outcome: 'initialized'; league: League; status: LeagueStatus }
   | { outcome: 'league-not-found' }
   | { outcome: 'status-already-present'; league: League }
   | { outcome: 'invalid-existing-status'; league: League }
@@ -413,7 +426,12 @@ export async function initializeMissingLifecycleStatus(
       if (current.slug === TEST_LEAGUE_SLUG) {
         return { commit: null, refusal: { outcome: 'test-league-managed-separately' } };
       }
-      if (current.status !== undefined) {
+      // "Genuinely absent" means absent TO EVERY READER: both `undefined` and a
+      // persisted `null` render under the read-only compatibility inference
+      // (`leagueStandings.ts` uses `league.status ?? …`; `rolloverTargeting.ts`
+      // uses `!status`), so a `null` record is exactly the class this operation
+      // exists to repair and must not be refused as malformed (F2H1 review).
+      if (current.status != null) {
         return {
           commit: null,
           refusal: isValidLeagueStatus(current.status)
@@ -424,11 +442,12 @@ export async function initializeMissingLifecycleStatus(
       if (!isValidLifecycleYear(current.year)) {
         return { commit: null, refusal: { outcome: 'invalid-legacy-year', league: current } };
       }
+      const installed: LeagueStatus = { state: 'season', year: current.year };
       return {
         // The top-level year is preserved, not recomputed: the season projection
         // writes `league.year = status.year = current.year`.
-        commit: { state: 'season', year: current.year },
-        onWritten: (league) => ({ outcome: 'initialized', league }),
+        commit: installed,
+        onWritten: (league) => ({ outcome: 'initialized', league, status: installed }),
       };
     }
   );
