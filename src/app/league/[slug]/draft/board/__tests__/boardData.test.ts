@@ -59,8 +59,6 @@ function scheduleItem(year: number): ScheduleWireItem {
 function ohioStateInsight(schedule: Awaited<ReturnType<typeof loadSpectatorBoardSchedule>>) {
   const insights = selectDraftTeamInsights({
     teams: TEAMS,
-    spRatings: null,
-    winTotals: null,
     schedule,
     apPoll: null,
     year: 2026,

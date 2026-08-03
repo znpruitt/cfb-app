@@ -21,8 +21,6 @@ const EXPECTED_IDS = [
   'game-stats-full-backfill',
   'odds-refresh',
   'rankings-refresh',
-  'sp-ratings-refresh',
-  'win-totals-upload',
   'historical-schedule-repair',
   'historical-scores-repair',
   'conferences-refresh',
@@ -32,9 +30,14 @@ const EXPECTED_IDS = [
 
 const VALID_CLASSES: readonly MaintenanceActionClass[] = ['routine', 'recovery', 'emergency'];
 
-test('all thirteen action IDs exist exactly once', () => {
+test('all eleven action IDs exist exactly once', () => {
   assert.deepEqual([...MAINTENANCE_ACTION_IDS].sort(), [...EXPECTED_IDS].sort());
-  assert.equal(new Set(MAINTENANCE_ACTION_IDS).size, 13);
+  assert.equal(new Set(MAINTENANCE_ACTION_IDS).size, 11);
+});
+
+test('retired SP+/win-total actions are absent from the descriptor inventory', () => {
+  assert.ok(!MAINTENANCE_ACTION_IDS.includes('sp-ratings-refresh' as never));
+  assert.ok(!MAINTENANCE_ACTION_IDS.includes('win-totals-upload' as never));
 });
 
 test('every descriptor has nonblank fields and a valid class', () => {
@@ -78,12 +81,7 @@ test('the score-attachment recovery descriptor states the approved facts', () =>
 });
 
 test('routine vs recovery classifications match the audited action classes', () => {
-  for (const id of [
-    'sp-ratings-refresh',
-    'win-totals-upload',
-    'conferences-refresh',
-    'team-database-sync',
-  ] as const) {
+  for (const id of ['conferences-refresh', 'team-database-sync'] as const) {
     assert.equal(MAINTENANCE_ACTIONS[id].actionClass, 'routine', id);
   }
   for (const id of [

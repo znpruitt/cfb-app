@@ -19,8 +19,6 @@ export type MaintenanceActionId =
   | 'game-stats-full-backfill'
   | 'odds-refresh'
   | 'rankings-refresh'
-  | 'sp-ratings-refresh'
-  | 'win-totals-upload'
   | 'historical-schedule-repair'
   | 'historical-scores-repair'
   | 'conferences-refresh'
@@ -106,24 +104,6 @@ export const MAINTENANCE_ACTIONS: Record<MaintenanceActionId, MaintenanceActionD
     durableMutations: ['Rankings cache', 'Provider-refresh status'],
     automationOwner: 'Publication-aware QStash schedule',
     actionClass: 'recovery',
-  },
-  'sp-ratings-refresh': {
-    id: 'sp-ratings-refresh',
-    label: 'SP+ ratings refresh',
-    provider: 'CFBD',
-    nominalCost: 'Zero when already cached, otherwise one ratings request',
-    durableMutations: ['SP+ ratings cache'],
-    automationOwner: 'Manual preseason/draft maintenance',
-    actionClass: 'routine',
-  },
-  'win-totals-upload': {
-    id: 'win-totals-upload',
-    label: 'Win totals upload',
-    provider: 'Operator CSV (no provider request)',
-    nominalCost: 'No provider request',
-    durableMutations: ['Win-totals cache'],
-    automationOwner: 'Manual import',
-    actionClass: 'routine',
   },
   'historical-schedule-repair': {
     id: 'historical-schedule-repair',

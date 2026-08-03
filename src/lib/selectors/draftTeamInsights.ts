@@ -5,20 +5,13 @@ import { getDraftEligibleTeams } from '@/lib/draft';
 
 // ---------------------------------------------------------------------------
 // Input types
+//
+// PLATFORM-086F2G1 retired SP+ ratings and win totals as draft inputs: they made
+// team selection artificially easy and silently drove available-team ordering.
+// The selector now derives only neutral factual context (identity, conference,
+// colors, schedule shape, prior-season record, preseason AP rank, ranked
+// opponents) and produces a recommendation-free ordering.
 // ---------------------------------------------------------------------------
-
-export type SpRatingEntry = {
-  team: string;
-  conference: string;
-  rating: number | null;
-  ranking: number | null;
-};
-
-export type WinTotalEntry = {
-  school: string;
-  winTotalLow: number;
-  winTotalHigh: number;
-};
 
 export type ApPollEntry = {
   teamName: string;
@@ -29,29 +22,40 @@ export type ApPollEntry = {
 // Output types
 // ---------------------------------------------------------------------------
 
-export type SpTier = 'Elite' | 'Strong' | 'Average' | 'Weak';
-export type SosTier = 'Hard' | 'Medium' | 'Easy';
-
 export type DraftTeamInsights = {
   teamId: string;
   teamName: string;
   conference: string | null;
   teamColor: string | null;
-  spRating: number | null;
-  spTier: SpTier | null;
-  winTotalLow: number | null;
-  winTotalHigh: number | null;
   lastSeasonRecord: { wins: number; losses: number } | null;
   preseasonRank: number | null;
-  sosTier: SosTier | null;
   homeGames: number;
   awayGames: number;
   neutralGames: number;
   rankedOpponentCount: number;
-  awaitingRatings: boolean;
   /** Shortest available display name: shortDisplayName → abbreviation → teamName. */
   shortName: string;
 };
+
+// ---------------------------------------------------------------------------
+// Neutral ordering
+//
+// One deterministic, recommendation-free order shared by the commissioner and
+// spectator boards: locale-aware alphabetical by display name, then a stable
+// canonical team-id tie-break (code-point comparison, locale-independent). No
+// rating, betting, projection, ownership, or market signal participates.
+// ---------------------------------------------------------------------------
+
+export function compareDraftInsightsAlphabetical(
+  a: DraftTeamInsights,
+  b: DraftTeamInsights
+): number {
+  const byName = a.teamName.localeCompare(b.teamName);
+  if (byName !== 0) return byName;
+  if (a.teamId < b.teamId) return -1;
+  if (a.teamId > b.teamId) return 1;
+  return 0;
+}
 
 // ---------------------------------------------------------------------------
 // Conference color map — used as team color source since TeamCatalogItem.color
@@ -81,39 +85,11 @@ function conferenceColor(conference: string | null | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function deriveSpTier(rating: number, sortedRatingsDesc: number[]): SpTier {
-  const n = sortedRatingsDesc.length;
-  if (n === 0) return 'Average';
-  const rank = sortedRatingsDesc.findIndex((r) => r <= rating);
-  const pct = rank < 0 ? 1 : rank / n;
-  if (pct < 0.25) return 'Elite';
-  if (pct < 0.5) return 'Strong';
-  if (pct < 0.75) return 'Average';
-  return 'Weak';
-}
-
-function deriveSosTier(avgOpponentRating: number, sortedAvgRatingsAsc: number[]): SosTier {
-  const n = sortedAvgRatingsAsc.length;
-  if (n === 0) return 'Medium';
-  const rank = sortedAvgRatingsAsc.findIndex((r) => r >= avgOpponentRating);
-  const pct = rank < 0 ? 1 : rank / n;
-  // bottom 30% easiest = pct < 0.3 in ascending sort
-  if (pct < 0.3) return 'Easy';
-  if (pct < 0.7) return 'Medium';
-  return 'Hard';
-}
-
-// ---------------------------------------------------------------------------
 // Main selector
 // ---------------------------------------------------------------------------
 
 export function selectDraftTeamInsights(params: {
   teams: TeamCatalogItem[];
-  spRatings: SpRatingEntry[] | null;
-  winTotals: WinTotalEntry[] | null;
   schedule: AppGame[];
   apPoll: ApPollEntry[] | null;
   year: number;
@@ -122,13 +98,10 @@ export function selectDraftTeamInsights(params: {
   /** Scores keyed by game.key for priorYearGames. Must be provided alongside priorYearGames. */
   priorYearScoresByKey?: Record<string, ScorePack>;
 }): DraftTeamInsights[] {
-  const { teams, spRatings, winTotals, schedule, apPoll, priorYearGames, priorYearScoresByKey } =
-    params;
-
-  const awaitingRatings = !spRatings || spRatings.length === 0;
+  const { teams, schedule, apPoll, priorYearGames, priorYearScoresByKey } = params;
 
   // Build provider name → canonical school name lookup using teams catalog (school + alts).
-  // External providers (CFBD SP+, AP poll) use their own team name variants; this resolves
+  // External providers (AP poll) use their own team name variants; this resolves
   // them to the canonical school name so lookup maps key on the same values as team.school.
   const providerToCanonical = new Map<string, string>();
   for (const team of teams) {
@@ -141,22 +114,6 @@ export function selectDraftTeamInsights(params: {
   }
   const resolveProviderName = (name: string): string =>
     providerToCanonical.get(name.toLowerCase()) ?? name;
-
-  // Build lookup maps — all keyed by canonical school name (lowercased)
-  const spByName = new Map<string, SpRatingEntry>();
-  if (spRatings) {
-    for (const r of spRatings) {
-      spByName.set(resolveProviderName(r.team).toLowerCase(), r);
-    }
-  }
-
-  const winTotalBySchool = new Map<string, WinTotalEntry>();
-  if (winTotals) {
-    for (const w of winTotals) {
-      // Win totals are already stored with canonical school names from the upload route
-      winTotalBySchool.set(w.school.toLowerCase(), w);
-    }
-  }
 
   const apRankByName = new Map<string, number>();
   if (apPoll) {
@@ -196,58 +153,9 @@ export function selectDraftTeamInsights(params: {
   // Filter to draft-eligible teams (excludes NoClaim)
   const eligibleTeams = getDraftEligibleTeams(teams);
 
-  // Build sorted SP+ ratings for tier derivation
-  const validRatings = (spRatings ?? [])
-    .map((r) => r.rating)
-    .filter((r): r is number => r !== null && Number.isFinite(r))
-    .sort((a, b) => b - a); // descending
-
-  // Compute avg opponent SP+ per team for SOS
-  const avgOpponentSpBySchool = new Map<string, number | null>();
-  for (const team of eligibleTeams) {
+  const insights = eligibleTeams.map((team) => {
     const school = team.school;
     const schoolLower = school.toLowerCase();
-    const opponentRatings: number[] = [];
-
-    for (const game of schedule) {
-      const isHome = game.canHome.toLowerCase() === schoolLower;
-      const isAway = game.canAway.toLowerCase() === schoolLower;
-      if (!isHome && !isAway) continue;
-
-      const opponentName = isHome ? game.canAway : game.canHome;
-      const opSp = spByName.get(opponentName.toLowerCase());
-      if (opSp?.rating != null && Number.isFinite(opSp.rating)) {
-        opponentRatings.push(opSp.rating);
-      }
-    }
-
-    if (opponentRatings.length === 0) {
-      avgOpponentSpBySchool.set(schoolLower, null);
-    } else {
-      const avg = opponentRatings.reduce((s, r) => s + r, 0) / opponentRatings.length;
-      avgOpponentSpBySchool.set(schoolLower, avg);
-    }
-  }
-
-  // Build sorted avg opponent ratings for SOS tier derivation (ascending)
-  const validAvgOpRatings = Array.from(avgOpponentSpBySchool.values())
-    .filter((v): v is number => v !== null)
-    .sort((a, b) => a - b);
-
-  return eligibleTeams.map((team) => {
-    const school = team.school;
-    const schoolLower = school.toLowerCase();
-
-    // SP+
-    const spEntry = spByName.get(schoolLower);
-    const spRating = spEntry?.rating ?? null;
-    const spTier =
-      spRating !== null && validRatings.length > 0 ? deriveSpTier(spRating, validRatings) : null;
-
-    // Win totals
-    const wtEntry = winTotalBySchool.get(schoolLower);
-    const winTotalLow = wtEntry?.winTotalLow ?? null;
-    const winTotalHigh = wtEntry?.winTotalHigh ?? null;
 
     // Preseason rank
     const preseasonRank = apRankByName.get(schoolLower) ?? null;
@@ -278,13 +186,6 @@ export function selectDraftTeamInsights(params: {
       }
     }
 
-    // SOS tier
-    const avgOp = avgOpponentSpBySchool.get(schoolLower) ?? null;
-    const sosTier =
-      avgOp !== null && validAvgOpRatings.length > 0
-        ? deriveSosTier(avgOp, validAvgOpRatings)
-        : null;
-
     const teamName = team.displayName ?? school;
     const shortName = team.shortDisplayName
       ? team.shortDisplayName
@@ -297,19 +198,17 @@ export function selectDraftTeamInsights(params: {
       teamName,
       conference: team.conference ?? null,
       teamColor: team.color ?? conferenceColor(team.conference),
-      spRating,
-      spTier,
-      winTotalLow,
-      winTotalHigh,
       lastSeasonRecord: priorYearRecordBySchool.get(schoolLower) ?? null,
       preseasonRank,
-      sosTier,
       homeGames,
       awayGames,
       neutralGames,
       rankedOpponentCount: rankedOpponents.size,
-      awaitingRatings,
       shortName,
     };
   });
+
+  // Return in the single neutral order so every consumer receives the same,
+  // recommendation-free ordering by construction (no per-page re-sort).
+  return insights.sort(compareDraftInsightsAlphabetical);
 }

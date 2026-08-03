@@ -148,8 +148,17 @@ Execution order within F2 (each slice is one independently deployable PR):
    ✅ **Merged (PR #439, merge commit `c5e38be`, 2026-08-03);** visual direction user-approved
    (desktop + 390px, light + dark), review closed after three Codex rounds plus one user-authorized
    round (all P2 remediated).
-10. **F2H — Season Management consolidation** — **the next slice**.
-11. Then, in order: F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
+10. **F2G1 — Draft-assistance retirement** — draft-readiness slice inserted between F2G and F2H
+    before the in-person draft. Retire SP+ ratings and win totals as draft inputs: stop loading them
+    in both draft server entry points, contract `selectDraftTeamInsights` (no SP+/win-total inputs or
+    derived fields), make available-team ordering neutral (locale-aware alphabetical + stable team-id
+    tie-break, identical for commissioner and spectator boards), delete the `cache-sp-ratings`/
+    `win-totals` routes + their two admin panels + two maintenance descriptors + the orphaned CFBD SP+
+    URL helper, and remove the dead `autoPickMetric` setting (auto-pick stays random). Existing inert
+    `sp-ratings`/`win-totals` durable rows are left untouched (no destructive cleanup). ✅
+    **Implemented — PR open (not merged);** full gate green, self-review + Codex round 1 clean.
+11. **F2H — Season Management consolidation** — **the next slice**.
+12. Then, in order: F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
     navigation closeout.
 
 The legacy diagnostics tools remain available and unmoved until the corresponding slice ships.

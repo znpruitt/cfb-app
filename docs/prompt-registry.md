@@ -52,6 +52,47 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2G1-DRAFT-ASSISTANCE-RETIREMENT-v1
+
+- Purpose: Remove SP+ ratings and win totals from the draft experience before the in-person draft.
+  These inputs made team selection artificially easy and silently drove available-team ordering.
+  A bounded draft-readiness slice inserted between F2G and F2H; F2H remains next.
+- Scope: `src/lib/selectors/draftTeamInsights.ts` (contract the selector — drop SP+/win-total inputs
+  and the `spRating`/`spTier`/`winTotalLow`/`winTotalHigh`/`sosTier`/`awaitingRatings` fields; own one
+  neutral order via `compareDraftInsightsAlphabetical`); both draft server entry points
+  `src/app/league/[slug]/draft/page.tsx` + `.../draft/board/page.tsx` (stop reading `sp-ratings`/
+  `win-totals`, delegate ordering to the selector); `src/app/admin/data/cache/page.tsx` (remove the
+  "Season inputs" section); `src/lib/admin/maintenanceActions.ts` (drop `sp-ratings-refresh` +
+  `win-totals-upload`); `src/lib/draft.ts` with two setup components and `src/lib/cfbd.ts` (remove the
+  dead `autoPickMetric` and the orphaned `buildCfbdSpRatingsUrl`). Deleted: `SpRatingsCachePanel`,
+  `WinTotalsUploadPanel`, `/api/admin/cache-sp-ratings`, `/api/admin/win-totals`, and their tests.
+- Outcome: The draft embeds no SP+/win-total recommendation signal. Available teams are shown in one
+  deterministic, recommendation-free order (locale-aware alphabetical + stable canonical team-id
+  tie-break) identical for the commissioner and spectator boards; only neutral factual context
+  (identity, conference, colors, schedule shape, prior-season record, preseason AP rank, ranked-
+  opponent count) remains. Pick submission, turn order, timer, pause/resume, undo, and random auto-pick
+  are unchanged; `autoPickMetric` removal is spread-merge-safe both create/update paths (no reader, no
+  validator) and compatibility-tested. Existing durable `sp-ratings`/`win-totals` rows are left inert
+  (no destructive cleanup, no migration, no cleanup endpoint). No game-card/matchup Odds, provider
+  authority, scheduler, or auth behavior changed.
+- Review / verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check`
+  all clean; full suite 3147 green. New/updated deterministic tests: selector contract (no SP+/win-
+  total inputs via `@ts-expect-error`, no derived fields, neutral context intact, alphabetical + tie-
+  break ordering, input-order-independent determinism); a repo-wide production source-scan guard (no
+  retired symbol anywhere; both pages perform no `sp-ratings`/`win-totals` reads; both routes absent;
+  orphaned CFBD helper gone); `autoPickMetric` compatibility (old record with the property still loads
+  inertly; defaults omit it); updated maintenance-descriptor inventory (11 IDs, retired two absent),
+  admin cache page (Season inputs + both panels absent), boardData, admin-debug-auth, and the four
+  draft API fixtures. `/code-review` skill is not model-invocable in this environment (reported as a
+  limitation); a manual self-review substituted, followed by an independent Codex review — round 1
+  clean (no actionable finding), so review converged. Local authenticated browser verification of the
+  gated draft board was not run (requires league + admin + Clerk setup); the successful build plus the
+  deterministic selector/guard/page tests stand in — reported honestly. Diff: 27 files, +347/−978 (net
+  −631, dominated by deletions); file count over the 15-file soft signal (one indivisible retirement —
+  selector fields cannot be dropped without updating both pages and routes together), surfaced to the
+  user. BotID stash preserved.
+- Status: **Implemented — PR open (not merged).**
+
 ### PLATFORM-086F2G-SYSTEM-HEALTH-UI-v1
 
 - Purpose: The System Health UI for the admin control plane — replace the incremental

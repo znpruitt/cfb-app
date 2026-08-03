@@ -217,7 +217,6 @@ export default function DraftSettingsPanel({
         draftOrder,
         pickTimerSeconds: timerSeconds,
         timerExpiryBehavior: expiryBehavior,
-        autoPickMetric: null,
         totalRounds: Math.max(1, Math.min(totalRounds, suggestedRounds)),
         scheduledAt: scheduledAt.trim() ? new Date(scheduledAt).toISOString() : null,
       };

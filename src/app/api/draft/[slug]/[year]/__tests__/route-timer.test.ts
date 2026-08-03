@@ -44,7 +44,6 @@ function draftSettings(overrides: Partial<DraftSettings> = {}): DraftSettings {
     draftOrder: [...OWNERS],
     pickTimerSeconds: 60,
     timerExpiryBehavior: 'pause-and-prompt',
-    autoPickMetric: null,
     totalRounds: 2, // 2 owners x 2 rounds = 4 total picks; round boundary at index 2
     scheduledAt: null,
     ...overrides,

@@ -42,7 +42,7 @@ function walk(node: unknown, out: { strings: string[]; components: string[] }): 
   }
 }
 
-test('page renders as Data Maintenance & Recovery with three ordered sections, no rollover', async () => {
+test('page renders as Data Maintenance & Recovery with ordered sections, no rollover', async () => {
   await setAppState('leagues', 'registry', []);
   const element = await AdminDataCachePage();
   const out = { strings: [] as string[], components: [] as string[] };
@@ -51,36 +51,39 @@ test('page renders as Data Maintenance & Recovery with three ordered sections, n
   const text = out.strings.join(' | ');
   assert.match(text, /Data Maintenance & Recovery/);
   assert.match(text, /Provider maintenance & recovery/);
-  assert.match(text, /Season inputs/);
   assert.match(text, /Historical recovery/);
   assert.match(text, /Season Management/, 'lifecycle link copy present');
   assert.match(text, /nominal per successful attempt/, 'shared cost caveat stated');
 
   // Sections appear in the intended order (Reference data added by F2D1,
-  // Diagnostic recovery by F2D2).
+  // Diagnostic recovery by F2D2). PLATFORM-086F2G1 retired the "Season inputs"
+  // section along with SP+ ratings and win totals.
   const provider = text.indexOf('Provider maintenance & recovery');
   const diagnostic = text.indexOf('Diagnostic recovery');
-  const inputs = text.indexOf('Season inputs');
   const reference = text.indexOf('Reference data');
   const historical = text.indexOf('Historical recovery');
   assert.ok(
-    provider < diagnostic && diagnostic < inputs && inputs < reference && reference < historical,
+    provider < diagnostic && diagnostic < reference && reference < historical,
     'section order'
   );
+
+  // PLATFORM-086F2G1: the "Season inputs" section and its SP+/win-total panels
+  // are gone — not merely empty, but absent (no empty container).
+  assert.ok(!text.includes('Season inputs'), 'Season inputs section removed');
+  assert.ok(!out.components.includes('SpRatingsCachePanel'), 'SP+ panel removed');
+  assert.ok(!out.components.includes('WinTotalsUploadPanel'), 'win-totals panel removed');
 
   // Rollover is absent — Season Management owns it.
   assert.ok(!out.components.includes('SeasonRolloverPanel'), 'SeasonRolloverPanel not rendered');
   assert.ok(!text.includes('Season Rollover'), 'no rollover copy');
 
-  // All maintenance panels are composed (F2D1 added the relocated Odds/
-  // Rankings surface and the Reference Data section).
+  // The remaining maintenance panels are composed (F2D1 added the relocated
+  // Odds/Rankings surface and the Reference Data section).
   for (const name of [
     'GlobalRefreshPanel',
     'GameStatsCachePanel',
     'ProviderMaintenancePanel',
     'ScoreAttachmentRecoveryPanel',
-    'SpRatingsCachePanel',
-    'WinTotalsUploadPanel',
     'ReferenceDataPanel',
     'HistoricalCachePanel',
   ]) {

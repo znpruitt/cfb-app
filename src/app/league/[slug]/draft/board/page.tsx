@@ -7,7 +7,7 @@ import { loadSeasonRankings } from '@/lib/server/rankings';
 import type { AppGame } from '@/lib/schedule';
 import { loadSpectatorBoardSchedule } from './boardData';
 import { selectDraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
-import type { SpRatingEntry, WinTotalEntry, ApPollEntry } from '@/lib/selectors/draftTeamInsights';
+import type { ApPollEntry } from '@/lib/selectors/draftTeamInsights';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
 import SpectatorBoardClient from '@/components/draft/SpectatorBoardClient';
 import { renderLeagueGateIfBlocked } from '../../leagueGate';
@@ -56,27 +56,6 @@ export default async function SpectatorBoardPage({
   // Load team catalog (enriched with color data when admin team sync has been run)
   const teams = await getTeamDatabaseItems();
 
-  // Load SP+ ratings
-  let spRatings: SpRatingEntry[] | null = null;
-  try {
-    const spRecord = await getAppState<{ ratings: SpRatingEntry[]; cachedAt: string }>(
-      'sp-ratings',
-      String(year)
-    );
-    spRatings = spRecord?.value?.ratings ?? null;
-  } catch {
-    // no SP+ cached
-  }
-
-  // Load win totals
-  let winTotals: WinTotalEntry[] | null = null;
-  try {
-    const wtRecord = await getAppState<WinTotalEntry[]>('win-totals', String(year));
-    winTotals = wtRecord?.value ?? null;
-  } catch {
-    // no win totals cached
-  }
-
   // Load schedule (server-safe scoped alias resolution lives in boardData.ts;
   // an absent alias map no longer surfaces here as "schedule not cached").
   let games: AppGame[] = [];
@@ -100,21 +79,13 @@ export default async function SpectatorBoardPage({
     // rankings not cached
   }
 
-  // Derive team insights, sorted by SP+ desc
+  // Derive team insights (neutral alphabetical order owned by the selector —
+  // identical to the commissioner board, no SP+/win-total ordering).
   const teamInsights = selectDraftTeamInsights({
     teams,
-    spRatings,
-    winTotals,
     schedule: games,
     apPoll,
     year,
-  });
-
-  teamInsights.sort((a, b) => {
-    if (a.spRating !== null && b.spRating !== null) return b.spRating - a.spRating;
-    if (a.spRating !== null) return -1;
-    if (b.spRating !== null) return 1;
-    return a.teamName.localeCompare(b.teamName);
   });
 
   return (

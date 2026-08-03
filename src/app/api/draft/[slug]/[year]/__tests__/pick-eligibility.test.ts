@@ -56,7 +56,6 @@ function liveDraft(overrides: Partial<DraftState> = {}): DraftState {
       draftOrder: [...OWNERS],
       pickTimerSeconds: 60,
       timerExpiryBehavior: 'pause-and-prompt',
-      autoPickMetric: null,
       totalRounds: 2, // 2 owners x 2 rounds = 4 picks
       scheduledAt: null,
     },
