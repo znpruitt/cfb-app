@@ -98,6 +98,10 @@ export default function ProviderHealthSection({
                   <Detail label="Provider" value={descriptor.provider} />
                   <Detail label="Cache" value={row.cacheState} />
                   <Detail label="Canonical scope" value={row.canonicalScopeKey} />
+                  <Detail
+                    label="Last success"
+                    value={lastSuccessDetail(row.canonicalStatus, nowMs)}
+                  />
                   <Detail label="Latest activity" value={latestActivityDetail(row, nowMs)} />
                   {row.diagnostics.length > 0 && (
                     <Detail
@@ -128,9 +132,18 @@ function refreshOutcomeDisplay(fact: CanonicalRefreshFact): { label: string; ton
   }
 }
 
+// The primary-line timestamp reflects WHEN THE SHOWN OUTCOME happened — the
+// latest attempt's resolution/start — NOT a preserved prior `lastSuccessAt`
+// (which stays put on a failed/partial/no-op attempt). Historical success is
+// exposed separately in the detail disclosure.
 function canonicalTimestamp(fact: CanonicalRefreshFact): string | null {
   if (fact.state !== 'available') return null;
-  return fact.status.lastSuccessAt ?? fact.status.lastAttemptAt;
+  return fact.status.latestAttemptResolvedAt ?? fact.status.lastAttemptAt;
+}
+
+function lastSuccessDetail(fact: CanonicalRefreshFact, nowMs: number): string {
+  if (fact.state !== 'available' || !fact.status.lastSuccessAt) return '—';
+  return formatMoment(fact.status.lastSuccessAt, nowMs);
 }
 
 function latestActivityDetail(row: ProviderDatasetHealthRow, nowMs: number): string {
@@ -138,7 +151,9 @@ function latestActivityDetail(row: ProviderDatasetHealthRow, nowMs: number): str
   if (fact.state !== 'available') return fact.state === 'unavailable' ? 'unavailable' : 'none';
   const outcome = attemptOutcomeDisplay(fact.status.latestAttemptOutcome).label;
   const when = fact.status.lastAttemptAt ? formatMoment(fact.status.lastAttemptAt, nowMs) : '—';
-  return `${outcome} · ${when}`;
+  // Include the scope so a noncanonical target (a specific scores week, a
+  // filtered Odds request) is identifiable (exact-target invariant).
+  return `${outcome} · ${when} · ${fact.status.scopeKey}`;
 }
 
 /** Read-only automation state for a dataset row (toggles live in Automation safety). */

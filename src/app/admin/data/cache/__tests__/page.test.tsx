@@ -105,5 +105,8 @@ test('the /admin landing card uses the new name while the href stays /admin/data
   // its description now names the scheduler-delivery + provider-data axes.
   assert.match(text, /System Health/);
   assert.ok(out.strings.includes('/admin/diagnostics'), 'System Health href unchanged');
-  assert.match(text, /Scheduler delivery, provider data health, automation controls, quota, and storage/);
+  assert.match(
+    text,
+    /Scheduler delivery, provider data health, automation controls, quota, and storage/
+  );
 });

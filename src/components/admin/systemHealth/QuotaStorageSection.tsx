@@ -147,7 +147,7 @@ function storageRow(storage: StorageHealthFact): Row {
       value: 'Production storage is misconfigured',
     };
   }
-  // Configuration mode only — never asserted as database liveness.
+  // Configuration mode only — never asserted as database liveness (no probe).
   const value = storage.mode === 'postgres' ? 'Postgres configured' : 'File fallback';
-  return { title: 'Durable storage', status: 'green', stateLabel: 'Operational', value };
+  return { title: 'Durable storage', status: 'green', stateLabel: 'Configured', value };
 }

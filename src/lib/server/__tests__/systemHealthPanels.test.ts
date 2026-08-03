@@ -10,6 +10,7 @@ import test from 'node:test';
 import {
   deriveDatasetFreshness,
   deriveSystemHealthPanels,
+  type PanelStatus,
   type SystemHealthPanelKey,
   type SystemHealthPanelsInput,
 } from '../systemHealthPanels.ts';
@@ -71,6 +72,8 @@ function issue(
   };
 }
 
+const ALL_GREEN: PanelStatus[] = ['green', 'green', 'green', 'green', 'green', 'green'];
+
 function baseInput(overrides: Partial<SystemHealthPanelsInput> = {}): SystemHealthPanelsInput {
   return {
     generatedAt: NOW,
@@ -79,6 +82,7 @@ function baseInput(overrides: Partial<SystemHealthPanelsInput> = {}): SystemHeal
     automation: automationOn(),
     quota: quotaOk(),
     storage: { state: 'available', mode: 'postgres', isProduction: true, databaseConfigured: true },
+    datasetFreshness: ALL_GREEN,
     ...overrides,
   };
 }
@@ -101,12 +105,30 @@ test('six panels in fixed order', () => {
   ]);
 });
 
-test('all-healthy → every panel green/Healthy', () => {
+test('all-healthy → every panel green (configuration-only labels for automation/storage)', () => {
   const panels = deriveSystemHealthPanels(baseInput());
   for (const p of panels) {
     assert.equal(p.status, 'green', `${p.key} should be green`);
-    assert.equal(p.stateLabel, 'Healthy');
   }
+  const label = (key: SystemHealthPanelKey) => panels.find((p) => p.key === key)!.stateLabel;
+  assert.equal(label('overall'), 'Healthy');
+  assert.equal(label('scheduler'), 'Healthy');
+  assert.equal(label('provider-data'), 'Healthy');
+  assert.equal(label('quota'), 'Healthy');
+  // Automation gates prove ENABLED, not running; storage proves CONFIGURED, not live.
+  assert.equal(label('automation'), 'Enabled');
+  assert.equal(label('storage'), 'Configured');
+});
+
+test('provider-data panel folds dataset freshness: an absent-cache row (no issue) → yellow', () => {
+  const freshness: PanelStatus[] = ['green', 'green', 'yellow', 'green', 'green', 'green'];
+  const p = panel(baseInput({ datasetFreshness: freshness }), 'provider-data');
+  assert.equal(p.status, 'yellow');
+  assert.equal(p.stateLabel, 'Attention needed');
+  assert.ok(
+    !/present and current/.test(p.detail),
+    'must not claim all data present when a row is not'
+  );
 });
 
 test('overall maps critical→red, degraded→yellow, healthy→green', () => {
@@ -235,6 +257,7 @@ test('freshness: available cache + no diagnostics → green Current', () => {
   const f = deriveDatasetFreshness({
     dataset: 'schedule',
     cacheState: 'available',
+    diagnosticsAvailable: true,
     diagnostics: [],
   });
   assert.deepEqual(f, { status: 'green', label: 'Current' });
@@ -244,37 +267,80 @@ test('freshness: conferences available → green Available (availability-only)',
   const f = deriveDatasetFreshness({
     dataset: 'conferences',
     cacheState: 'available',
+    diagnosticsAvailable: true,
     diagnostics: [],
   });
   assert.deepEqual(f, { status: 'green', label: 'Available' });
 });
 
-test('freshness: a warning diagnostic → yellow Stale', () => {
+test('freshness: a *-cache-stale warning → yellow Stale', () => {
   const f = deriveDatasetFreshness({
     dataset: 'rankings',
     cacheState: 'available',
-    diagnostics: [{ severity: 'warning' }],
+    diagnosticsAvailable: true,
+    diagnostics: [{ severity: 'warning', code: 'rankings-cache-stale' }],
+  });
+  assert.deepEqual(f, { status: 'yellow', label: 'Stale' });
+});
+
+test('freshness: a non-stale warning defect (identity mismatch) → yellow Attention, not Stale', () => {
+  const f = deriveDatasetFreshness({
+    dataset: 'game-stats',
+    cacheState: 'available',
+    diagnosticsAvailable: true,
+    diagnostics: [{ severity: 'warning', code: 'game-stats-identity-mismatch' }],
   });
   assert.equal(f.status, 'yellow');
-  assert.equal(f.label, 'Stale');
+  assert.equal(f.label, 'Attention');
+});
+
+test('freshness: an unavailable-evidence warning → gray Unknown, not Stale', () => {
+  const f = deriveDatasetFreshness({
+    dataset: 'game-stats',
+    cacheState: 'available',
+    diagnosticsAvailable: true,
+    diagnostics: [{ severity: 'warning', code: 'game-stats-diagnostics-unavailable' }],
+  });
+  assert.deepEqual(f, { status: 'gray', label: 'Unknown' });
+});
+
+test('freshness: diagnostics subsystem unavailable → gray Unknown (even with cache present)', () => {
+  const f = deriveDatasetFreshness({
+    dataset: 'schedule',
+    cacheState: 'available',
+    diagnosticsAvailable: false,
+    diagnostics: [],
+  });
+  assert.deepEqual(f, { status: 'gray', label: 'Unknown' });
 });
 
 test('freshness: an error diagnostic → red Missing', () => {
   const f = deriveDatasetFreshness({
     dataset: 'schedule',
     cacheState: 'absent',
-    diagnostics: [{ severity: 'error' }],
+    diagnosticsAvailable: true,
+    diagnostics: [{ severity: 'error', code: 'schedule-cache-missing' }],
   });
   assert.equal(f.status, 'red');
   assert.equal(f.label, 'Missing');
 });
 
 test('freshness: absent cache + no diagnostics → yellow No cached data', () => {
-  const f = deriveDatasetFreshness({ dataset: 'scores', cacheState: 'absent', diagnostics: [] });
+  const f = deriveDatasetFreshness({
+    dataset: 'scores',
+    cacheState: 'absent',
+    diagnosticsAvailable: true,
+    diagnostics: [],
+  });
   assert.deepEqual(f, { status: 'yellow', label: 'No cached data' });
 });
 
 test('freshness: unknown cache + no diagnostics → gray Unknown', () => {
-  const f = deriveDatasetFreshness({ dataset: 'scores', cacheState: 'unknown', diagnostics: [] });
+  const f = deriveDatasetFreshness({
+    dataset: 'scores',
+    cacheState: 'unknown',
+    diagnosticsAvailable: true,
+    diagnostics: [],
+  });
   assert.deepEqual(f, { status: 'gray', label: 'Unknown' });
 });

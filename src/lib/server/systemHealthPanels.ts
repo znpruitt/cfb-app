@@ -18,7 +18,7 @@ import type {
   SystemHealthOverallState,
   SystemHealthQuota,
 } from './systemHealthIssues.ts';
-import type { DiagnosticSeverity } from './providerDataDiagnostics.ts';
+import type { DiagnosticSeverity, ProviderDiagnosticCode } from './providerDataDiagnostics.ts';
 import type { ProviderCacheAvailability } from './providerCacheState.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
 
@@ -53,6 +53,9 @@ export type SystemHealthPanelsInput = {
   automation: AutomationHealth;
   quota: SystemHealthQuota;
   storage: StorageHealthFact;
+  /** Per-dataset freshness statuses (folded into the provider-data panel so a
+   *  yellow/red/unknown dataset row can never sit under a green panel). */
+  datasetFreshness: PanelStatus[];
 };
 
 const SCHEDULER_CODES = new Set<string>([
@@ -144,6 +147,12 @@ function schedulerPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
   };
 }
 
+const STATUS_RANK: Record<PanelStatus, number> = { green: 0, gray: 1, yellow: 2, red: 3 };
+
+function worseStatus(a: PanelStatus, b: PanelStatus): PanelStatus {
+  return STATUS_RANK[a] >= STATUS_RANK[b] ? a : b;
+}
+
 function providerDataPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
   const isProvider = (c: string) =>
     !SCHEDULER_CODES.has(c) &&
@@ -153,7 +162,16 @@ function providerDataPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
   const scoped = input.issues.filter((i) => isProvider(i.code));
   const sev = severityStatus(scoped);
   const gov = governing(input.issues, isProvider);
-  const status: PanelStatus = sev === 'red' ? 'red' : sev === 'yellow' ? 'yellow' : 'green';
+  const issueStatus: PanelStatus = sev === 'red' ? 'red' : sev === 'yellow' ? 'yellow' : 'green';
+  // Fold in per-dataset freshness so a dataset row that is stale/missing/unknown
+  // (even without a warning-level issue — e.g. an absent cache) can never sit
+  // under a green "all present" panel. An unknown (gray) freshness warrants
+  // attention at the panel level, so it contributes yellow.
+  const freshnessStatus = input.datasetFreshness.reduce<PanelStatus>(
+    (worst, f) => worseStatus(worst, f === 'gray' ? 'yellow' : f),
+    'green'
+  );
+  const status = worseStatus(issueStatus, freshnessStatus);
   const stateLabel =
     status === 'red'
       ? 'Action required'
@@ -162,12 +180,17 @@ function providerDataPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
           ? 'Unknown'
           : 'Attention needed'
         : 'Healthy';
+  const detail = gov
+    ? gov.title
+    : status === 'green'
+      ? 'Canonical provider data is present and current.'
+      : 'One or more datasets are missing, stale, or unverifiable.';
   return {
     key: 'provider-data',
     title: 'Provider data',
     status,
     stateLabel,
-    detail: gov ? gov.title : 'Canonical provider data is present and current.',
+    detail,
     timestamp: null,
     timestampPrefix: null,
   };
@@ -202,8 +225,10 @@ function automationPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
     key: 'automation',
     title: 'Automation',
     status: 'green',
-    stateLabel: 'Healthy',
-    detail: 'Automatic refresh is running.',
+    stateLabel: 'Enabled',
+    // The gates only prove automation is ENABLED — scheduler execution is a
+    // separate axis (its own panel), so never claim refreshes are "running".
+    detail: 'Automatic refresh is enabled.',
     timestamp: null,
     timestampPrefix: null,
   };
@@ -261,12 +286,17 @@ function storagePanel(input: SystemHealthPanelsInput): SystemHealthPanel {
       timestampPrefix: null,
     };
   }
+  // Mode proves CONFIGURATION, not database liveness (no liveness probe here), so
+  // report configuration-only wording — never "operational"/"healthy database".
   return {
     key: 'storage',
     title: 'Durable storage',
     status: 'green',
-    stateLabel: 'Healthy',
-    detail: 'Durable storage is operational.',
+    stateLabel: 'Configured',
+    detail:
+      input.storage.mode === 'postgres'
+        ? 'Durable storage is configured (Postgres).'
+        : 'Durable storage is using the file fallback.',
     timestamp: null,
     timestampPrefix: null,
   };
@@ -277,18 +307,35 @@ function storagePanel(input: SystemHealthPanelsInput): SystemHealthPanel {
  * data diagnostics ONLY (server-side health policy). It is deliberately SEPARATE
  * from the latest refresh OUTCOME and the automation gate, which the row renders
  * as their own facts. Conferences is availability-only (no freshness expectation).
+ *
+ * The label reflects the diagnostic CODE, not merely severity: a `*-cache-stale`
+ * warning is "Stale", but an unavailable-evidence warning is "Unknown" and other
+ * defects (identity mismatch, duplicate conflict, unservable records) read
+ * "Attention" rather than being mislabeled "Stale". When the diagnostics
+ * subsystem itself is unavailable, freshness is genuinely unknowable → "Unknown".
  */
 export type DatasetFreshness = { status: PanelStatus; label: string };
 
 export function deriveDatasetFreshness(input: {
   dataset: ProviderDataset;
   cacheState: ProviderCacheAvailability;
-  diagnostics: ReadonlyArray<{ severity: DiagnosticSeverity }>;
+  /** False when the whole diagnostics pass failed — freshness cannot be assessed. */
+  diagnosticsAvailable: boolean;
+  diagnostics: ReadonlyArray<{ severity: DiagnosticSeverity; code: ProviderDiagnosticCode }>;
 }): DatasetFreshness {
-  const { dataset, cacheState, diagnostics } = input;
+  const { dataset, cacheState, diagnosticsAvailable, diagnostics } = input;
+  if (!diagnosticsAvailable) return { status: 'gray', label: 'Unknown' };
   if (diagnostics.some((d) => d.severity === 'error')) return { status: 'red', label: 'Missing' };
-  if (diagnostics.some((d) => d.severity === 'warning'))
-    return { status: 'yellow', label: 'Stale' };
+  const warnings = diagnostics.filter((d) => d.severity === 'warning');
+  if (warnings.length > 0) {
+    if (warnings.some((d) => d.code.endsWith('-cache-stale'))) {
+      return { status: 'yellow', label: 'Stale' };
+    }
+    if (warnings.some((d) => d.code.endsWith('-unavailable'))) {
+      return { status: 'gray', label: 'Unknown' };
+    }
+    return { status: 'yellow', label: 'Attention' };
+  }
   if (cacheState === 'available') {
     return { status: 'green', label: dataset === 'conferences' ? 'Available' : 'Current' };
   }

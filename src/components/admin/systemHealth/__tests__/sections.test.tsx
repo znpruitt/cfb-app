@@ -23,7 +23,10 @@ import {
   receiptFor,
   refreshSnapshot,
   canonicalOutcome,
+  canonicalScopeFor,
+  safeStatus,
 } from '@/lib/server/__tests__/systemHealthFixtures';
+import { weekPartitionScope } from '@/lib/providerRefreshScope';
 import { EXTERNAL_SCHEDULER_JOBS } from '@/lib/server/schedulerExecutionStatus';
 import { PROVIDER_DATASETS, type ProviderDataset } from '@/lib/providerDatasets';
 import type { CfbdUsage } from '@/lib/api/cfbdUsage';
@@ -218,6 +221,54 @@ test('provider renders 6 rows with freshness, outcome, automation as separate fa
     !/\/admin\/(data\/cache|season|aliases)/.test(html),
     'provider rows carry no repair links'
   );
+});
+
+test('provider row timestamps the latest attempt (not prior success) and shows latest-activity scope', async () => {
+  const recent = new Date(NOW - 60_000).toISOString();
+  const old = new Date(NOW - 5 * 86_400_000).toISOString(); // 5 days ago
+  const weekScope = weekPartitionScope(YEAR, 3, 'regular');
+  const model = await buildModel({
+    providerRefresh: () =>
+      Promise.resolve(
+        refreshSnapshot({
+          scores: {
+            // Latest canonical attempt FAILED recently; a prior success is preserved.
+            canonical: {
+              state: 'available',
+              status: safeStatus('scores', canonicalScopeFor('scores'), {
+                latestAttemptOutcome: 'failed',
+                latestAttemptResolvedAt: recent,
+                lastAttemptAt: recent,
+                lastSuccessAt: old,
+                hasError: true,
+              }),
+            },
+            // Latest scoped activity is a NONCANONICAL week partition.
+            latest: {
+              state: 'available',
+              status: safeStatus('scores', weekScope, {
+                latestAttemptOutcome: 'failed',
+                lastAttemptAt: recent,
+              }),
+            },
+          },
+        })
+      ),
+    // Absent scores cache so the failed attempt is a genuine concern (not asserted here).
+    cacheStates: () => Promise.resolve({ ...cacheStates('available'), scores: 'available' }),
+  });
+  const html = renderToStaticMarkup(
+    <ProviderHealthSection
+      datasets={model.datasets}
+      automation={model.automation}
+      year={model.year}
+      nowMs={NOW}
+    />
+  );
+  // The noncanonical latest-activity scope key is disclosed (exact-target).
+  assert.ok(html.includes('scores:week:2026:3:regular'), 'latest-activity scope key shown');
+  // The historical success is exposed separately as "Last success".
+  assert.ok(html.includes('Last success'), 'prior success surfaced separately');
 });
 
 test('issues render in model order with repair links only for non-null repairs', async () => {

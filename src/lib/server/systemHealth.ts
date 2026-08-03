@@ -137,13 +137,29 @@ const defaultLoaders: SystemHealthLoaders = {
 
 type Settled<T> = { ok: true; value: T } | { ok: false };
 
+/**
+ * Per-loader bound so no single stalled boundary (e.g. an unresponsive CFBD
+ * `/info`, or a hung durable read) can block the whole page render — a timeout
+ * degrades that fact to `unavailable` while the other domains still render.
+ */
+const LOADER_TIMEOUT_MS = 8000;
+
 async function settle<T>(fn: () => T | Promise<T>): Promise<Settled<T>> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    return { ok: true, value: await fn() };
+    const value = await Promise.race([
+      Promise.resolve().then(fn),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('loader-timeout')), LOADER_TIMEOUT_MS);
+      }),
+    ]);
+    return { ok: true, value };
   } catch {
-    // The raw error (message/stack) is intentionally discarded — a failed
-    // subsystem degrades to its own explicit `unavailable` fact.
+    // The raw error (message/stack) is intentionally discarded — a failed or
+    // timed-out subsystem degrades to its own explicit `unavailable` fact.
     return { ok: false };
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -340,20 +356,14 @@ export async function buildSystemHealthViewModel(params: {
   });
   const { overallState, issueCounts } = summarizeSystemHealthIssues(issues);
   const generatedAt = new Date(nowMs).toISOString();
-  const panels = deriveSystemHealthPanels({
-    generatedAt,
-    overallState,
-    issues,
-    automation,
-    quota,
-    storage,
-  });
 
+  // Datasets (with server-derived freshness) are computed BEFORE the panels so
+  // the provider-data panel can fold per-dataset freshness into its status.
+  const diagnosticsAvailable = diagnostics.state === 'available';
   const datasets: ProviderDatasetHealthRow[] = providerRefresh.rows.map((row) => {
-    const datasetDiagnostics =
-      diagnostics.state === 'available'
-        ? diagnostics.diagnostics.filter((diag) => diag.dataset === row.dataset)
-        : [];
+    const datasetDiagnostics = diagnosticsAvailable
+      ? diagnostics.diagnostics.filter((diag) => diag.dataset === row.dataset)
+      : [];
     return {
       dataset: row.dataset,
       canonicalScope: row.canonicalScope,
@@ -364,10 +374,21 @@ export async function buildSystemHealthViewModel(params: {
       freshness: deriveDatasetFreshness({
         dataset: row.dataset,
         cacheState: cacheStates[row.dataset],
+        diagnosticsAvailable,
         diagnostics: datasetDiagnostics,
       }),
       diagnostics: datasetDiagnostics,
     };
+  });
+
+  const panels = deriveSystemHealthPanels({
+    generatedAt,
+    overallState,
+    issues,
+    automation,
+    quota,
+    storage,
+    datasetFreshness: datasets.map((d) => d.freshness.status),
   });
 
   return {
