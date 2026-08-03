@@ -91,7 +91,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   −631, dominated by deletions); file count over the 15-file soft signal (one indivisible retirement —
   selector fields cannot be dropped without updating both pages and routes together), surfaced to the
   user. BotID stash preserved.
-- Status: **Implemented — PR open (not merged).**
+- Status: **Merged (PR #440, merge commit `9c3b6ce`, 2026-08-03).**
 
 ### PLATFORM-086F2G-SYSTEM-HEALTH-UI-v1
 

@@ -2284,6 +2284,44 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2G1 — Draft-Assistance Retirement — Complete
+
+- **Status:** Complete — merged to `main` via PR #440 (merge commit `9c3b6ce`), 2026-08-03.
+- **PROMPT_ID(s):** `PLATFORM-086F2G1-DRAFT-ASSISTANCE-RETIREMENT-v1` (a draft-readiness slice inserted
+  between F2G and F2H, before the in-person draft).
+- **Outcome:** SP+ ratings and betting win totals are retired as draft inputs — both made team
+  selection artificially easy and silently drove available-team ordering. `selectDraftTeamInsights`
+  now takes no SP+/win-total inputs and returns none of the `spRating`/`spTier`/`winTotalLow`/
+  `winTotalHigh`/`sosTier`/`awaitingRatings` derived fields; it owns one neutral, recommendation-free
+  order — locale-aware alphabetical + stable canonical team-id tie-break (`compareDraftInsightsAlphabetical`)
+  — identical for the commissioner and spectator boards by construction (both call the selector with no
+  page-level re-sort). Neutral factual context is preserved (identity, conference, colors, schedule
+  shape, prior-season record, preseason AP rank, ranked-opponent count). Both draft server entry points
+  stop reading `sp-ratings`/`win-totals`. The admin controls (`SpRatingsCachePanel`,
+  `WinTotalsUploadPanel`, the "Season inputs" section, and the `sp-ratings-refresh`/`win-totals-upload`
+  maintenance descriptors), the server pipelines (`/api/admin/cache-sp-ratings`, `/api/admin/win-totals`),
+  and the orphaned CFBD `buildCfbdSpRatingsUrl` helper are deleted. The dead `autoPickMetric` setting
+  (with its `'sp-plus'` member) is removed — spread-merge-safe on both create/update paths, no reader,
+  no validator; auto-pick stays random. Pick submission, turn order, timer, pause/resume, undo, and
+  durable draft-state compatibility are unchanged. The product decision that the draft embeds no
+  SP+/win-total recommendation signal is recorded as Locked decision #5 in
+  `docs/architecture/admin-control-plane.md`. Game-card/matchup Odds and every provider authority are
+  untouched.
+- **Verification:** Full suite 3147 (+ selector-contract, repo-wide production source-scan guard, and
+  `autoPickMetric` compatibility tests); `npx tsc --noEmit`, `npm run lint:all`, `npm run build`,
+  `git diff --check` clean. Review: `/code-review` skill not model-invocable in this environment
+  (reported); manual self-review substituted, then independent Codex round 1 clean (no actionable
+  finding) → converged. No P0/P1. Local authenticated browser verification of the gated draft board was
+  not run (requires league + admin + Clerk); the successful build plus deterministic selector/guard/page
+  tests stand in. Diff 27 code files + 4 docs, net ~−580 (deletion-dominated); file count over the
+  15-file soft signal (one indivisible retirement), surfaced to the user. Existing durable
+  `sp-ratings`/`win-totals` rows left inert (no destructive cleanup); no external operation; BotID stash
+  preserved.
+- **Open follow-ups:** See `docs/next-tasks.md` — **F2H (Season Management consolidation)** is the next
+  F2 slice.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped

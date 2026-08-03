@@ -156,7 +156,8 @@ Execution order within F2 (each slice is one independently deployable PR):
     `win-totals` routes + their two admin panels + two maintenance descriptors + the orphaned CFBD SP+
     URL helper, and remove the dead `autoPickMetric` setting (auto-pick stays random). Existing inert
     `sp-ratings`/`win-totals` durable rows are left untouched (no destructive cleanup). ✅
-    **Implemented — PR open (not merged);** full gate green, self-review + Codex round 1 clean.
+    **Merged (PR #440, merge commit `9c3b6ce`, 2026-08-03);** full gate green, self-review + Codex
+    round 1 clean.
 11. **F2H — Season Management consolidation** — **the next slice**.
 12. Then, in order: F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
     navigation closeout.
