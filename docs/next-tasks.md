@@ -165,7 +165,7 @@ Execution order within F2 (each slice is one independently deployable PR):
       caller cannot double-increment a year or overwrite newer lifecycle state; rollover keeps its
       existing strict guard unchanged. Adds the explicit missing-status recovery authority F2B
       deferred and its dormant `POST /api/admin/lifecycle-recovery`. Backend only — no UI,
-      archive/backfill, provider, or scheduler change. Implemented; in final pre-merge review.
+      archive/backfill, provider, or scheduler change. Implemented; in final pre-merge review (PR #441).
     - **F2H2 — Archive/backfill safety** — **the next slice after F2H1 merges.**
     - **F2H3 — State-first Season Management UI consolidation** with detailed operator
       explanations; it is the surface that finally invokes the F2H1 recovery authority.

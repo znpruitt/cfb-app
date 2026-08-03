@@ -138,7 +138,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   +2,222/−76; net lines exceed the 1,500 soft signal, dominated by the prompt-mandated
   concurrency/stale-state and route-contract coverage (~1,650 test lines against ~570 production
   lines across five files) — surfaced to the user rather than split. BotID stash preserved.
-- Status: **Implemented; in final pre-merge review.**
+- Status: **Implemented; in final pre-merge review (PR #441).**
 
 ### PLATFORM-086F2G1-DRAFT-ASSISTANCE-RETIREMENT-v1
 
