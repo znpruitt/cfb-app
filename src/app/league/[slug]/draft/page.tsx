@@ -9,7 +9,7 @@ import { draftScope, type DraftState } from '@/lib/draft';
 import { loadSeasonRankings } from '@/lib/server/rankings';
 import type { AppGame, ScheduleWireItem } from '@/lib/schedule';
 import { selectDraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
-import type { SpRatingEntry, WinTotalEntry, ApPollEntry } from '@/lib/selectors/draftTeamInsights';
+import type { ApPollEntry } from '@/lib/selectors/draftTeamInsights';
 import {
   buildScheduleIndex,
   attachScoresToSchedule,
@@ -63,27 +63,6 @@ export default async function DraftBoardPage({
 
   // Load team catalog (enriched with color data when admin team sync has been run)
   const teams = await getTeamDatabaseItems();
-
-  // Load SP+ ratings
-  let spRatings: SpRatingEntry[] | null = null;
-  try {
-    const spRecord = await getAppState<{ ratings: SpRatingEntry[]; cachedAt: string }>(
-      'sp-ratings',
-      String(year)
-    );
-    spRatings = spRecord?.value?.ratings ?? null;
-  } catch {
-    // no SP+ cached — insights will show awaitingRatings: true
-  }
-
-  // Load win totals
-  let winTotals: WinTotalEntry[] | null = null;
-  try {
-    const wtRecord = await getAppState<WinTotalEntry[]>('win-totals', String(year));
-    winTotals = wtRecord?.value ?? null;
-  } catch {
-    // no win totals cached
-  }
 
   // Load schedule for home/away/neutral counts and ranked opponent detection
   let games: AppGame[] = [];
@@ -197,24 +176,15 @@ export default async function DraftBoardPage({
     // prior year historical data unavailable — lastSeasonRecord will be null
   }
 
-  // Derive team insights
+  // Derive team insights (returned in the neutral alphabetical order the
+  // selector owns — no SP+/win-total ordering).
   const teamInsights = selectDraftTeamInsights({
     teams,
-    spRatings,
-    winTotals,
     schedule: games,
     apPoll,
     year,
     priorYearGames,
     priorYearScoresByKey,
-  });
-
-  // Sort by SP+ rating desc, then alphabetically
-  teamInsights.sort((a, b) => {
-    if (a.spRating !== null && b.spRating !== null) return b.spRating - a.spRating;
-    if (a.spRating !== null) return -1;
-    if (b.spRating !== null) return 1;
-    return a.teamName.localeCompare(b.teamName);
   });
 
   return (

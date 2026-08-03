@@ -301,7 +301,6 @@ export default function DraftSetupShell({
         draftOrder: priorOwners.length >= 2 ? priorOwners : [],
         pickTimerSeconds: 60,
         timerExpiryBehavior: 'pause-and-prompt',
-        autoPickMetric: null,
         totalRounds: 1,
         scheduledAt: null,
       },

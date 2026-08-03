@@ -6,6 +6,8 @@ import {
   isDraftEligibleTeam,
   buildConfirmedOwnersCsv,
   patchConfirmedOwnersCsv,
+  defaultDraftSettings,
+  type DraftSettings,
 } from '@/lib/draft';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
@@ -143,4 +145,52 @@ test('getDraftEligibleTeams counts every team in the current teams.json (no clas
     items.length,
     'current teams.json has no NoClaim entry, so every item is draft-eligible'
   );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2G1 — the dead `autoPickMetric` setting (with its `'sp-plus'`
+// member) was removed. Removal is migration-safe: the create/update routes merge
+// settings by spread, so an old persisted record that still carries the property
+// loads and drives unchanged mechanics; new defaults simply omit it.
+// ---------------------------------------------------------------------------
+
+test('defaultDraftSettings no longer emits autoPickMetric', () => {
+  const settings = defaultDraftSettings(['A', 'B']);
+  assert.ok(!('autoPickMetric' in settings), 'autoPickMetric is gone from fresh settings');
+  // The live, still-supported fields remain.
+  assert.equal(settings.style, 'snake');
+  assert.equal(settings.timerExpiryBehavior, 'pause-and-prompt');
+  assert.equal(settings.totalRounds, 1);
+});
+
+test('an old persisted draft record carrying autoPickMetric still loads inertly', () => {
+  // Simulate a durable row written before the field was removed.
+  const oldJson = JSON.stringify({
+    style: 'snake',
+    draftOrder: ['A', 'B'],
+    pickTimerSeconds: 60,
+    timerExpiryBehavior: 'auto-pick',
+    autoPickMetric: 'sp-plus',
+    totalRounds: 2,
+    scheduledAt: null,
+  });
+  const parsed = JSON.parse(oldJson) as DraftSettings & { autoPickMetric?: string };
+
+  // Every live field reads exactly as stored — the extra property does not break
+  // consumption, and the mechanics fields are untouched.
+  assert.equal(parsed.style, 'snake');
+  assert.deepEqual(parsed.draftOrder, ['A', 'B']);
+  assert.equal(parsed.timerExpiryBehavior, 'auto-pick');
+  assert.equal(parsed.totalRounds, 2);
+
+  // The route merge path is `{ ...defaults, ...stored, style: 'snake' }`. Merging
+  // preserves the live fields; the inert extra property is not required and is
+  // never read by any mechanic.
+  const merged: DraftSettings = {
+    ...defaultDraftSettings(['A', 'B']),
+    ...parsed,
+    style: 'snake',
+  };
+  assert.equal(merged.totalRounds, 2);
+  assert.equal(merged.timerExpiryBehavior, 'auto-pick');
 });

@@ -78,12 +78,6 @@ export function buildCfbdTeamsUrl(): URL {
   return new URL('https://api.collegefootballdata.com/teams/fbs');
 }
 
-export function buildCfbdSpRatingsUrl(params: { year: number }): URL {
-  const url = new URL('https://api.collegefootballdata.com/ratings/sp');
-  url.searchParams.set('year', String(params.year));
-  return url;
-}
-
 export function buildCfbdGameTeamStatsUrl(params: {
   year: number;
   week?: number | null;

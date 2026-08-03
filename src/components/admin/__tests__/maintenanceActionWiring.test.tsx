@@ -10,8 +10,6 @@ import GameStatsCachePanel from '../GameStatsCachePanel';
 import HistoricalCachePanel from '../HistoricalCachePanel';
 import ProviderMaintenancePanel from '../ProviderMaintenancePanel';
 import ReferenceDataPanel from '../ReferenceDataPanel';
-import SpRatingsCachePanel from '@/components/SpRatingsCachePanel';
-import WinTotalsUploadPanel from '@/components/WinTotalsUploadPanel';
 import { MAINTENANCE_ACTIONS } from '@/lib/admin/maintenanceActions';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
 
@@ -349,44 +347,4 @@ test('ReferenceDataPanel: a bundled-fallback conferences 2xx never renders succe
   fireEvent.click(getByRole('button', { name: 'Refresh Conferences' }));
   await waitFor(() => getByText('Provider refresh failed; fallback data is still serving.'));
   assert.equal(queryByText('Done'), null);
-});
-
-test('SpRatingsCachePanel: routine disclosure paired; POST unchanged', async () => {
-  const { getByText, getByRole } = render(<SpRatingsCachePanel />);
-
-  getByText('Cost and scope');
-  getByText(MAINTENANCE_ACTIONS['sp-ratings-refresh'].nominalCost);
-
-  fireEvent.click(getByRole('button', { name: 'Cache SP+ Ratings' }));
-  await waitFor(() => assert.equal(requests.length, 1));
-  assert.equal(requests[0]!.url, '/api/admin/cache-sp-ratings');
-  assert.equal(requests[0]!.method, 'POST');
-  const body = JSON.parse(requests[0]!.body!) as { year: number; force: boolean };
-  assert.equal(body.force, false);
-  assert.equal(typeof body.year, 'number');
-});
-
-test('WinTotalsUploadPanel: routine disclosure paired; POST unchanged', async () => {
-  const { container, getByText, getByRole } = render(<WinTotalsUploadPanel />);
-
-  getByText('Cost and scope');
-  getByText(MAINTENANCE_ACTIONS['win-totals-upload'].nominalCost);
-
-  const textarea = container.querySelector('textarea')!;
-  // React's change-event plugin does not fire under this JSDOM harness (the
-  // value tracker dedupes synthetic input events), so drive the controlled
-  // component's own onChange prop directly — deterministic and equivalent to a
-  // user edit for the request-construction contract under test.
-  const propsKey = Object.keys(textarea).find((k) => k.startsWith('__reactProps$'))!;
-  const props = (textarea as unknown as Record<string, unknown>)[propsKey] as {
-    onChange: (e: { target: { value: string } }) => void;
-  };
-  act(() => {
-    props.onChange({ target: { value: 'Team, WinTotalLow, WinTotalHigh\nA, 1, 2' } });
-  });
-  fireEvent.click(getByRole('button', { name: 'Upload Win Totals' }));
-  await waitFor(() => assert.equal(requests.length, 1));
-  assert.match(requests[0]!.url, /^\/api\/admin\/win-totals\?year=\d+$/);
-  assert.equal(requests[0]!.method, 'POST');
-  assert.match(requests[0]!.body ?? '', /WinTotalLow/);
 });

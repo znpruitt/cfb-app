@@ -8,7 +8,6 @@ export type DraftSettings = {
   draftOrder: string[];
   pickTimerSeconds: number | null;
   timerExpiryBehavior: 'pause-and-prompt' | 'auto-pick';
-  autoPickMetric: 'sp-plus' | 'preseason-rank' | null;
   totalRounds: number;
   scheduledAt: string | null;
 };
@@ -43,7 +42,6 @@ export function defaultDraftSettings(owners: string[] = []): DraftSettings {
     draftOrder: owners,
     pickTimerSeconds: 60,
     timerExpiryBehavior: 'pause-and-prompt',
-    autoPickMetric: null,
     totalRounds: 1,
     scheduledAt: null,
   };

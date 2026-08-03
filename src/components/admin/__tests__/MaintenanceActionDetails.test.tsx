@@ -59,7 +59,7 @@ test('renders every descriptor field and the supplied live target', () => {
 
 test('toggles open/closed through the summary element', () => {
   const { container } = render(
-    <MaintenanceActionDetails action="sp-ratings-refresh" targetScope="2025 season" />
+    <MaintenanceActionDetails action="conferences-refresh" targetScope="2025 season" />
   );
   const details = container.querySelector('details')!;
   assert.equal(details.open, false, 'collapsed at rest — the page stays dense');

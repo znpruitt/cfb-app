@@ -82,7 +82,6 @@ function completeTwoOwnerDraft(phase: DraftState['phase'] = 'live'): DraftState 
       draftOrder: ['Owner1', 'Owner2'],
       pickTimerSeconds: 60,
       timerExpiryBehavior: 'pause-and-prompt',
-      autoPickMetric: null,
       totalRounds: 1,
       scheduledAt: null,
     },

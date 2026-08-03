@@ -4,7 +4,6 @@ import test from 'node:test';
 import { GET as usageGet } from '../admin/usage/route';
 import { GET as storageGet } from '../admin/storage/route';
 import { GET as oddsUsageGet } from '../admin/odds-usage/route';
-import { GET as winTotalsGet } from '../admin/win-totals/route';
 import { GET as confDiagGet } from '../debug/conference-diagnostics/route';
 import { GET as resolveTeamGet } from '../debug/resolve-team/route';
 import { GET as scheduleGet } from '../debug/schedule/route';
@@ -33,7 +32,6 @@ const GATED_ROUTES: Array<{ name: string; handler: RouteHandler; path: string }>
   { name: 'admin/usage', handler: usageGet, path: '/api/admin/usage' },
   { name: 'admin/storage', handler: storageGet, path: '/api/admin/storage' },
   { name: 'admin/odds-usage', handler: oddsUsageGet, path: '/api/admin/odds-usage' },
-  { name: 'admin/win-totals', handler: winTotalsGet, path: '/api/admin/win-totals?year=2025' },
   {
     name: 'debug/conference-diagnostics',
     handler: confDiagGet,
