@@ -8,6 +8,8 @@ import {
   __resetAppStateForTests,
   __setAppStateReadFailureForTests,
   __setAppStateWriteFailureForTests,
+  AppStateTxnCleanupError,
+  AppStateTxnFinalizeError,
   getAppState,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
@@ -283,6 +285,87 @@ test('a repeated request cannot overwrite the newly installed status', async () 
 
 // ---------------------------------------------------------------------------
 // Store faults and response safety
+
+test('an INDETERMINATE store failure never claims the status was not installed', async () => {
+  // PLATFORM-086H3D durability-uncertainty contract (raised at F2H1 Codex review):
+  // when mutation SQL was SUBMITTED but its COMMIT acknowledgement was lost, the
+  // write MAY already be durable. Injecting the typed error through the write
+  // seam exercises exactly the route logic under test — its classification of a
+  // typed store error — without standing up a fake Postgres pool.
+  await seed([makeLeague('alpha', 2024)]);
+
+  __setAppStateWriteFailureForTests(
+    new AppStateTxnFinalizeError(new Error(STORAGE_ERROR_CANARY), true, false),
+    'leagues'
+  );
+  let res: Response;
+  try {
+    res = await POST(postRequest({ leagueSlug: 'alpha', confirmed: true }));
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+
+  assert.equal(res.status, 503);
+  const text = await res.text();
+  const body = JSON.parse(text) as ErrorBody;
+  assert.equal(body.error, 'lifecycle-recovery-unavailable');
+  assert.ok(
+    !/No lifecycle status was installed/.test(body.detail ?? ''),
+    'never promises a rollback the store cannot guarantee'
+  );
+  assert.match(body.detail ?? '', /could not be confirmed/);
+  assert.ok(!text.includes(STORAGE_ERROR_CANARY), 'no raw storage error text');
+});
+
+test('a DEFINITE store failure still reports that nothing was installed', async () => {
+  // `writeAttempted: false` — no mutation SQL was submitted, so the untouched
+  // claim is truthful and must be preserved.
+  await seed([makeLeague('alpha', 2024)]);
+  const before = await readRegistry();
+
+  __setAppStateWriteFailureForTests(
+    new AppStateTxnFinalizeError(new Error(STORAGE_ERROR_CANARY), false, false),
+    'leagues'
+  );
+  let res: Response;
+  try {
+    res = await POST(postRequest({ leagueSlug: 'alpha', confirmed: true }));
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+
+  assert.equal(res.status, 503);
+  const body = (await res.json()) as ErrorBody;
+  assert.equal(body.error, 'lifecycle-recovery-unavailable');
+  assert.match(body.detail ?? '', /No lifecycle status was installed/);
+  assert.deepEqual(await readRegistry(), before);
+});
+
+test('an indeterminate cleanup failure is classified the same way', async () => {
+  await seed([makeLeague('alpha', 2024)]);
+
+  __setAppStateWriteFailureForTests(
+    new AppStateTxnCleanupError(
+      new Error(STORAGE_ERROR_CANARY),
+      new Error('rollback failed'),
+      true,
+      false
+    ),
+    'leagues'
+  );
+  let res: Response;
+  try {
+    res = await POST(postRequest({ leagueSlug: 'alpha', confirmed: true }));
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+
+  assert.equal(res.status, 503);
+  const text = await res.text();
+  assert.match((JSON.parse(text) as ErrorBody).detail ?? '', /could not be confirmed/);
+  assert.ok(!text.includes('rollback failed'), 'no cleanup-cause detail leaks');
+  assert.ok(!text.includes(STORAGE_ERROR_CANARY));
+});
 
 test('a registry read failure is a 503 with no raw storage detail', async () => {
   await seed([makeLeague('alpha', 2024)]);

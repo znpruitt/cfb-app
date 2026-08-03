@@ -93,11 +93,11 @@ export async function addLeague(league: League): Promise<League[]> {
 /**
  * Generic league CONFIGURATION update (display name, founded year, password
  * material, assignment configuration). The lifecycle fields — `year` and
- * `status` — are reserved for `updateLeagueStatus`, the single lifecycle-year
- * mutation authority (PLATFORM-086F2B): `league.status` is the lifecycle
- * source of truth and the top-level `league.year` is only its synchronized
- * compatibility projection, so no generic caller may write either field. The
- * type excludes them and the runtime guard rejects untyped callers.
+ * `status` — are reserved for the lifecycle operations below (PLATFORM-086F2B,
+ * PLATFORM-086F2H1): `league.status` is the lifecycle source of truth and the
+ * top-level `league.year` is only its synchronized compatibility projection, so
+ * no generic caller may write either field. The type excludes them and the
+ * runtime guard rejects untyped callers.
  */
 export async function updateLeague(
   slug: string,
@@ -391,7 +391,7 @@ export type LifecycleStatusInitialization =
  *     that installs a status first wins and this call refuses.
  *
  * Nothing infers or writes during page rendering — the read-only inference on
- * admin pages is unchanged (`AGENTS.md` → Lifecycle Authority Invariants #2).
+ * admin pages is unchanged (`AGENTS.md` → Lifecycle Authority Invariants #3).
  */
 export async function initializeMissingLifecycleStatus(
   slug: string

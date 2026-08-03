@@ -158,7 +158,17 @@ Execution order within F2 (each slice is one independently deployable PR):
     `sp-ratings`/`win-totals` durable rows are left untouched (no destructive cleanup). ✅
     **Merged (PR #440, merge commit `9c3b6ce`, 2026-08-03);** full gate green, self-review + Codex
     round 1 clean.
-11. **F2H — Season Management consolidation** — **the next slice**.
+11. **F2H — Season Management consolidation** — split at audit into three slices:
+    - **F2H1 — Guarded lifecycle transitions + legacy missing-status recovery.** Every normal
+      production transition (offseason→preseason, preseason setup completion, preseason→season)
+      is guarded inside the registry transaction through one shared write primitive, so a stale
+      caller cannot double-increment a year or overwrite newer lifecycle state; rollover keeps its
+      existing strict guard unchanged. Adds the explicit missing-status recovery authority F2B
+      deferred and its dormant `POST /api/admin/lifecycle-recovery`. Backend only — no UI,
+      archive/backfill, provider, or scheduler change. Implemented; in final pre-merge review.
+    - **F2H2 — Archive/backfill safety** — **the next slice after F2H1 merges.**
+    - **F2H3 — State-first Season Management UI consolidation** with detailed operator
+      explanations; it is the surface that finally invokes the F2H1 recovery authority.
 12. Then, in order: F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
     navigation closeout.
 

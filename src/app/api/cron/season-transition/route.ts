@@ -335,8 +335,11 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         }
 
         // Classify the per-year event result from the SAME confirmed truth the
-        // response uses: a transition supersedes the E1A reason; otherwise a
-        // refresh reports its exact E1A outcome; otherwise the year was not due.
+        // response uses: a clean transition supersedes the E1A reason; a stale
+        // refusal supersedes both (it is the anomaly worth surfacing, and the
+        // exact E1A reason is still preserved in `scheduleRefreshReason`);
+        // otherwise a refresh reports its exact E1A outcome; otherwise the year
+        // was not due.
         if (yearEntry.transitionedLeagues > 0 && refusedLeagues.length === 0) {
           yearEntry.result = 'success';
           yearEntry.reason = 'season-transitioned';

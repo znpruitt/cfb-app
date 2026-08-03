@@ -52,6 +52,81 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1-LIFECYCLE-TRANSITION-RECOVERY-SAFETY-v1
+
+- Purpose: Harden every normal production lifecycle transition against stale-state and stale-year
+  races, and add the explicit legacy missing-status recovery authority F2B deferred — the safe
+  backend contract the later Season Management UI will explain and consume. First of three audited
+  F2H slices (F2H1 guarded transitions + recovery; F2H2 archive/backfill safety; F2H3 state-first
+  Season Management UI).
+- Scope: `src/lib/leagueRegistry.ts` (one shared `guardedLifecycleWrite` primitive + the single
+  `applyLifecycleStatus` projection; four new typed guarded operations; `completeSeasonRollover`
+  rerouted through the same primitive with its guard/ordering/outcomes unchanged);
+  `src/app/admin/[slug]/actions.ts` (`beginPreseason`, `completeSetup`);
+  `src/app/api/cron/season-transition/route.ts`; `src/lib/lifecycleCronExecutionLog.ts` (one new
+  reason value); new `src/app/api/admin/lifecycle-recovery/route.ts`. No UI, archive/backfill,
+  provider, scheduler, `vercel.json`, QStash, rollover-eligibility, or auth change.
+- Outcome: Registry read, expected-state validation, year derivation, and the write all happen in
+  ONE `withAppStateKeyTransaction('leagues','registry', …)` callback, so a caller can never derive a
+  lifecycle year from a snapshot read outside the lock, a stale caller can never overwrite newer
+  state (refusals are typed outcomes that write nothing), and a failed write can never partially
+  update `status`/`year`. Operations and outcomes: `beginPreseasonTransition`
+  (`transitioned`/`league-not-found`/`not-in-offseason`/`invalid-year`) derives `year + 1` under the
+  lock, so a double-click, stale tab, or concurrent actor cannot increment twice;
+  `completePreseasonSetup`
+  (`completed`/`already-complete`/`league-not-found`/`not-in-preseason`/`year-mismatch`) requires
+  preseason at EXACTLY the submitted year and treats an already-complete match as a no-op that
+  rewrites nothing; `completeSeasonTransition`
+  (`transitioned`/`not-in-target-preseason`) is the cron's authority; and
+  `initializeMissingLifecycleStatus`
+  (`initialized`/`league-not-found`/`status-already-present`/`invalid-existing-status`/
+  `invalid-legacy-year`/`test-league-managed-separately`) installs exactly
+  `{ state: 'season', year: league.year }` and only when `status` is genuinely absent — never
+  repairing a malformed status, never offering a state choice, never incrementing the year,
+  archiving, or bypassing rollover, and never operating on the `test` league. The season-transition
+  cron counts only CONFIRMED transitions; a refusal is recorded as `lifecycle-transition-refused`
+  with per-year `no-op`/`partial` plus an optional `refusedLeagues` field absent on the ordinary
+  path, so unchanged runs stay byte-identical in response, event, and receipt. Deliberately NO
+  `setupComplete` gate was added to the cron (production still transitions near kickoff with setup
+  incomplete — a product decision left to F2H3). New dormant `POST /api/admin/lifecycle-recovery`:
+  authenticates before any registry work, requires a canonical slug and literal `confirmed: true`,
+  and maps to `400 lifecycle-recovery-invalid-request`, `404 lifecycle-recovery-league-not-found`,
+  `409 lifecycle-status-already-present` / `test-league-lifecycle-managed-separately` /
+  `lifecycle-recovery-invalid-legacy-record`, `503 lifecycle-recovery-unavailable`, or `200` with an
+  allowlisted `{ leagueSlug, status, year }`. No GET, and no UI invokes it until F2H3. Rollover
+  behavior is unchanged end-to-end.
+- Review / verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check`
+  all clean; full suite 3210 green; focused lifecycle/action/cron/recovery suites 150 green. New
+  deterministic tests: `leagueRegistry.guardedTransitions.test.ts` (23 — next-year derivation under
+  the lock, two concurrent begin-preseason attempts producing exactly one increment, stale
+  begin-preseason vs preseason/season, exact-year setup completion, stale setup form in both
+  directions, repeated-setup no-op, exact-year season transition, stale cron snapshot vs
+  offseason/season/other-preseason-year/legacy-missing-status, concurrent season transitions,
+  recovery installation/refusals including malformed status and invalid legacy years and the test
+  league, credential-field preservation, sibling isolation, year synchronization on every confirmed
+  transition, and write-failure atomicity for all four operations);
+  `leagueRegistry.lifecycleCallers.test.ts` (10 — a repo-wide source scan pinning that unguarded
+  `updateLeagueStatus` has no production caller beyond the test-league controls and only ever for
+  the literal `'test'` slug, that both rollover callers still use `completeSeasonRollover` behind
+  `groupRolloverTargets` + `resolveNationalChampionshipRollover`, that the lifecycle projection
+  exists in exactly one module, that the recovery route exposes no other authority and has no GET,
+  that nothing invokes the dormant API, and a self-check that the scan actually inspected each
+  guarded source); `season-transition/__tests__/guardedTransition.test.ts` (7 — ordinary path
+  byte-unchanged, stale refusals across three newer states, a mixed year, receipt truthfulness, and
+  a league deleted mid-run); `lifecycle-recovery/__tests__/route.test.ts` (17 — auth before any
+  registry read proven by a store fault that never surfaces, malformed JSON, non-object bodies,
+  eight invalid slugs, six unconfirmed values, every refusal mapping, success, repeat-refusal, read
+  and write faults, and canary assertions that no password hash/salt, admin token, credential field
+  name, raw storage error, or stack appears in any response); plus six new server-action tests.
+  Existing F2B rollover and lifecycle suites remain green and unweakened. `/code-review` is not
+  model-invocable in this environment (reported as a limitation); a manual self-review substituted,
+  followed by an independent Codex review. Browser verification is not applicable — F2H1 ships no
+  UI. Diff: 12 files, ~+2,000/−56; net lines exceed the 1,500 soft signal, dominated by the
+  prompt-mandated concurrency/stale-state and route-contract coverage (~1,450 test lines against
+  ~500 production lines across five files) — surfaced to the user rather than split. BotID stash
+  preserved.
+- Status: **Implemented; in final pre-merge review.**
+
 ### PLATFORM-086F2G1-DRAFT-ASSISTANCE-RETIREMENT-v1
 
 - Purpose: Remove SP+ ratings and win totals from the draft experience before the in-person draft.

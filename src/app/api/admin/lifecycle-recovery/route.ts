@@ -1,5 +1,6 @@
 import { requireAdminAuth } from '@/lib/server/adminAuth';
 import { initializeMissingLifecycleStatus, isValidSlug } from '@/lib/leagueRegistry';
+import { AppStateTxnCleanupError, AppStateTxnFinalizeError } from '@/lib/server/appStateStore';
 
 /**
  * PLATFORM-086F2H1 — the explicit legacy missing-status recovery operation the
@@ -74,12 +75,21 @@ export async function POST(req: Request): Promise<Response> {
   let result: Awaited<ReturnType<typeof initializeMissingLifecycleStatus>>;
   try {
     result = await initializeMissingLifecycleStatus(leagueSlug);
-  } catch {
-    // Store read/write failure — the registry is unchanged (the authority writes
-    // inside one transaction). The underlying error is never surfaced.
+  } catch (error) {
+    // Store read/write failure. The underlying error is never surfaced, but the
+    // response must not promise a rollback the store cannot guarantee: the
+    // durability-uncertainty threshold is whether mutation SQL was SUBMITTED
+    // (`writeAttempted`, PLATFORM-086H3D). A lost COMMIT acknowledgement — or a
+    // failed rollback after a submitted write — means the status MAY already be
+    // durable, so only a definitely-unwritten failure may claim untouched state.
+    const indeterminate =
+      (error instanceof AppStateTxnFinalizeError || error instanceof AppStateTxnCleanupError) &&
+      error.writeAttempted;
     return failure(
       'lifecycle-recovery-unavailable',
-      'The league registry could not be read or written. No lifecycle status was installed.',
+      indeterminate
+        ? 'The league registry write could not be confirmed. The lifecycle status may or may not have been installed — re-read the league before retrying. Retrying is safe: recovery refuses a league that already has a status.'
+        : 'The league registry could not be read or written. No lifecycle status was installed.',
       503
     );
   }
