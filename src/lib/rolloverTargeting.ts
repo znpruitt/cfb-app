@@ -7,12 +7,10 @@ import { TEST_LEAGUE_SLUG, type League } from './league.ts';
  * rollover may touch.
  */
 
-/**
- * Test league is excluded from global rollover — it has its own independent
- * lifecycle controls. Re-exported from `league.ts` (its canonical home) so
- * existing importers keep working.
- */
-export { TEST_LEAGUE_SLUG };
+// The test league is excluded from global rollover — it has its own independent
+// lifecycle controls. `TEST_LEAGUE_SLUG` is imported from `league.ts`, its
+// canonical home; it is deliberately NOT re-exported here, so there is exactly
+// one import path for the constant.
 
 export type RolloverYearGroup = {
   year: number;

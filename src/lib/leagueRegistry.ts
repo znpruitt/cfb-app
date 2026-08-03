@@ -8,13 +8,17 @@ const REGISTRY_KEY = 'registry';
 
 /**
  * The accepted range for any stored or derived lifecycle year (PLATFORM-086F2H1).
- * Deliberately wide — it exists to reject corrupt/legacy garbage (`NaN`, a
- * float, `1e21`, a string year) before it can be written back or incremented
- * into a nonsense season, not to encode product policy about which seasons the
- * app supports.
+ * It exists to reject corrupt/legacy garbage (`NaN`, a float, `1e21`, a string
+ * year) before it can be written back or incremented into a nonsense season —
+ * not to encode product policy about which seasons the app supports.
  */
 const MIN_LIFECYCLE_YEAR = 2000;
-const MAX_LIFECYCLE_YEAR = 2200;
+// Deliberately matches the System Health builder's accepted range
+// (`systemHealth.ts` → `validateYear`, 2000–2100, which THROWS outside it). A
+// wider registry bound would let a lifecycle write durably store a year that
+// then makes the health dashboard throw (F2H review). Extracting one shared
+// season-year predicate across both modules is a follow-up.
+const MAX_LIFECYCLE_YEAR = 2100;
 
 function isValidLifecycleYear(year: unknown): year is number {
   return (
@@ -114,7 +118,7 @@ export async function updateLeague(
 ): Promise<League | null> {
   if ('year' in updates || 'status' in updates) {
     throw new Error(
-      'updateLeague cannot mutate lifecycle fields (year/status) — use updateLeagueStatus'
+      'updateLeague cannot mutate lifecycle fields (year/status) — use a guarded lifecycle operation (beginPreseasonTransition / completePreseasonSetup / completeSeasonTransition / completeSeasonRollover / initializeMissingLifecycleStatus)'
     );
   }
   return mutateRegistry((leagues) => {
@@ -245,9 +249,13 @@ export async function beginPreseasonTransition(slug: string): Promise<BeginPrese
       if (current.status?.state !== 'offseason') {
         return { commit: null, refusal: { outcome: 'not-in-offseason', league: current } };
       }
-      // Derived under the lock — never from a pre-transaction read.
-      const nextYear = isValidLifecycleYear(current.year) ? current.year + 1 : null;
-      if (nextYear === null || !isValidLifecycleYear(nextYear)) {
+      // Derived under the lock — never from a pre-transaction read. Both the
+      // stored year and the derived one must be usable.
+      if (!isValidLifecycleYear(current.year)) {
+        return { commit: null, refusal: { outcome: 'invalid-year', league: current } };
+      }
+      const nextYear = current.year + 1;
+      if (!isValidLifecycleYear(nextYear)) {
         return { commit: null, refusal: { outcome: 'invalid-year', league: current } };
       }
       return {
@@ -292,7 +300,17 @@ export async function completePreseasonSetup(
         return { commit: null, refusal: { outcome: 'year-mismatch', league: current } };
       }
       if (status.setupComplete === true) {
-        return { commit: null, refusal: { outcome: 'already-complete', league: current } };
+        // Pre-F2H1 this path rewrote the status unconditionally, which also
+        // HEALED a desynchronized legacy `league.year` as a side effect. Keep
+        // that healing (F2H1 review) — commit only when the projection is
+        // actually stale, so the common repeat stays a true no-op.
+        if (current.year === status.year) {
+          return { commit: null, refusal: { outcome: 'already-complete', league: current } };
+        }
+        return {
+          commit: { state: 'preseason', year: status.year, setupComplete: true },
+          onWritten: (league) => ({ outcome: 'already-complete', league }),
+        };
       }
       return {
         // Commit the year narrowed from the record, not the caller's parameter —
@@ -306,6 +324,11 @@ export async function completePreseasonSetup(
 
 export type SeasonTransition =
   | { outcome: 'transitioned'; league: League }
+  // The league is ALREADY in the requested season year — the desired end state,
+  // reached by a prior (or overlapping) run. Benign and idempotent: distinct
+  // from a genuinely stale target so a duplicate at-least-once delivery is not
+  // reported as an anomaly.
+  | { outcome: 'already-in-target-season'; league: League }
   | { outcome: 'not-in-target-preseason'; league: League | null };
 
 /**
@@ -327,6 +350,13 @@ export async function completeSeasonTransition(
     { outcome: 'not-in-target-preseason', league: null },
     (current) => {
       const status = current.status;
+      // Idempotent re-delivery: the league is already exactly where this call
+      // wanted to put it. Reported as its own benign outcome so the caller does
+      // not mistake an overlapping duplicate invocation — the schedulers deliver
+      // at-least-once — for a stale target set (F2H1 review).
+      if (status?.state === 'season' && status.year === year) {
+        return { commit: null, refusal: { outcome: 'already-in-target-season', league: current } };
+      }
       // A corrupt stored preseason year must not be promoted into a season
       // status (and projected onto `league.year`) just because the caller
       // grouped by it — validate as well as match (F2H1 review).

@@ -248,16 +248,16 @@ test('a stale cron snapshot cannot overwrite offseason, season, or a different p
   await seed([
     // Rolled over by another actor since this run's snapshot was taken.
     makeLeague('alpha', 2026, { state: 'offseason' }),
-    // Already transitioned by a prior run.
-    makeLeague('bravo', 2026, { state: 'season', year: 2026 }),
     // Advanced to the NEXT preseason year since the snapshot.
     makeLeague('charlie', 2027, { state: 'preseason', year: 2027 }),
     // Legacy missing-status record.
     makeLeague('delta', 2026),
+    // NOTE: a league already in `season` at the TARGET year is deliberately not
+    // here — that is the benign idempotent case, covered by its own tests.
   ]);
   const before = await readRegistry();
 
-  for (const slug of ['alpha', 'bravo', 'charlie', 'delta']) {
+  for (const slug of ['alpha', 'charlie', 'delta']) {
     const transition = await completeSeasonTransition(slug, 2026);
     assert.equal(transition.outcome, 'not-in-target-preseason', `${slug} refused`);
   }
@@ -266,6 +266,61 @@ test('a stale cron snapshot cannot overwrite offseason, season, or a different p
   assert.equal(missing.league, null, 'an unknown league reports no record');
 
   assert.deepEqual(await readRegistry(), before, 'every refusal wrote nothing');
+});
+
+test('a league already in the target season reports the benign idempotent outcome', async () => {
+  // At-least-once scheduler delivery means two overlapping runs can both snapshot
+  // `preseason`; the second must not read as a stale target set (F2H review).
+  await seed([makeLeague('alpha', 2026, { state: 'season', year: 2026 })]);
+  const before = await readRegistry();
+
+  const transition = await completeSeasonTransition('alpha', 2026);
+
+  assert.equal(transition.outcome, 'already-in-target-season');
+  assert.deepEqual(await readRegistry(), before, 'the idempotent case writes nothing');
+});
+
+test('already-in-target-season is distinct from a genuinely stale target', async () => {
+  await seed([
+    makeLeague('alpha', 2026, { state: 'season', year: 2026 }),
+    // Rolled over — NOT the desired end state for a 2026 transition.
+    makeLeague('bravo', 2026, { state: 'offseason' }),
+    // Transitioned for a DIFFERENT year.
+    makeLeague('charlie', 2027, { state: 'season', year: 2027 }),
+  ]);
+
+  assert.equal((await completeSeasonTransition('alpha', 2026)).outcome, 'already-in-target-season');
+  assert.equal((await completeSeasonTransition('bravo', 2026)).outcome, 'not-in-target-preseason');
+  assert.equal(
+    (await completeSeasonTransition('charlie', 2026)).outcome,
+    'not-in-target-preseason'
+  );
+});
+
+test('a repeated setup completion still HEALS a desynchronized legacy top-level year', async () => {
+  // Pre-F2H1 this path rewrote the status unconditionally, which healed the
+  // projection as a side effect; the typed no-op must not silently drop that
+  // (F2H review).
+  await seed([
+    { ...makeLeague('alpha', 2019, { state: 'preseason', year: 2026, setupComplete: true }) },
+  ]);
+
+  const repeat = await completePreseasonSetup('alpha', 2026);
+
+  assert.equal(repeat.outcome, 'already-complete');
+  const stored = await readLeague('alpha');
+  assert.equal(stored.year, 2026, 'the stale projection was healed');
+  assertYearSynchronized(stored);
+});
+
+test('a repeated setup completion on an already-synchronized record writes nothing', async () => {
+  await seed([makeLeague('alpha', 2026, { state: 'preseason', year: 2026, setupComplete: true })]);
+  const before = await readRegistry();
+
+  const repeat = await completePreseasonSetup('alpha', 2026);
+
+  assert.equal(repeat.outcome, 'already-complete');
+  assert.deepEqual(await readRegistry(), before, 'the common repeat stays a true no-op');
 });
 
 test('concurrent season transitions for the same league confirm exactly once', async () => {

@@ -185,10 +185,18 @@ test('beginPreseason reports an unusable stored year instead of writing one', as
 
   await assert.rejects(
     () => runCapturingTags(() => beginPreseason('alpha')),
-    /unusable season year/
+    /unusable stored season year/
   );
 
   assert.equal((await readLeague('alpha'))?.status?.state, 'offseason', 'nothing was written');
+
+  // The message must not send the operator to lifecycle recovery, which
+  // categorically refuses every league able to reach this error (a status is
+  // present, so recovery returns `status-already-present`).
+  await assert.rejects(
+    () => runCapturingTags(() => beginPreseason('alpha')),
+    (err: Error) => !/recovery is required/i.test(err.message)
+  );
 });
 
 test('a stale completeSetup form for another year writes nothing', async () => {

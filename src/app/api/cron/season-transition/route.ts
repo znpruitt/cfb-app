@@ -295,6 +295,13 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
               // registry record, so there is no separate year-sync write that could
               // strand a transitioned league.
               const transition = await completeSeasonTransition(league.slug, targetYear);
+              if (transition.outcome === 'already-in-target-season') {
+                // Benign and idempotent — the league is already exactly where
+                // this run wanted it, which is what an overlapping at-least-once
+                // delivery looks like. NOT a stale target set, so it must not
+                // raise an operator issue; it is simply not this run's work.
+                continue;
+              }
               if (transition.outcome !== 'transitioned') {
                 // Refused, not failed: record it truthfully and count nothing.
                 refusedLeagues.push(league.slug);

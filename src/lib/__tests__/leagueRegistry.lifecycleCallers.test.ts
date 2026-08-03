@@ -50,10 +50,32 @@ function relativeToSrc(file: string): string {
   return relative(SRC, file);
 }
 
-/** Files whose source contains `needle`, as `src`-relative POSIX-ish paths. */
+/**
+ * Strip block and line comments so a doc comment that merely NAMES an authority
+ * cannot trip (or satisfy) a scan — the exact false positive this module would
+ * otherwise produce, since the codebase documents these authorities heavily
+ * (F2H review). Crude but sufficient: the sources are ordinary TS/TSX and no
+ * string literal in them contains a comment opener.
+ */
+function stripComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+}
+
+/**
+ * Every production source read and comment-stripped ONCE (F2H review — the
+ * scans below previously re-read and re-stripped the whole tree five times).
+ * `code` is what every scan keys on; only the recovery-route inspection uses
+ * raw text, and it does so deliberately.
+ */
+const SOURCE_CODE: ReadonlyMap<string, string> = new Map(
+  SOURCE_FILES.map((file) => [relativeToSrc(file), stripComments(readFileSync(file, 'utf8'))])
+);
+
+/** Files whose CODE (comments stripped) contains `needle`. */
 function filesContaining(needle: string): string[] {
-  return SOURCE_FILES.filter((file) => readFileSync(file, 'utf8').includes(needle))
-    .map(relativeToSrc)
+  return [...SOURCE_CODE.entries()]
+    .filter(([, code]) => code.includes(needle))
+    .map(([file]) => file)
     .sort();
 }
 
@@ -61,13 +83,10 @@ function readSource(relativePath: string): string {
   return readFileSync(join(SRC, relativePath), 'utf8');
 }
 
-/**
- * Strip block and line comments so a doc comment that merely NAMES an authority
- * cannot trip (or satisfy) a scan. Crude but sufficient here — the sources are
- * ordinary TS/TSX and no string literal in them contains a comment opener.
- */
-function stripComments(text: string): string {
-  return text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+function codeOf(relativePath: string): string {
+  const code = SOURCE_CODE.get(relativePath);
+  assert.ok(code !== undefined, `${relativePath} was scanned`);
+  return code;
 }
 
 /**
@@ -79,25 +98,25 @@ function stripComments(text: string): string {
  */
 function filesImportingFromRegistry(name: string): string[] {
   const importRe = /import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g;
-  return SOURCE_FILES.filter((file) => {
-    const text = stripComments(readFileSync(file, 'utf8'));
-    for (const match of text.matchAll(importRe)) {
-      const [, bindings = '', source = ''] = match;
-      if (!/leagueRegistry/.test(source)) continue;
-      const imported = bindings
-        .split(',')
-        .map((binding) =>
-          binding
-            .trim()
-            .split(/\s+as\s+/)[0]
-            ?.trim()
-        )
-        .filter(Boolean);
-      if (imported.includes(name)) return true;
-    }
-    return false;
-  })
-    .map(relativeToSrc)
+  return [...SOURCE_CODE.entries()]
+    .filter(([, text]) => {
+      for (const match of text.matchAll(importRe)) {
+        const [, bindings = '', source = ''] = match;
+        if (!/leagueRegistry/.test(source)) continue;
+        const imported = bindings
+          .split(',')
+          .map((binding) =>
+            binding
+              .trim()
+              .split(/\s+as\s+/)[0]
+              ?.trim()
+          )
+          .filter(Boolean);
+        if (imported.includes(name)) return true;
+      }
+      return false;
+    })
+    .map(([file]) => file)
     .sort();
 }
 
@@ -222,21 +241,54 @@ test('the commissioner lifecycle actions use their guarded authorities', () => {
   assert.ok(text.includes('completePreseasonSetup('), 'setup completion is guarded');
 });
 
-test('no module outside the registry constructs a league record with a lifecycle field', () => {
-  // The synchronized `status` + `year` projection lives in exactly one place;
-  // any spread that reassigns either field elsewhere would be a second authority.
+test('no module outside the registry spreads a LEAGUE record and rewrites a lifecycle field', () => {
+  // The synchronized `status` + `year` projection lives in exactly one place.
+  //
+  // Scope note (F2H review): the earlier form keyed on any file whose text
+  // merely contained "League" plus any spread setting `year:`/`status:`, which
+  // false-positives on unrelated records that legitimately carry a `year`
+  // (schedule probe state, health view models, React action state). Guessing at
+  // identifier NAMES fares no better — `{ ...prev, [key]: { status } }` in an
+  // admin component is not a lifecycle write. So the scan is scoped
+  // SEMANTICALLY: only files that actually import the league record type or the
+  // registry can be constructing a league. It stays a tripwire for the obvious
+  // reintroduction, not a proof — `const n = {...league}; n.year = y;` is out of
+  // a regex's reach, which is why the import-binding scan above is the primary
+  // enforcement.
   const pattern = /\{\s*\.\.\.[A-Za-z_$][\w$]*\s*,[^}]*\b(status|year)\s*:/;
-  const offenders = SOURCE_FILES.filter((file) => {
-    if (relativeToSrc(file) === REGISTRY_MODULE) return false;
-    const text = readFileSync(file, 'utf8');
-    if (!text.includes('League')) return false;
-    return pattern.test(text);
-  }).map(relativeToSrc);
+  const offenders = [...SOURCE_CODE.entries()]
+    .filter(([file, code]) => {
+      if (file === REGISTRY_MODULE) return false;
+      if (!/from\s*['"][^'"]*(?:lib\/league|\.\/league|leagueRegistry)(?:\.ts)?['"]/.test(code)) {
+        return false;
+      }
+      return pattern.test(code);
+    })
+    .map(([file]) => file);
 
   assert.deepEqual(
     offenders,
     [],
     `lifecycle field synchronization must stay in the registry:\n${offenders.join('\n')}`
+  );
+});
+
+test('the lifecycle-field scan detects the pattern it claims to guard', () => {
+  // Guards the guard on BOTH axes: the pattern still matches a reintroduced
+  // projection (the registry itself is excluded by path, not because the scan is
+  // inert), and the import scope excludes a file that never touches leagues.
+  const pattern = /\{\s*\.\.\.[A-Za-z_$][\w$]*\s*,[^}]*\b(status|year)\s*:/;
+  const importScope = /from\s*['"][^'"]*(?:lib\/league|\.\/league|leagueRegistry)(?:\.ts)?['"]/;
+
+  assert.ok(pattern.test(codeOf(REGISTRY_MODULE)), 'the registry projection still matches');
+  assert.ok(importScope.test(codeOf(REGISTRY_MODULE)), 'the registry is in the import scope');
+  assert.ok(
+    pattern.test('const next: League = { ...current, status, year: status.year };'),
+    'a reintroduced projection matches'
+  );
+  assert.ok(
+    !importScope.test(`import { useState } from 'react';`),
+    'a module that never imports a league record is out of scope'
   );
 });
 
@@ -261,11 +313,10 @@ test('the recovery route exposes only the missing-status initializer', () => {
 });
 
 test('no UI or server action invokes the dormant recovery API in F2H1', () => {
-  const callers = SOURCE_FILES.filter((file) => {
-    const rel = relativeToSrc(file);
-    if (rel === join('app', 'api', 'admin', 'lifecycle-recovery', 'route.ts')) return false;
-    return readFileSync(file, 'utf8').includes('/api/admin/lifecycle-recovery');
-  }).map(relativeToSrc);
+  const routeFile = join('app', 'api', 'admin', 'lifecycle-recovery', 'route.ts');
+  const callers = [...SOURCE_CODE.entries()]
+    .filter(([file, code]) => file !== routeFile && code.includes('/api/admin/lifecycle-recovery'))
+    .map(([file]) => file);
 
   assert.deepEqual(
     callers,
@@ -275,11 +326,12 @@ test('no UI or server action invokes the dormant recovery API in F2H1', () => {
 });
 
 test('the registry module is the only place holding the registry key transaction for leagues', () => {
-  const offenders = SOURCE_FILES.filter((file) => {
-    if (relativeToSrc(file) === REGISTRY_MODULE) return false;
-    const text = readFileSync(file, 'utf8');
-    return /withAppStateKeyTransaction\(\s*'leagues'/.test(text);
-  }).map(relativeToSrc);
+  const offenders = [...SOURCE_CODE.entries()]
+    .filter(
+      ([file, code]) =>
+        file !== REGISTRY_MODULE && /withAppStateKeyTransaction\(\s*'leagues'/.test(code)
+    )
+    .map(([file]) => file);
 
   assert.deepEqual(offenders, [], `registry writes stay centralized:\n${offenders.join('\n')}`);
 });

@@ -255,23 +255,57 @@ test('a stale snapshot cannot overwrite a league already advanced to a different
   assert.equal(event.reason, 'lifecycle-transition-refused');
 });
 
-test('a stale snapshot cannot re-transition a league another actor already moved to season', async () => {
+test('an overlapping duplicate delivery is benign — no refusal, no operator issue', async () => {
+  // At-least-once delivery: an earlier/overlapping run already transitioned this
+  // league to the EXACT target year — the desired end state. That must not be
+  // reported as a stale target set, because System Health turns a `partial`
+  // receipt into a scheduler-execution issue (F2H review). Pre-F2H1 the
+  // duplicate run simply rewrote the same status and reported success.
   await seedRegistry([makeLeague('alpha', { state: 'preseason', year: YEAR })]);
   await seedPastProbe();
   stubFetchEmptySchedule(async () => {
+    await seedRegistry([makeLeague('alpha', { state: 'season', year: YEAR })]);
+  });
+
+  const { res, body, event } = await runRoute();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(body.years[0]!.leagues, [], 'this run confirmed no transition of its own');
+  assert.ok(
+    !('refusedLeagues' in body.years[0]!),
+    'the idempotent case is not reported as a refusal'
+  );
+  const stored = await readLeague('alpha');
+  assert.deepEqual(stored?.status, { state: 'season', year: YEAR }, 'the end state is intact');
+  assert.equal(event.years[0]!.transitionedLeagues, 0);
+  assert.notEqual(
+    event.years[0]!.reason,
+    'lifecycle-transition-refused',
+    'no stale-target anomaly is recorded'
+  );
+  assert.notEqual(event.years[0]!.result, 'partial', 'no System Health issue is raised');
+});
+
+test('a genuinely stale target IS still reported, alongside the idempotent case', async () => {
+  await seedRegistry([
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+    makeLeague('bravo', { state: 'preseason', year: YEAR }),
+  ]);
+  await seedPastProbe();
+  stubFetchEmptySchedule(async () => {
     await seedRegistry([
-      // Already transitioned AND then advanced — the refusal protects the later state.
+      // Benign: already at the target.
       makeLeague('alpha', { state: 'season', year: YEAR }),
+      // Genuinely stale: rolled over instead.
+      makeLeague('bravo', { state: 'offseason' }),
     ]);
   });
 
   const { body, event } = await runRoute();
 
-  assert.deepEqual(body.years[0]!.leagues, []);
-  assert.deepEqual(body.years[0]!.refusedLeagues, ['alpha']);
-  const stored = await readLeague('alpha');
-  assert.deepEqual(stored?.status, { state: 'season', year: YEAR });
-  assert.equal(event.years[0]!.transitionedLeagues, 0);
+  assert.deepEqual(body.years[0]!.refusedLeagues, ['bravo'], 'only the stale league is refused');
+  assert.equal(event.years[0]!.result, 'partial');
+  assert.equal(event.years[0]!.reason, 'lifecycle-transition-refused');
 });
 
 test('a mixed year reports the confirmed transition and the refusal truthfully', async () => {

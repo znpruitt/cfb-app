@@ -103,7 +103,13 @@ export async function beginPreseason(slug: string): Promise<void> {
   if (transition.outcome === 'league-not-found') throw new Error('League not found');
   if (transition.outcome === 'not-in-offseason') throw new Error('League is not in offseason');
   if (transition.outcome === 'invalid-year') {
-    throw new Error('League has an unusable season year — lifecycle recovery is required');
+    // Deliberately does NOT point at /api/admin/lifecycle-recovery: that
+    // authority only initializes a MISSING status, and this error is reachable
+    // only when the league is already in `offseason` (a status is present), so
+    // recovery would refuse it with `status-already-present` (F2H review).
+    throw new Error(
+      'League has an unusable stored season year and cannot begin preseason. This needs a data correction, not lifecycle recovery.'
+    );
   }
   // Offseason→preseason changes the league's standings surface (prior-season
   // final → preseason owner list). Bust its cached snapshots (umbrella, all
