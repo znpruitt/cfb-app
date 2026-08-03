@@ -229,8 +229,11 @@ Enable async drafts where owners have a configurable window to make each pick ra
 
 #### Draft Difficulty Settings (planned)
 
-- Auto-pick algorithm configuration (random, SP+ rating, preseason rank)
-- Team data visibility controls during draft (show/hide SP+ ratings, win totals, schedule insights)
+Superseded in part by the F2G1 locked decision (`docs/architecture/admin-control-plane.md` → Locked
+decisions): the draft deliberately embeds **no SP+/win-total recommendation signal**, and auto-pick is
+intentionally random. Any future "difficulty" or visibility control must not reintroduce SP+ ratings or
+win totals as draft inputs — it is limited to neutral factual context (schedule shape, preseason AP
+rank, ranked-opponent count, prior-season record).
 
 ---
 
