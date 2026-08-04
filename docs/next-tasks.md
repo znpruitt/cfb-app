@@ -166,7 +166,7 @@ Execution order within F2 (each slice is one independently deployable PR):
       `status` + the compatibility `year` projection atomically, stale/concurrent submissions write
       nothing, and new-league creation enforces the existing integer
       `2000..currentUTCYear+1` ingress horizon. Cron policy, recovery, rollover, and UI are excluded.
-    - **F2H1B — season-transition convergence** — implemented, in final pre-merge review. The
+    - **F2H1B — season-transition convergence** — ✅ MERGED (PR #443, `be0c950`, 2026-08-04). The
       daily season-transition cron now commits through the guarded `completeSeasonTransition`; the
       four dispositions (transitioned / already-in-target / removed / refused) are counted
       independently and agree across the HTTP response, runtime event, and durable receipt;
@@ -177,13 +177,13 @@ Execution order within F2 (each slice is one independently deployable PR):
       including `test`), and `updateLeagueStatus` is retained: a first attempt bundled demo-league
       exclusion plus the weekly schedule cron's ownership rewiring and was reconstructed out for
       breaching the PR-sizing rule and for shipping the second cron without route-level tests.
-    - **F2H1T — demo-league automation policy** — **NEXT after F2H1B merges.** Decide explicitly
+    - **F2H1T — demo-league automation policy** — **NEXT.** Decide explicitly
       whether the demo league participates in automatic schedule maintenance and automatic season
       transition. If exclusion is chosen, implement the two scheduler changes as separately reviewed
       steps in a safe order — never leaving one cron owning a year the other refuses — each with
       actual route-level tests. Retiring the arbitrary-slug `updateLeagueStatus` in favour of a
       slugless test-league setter belongs here too, since it exists to serve the demo controls.
-    - **F2H1R — missing-lifecycle recovery** — planned after F2H1B/F2H1T: a separately confirmed recovery
+    - **F2H1R — missing-lifecycle recovery** — planned after F2H1T: a separately confirmed recovery
       operation for genuinely missing legacy status, with corrupt-registry vs missing-league truth and
       an explicit consequence model for schedule/rankings targeting, rollover eligibility,
       operational-season resolution, and cache invalidation.

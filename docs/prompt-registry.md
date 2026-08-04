@@ -83,7 +83,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   landed in halves without shipping a surface that disagrees with the others.
 - Review / verification: Each gate run as its own command with its exit code recorded against the
   exact reviewed commit; reviews and dispositions are recorded on the PR.
-- Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
+- Status: **✅ MERGED to `main` via PR #443 (merge commit `be0c950`), 2026-08-04.** Not yet exercised in production — the next scheduled 00:00 UTC delivery is the first live run.
 
 ### PLATFORM-086F2H1A-LIFECYCLE-GUARDS-CORE-v2
 

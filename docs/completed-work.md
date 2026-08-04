@@ -2284,6 +2284,68 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H1B — Guarded Automatic Season Transition — Complete
+
+- **Status:** Complete — merged to `main` via PR #443 (merge commit `be0c950`), 2026-08-04.
+- **PROMPT_ID(s):** `PLATFORM-086F2H1B-AUTOMATED-TRANSITION-CONVERGENCE-v1` (the automated half of
+  lifecycle-authority convergence, following F2H1A's commissioner half).
+- **Outcome:** The daily season-transition cron no longer writes lifecycle state through an
+  unrestricted setter. `completeSeasonTransition(slug, targetYear)` re-checks the expected state and
+  the exact year INSIDE the serialized registry transaction and returns one of four closed scalar
+  outcomes — `transitioned`, `already-in-target-season` (benign; `healed` marks the variant that
+  durably repaired a stale `league.year` projection), `league-removed`, `not-in-target-preseason` —
+  carrying no league record, credential field, or exception text. This matters because the cron reads
+  its target snapshot once and then performs lengthy provider and probe work, so by write time a
+  target may have been rolled over, moved to another preseason year, transitioned by an overlapping
+  delivery, or deleted. A structurally unsupported year is validated ONCE before any branch, so the
+  idempotent heal cannot sync `league.year` to a bad stored value. The four dispositions are counted
+  INDEPENDENTLY and agree across the HTTP response, the runtime event, and the durable receipt — as
+  counts only, never league slugs. The governing principle throughout is that a run never disowns
+  work it committed: `no-op` is reserved for a run that committed nothing at all, so a durably healed
+  projection AND a durably committed E1A schedule both classify `success`, and the same
+  recorded-work rule governs the post-commit failure paths (otherwise an identical year would read
+  `no-op` when it completed cleanly and `partial` when its cache bust threw). A post-gate throw
+  publishes the dispositions completed so far, so a 500 cannot omit a transition that already
+  committed. Invalidation classification follows the same rule: a confirmed transition, heal,
+  refusal, or canonical refresh makes a failed cache bust `partial`, while a year whose sole target
+  was an untouched idempotent match wrote nothing and is a clean `failure`. The receipt schema grew
+  ADDITIVELY — `version` stays `1`, the reader validates the three new counters as optional and
+  normalizes absent ones to `0`, so a valid pre-H1B receipt keeps parsing instead of degrading its
+  System Health row to `invalid` until the next daily run rewrites it; a present-but-invalid counter
+  still rejects the record. System Health names the dispositions so an operator can distinguish
+  benign deletions from genuinely stale targets. The route declares `maxDuration = 300`, resolving
+  the carried E1C2 envelope deferral; it depends on the project's confirmed Vercel Hobby + Fluid
+  Compute configuration, and `vercel.json`, the daily 00:00 UTC cadence, and the scheduler are
+  untouched. Targeting is UNCHANGED — every `preseason` league remains a target, including `test`.
+- **Scope discipline:** A first attempt also excluded the demo league from automatic lifecycle jobs
+  and rewired the weekly schedule cron's year-ownership computation to match. It was reconstructed
+  from clean `main` because it breached the binding PR-sizing rule by crossing two automation jobs,
+  and because deleting the second job's guard left the entire test suite green — the change that
+  justified widening scope had no route-level coverage. That work, plus retiring the arbitrary-slug
+  `updateLeagueStatus`, became **F2H1T**.
+- **Verification:** Full suite 3213 pass / 0 fail; `npx tsc --noEmit`, `npm run lint:all`,
+  `npm run build`, `git diff --check` all clean, each gate run as its own command with its real exit
+  code recorded against the exact reviewed commit. Reviews: four Codex passes and three
+  `/code-review` passes across the reconstruction. Findings were evaluated against reachability and
+  attribution rather than applied wholesale — several were refuted with evidence, notably the
+  heal-branch year-laundering claim (unreachable: no writer can persist a non-test `preseason`
+  record at an unsupported year, and the heal only syncs `league.year` to the already-stored
+  `status.year`). Accepted findings were remediated in bounded, individually authorized rounds, each
+  regression verified failing against its own pre-fix code before being accepted.
+- **Size (both stop-and-reassess signals tripped; explicitly approved rather than split):** 16 files,
+  +2,177 / −48. ~1,500 insertions are focused regression tests against ~360 lines of implementation
+  across five source files. ONE automation job, so the mandatory split for work crossing separate
+  jobs does not apply. Approved because the authority, cron, event, receipt, and System Health
+  changes form one cross-surface contract that cannot land in halves without shipping a surface that
+  disagrees with the others.
+- **Known deferrals carried forward:** the commit-to-invalidation window (a run can commit the
+  lifecycle change and die before the cache bust; later daily runs no longer select that league,
+  since targeting is preseason-only) — real, self-limiting in practice via other invalidators, and
+  recorded in `docs/next-tasks.md` with the constraint that any fix must preserve provider ownership
+  and quota behavior. Demo-league automation policy and `updateLeagueStatus` retirement are F2H1T.
+
+---
+
 ### PLATFORM-086F2G1 — Draft-Assistance Retirement — Complete
 
 - **Status:** Complete — merged to `main` via PR #440 (merge commit `9c3b6ce`), 2026-08-03.
