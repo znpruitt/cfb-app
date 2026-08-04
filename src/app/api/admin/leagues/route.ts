@@ -8,8 +8,9 @@ import {
   type League,
 } from '@/lib/league';
 
-/** Slugs that collide with static /admin/* routes and cannot be used for leagues. */
+/** Static `/admin/*` route collisions plus the legacy-reserved `cache` slug. */
 const RESERVED_ADMIN_SLUGS = new Set([
+  'aliases',
   'season',
   'data',
   'draft',

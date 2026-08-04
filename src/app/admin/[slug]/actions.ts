@@ -98,6 +98,9 @@ export async function beginPreseason(slug: string): Promise<void> {
   if (result.outcome === 'league-not-found') throw new Error('League not found');
   if (result.outcome === 'not-in-offseason') throw new Error('League is not in offseason');
   if (result.outcome === 'unusable-stored-year' || result.outcome === 'unusable-next-year') {
+    // An unusable year is a data-integrity fault requiring intervention, so it
+    // is error-level. The public league slug is the only correlation field;
+    // raw records, request bodies, and exception text never enter the event.
     console.error(
       JSON.stringify({
         event: 'lifecycle-action-refused',
@@ -143,6 +146,7 @@ export async function completeSetup(slug: string, year: number): Promise<void> {
   if (result.outcome === 'league-not-found') throw new Error('League not found');
   if (result.outcome === 'not-in-preseason') throw new Error('League is not in preseason');
   if (result.outcome === 'year-mismatch') {
+    // A stale form is an expected concurrency refusal, so it is warning-level.
     console.warn(
       JSON.stringify({
         event: 'lifecycle-action-refused',

@@ -65,10 +65,12 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   transaction lock; accepted changes persist lifecycle status and top-level year together; stale,
   concurrent, or unusable-year requests write nothing. Persisted legacy years remain structurally
   tolerated while new records use the existing `2000..currentUTCYear+1` horizon.
-- Verification/review: 34 focused lifecycle/action/creation tests and the full 3,162-test suite pass;
+- Verification/review: 35 focused lifecycle/action/creation tests and the full 3,163-test suite pass;
   TypeScript, `lint:all`, production build, and diff check are clean. Independent Codex round 1 found
   one P2 authority-bypass concern; the compatibility setter was moved onto the guarded authority,
-  and round 2 was clean at P0–P2.
+  and round 2 was clean at P0–P2. A final external review independently reproduced every gate and
+  recommended approval; its binding-doc correction and static `aliases` route-collision finding were
+  folded in, while the unusable-year recovery gap was registered separately.
 - Status: **Implemented — draft PR #442 open; unmerged.** This bounded replacement supersedes the
   unmerged PR #441 implementation attempt.
 

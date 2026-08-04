@@ -85,3 +85,13 @@ test('league creation rejects unsupported or non-integer years without a registr
 
   assert.equal(await getAppState<League[]>('leagues', 'registry'), null);
 });
+
+test('league creation rejects the aliases slug that collides with the static admin route', async () => {
+  const response = await POST(
+    createRequest({ slug: 'aliases', displayName: 'Unreachable League', year: 2026 })
+  );
+
+  assert.equal(response.status, 400);
+  assert.match(await response.text(), /Slug is reserved/);
+  assert.equal(await getAppState<League[]>('leagues', 'registry'), null);
+});

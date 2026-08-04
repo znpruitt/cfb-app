@@ -17,6 +17,7 @@ export function maxCreatableSeasonYear(nowMs: number): number {
  * This is deliberately broader than the creation horizon: legacy records must
  * remain advanceable, while non-integers, pre-football years, and values whose
  * successor cannot be represented exactly are refused instead of persisted.
+ * 1869 is the first intercollegiate football season.
  */
 export function isStructurallyValidSeasonYear(year: unknown): year is number {
   return typeof year === 'number' && Number.isSafeInteger(year) && year >= 1869;
