@@ -184,6 +184,14 @@ export type SchedulerExecutionTarget =
         targetLeagues: number;
         probed: boolean;
         transitionedLeagues: number;
+        /**
+         * PLATFORM-086F2H1B guarded dispositions. ALWAYS present after a parse:
+         * a legacy pre-H1B receipt omits them and the rebuild normalizes each to
+         * 0, so a reader never sees `undefined`. New writers always emit them.
+         */
+        alreadyInTargetSeasonLeagues: number;
+        removedLeagues: number;
+        refusedLeagues: number;
       }>;
     }
   | {
@@ -264,6 +272,11 @@ export function seasonTransitionYearsTarget(
     targetLeagues: number;
     probed: boolean;
     transitionedLeagues: number;
+    // Optional in the PARAMETER so pre-H1B callers and fixtures remain valid;
+    // the built target always carries an explicit number.
+    alreadyInTargetSeasonLeagues?: number;
+    removedLeagues?: number;
+    refusedLeagues?: number;
   }>
 ): Extract<SchedulerExecutionTarget, { kind: 'season-transition-years' }> {
   const years = entries.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
@@ -271,6 +284,9 @@ export function seasonTransitionYearsTarget(
     targetLeagues: entry.targetLeagues,
     probed: entry.probed,
     transitionedLeagues: entry.transitionedLeagues,
+    alreadyInTargetSeasonLeagues: entry.alreadyInTargetSeasonLeagues ?? 0,
+    removedLeagues: entry.removedLeagues ?? 0,
+    refusedLeagues: entry.refusedLeagues ?? 0,
   }));
   return {
     kind: 'season-transition-years',
@@ -537,6 +553,12 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
           targetLeagues: entry.targetLeagues,
           probed: entry.probed,
           transitionedLeagues: entry.transitionedLeagues,
+          // A pre-H1B receipt omits these; normalize rather than reject, so an
+          // already-stored valid row keeps parsing instead of degrading the
+          // System Health row to `invalid` until the next cron run rewrites it.
+          alreadyInTargetSeasonLeagues: entry.alreadyInTargetSeasonLeagues ?? 0,
+          removedLeagues: entry.removedLeagues ?? 0,
+          refusedLeagues: entry.refusedLeagues ?? 0,
         })),
       };
     case 'season-rollover-years':
@@ -637,11 +659,22 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
       return (
         isNonNegativeInteger(target.totalYears) &&
         typeof target.truncated === 'boolean' &&
-        isValidLifecycleYearEntries(target.years, [
-          { field: 'targetLeagues', kind: 'count' },
-          { field: 'probed', kind: 'boolean' },
-          { field: 'transitionedLeagues', kind: 'count' },
-        ])
+        isValidLifecycleYearEntries(
+          target.years,
+          [
+            { field: 'targetLeagues', kind: 'count' },
+            { field: 'probed', kind: 'boolean' },
+            { field: 'transitionedLeagues', kind: 'count' },
+          ],
+          // PLATFORM-086F2H1B — OPTIONAL: a legacy pre-H1B receipt omits these
+          // and must still parse (the rebuild normalizes them to 0), but an
+          // invalid PRESENT value still rejects the whole record.
+          [
+            { field: 'alreadyInTargetSeasonLeagues', kind: 'count' },
+            { field: 'removedLeagues', kind: 'count' },
+            { field: 'refusedLeagues', kind: 'count' },
+          ]
+        )
       );
     case 'season-rollover-years':
       return (
@@ -660,15 +693,20 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
 /** Validate a lifecycle multi-year entry list (finite year + typed extra fields). */
 function isValidLifecycleYearEntries(
   value: unknown,
-  fields: ReadonlyArray<{ field: string; kind: 'count' | 'boolean' }>
+  fields: ReadonlyArray<{ field: string; kind: 'count' | 'boolean' }>,
+  optionalFields: ReadonlyArray<{ field: string; kind: 'count' | 'boolean' }> = []
 ): boolean {
   if (!Array.isArray(value) || value.length > MAX_SCHEDULER_TARGET_YEARS) return false;
+  const matches = (row: Record<string, unknown>, field: string, kind: 'count' | 'boolean') =>
+    kind === 'boolean' ? typeof row[field] === 'boolean' : isNonNegativeInteger(row[field]);
   return value.every((entry) => {
     if (typeof entry !== 'object' || entry === null) return false;
     const row = entry as Record<string, unknown>;
     if (!isFiniteNumber(row.year)) return false;
-    return fields.every(({ field, kind }) =>
-      kind === 'boolean' ? typeof row[field] === 'boolean' : isNonNegativeInteger(row[field])
+    if (!fields.every(({ field, kind }) => matches(row, field, kind))) return false;
+    // Absent is accepted (legacy shape); present-but-invalid still rejects.
+    return optionalFields.every(
+      ({ field, kind }) => row[field] === undefined || matches(row, field, kind)
     );
   });
 }

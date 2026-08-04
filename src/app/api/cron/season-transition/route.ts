@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-import { getLeagues, updateLeagueStatus } from '@/lib/leagueRegistry';
+import { completeSeasonTransition, getLeagues } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
@@ -28,6 +28,28 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * PLATFORM-086F2H1B — the carried runtime-envelope deferral, resolved now that
+ * this route is being touched. Per preseason year this handler serially awaits
+ * the shared E1A full-season refresh (lease + two provider partitions + durable
+ * commit), a probe write, the per-league lifecycle writes, and a best-effort
+ * presentation refresh, so it is the longest-running route in the app and
+ * previously relied entirely on the platform default.
+ *
+ * 300s DEPENDS ON THIS PROJECT'S CONFIRMED CONFIGURATION: Vercel Hobby with
+ * Fluid Compute enabled (verified in the dashboard, 2026-08-04). Hobby WITHOUT
+ * Fluid caps functions at 60s and rejects a larger value at build time, which
+ * fails the whole deployment — not just this route. If Fluid is ever disabled
+ * for this project, lower this value first. (300s is the Fluid/Pro default
+ * ceiling, not the absolute maximum; Pro allows more.)
+ *
+ * The scheduler, its daily 00:00 UTC cadence in `vercel.json`, and the runtime
+ * are unchanged by THIS declaration, and `vercel.json` gains no `fluid` key.
+ * (F2H1B does change lifecycle, classification, and response behavior elsewhere
+ * in this route — see the guarded-transition work below.)
+ */
+export const maxDuration = 300;
+
 /** Map an E1A refresh status onto the lifecycle per-year result (no transition). */
 function e1aStatusToResult(status: FullSeasonScheduleRefreshStatus): LifecycleCronExecutionResult {
   return status === 'success'
@@ -52,6 +74,16 @@ type YearResult = {
   // committed and prior-good durable state was retained.
   partialFailure?: boolean;
   failedSeasonTypes?: ScheduleSeasonType[];
+  // PLATFORM-086F2H1B — the guarded dispositions for this year's non-test
+  // snapshot targets. `leagues` above stays the list of leagues this invocation
+  // actually transitioned; these are counts only, so no slug reaches the runtime
+  // event or the durable receipt. Always present once the lifecycle gate is
+  // reached, so a reader never has to infer a missing count.
+  targetLeagues?: number;
+  transitionedLeagues?: number;
+  alreadyInTargetSeasonLeagues?: number;
+  removedLeagues?: number;
+  refusedLeagues?: number;
 };
 
 type CronResult = {
@@ -156,17 +188,61 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         probed: false,
         cached: false,
         transitionedLeagues: 0,
+        alreadyInTargetSeasonLeagues: 0,
+        removedLeagues: 0,
+        refusedLeagues: 0,
         failedSeasonTypes: [],
       };
       // Marks which throwable operation is in flight, so a propagating throw is
       // classified into the right typed per-year reason before it reaches the
       // outer catch (which produces the SAME 500 response as before).
-      let phase: 'other' | 'probe-read' | 'probe-write' | 'lifecycle-write' = 'other';
+      let phase:
+        | 'other'
+        | 'probe-read'
+        | 'probe-write'
+        | 'lifecycle-write'
+        | 'standings-invalidation' = 'other';
       // The E1A refresh STATUS this run, captured verbatim from the typed result
       // when a refresh ran (null when the year was not probed). The per-year event
       // result is mapped from this status directly — never re-derived from the
       // reason vocabulary, which could drift from E1A's actual status.
       let refreshStatus: FullSeasonScheduleRefreshStatus | null = null;
+      // PLATFORM-086F2H1B: set once the transition time gate is passed and the
+      // guarded loop runs, so classification can tell "no lifecycle work was
+      // attempted" from "lifecycle work ran and produced dispositions".
+      let lifecycleGateReached = false;
+      // Idempotent targets whose stale projection this run actually repaired.
+      let healedProjections = 0;
+      /**
+       * Did this year produce durable work, or a disposition, that a later
+       * throw must not disown? Confirmed canonical data, a committed
+       * transition, a healed projection (also a committed registry write), or a
+       * recorded refusal — the last because a year with any refusal is ALWAYS
+       * `partial` (AGENTS.md → Lifecycle Authority Invariants #2): the
+       * authenticated run reached its lifecycle stage and declined a stale
+       * target, which `failure` would erase. Named for what it means rather
+       * than `priorSuccess`: neither a refusal nor a repair is a success.
+       */
+      const hasRecordedWork = (): boolean =>
+        yearEntry.cached ||
+        yearEntry.transitionedLeagues > 0 ||
+        healedProjections > 0 ||
+        yearEntry.refusedLeagues > 0;
+      /**
+       * Mirror the dispositions the event/receipt already carry onto the HTTP
+       * body. Called from the normal path AND from the per-year catch, because a
+       * post-commit throw (a later league's write, or the standings
+       * invalidation) must not leave the response silent about a transition that
+       * already committed durably — the three surfaces have to agree.
+       */
+      const publishDispositions = (): void => {
+        yearResult.transitioned = yearResult.leagues.length > 0;
+        yearResult.targetLeagues = yearEntry.targetLeagues;
+        yearResult.transitionedLeagues = yearEntry.transitionedLeagues;
+        yearResult.alreadyInTargetSeasonLeagues = yearEntry.alreadyInTargetSeasonLeagues;
+        yearResult.removedLeagues = yearEntry.removedLeagues;
+        yearResult.refusedLeagues = yearEntry.refusedLeagues;
+      };
       // Set when THIS run's probe cannot be trusted as a currently-valid schedule
       // (a failed/stale/rejected refresh) — the league must not flip off it; the
       // next cron run retries once the shared authority commits a clean schedule.
@@ -273,22 +349,69 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           const oneDayBeforeMs = firstGameMs - 24 * 60 * 60 * 1000;
 
           if (nowMs >= oneDayBeforeMs) {
-            phase = 'lifecycle-write';
+            lifecycleGateReached = true;
             for (const league of yearLeagues) {
-              // One lifecycle write — the authority synchronizes league.year to
-              // targetYear in the same registry record, so there is no separate
-              // year-sync write that could strand a transitioned league.
-              await updateLeagueStatus(league.slug, { state: 'season', year: targetYear });
-              yearResult.leagues.push(league.slug);
-              yearEntry.transitionedLeagues = yearResult.leagues.length;
-              // Invalidate immediately on the status flip — this is the change that
-              // alters the standings surface (preseason owner list → live season
-              // standings) AND drops the league from future cron-transition retries
-              // (the route only re-processes `preseason` leagues).
+              // PLATFORM-086F2H1B — GUARDED transition. `yearLeagues` came from the
+              // registry snapshot read at the top of this run, BEFORE the E1A
+              // refresh and probe work above; by now a league may have been rolled
+              // over, moved to another preseason year, transitioned by an
+              // overlapping delivery, or deleted. The authority re-checks the
+              // expected state and exact year inside its own transaction, so a
+              // stale snapshot can never overwrite newer lifecycle state, and each
+              // disposition is recorded separately rather than assumed.
+              phase = 'lifecycle-write';
+              const transition = await completeSeasonTransition(league.slug, targetYear);
+              phase = 'other';
+
+              if (transition.outcome === 'transitioned') {
+                // Record the confirmed transition and its counters FIRST, so an
+                // invalidation throw below cannot erase the fact that the durable
+                // lifecycle write already committed.
+                // `leagues` (slugs) is the pre-existing HTTP-response field and
+                // stays admin-only; the counter is maintained exactly like its
+                // three siblings rather than derived from it, so the four
+                // dispositions have one shape and one update point each.
+                yearResult.leagues.push(league.slug);
+                yearEntry.transitionedLeagues += 1;
+              } else if (transition.outcome === 'already-in-target-season') {
+                yearEntry.alreadyInTargetSeasonLeagues += 1;
+                // The idempotent branch can still WRITE, repairing a stale
+                // top-level projection. A run that durably changed data must not
+                // be classified `no-op` — that is the one thing `no-op` rules out.
+                if (transition.healed) healedProjections += 1;
+              } else if (transition.outcome === 'league-removed') {
+                // An operator deleted the league after target selection. A normal
+                // admin action: nothing was mutated and nothing needs invalidating.
+                yearEntry.removedLeagues += 1;
+                continue;
+              } else {
+                // Genuinely stale — some other state, or a different lifecycle
+                // year. No lifecycle mutation occurred, so no invalidation.
+                yearEntry.refusedLeagues += 1;
+                continue;
+              }
+
+              // Reached only by `transitioned` and `already-in-target-season`.
+              //
+              // Reachability of the idempotent case, stated honestly: this run's
+              // snapshot keeps ONLY `preseason` leagues, so a league an earlier
+              // invocation already flipped to `season` is never a target again.
+              // `already-in-target-season` therefore arises from an OVERLAPPING
+              // delivery, not from a later run recovering a killed one — and a
+              // once-daily Vercel cron does not normally overlap. It is
+              // invalidated anyway because it is cheap, correct, and the only
+              // point at which this route observes such a league; it is NOT a
+              // recovery mechanism for a run killed between commit and bust.
+              // That gap is real and remains open.
+              //
+              // Durable lifecycle mutation and Next cache invalidation cannot be
+              // one atomic operation; this ordering narrows the window, it does
+              // not close it.
+              phase = 'standings-invalidation';
               invalidateStandings(league.slug);
+              phase = 'other';
             }
-            phase = 'other';
-            yearResult.transitioned = yearResult.leagues.length > 0;
+            publishDispositions();
           }
         }
 
@@ -314,9 +437,35 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         // Classify the per-year event result from the SAME confirmed truth the
         // response uses: a transition supersedes the E1A reason; otherwise a
         // refresh reports its exact E1A outcome; otherwise the year was not due.
-        if (yearEntry.transitionedLeagues > 0) {
+        if (yearEntry.refusedLeagues > 0) {
+          // PLATFORM-086F2H1B — at least one target had moved on by write time.
+          // ALWAYS `partial`, even when every target was refused: this
+          // authenticated run performed its canonical/probe stage and then did
+          // not complete the lifecycle work it set out to do. `partial` is what
+          // System Health surfaces (`systemHealthIssues` raises an execution
+          // issue only for `failure`/`partial`), so classifying a fully-stale
+          // target set as `no-op` would hide it entirely. It also prevents
+          // labelling a run that made a billed provider call and durably
+          // committed a schedule as an overall no-op.
+          yearEntry.result = 'partial';
+          yearEntry.reason = 'lifecycle-transition-refused';
+        } else if (yearEntry.transitionedLeagues > 0) {
+          // Benign already-in-target or removed siblings never degrade a run
+          // that actually transitioned something.
           yearEntry.result = 'success';
           yearEntry.reason = 'season-transitioned';
+        } else if (lifecycleGateReached && yearEntry.alreadyInTargetSeasonLeagues > 0) {
+          // `no-op` here asserts that no LIFECYCLE PROJECTION changed — not that
+          // nothing durable changed anywhere in the invocation (the E1A canonical
+          // schedule commit is recorded on its own axis and can coexist with it).
+          // A run that repaired a stale projection therefore reports `success`:
+          // that write is real, even though no league changed lifecycle STATE.
+          yearEntry.result = healedProjections > 0 ? 'success' : 'no-op';
+          yearEntry.reason =
+            yearEntry.removedLeagues > 0 ? 'transition-not-required' : 'already-in-target-season';
+        } else if (lifecycleGateReached && yearEntry.removedLeagues > 0) {
+          yearEntry.result = 'no-op';
+          yearEntry.reason = 'transition-targets-removed';
         } else if (refreshStatus) {
           // A refresh ran without a transition — report its exact E1A status and
           // reason verbatim (the typed decision), never a re-derived guess.
@@ -344,14 +493,44 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           yearEntry.result = 'partial';
           yearEntry.reason = 'probe-write-failed';
         } else if (phase === 'lifecycle-write') {
-          // Partial when canonical work or an earlier league transition already
-          // succeeded this year; otherwise a clean failure.
-          const priorSuccess = yearEntry.cached || yearEntry.transitionedLeagues > 0;
-          yearEntry.result = priorSuccess ? 'partial' : 'failure';
+          yearEntry.result = hasRecordedWork() ? 'partial' : 'failure';
           yearEntry.reason = 'lifecycle-write-failed';
+        } else if (phase === 'standings-invalidation') {
+          // PLATFORM-086F2H1B — only the post-commit cache bust threw. Whatever
+          // lifecycle work preceded it stands: never roll it back, never
+          // relabel a committed write as failed.
+          //
+          // Gated on the SAME predicate as the lifecycle-write branch above,
+          // because `partial` has to mean something. A year whose only target
+          // was an untouched `already-in-target-season` match wrote NOTHING —
+          // the bust is invalidating a cache no run in this invocation dirtied
+          // — so `partial` would assert progress that did not happen. That year
+          // is a clean `failure`. A prior canonical refresh, transition, heal,
+          // or refusal makes it a truthful `partial`.
+          //
+          // The reason names THIS fault unconditionally, even when an earlier
+          // league in the same year was refused. The single reason field cannot
+          // carry both facts, and between them only the invalidation fault has
+          // no other carrier: a refusal survives in `refusedLeagues`, which the
+          // receipt persists and System Health renders, whereas relabelling this
+          // `lifecycle-transition-refused` would point an operator at stale
+          // lifecycle state when the exposure is committed standings serving a
+          // stale cache.
+          yearEntry.result = hasRecordedWork() ? 'partial' : 'failure';
+          yearEntry.reason = 'standings-invalidation-failed';
         } else {
           yearEntry.result = 'failure';
           yearEntry.reason = 'unexpected-error';
+        }
+        // PLATFORM-086F2H1B — when the lifecycle gate ran, this year produced
+        // dispositions that the event and receipt already record. Mirror them
+        // onto the response and push the year, so a 500 caused by a post-commit
+        // failure cannot omit a transition that durably committed. A throw
+        // BEFORE the gate produces no dispositions, so on those paths the year
+        // is still absent from the response, as it was pre-F2H1B.
+        if (lifecycleGateReached) {
+          publishDispositions();
+          result.years.push(yearResult);
         }
         entries.push(yearEntry);
         exec.result = aggregateLifecycleCronResult(entries);

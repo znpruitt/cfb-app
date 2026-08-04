@@ -212,8 +212,22 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
         .map((y) => `${y.year}${y.publicationWindow ? ` (${y.publicationWindow})` : ''}`)
         .join(', ')}`;
     case 'season-transition-years':
+      // PLATFORM-086F2H1B — surface the dispositions, not just a ratio. Without
+      // them `1/4 leagues` reads identically whether the other three were benign
+      // deletions or genuinely stale targets, which is the exact discrimination
+      // the counters exist to provide. Only non-zero dispositions are appended,
+      // so an ordinary clean run keeps its previous compact form (and a legacy
+      // receipt, whose counters normalize to 0, renders unchanged).
       return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}: ${target.years
-        .map((y) => `${y.year} (${y.transitionedLeagues}/${y.targetLeagues} leagues)`)
+        .map((y) => {
+          const notes = [
+            y.refusedLeagues > 0 ? `${y.refusedLeagues} stale` : null,
+            y.alreadyInTargetSeasonLeagues > 0 ? `${y.alreadyInTargetSeasonLeagues} already` : null,
+            y.removedLeagues > 0 ? `${y.removedLeagues} removed` : null,
+          ].filter((n): n is string => n !== null);
+          const detail = notes.length > 0 ? `, ${notes.join(', ')}` : '';
+          return `${y.year} (${y.transitionedLeagues}/${y.targetLeagues} leagues${detail})`;
+        })
         .join(', ')}`;
     case 'season-rollover-years':
       return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}: ${target.years

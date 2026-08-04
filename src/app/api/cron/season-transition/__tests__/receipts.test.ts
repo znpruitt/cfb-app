@@ -188,7 +188,17 @@ async function seedPriorReceipt() {
       kind: 'season-transition-years',
       totalYears: 1,
       truncated: false,
-      years: [{ year: YEAR, targetLeagues: 1, probed: true, transitionedLeagues: 1 }],
+      years: [
+        {
+          year: YEAR,
+          targetLeagues: 1,
+          probed: true,
+          transitionedLeagues: 1,
+          alreadyInTargetSeasonLeagues: 0,
+          removedLeagues: 0,
+          refusedLeagues: 0,
+        },
+      ],
     },
   });
   assert.ok(receipt);
@@ -270,7 +280,17 @@ test('a probe not due is a provider-free refresh-not-due year', async () => {
     kind: 'season-transition-years',
     totalYears: 1,
     truncated: false,
-    years: [{ year: YEAR, targetLeagues: 1, probed: false, transitionedLeagues: 0 }],
+    years: [
+      {
+        year: YEAR,
+        targetLeagues: 1,
+        probed: false,
+        transitionedLeagues: 0,
+        alreadyInTargetSeasonLeagues: 0,
+        removedLeagues: 0,
+        refusedLeagues: 0,
+      },
+    ],
   });
 });
 
@@ -325,7 +345,17 @@ test('a completed transition is success/season-transitioned with truthful counts
     kind: 'season-transition-years',
     totalYears: 1,
     truncated: false,
-    years: [{ year: YEAR, targetLeagues: 1, probed: true, transitionedLeagues: 1 }],
+    years: [
+      {
+        year: YEAR,
+        targetLeagues: 1,
+        probed: true,
+        transitionedLeagues: 1,
+        alreadyInTargetSeasonLeagues: 0,
+        removedLeagues: 0,
+        refusedLeagues: 0,
+      },
+    ],
   });
 });
 

@@ -145,6 +145,84 @@ export async function updateLeagueStatus(
   }));
 }
 
+export type SeasonTransitionOutcome =
+  | { outcome: 'transitioned'; year: number }
+  // Already in the requested season year — the desired end state, reached by a
+  // prior or overlapping delivery. Benign and idempotent, never an anomaly.
+  // `healed` distinguishes the variant that DID write (repairing a stale
+  // top-level projection) from the untouched one, so a run that durably changed
+  // data is never reported as a pure no-op.
+  | { outcome: 'already-in-target-season'; year: number; healed: boolean }
+  // The league no longer exists: an operator removed it after the caller
+  // selected its targets. A normal admin action, kept distinct from staleness.
+  | { outcome: 'league-removed' }
+  // Genuinely stale: some other state, or a different lifecycle year.
+  | { outcome: 'not-in-target-preseason' };
+
+/**
+ * The GUARDED preseason→season transition (PLATFORM-086F2H1B), consumed by the
+ * daily season-transition cron.
+ *
+ * The cron reads its target snapshot once and then performs lengthy provider and
+ * probe work, so by write time a league may have been rolled over, moved to a
+ * different preseason year, transitioned by an overlapping delivery, or deleted.
+ * The expected state and exact year are therefore re-checked INSIDE the
+ * serialized registry transaction; every disposition is a closed scalar outcome
+ * carrying no league record, credential field, or exception text.
+ *
+ * `already-in-target-season` additionally HEALS a stale top-level `league.year`
+ * projection through the same projection authority, so an idempotent delivery
+ * repairs a record whose status committed with a desynchronized year. That heal
+ * is gated by the same structural year validation as the transition itself — an
+ * unsupported year is refused outright rather than written into the projection.
+ */
+export async function completeSeasonTransition(
+  slug: string,
+  targetYear: number
+): Promise<SeasonTransitionOutcome> {
+  return guardedLifecycleWrite<SeasonTransitionOutcome>(
+    slug,
+    { outcome: 'league-removed' },
+    (current) => {
+      const status = current.status;
+
+      // A structurally unsupported year must never reach a lifecycle write —
+      // including through the idempotent heal below, which would otherwise sync
+      // `league.year` to the stored bad value and report it `healed`. Validated
+      // ONCE here rather than per branch: every branch that writes uses
+      // `targetYear`, and the preseason branch requires `status.year` to equal
+      // it, so this single check covers both write paths. (`NaN` also fails the
+      // equality checks below; this covers the rest.)
+      if (!isStructurallyValidSeasonYear(targetYear)) {
+        return { status: null, result: { outcome: 'not-in-target-preseason' } };
+      }
+
+      if (status?.state === 'season' && status.year === targetYear) {
+        // Idempotent redelivery. Write only when the projection is stale.
+        if (current.year === targetYear) {
+          return {
+            status: null,
+            result: { outcome: 'already-in-target-season', year: targetYear, healed: false },
+          };
+        }
+        return {
+          status: { state: 'season', year: targetYear },
+          project: () => ({ outcome: 'already-in-target-season', year: targetYear, healed: true }),
+        };
+      }
+
+      if (status?.state !== 'preseason' || status.year !== targetYear) {
+        return { status: null, result: { outcome: 'not-in-target-preseason' } };
+      }
+
+      return {
+        status: { state: 'season', year: targetYear },
+        project: () => ({ outcome: 'transitioned', year: targetYear }),
+      };
+    }
+  );
+}
+
 export type BeginPreseasonOutcome =
   | { outcome: 'transitioned'; year: number }
   | { outcome: 'league-not-found' }

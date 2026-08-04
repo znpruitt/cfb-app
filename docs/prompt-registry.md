@@ -52,6 +52,30 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1B-AUTOMATED-TRANSITION-CONVERGENCE-v1
+
+- Purpose: Migrate the daily season-transition cron onto an exact-year, transaction-guarded
+  transition, and make concurrent/deleted/refused targets explicit across every reporting surface.
+- Scope: `completeSeasonTransition` in `src/lib/leagueRegistry.ts`; `GET /api/cron/season-transition`;
+  the lifecycle event contract; the season-transition scheduler-receipt target; the System Health
+  receipt summary; focused tests. **Deliberately excludes** — after a first attempt was reconstructed
+  for breaching the PR-sizing rule by crossing two automation jobs — every `schedule-refresh` change,
+  the `isAutomaticLifecycleTarget` predicate, automatic test-league exclusion, and retirement of the
+  arbitrary-slug `updateLeagueStatus`. The test league keeps its current automatic behavior, so this
+  slice creates no ownership gap. Also excludes F2H1R recovery, rollover, archive/backfill, and
+  Season Management UI.
+- Outcome: Binding behavior is in [`AGENTS.md`](../AGENTS.md) → **Lifecycle Authority Invariants**;
+  the contract is in [`docs/architecture/admin-control-plane.md`](architecture/admin-control-plane.md)
+  → **Automated transition convergence**; the additive backward-compatible receipt counters are in
+  [`docs/architecture/storage-and-caching.md`](architecture/storage-and-caching.md). The route
+  declares `maxDuration = 300`, which depends on the project's confirmed Vercel Hobby + Fluid
+  Compute configuration; the scheduler configuration and daily cadence are unchanged and
+  `vercel.json` is untouched. Retiring `updateLeagueStatus` and deciding demo-league automation
+  policy are deferred to their own slices.
+- Review / verification: Each gate run as its own command with its exit code recorded against the
+  exact reviewed commit; reviews and dispositions are recorded on the PR.
+- Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
+
 ### PLATFORM-086F2H1A-LIFECYCLE-GUARDS-CORE-v2
 
 - Purpose: Reconstruct the lifecycle-guard core from clean `main` after the larger PR #441 attempt
