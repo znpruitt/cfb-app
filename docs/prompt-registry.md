@@ -72,6 +72,15 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   Compute configuration; the scheduler configuration and daily cadence are unchanged and
   `vercel.json` is untouched. Retiring `updateLeagueStatus` and deciding demo-league automation
   policy are deferred to their own slices.
+- Size (stop-and-reassess signals tripped; explicitly approved): **16 files, +2,162 / −46, +2,116
+  net.** Both signals fire (>15 files, >1,500 net lines). What expanded: focused regression tests —
+  the three test files carry ~1,500 of the insertions, against ~360 lines of implementation across
+  five source files. What did NOT expand: the slice touches ONE automation job, so the mandatory
+  split for work crossing separate automation jobs does not apply. A first attempt DID cross two
+  jobs and was reconstructed from clean `main` for that reason; the demo-league work it carried is
+  now F2H1T. The overrun was reviewed and approved rather than split, because the authority, cron,
+  event, receipt, and System Health changes form one cross-surface contract that cannot be
+  landed in halves without shipping a surface that disagrees with the others.
 - Review / verification: Each gate run as its own command with its exit code recorded against the
   exact reviewed commit; reviews and dispositions are recorded on the PR.
 - Status: **Implemented; in final pre-merge review. Not merged, not deployed.**

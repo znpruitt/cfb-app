@@ -45,8 +45,10 @@ export const dynamic = 'force-dynamic';
  *
  * The scheduler, its daily 00:00 UTC cadence in `vercel.json`, and the runtime
  * are unchanged by THIS declaration, and `vercel.json` gains no `fluid` key.
- * (F2H1B does change lifecycle, classification, and response behavior elsewhere
- * in this route — see the guarded-transition work below.)
+ * Nothing here should be read as a claim that the route's behavior is otherwise
+ * unchanged: F2H1B rewrites its lifecycle write path, its result/reason
+ * classification, and its 500-response body — see the guarded-transition work
+ * below.
  */
 export const maxDuration = 300;
 
@@ -75,8 +77,9 @@ type YearResult = {
   partialFailure?: boolean;
   failedSeasonTypes?: ScheduleSeasonType[];
   // PLATFORM-086F2H1B — the guarded dispositions for this year's snapshot
-  // targets (every `preseason` league, including `test` — exclusion is F2H1T). `leagues` above stays the list of leagues this invocation
-  // actually transitioned; these are counts only, so no slug reaches the runtime
+  // targets (every `preseason` league, including `test` — exclusion is F2H1T).
+  // `leagues` above stays the list of leagues this invocation actually
+  // transitioned; these are counts only, so no slug reaches the runtime
   // event or the durable receipt. Always present once the lifecycle gate is
   // reached, so a reader never has to infer a missing count.
   targetLeagues?: number;
@@ -487,8 +490,9 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         entries.push(yearEntry);
       } catch (err) {
         // A throwable operation (probe read/write or lifecycle write) failed. The
-        // response is the SAME 500 the outer catch already produced (this year is
-        // NOT pushed to `result.years`); the event/receipt record the typed
+        // response is the SAME 500 the outer catch already produced; whether this
+        // year appears in `result.years` depends on the lifecycle gate — see the
+        // `lifecycleGateReached` push below. The event/receipt record the typed
         // per-year reason and this year's completed-so-far counts, then finalize
         // the aggregate here because the post-loop aggregate is skipped by the
         // re-throw.

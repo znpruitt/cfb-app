@@ -462,7 +462,7 @@ test('a transitioned target invalidates its standings', async () => {
   assert.ok(tags.includes('standings:alpha'));
 });
 
-test('an already-in-target target ALSO invalidates, reconciling an interrupted run', async () => {
+test('an already-in-target target ALSO invalidates, covering an overlapping snapshot', async () => {
   await seedRegistry([makeLeague('alpha', { state: 'preseason', year: YEAR })]);
   await seedPastProbe();
   stubFetch(async () => {
@@ -538,7 +538,7 @@ test('an invalidation throw preserves the committed transition and reports parti
     console.log = ORIGINAL_CONSOLE_LOG;
   }
 
-  // The route's existing thrown-operation HTTP behavior is unchanged.
+  // The 500 itself is pre-existing behavior for a thrown operation.
   assert.equal(res.status, 500);
 
   // The durable lifecycle write COMMITTED and must not be rolled back or
