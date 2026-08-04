@@ -74,8 +74,8 @@ type YearResult = {
   // committed and prior-good durable state was retained.
   partialFailure?: boolean;
   failedSeasonTypes?: ScheduleSeasonType[];
-  // PLATFORM-086F2H1B — the guarded dispositions for this year's non-test
-  // snapshot targets. `leagues` above stays the list of leagues this invocation
+  // PLATFORM-086F2H1B — the guarded dispositions for this year's snapshot
+  // targets (every `preseason` league, including `test` — exclusion is F2H1T). `leagues` above stays the list of leagues this invocation
   // actually transitioned; these are counts only, so no slug reaches the runtime
   // event or the durable receipt. Always present once the lifecycle gate is
   // reached, so a reader never has to infer a missing count.
@@ -455,16 +455,23 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           yearEntry.result = 'success';
           yearEntry.reason = 'season-transitioned';
         } else if (lifecycleGateReached && yearEntry.alreadyInTargetSeasonLeagues > 0) {
-          // `no-op` here asserts that no LIFECYCLE PROJECTION changed — not that
-          // nothing durable changed anywhere in the invocation (the E1A canonical
-          // schedule commit is recorded on its own axis and can coexist with it).
-          // A run that repaired a stale projection therefore reports `success`:
-          // that write is real, even though no league changed lifecycle STATE.
-          yearEntry.result = healedProjections > 0 ? 'success' : 'no-op';
+          // `no-op` is reserved for a run that committed NOTHING: no canonical
+          // refresh and no lifecycle projection change. A billed E1A call that
+          // durably committed a schedule counts, exactly as it does in
+          // `hasRecordedWork()` — otherwise the identical year would report
+          // `no-op` when it completed cleanly and `partial` when its cache bust
+          // threw, making the non-throwing run look like strictly less work. A
+          // repaired projection counts for the same reason: that write is real.
+          //
+          // The reason stays the LIFECYCLE outcome either way; the E1A detail
+          // travels separately on `scheduleRefreshReason`.
+          yearEntry.result = yearEntry.cached || healedProjections > 0 ? 'success' : 'no-op';
           yearEntry.reason =
             yearEntry.removedLeagues > 0 ? 'transition-not-required' : 'already-in-target-season';
         } else if (lifecycleGateReached && yearEntry.removedLeagues > 0) {
-          yearEntry.result = 'no-op';
+          // Same rule: a committed canonical refresh is not a no-op, even when
+          // every lifecycle target turned out to have been deleted.
+          yearEntry.result = yearEntry.cached ? 'success' : 'no-op';
           yearEntry.reason = 'transition-targets-removed';
         } else if (refreshStatus) {
           // A refresh ran without a transition — report its exact E1A status and

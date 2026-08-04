@@ -25,9 +25,10 @@ import type { SeasonTransitionCronExecutionEvent } from '../../../../../lib/life
 // ---------------------------------------------------------------------------
 // PLATFORM-086F2H1B — the automated half of lifecycle convergence.
 //
-// The cron now drives the GUARDED preseason→season authority, excludes the test
-// league, and reports four independent dispositions truthfully across the HTTP
-// response, the runtime event, and the durable receipt.
+// The cron now drives the GUARDED preseason→season authority and reports four
+// independent dispositions truthfully across the HTTP response, the runtime
+// event, and the durable receipt. Targeting is UNCHANGED — every `preseason`
+// league is still a target, including `test`; that policy question is F2H1T.
 // ---------------------------------------------------------------------------
 
 const CRON_SECRET = 'test-cron-secret';
@@ -87,6 +88,39 @@ function stubFetch(onFirstFetch?: () => Promise<void>): void {
       await onFirstFetch();
     }
     return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+}
+
+/**
+ * A COMPLETE E1A refresh: the regular partition returns one past game and the
+ * postseason partition is legitimately empty. This is the only way to get
+ * `cached: true` — the default `stubFetch` returns `[]`, which the authority
+ * reports as `no-op / empty-response`. The past date keeps the transition gate
+ * open. `onFirstFetch` runs once, inside the refresh, after the route captured
+ * its registry snapshot and before any lifecycle write.
+ */
+function stubFetchPopulated(onFirstFetch?: () => Promise<void>): void {
+  let fired = false;
+  globalThis.fetch = (async (input: URL | string) => {
+    if (onFirstFetch && !fired) {
+      fired = true;
+      await onFirstFetch();
+    }
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const body =
+      url.searchParams.get('seasonType') === 'postseason'
+        ? '[]'
+        : JSON.stringify([
+            {
+              id: '1-Texas-Rice',
+              week: 1,
+              home_team: 'Texas',
+              away_team: 'Rice',
+              start_date: '2023-08-26T00:00:00Z',
+              completed: false,
+            },
+          ]);
+    return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
   }) as typeof fetch;
 }
 
@@ -959,4 +993,148 @@ test('the System Health receipt summary distinguishes stale from benign targets'
     ],
   });
   assert.equal(clean, '1 year(s): 2026 (2/2 leagues)');
+});
+
+// ---------------------------------------------------------------------------
+// `no-op` means NOTHING committed — canonical work counts, not just lifecycle.
+
+test('a committed canonical refresh keeps an all-already year out of no-op', async () => {
+  await seedRegistry([makeLeague('alpha', { state: 'preseason', year: YEAR })]);
+  await seedPastProbe();
+  // A competing delivery transitions alpha WITH a synced projection, so the
+  // route heals nothing: `cached` is the only recorded work.
+  stubFetchPopulated(async () => {
+    const registry = await readRegistry();
+    await setAppState(
+      'leagues',
+      'registry',
+      registry.map((l) =>
+        l.slug === 'alpha' ? { ...l, year: YEAR, status: { state: 'season', year: YEAR } } : l
+      )
+    );
+  });
+
+  const { event } = await runRoute();
+  const entry = event.years[0]!;
+
+  assert.equal(entry.cached, true, 'E1A durably committed a schedule this run');
+  assert.equal(entry.alreadyInTargetSeasonLeagues, 1);
+  assert.equal(entry.transitionedLeagues, 0);
+  assert.equal(
+    entry.result,
+    'success',
+    'a billed, committed run is never reported as having done nothing'
+  );
+  assert.equal(entry.reason, 'already-in-target-season', 'the LIFECYCLE reason is preserved');
+  assert.equal(
+    entry.scheduleRefreshReason !== null,
+    true,
+    'the E1A detail travels on its own field'
+  );
+});
+
+test('a committed canonical refresh keeps an all-removed year out of no-op', async () => {
+  await seedRegistry([makeLeague('alpha', { state: 'preseason', year: YEAR })]);
+  await seedPastProbe();
+  stubFetchPopulated(async () => {
+    await setAppState('leagues', 'registry', []);
+  });
+
+  const { event } = await runRoute();
+  const entry = event.years[0]!;
+
+  assert.equal(entry.cached, true);
+  assert.equal(entry.removedLeagues, 1);
+  assert.equal(entry.result, 'success');
+  assert.equal(entry.reason, 'transition-targets-removed', 'the LIFECYCLE reason is preserved');
+});
+
+test('with no canonical work and an untouched target, the year IS a no-op', async () => {
+  await seedRegistry([makeLeague('alpha', { state: 'preseason', year: YEAR })]);
+  await seedPastProbe();
+  // `[]` from the provider is `no-op / empty-response`: nothing committed.
+  stubFetch(async () => {
+    const registry = await readRegistry();
+    await setAppState(
+      'leagues',
+      'registry',
+      registry.map((l) =>
+        l.slug === 'alpha' ? { ...l, year: YEAR, status: { state: 'season', year: YEAR } } : l
+      )
+    );
+  });
+
+  const { event } = await runRoute();
+  const entry = event.years[0]!;
+
+  assert.equal(entry.cached, false);
+  assert.equal(entry.alreadyInTargetSeasonLeagues, 1);
+  assert.equal(entry.result, 'no-op', 'nothing was committed anywhere — that is a real no-op');
+  assert.equal(entry.reason, 'already-in-target-season');
+});
+
+test('with no canonical work and every target removed, the year IS a no-op', async () => {
+  await seedRegistry([makeLeague('alpha', { state: 'preseason', year: YEAR })]);
+  await seedPastProbe();
+  stubFetch(async () => {
+    await setAppState('leagues', 'registry', []);
+  });
+
+  const { event } = await runRoute();
+  const entry = event.years[0]!;
+
+  assert.equal(entry.cached, false);
+  assert.equal(entry.removedLeagues, 1);
+  assert.equal(entry.result, 'no-op');
+  assert.equal(entry.reason, 'transition-targets-removed');
+});
+
+test('the invalidation-failure path uses the SAME recorded-work definition', async () => {
+  // Committed canonical work makes the failed bust `partial`, matching the
+  // `success` the identical non-throwing run now gets. Before canonical work
+  // counted in the classification block, the throwing run was `partial` while
+  // the clean run was `no-op` — the clean run looking like strictly less work.
+  await seedRegistry([makeLeague('alpha', { state: 'preseason', year: YEAR })]);
+  await seedPastProbe();
+  stubFetchPopulated(async () => {
+    const registry = await readRegistry();
+    await setAppState(
+      'leagues',
+      'registry',
+      registry.map((l) =>
+        l.slug === 'alpha' ? { ...l, year: YEAR, status: { state: 'season', year: YEAR } } : l
+      )
+    );
+  });
+
+  const raw: string[] = [];
+  console.log = ((...args: unknown[]) => {
+    raw.push(args.map((a) => (typeof a === 'string' ? a : String(a))).join(' '));
+  }) as typeof console.log;
+  let res: Response;
+  try {
+    // Outside the Next work store, so the post-disposition bust throws.
+    res = await GET(cronRequest());
+  } finally {
+    console.log = ORIGINAL_CONSOLE_LOG;
+  }
+  assert.equal(res.status, 500);
+
+  const event = raw
+    .map((line) => {
+      try {
+        return JSON.parse(line) as { event?: string };
+      } catch {
+        return null;
+      }
+    })
+    .find((e) => e?.event === 'season-transition-cron') as
+    | SeasonTransitionCronExecutionEvent
+    | undefined;
+  assert.ok(event);
+  const entry = event.years[0]!;
+
+  assert.equal(entry.cached, true);
+  assert.equal(entry.result, 'partial', 'committed canonical work is recorded work here too');
+  assert.equal(entry.reason, 'standings-invalidation-failed');
 });
