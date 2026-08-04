@@ -160,13 +160,14 @@ Execution order within F2 (each slice is one independently deployable PR):
     round 1 clean.
 11. **F2H — Season Management consolidation** — split after the lifecycle-authority audit so each
     correctness boundary remains independently reviewable:
-    - **F2H1A — lifecycle guards core** — **Implemented; draft PR #442 open.** One guarded registry authority now owns
+    - **F2H1A — lifecycle guards core** — ✅ **Merged (PR #442, merge commit `d800fd6`,
+      2026-08-04).** One guarded registry authority now owns
       commissioner offseason→preseason and exact-year setup completion; accepted transitions write
       `status` + the compatibility `year` projection atomically, stale/concurrent submissions write
       nothing, and new-league creation enforces the existing integer
       `2000..currentUTCYear+1` ingress horizon. The existing cron/test compatibility setter delegates
       through the same write authority; cron policy, recovery, rollover, and UI are excluded.
-    - **F2H1B — automated transition convergence** — planned after F2H1A: migrate the daily
+    - **F2H1B — automated transition convergence** — **NEXT.** Migrate the daily
       season-transition caller off the unrestricted compatibility setter, make test-league exclusion
       and duplicate/deleted-target dispositions explicit, preserve truthful event/receipt counts,
       audit standings invalidation, then retire or narrow the compatibility setter.

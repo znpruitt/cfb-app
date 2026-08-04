@@ -71,8 +71,8 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   and round 2 was clean at P0–P2. A final external review independently reproduced every gate and
   recommended approval; its binding-doc correction and static `aliases` route-collision finding were
   folded in, while the unusable-year recovery gap was registered separately.
-- Status: **Implemented — draft PR #442 open; unmerged.** This bounded replacement supersedes the
-  unmerged PR #441 implementation attempt.
+- Status: **Merged (PR #442, merge commit `d800fd6`, 2026-08-04).** This bounded replacement
+  superseded the closed, unmerged PR #441 implementation attempt.
 
 ### PLATFORM-086F2G1-DRAFT-ASSISTANCE-RETIREMENT-v1
 

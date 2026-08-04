@@ -2322,6 +2322,29 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H1A — Lifecycle Guards Core — Complete
+
+- **Status:** Complete — merged to `main` via PR #442 (merge commit `d800fd6`), 2026-08-04.
+- **PROMPT_ID(s):** `PLATFORM-086F2H1A-LIFECYCLE-GUARDS-CORE-v2` (the clean, bounded
+  reconstruction that superseded closed, unmerged PR #441).
+- **Outcome:** Commissioner offseason→preseason and exact-year setup completion now decide against
+  the registry record held under one serialized transaction; accepted transitions persist lifecycle
+  status and the compatibility year projection atomically, while stale, concurrent, and unusable-year
+  requests write nothing. The compatibility setter delegates through the same authority, new-league
+  creation enforces the integer `2000..currentUTCYear+1` ingress horizon, and the static
+  `/admin/aliases` collision is reserved. Cron policy, lifecycle recovery, rollover, test-control
+  redesign, and Season Management UI remain deliberately separate F2H slices.
+- **Verification:** 35 focused lifecycle/action/creation tests and the full 3,163-test suite pass;
+  TypeScript, `lint:all`, production build, and diff check clean. Independent Codex review remediated
+  one P2 then confirmed clean at P0–P2; final external review independently reproduced every gate,
+  all six findings were addressed, and it recommended approval. No provider, scheduler, lifecycle,
+  rollover, or production operation occurred.
+- **Open follow-ups:** See `docs/next-tasks.md`; F2H1B owns automated transition convergence, F2H1R
+  owns missing-status recovery, F2H2 owns rollover/archive/backfill convergence, and F2H3 owns the
+  operator presentation.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
