@@ -2,7 +2,13 @@
 
 import { redirect } from 'next/navigation';
 import { revalidatePath } from 'next/cache';
-import { getLeague, updateLeague, updateLeagueStatus } from '@/lib/leagueRegistry';
+import {
+  beginPreseasonTransition,
+  completePreseasonSetup,
+  getLeague,
+  updateLeague,
+  updateLeagueStatus,
+} from '@/lib/leagueRegistry';
 import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import {
@@ -88,13 +94,23 @@ export async function resetTestLeague(): Promise<void> {
 
 /** Transition a league from offseason to preseason and redirect to the setup page. */
 export async function beginPreseason(slug: string): Promise<void> {
-  const league = await getLeague(slug);
-  if (!league) throw new Error('League not found');
-  // Offseason-only guard (PLATFORM-086F2B): the lifecycle authority now syncs
-  // league.year to the preseason year immediately, so an unguarded re-invocation
-  // (double-click, stale tab) would increment the year again on every call.
-  if (league.status?.state !== 'offseason') throw new Error('League is not in offseason');
-  await updateLeagueStatus(slug, { state: 'preseason', year: league.year + 1 });
+  const result = await beginPreseasonTransition(slug);
+  if (result.outcome === 'league-not-found') throw new Error('League not found');
+  if (result.outcome === 'not-in-offseason') throw new Error('League is not in offseason');
+  if (result.outcome === 'unusable-stored-year' || result.outcome === 'unusable-next-year') {
+    // An unusable year is a data-integrity fault requiring intervention, so it
+    // is error-level. The public league slug is the only correlation field;
+    // raw records, request bodies, and exception text never enter the event.
+    console.error(
+      JSON.stringify({
+        event: 'lifecycle-action-refused',
+        action: 'begin-preseason',
+        leagueSlug: slug,
+        reason: result.outcome,
+      })
+    );
+    throw new Error('Unable to begin preseason');
+  }
   // Offseason→preseason changes the league's standings surface (prior-season
   // final → preseason owner list). Bust its cached snapshots (umbrella, all
   // years) so the public page reflects the new lifecycle state. Before the
@@ -126,12 +142,20 @@ export async function confirmPreseasonOwners(
 
 /** Mark preseason setup as complete. Season transition happens automatically via cron. */
 export async function completeSetup(slug: string, year: number): Promise<void> {
-  const league = await getLeague(slug);
-  if (!league) throw new Error('League not found');
-  if (league.status?.state !== 'preseason') throw new Error('League is not in preseason');
-  // One lifecycle write — the authority synchronizes league.year to the
-  // preseason year in the same registry record.
-  await updateLeagueStatus(slug, { state: 'preseason', year, setupComplete: true });
+  const result = await completePreseasonSetup(slug, year);
+  if (result.outcome === 'league-not-found') throw new Error('League not found');
+  if (result.outcome === 'not-in-preseason') throw new Error('League is not in preseason');
+  if (result.outcome === 'year-mismatch') {
+    // A stale form is an expected concurrency refusal, so it is warning-level.
+    console.warn(
+      JSON.stringify({
+        event: 'lifecycle-action-refused',
+        action: 'complete-preseason-setup',
+        leagueSlug: slug,
+        reason: result.outcome,
+      })
+    );
+  }
   revalidatePath(`/admin/${slug}`);
   revalidatePath(`/admin/${slug}`, 'layout');
   revalidatePath(`/admin/${slug}/preseason`);

@@ -1,7 +1,7 @@
 import { cache } from 'react';
 
 import { getAppState, withAppStateKeyTransaction } from './server/appStateStore.ts';
-import type { League, LeagueStatus } from './league.ts';
+import { isStructurallyValidSeasonYear, type League, type LeagueStatus } from './league.ts';
 
 const REGISTRY_SCOPE = 'leagues';
 const REGISTRY_KEY = 'registry';
@@ -91,34 +91,137 @@ function lastAuthoritativeYear(league: League): number {
   return league.status && league.status.state !== 'offseason' ? league.status.year : league.year;
 }
 
+/** Apply the authoritative lifecycle status and its compatibility projection. */
+function applyLifecycleStatus(current: League, status: LeagueStatus): League {
+  return status.state === 'offseason'
+    ? { ...current, status, year: lastAuthoritativeYear(current) }
+    : { ...current, status, year: status.year };
+}
+
+type GuardedLifecycleDecision<T> =
+  | { status: LeagueStatus; project: (written: League) => T }
+  | { status: null; result: T };
+
 /**
- * The single lifecycle mutation authority (PLATFORM-086F2B). Performs ONE
- * serialized registry write per call:
- *
- *   - `season` / `preseason` → sets `status` AND synchronizes the top-level
- *     `league.year` to `status.year` in the same written record;
- *   - `offseason` → sets `status` and writes the last authoritative season
- *     year (the outgoing `status.year` when present) into `league.year` — the
- *     archived-season compatibility projection.
- *
- * Because both fields land in one transactional write, a failed registry write
- * can never leave `status.year` and `league.year` partially synchronized.
+ * The single lifecycle write authority. It runs a decision against the record
+ * read under the registry lock; a refusal writes nothing, while an accepted
+ * status and its year projection share one registry commit. Both guarded
+ * transitions and the compatibility `updateLeagueStatus` setter delegate here,
+ * so adding an expected-state check never creates a second write path.
+ */
+async function guardedLifecycleWrite<T>(
+  slug: string,
+  notFound: T,
+  decide: (current: League) => GuardedLifecycleDecision<T>
+): Promise<T> {
+  return mutateRegistry((leagues) => {
+    const idx = leagues.findIndex((league) => league.slug === slug);
+    if (idx === -1) return { result: notFound };
+
+    const current = leagues[idx]!;
+    const decision = decide(current);
+    if (decision.status === null) return { result: decision.result };
+
+    const next = applyLifecycleStatus(current, decision.status);
+    return {
+      next: leagues.map((league, index) => (index === idx ? next : league)),
+      result: decision.project(next),
+    };
+  });
+}
+
+/**
+ * Compatibility lifecycle setter retained for the existing cron and test
+ * controls. The guarded commissioner operations below use the same authority
+ * with expected-state predicates instead of calling this unrestricted setter.
  */
 export async function updateLeagueStatus(
   slug: string,
   status: LeagueStatus
 ): Promise<League | null> {
-  return mutateRegistry((leagues) => {
-    const idx = leagues.findIndex((l) => l.slug === slug);
-    if (idx === -1) return { result: null };
-    const current = leagues[idx]!;
-    const next: League =
-      status.state === 'offseason'
-        ? { ...current, status, year: lastAuthoritativeYear(current) }
-        : { ...current, status, year: status.year };
-    const updated = leagues.map((l, i) => (i === idx ? next : l));
-    return { next: updated, result: next };
-  });
+  return guardedLifecycleWrite<League | null>(slug, null, () => ({
+    status,
+    project: (written) => written,
+  }));
+}
+
+export type BeginPreseasonOutcome =
+  | { outcome: 'transitioned'; year: number }
+  | { outcome: 'league-not-found' }
+  | { outcome: 'not-in-offseason' }
+  | { outcome: 'unusable-stored-year' }
+  | { outcome: 'unusable-next-year' };
+
+/** Guarded offseason → preseason transition with year derivation under lock. */
+export async function beginPreseasonTransition(slug: string): Promise<BeginPreseasonOutcome> {
+  return guardedLifecycleWrite<BeginPreseasonOutcome>(
+    slug,
+    { outcome: 'league-not-found' },
+    (current) => {
+      if (current.status?.state !== 'offseason') {
+        return { status: null, result: { outcome: 'not-in-offseason' } };
+      }
+      if (!isStructurallyValidSeasonYear(current.year)) {
+        return { status: null, result: { outcome: 'unusable-stored-year' } };
+      }
+
+      const nextYear = current.year + 1;
+      if (!isStructurallyValidSeasonYear(nextYear)) {
+        return { status: null, result: { outcome: 'unusable-next-year' } };
+      }
+
+      return {
+        status: { state: 'preseason', year: nextYear },
+        project: () => ({ outcome: 'transitioned', year: nextYear }),
+      };
+    }
+  );
+}
+
+export type CompletePreseasonSetupOutcome =
+  | { outcome: 'completed'; year: number }
+  | { outcome: 'already-complete'; year: number }
+  | { outcome: 'league-not-found' }
+  | { outcome: 'not-in-preseason' }
+  | { outcome: 'year-mismatch' };
+
+/** Guarded setup completion for the exact preseason year submitted. */
+export async function completePreseasonSetup(
+  slug: string,
+  year: number
+): Promise<CompletePreseasonSetupOutcome> {
+  return guardedLifecycleWrite<CompletePreseasonSetupOutcome>(
+    slug,
+    { outcome: 'league-not-found' },
+    (current) => {
+      const status = current.status;
+      if (status?.state !== 'preseason') {
+        return { status: null, result: { outcome: 'not-in-preseason' } };
+      }
+      if (status.year !== year) {
+        return { status: null, result: { outcome: 'year-mismatch' } };
+      }
+
+      const completedStatus: LeagueStatus = {
+        state: 'preseason',
+        year: status.year,
+        setupComplete: true,
+      };
+      if (status.setupComplete === true && current.year === status.year) {
+        return {
+          status: null,
+          result: { outcome: 'already-complete', year: status.year },
+        };
+      }
+      return {
+        status: completedStatus,
+        project: () => ({
+          outcome: status.setupComplete === true ? 'already-complete' : 'completed',
+          year: status.year,
+        }),
+      };
+    }
+  );
 }
 
 export type SeasonRolloverTransition =

@@ -158,7 +158,28 @@ Execution order within F2 (each slice is one independently deployable PR):
     `sp-ratings`/`win-totals` durable rows are left untouched (no destructive cleanup). ✅
     **Merged (PR #440, merge commit `9c3b6ce`, 2026-08-03);** full gate green, self-review + Codex
     round 1 clean.
-11. **F2H — Season Management consolidation** — **the next slice**.
+11. **F2H — Season Management consolidation** — split after the lifecycle-authority audit so each
+    correctness boundary remains independently reviewable:
+    - **F2H1A — lifecycle guards core** — **Implemented; draft PR #442 open.** One guarded registry authority now owns
+      commissioner offseason→preseason and exact-year setup completion; accepted transitions write
+      `status` + the compatibility `year` projection atomically, stale/concurrent submissions write
+      nothing, and new-league creation enforces the existing integer
+      `2000..currentUTCYear+1` ingress horizon. The existing cron/test compatibility setter delegates
+      through the same write authority; cron policy, recovery, rollover, and UI are excluded.
+    - **F2H1B — automated transition convergence** — planned after F2H1A: migrate the daily
+      season-transition caller off the unrestricted compatibility setter, make test-league exclusion
+      and duplicate/deleted-target dispositions explicit, preserve truthful event/receipt counts,
+      audit standings invalidation, then retire or narrow the compatibility setter.
+    - **F2H1R — missing-lifecycle recovery** — planned after F2H1B: a separately confirmed recovery
+      operation for genuinely missing legacy status, with corrupt-registry vs missing-league truth and
+      an explicit consequence model for schedule/rankings targeting, rollover eligibility,
+      operational-season resolution, and cache invalidation.
+    - **F2H2 — rollover/archive/backfill consolidation** — planned: converge the remaining rollover
+      projection/result contract, fix benign redelivery reporting without hiding genuine refusals,
+      consolidate the duplicate strict rollover UI, and organize archive/backfill operations.
+    - **F2H3 — Season Management presentation** — planned: render per-league lifecycle separately
+      from automation ownership and surface guarded refusal/recovery outcomes with operator-readable
+      action state.
 12. Then, in order: F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
     navigation closeout.
 
@@ -259,6 +280,7 @@ unless verified in merged work.
 - **Per-game live-overlay freshness granularity (deferred at PLATFORM-086B2B, owner decision 2026-07-28).** The scores freshness signals are per-partition/global, not per-game: `snapshotAt` (the "Scores updated …" label) is the oldest contributing partition's `meta.generatedAt`, and `isStale` (live-overlay dimming) is a single successful-observation flag for the whole overlay. In a provider-gap scenario — a game that drops out of the scoreboard while still live, so the cron preserves its stale row while other games in the partition keep updating — a fresh sibling can ride over that stale game (the partition's newest-row timestamp), and the global `isStale` cannot dim just that game. This is strictly better than pre-086B2B (which reported every game fresh on any client poll) and does not affect standings/records (server canonical). The true fix is per-game freshness: thread per-game effective timestamps (`itemUpdatedAtById`) to the client and make `selectLiveDelta` compute per-game staleness. Documented in `src/lib/scores.ts` (`noteSnapshot`). Not scheduled.
 - **Accepted — synthetic-only empty-usable catalog (PLATFORM-086H3C1), not production-reachable.** A nonempty-but-registry-unusable team catalog (e.g. `[{ school: '' }]`) can bypass `buildCanonicalGameStatsSlate`'s `teams.length === 0` catalog-authority guard **only via a direct synthetic call**: production `getTeamDatabaseItems()` sanitizes every entry through `toTeamCatalogItem` (drops empty-`school` items), so an unusable catalog collapses to `[]` and is already caught as `catalog-load-failed`. Accepted as test-only robustness — the pure builder stays exported for unit tests (not privatized); if ever hardened, tighten the precondition to require ≥1 registry-usable entry.
 - **Cron `maxDuration`/latency-envelope hardening (deferred P3 from the PLATFORM-086E1C2 review, 2026-07-30).** The weekly schedule-refresh and season-transition cron routes declare no explicit `maxDuration` (nothing in the routes or `vercel.json`), so their latency envelope is the platform default; in a sustained provider-brownout worst case the E1C2 presentation wiring roughly doubles a pre-existing E1A exposure (the qualifying-year presentation calls run after the canonical work in the same invocation). Self-healing (leases/backoff/TTLs recover on a later delivery) and speculative — no observed incident. Harden when either cron route is next touched. Full record: `docs/prompt-registry.md` → `PLATFORM-086E1C2-SCHEDULE-PRESENTATION-AUTOMATION-WIRING-v1`. Not scheduled.
+- **Unusable persisted lifecycle-year recovery (PLATFORM-086F2H1A review, 2026-08-03).** F2H1A correctly refuses and logs an offseason record whose stored year is not a safe structural season year, rather than deriving and persisting another corrupt value. F2H1R is scoped to genuinely missing status and therefore does not repair this distinct corruption class. Before F2H1R/F2H3 closes, decide whether to add a separately confirmed data-correction operation with an explicit replacement year and the same targeting/invalidation consequence disclosure; until then, the record remains fail-closed with no operator repair surface.
 - **Candidate follow-ups recorded in historical entries (pointers only — descriptions live in their
   records):** PLATFORM-045 (league-route canonical-loader dedup), PLATFORM-052 (podium/hero live
   badge; `liveCountByOwner` staleness alignment), PLATFORM-054/055/056 (canonical-layer candidates:

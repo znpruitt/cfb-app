@@ -52,6 +52,28 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1A-LIFECYCLE-GUARDS-CORE-v2
+
+- Purpose: Reconstruct the lifecycle-guard core from clean `main` after the larger PR #441 attempt
+  accumulated review-driven scope and was rejected before merge.
+- Scope: One `guardedLifecycleWrite` authority and shared `applyLifecycleStatus` projection for the
+  commissioner offseason→preseason and exact-year setup-completion actions; the compatibility
+  `updateLeagueStatus` setter delegates through that authority. Add ingress-only new-league year
+  validation and safe refusal logging. Exclude cron policy, recovery, rollover, test-control redesign,
+  and UI presentation.
+- Outcome: State validation or successor derivation occurs against the registry record held under the
+  transaction lock; accepted changes persist lifecycle status and top-level year together; stale,
+  concurrent, or unusable-year requests write nothing. Persisted legacy years remain structurally
+  tolerated while new records use the existing `2000..currentUTCYear+1` horizon.
+- Verification/review: 35 focused lifecycle/action/creation tests and the full 3,163-test suite pass;
+  TypeScript, `lint:all`, production build, and diff check are clean. Independent Codex round 1 found
+  one P2 authority-bypass concern; the compatibility setter was moved onto the guarded authority,
+  and round 2 was clean at P0–P2. A final external review independently reproduced every gate and
+  recommended approval; its binding-doc correction and static `aliases` route-collision finding were
+  folded in, while the unusable-year recovery gap was registered separately.
+- Status: **Implemented — draft PR #442 open; unmerged.** This bounded replacement supersedes the
+  unmerged PR #441 implementation attempt.
+
 ### PLATFORM-086F2G1-DRAFT-ASSISTANCE-RETIREMENT-v1
 
 - Purpose: Remove SP+ ratings and win totals from the draft experience before the in-person draft.
