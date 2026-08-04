@@ -69,8 +69,8 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   TypeScript, `lint:all`, production build, and diff check are clean. Independent Codex round 1 found
   one P2 authority-bypass concern; the compatibility setter was moved onto the guarded authority,
   and round 2 was clean at P0–P2.
-- Status: **Implemented locally — replacement PR pending; unmerged.** PR #441 remains an unmerged,
-  superseded attempt until the replacement PR is published.
+- Status: **Implemented — draft PR #442 open; unmerged.** This bounded replacement supersedes the
+  unmerged PR #441 implementation attempt.
 
 ### PLATFORM-086F2G1-DRAFT-ASSISTANCE-RETIREMENT-v1
 

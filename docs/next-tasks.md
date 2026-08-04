@@ -160,7 +160,7 @@ Execution order within F2 (each slice is one independently deployable PR):
     round 1 clean.
 11. **F2H — Season Management consolidation** — split after the lifecycle-authority audit so each
     correctness boundary remains independently reviewable:
-    - **F2H1A — lifecycle guards core** — **In progress.** One guarded registry authority now owns
+    - **F2H1A — lifecycle guards core** — **Implemented; draft PR #442 open.** One guarded registry authority now owns
       commissioner offseason→preseason and exact-year setup completion; accepted transitions write
       `status` + the compatibility `year` projection atomically, stale/concurrent submissions write
       nothing, and new-league creation enforces the existing integer
