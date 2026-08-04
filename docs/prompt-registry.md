@@ -52,6 +52,39 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1B-AUTOMATED-TRANSITION-CONVERGENCE-v1
+
+- Purpose: Migrate the daily season-transition cron onto an exact-year, transaction-guarded
+  transition, and make concurrent/deleted/refused targets explicit across every reporting surface.
+- Scope: `completeSeasonTransition` in `src/lib/leagueRegistry.ts`; `GET /api/cron/season-transition`;
+  the lifecycle event contract; the season-transition scheduler-receipt target; the System Health
+  receipt summary; focused tests. **Deliberately excludes** — after a first attempt was reconstructed
+  for breaching the PR-sizing rule by crossing two automation jobs — every `schedule-refresh` change,
+  the `isAutomaticLifecycleTarget` predicate, automatic test-league exclusion, and retirement of the
+  arbitrary-slug `updateLeagueStatus`. The test league keeps its current automatic behavior, so this
+  slice creates no ownership gap. Also excludes F2H1R recovery, rollover, archive/backfill, and
+  Season Management UI.
+- Outcome: Binding behavior is in [`AGENTS.md`](../AGENTS.md) → **Lifecycle Authority Invariants**;
+  the contract is in [`docs/architecture/admin-control-plane.md`](architecture/admin-control-plane.md)
+  → **Automated transition convergence**; the additive backward-compatible receipt counters are in
+  [`docs/architecture/storage-and-caching.md`](architecture/storage-and-caching.md). The route
+  declares `maxDuration = 300`, which depends on the project's confirmed Vercel Hobby + Fluid
+  Compute configuration; the scheduler configuration and daily cadence are unchanged and
+  `vercel.json` is untouched. Retiring `updateLeagueStatus` and deciding demo-league automation
+  policy are deferred to their own slices.
+- Size (stop-and-reassess signals tripped; explicitly approved): **16 files, +2,162 / −46, +2,116
+  net.** Both signals fire (>15 files, >1,500 net lines). What expanded: focused regression tests —
+  the three test files carry ~1,500 of the insertions, against ~360 lines of implementation across
+  five source files. What did NOT expand: the slice touches ONE automation job, so the mandatory
+  split for work crossing separate automation jobs does not apply. A first attempt DID cross two
+  jobs and was reconstructed from clean `main` for that reason; the demo-league work it carried is
+  now F2H1T. The overrun was reviewed and approved rather than split, because the authority, cron,
+  event, receipt, and System Health changes form one cross-surface contract that cannot be
+  landed in halves without shipping a surface that disagrees with the others.
+- Review / verification: Each gate run as its own command with its exit code recorded against the
+  exact reviewed commit; reviews and dispositions are recorded on the PR.
+- Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
+
 ### PLATFORM-086F2H1A-LIFECYCLE-GUARDS-CORE-v2
 
 - Purpose: Reconstruct the lifecycle-guard core from clean `main` after the larger PR #441 attempt

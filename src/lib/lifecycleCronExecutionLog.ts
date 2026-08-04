@@ -47,6 +47,22 @@ export type SeasonTransitionCronControlReason =
   | 'probe-state-unavailable'
   | 'probe-write-failed'
   | 'lifecycle-write-failed'
+  // PLATFORM-086F2H1B — post-commit standings invalidation threw AFTER a
+  // confirmed durable transition. The transition and its counters stand; only
+  // the cache bust failed.
+  | 'standings-invalidation-failed'
+  // At least one snapshot target was no longer in `preseason` for the target
+  // year at write time. Genuinely stale, and the only anomalous disposition.
+  | 'lifecycle-transition-refused'
+  // Every target was already in the target season — a benign idempotent
+  // overlap or redelivery, not an anomaly.
+  | 'already-in-target-season'
+  // Every target was deleted from the registry after selection — a normal
+  // admin action.
+  | 'transition-targets-removed'
+  // A mixture of already-in-target and removed targets: nothing left to do,
+  // nothing wrong.
+  | 'transition-not-required'
   | 'refresh-not-due'
   | 'season-transitioned'
   | 'year-results'
@@ -71,6 +87,22 @@ export type SeasonTransitionCronYearExecution = {
   probed: boolean;
   cached: boolean;
   transitionedLeagues: number;
+  /**
+   * PLATFORM-086F2H1B — the guarded dispositions for this year's targets, kept
+   * INDEPENDENT so a benign idempotent redelivery and an intentional deletion
+   * are never indistinguishable from a genuinely stale target. Counts only:
+   * league slugs must never enter a runtime event or a durable receipt.
+   *
+   * Only `refusedLeagues` is anomalous. All four are zero when the lifecycle
+   * gate is not reached. They sum to `targetLeagues` only when the gate IS
+   * reached AND the per-league loop runs to completion: a mid-loop throw
+   * (`lifecycle-write-failed` / `standings-invalidation-failed`) publishes the
+   * dispositions completed so far, so the sum is short by the targets never
+   * attempted. Do not treat the sum as a consistency assertion.
+   */
+  alreadyInTargetSeasonLeagues: number;
+  removedLeagues: number;
+  refusedLeagues: number;
   failedSeasonTypes: ScheduleSeasonType[];
 };
 
@@ -227,6 +259,9 @@ export function emitSeasonTransitionCronExecutionEvent(
         probed: entry.probed,
         cached: entry.cached,
         transitionedLeagues: entry.transitionedLeagues,
+        alreadyInTargetSeasonLeagues: entry.alreadyInTargetSeasonLeagues,
+        removedLeagues: entry.removedLeagues,
+        refusedLeagues: entry.refusedLeagues,
         failedSeasonTypes: [...entry.failedSeasonTypes],
       })),
       durationMs,

@@ -312,7 +312,17 @@ test('all seven jobs derive the correct source and persist their target shape', 
         .slice()
         .sort()
     ),
-    [['probed', 'targetLeagues', 'transitionedLeagues', 'year'].sort()]
+    [
+      [
+        'alreadyInTargetSeasonLeagues',
+        'probed',
+        'refusedLeagues',
+        'removedLeagues',
+        'targetLeagues',
+        'transitionedLeagues',
+        'year',
+      ].sort(),
+    ]
   );
   const rollover = await readSchedulerReceipt('season-rollover');
   assert.deepEqual(
