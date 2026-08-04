@@ -146,3 +146,55 @@ test('beginPreseason synchronizes league.year to the preseason year', async () =
   assert.deepEqual(league?.status, { state: 'preseason', year: 2026 });
   assert.equal(league?.year, 2026);
 });
+
+test('beginPreseason logs a safe refusal when the next year cannot be derived', async () => {
+  await setAppState('leagues', 'registry', [
+    {
+      ...makeLeague('alpha', { state: 'offseason' }),
+      year: Number.MAX_SAFE_INTEGER,
+    },
+  ]);
+  const messages: string[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => messages.push(args.map(String).join(' '));
+  try {
+    await assert.rejects(
+      () => runCapturingTags(() => beginPreseason('alpha')),
+      /Unable to begin preseason/
+    );
+  } finally {
+    console.error = original;
+  }
+
+  assert.equal(messages.length, 1);
+  assert.deepEqual(JSON.parse(messages[0]!) as unknown, {
+    event: 'lifecycle-action-refused',
+    action: 'begin-preseason',
+    leagueSlug: 'alpha',
+    reason: 'unusable-next-year',
+  });
+});
+
+test('completeSetup preserves redirect behavior but logs and refuses a stale-year form', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }),
+  ]);
+  const before = await getAppState<League[]>('leagues', 'registry');
+  const messages: string[] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => messages.push(args.map(String).join(' '));
+  try {
+    await runCapturingTags(() => completeSetup('alpha', 2025));
+  } finally {
+    console.warn = original;
+  }
+
+  assert.deepEqual(await getAppState<League[]>('leagues', 'registry'), before);
+  assert.equal(messages.length, 1);
+  assert.deepEqual(JSON.parse(messages[0]!) as unknown, {
+    event: 'lifecycle-action-refused',
+    action: 'complete-preseason-setup',
+    leagueSlug: 'alpha',
+    reason: 'year-mismatch',
+  });
+});

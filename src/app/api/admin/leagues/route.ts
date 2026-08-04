@@ -1,7 +1,12 @@
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getLeagues, addLeague, isValidSlug } from '@/lib/leagueRegistry';
 import { sanitizeLeague, sanitizeLeagues } from '@/lib/leagueSanitize';
-import type { League } from '@/lib/league';
+import {
+  isCreatableSeasonYear,
+  maxCreatableSeasonYear,
+  MIN_SEASON_YEAR,
+  type League,
+} from '@/lib/league';
 
 /** Slugs that collide with static /admin/* routes and cannot be used for leagues. */
 const RESERVED_ADMIN_SLUGS = new Set([
@@ -55,8 +60,14 @@ export async function POST(req: Request): Promise<Response> {
       { status: 400 }
     );
   if (!displayName) return new Response('displayName is required', { status: 400 });
-  if (!Number.isFinite(year) || year < 2000)
-    return new Response('year must be a valid season year', { status: 400 });
+  const now = new Date();
+  const nowMs = now.getTime();
+  if (!isCreatableSeasonYear(year, nowMs)) {
+    return new Response(
+      `year must be an integer season year between ${MIN_SEASON_YEAR} and ${maxCreatableSeasonYear(nowMs)}`,
+      { status: 400 }
+    );
+  }
 
   const existing = await getLeagues();
   if (existing.some((l) => l.slug === slug)) {
@@ -72,8 +83,8 @@ export async function POST(req: Request): Promise<Response> {
     slug,
     displayName,
     year,
-    createdAt: new Date().toISOString(),
-    foundedYear: new Date().getFullYear(),
+    createdAt: now.toISOString(),
+    foundedYear: now.getUTCFullYear(),
     status: { state: 'season', year },
   };
 

@@ -158,7 +158,28 @@ Execution order within F2 (each slice is one independently deployable PR):
     `sp-ratings`/`win-totals` durable rows are left untouched (no destructive cleanup). ✅
     **Merged (PR #440, merge commit `9c3b6ce`, 2026-08-03);** full gate green, self-review + Codex
     round 1 clean.
-11. **F2H — Season Management consolidation** — **the next slice**.
+11. **F2H — Season Management consolidation** — split after the lifecycle-authority audit so each
+    correctness boundary remains independently reviewable:
+    - **F2H1A — lifecycle guards core** — **In progress.** One guarded registry authority now owns
+      commissioner offseason→preseason and exact-year setup completion; accepted transitions write
+      `status` + the compatibility `year` projection atomically, stale/concurrent submissions write
+      nothing, and new-league creation enforces the existing integer
+      `2000..currentUTCYear+1` ingress horizon. The existing cron/test compatibility setter delegates
+      through the same write authority; cron policy, recovery, rollover, and UI are excluded.
+    - **F2H1B — automated transition convergence** — planned after F2H1A: migrate the daily
+      season-transition caller off the unrestricted compatibility setter, make test-league exclusion
+      and duplicate/deleted-target dispositions explicit, preserve truthful event/receipt counts,
+      audit standings invalidation, then retire or narrow the compatibility setter.
+    - **F2H1R — missing-lifecycle recovery** — planned after F2H1B: a separately confirmed recovery
+      operation for genuinely missing legacy status, with corrupt-registry vs missing-league truth and
+      an explicit consequence model for schedule/rankings targeting, rollover eligibility,
+      operational-season resolution, and cache invalidation.
+    - **F2H2 — rollover/archive/backfill consolidation** — planned: converge the remaining rollover
+      projection/result contract, fix benign redelivery reporting without hiding genuine refusals,
+      consolidate the duplicate strict rollover UI, and organize archive/backfill operations.
+    - **F2H3 — Season Management presentation** — planned: render per-league lifecycle separately
+      from automation ownership and surface guarded refusal/recovery outcomes with operator-readable
+      action state.
 12. Then, in order: F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
     navigation closeout.
 

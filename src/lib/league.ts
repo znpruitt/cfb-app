@@ -3,6 +3,34 @@ export type LeagueStatus =
   | { state: 'offseason' }
   | { state: 'preseason'; year: number; setupComplete?: boolean };
 
+/** Earliest year accepted when a new league is created. */
+export const MIN_SEASON_YEAR = 2000;
+
+/** Latest year accepted when a new league is created. */
+export function maxCreatableSeasonYear(nowMs: number): number {
+  return new Date(nowMs).getUTCFullYear() + 1;
+}
+
+/**
+ * Whether a persisted value can safely participate in lifecycle arithmetic.
+ *
+ * This is deliberately broader than the creation horizon: legacy records must
+ * remain advanceable, while non-integers, pre-football years, and values whose
+ * successor cannot be represented exactly are refused instead of persisted.
+ */
+export function isStructurallyValidSeasonYear(year: unknown): year is number {
+  return typeof year === 'number' && Number.isSafeInteger(year) && year >= 1869;
+}
+
+/** Whether a year may enter the registry through new-league creation. */
+export function isCreatableSeasonYear(year: unknown, nowMs: number): year is number {
+  return (
+    isStructurallyValidSeasonYear(year) &&
+    year >= MIN_SEASON_YEAR &&
+    year <= maxCreatableSeasonYear(nowMs)
+  );
+}
+
 /**
  * Server-internal league record. Contains credential material (passwordHash,
  * passwordSalt) that must NEVER cross a server→client RSC boundary or an API
