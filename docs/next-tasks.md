@@ -190,6 +190,22 @@ Execution order within F2 (each slice is one independently deployable PR):
         clean post-DOCS-013 `main`. `TestLeagueControls.tsx` is untouched — operator-readable
         feedback is F2H3's, because Next redacts Server Action rejection messages in production, so
         a message-only surface cannot work there.
+    - **F2H1S — admin Server Action authorization** — **NEXT after F2H1T1, before F2H1T2.**
+      Next.js resolves a Server Action from the `Next-Action` header, not the request path, so the
+      path-prefix middleware gate (`requiresPlatformAdminPage`) does not cover direct invocation:
+      an unauthenticated POST to a public path carrying an action ID reaches the action. Official
+      Next.js guidance is that Server Actions must be treated as public endpoints and authorized
+      INSIDE the action
+      ([authentication guide](https://nextjs.org/docs/app/guides/authentication#server-actions)).
+      All NINE exported actions in `src/app/admin/[slug]/actions.ts` are affected —
+      `setTestLeagueStatus`, `resetTestDraft`, `resetTestLeague`, `beginPreseason`,
+      `setAssignmentMethod`, `confirmPreseasonOwners`, `completeSetup`, `migrateTestOwnersCsv`,
+      `autoCompleteDraft` — and four of them take a slug, so the exposure reaches PRODUCTION
+      leagues, not just the demo. Add one shared platform-admin guard invoked inside each action,
+      refusing before any read, write, cleanup, or revalidation, and test direct invocation
+      independently of the requested pathname. Pre-existing and codebase-wide; surfaced during the
+      F2H1T1 v2 review. Deliberately NOT folded into F2H1T1 — bundling a security fix into a
+      lifecycle slice is the scope mistake that required v1's reconstruction.
       - **F2H1T2 — season-transition exclusion**, then **F2H1T3 — weekly-schedule exclusion**, then
         **F2H1T4 — rankings exclusion**, then **F2H1T5 — System Health operational-year isolation**.
         Separate because they are separate automation jobs under the binding sizing rule, and each

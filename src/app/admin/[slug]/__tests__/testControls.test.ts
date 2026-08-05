@@ -78,12 +78,16 @@ test.after(() => {
   __resetAppStateForTests();
 });
 
-// Risk: cleanup targets a year the action computed itself, diverging from the
-// year the authority actually installed.
+// CONTRACT PIN, not a mutation-verified regression guard. The retired local
+// derivation and the authority's produce the SAME year for every stored shape
+// (season, preseason, offseason, missing), so no single-threaded test can tell
+// them apart — the change is WHERE derivation happens (inside the registry lock
+// rather than from a React-`cache`d read), and only concurrency demonstrates
+// that. What this pins is that cleanup follows the authority's answer and
+// touches no other year.
 test('preseason cleanup targets the year the AUTHORITY resolved', async () => {
   // Deliberately desynchronized: `league.year` (2019) is NOT the authoritative
-  // year. The old action derived from `league.year` for offseason/missing
-  // records; the authority derives from `status.year`. Only 2026 may be cleared.
+  // year, so a cleanup keyed off `league.year` would target 2020.
   await seed(makeLeague(TEST_LEAGUE_SLUG, 2019, { state: 'season', year: 2025 }));
   await seedDemoScopes(2026);
   await seedDemoScopes(2020); // the year a stale local derivation would target

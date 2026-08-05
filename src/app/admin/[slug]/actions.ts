@@ -44,8 +44,14 @@ async function clearTestLeagueYear(year: number): Promise<void> {
 }
 
 /**
- * Set the lifecycle status of the demo league. Structurally demo-only — the
- * authority takes no slug, so no production league is reachable from here.
+ * Set the lifecycle status of the demo league.
+ *
+ * "Structurally demo-only" here describes TARGET REACH, not authentication: the
+ * authority takes no slug, so whoever calls this cannot steer it at a production
+ * league. It is NOT an authorization claim. Like every Server Action, this is
+ * reachable by direct invocation regardless of the requested pathname, and the
+ * path-prefix middleware gate does not cover that — authorizing inside the
+ * action is owned by PLATFORM-086F2H1S.
  *
  * PLATFORM-086F2H1T1: the year is derived and validated INSIDE the registry
  * transaction. This action no longer reads the league first and submits a year
@@ -103,9 +109,13 @@ export async function resetTestDraft(): Promise<void> {
 }
 
 /**
- * Hard-reset the test league to { state: 'season', year: 2025 }. The lifecycle
- * authority synchronizes league.year in the same write.
- * Also clears all 2026 preseason/draft state so the next dry run starts clean.
+ * Hard-reset the demo league's lifecycle to `TEST_LEAGUE_RESET_YEAR`. The
+ * authority synchronizes `league.year` in the same write.
+ *
+ * Also clears the demo-scoped preseason/owners/draft state for the DERIVED
+ * SUCCESSOR year — the preseason a fresh dry run will use — so the next run
+ * starts clean. Both years are derived, never written as literals here: the
+ * cleanup year must follow the reset year, not a hardcoded pair.
  */
 export async function resetTestLeague(): Promise<void> {
   const result = await resetTestLeagueLifecycle();

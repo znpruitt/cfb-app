@@ -52,6 +52,15 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1S-SERVER-ACTION-AUTHORIZATION-v1
+
+- Purpose: Authorize the admin Server Actions inside the actions themselves, rather than relying on
+  the path-prefix middleware gate that direct invocation bypasses.
+- Scope: the nine exported actions in `src/app/admin/[slug]/actions.ts`, one shared platform-admin
+  guard, and tests that invoke each action directly, independently of the requested pathname.
+  Excludes lifecycle behavior, cron targeting, and UI.
+- Status: **Planned — NEXT after F2H1T1 merges, before F2H1T2.** Not implemented.
+
 ### PLATFORM-086F2H1T1-TEST-CONTROL-SAFETY-v2
 
 - Purpose: Make the demo league's manual lifecycle controls structurally safe BEFORE removing the
@@ -78,8 +87,16 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   in production (Next redacts Server Action rejection messages), a false claim in a commit message
   about a re-export that was never removed, and a tautological retirement assertion.
 - Review / verification: Each gate run as its own command with an unmasked exit status against the
-  exact reviewed commit; every behavioral guard verified failing against its own pre-fix code, one
-  revert at a time.
+  exact reviewed commit. FOUR guards were mutation-verified — each confirmed failing against its own
+  pre-fix code, one revert at a time: the shared `schedule-probe` deletion, the derived reset
+  cleanup year (bumping `TEST_LEAGUE_RESET_YEAR` with the action hardcoded), the
+  `rolloverTargeting.ts` re-export, and the retirement scan. Two more were mutation-verified in the
+  remediation round: the `unsupported-state` default and the non-preseason no-delete guard. The
+  cleanup-year test is NOT among them: old and new year derivations are identical for every stored
+  shape (`season`, `preseason`, `offseason`, missing), so no single-threaded test can discriminate
+  them — the change is WHERE derivation happens (inside the registry lock rather than from a
+  React-`cache`d read), which only concurrency can observe. That test is a contract pin, not a
+  mutation-verified regression.
 - Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
 
 ### PLATFORM-086F2H1B-AUTOMATED-TRANSITION-CONVERGENCE-v1

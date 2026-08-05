@@ -71,8 +71,11 @@ test('the authority accepts no slug and cannot reach a production league', async
     makeLeague('alpha', 2025, { state: 'season', year: 2025 })
   );
 
-  // Arity is the structural guarantee — there is no parameter through which a
-  // slug could be supplied.
+  // Arity is a WEAK signal, not a guarantee: `Function.length` stops counting at
+  // the first default parameter, so a reintroduced
+  // `(state, slug = TEST_LEAGUE_SLUG)` would still report 1. What this pins is
+  // the declared signature; the behavioral guarantee is the assertion below —
+  // a production league is untouched no matter what the demo control does.
   assert.equal(setTestLeagueLifecycleState.length, 1);
   assert.equal(resetTestLeagueLifecycle.length, 0);
 
