@@ -2,55 +2,44 @@
  * PLATFORM-086F2G / PLATFORM-086F2H1T5 — resolve the OPERATIONAL season year for
  * System Health.
  *
- * System Health is a current-status surface, not a historical year browser: the
- * scheduler, automation, quota, and storage FACTS are current/global, and only
- * the provider-domain inputs are season-scoped. The operational year is
- * therefore resolved SERVER-SIDE from authoritative league-registry lifecycle
+ * System Health is a current-status surface, not a historical year browser. The
+ * year is resolved SERVER-SIDE from authoritative league-registry lifecycle
  * state and is NEVER selected by the caller (no `?year=` seam).
  *
- * Note the year is not confined to the provider-data panel: the issues and
- * freshness derived from those year-scoped inputs feed `overallState`,
- * `issueCounts`, and the headline Overall tile. A wrong year can both fabricate
- * faults for the year it names AND hide genuine provider-refresh failures for
- * the year it displaced (activity is eligible only when its scope year matches).
- * That is why selecting the year correctly matters beyond one panel.
- *
- * PLATFORM-086F2H1T5 — PRODUCTION leagues alone select the year. The demo league
- * is manual-only for every automation job (F2H1T2 transition, F2H1T3 weekly
- * schedule, F2H1T4 rankings; rollover already excluded it), so a year only the
- * demo occupies is serviced by nothing and would report permanently missing or
- * stale provider data.
- *
  * Rule (deterministic), over PRODUCTION leagues only:
- *   1. Among production leagues whose lifecycle state is `preseason` or
- *      `season`, take the highest `status.year` (the lifecycle authority — never
- *      `league.year` for an active/preseason league).
+ *   1. Among production leagues in `preseason` or `season`, the highest
+ *      `status.year` (the lifecycle authority — never `league.year` for an
+ *      active league).
  *   2. Otherwise the highest stored production `league.year`.
  *   3. Otherwise the calendar season-for-today.
- * The result is clamped to [2000, current UTC year + 1].
+ * Clamped to [2000, current UTC year + 1].
  *
- * The exclusion is UNCONDITIONAL — deliberately unlike the F2H1T3/F2H1T4 shape,
- * which gates on an active lifecycle state. Those jobs gate because an
- * `offseason` demo was never an automatic TARGET, so flagging it would falsify
- * their zero-target reason. Here both branches read the registry, and the second
+ * PLATFORM-086F2H1T5 — the demo league does not select the year. It is
+ * manual-only for every lifecycle and provider automation job, so no job
+ * maintains the SCHEDULE, RANKINGS, or LIFECYCLE of a year only it occupies.
+ * (Narrower than "serviced by nothing": the live-scores, game-stats, and odds
+ * jobs key off the calendar season and the canonical schedule, not the registry.)
+ *
+ * ONE THING TO GET RIGHT IF YOU EDIT THIS: the exclusion is UNCONDITIONAL.
+ * Do NOT add the `isActive &&` gate the F2H1T3/F2H1T4 selectors use — here it is
+ * a defect, and it is mutation-pinned as one. Those jobs gate because an
+ * `offseason` demo was never an automatic TARGET. Here the stored-year branch
  * reads the top-level `league.year`, which `applyLifecycleStatus` keeps
- * synchronized to the demo's lifecycle and RETAINS when the demo moves to
- * `offseason`. An active-only exclusion would therefore leave a demo parked in
- * offseason still selecting the year. Offseason and status-less demo records
- * must be excluded too.
+ * synchronized to the demo's lifecycle and RETAINS on the move to `offseason`,
+ * so an active-only exclusion leaves a demo parked in offseason still selecting
+ * the year. Offseason and status-less demo records must be excluded too.
  *
- * The predicate is slug-only: it never reads a demo `year`, so an unvalidated
- * legacy value cannot influence resolution before the demo is rejected. A record
- * whose `slug` is not the demo slug is treated as production, which fails toward
- * production rather than letting a corrupt record gain demo-like influence.
+ * The predicate is slug-only and never reads a demo `year`, so an unvalidated
+ * legacy value cannot influence resolution before the demo is rejected; a record
+ * whose slug is not the demo slug is treated as production, failing toward
+ * production rather than letting corruption acquire demo-like influence.
  *
- * SCOPE NOTE: this removes demo INFLUENCE. It does not promise the resolved year
- * is one automation maintains — an all-offseason registry resolves to the last
- * authoritative production projection, and a registry with no production league
- * resolves to the calendar season. Either may still need manual provider-data
- * preparation. Year VALIDITY (`Number.isInteger` admits structurally unusable
- * values that the clamp can then launder into a plausible year) is F2H1R's, not
- * this slice's.
+ * SCOPE: this removes demo INFLUENCE. It does not promise the resolved year is
+ * one automation maintains — both fallbacks can land on a year needing manual
+ * provider-data preparation. Year VALIDITY is F2H1R's, not this slice's.
+ *
+ * The binding rule lives in AGENTS.md (Lifecycle Authority invariant 2); the
+ * operator-facing description is `docs/operations/diagnostics.md`.
  */
 
 import { TEST_LEAGUE_SLUG, type League } from '../league.ts';
@@ -75,6 +64,11 @@ function resolveFromProductionLeagues(leagues: League[], nowMs: number): number 
 
   const active = leagues
     .filter((l) => l.status?.state === 'preseason' || l.status?.state === 'season')
+    // The `: l.year` arm is UNREACHABLE — the filter above already guarantees an
+    // active state. It is retained as the type-narrowing device that lets this
+    // read `status.year` at all (`filter` does not narrow the element type), and
+    // is byte-identical to the pre-T5 expression so this move is provably
+    // behavior-preserving. `league.year` never feeds the active branch.
     .map((l) => (l.status && l.status.state !== 'offseason' ? l.status.year : l.year))
     .filter((y) => Number.isInteger(y));
   if (active.length > 0) return clamp(Math.max(...active), maxYear);

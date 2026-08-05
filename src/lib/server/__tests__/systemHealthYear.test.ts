@@ -107,6 +107,19 @@ test('T5 regression: an offseason demo cannot win the stored-year fallback', () 
   assert.equal(resolveOperationalSeasonYear({ leagues, nowMs: NOW }), 2024);
 });
 
+// REGRESSION — a STATUS-LESS demo record is excluded too. The docblock and the
+// binding rule both assert this, and without this case a predicate narrowed to
+// `slug === TEST_LEAGUE_SLUG && league.status` compiles and survives the whole
+// suite, because every other demo fixture here carries a status. A legacy demo
+// row with no `status` is exactly the corrupt-lifecycle class F2H1R exists for.
+test('T5 regression: a status-less demo record cannot win the stored-year fallback', () => {
+  const leagues = [
+    league({ slug: 'a', year: 2024, status: { state: 'offseason' } }),
+    league({ slug: TEST_LEAGUE_SLUG, year: 2027, status: undefined }),
+  ];
+  assert.equal(resolveOperationalSeasonYear({ leagues, nowMs: NOW }), 2024);
+});
+
 // REGRESSION — branch isolation. An ACTIVE demo must not suppress the production
 // stored-year fallback: with the demo removed the active pool is empty, so
 // resolution must fall to production's stored year rather than the demo's.

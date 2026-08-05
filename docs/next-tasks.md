@@ -225,8 +225,8 @@ Execution order within F2 (each slice is one independently deployable PR):
       - **F2H1T2 — season-transition exclusion** — ✅ MERGED (PR #448, `6ab927c`, 2026-08-05).
         **F2H1T3 — weekly-schedule exclusion** — ✅ MERGED (PR #449, `c15413e`, 2026-08-05). Then
         **F2H1T4 — rankings exclusion** — ✅ MERGED (PR #450, `27a6c37`, 2026-08-05). Then
-        **F2H1T5 — System Health operational-year isolation** — **NEXT**, implemented and in
-        review. It resolves the operational season from PRODUCTION leagues only, filtering
+        **F2H1T5 — System Health operational-year isolation** — implemented, in review. No slice
+        carries the **NEXT** marker while T5 is in flight; **F2H1R** takes it at T5's merge. It resolves the operational season from PRODUCTION leagues only, filtering
         `TEST_LEAGUE_SLUG` from the population ONCE before both branches. **The F2H1T3/T4
         `isActive &&` shape must NOT be copied here and is a verified mutation:** the stored-year
         branch reads the top-level `league.year`, which is retained when the demo moves to
@@ -258,8 +258,8 @@ Execution order within F2 (each slice is one independently deployable PR):
         receipt named an owner that did not exist. T3 removed that false deferral at its source: a
         demo-only year is no longer a weekly candidate at all, the run reports
         `skipped / no-automatic-maintenance-target` instead of naming a nonexistent owner, and the
-        demo can no longer change which policy a SHARED year runs under. **Still open until T5, and T3 widens it:**
-        `resolveOperationalSeasonYear` counts the demo league, so a demo-only year can become the
+        demo can no longer change which policy a SHARED year runs under. **Closed by T5 (implemented, in review), and T3 had widened it:**
+        `resolveOperationalSeasonYear` counted the demo league, so a demo-only year could become the
         System Health operational season. If nothing ever caches its schedule, `schedule-cache-missing`
         is a PERSISTENT critical rather than a transient one. T3 added a second half: a demo-owned
         operational year whose schedule IS already cached was refreshed by the weekly cron before
@@ -279,9 +279,12 @@ Execution order within F2 (each slice is one independently deployable PR):
         (`warning` → `degraded`) becomes permanently true for that year. All carry a working Data
         Maintenance repair link, but the repair does not stick, because nothing automatic
         re-maintains the year. In the dominant case the missing schedule signal (severity `error`)
-        already subsumes them. Three warnings an operator cannot
-        clear from the automation surface until T5. That is a consequence of shipping the exclusions one job at a
-        time, which the binding sizing rule requires; T5 closes it.
+        already subsumes them. Three warnings an operator could not
+        clear from the automation surface. That is a consequence of shipping the exclusions one job at a
+        time, which the binding sizing rule requires. **T5 (implemented, in review) removes them from
+        the operator's surface by no longer REPORTING on demo-owned years — it does not restore
+        maintenance to those years, and the same signals stay reachable on the two production
+        fallbacks. See the T5 paragraph above for the precise scope.**
       - Also carried: the reset year stays 2025, so the demo's next preseason is the live
         production year — resolved by the exclusions, not by redesigning the reset.
       - **Recorded by the F2H1T3 review, deliberately NOT fixed in that slice.**
@@ -343,6 +346,17 @@ Execution order within F2 (each slice is one independently deployable PR):
         here, because `Number.isInteger` already drops it. Belongs to F2H1R, which owns year validity.
         T5 deliberately left `Number.isInteger` untouched — tightening it would change PRODUCTION
         resolution, which T5 promised to preserve.
+        (k) **T5 makes System Health and Data Maintenance disagree on the default year.**
+        `/admin/data/cache` defaults its refresh panels to the FIRST `preseason` league
+        (`src/app/admin/data/cache/page.tsx`), demo included, and the System Health repair link
+        (`systemHealthIssues.ts`) carries no year parameter. Before T5 both surfaces resolved the
+        same demo year — agreeing, though both wrong. After T5 System Health reports the production
+        year while the repair surface it links to can still pre-fill the demo's, so an operator
+        following the link may bill provider quota against the wrong year while the original issue
+        persists. The panel's year input is operator-editable, so this is a defaulting mismatch, not
+        a forced misfire. NOT fixed in T5: `/admin/data/cache` is a UI surface this slice explicitly
+        scoped out, and aligning the two defaults is a presentation decision (F2H3) or a matter of
+        adding a year to the repair link. Surfaced by the T5 review, not by the audit.
         (j) **The season-rollover cron can report a zero-target reason that is false.**
         `GET /api/cron/season-rollover` calls `groupRolloverTargets`, which excludes the demo, then
         reports `skipped / no-season-leagues` with the body "no leagues in season state". When the
