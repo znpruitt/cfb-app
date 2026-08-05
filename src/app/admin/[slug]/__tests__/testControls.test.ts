@@ -5,7 +5,21 @@ import test from 'node:test';
 // Next storage module loads, so the server actions' `revalidatePath` runs under
 // the bare node:test runner. Imported rather than re-implemented — the store
 // shape is a Next internal, and one copy is enough to maintain.
-import { runWithRevalidateContext } from '../../../api/draft/[slug]/[year]/__tests__/_setup/revalidateContext';
+import { runWithRevalidateContext as runInNextContext } from '../../../api/draft/[slug]/[year]/__tests__/_setup/revalidateContext';
+import { __withAdminActionAuthorizerForTests } from '../../../../lib/auth/requireAdminAction.ts';
+
+/**
+ * PLATFORM-086F2H1SB — every action in this suite now authorizes itself, and
+ * the bare test runner has no Clerk request context. Authorize once here so the
+ * existing behavioral assertions keep testing what they were written to test.
+ * Refusal is covered separately, against the REAL fail-closed authorizer.
+ */
+function runWithRevalidateContext<T>(fn: () => Promise<T>): Promise<T> {
+  return __withAdminActionAuthorizerForTests(
+    () => true,
+    () => runInNextContext(fn)
+  );
+}
 
 import { resetTestLeague, setTestLeagueStatus } from '../actions';
 import { TEST_LEAGUE_SLUG, type League } from '../../../../lib/league.ts';

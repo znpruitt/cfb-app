@@ -393,13 +393,15 @@ These rules apply from Phase 6 onward and must not be violated:
 
 3. **Route protection via Clerk middleware only** — never roll custom auth middleware. The single Clerk middleware instance in `middleware.ts` is the only place route-level auth rules live.
 
-4. **API routes use `requireAdminAuth(req)`** — this helper checks Clerk JWT first, falls back to `ADMIN_API_TOKEN` during the Phase 6 transition period. It is a drop-in replacement for the old `requireAdminRequest()`. All new admin API routes must support Clerk JWT from day one.
+4. **Server Actions authorize at their own boundary via `requireAdminAction(name)`** (PLATFORM-086F2H1SB). Next treats an exported Server Action as a public endpoint reachable by its action id, so route protection is defense in depth and NEVER the action's authority. Every exported action in `src/app/admin/[slug]/actions.ts` calls the guard as its FIRST executable statement, before argument validation, registry/app-state reads, writes, cleanup, standings invalidation, `revalidatePath`, or redirects. The guard calls `isPlatformAdminSession()` with NO argument — passing a `Request` would reach the `ADMIN_API_TOKEN` branch, whose no-token path authorizes any caller outside production — and refuses outright when `CLERK_SECRET_KEY` is blank, because Clerk's header-signature check degrades to an HMAC over the empty string. Refusal is a plain thrown `Error`: never `redirect()` or `notFound()`, which would fetch or render the very route being refused. The precise guarantee is that after ACTION ENTRY no application or durable read, write, or side effect precedes authorization — Next deserializes arguments before entry, so "zero reads" is not claimed. A new Server Action module requires an explicit authorization decision; a test fails if one appears.
 
-5. **`ADMIN_API_TOKEN` fallback is deferred until Phase 8** — it exists only for Phase 6 backward compatibility. Removal is deferred until the Phase 8 multi-tenant commissioner signup ships, at which point commissioner-scoped Clerk roles replace any remaining token-based fallbacks. Do not build new flows that depend on it. Removal trigger: Phase 8 work begins.
+5. **API routes use `requireAdminAuth(req)`** — this helper checks Clerk JWT first, falls back to `ADMIN_API_TOKEN` during the Phase 6 transition period. It is a drop-in replacement for the old `requireAdminRequest()`. All new admin API routes must support Clerk JWT from day one.
 
-6. **Never hardcode role checks outside middleware and `requireAdminAuth()`** — no inline `publicMetadata.role` comparisons in UI components or API handlers. All role assertions go through the designated helpers.
+6. **`ADMIN_API_TOKEN` fallback is deferred until Phase 8** — it exists only for Phase 6 backward compatibility. Removal is deferred until the Phase 8 multi-tenant commissioner signup ships, at which point commissioner-scoped Clerk roles replace any remaining token-based fallbacks. Do not build new flows that depend on it. Removal trigger: Phase 8 work begins.
 
-7. **Commissioner scoping is enforced in Phase 7** — `/league/[slug]/draft/*` will require `platform_admin` or `commissioner` with a matching slug. Do not implement this in Phase 6; do not design against it being absent in Phase 7.
+7. **Never hardcode role checks outside middleware, `requireAdminAuth()`, and `requireAdminAction()`** — no inline `publicMetadata.role` comparisons in UI components or API handlers. All role assertions go through the designated helpers.
+
+8. **Commissioner scoping is enforced in Phase 7** — `/league/[slug]/draft/*` will require `platform_admin` or `commissioner` with a matching slug. Do not implement this in Phase 6; do not design against it being absent in Phase 7.
 
 ---
 

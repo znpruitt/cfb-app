@@ -8,6 +8,7 @@ import '../../../api/draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStora
 import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
 
 import { confirmPreseasonOwners, beginPreseason, completeSetup } from '../actions';
+import { __withAdminActionAuthorizerForTests } from '../../../../lib/auth/requireAdminAction.ts';
 import type { League } from '../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
@@ -52,7 +53,16 @@ function makeLeague(slug: string, status: League['status']): League {
 // Run `fn`, capturing revalidated tags. Server actions terminate in redirect(),
 // which throws NEXT_REDIRECT — swallow that (and only that) so the tags recorded
 // before the throw can be asserted; any other error propagates.
+// PLATFORM-086F2H1SB — authorize once here (see testControls.test.ts) so the
+// existing assertions keep exercising behavior rather than the new guard.
 async function runCapturingTags(fn: () => Promise<unknown>): Promise<string[]> {
+  return __withAdminActionAuthorizerForTests(
+    () => true,
+    () => runCapturingTagsUnauthorized(fn)
+  );
+}
+
+async function runCapturingTagsUnauthorized(fn: () => Promise<unknown>): Promise<string[]> {
   const store = {
     route: '/test',
     incrementalCache: {},

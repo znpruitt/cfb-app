@@ -52,6 +52,36 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1SB-SERVER-ACTION-AUTHORIZATION-v1
+
+- Purpose: Make every repository-owned admin Server Action enforce platform-admin authorization at
+  its own execution boundary. F2H1SA closed a demonstrated matcher bypass, but routing is defense in
+  depth: Next treats an exported Server Action as a public endpoint reachable by its action id.
+- Scope: new `src/lib/auth/requireAdminAction.ts`; the guard as the first statement of all nine
+  exported actions in `src/app/admin/[slug]/actions.ts`; a scoped test-only authorizer seam;
+  authorized/unauthorized behavioral coverage plus structural completeness; owning documentation.
+  Excludes middleware, client UI, lifecycle, automation, provider logic, durable schemas, and
+  `setAssignmentMethod` input validation.
+- Outcome: `requireAdminAction(name)` calls `isPlatformAdminSession()` with NO argument — a
+  `Request` would reach the token branch, whose no-token path authorizes any caller outside
+  production — and refuses outright when `CLERK_SECRET_KEY` is blank, since Clerk's signature check
+  degrades to an HMAC over the empty string. A thrown authorization evaluation is a refusal, never a
+  pass. Refusal throws a stable generic `Error`, never `redirect()`/`notFound()`: `notFound()` would
+  render the full unauthorized page and issue the reads the guard exists to prevent. Exactly one
+  allowlisted `admin-action-unauthorized` event is logged (event name, action, closed reason) —
+  necessary because Next does not record a thrown fetch-action error server-side. The guarantee is
+  scoped honestly: Next deserializes arguments BEFORE action entry and Clerk performs its own reads,
+  so "zero reads" is not claimed; what holds is that after action entry no application or durable
+  read, write, cleanup, revalidation, redirect, or argument-dependent validation precedes
+  authorization.
+- Review / verification: Each gate run as its own command with an unmasked exit status against the
+  exact reviewed commit. SIX mutations verified failing one at a time: a removed guard, a guard
+  moved below its first validation, production honouring the test override, the blank-secret
+  refusal removed, an unguarded tenth exported action, and `notFound()` replacing the throw. The
+  production-override mutation initially did NOT fail — the test verified only the setter's refusal
+  and not the guard's independent ignore — and the assertion was extended until it discriminated.
+- Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
+
 ### PLATFORM-086F2H1SA-PROTECTED-PATH-MATCHER-COVERAGE-v1
 
 - Purpose: Close a DEMONSTRATED authentication bypass. The middleware matcher's static-file

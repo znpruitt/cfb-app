@@ -21,6 +21,7 @@ import {
 } from '@/lib/server/appStateStore';
 import { draftScope, type DraftState, type DraftPick } from '@/lib/draft';
 import { TEST_LEAGUE_SLUG } from '@/lib/league';
+import { requireAdminAction } from '@/lib/auth/requireAdminAction';
 import teamsData from '@/data/teams.json';
 
 /** The admin path the demo controls revalidate. */
@@ -48,10 +49,14 @@ async function clearTestLeagueYear(year: number): Promise<void> {
  *
  * "Structurally demo-only" here describes TARGET REACH, not authentication: the
  * authority takes no slug, so whoever calls this cannot steer it at a production
- * league. It is NOT an authorization claim. Like every Server Action, this is
- * reachable by direct invocation regardless of the requested pathname, and the
- * path-prefix middleware gate does not cover that — authorizing inside the
- * action is owned by PLATFORM-086F2H1S.
+ * league. Authorization is a separate concern, enforced by the
+ * `requireAdminAction` guard on the first line (PLATFORM-086F2H1SB).
+ *
+ * The two boundaries are distinct and both apply. F2H1SA made the middleware
+ * matcher actually cover every `/admin` path, including static-looking ones —
+ * that is route defense in depth. F2H1SB authorizes inside the action itself,
+ * because Next treats an exported Server Action as a public endpoint reachable
+ * by its action id, so routing is never the action's authority.
  *
  * PLATFORM-086F2H1T1: the year is derived and validated INSIDE the registry
  * transaction. This action no longer reads the league first and submits a year
@@ -59,6 +64,7 @@ async function clearTestLeagueYear(year: number): Promise<void> {
  * read-then-write could derive from a memoized record taken outside the lock.
  */
 export async function setTestLeagueStatus(state: TestLeagueLifecycleState): Promise<void> {
+  await requireAdminAction('setTestLeagueStatus');
   const result = await setTestLeagueLifecycleState(state);
 
   if (result.outcome === 'league-not-found') throw new Error('Test league not found');
@@ -96,6 +102,7 @@ export async function setTestLeagueStatus(state: TestLeagueLifecycleState): Prom
  * written by draft confirmation (owners:test:{year} / 'csv').
  */
 export async function resetTestDraft(): Promise<void> {
+  await requireAdminAction('resetTestDraft');
   const scope = draftScope('test');
   const years = await listAppStateKeys(scope);
   await Promise.all(
@@ -118,6 +125,7 @@ export async function resetTestDraft(): Promise<void> {
  * cleanup year must follow the reset year, not a hardcoded pair.
  */
 export async function resetTestLeague(): Promise<void> {
+  await requireAdminAction('resetTestLeague');
   const result = await resetTestLeagueLifecycle();
   if (result.outcome === 'league-not-found') throw new Error('Test league not found');
   // No further outcome check is needed OR possible: `TestLeagueResetOutcome` is
@@ -148,6 +156,7 @@ export async function resetTestLeague(): Promise<void> {
 
 /** Transition a league from offseason to preseason and redirect to the setup page. */
 export async function beginPreseason(slug: string): Promise<void> {
+  await requireAdminAction('beginPreseason');
   const result = await beginPreseasonTransition(slug);
   if (result.outcome === 'league-not-found') throw new Error('League not found');
   if (result.outcome === 'not-in-offseason') throw new Error('League is not in offseason');
@@ -175,6 +184,7 @@ export async function beginPreseason(slug: string): Promise<void> {
 
 /** Persist the commissioner's choice of how teams will be assigned this preseason. */
 export async function setAssignmentMethod(slug: string, method: 'draft' | 'manual'): Promise<void> {
+  await requireAdminAction('setAssignmentMethod');
   await updateLeague(slug, { assignmentMethod: method });
   revalidatePath(`/admin/${slug}/preseason`);
 }
@@ -185,6 +195,7 @@ export async function confirmPreseasonOwners(
   year: number,
   owners: string[]
 ): Promise<void> {
+  await requireAdminAction('confirmPreseasonOwners');
   if (owners.length < 2) throw new Error('At least 2 owners required');
   await savePreseasonOwners(slug, year, owners);
   // Preseason owners feed the preseason standings snapshot; bust this league's
@@ -196,6 +207,7 @@ export async function confirmPreseasonOwners(
 
 /** Mark preseason setup as complete. Season transition happens automatically via cron. */
 export async function completeSetup(slug: string, year: number): Promise<void> {
+  await requireAdminAction('completeSetup');
   const result = await completePreseasonSetup(slug, year);
   if (result.outcome === 'league-not-found') throw new Error('League not found');
   if (result.outcome === 'not-in-preseason') throw new Error('League is not in preseason');
@@ -221,6 +233,7 @@ export async function completeSetup(slug: string, year: number): Promise<void> {
  * Useful when draft was confirmed before the preseason year bump.
  */
 export async function migrateTestOwnersCsv(fromYear: number, toYear: number): Promise<string> {
+  await requireAdminAction('migrateTestOwnersCsv');
   const record = await getAppState<string>(`owners:test:${fromYear}`, 'csv');
   if (!record?.value) {
     return `No owners CSV found at owners:test:${fromYear}`;
@@ -237,6 +250,7 @@ export async function migrateTestOwnersCsv(fromYear: number, toYear: number): Pr
  * Returns the number of picks that were auto-filled.
  */
 export async function autoCompleteDraft(): Promise<number> {
+  await requireAdminAction('autoCompleteDraft');
   const league = await getLeague('test');
   if (!league) throw new Error('Test league not found');
 
