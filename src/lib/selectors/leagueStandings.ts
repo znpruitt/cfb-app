@@ -352,9 +352,13 @@ export async function getCanonicalStandings(
  *
  * Remaining un-wired lifecycle mutators (intentional): `completeSetup` (flips a
  * setupComplete flag; no standings-content change) and the `slug='test'` dev-
- * tooling actions in `admin/[slug]/actions.ts`. If a genuinely un-wired mutating
- * path is hit, the cache may serve stale canonical data until a subsequent
- * invalidation fires from another path.
+ * tooling actions in `admin/[slug]/actions.ts` — EXCEPT the manual demo
+ * transition to `season`, which DOES invalidate. PLATFORM-086F2H1T2 removed the
+ * demo league from the season-transition cron, making that control its only
+ * preseason→season path, so it inherited the invalidation the cron performed;
+ * preseason/offseason and reset remain intentionally un-wired. If a genuinely
+ * un-wired mutating path is hit, the cache may serve stale canonical data until
+ * a subsequent invalidation fires from another path.
  */
 export function invalidateStandings(slug: string, year?: number): void {
   revalidateTag(standingsSlugTag(slug));
