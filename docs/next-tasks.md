@@ -199,9 +199,13 @@ Execution order within F2 (each slice is one independently deployable PR):
         expresses cross-cron ownership (`season-transition-owner` is a hardcoded label in the weekly
         route, not a read of the other cron's target set), so the risk is a receipt that misdescribes
         reality, and each slice must keep its own reason strings truthful.
-      - Carried into T2: the reset year stays 2025, which means the demo's next preseason is the
-        live production year. That collision is resolved by the exclusions, not by redesigning the
-        reset.
+      - Carried into T2, both consequences of the demo league still being a transition target
+        between T1 and T2: (a) the reset year stays 2025, so the demo's next preseason is the LIVE
+        production year — resolved by the exclusions, not by redesigning the reset; and (b) T1
+        removed the demo reset's `schedule-probe/<year>` deletion (correctly — that key is shared
+        with production leagues), which was also the operator's only way to re-arm a stale probe for
+        a repeat dry run. Until T2 lands, a demo dry run cannot clear that probe from the UI. This
+        is a deliberate trade: a demo control must not mutate production schedule state.
     - **F2H1R — missing-lifecycle recovery** — planned after F2H1T: a separately confirmed recovery
       operation for genuinely missing legacy status, with corrupt-registry vs missing-league truth and
       an explicit consequence model for schedule/rankings targeting, rollover eligibility,

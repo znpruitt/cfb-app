@@ -1,6 +1,12 @@
 import { getAppState, setAppState } from './server/appStateStore.ts';
 
-function scope(slug: string): string {
+/**
+ * The app-state scope holding a league's confirmed preseason owner list.
+ * Exported so callers that CLEAR this record (the demo lifecycle controls) use
+ * the same key builder as the writer — a rename here would otherwise leave the
+ * cleanup silently deleting nothing.
+ */
+export function preseasonOwnerScope(slug: string): string {
   return `preseason-owners:${slug}`;
 }
 
@@ -18,7 +24,7 @@ function scope(slug: string): string {
  * failed to read them.
  */
 export async function getPreseasonOwners(slug: string, year: number): Promise<string[] | null> {
-  const record = await getAppState<string[]>(scope(slug), String(year));
+  const record = await getAppState<string[]>(preseasonOwnerScope(slug), String(year));
   return record?.value ?? null;
 }
 
@@ -27,5 +33,5 @@ export async function savePreseasonOwners(
   year: number,
   owners: string[]
 ): Promise<void> {
-  await setAppState<string[]>(scope(slug), String(year), owners);
+  await setAppState<string[]>(preseasonOwnerScope(slug), String(year), owners);
 }

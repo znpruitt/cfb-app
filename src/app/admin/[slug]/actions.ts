@@ -11,7 +11,7 @@ import {
   setTestLeagueLifecycleState,
   type TestLeagueLifecycleState,
 } from '@/lib/leagueRegistry';
-import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
+import { preseasonOwnerScope, savePreseasonOwners } from '@/lib/preseasonOwnerStore';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import {
   listAppStateKeys,
@@ -27,17 +27,20 @@ import teamsData from '@/data/teams.json';
 const TEST_LEAGUE_ADMIN_PATH = `/admin/${TEST_LEAGUE_SLUG}`;
 
 /**
- * Every demo-scoped app-state record keyed by a single season year, owned in one
- * place so the slug cannot half-migrate — a change that moved the registry write
- * but not one of these deletes would strand state the controls can no longer
- * reach.
+ * Clear the demo-scoped app-state records keyed by one season year.
+ *
+ * Scoped claim: this owns the year-keyed cleanup for the two LIFECYCLE controls
+ * only. Other demo helpers in this file (`resetTestDraft`, `migrateTestOwnersCsv`,
+ * `autoCompleteDraft`) still build their keys from the `'test'` literal, so the
+ * slug is NOT yet centralized file-wide — completing that is follow-up work, not
+ * a claim this function makes.
  */
-function testLeagueYearScopes(year: number): Array<[string, string]> {
-  return [
-    [`preseason-owners:${TEST_LEAGUE_SLUG}`, String(year)],
-    [`owners:${TEST_LEAGUE_SLUG}:${year}`, 'csv'],
-    [draftScope(TEST_LEAGUE_SLUG), String(year)],
-  ];
+async function clearTestLeagueYear(year: number): Promise<void> {
+  await Promise.all([
+    deleteAppState(preseasonOwnerScope(TEST_LEAGUE_SLUG), String(year)),
+    deleteAppState(`owners:${TEST_LEAGUE_SLUG}:${year}`, 'csv'),
+    deleteAppState(draftScope(TEST_LEAGUE_SLUG), String(year)),
+  ]);
 }
 
 /**
@@ -75,9 +78,7 @@ export async function setTestLeagueStatus(state: TestLeagueLifecycleState): Prom
   // together, so racing them in one `Promise.all` could clear a year the
   // lifecycle write then refused to install.
   if (result.status.state === 'preseason') {
-    await Promise.all(
-      testLeagueYearScopes(result.status.year).map(([scope, key]) => deleteAppState(scope, key))
-    );
+    await clearTestLeagueYear(result.status.year);
   }
 
   revalidatePath(TEST_LEAGUE_ADMIN_PATH);
@@ -109,11 +110,10 @@ export async function resetTestDraft(): Promise<void> {
 export async function resetTestLeague(): Promise<void> {
   const result = await resetTestLeagueLifecycle();
   if (result.outcome === 'league-not-found') throw new Error('Test league not found');
-  // Anything other than a confirmed commit must not reach cleanup. The reset
-  // authority cannot refuse today, but its return type is the shared outcome
-  // union — a future guard on this path would otherwise fall straight through
-  // and clear state for a lifecycle write that never landed.
-  if (result.outcome !== 'applied') throw new Error('Unable to reset test league');
+  // No further outcome check is needed OR possible: `TestLeagueResetOutcome` is
+  // narrowed to `applied | league-not-found`, so TypeScript has proven the
+  // commit landed. If a future change gives the reset a refusal path, this
+  // becomes a compile error rather than a silently skipped cleanup.
 
   // Demo-SCOPED state only, for the season AFTER the one the authority just
   // installed — the preseason a fresh dry run will use. Derived from the
@@ -126,12 +126,13 @@ export async function resetTestLeague(): Promise<void> {
   // sandbox disarmed that year's probe for production leagues and forced the
   // year back from weekly maintenance to the daily season-transition cron. A
   // demo reset must never mutate schedule state real leagues depend on.
-  if (result.status.state === 'season') {
-    const nextPreseason = result.status.year + 1;
-    await Promise.all(
-      testLeagueYearScopes(nextPreseason).map(([scope, key]) => deleteAppState(scope, key))
-    );
+  // `resetTestLeagueLifecycle` always installs a season status, so this is a
+  // narrowing assertion rather than a conditional: an unexpected shape throws
+  // instead of silently skipping the cleanup the function promises.
+  if (result.status.state !== 'season') {
+    throw new Error('Unable to reset test league');
   }
+  await clearTestLeagueYear(result.status.year + 1);
   revalidatePath(TEST_LEAGUE_ADMIN_PATH);
 }
 

@@ -196,6 +196,23 @@ test('reset returns a fresh status object per call, never a shared identity', as
   assert.deepEqual(first.status, second.status, 'with equal values');
 });
 
+// Risk: an unrecognized state crosses the Server Action boundary (its argument
+// is never runtime-validated) and crashes instead of refusing.
+test('an unsupported state refuses with a typed outcome and writes nothing', async () => {
+  await seed(makeLeague(TEST_LEAGUE_SLUG, 2025, { state: 'season', year: 2025 }));
+  const before = await readRegistry();
+
+  for (const bad of ['Season', '', 'PRESEASON', 'archived', null, undefined, 7, {}]) {
+    assert.deepEqual(
+      await setTestLeagueLifecycleState(bad as never),
+      { outcome: 'unsupported-state' },
+      `${JSON.stringify(bad)} must refuse, not throw`
+    );
+  }
+
+  assert.deepEqual(await readRegistry(), before, 'no write of any kind');
+});
+
 // Risk: an unusable persisted year is laundered into a lifecycle write.
 test('an unusable stored year refuses every derived state without writing', async () => {
   for (const status of [

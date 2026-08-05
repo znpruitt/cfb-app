@@ -152,7 +152,20 @@ export type TestLeagueLifecycleOutcome =
   // The stored year cannot participate in lifecycle arithmetic.
   | { outcome: 'unusable-stored-year' }
   // The stored year is usable but its successor is not representable.
-  | { outcome: 'unusable-derived-year' };
+  | { outcome: 'unusable-derived-year' }
+  // The requested state is not one this authority recognizes. Reachable
+  // because the caller is a Server Action: its argument crosses HTTP and is
+  // never runtime-validated, so an unknown value must produce a typed refusal
+  // rather than a crash.
+  | { outcome: 'unsupported-state' };
+
+/** The refusal shape shared by `setTestLeagueLifecycleState`'s decision. */
+type TestLeagueRefusal = Exclude<TestLeagueLifecycleOutcome, { outcome: 'applied' }>;
+
+/** Narrower outcome for the reset, which derives nothing and cannot refuse on a year. */
+export type TestLeagueResetOutcome =
+  | { outcome: 'applied'; status: LeagueStatus }
+  | { outcome: 'league-not-found' };
 
 /**
  * Resolve the requested demo-league status from the record read under the
@@ -162,7 +175,7 @@ export type TestLeagueLifecycleOutcome =
 function decideTestLeagueStatus(
   current: League,
   state: TestLeagueLifecycleState
-): { status: LeagueStatus } | { refusal: TestLeagueLifecycleOutcome } {
+): { status: LeagueStatus } | { refusal: TestLeagueRefusal } {
   const stored = current.status;
 
   switch (state) {
@@ -204,6 +217,12 @@ function decideTestLeagueStatus(
         ? { status: { state: 'preseason', year: next } }
         : { refusal: { outcome: 'unusable-derived-year' } };
     }
+
+    default:
+      // Unreachable for a well-typed caller; reachable across the Server Action
+      // boundary, where the argument is untrusted. Refuse with a typed outcome
+      // instead of returning `undefined` and crashing the caller.
+      return { refusal: { outcome: 'unsupported-state' } };
   }
 }
 
@@ -248,8 +267,8 @@ export async function setTestLeagueLifecycleState(
  * record and returned to the caller, so a shared module-level object would give
  * every reset in the process one mutable identity.
  */
-export async function resetTestLeagueLifecycle(): Promise<TestLeagueLifecycleOutcome> {
-  return guardedLifecycleWrite<TestLeagueLifecycleOutcome>(
+export async function resetTestLeagueLifecycle(): Promise<TestLeagueResetOutcome> {
+  return guardedLifecycleWrite<TestLeagueResetOutcome>(
     TEST_LEAGUE_SLUG,
     { outcome: 'league-not-found' },
     () => {

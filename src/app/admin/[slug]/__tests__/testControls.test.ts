@@ -244,3 +244,22 @@ test('the three sandbox transitions still compose into a full dry-run cycle', as
   assert.deepEqual(offseason?.status, { state: 'offseason' });
   assert.equal(offseason?.year, 2026, 'the archived season year is retained');
 });
+
+// Risk: dropping the preseason condition would make every transition wipe the
+// current year's owners/draft — destructive on a plain 'Set: Season' click, and
+// invisible without this test.
+test('season and offseason transitions delete no demo state', async () => {
+  await seed(makeLeague(TEST_LEAGUE_SLUG, 2025, { state: 'preseason', year: 2026 }));
+  await seedDemoScopes(2026);
+  await seedDemoScopes(2025);
+
+  await runWithRevalidateContext(() => setTestLeagueStatus('season'));
+  assert.deepEqual((await readLeague(TEST_LEAGUE_SLUG))?.status, { state: 'season', year: 2026 });
+  assert.deepEqual(await demoScopesPresent(2026), [true, true, true], 'season deletes nothing');
+  assert.deepEqual(await demoScopesPresent(2025), [true, true, true]);
+
+  await runWithRevalidateContext(() => setTestLeagueStatus('offseason'));
+  assert.deepEqual((await readLeague(TEST_LEAGUE_SLUG))?.status, { state: 'offseason' });
+  assert.deepEqual(await demoScopesPresent(2026), [true, true, true], 'offseason deletes nothing');
+  assert.deepEqual(await demoScopesPresent(2025), [true, true, true]);
+});
