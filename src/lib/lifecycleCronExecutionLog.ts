@@ -42,7 +42,13 @@ export type LifecycleCronExecutionResult =
 export type SeasonTransitionCronControlReason =
   | 'cron-secret-not-configured'
   | 'cron-authorization-invalid'
+  // No league is in preseason at all.
   | 'no-preseason-leagues'
+  // PLATFORM-086F2H1T2 — preseason leagues EXIST, but every one of them is the
+  // demo league, which is manual-only for automatic transition. Distinct from
+  // `no-preseason-leagues` on purpose: reusing that reason would tell an
+  // operator no league is awaiting transition when one is.
+  | 'no-automatic-preseason-leagues'
   | 'registry-unavailable'
   | 'probe-state-unavailable'
   | 'probe-write-failed'

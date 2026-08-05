@@ -147,6 +147,8 @@ type RunResult = {
   event: SeasonTransitionCronExecutionEvent;
   tags: string[];
   providerCalls: number;
+  /** Every URL the route asked the provider for, in order. */
+  providerUrls: string[];
 };
 
 async function runRoute(
@@ -158,9 +160,12 @@ async function runRoute(
     raw.push(args.map((a) => (typeof a === 'string' ? a : String(a))).join(' '));
   }) as typeof console.log;
   let providerCalls = 0;
+  const providerUrls: string[] = [];
   const wrapped = globalThis.fetch;
   globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
     providerCalls += 1;
+    const input = args[0];
+    providerUrls.push(typeof input === 'string' ? input : String(input));
     return wrapped(...args);
   }) as typeof fetch;
   // `pendingRevalidatedTags.push` is what `revalidateTag` calls, so a hooked
@@ -202,6 +207,7 @@ async function runRoute(
     event: events[0]!,
     tags: store.pendingRevalidatedTags,
     providerCalls,
+    providerUrls,
   };
 }
 
@@ -1137,4 +1143,143 @@ test('the invalidation-failure path uses the SAME recorded-work definition', asy
   assert.equal(entry.cached, true);
   assert.equal(entry.result, 'partial', 'committed canonical work is recorded work here too');
   assert.equal(entry.reason, 'standings-invalidation-failed');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1T2 — the demo league is MANUAL-ONLY for automatic transition.
+//
+// Labels below follow AGENTS.md → Verification. The provider-call observer is
+// itself proven before any "zero calls" claim rests on it.
+// ---------------------------------------------------------------------------
+
+// POSITIVE CONTROL for the provider observer. Every "made no provider call"
+// assertion below is worthless unless this passes: it proves the same harness
+// DOES record calls, and records the year, for a production target.
+test('the provider observer detects calls, and their year, for a production target', async () => {
+  await seedRegistry([makeLeague('alpha', { state: 'preseason', year: YEAR })]);
+  await seedPastProbe();
+
+  const { providerCalls, providerUrls } = await runRoute();
+
+  assert.ok(providerCalls > 0, 'the observer records provider calls when they happen');
+  assert.ok(
+    providerUrls.some((u) => u.includes(String(YEAR))),
+    `the observer records the requested year; saw ${JSON.stringify(providerUrls)}`
+  );
+});
+
+// REGRESSION TEST — verified failing with the exclusion removed.
+test('a demo-only preseason registry is skipped with no provider work', async () => {
+  const demo = makeLeague('test', { state: 'preseason', year: YEAR });
+  await seedRegistry([demo]);
+  await seedPastProbe();
+  const before = await readRegistry();
+
+  const { res, body, event, providerCalls, providerUrls } = await runRoute();
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(body.years, [], 'no year is reported');
+  assert.equal(event.result, 'skipped');
+  assert.equal(
+    event.reason,
+    'no-automatic-preseason-leagues',
+    'a preseason league EXISTS — saying `no-preseason-leagues` would be false'
+  );
+  assert.deepEqual(event.years, [], 'no year entries');
+  assert.equal(providerCalls, 0, 'no billed provider call for a demo-only year');
+  assert.deepEqual(providerUrls, []);
+  assert.deepEqual(await readRegistry(), before, 'the demo record is byte-equivalent');
+
+  // The durable receipt agrees with the event.
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('season-transition');
+  assert.ok(receipt);
+  assert.equal(receipt.value.result, 'skipped');
+  assert.equal(receipt.value.reason, 'no-automatic-preseason-leagues');
+  assert.equal(receipt.value.providerCallAttempted, false);
+  assert.equal(receipt.value.target.kind, 'season-transition-years');
+  if (receipt.value.target.kind !== 'season-transition-years') return;
+  assert.equal(receipt.value.target.totalYears, 0, 'zero years on the receipt target');
+  assert.deepEqual(receipt.value.target.years, []);
+});
+
+// CONTRACT PIN — the literal-empty case keeps its existing reason.
+test('a registry with no preseason league at all keeps no-preseason-leagues', async () => {
+  await seedRegistry([makeLeague('alpha', { state: 'season', year: YEAR })]);
+
+  const { event, providerCalls } = await runRoute();
+
+  assert.equal(event.result, 'skipped');
+  assert.equal(event.reason, 'no-preseason-leagues');
+  assert.equal(providerCalls, 0);
+});
+
+// REGRESSION TEST — verified failing with the exclusion removed.
+test('a mixed same-year registry counts and transitions only the production league', async () => {
+  await seedRegistry([
+    makeLeague('test', { state: 'preseason', year: YEAR }),
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  await seedPastProbe();
+
+  const { body, event } = await runRoute();
+
+  const entry = event.years[0]!;
+  assert.equal(entry.year, YEAR);
+  assert.equal(entry.targetLeagues, 1, 'the demo league is not a target');
+  assert.equal(entry.transitionedLeagues, 1);
+  assert.equal(entry.alreadyInTargetSeasonLeagues, 0);
+  assert.equal(entry.removedLeagues, 0);
+  assert.equal(entry.refusedLeagues, 0);
+
+  const bodyYear = body.years.find((y) => y.year === YEAR);
+  assert.deepEqual(bodyYear?.leagues, ['alpha'], 'only the production league transitioned');
+
+  // POSITIVE CONTROL for the state observer: the production league DID move,
+  // so "the demo league did not" is a real observation rather than a no-op run.
+  assert.deepEqual((await readLeague('alpha'))?.status, { state: 'season', year: YEAR });
+  assert.deepEqual(
+    (await readLeague('test'))?.status,
+    { state: 'preseason', year: YEAR },
+    'the demo league is untouched even though its year transitioned'
+  );
+});
+
+// REGRESSION TEST — verified failing when the exclusion is applied AFTER
+// grouping, which still spends a billed call on the demo-only year.
+test('a demo-only year is absent from every surface and from provider requests', async () => {
+  const demoYear = YEAR + 1;
+  await seedRegistry([
+    makeLeague('test', { state: 'preseason', year: demoYear }, demoYear),
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+  ]);
+  await seedPastProbe();
+
+  const { body, event, providerUrls } = await runRoute();
+
+  assert.deepEqual(
+    event.years.map((y) => y.year),
+    [YEAR],
+    'the demo-only year never reaches the runtime event'
+  );
+  assert.deepEqual(
+    body.years.map((y) => y.year),
+    [YEAR]
+  );
+
+  assert.ok(providerUrls.length > 0, 'the production year WAS fetched (observer live)');
+  assert.ok(
+    !providerUrls.some((u) => u.includes(String(demoYear))),
+    `no provider request may name the demo-only year; saw ${JSON.stringify(providerUrls)}`
+  );
+
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('season-transition');
+  assert.ok(receipt);
+  assert.equal(receipt.value.target.kind, 'season-transition-years');
+  if (receipt.value.target.kind !== 'season-transition-years') return;
+  assert.deepEqual(
+    receipt.value.target.years.map((y) => y.year),
+    [YEAR]
+  );
 });
