@@ -62,10 +62,12 @@ export type PlatformAdminDecision =
  * infrastructure failure from a role denial can.
  *
  *   1. Refuse outright when CLERK_SECRET_KEY is blank. This lives HERE rather
- *      than at one call site because every consumer of this verdict —
- *      `requireAdminAuth` for API routes, `requireAdminAction` for Server
- *      Actions, and `isPlatformAdminClaims` in middleware — inherits the same
- *      untrustworthy session if the key is unset.
+ *      than at one call site because BOTH consumers of this verdict —
+ *      `requireAdminAuth` for API routes and `requireAdminAction` for Server
+ *      Actions — inherit the same untrustworthy session if the key is unset.
+ *      Middleware is a THIRD, separate boundary: it calls `clerkMiddleware`'s
+ *      own `auth()` and `isPlatformAdminClaims` directly and never reaches
+ *      this function, so it does NOT inherit this refusal.
  *   2. Clerk session check via auth(); a throw is `authorization-unavailable`,
  *      never a silent denial.
  *   3. If a Request is provided, fall back to the ADMIN_API_TOKEN path —

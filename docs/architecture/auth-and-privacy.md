@@ -62,12 +62,15 @@ executable statement of all nine exported actions in
   inelegant. This is also why `requireAdminAuth` cannot serve here: it requires
   a `Request` and returns a `Response`;
 - inherits, rather than duplicates, two properties of that shared decision. The
-  blank-`CLERK_SECRET_KEY` refusal lives in `adminAuth.ts` because ALL THREE
-  boundaries consume the same verdict — a Server-Action-only check would leave
-  the admin API routes and admin pages authorizing against an untrustworthy
-  session. And a failed evaluation resolves to `authorization-unavailable`
-  rather than `not-platform-admin`, so a Clerk outage is never recorded as a
-  role denial;
+  blank-`CLERK_SECRET_KEY` refusal lives in `adminAuth.ts` because the TWO
+  consumers of that verdict — this guard and `requireAdminAuth` for API routes —
+  would otherwise each need their own copy. **Middleware is a separate boundary
+  and does NOT inherit it:** it calls `clerkMiddleware`'s own `auth()` and
+  `isPlatformAdminClaims` directly and never reaches
+  `resolvePlatformAdminDecision`, so admin PAGE gating on a blank secret is
+  unchanged by this slice. And a failed evaluation resolves to
+  `authorization-unavailable` rather than `not-platform-admin`, so a Clerk
+  outage is never recorded as a role denial;
 - emits exactly one structured `admin-action-unauthorized` event built only from
   compile-time constants — a stable event name, the action name, and a closed
   reason. Never arguments, slug, body, claims, cookies, tokens, or exception

@@ -43,10 +43,19 @@ export async function runCapturingRevalidatedTags<T>(
     pendingRevalidatedTags: [] as string[],
     pathWasRevalidated: false,
   };
+  let tags: string[] = [];
+  let outcome: { result?: T; error?: unknown; threw: boolean };
   try {
-    const result = await workAsyncStorage.run(store as never, fn);
-    return { result, threw: false, tags: store.pendingRevalidatedTags };
+    outcome = { result: await workAsyncStorage.run(store as never, fn), threw: false };
   } catch (error) {
-    return { error, threw: true, tags: store.pendingRevalidatedTags };
+    outcome = { error, threw: true };
+  } finally {
+    // Read in `finally` so the tags are captured on EVERY exit path. The
+    // rejecting path is the one that matters: a test proving a refused mutation
+    // invalidated nothing observes a rejection, so a helper that reported only
+    // on success would hand back an empty list and the assertion would be a
+    // tautology — which is exactly how the first two versions of it failed.
+    tags = [...store.pendingRevalidatedTags];
   }
+  return { ...outcome, tags };
 }

@@ -89,23 +89,29 @@ let __authorizerForTests: (() => boolean | Promise<boolean>) | null = null;
  * infrastructure failure would have been logged as a role denial.
  */
 async function evaluate(): Promise<{ ok: true } | { ok: false; reason: RefusalReason }> {
-  if (!isProductionRuntime() && __authorizerForTests) {
-    try {
+  // ONE try covering BOTH branches. Wrapping only the test override made the
+  // module's own "any thrown evaluation is a refusal, never a pass" contract
+  // true for the seam and false for production: a throw from the real decision
+  // would have escaped as a raw error, skipping the audit event that is the
+  // only record an unauthorized invocation occurred.
+  try {
+    if (!isProductionRuntime() && __authorizerForTests) {
       return (await __authorizerForTests())
         ? { ok: true }
         : { ok: false, reason: 'not-platform-admin' };
-    } catch {
-      return { ok: false, reason: 'authorization-unavailable' };
     }
-  }
 
-  // NO argument, deliberately. Passing a `Request` would let the decision fall
-  // back to `isAuthorizedAdminRequest`, whose no-token branch authorizes ANY
-  // caller outside production — an authorization hole, not merely inelegant.
-  // The blank-CLERK_SECRET_KEY refusal now lives in the shared authority, so
-  // every consumer of that verdict inherits it.
-  const decision = await resolvePlatformAdminDecision();
-  return decision === 'authorized' ? { ok: true } : { ok: false, reason: decision };
+    // NO argument, deliberately. Passing a `Request` would let the decision
+    // fall back to `isAuthorizedAdminRequest`, whose no-token branch authorizes
+    // ANY caller outside production — an authorization hole, not merely
+    // inelegant.
+    const decision = await resolvePlatformAdminDecision();
+    return decision === 'authorized' ? { ok: true } : { ok: false, reason: decision };
+  } catch {
+    // Deliberately swallows the exception rather than inspecting or logging it:
+    // the raw error can carry request or credential detail.
+    return { ok: false, reason: 'authorization-unavailable' };
+  }
 }
 
 /**

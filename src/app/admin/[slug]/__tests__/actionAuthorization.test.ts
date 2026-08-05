@@ -341,6 +341,37 @@ test('a Clerk evaluation failure logs authorization-unavailable, not a role deni
   }
 });
 
+test('the REAL decision call sits inside the same try as the override branch', () => {
+  // HONEST SCOPE: this is a STRUCTURAL pin, not a behavioral one, and it is
+  // labelled as such deliberately.
+  //
+  // A throw from `resolvePlatformAdminDecision()` is not inducible from a test
+  // today: its `auth()` call is caught internally, the blank-secret path
+  // returns rather than throws, and `process.env` rejects accessor descriptors
+  // so the secret read cannot be made to raise. The repo has no module-mocking
+  // seam and this round is not permitted to add one.
+  //
+  // What CAN regress is the shape: before this round the try wrapped only the
+  // test-override branch, so a future throw from the shared authority — which
+  // other slices will extend — would escape as a raw error and skip the audit
+  // event the module calls the only record of an unauthorized invocation. That
+  // asymmetry is what this asserts.
+  const source = readFileSync(join(process.cwd(), 'src/lib/auth/requireAdminAction.ts'), 'utf8');
+  const body = source.slice(source.indexOf('async function evaluate('));
+  const tryIndex = body.indexOf('try {');
+  const overrideIndex = body.indexOf('__authorizerForTests()');
+  const realIndex = body.indexOf('resolvePlatformAdminDecision()');
+  const catchIndex = body.indexOf('} catch {');
+
+  assert.ok(tryIndex !== -1 && catchIndex !== -1, 'evaluate has a try/catch');
+  assert.ok(tryIndex < overrideIndex, 'the override branch is inside the try');
+  assert.ok(
+    tryIndex < realIndex && realIndex < catchIndex,
+    'the REAL decision call must be inside the SAME try — otherwise a thrown ' +
+      'evaluation escapes as a raw error and emits no audit event'
+  );
+});
+
 test('an authorizer that THROWS is a refusal, never a pass', async () => {
   const originalWarn = console.warn;
   const logs: string[] = [];

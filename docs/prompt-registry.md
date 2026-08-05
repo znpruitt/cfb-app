@@ -62,7 +62,8 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   authorized/unauthorized behavioral coverage plus structural completeness; owning documentation.
   Excludes middleware, client UI, lifecycle, automation, provider logic, durable schemas, and
   `setAssignmentMethod` input validation.
-- Outcome: `requireAdminAction(name)` calls `isPlatformAdminSession()` with NO argument — a
+- Outcome: `requireAdminAction(name)` calls `resolvePlatformAdminDecision()` (the closed shared
+  decision, NOT the `isPlatformAdminSession()` boolean wrapper) with NO argument — a
   `Request` would reach the token branch, whose no-token path authorizes any caller outside
   production — and refuses outright when `CLERK_SECRET_KEY` is blank, since Clerk's signature check
   degrades to an HMAC over the empty string. A thrown authorization evaluation is a refusal, never a
@@ -83,9 +84,18 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   production-override check verified only the setter's refusal, not the guard's independent ignore.
   (2) The "revalidated nothing" row asserted an array the test itself created: the first fix was
   ALSO vacuous, because the capture helper returned tags only on the resolving path while every
-  unauthorized invocation rejects. Commit `3027c58`'s message claiming that fix was effective is
-  therefore inaccurate — corrected here. The helper now reports tags on both paths and carries a
-  positive control proving it observes a tag revalidated before a throw.
+  unauthorized invocation rejects. **Commit `3027c58`'s message claiming that fix was effective is
+  inaccurate, and so was the first correction's claim in `abeb2fa`** — the helper only began
+  capturing on the rejecting path in the final round, where the read moved into a `finally`. A
+  positive control now proves it observes a tag revalidated before a throw, and the
+  moved-below-invalidation mutation fails, which it did not previously.
+- Also corrected in the final round: the claim that the blank-secret refusal made all THREE
+  boundaries fail closed. `src/middleware.ts` calls `clerkMiddleware`'s own `auth()` and
+  `isPlatformAdminClaims` directly and never reaches `resolvePlatformAdminDecision`, so only the
+  Server Action guard and `requireAdminAuth` inherit it; admin PAGE gating is unchanged by this
+  slice. The same false claim appeared in `auth-and-privacy.md` and `admin-control-plane.md` and is
+  fixed in both. AGENTS.md invariant #8 and this entry also named `isPlatformAdminSession()` as the
+  function the guard calls; it calls `resolvePlatformAdminDecision()`.
 - Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
 
 ### PLATFORM-086F2H1SA-PROTECTED-PATH-MATCHER-COVERAGE-v1
