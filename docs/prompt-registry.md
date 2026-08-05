@@ -97,7 +97,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   them — the change is WHERE derivation happens (inside the registry lock rather than from a
   React-`cache`d read), which only concurrency can observe. That test is a contract pin, not a
   mutation-verified regression.
-- Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
+- Status: **✅ MERGED to `main` via PR #445 (merge commit `8e6f122`), 2026-08-04.**
 
 ### PLATFORM-086F2H1B-AUTOMATED-TRANSITION-CONVERGENCE-v1
 

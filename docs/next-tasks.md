@@ -181,7 +181,7 @@ Execution order within F2 (each slice is one independently deployable PR):
       sandbox controls but must not independently trigger automatic lifecycle, schedule, or rankings
       work, and must not select the System Health operational year. A shared production year may
       still supply globally cached data to it. Five reviewed slices:
-      - **F2H1T1 — test-control safety** — **NEXT** (v2 implemented, in pre-merge review). Slugless
+      - **F2H1T1 — test-control safety** — ✅ MERGED (PR #445, `8e6f122`, 2026-08-04). Slugless
         demo authority deriving and validating the year inside the registry transaction;
         `updateLeagueStatus` retired; the demo reset no longer deletes the SHARED
         `schedule-probe/<year>` record. Lands FIRST because excluding the demo league from automatic
@@ -190,7 +190,7 @@ Execution order within F2 (each slice is one independently deployable PR):
         clean post-DOCS-013 `main`. `TestLeagueControls.tsx` is untouched — operator-readable
         feedback is F2H3's, because Next redacts Server Action rejection messages in production, so
         a message-only surface cannot work there.
-    - **F2H1S — admin Server Action authorization** — **NEXT after F2H1T1, before F2H1T2.**
+    - **F2H1S — admin Server Action authorization** — **NEXT** (before F2H1T2).
       Next.js resolves a Server Action from the `Next-Action` header, not the request path, so the
       path-prefix middleware gate (`requiresPlatformAdminPage`) does not cover direct invocation:
       an unauthenticated POST to a public path carrying an action ID reaches the action. Official

@@ -2322,6 +2322,67 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H1T1 — Slugless Demo-League Lifecycle Authority — Complete
+
+- **Status:** Complete — merged to `main` via PR #445 (merge commit `8e6f122`, 2026-08-04).
+- **PROMPT_ID(s):** `PLATFORM-086F2H1T1-TEST-CONTROL-SAFETY-v2`. **v1 was never implemented on
+  `main`** — its branch took two remediation rounds, was permanently stopped under the DOCS-013
+  limits, was never pushed, and no PR was opened.
+- **Outcome:** The first slice of the locked manual-only demo-league policy, landing BEFORE any
+  automatic job stops targeting the demo league — exclusion promotes the manual control to that
+  league's sole preseason→season path, so it must not be the weakest lifecycle writer when that
+  happens. `setTestLeagueLifecycleState(state)` and `resetTestLeagueLifecycle()` take NO slug and
+  always target `TEST_LEAGUE_SLUG`; every read, derivation, validation, and write happens inside the
+  serialized registry transaction, closing a path where the action read the league first (through a
+  React-`cache`d `getLeague`) and submitted a year computed from that possibly-stale snapshot.
+  Derivation is behavior-preserving and exhaustive over the closed state union, with a `default`
+  returning a typed `unsupported-state` refusal — reachable because `setTestLeagueStatus` is a
+  Server Action whose argument crosses HTTP unvalidated, and without which an unknown value returned
+  `undefined` and crashed the caller. Every stored and derived year is checked with the existing
+  structural predicate, so an unusable stored year refuses byte-equivalently and an unrepresentable
+  successor refuses rather than persisting a rounded value. Reset derives nothing and builds a fresh
+  status per call, so it always recovers a corrupt record.
+- **Live cross-league defect fixed:** `resetTestLeague()` deleted `schedule-probe/<year>`, a key
+  scoped by YEAR ALONE and shared with every production league, so resetting the sandbox disarmed
+  that year's probe for real leagues and forced the year back from weekly maintenance to the daily
+  season-transition cron. Cleanup now also runs strictly AFTER the confirmed commit, on the year the
+  authority returned — those scopes are separate keys and are not atomic with the registry write.
+- **Retirement:** the arbitrary-slug `updateLeagueStatus` is deleted; all four production callers
+  were demo controls passing the literal `'test'`, and no cron had called it since F2H1B. The
+  projection-contract tests keep every assertion, retargeted to the guarded authorities.
+  `TEST_LEAGUE_SLUG` moved to the lifecycle-neutral `league.ts` with NO re-export.
+- **Deliberately unchanged:** `TestLeagueControls.tsx` is byte-identical to `main` (typed operator
+  feedback is F2H3's — Next redacts Server Action rejection messages in production, so v1's
+  message-only surface could not have worked). No cron route, scheduler, event, receipt, provider
+  call, System Health year selection, or `vercel.json` edit. The reset year stays 2025 as
+  pre-existing behavior; its collision with the live production year is F2H1T2–T5's.
+- **Verification (two scopes, kept separate):** full executable gates on `e755120` — focused 81/81,
+  `npx tsc --noEmit`, `npm run lint:all`, `npm test` 3,242/3,242, `npm run build`, `git diff --check`,
+  each run as its own command with an unmasked exit status. The final commit `b38321a` was
+  comment/docs-only (verified by filtering every changed line under `src/` that is not a comment —
+  none remained, and no assertion changed), so only lint, type-check, and diff check were re-run.
+  **Test delta: +27 added, 9 retargeted, 0 weakened.** SIX guards were mutation-verified, each
+  failing against its own pre-fix code one revert at a time: the shared `schedule-probe` deletion,
+  the derived reset cleanup year, the `rolloverTargeting` re-export, the retirement scan, the
+  `unsupported-state` default, and the non-preseason no-delete guard. The cleanup-year test is
+  recorded as a CONTRACT PIN, not a verified regression: old and new derivations produce the same
+  result for every stored shape, so only concurrency can demonstrate transaction-local derivation.
+- **Size:** 13 files, +1,124 / −112 (+1,012 net) — above the preferred target, below both binding
+  stop-and-reassess signals.
+- **Review:** three clean Codex passes. `/code-review` produced findings in two rounds — the first
+  handled in the single normal remediation round DOCS-013 allows, the second in an explicitly
+  authorized truthfulness-only round correcting six overstated claims (the registry's verification
+  claim, the cleanup test's billing, the `AGENTS.md` cleanup rule, the arity assertion's scope,
+  stale literals in the reset docstring, and "structurally demo-only" reading as an authorization
+  claim) with no executable or assertion change. Review closed by explicit user evaluation.
+- **Follow-up queued:** `PLATFORM-086F2H1S-SERVER-ACTION-AUTHORIZATION-v1` — NEXT, before F2H1T2.
+  Next resolves a Server Action from the `Next-Action` header rather than the request path, so the
+  path-prefix middleware gate does not cover direct invocation. All nine exported admin actions are
+  affected and four take a slug, so the exposure reaches PRODUCTION leagues. Pre-existing and
+  codebase-wide; deliberately not folded in.
+
+---
+
 ### PLATFORM-086F2H1B — Guarded Automatic Season Transition — Complete
 
 - **Status:** Complete — merged to `main` via PR #443 (merge commit `be0c950`), 2026-08-04.
