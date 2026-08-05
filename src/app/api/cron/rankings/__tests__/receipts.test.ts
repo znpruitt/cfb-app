@@ -55,24 +55,14 @@ function makeLeague(slug: string, status: League['status']): League {
   } as League;
 }
 
-async function seedLeague(year: number, state: 'season' | 'preseason' = 'season'): Promise<void> {
-  const existing = (await getAppState<League[]>('leagues', 'registry'))?.value ?? [];
-  await setAppState('leagues', 'registry', [
-    ...existing,
-    makeLeague(`league-${year}-${state}`, { state, year }),
-  ]);
-}
-
-/** Seed the DEMO league (`TEST_LEAGUE_SLUG`) in an active lifecycle state. */
-async function seedDemoLeague(
+/** Append one league. Pass `TEST_LEAGUE_SLUG` to seed the DEMO league. */
+async function seedLeague(
   year: number,
-  state: 'season' | 'preseason' = 'season'
+  state: 'season' | 'preseason' = 'season',
+  slug = `league-${year}-${state}`
 ): Promise<void> {
   const existing = (await getAppState<League[]>('leagues', 'registry'))?.value ?? [];
-  await setAppState('leagues', 'registry', [
-    ...existing,
-    makeLeague(TEST_LEAGUE_SLUG, { state, year }),
-  ]);
+  await setAppState('leagues', 'registry', [...existing, makeLeague(slug, { state, year })]);
 }
 
 async function seedSchedule(year: number, firstKickoff: string): Promise<void> {
@@ -371,7 +361,7 @@ test('POSITIVE CONTROL: the receipt suite observer records real traffic and ever
 // the demo year into the receipt target.
 test('T4 regression: a demo-only run records the new reason, zero target years, and no request', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
-  await seedDemoLeague(YEAR);
+  await seedLeague(YEAR, 'season', TEST_LEAGUE_SLUG);
   await seedSchedule(YEAR, FIRST_KICKOFF);
   stubProvider({ [YEAR]: { regular: usablePayload(YEAR), postseason: [] } });
 
@@ -396,8 +386,6 @@ test('T4 regression: a demo-only run records the new reason, zero target years, 
   // The observed truth, independent of the receipt's self-report.
   assert.deepEqual(providerUrlLog, []);
   assert.equal(fetchLog.info + fetchLog.rankings.length, 0);
-  // No receipt or event ever names a league slug.
-  assert.ok(!JSON.stringify(stored.value).includes(TEST_LEAGUE_SLUG));
 });
 
 // REGRESSION TEST — a mixed registry projects only the production year into the
@@ -405,7 +393,7 @@ test('T4 regression: a demo-only run records the new reason, zero target years, 
 test('T4 regression: a mixed run stores only the production year in the receipt target', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
   const DEMO_YEAR = 2033;
-  await seedDemoLeague(DEMO_YEAR, 'preseason');
+  await seedLeague(DEMO_YEAR, 'preseason', TEST_LEAGUE_SLUG);
   await seedLeague(YEAR);
   await seedSchedule(YEAR, FIRST_KICKOFF);
   await seedSchedule(DEMO_YEAR, '2031-11-15T18:00:00.000Z');

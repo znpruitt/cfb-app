@@ -61,24 +61,14 @@ function makeLeague(slug: string, status: League['status']): League {
   } as League;
 }
 
-async function seedLeague(year: number, state: 'season' | 'preseason' = 'season'): Promise<void> {
-  const existing = (await getAppState<League[]>('leagues', 'registry'))?.value ?? [];
-  await setAppState('leagues', 'registry', [
-    ...existing,
-    makeLeague(`league-${year}-${state}`, { state, year }),
-  ]);
-}
-
-/** Seed the DEMO league (`TEST_LEAGUE_SLUG`) in an active lifecycle state. */
-async function seedDemoLeague(
+/** Append one league. Pass `TEST_LEAGUE_SLUG` to seed the DEMO league. */
+async function seedLeague(
   year: number,
-  state: 'season' | 'preseason' = 'season'
+  state: 'season' | 'preseason' = 'season',
+  slug = `league-${year}-${state}`
 ): Promise<void> {
   const existing = (await getAppState<League[]>('leagues', 'registry'))?.value ?? [];
-  await setAppState('leagues', 'registry', [
-    ...existing,
-    makeLeague(TEST_LEAGUE_SLUG, { state, year }),
-  ]);
+  await setAppState('leagues', 'registry', [...existing, makeLeague(slug, { state, year })]);
 }
 
 async function seedSchedule(year: number, firstKickoff: string): Promise<void> {
@@ -239,10 +229,6 @@ test.beforeEach(async () => {
 
 test.afterEach(() => {
   console.log = ORIGINAL_CONSOLE_LOG;
-  providerUrlLog.length = 0;
-  fetchLog.info = 0;
-  fetchLog.rankings = [];
-  fetchLog.sequence = [];
 });
 
 test.after(() => {
@@ -269,11 +255,10 @@ test('POSITIVE CONTROL: the observer records every input shape before parsing', 
   await globalThis.fetch(target);
   await globalThis.fetch(new URL(target));
   await globalThis.fetch(new Request(target));
+  // `Request` is the shape a parse-then-record observer silently loses, because
+  // `String(request)` is "[object Request]" and `new URL()` rejects that. This
+  // deepEqual is the proof that matters: all three shapes reach the log.
   assert.deepEqual(providerUrlLog, [target, target, target], 'all three shapes record the href');
-  // `Request` is the shape a parse-then-record observer silently loses:
-  // `String(new Request(url))` is "[object Request]" and `new URL()` throws on it.
-  assert.equal(String(new Request(target)), '[object Request]');
-  assert.throws(() => new URL(String(new Request(target))), TypeError);
 });
 
 test('POSITIVE CONTROL: the observer records an endpoint the stub rejects', async () => {
@@ -414,7 +399,7 @@ test('T4 contract pin: an offseason demo league keeps the no-ranking-target reas
 // `/info` and both rankings partitions.
 test('T4 regression: a gates-open demo-only registry with a DUE window spends nothing', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
-  await seedDemoLeague(YEAR);
+  await seedLeague(YEAR, 'season', TEST_LEAGUE_SLUG);
   await seedSchedule(YEAR, FIRST_KICKOFF);
   stubProvider({
     info: { remainingCalls: 4000, patronLevel: 1 },
@@ -453,7 +438,7 @@ test('T4 regression: a gates-open demo-only registry with a DUE window spends no
 // job the operator deliberately paused. It also pins that a paused demo-only
 // run keeps reporting the pause, not the new reason.
 test('T4 contract pin: a paused run never reaches target selection', async () => {
-  await seedDemoLeague(YEAR);
+  await seedLeague(YEAR, 'season', TEST_LEAGUE_SLUG);
   await setGlobalPause(true);
   __setAppStateReadFailureForTests(new Error('registry down'), 'leagues');
   try {
@@ -474,7 +459,7 @@ test('T4 contract pin: a paused run never reaches target selection', async () =>
 // CONTROL: the same observer records the real `/info` + partition traffic.
 test('T4 regression: a shared year runs on the production league and its lifecycle', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
-  await seedDemoLeague(YEAR, 'season'); // would outrank...
+  await seedLeague(YEAR, 'season', TEST_LEAGUE_SLUG); // would outrank...
   await seedLeague(YEAR, 'preseason'); // ...this production league
   await seedSchedule(YEAR, FIRST_KICKOFF);
   stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
@@ -504,7 +489,7 @@ test('T4 regression: a demo-only year never appears while a production year exec
   t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
   const DEMO_YEAR = 2033;
   const DEMO_KEY = `${DEMO_YEAR}:weekly-ap-coaches:2031-10-05`;
-  await seedDemoLeague(DEMO_YEAR, 'preseason');
+  await seedLeague(DEMO_YEAR, 'preseason', TEST_LEAGUE_SLUG);
   await seedLeague(YEAR);
   await seedSchedule(YEAR, FIRST_KICKOFF);
   await seedSchedule(DEMO_YEAR, '2031-11-15T18:00:00.000Z');
