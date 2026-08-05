@@ -96,7 +96,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   slice. The same false claim appeared in `auth-and-privacy.md` and `admin-control-plane.md` and is
   fixed in both. AGENTS.md invariant #8 and this entry also named `isPlatformAdminSession()` as the
   function the guard calls; it calls `resolvePlatformAdminDecision()`.
-- Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
+- Status: **✅ MERGED to `main` via PR #447 (merge commit `8021b1f`), 2026-08-05.**
 
 ### PLATFORM-086F2H1SA-PROTECTED-PATH-MATCHER-COVERAGE-v1
 

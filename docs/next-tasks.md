@@ -198,8 +198,7 @@ Execution order within F2 (each slice is one independently deployable PR):
       NOT work, because those paths genuinely end in the excluded extension; the `$` anchor is
       added alongside to close the root-cause `/foo/bar.css/baz` shape. Matcher entries are OR'd,
       so position in the array carries no meaning — only their existence does.
-    - **F2H1SB — admin Server Action authorization** — implemented, in pre-merge review (before
-      F2H1T2). Still mandatory
+    - **F2H1SB — admin Server Action authorization** — ✅ MERGED (PR #447, `8021b1f`, 2026-08-05). Still mandatory
       once the matcher is fixed: Next treats an exported Server Action as a public endpoint that
       must authorize internally.
       CORRECTED MECHANISM (the earlier framing was refuted by the F2H1S audit and by an
@@ -223,7 +222,8 @@ Execution order within F2 (each slice is one independently deployable PR):
       would silently swallow the refusal at the other five. Pre-existing and codebase-wide;
       surfaced during the F2H1T1 v2 review. Deliberately NOT folded into F2H1T1 — bundling a
       security fix into a lifecycle slice is the scope mistake that required v1's reconstruction.
-      - **F2H1T2 — season-transition exclusion**, then **F2H1T3 — weekly-schedule exclusion**, then
+      - **F2H1T2 — season-transition exclusion** — **NEXT**, then **F2H1T3 — weekly-schedule
+        exclusion**, then
         **F2H1T4 — rankings exclusion**, then **F2H1T5 — System Health operational-year isolation**.
         Separate because they are separate automation jobs under the binding sizing rule, and each
         needs its own route-level tests. Transition exclusion comes first: it removes the

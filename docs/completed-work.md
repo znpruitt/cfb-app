@@ -2322,6 +2322,63 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H1SB — Admin Server Action Authorization — Complete
+
+- **Status:** Complete — merged to `main` via PR #447 (merge commit `8021b1f`), 2026-08-05.
+- **PROMPT_ID(s):** `PLATFORM-086F2H1SB-SERVER-ACTION-AUTHORIZATION-v1`.
+- **Outcome:** Every exported admin Server Action now authorizes at its own execution boundary.
+  F2H1SA closed a demonstrated matcher bypass, but routing is defense in depth and never the
+  action's authority: Next resolves an exported Server Action from the `Next-Action` header, so each
+  is a callable endpoint that must authorize itself. `requireAdminAction(name)`
+  (`src/lib/auth/requireAdminAction.ts`, deliberately carrying NO `'use server'` directive — that
+  would make its own exports Server Actions) is the FIRST executable statement of all nine actions,
+  ahead of argument validation, registry/app-state reads, writes, cleanup, standings invalidation,
+  `revalidatePath`, and redirects. It calls `resolvePlatformAdminDecision()` — the CLOSED shared
+  decision, not the `isPlatformAdminSession()` boolean wrapper, which cannot supply a refusal
+  reason — with NO argument, because a `Request` would reach the `ADMIN_API_TOKEN` branch whose
+  no-token path authorizes any caller outside production. Refusal THROWS a stable generic error:
+  never `redirect()` or `notFound()`, which would fetch or render the very route being refused. One
+  allowlisted `admin-action-unauthorized` event is logged from compile-time constants only, which
+  matters because Next does not record a thrown fetch-action error server-side.
+- **The shared decision:** `resolvePlatformAdminDecision` in `src/lib/server/adminAuth.ts` returns
+  `authorized | missing-clerk-secret | not-platform-admin | authorization-unavailable`;
+  `isPlatformAdminSession` remains a boolean wrapper so existing callers are unchanged. The
+  blank-secret refusal lives there because Clerk's header-signature check is an HMAC keyed on
+  `CLERK_SECRET_KEY` and an unset key silently becomes `''`. It is consumed by this guard and by
+  `requireAdminAuth`; **middleware is a separate boundary** calling Clerk directly and does NOT
+  consume it, so admin PAGE gating is unchanged by this slice.
+- **Guarantee, stated precisely:** Next deserializes arguments BEFORE entering the action and Clerk
+  reads while evaluating the session, so "zero reads" is not claimed. What holds is that after
+  action entry, no application or durable read, write, cleanup, revalidation, redirect, or
+  argument-dependent validation precedes authorization.
+- **Verification:** each gate its own command with an unmasked exit status against `a4b217e` —
+  focused 40/40, `npx tsc --noEmit`, `npm run lint:all`, `npm test` 3266/3266, `npm run build`,
+  `git diff --check`. **Test delta: +16 added, 0 weakened**; the 24 pre-existing invocations were
+  retargeted by wrapping two shared runners once, with no assertion edited. Nine mutations verified
+  failing one at a time, including a guard removed, a guard moved below its first validation and
+  below `invalidateStandings`, `notFound()` replacing the throw, an unguarded tenth action, an
+  outage collapsed into a role denial, and the `try` covering only the test seam. A throw from
+  `resolvePlatformAdminDecision()` is NOT inducible without a mocking seam, so that one test is a
+  structural pin labelled as such in its own body.
+- **Corrections recorded, not buried:** the rejected-path tag assertion was vacuous TWICE — commit
+  `3027c58` claimed to fix it and did not (the helper reported tags only on the resolving path while
+  every unauthorized invocation rejects), and `abeb2fa`'s correction was itself incomplete; only the
+  final round's `finally` captures on the rejecting path. Separately, the claim that all THREE
+  boundaries inherit the blank-secret refusal was false, as was AGENTS.md invariant #8's naming of
+  `isPlatformAdminSession()` as the function the guard calls. Also caught pre-review: after moving
+  the decision into the shared authority, the focused suites were green while the FULL suite failed
+  110 admin-API tests, because the request-bearing token fallback had been narrowed.
+- **Review:** two clean Codex passes; `/code-review` ran three times. One normal DOCS-013
+  remediation round plus one explicitly authorized second-and-final round, permitted because the
+  defects it fixed were directly caused by the first. Review closed by explicit user evaluation;
+  no further confirming review was run, which was the authorization's condition.
+- **Deferred:** client refusal UX (**F2H3** — six call sites have no catch, so an expired session
+  reaches the root error boundary, and Next redacts action rejection messages so a message-only
+  surface cannot work); Clerk's four dependency-owned Server Action references including the
+  non-dev-gated `syncKeylessConfigAction`; and `setAssignmentMethod`'s missing runtime validation.
+
+---
+
 ### PLATFORM-086F2H1SA — Protected-Path Matcher Coverage — Complete
 
 - **Status:** Complete — merged to `main` via PR #446 (merge commit `533aed8`, 2026-08-04).
