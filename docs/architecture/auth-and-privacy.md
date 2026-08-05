@@ -1,7 +1,7 @@
 # Auth & Privacy
 
 Status: Current
-Last verified: 2026-07-26
+Last verified: 2026-08-04
 Owner: Project documentation
 Canonical for: Clerk identity/roles, platform-admin route/API gating, ADMIN_API_TOKEN fallback, league-password privacy gate, cron auth
 Supersedes: (none — complements `AGENTS.md` → Auth Architecture Invariants; the deployment-runbook's auth summary is the operator-facing companion)
@@ -38,7 +38,62 @@ The game-stats data route **`/api/game-stats` is admin-only** (`src/lib/server/a
 
 **`ADMIN_API_TOKEN` is a transitional fallback** (Auth Invariant #5), retained for backward compatibility until the Phase 8 multi-tenant commissioner signup replaces it with commissioner-scoped Clerk roles. Do not build new flows that depend on it. (Note: when no token is configured, non-production environments treat requests as authorized for local dev convenience — production must set real auth.)
 
-Never hardcode `publicMetadata.role` checks in components or handlers; all role assertions go through the middleware and `requireAdminAuth`. Draft admin gates go through `src/lib/server/canAccessDraftBoard.ts`.
+Never hardcode `publicMetadata.role` checks in components or handlers; all role assertions go through the middleware, `requireAdminAuth`, and `requireAdminAction`. Draft admin gates go through `src/lib/server/canAccessDraftBoard.ts`.
+
+## Server Action gating (`requireAdminAction`)
+
+The third and final authorization boundary, added by PLATFORM-086F2H1SB. It is
+distinct from the two above and does not replace either.
+
+Next.js resolves an exported Server Action from the `Next-Action` header rather
+than the request path, so an action is a callable endpoint in its own right.
+Route matching is therefore **defense in depth, never the action's authority** —
+a lesson learned concretely in F2H1SA, where an unanchored static-file exclusion
+let `/admin/audit.css` skip the middleware while still resolving to a worker
+where every action was registered.
+
+`requireAdminAction(name)` (`src/lib/auth/requireAdminAction.ts`) is the FIRST
+executable statement of all nine exported actions in
+`src/app/admin/[slug]/actions.ts`. It:
+
+- resolves `resolvePlatformAdminDecision()` with **no argument**. Passing a
+  `Request` would reach `isAuthorizedAdminRequest`, whose no-token branch
+  authorizes any caller outside production — an authorization hole, not merely
+  inelegant. This is also why `requireAdminAuth` cannot serve here: it requires
+  a `Request` and returns a `Response`;
+- inherits, rather than duplicates, two properties of that shared decision. The
+  blank-`CLERK_SECRET_KEY` refusal lives in `adminAuth.ts` because the TWO
+  consumers of that verdict — this guard and `requireAdminAuth` for API routes —
+  would otherwise each need their own copy. **Middleware is a separate boundary
+  and does NOT inherit it:** it calls `clerkMiddleware`'s own `auth()` and
+  `isPlatformAdminClaims` directly and never reaches
+  `resolvePlatformAdminDecision`, so admin PAGE gating on a blank secret is
+  unchanged by this slice. And a failed evaluation resolves to
+  `authorization-unavailable` rather than `not-platform-admin`, so a Clerk
+  outage is never recorded as a role denial;
+- emits exactly one structured `admin-action-unauthorized` event built only from
+  compile-time constants — a stable event name, the action name, and a closed
+  reason. Never arguments, slug, body, claims, cookies, tokens, or exception
+  text. This log matters because for the fetch-action path Next does not record
+  a thrown action error server-side, so it is the only evidence an unauthorized
+  invocation occurred;
+- refuses by throwing a stable generic `Error`. **Never `redirect()` or
+  `notFound()`** — `notFound()` renders the full unauthorized page, issuing the
+  very reads the guard exists to prevent, and `redirect()` issues a real
+  server-side GET of the target.
+
+**The guarantee, stated precisely.** Next deserializes a Server Action's
+arguments before entering the function, and Clerk performs its own reads while
+evaluating the session, so "zero reads" is not claimed. What holds is: after
+action entry, no application or durable read, write, cleanup, revalidation,
+redirect, or argument-dependent validation occurs before authorization.
+
+A test asserts the guarded name list equals the module's exported functions,
+that each action opens with its own matching guard call, and that no second
+repository `'use server'` module exists — a new one would be an entirely
+separate action surface and requires an explicit authorization decision.
+
+---
 
 ## Cron auth (`CRON_SECRET`)
 
