@@ -25,10 +25,13 @@ import type { SeasonTransitionCronExecutionEvent } from '../../../../../lib/life
 // ---------------------------------------------------------------------------
 // PLATFORM-086F2H1B — the automated half of lifecycle convergence.
 //
-// The cron now drives the GUARDED preseason→season authority and reports four
+// The cron drives the GUARDED preseason→season authority and reports four
 // independent dispositions truthfully across the HTTP response, the runtime
-// event, and the durable receipt. Targeting is UNCHANGED — every `preseason`
-// league is still a target, including `test`; that policy question is F2H1T.
+// event, and the durable receipt.
+//
+// PLATFORM-086F2H1T2 then made the demo league MANUAL-ONLY: `test` is filtered
+// out before the zero-target decision and before grouping, so it is not a
+// target and not counted. The tests at the end of this file pin that.
 // ---------------------------------------------------------------------------
 
 const CRON_SECRET = 'test-cron-secret';
@@ -165,7 +168,18 @@ async function runRoute(
   globalThis.fetch = (async (...args: Parameters<typeof fetch>) => {
     providerCalls += 1;
     const input = args[0];
-    providerUrls.push(typeof input === 'string' ? input : String(input));
+    // `String(new Request(url))` is '[object Request]', which would make every
+    // "the demo year was never fetched" assertion below pass regardless of the
+    // year actually requested. Resolve the URL from every input shape.
+    providerUrls.push(
+      typeof input === 'string'
+        ? input
+        : input instanceof URL
+          ? input.href
+          : input instanceof Request
+            ? input.url
+            : String(input)
+    );
     return wrapped(...args);
   }) as typeof fetch;
   // `pendingRevalidatedTags.push` is what `revalidateTag` calls, so a hooked
@@ -1175,10 +1189,11 @@ test('a demo-only preseason registry is skipped with no provider work', async ()
   await seedPastProbe();
   const before = await readRegistry();
 
-  const { res, body, event, providerCalls, providerUrls } = await runRoute();
+  const { res, body, event, providerCalls, providerUrls, tags } = await runRoute();
 
   assert.equal(res.status, 200);
   assert.deepEqual(body.years, [], 'no year is reported');
+  assert.deepEqual(tags, [], 'no standings invalidation for a demo-only registry');
   assert.equal(event.result, 'skipped');
   assert.equal(
     event.reason,

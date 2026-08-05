@@ -78,7 +78,10 @@ type YearResult = {
   partialFailure?: boolean;
   failedSeasonTypes?: ScheduleSeasonType[];
   // PLATFORM-086F2H1B — the guarded dispositions for this year's snapshot
-  // targets (every `preseason` league, including `test` — exclusion is F2H1T).
+  // targets. Since PLATFORM-086F2H1T2 those are the NON-demo preseason leagues:
+  // `test` is filtered out before grouping, so it never appears in
+  // `targetLeagues` or any disposition. A count that looks short against Season
+  // Management is that policy, not data loss.
   // `leagues` above stays the list of leagues this invocation actually
   // transitioned; these are counts only, so no slug reaches the runtime
   // event or the durable receipt. Always present once the lifecycle gate is
