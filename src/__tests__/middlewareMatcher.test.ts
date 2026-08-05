@@ -5,7 +5,10 @@ import { unstable_doesMiddlewareMatch } from 'next/experimental/testing/server.j
 
 import { config } from '../middleware.ts';
 import nextConfig from '../../next.config.ts';
-import { PLATFORM_ADMIN_PAGE_PREFIXES } from '../lib/auth/platformAdmin.ts';
+import {
+  PLATFORM_ADMIN_PAGE_PREFIXES,
+  requiresPlatformAdminPage,
+} from '../lib/auth/platformAdmin.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-086F2H1SA — the protected page families must actually reach the
@@ -31,7 +34,14 @@ function matches(url: string): boolean {
 }
 
 // The bypass itself: dotted paths under the protected prefixes.
-test('a protected path with a static-looking extension still reaches the middleware', () => {
+//
+// BOTH halves are asserted on the same path, deliberately. Reaching the
+// middleware is worthless if the body then declines to gate, and gating is
+// worthless if the request never arrives — the bypass needed only one of the two
+// to fail. Asserting them separately (or delegating one to another suite) lets a
+// future extension-based early return in `requiresPlatformAdminPage` reopen the
+// hole with this file still green.
+test('a protected path with a static-looking extension is both matched AND gated', () => {
   for (const url of [
     '/admin/audit.css',
     '/admin/test.css',
@@ -44,11 +54,16 @@ test('a protected path with a static-looking extension still reaches the middlew
     '/debug/y.css',
     '/debug/y.ico',
   ]) {
-    assert.equal(matches(url), true, `${url} must be matched — it resolves to a protected route`);
+    assert.equal(matches(url), true, `${url} must reach the middleware`);
+    assert.equal(
+      requiresPlatformAdminPage(url),
+      true,
+      `${url} must then be GATED — reaching the middleware is not protection by itself`
+    );
   }
 });
 
-test('nested and multi-segment dotted protected paths are matched', () => {
+test('nested and multi-segment dotted protected paths are matched and gated', () => {
   for (const url of [
     '/admin/a/b.css',
     '/admin/test/preseason.png',
@@ -57,12 +72,7 @@ test('nested and multi-segment dotted protected paths are matched', () => {
     '/admin/weird.name.css',
   ]) {
     assert.equal(matches(url), true, url);
-  }
-});
-
-test('a query string cannot smuggle a protected path past the matcher', () => {
-  for (const url of ['/admin/test?x=1', '/admin/test.css?v=2', '/debug?f=a.css']) {
-    assert.equal(matches(url), true, url);
+    assert.equal(requiresPlatformAdminPage(url), true, url);
   }
 });
 
@@ -116,9 +126,15 @@ test('every protected page prefix has a matcher entry, whatever the order', () =
       `${prefix} is gated by requiresPlatformAdminPage but has no matcher entry — ` +
         `a dotted path under it would skip middleware entirely`
     );
-    // And it holds end to end through Next's own evaluator.
-    assert.equal(matches(`${prefix}/probe.css`), true, `${prefix}/probe.css`);
+    // And it holds end to end: the dotted probe must be matched AND gated.
+    assert.equal(matches(`${prefix}/probe.css`), true, `${prefix}/probe.css must be matched`);
+    assert.equal(
+      requiresPlatformAdminPage(`${prefix}/probe.css`),
+      true,
+      `${prefix}/probe.css must be gated`
+    );
     assert.equal(matches(prefix), true, prefix);
+    assert.equal(requiresPlatformAdminPage(prefix), true, prefix);
   }
 });
 

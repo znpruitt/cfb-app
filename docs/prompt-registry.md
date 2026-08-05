@@ -81,20 +81,6 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   rejected anchored variant.
 - Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
 
-### PLATFORM-086F2H1SB-SERVER-ACTION-AUTHORIZATION-v1
-
-- Purpose: Authorize the admin Server Actions inside the actions themselves. Required by Next's own
-  guidance regardless of routing — an exported Server Action is a public endpoint — and therefore
-  still mandatory after F2H1SA closes the matcher bypass.
-- Scope: the nine exported actions in `src/app/admin/[slug]/actions.ts` and one shared
-  platform-admin guard invoked as the first awaited operation in each, before any read, write,
-  cleanup, revalidation, or redirect. Tests invoke all nine directly, independently of the requested
-  pathname. Excludes middleware, UI, lifecycle, API-token, and commissioner-scope changes.
-- Outcome: not yet implemented. Design constraints from the F2H1S audit are recorded in
-  `docs/next-tasks.md`, which owns forward-looking specification.
-- Review / verification: not yet run.
-- Status: **Not implemented.** Queue position is owned by `docs/next-tasks.md`.
-
 ### PLATFORM-086F2H1T1-TEST-CONTROL-SAFETY-v2
 
 - Purpose: Make the demo league's manual lifecycle controls structurally safe BEFORE removing the
