@@ -356,9 +356,14 @@ export async function getCanonicalStandings(
  * transition to `season`, which DOES invalidate. PLATFORM-086F2H1T2 removed the
  * demo league from the season-transition cron, making that control its only
  * preseason→season path, so it inherited the invalidation the cron performed;
- * preseason/offseason and reset remain intentionally un-wired. If a genuinely
- * un-wired mutating path is hit, the cache may serve stale canonical data until
- * a subsequent invalidation fires from another path.
+ * preseason/offseason and reset remain un-wired. Note that those paths share
+ * the SAME key-collision property that justified wiring the season branch —
+ * `resolveStandingsYear` returns the same resolved year across a preseason
+ * re-click, and an offseason write projects `league.year` to the outgoing
+ * season year — so they are un-wired by scope, not because they are safe.
+ * Tracked in `docs/next-tasks.md`. If a genuinely un-wired mutating path is
+ * hit, the cache may serve stale canonical data until a subsequent
+ * invalidation fires from another path.
  */
 export function invalidateStandings(slug: string, year?: number): void {
   revalidateTag(standingsSlugTag(slug));

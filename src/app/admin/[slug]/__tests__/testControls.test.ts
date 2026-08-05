@@ -5,9 +5,11 @@ import test from 'node:test';
 // Next storage module loads, so the server actions' `revalidatePath` runs under
 // the bare node:test runner. Imported rather than re-implemented — the store
 // shape is a Next internal, and one copy is enough to maintain.
-import { runWithRevalidateContext as runInNextContext } from '../../../api/draft/[slug]/[year]/__tests__/_setup/revalidateContext';
+import {
+  runCapturingRevalidatedTags,
+  runWithRevalidateContext as runInNextContext,
+} from '../../../api/draft/[slug]/[year]/__tests__/_setup/revalidateContext';
 import { __withAdminActionAuthorizerForTests } from '../../../../lib/auth/requireAdminAction.ts';
-import { runCapturingRevalidatedTags } from '../../../api/draft/[slug]/[year]/__tests__/_setup/revalidateContext';
 import { standingsSlugTag } from '../../../../lib/selectors/leagueStandings.ts';
 
 /** Authorized variant that also reports the tags the action revalidated. */

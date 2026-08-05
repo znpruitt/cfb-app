@@ -97,11 +97,16 @@ export async function setTestLeagueStatus(state: TestLeagueLifecycleState): Prom
   // preseason→season path, so it inherits the standings invalidation the
   // season-transition cron used to perform for it.
   //
-  // Without this the demo serves a stale PRESEASON standings snapshot forever:
+  // Without this the demo serves a stale PRESEASON standings snapshot:
   // `resolveStandingsYear` returns `status.year` for both preseason and season,
   // so the cache key is unchanged across the flip, and the entry is tag-only
-  // with `revalidate: false` — nothing else would ever bust it. Slug-wide,
-  // matching what the cron did; the year is not recomputed here.
+  // with `revalidate: false`.
+  //
+  // Precisely: registry-walking refreshes (`/api/scores`, `/api/schedule`) do
+  // bust `standings:test` for every league, so the snapshot MAY eventually be
+  // invalidated — but that is opportunistic, not a lifecycle guarantee, and it
+  // is not something a lifecycle transition may depend on. Slug-wide, matching
+  // what the cron did; the year is not recomputed here.
   if (result.status.state === 'season') {
     invalidateStandings(TEST_LEAGUE_SLUG);
   }
