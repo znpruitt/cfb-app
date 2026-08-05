@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Status: Current
-Last verified: 2026-08-04
+Last verified: 2026-08-05
 Owner: Project documentation
 Canonical for: binding engineering, architecture, implementation, review, and documentation-timing rules; agent operating rules
 Supersedes: docs/archive/governance/cfb-engineering-operating-instructions.md (original prompt-governance model; jointly with CLAUDE.md)
@@ -285,6 +285,13 @@ Implementation prompts automate the review cycle instead of relaying each result
 
 **Reconstruction over accumulation.** When a branch has taken two remediation rounds and still yields credible findings, or when review shows the scope itself was wrong (crossing automation jobs, shipping an untested second surface), **abandon the branch and rebuild the settled behavior from clean `main`** rather than patching further. Reconstruct by re-deriving, not by cherry-picking the stopped commits — the stopped history carries the defects that stopped it. Record the abandoned attempt as superseded/unimplemented and the replacement as the execution record. Named failure case: `PLATFORM-086F2H1T1` v1 (two remediation rounds, a false claim in a commit message, and a client-feedback layer that could not work in production).
 
+Reconstruction is for sedimentary **product behavior, architecture, or scope** — not merely for a
+misstated comment or an overbuilt proof harness around otherwise-sound production code. Classify
+accepted findings as product/security behavior, verification-harness defects, or documentation
+inaccuracies. When independent reviews agree the production behavior is sound and only the latter
+two remain, freeze the production implementation and limit any authorized correction to that proof
+surface under the round limits above.
+
 **What resolves review:** no credible in-scope P0/P1/P2 remains. A literal "clean" verdict is not required. P3s and unrelated or pre-existing findings become tracked follow-ups; do not silently discard them.
 
 ---
@@ -303,6 +310,16 @@ Never bundle live scores with Odds. Never fold information-architecture work int
 
 **Every surface a PR touches must carry its own tests.** Widening scope to a second module or job and shipping it without route-level coverage is a scope violation in itself, not merely a test gap — if deleting the new guard leaves the suite green, the guard is not in the PR's acceptance contract. Named failure cases: `PLATFORM-086A` (77 files / ~12k lines); `PLATFORM-086F2H1B` v1 (two automation jobs, second one untested).
 
+**Inventory shared-policy consumers before editing.** A change to shared authentication, storage,
+scheduling, lifecycle, or other policy authority begins with an inventory of its direct and indirect
+consumers. Focused suites are the fast path, but they cannot establish compatibility for a shared
+boundary; the full suite is mandatory before reporting that such a change is compatible.
+
+**Proof infrastructure counts as scope.** Prefer direct behavioral acceptance tests. Add source
+scans, structural pins, meta-tests, or custom harness machinery only when an important invariant
+cannot be observed behaviorally. Do not grow speculative proof machinery for future file forms,
+roots, call patterns, or framework behavior outside the acceptance contract.
+
 ---
 
 ## Verification (binding)
@@ -312,6 +329,24 @@ Never bundle live scores with Odds. Never fold information-architecture work int
 **Verification binds to an exact commit.** Report the SHA the gates ran against, and confirm the worktree was clean and `HEAD` unchanged at that moment. Results never carry forward across a commit: after any change to the tree, re-run every required gate against the new commit before reporting.
 
 **A regression test must be verified failing against its own pre-fix code**, reverting one fix at a time. A multi-fix revert that breaks compilation fails the whole file and proves nothing. State explicitly that this was done. A test whose stated discriminating property is false is worse than no test.
+
+**A negative assertion requires a proven observer.** A test claiming that nothing was written,
+invalidated, logged, called, or otherwise changed must include a positive control proving that the
+same harness detects the forbidden event on the same resolving or rejecting path. If the subject
+throws, capture observations in `finally`; an empty collection populated only after successful
+resolution proves nothing. Mutation-check the observer when practical, not only the production
+guard it observes.
+
+Use verification labels precisely:
+
+- **Regression test:** demonstrated failing against the actual pre-fix behavior.
+- **Contract pin:** preserves intended behavior but may not distinguish the previous implementation.
+- **Structural pin:** verifies required code shape when runtime observation is impractical.
+- **Positive control:** proves that the observer detects the event whose absence is asserted.
+
+Test names, comments, commit messages, PR bodies, and registry entries are verification assertions.
+Claim only what was observed. If a claim is found false, correct it explicitly rather than carrying
+it into closeout documentation.
 
 ### Test accounting
 
