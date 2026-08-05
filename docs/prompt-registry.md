@@ -52,6 +52,41 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1T4-RANKINGS-DEMO-EXCLUSION-v1
+
+- Purpose: Make the demo league manual-only for automatic rankings publication by resolving
+  target-year ownership from production leagues alone, eliminating its quota and scheduler
+  impact without changing publication-window policy.
+- Scope: `selectRankingsTargetYears` (`src/lib/rankings/automaticContext.ts`),
+  `GET /api/cron/rankings` zero-target branch, `RankingsCronControlReason`, the three focused
+  suites, and the owning documentation. No change to publication policy, manual refresh, System
+  Health year resolution, other automation jobs, cadence, UI, `maxDuration`, or `vercel.json`.
+- Outcome: The selector filters `TEST_LEAGUE_SLUG` per league inside its ownership loop — never
+  against the resolved years, which would drop a year a production league also occupies — and
+  returns a closed `{ years, excludedDemoCandidate }`. The exclusion flag derives from `slug` and
+  `status.state` only, so a malformed legacy year cannot flip the zero-target reason and an
+  `offseason` demo record is not an excluded candidate. A demo-only active registry reports the new
+  `skipped / no-automatic-ranking-target`; `no-ranking-target` keeps its exact meaning. Gate order
+  is unchanged, so a paused demo-only run still reports `automation-paused-or-disabled`. Contrary to
+  the F2H1T3 precedent, `RankingsPublicationContext.lifecycle` is inert — no window branches on it,
+  the publication key omits it, it never reaches the receipt — so the shared-year direction is a
+  reporting-truth fix, not a policy change. No receipt-schema migration or shim: the validator
+  accepts any non-empty reason string and System Health branches on `result`.
+- Review / verification: Both reviews ran against the same commit (`98e72db`). Codex: no actionable
+  findings. `/code-review`: nine findings — four applied in one cohesive round (removed a
+  near-tautological receipt slug assertion whose comment over-claimed, dropped two Node/undici
+  runtime pins, collapsed a duplicated seed helper, removed a redundant observer reset), five
+  adjudicated as not-defects and recorded. Both stubs record every request URL before parsing and
+  branching, with positive controls for string/`URL`/`Request` inputs and for an endpoint the stub
+  rejects; the receipt's `providerCallAttempted` is documented as unusable for that proof. Six
+  compiling mutations verified one at a time — exclusion removed (8 tests), subtraction after
+  grouping (shared-year cases only), active-state guard removed (both contract pins), reason reused,
+  selection moved ahead of the gate, and observer logging moved after parsing. Test deltas: selector
+  15 → 20, route 28 → 35, receipts 7 → 10; full suite 3280 → 3295. `npx tsc --noEmit`,
+  `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each run separately with
+  unmasked exit status.
+- Status: Implemented — PR open.
+
 ### PLATFORM-086F2H1T3-WEEKLY-SCHEDULE-DEMO-EXCLUSION-v1
 
 - Purpose: Make the demo league manual-only for weekly schedule maintenance by removing it from the
