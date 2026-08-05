@@ -1,4 +1,4 @@
-import type { League } from './league.ts';
+import { TEST_LEAGUE_SLUG, type League } from './league.ts';
 
 /**
  * PLATFORM-086F2B — the ONE season-rollover target-selection policy, shared by
@@ -7,8 +7,9 @@ import type { League } from './league.ts';
  * rollover may touch.
  */
 
-/** Test league is excluded from global rollover — it has its own independent lifecycle controls. */
-export const TEST_LEAGUE_SLUG = 'test';
+// The demo league is excluded from global rollover. `TEST_LEAGUE_SLUG` lives in
+// `league.ts` (PLATFORM-086F2H1T1); it is deliberately NOT re-exported here —
+// no module ever imported it from this one.
 
 export type RolloverYearGroup = {
   year: number;

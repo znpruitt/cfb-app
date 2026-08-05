@@ -5,7 +5,9 @@ import {
   completeSeasonRollover,
   getLeagues,
   updateLeague,
-  updateLeagueStatus,
+  completePreseasonSetup,
+  completeSeasonTransition,
+  setTestLeagueLifecycleState,
 } from '../leagueRegistry.ts';
 import type { League } from '../league.ts';
 import {
@@ -17,7 +19,7 @@ import {
 } from '../server/appStateStore.ts';
 
 // ---------------------------------------------------------------------------
-// PLATFORM-086F2B — `updateLeagueStatus` is the single lifecycle-year mutation
+// PLATFORM-086F2B — the guarded lifecycle authority is the single lifecycle-year mutation
 // authority: season/preseason synchronize the top-level `league.year` to
 // `status.year` in ONE registry write; offseason retains the last season year;
 // generic `updateLeague` cannot mutate lifecycle fields; and a failed write can
@@ -48,47 +50,49 @@ test.after(async () => {
   __resetAppStateForTests();
 });
 
-test('updateLeagueStatus(season) synchronizes status and top-level year in one stored record', async () => {
+test('a season write synchronizes status and top-level year in one stored record', async () => {
   await setAppState('leagues', 'registry', [
-    makeLeague('alpha', 2024, { state: 'season', year: 2024 }),
+    // preseason(2026) → season(2026) carries the year forward.
+    makeLeague('test', 2024, { state: 'preseason', year: 2026 }),
   ]);
 
-  const updated = await updateLeagueStatus('alpha', { state: 'season', year: 2026 });
+  const result = await setTestLeagueLifecycleState('season');
 
-  assert.equal(updated?.year, 2026);
+  assert.deepEqual(result, { outcome: 'applied', status: { state: 'season', year: 2026 } });
   const stored = (await readRegistry())[0]!;
   assert.deepEqual(stored.status, { state: 'season', year: 2026 });
   assert.equal(stored.year, 2026, 'top-level year synchronized in the same record');
 });
 
-test('updateLeagueStatus(preseason) synchronizes status and top-level year', async () => {
-  await setAppState('leagues', 'registry', [makeLeague('alpha', 2025, { state: 'offseason' })]);
+test('a preseason write synchronizes status and top-level year', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('test', 2025, { state: 'offseason' })]);
 
-  await updateLeagueStatus('alpha', { state: 'preseason', year: 2026 });
+  await setTestLeagueLifecycleState('preseason');
 
   const stored = (await readRegistry())[0]!;
   assert.deepEqual(stored.status, { state: 'preseason', year: 2026 });
   assert.equal(stored.year, 2026);
 });
 
-test('updateLeagueStatus(preseason, setupComplete) needs no separate year write', async () => {
+test('a preseason setupComplete write needs no separate year write', async () => {
   await setAppState('leagues', 'registry', [
     makeLeague('alpha', 2025, { state: 'preseason', year: 2026 }),
   ]);
 
-  await updateLeagueStatus('alpha', { state: 'preseason', year: 2026, setupComplete: true });
+  // Driven by its real producer now that the arbitrary-slug setter is gone.
+  await completePreseasonSetup('alpha', 2026);
 
   const stored = (await readRegistry())[0]!;
   assert.deepEqual(stored.status, { state: 'preseason', year: 2026, setupComplete: true });
   assert.equal(stored.year, 2026);
 });
 
-test('updateLeagueStatus(offseason) changes only status and retains the last season year', async () => {
+test('an offseason write changes only status and retains the last season year', async () => {
   await setAppState('leagues', 'registry', [
-    makeLeague('alpha', 2025, { state: 'season', year: 2025 }),
+    makeLeague('test', 2025, { state: 'season', year: 2025 }),
   ]);
 
-  await updateLeagueStatus('alpha', { state: 'offseason' });
+  await setTestLeagueLifecycleState('offseason');
 
   const stored = (await readRegistry())[0]!;
   assert.deepEqual(stored.status, { state: 'offseason' });
@@ -97,16 +101,13 @@ test('updateLeagueStatus(offseason) changes only status and retains the last sea
 
 test('a failed registry write leaves status.year and league.year fully unchanged (never partial)', async () => {
   await setAppState('leagues', 'registry', [
-    makeLeague('alpha', 2024, { state: 'season', year: 2024 }),
+    makeLeague('test', 2024, { state: 'preseason', year: 2026 }),
   ]);
   const before = await readRegistry();
 
   __setAppStateWriteFailureForTests(new Error('simulated registry outage'), 'leagues');
   try {
-    await assert.rejects(
-      () => updateLeagueStatus('alpha', { state: 'season', year: 2026 }),
-      /simulated registry outage/
-    );
+    await assert.rejects(() => setTestLeagueLifecycleState('season'), /simulated registry outage/);
   } finally {
     __setAppStateWriteFailureForTests(null);
   }
@@ -114,7 +115,7 @@ test('a failed registry write leaves status.year and league.year fully unchanged
   const after = await readRegistry();
   assert.deepEqual(after, before, 'no partial synchronization persisted');
   assert.equal(after[0]!.year, 2024);
-  assert.deepEqual(after[0]!.status, { state: 'season', year: 2024 });
+  assert.deepEqual(after[0]!.status, { state: 'preseason', year: 2026 });
 });
 
 test('generic updateLeague rejects lifecycle fields and writes nothing', async () => {
@@ -151,8 +152,10 @@ test('generic updateLeague still supports configuration fields', async () => {
 });
 
 test('getLeagues reflects the single-write synchronization', async () => {
-  await setAppState('leagues', 'registry', [makeLeague('alpha', 2024, { state: 'offseason' })]);
-  await updateLeagueStatus('alpha', { state: 'season', year: 2027 });
+  await setAppState('leagues', 'registry', [
+    makeLeague('test', 2024, { state: 'preseason', year: 2027 }),
+  ]);
+  await setTestLeagueLifecycleState('season');
   const leagues = await getLeagues();
   assert.equal(leagues[0]!.year, 2027);
   assert.deepEqual(leagues[0]!.status, { state: 'season', year: 2027 });
@@ -166,10 +169,10 @@ test('entering offseason heals a desynchronized top-level year from the outgoing
   await setAppState('leagues', 'registry', [
     // Legacy-desynchronized record: top-level year lags far behind the
     // authoritative status.year.
-    makeLeague('alpha', 2010, { state: 'season', year: 2023 }),
+    makeLeague('test', 2010, { state: 'season', year: 2023 }),
   ]);
 
-  await updateLeagueStatus('alpha', { state: 'offseason' });
+  await setTestLeagueLifecycleState('offseason');
 
   const stored = (await readRegistry())[0]!;
   assert.deepEqual(stored.status, { state: 'offseason' });
@@ -178,21 +181,21 @@ test('entering offseason heals a desynchronized top-level year from the outgoing
 
 test('concurrent registry mutations are serialized — neither update is dropped', async () => {
   await setAppState('leagues', 'registry', [
-    makeLeague('alpha', 2023, { state: 'season', year: 2023 }),
-    makeLeague('bravo', 2024, { state: 'season', year: 2024 }),
+    makeLeague('test', 2023, { state: 'season', year: 2023 }),
+    makeLeague('bravo', 2024, { state: 'preseason', year: 2026 }),
   ]);
 
-  // Two independent per-slug lifecycle writes racing on the ONE whole-array
-  // registry record. Without the registry-key transaction both could read the
-  // same snapshot and the last write would restore the other league's stale
-  // state.
+  // Two independent lifecycle writers racing on the ONE whole-array registry
+  // record. Without the registry-key transaction both could read the same
+  // snapshot and the last write would restore the other league's stale state.
+  // Both land on values absent from the seed, so a dropped write is visible.
   await Promise.all([
-    updateLeagueStatus('alpha', { state: 'offseason' }),
-    updateLeagueStatus('bravo', { state: 'season', year: 2026 }),
+    setTestLeagueLifecycleState('offseason'),
+    completeSeasonTransition('bravo', 2026),
   ]);
 
   const bySlug = Object.fromEntries((await readRegistry()).map((l) => [l.slug, l]));
-  assert.deepEqual(bySlug.alpha!.status, { state: 'offseason' }, 'alpha update persisted');
+  assert.deepEqual(bySlug.test!.status, { state: 'offseason' }, 'demo update persisted');
   assert.deepEqual(bySlug.bravo!.status, { state: 'season', year: 2026 }, 'bravo update persisted');
   assert.equal(bySlug.bravo!.year, 2026);
 });

@@ -7,7 +7,9 @@ import {
   completePreseasonSetup,
   getLeague,
   updateLeague,
-  updateLeagueStatus,
+  resetTestLeagueLifecycle,
+  setTestLeagueLifecycleState,
+  type TestLeagueLifecycleState,
 } from '@/lib/leagueRegistry';
 import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
@@ -18,44 +20,67 @@ import {
   setAppState,
 } from '@/lib/server/appStateStore';
 import { draftScope, type DraftState, type DraftPick } from '@/lib/draft';
+import { TEST_LEAGUE_SLUG } from '@/lib/league';
 import teamsData from '@/data/teams.json';
 
-/**
- * Set the lifecycle status of the test league. Only valid for slug='test'.
- * Hardcoded guard — this action must never be exposed for production leagues.
- */
-export async function setTestLeagueStatus(
-  state: 'season' | 'offseason' | 'preseason'
-): Promise<void> {
-  const league = await getLeague('test');
-  if (!league) throw new Error('Test league not found');
+/** The admin path the demo controls revalidate. */
+const TEST_LEAGUE_ADMIN_PATH = `/admin/${TEST_LEAGUE_SLUG}`;
 
-  if (state === 'season') {
-    // Carry forward the year from preseason so the increment set by 'Set: Pre-Season' is preserved
-    const seasonYear = league.status?.state === 'preseason' ? league.status.year : league.year;
-    await updateLeagueStatus('test', { state: 'season', year: seasonYear });
-  } else if (state === 'offseason') {
-    await updateLeagueStatus('test', { state: 'offseason' });
-  } else {
-    // Derive preseason year from the current resolved season year to avoid double-increment:
-    // season(N) → preseason(N+1); offseason/none → league.year+1; preseason(N) → stay at N
-    const cur = league.status;
-    const preseasonYear =
-      cur?.state === 'season'
-        ? cur.year + 1
-        : cur?.state === 'preseason'
-          ? cur.year
-          : league.year + 1;
-    // Clear preseason state for the target year so each test starts fresh
-    await Promise.all([
-      updateLeagueStatus('test', { state: 'preseason', year: preseasonYear }),
-      deleteAppState('preseason-owners:test', String(preseasonYear)),
-      deleteAppState(`owners:test:${preseasonYear}`, 'csv'),
-      deleteAppState(draftScope('test'), String(preseasonYear)),
-    ]);
+/**
+ * Every demo-scoped app-state record keyed by a single season year, owned in one
+ * place so the slug cannot half-migrate — a change that moved the registry write
+ * but not one of these deletes would strand state the controls can no longer
+ * reach.
+ */
+function testLeagueYearScopes(year: number): Array<[string, string]> {
+  return [
+    [`preseason-owners:${TEST_LEAGUE_SLUG}`, String(year)],
+    [`owners:${TEST_LEAGUE_SLUG}:${year}`, 'csv'],
+    [draftScope(TEST_LEAGUE_SLUG), String(year)],
+  ];
+}
+
+/**
+ * Set the lifecycle status of the demo league. Structurally demo-only — the
+ * authority takes no slug, so no production league is reachable from here.
+ *
+ * PLATFORM-086F2H1T1: the year is derived and validated INSIDE the registry
+ * transaction. This action no longer reads the league first and submits a year
+ * computed from that snapshot — `getLeague` is React-`cache`d, so the old
+ * read-then-write could derive from a memoized record taken outside the lock.
+ */
+export async function setTestLeagueStatus(state: TestLeagueLifecycleState): Promise<void> {
+  const result = await setTestLeagueLifecycleState(state);
+
+  if (result.outcome === 'league-not-found') throw new Error('Test league not found');
+  if (result.outcome !== 'applied') {
+    // A structurally unusable stored/derived year is a data-integrity fault
+    // requiring intervention; the reset control derives nothing and is the
+    // recovery path. Only the public slug and the typed outcome are logged —
+    // never a record, request body, or exception text.
+    console.error(
+      JSON.stringify({
+        event: 'lifecycle-action-refused',
+        action: 'set-test-league-status',
+        leagueSlug: TEST_LEAGUE_SLUG,
+        reason: result.outcome,
+      })
+    );
+    throw new Error('Unable to set test league status');
   }
 
-  revalidatePath('/admin/test');
+  // Clear the demo-scoped state for the year the AUTHORITY resolved, never a
+  // locally recomputed one. Sequenced strictly after the confirmed commit: the
+  // registry write and these deletes are separate scopes and are NOT atomic
+  // together, so racing them in one `Promise.all` could clear a year the
+  // lifecycle write then refused to install.
+  if (result.status.state === 'preseason') {
+    await Promise.all(
+      testLeagueYearScopes(result.status.year).map(([scope, key]) => deleteAppState(scope, key))
+    );
+  }
+
+  revalidatePath(TEST_LEAGUE_ADMIN_PATH);
 }
 
 /**
@@ -82,14 +107,32 @@ export async function resetTestDraft(): Promise<void> {
  * Also clears all 2026 preseason/draft state so the next dry run starts clean.
  */
 export async function resetTestLeague(): Promise<void> {
-  await updateLeagueStatus('test', { state: 'season', year: 2025 });
-  await Promise.all([
-    deleteAppState('preseason-owners:test', '2026'),
-    deleteAppState('owners:test:2026', 'csv'),
-    deleteAppState(draftScope('test'), '2026'),
-    deleteAppState('schedule-probe', '2026'),
-  ]);
-  revalidatePath('/admin/test');
+  const result = await resetTestLeagueLifecycle();
+  if (result.outcome === 'league-not-found') throw new Error('Test league not found');
+  // Anything other than a confirmed commit must not reach cleanup. The reset
+  // authority cannot refuse today, but its return type is the shared outcome
+  // union — a future guard on this path would otherwise fall straight through
+  // and clear state for a lifecycle write that never landed.
+  if (result.outcome !== 'applied') throw new Error('Unable to reset test league');
+
+  // Demo-SCOPED state only, for the season AFTER the one the authority just
+  // installed — the preseason a fresh dry run will use. Derived from the
+  // returned status rather than a literal, so it cannot drift from
+  // `TEST_LEAGUE_RESET_YEAR`.
+  //
+  // PLATFORM-086F2H1T1 removed a `deleteAppState('schedule-probe', <year>)`
+  // from this list. `schedule-probe/<year>` is keyed by YEAR ALONE
+  // (`src/lib/scheduleProbe.ts`) and is shared by every league, so resetting the
+  // sandbox disarmed that year's probe for production leagues and forced the
+  // year back from weekly maintenance to the daily season-transition cron. A
+  // demo reset must never mutate schedule state real leagues depend on.
+  if (result.status.state === 'season') {
+    const nextPreseason = result.status.year + 1;
+    await Promise.all(
+      testLeagueYearScopes(nextPreseason).map(([scope, key]) => deleteAppState(scope, key))
+    );
+  }
+  revalidatePath(TEST_LEAGUE_ADMIN_PATH);
 }
 
 /** Transition a league from offseason to preseason and redirect to the setup page. */
