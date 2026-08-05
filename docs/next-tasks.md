@@ -190,22 +190,39 @@ Execution order within F2 (each slice is one independently deployable PR):
         clean post-DOCS-013 `main`. `TestLeagueControls.tsx` is untouched — operator-readable
         feedback is F2H3's, because Next redacts Server Action rejection messages in production, so
         a message-only surface cannot work there.
-    - **F2H1S — admin Server Action authorization** — **NEXT** (before F2H1T2).
-      Next.js resolves a Server Action from the `Next-Action` header, not the request path, so the
-      path-prefix middleware gate (`requiresPlatformAdminPage`) does not cover direct invocation:
-      an unauthenticated POST to a public path carrying an action ID reaches the action. Official
-      Next.js guidance is that Server Actions must be treated as public endpoints and authorized
-      INSIDE the action
-      ([authentication guide](https://nextjs.org/docs/app/guides/authentication#server-actions)).
+    - **F2H1SA — protected-path matcher coverage** — implemented, in pre-merge review (before
+      F2H1T2). Closes a
+      DEMONSTRATED bypass, independently reproduced: the middleware matcher's static-file exclusion
+      is a substring rule, so `/admin/audit.css` skipped `clerkMiddleware` while still resolving to
+      the admin route worker where all nine Server Actions are registered. Fixed by matching
+      `/admin/:path*` and `/debug/:path*` explicitly — anchoring the extension group alone does
+      NOT work, because those paths genuinely end in the excluded extension; the `$` anchor is
+      added alongside to close the root-cause `/foo/bar.css/baz` shape. Matcher entries are OR'd,
+      so position in the array carries no meaning — only their existence does.
+    - **F2H1SB — admin Server Action authorization** — **NEXT after F2H1SA**, before F2H1T2. Still mandatory
+      once the matcher is fixed: Next treats an exported Server Action as a public endpoint that
+      must authorize internally.
+      CORRECTED MECHANISM (the earlier framing was refuted by the F2H1S audit and by an
+      independent local reproduction): a POST to a PUBLIC path such as `/` does NOT execute these
+      actions — none is registered on a public worker, so Next forwards the request to
+      `/admin/[slug]` over real HTTP and that hop re-enters the middleware and is redirected. The
+      demonstrated bypass was the matcher gap F2H1SA fixes. What remains after that fix is the
+      framework requirement itself: Next treats an exported Server Action as a public endpoint that
+      must be authorized INSIDE the action
+      ([authentication guide](https://nextjs.org/docs/app/guides/authentication#server-actions)),
+      so routing alone is never the authorization boundary.
       All NINE exported actions in `src/app/admin/[slug]/actions.ts` are affected —
       `setTestLeagueStatus`, `resetTestDraft`, `resetTestLeague`, `beginPreseason`,
       `setAssignmentMethod`, `confirmPreseasonOwners`, `completeSetup`, `migrateTestOwnersCsv`,
       `autoCompleteDraft` — and four of them take a slug, so the exposure reaches PRODUCTION
       leagues, not just the demo. Add one shared platform-admin guard invoked inside each action,
       refusing before any read, write, cleanup, or revalidation, and test direct invocation
-      independently of the requested pathname. Pre-existing and codebase-wide; surfaced during the
-      F2H1T1 v2 review. Deliberately NOT folded into F2H1T1 — bundling a security fix into a
-      lifecycle slice is the scope mistake that required v1's reconstruction.
+      independently of the requested pathname. Use `isPlatformAdminSession()` with NO argument;
+      do NOT synthesize a `Request` (that inherits the dev-open `ADMIN_API_TOKEN` branch), and keep
+      THROWING on refusal — typed outcomes are a type error at the two `<form action>` sites and
+      would silently swallow the refusal at the other five. Pre-existing and codebase-wide;
+      surfaced during the F2H1T1 v2 review. Deliberately NOT folded into F2H1T1 — bundling a
+      security fix into a lifecycle slice is the scope mistake that required v1's reconstruction.
       - **F2H1T2 — season-transition exclusion**, then **F2H1T3 — weekly-schedule exclusion**, then
         **F2H1T4 — rankings exclusion**, then **F2H1T5 — System Health operational-year isolation**.
         Separate because they are separate automation jobs under the binding sizing rule, and each
@@ -336,6 +353,23 @@ unless verified in merged work.
 - **Synthetic-final-poll partial-postseason replacement window (deferred at PLATFORM-086E2A review, 2026-07-30).** The rankings completeness gate compares the canonical POST-remap representation, in which all postseason weeks collapse to one synthetic final poll (week 999). If a prior entry was built from CFBD postseason weeks 1+2 and a later refresh returns only week 1 with the SAME populated poll sources, the remap re-mints the synthetic final from the earlier poll and neither the week-key nor the source-population check fires — the final poll is silently replaced by the earlier-era poll as `written-clean`. The realistic variant (source sets differing across those weeks) IS caught; detecting the residual window would require persisting pre-remap postseason week identity (a stored-model change). Claude cycle-1 P3; not scheduled.
 - **Per-game live-overlay freshness granularity (deferred at PLATFORM-086B2B, owner decision 2026-07-28).** The scores freshness signals are per-partition/global, not per-game: `snapshotAt` (the "Scores updated …" label) is the oldest contributing partition's `meta.generatedAt`, and `isStale` (live-overlay dimming) is a single successful-observation flag for the whole overlay. In a provider-gap scenario — a game that drops out of the scoreboard while still live, so the cron preserves its stale row while other games in the partition keep updating — a fresh sibling can ride over that stale game (the partition's newest-row timestamp), and the global `isStale` cannot dim just that game. This is strictly better than pre-086B2B (which reported every game fresh on any client poll) and does not affect standings/records (server canonical). The true fix is per-game freshness: thread per-game effective timestamps (`itemUpdatedAtById`) to the client and make `selectLiveDelta` compute per-game staleness. Documented in `src/lib/scores.ts` (`noteSnapshot`). Not scheduled.
 - **Accepted — synthetic-only empty-usable catalog (PLATFORM-086H3C1), not production-reachable.** A nonempty-but-registry-unusable team catalog (e.g. `[{ school: '' }]`) can bypass `buildCanonicalGameStatsSlate`'s `teams.length === 0` catalog-authority guard **only via a direct synthetic call**: production `getTeamDatabaseItems()` sanitizes every entry through `toTeamCatalogItem` (drops empty-`school` items), so an unusable catalog collapses to `[]` and is already caught as `catalog-load-failed`. Accepted as test-only robustness — the pure builder stays exported for unit tests (not privatized); if ever hardened, tighten the precondition to require ≥1 registry-usable entry.
+- **Middleware matcher residuals carried out of PLATFORM-086F2H1SA (2026-08-04).** Three items,
+  none of them a reproduced bypass. (a) The gate answers a non-GET request to a protected path with
+  `NextResponse.redirect`, which defaults to **307** — method- and body-preserving — so an
+  unauthenticated Server Action POST is replayed, body and `Next-Action` header intact, to `/login`
+  (or `/` for a signed-in non-admin). The action never executes, so this is not an authorization
+  escape, but a security gate should answer a non-GET with a bodyless refusal rather than a
+  navigational redirect. Changing it is a middleware BODY change, which F2H1SA excluded. (b) The
+  matcher regression test depends on `unstable_doesMiddlewareMatch`, resolved by raw file path
+  because Next 15 declares no `exports` map for it; `package.json` pins `next` with a caret, so a
+  routine update can move it. The failure mode is a hard import error, not a silent pass — replace
+  the helper when Next stabilizes it. (c) The static-file exclusion is a NEGATIVE heuristic ("a
+  dotted path is an asset"), which is false for any dynamic segment that can carry a dot —
+  `app/league/[slug]` has the same shape today, harmless only because that route needs no
+  middleware. Scoping the exclusion POSITIVELY (`_next` plus the actual `public/` entries) would
+  invert the default so new route families are matched unless deliberately excluded, and remove the
+  two-place literal sync F2H1SA leaves behind. That is a better design than the one shipped, and it
+  changes matching for every route in the app, so it needs its own slice. Not scheduled.
 - **A season transition can commit and then miss its standings invalidation, with no durable reconciliation guarantee (PLATFORM-086F2H1B, 2026-08-04).** The durable lifecycle write and the Next cache bust cannot be one atomic operation. An invocation that dies between them leaves the league in `season` with a warm preseason standings snapshot, and later daily transition runs no longer select that league — the target filter is preseason-only, so the `already-in-target-season` path cannot reach it. The snapshot does not expire on its own (`getCanonicalStandings` is tag-only, `revalidate: false`), and preseason and season resolve to the SAME cache key, so nothing rotates it. In practice other schedule/score activity commonly limits the window — `cron/live-scores`, `/api/schedule`, and `/api/scores` all bust the same tag, and the transition gate fires at least a day before the first game — but that is a mitigation, not a guarantee. The window predates F2H1B (the pre-convergence cron had the identical filter and the identical commit-to-invalidate gap); what F2H1B added was the accurate description of it. Any future fix must preserve provider ownership and quota behavior: do NOT simply broaden the cron's target filter to all active-season leagues. Not scheduled.
 - **Cron `maxDuration`/latency-envelope hardening — NARROWED to the weekly schedule-refresh route (deferred P3 from the PLATFORM-086E1C2 review, 2026-07-30; season-transition resolved by PLATFORM-086F2H1B, 2026-08-04).** `GET /api/cron/schedule-refresh` still declares no explicit `maxDuration` (nothing in the route or `vercel.json`), so its latency envelope is the platform default; the season-transition route now declares `export const maxDuration = 300` on the default Node.js runtime, with its scheduler configuration and daily cadence unchanged. In a sustained provider-brownout worst case the E1C2 presentation wiring roughly doubles a pre-existing E1A exposure (the qualifying-year presentation calls run after the canonical work in the same invocation). Self-healing (leases/backoff/TTLs recover on a later delivery) and speculative — no observed incident. Harden the remaining `schedule-refresh` route when it is next touched (season-transition is resolved). Full record: `docs/prompt-registry.md` → `PLATFORM-086E1C2-SCHEDULE-PRESENTATION-AUTOMATION-WIRING-v1`. Not scheduled.
 - **Unusable persisted lifecycle-year recovery (PLATFORM-086F2H1A review, 2026-08-03).** F2H1A correctly refuses and logs an offseason record whose stored year is not a safe structural season year, rather than deriving and persisting another corrupt value. F2H1R is scoped to genuinely missing status and therefore does not repair this distinct corruption class. Before F2H1R/F2H3 closes, decide whether to add a separately confirmed data-correction operation with an explicit replacement year and the same targeting/invalidation consequence disclosure; until then, the record remains fail-closed with no operator repair surface.

@@ -52,14 +52,34 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
-### PLATFORM-086F2H1S-SERVER-ACTION-AUTHORIZATION-v1
+### PLATFORM-086F2H1SA-PROTECTED-PATH-MATCHER-COVERAGE-v1
 
-- Purpose: Authorize the admin Server Actions inside the actions themselves, rather than relying on
-  the path-prefix middleware gate that direct invocation bypasses.
-- Scope: the nine exported actions in `src/app/admin/[slug]/actions.ts`, one shared platform-admin
-  guard, and tests that invoke each action directly, independently of the requested pathname.
-  Excludes lifecycle behavior, cron targeting, and UI.
-- Status: **Planned — NEXT after F2H1T1 merges, before F2H1T2.** Not implemented.
+- Purpose: Close a DEMONSTRATED authentication bypass. The middleware matcher's static-file
+  exclusion is a substring rule, not a suffix rule about real assets, so any `/admin` or `/debug`
+  path containing a listed extension (e.g. `/admin/audit.css`) skipped `clerkMiddleware` entirely
+  while still resolving to `app/admin/[slug]/page` — a worker where all nine Server Actions are
+  registered, none of which authorizes internally.
+- Scope: `src/middleware.ts` (matcher array only) and one new test file. The middleware BODY is
+  unchanged — it already fails closed for signed-out and non-admin callers; this slice only ensures
+  it runs. No auth logic, action, UI, API, or lifecycle change.
+- Outcome: `/admin/:path*` and `/debug/:path*` are matched explicitly. Matcher entries are OR'd, so
+  their POSITION in the array carries no meaning — only their existence does. Anchoring the
+  extension group would NOT have fixed the reported case (those paths genuinely end in the excluded
+  extension), and that wrong fix is pinned as failing by the tests; the `$` anchor is nonetheless
+  added alongside, closing the root-cause `/foo/bar.css/baz` shape for any future middleware
+  responsibility. `PLATFORM_ADMIN_PAGE_PREFIXES` is exported and a test asserts every prefix has a
+  matcher entry, so adding a third protected family cannot silently reopen the bypass. Tests
+  evaluate the REAL exported `config` AND the real `next.config.ts` through Next's own
+  `unstable_doesMiddlewareMatch` — matching depends on both inputs, and hardcoding `nextConfig: {}`
+  would reintroduce the same fidelity failure on the second one. Genuine static assets and API
+  routes are verified unaffected; `/admin-x` and `/debug-tools` assets stay excluded. NOT asserted
+  here: whether `/administrator` and `/debugger` reach the middleware — they do, via the generic
+  pattern, and are simply not gated; that predicate contract is owned by
+  `src/lib/auth/__tests__/platformAdmin.test.ts`.
+- Review / verification: Each gate run as its own command with an unmasked exit status against the
+  exact reviewed commit; the matcher change verified failing against BOTH the pre-fix config and the
+  rejected anchored variant.
+- Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
 
 ### PLATFORM-086F2H1T1-TEST-CONTROL-SAFETY-v2
 

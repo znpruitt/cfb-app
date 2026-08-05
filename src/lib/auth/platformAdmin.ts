@@ -29,7 +29,13 @@ export function isPlatformAdminClaims(sessionClaims: unknown): boolean {
 }
 
 /** Browser page families that require a platform-admin Clerk session. */
-const PLATFORM_ADMIN_PAGE_PREFIXES = ['/admin', '/debug'] as const;
+/**
+ * Page families gated to platform admins. EXPORTED so the middleware matcher
+ * test can assert every prefix here has a corresponding matcher entry — a
+ * prefix added without one falls through to the static-file exclusion and is
+ * reachable unauthenticated (PLATFORM-086F2H1SA).
+ */
+export const PLATFORM_ADMIN_PAGE_PREFIXES = ['/admin', '/debug'] as const;
 
 /**
  * Whether a browser pathname belongs to a platform-admin-only page family.

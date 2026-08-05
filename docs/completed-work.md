@@ -2375,11 +2375,9 @@ Key architectural decisions across Phase 5:
   claim, the cleanup test's billing, the `AGENTS.md` cleanup rule, the arity assertion's scope,
   stale literals in the reset docstring, and "structurally demo-only" reading as an authorization
   claim) with no executable or assertion change. Review closed by explicit user evaluation.
-- **Follow-up queued:** `PLATFORM-086F2H1S-SERVER-ACTION-AUTHORIZATION-v1` — NEXT, before F2H1T2.
-  Next resolves a Server Action from the `Next-Action` header rather than the request path, so the
-  path-prefix middleware gate does not cover direct invocation. All nine exported admin actions are
-  affected and four take a slug, so the exposure reaches PRODUCTION leagues. Pre-existing and
-  codebase-wide; deliberately not folded in.
+- **Follow-up raised:** admin Server Actions perform no authorization of their own. Pre-existing
+  and codebase-wide; deliberately not folded into this slice. Queue position and scope live in
+  `docs/next-tasks.md`.
 
 ---
 
