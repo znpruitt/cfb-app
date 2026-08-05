@@ -3,7 +3,10 @@ import test from 'node:test';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { runWithRevalidateContext } from '../../../api/draft/[slug]/[year]/__tests__/_setup/revalidateContext';
+import {
+  runCapturingRevalidatedTags,
+  runWithRevalidateContext,
+} from '../../../api/draft/[slug]/[year]/__tests__/_setup/revalidateContext';
 
 import * as actions from '../actions';
 import {
@@ -134,15 +137,19 @@ test('every action refuses an unauthorized caller and mutates nothing', async ()
     await seedWorld();
     const before = await snapshotStore();
 
-    let tags: string[] = [];
+    // Capture the tags actually revalidated during the call — an empty array
+    // the test constructed itself would assert nothing.
+    const captured: string[] = [];
     await assert.rejects(
       () =>
         __withAdminActionAuthorizerForTests(
           () => false,
-          () =>
-            runWithRevalidateContext(async () => {
+          async () => {
+            const { tags } = await runCapturingRevalidatedTags(async () => {
               await call();
-            })
+            });
+            captured.push(...tags);
+          }
         ),
       /Not authorized/,
       `${name} must refuse with the stable authorization error`
@@ -153,7 +160,7 @@ test('every action refuses an unauthorized caller and mutates nothing', async ()
       before,
       `${name} must not read-modify-write, delete, or create ANY durable record`
     );
-    assert.deepEqual(tags, [], `${name} must not invalidate or revalidate anything`);
+    assert.deepEqual(captured, [], `${name} must not invalidate or revalidate anything`);
   }
 });
 

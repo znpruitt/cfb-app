@@ -22,3 +22,22 @@ export function runWithRevalidateContext<T>(fn: () => Promise<T>): Promise<T> {
   };
   return workAsyncStorage.run(store as never, fn);
 }
+
+/**
+ * As above, but ALSO returns the tags revalidated during `fn`. Tests that must
+ * prove a mutation path invalidated NOTHING need the captured list, not just a
+ * successful run — asserting an empty array the test itself created proves
+ * nothing.
+ */
+export async function runCapturingRevalidatedTags<T>(
+  fn: () => Promise<T>
+): Promise<{ result: T; tags: string[] }> {
+  const store = {
+    route: '/test',
+    incrementalCache: {},
+    pendingRevalidatedTags: [] as string[],
+    pathWasRevalidated: false,
+  };
+  const result = await workAsyncStorage.run(store as never, fn);
+  return { result, tags: store.pendingRevalidatedTags };
+}
