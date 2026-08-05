@@ -85,6 +85,13 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   15 → 20, route 28 → 35, receipts 7 → 10; full suite 3280 → 3295. `npx tsc --noEmit`,
   `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each run separately with
   unmasked exit status.
+- Second-round review (approved under DOCS-013 as a directly-caused defect): the first remediation
+  round introduced two claims the follow-up review refuted, both verified false and both corrected
+  here — that every rankings reader treats a cache miss as absence (the league app instead surfaces a
+  standing `CFBD rankings load failed:` note outside preseason), and that manual refresh is an
+  unconditional upkeep path (`/api/rankings` rejects years above `currentUTCYear + 1` before
+  authorizing, while the demo authority has no ceiling). Docs-only: the corrected claims, two new
+  recorded deferrals (g)/(h), and removal of two dead observer resets. No production-code change.
 - Status: Implemented — PR open.
 
 ### PLATFORM-086F2H1T3-WEEKLY-SCHEDULE-DEMO-EXCLUSION-v1

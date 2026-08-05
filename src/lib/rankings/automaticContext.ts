@@ -79,13 +79,25 @@ export type RankingsTargetSelection = {
  *
  * That "changes nothing" holds for a SHARED year only. A year the demo occupies
  * ALONE loses automatic publication outright: `rankings/<year>` is never
- * refreshed, so the demo's own rankings-dependent reads (the draft board's AP
- * annotation, Insights) see an absent snapshot indefinitely. Each of those
- * readers already treats a cache miss as absence rather than an error, and the
- * authorized manual refresh (`/api/rankings?year=<Y>&bypassCache=1`, ungated by
- * the automation settings) is the supported upkeep path — that is the intended
- * consequence of manual-only, not an oversight. No league-scoped duty transfers
- * to the demo controls, because this path writes none.
+ * refreshed, so every rankings read for that year sees a permanent cache miss.
+ * The consequence is NOT uniform across readers, and the difference matters:
+ *   - the draft board's AP annotation and Insights swallow the miss (a `catch`
+ *     and a `.catch(() => null)`), degrading to no annotation;
+ *   - the league app does NOT. `loadSeasonRankings` THROWS on a total cache
+ *     miss, `/api/rankings` maps that to 503, and `CFBScheduleApp` records
+ *     `CFBD rankings load failed: …`. That string is suppressed only while the
+ *     league is in PRESEASON, so a demo league in `season(Y)` on a demo-only
+ *     year surfaces a standing, operator-visible error.
+ * The authorized manual refresh (`/api/rankings?year=<Y>&bypassCache=1`) is the
+ * upkeep path, and it is ungated by the automation settings — but it is NOT
+ * unconditionally reachable: that route rejects any year above
+ * `currentUTCYear + 1` with a 400 before authorizing, while the demo lifecycle
+ * authority deliberately imposes no such ceiling. A demo parked far enough
+ * ahead therefore has no upkeep path at all until the calendar catches up
+ * (recorded against F2H1R/T5 — not repaired here).
+ *
+ * No league-scoped duty transfers to the demo controls, because this path
+ * writes none.
  *
  * The exclusion flag is derived from `slug` and `status.state` ONLY — never from
  * `status.year` — so an unvalidated legacy year (F2H1R) can never flip the

@@ -321,7 +321,26 @@ Execution order within F2 (each slice is one independently deployable PR):
         `src/lib/server/__tests__/schedulerReceiptTestHarness.ts` is the established home for shared
         cron-test machinery. NOT converged in T4: doing so would edit another automation job's
         reviewed proof surfaces from a rankings slice. Pair it with the (d) predicate decision at T5
-        closeout. AGENTS.md
+        closeout.
+        (g) **A demo year above `currentUTCYear + 1` has NO rankings upkeep path — automatic or
+        manual.** `GET /api/rankings` rejects any year above that ceiling with a 400 BEFORE
+        authorizing (`src/app/api/rankings/route.ts`), while `decideTestLeagueStatus` increments the
+        demo's year on every `Set: Pre-Season` under `isStructurallyValidSeasonYear` alone and states
+        outright that "No new arbitrary ceiling is introduced". Before T4 the cron would eventually
+        populate such a year — `cfp-publication` needs no cached context, only the calendar — so the
+        exclusion converts a reachable-but-slow year into an unreachable one. Surfaced by the T4
+        second-round review, which correctly refuted the unqualified "manual refresh is the supported
+        upkeep path" claim T4's first remediation round had introduced; the claim is now qualified in
+        both `AGENTS.md` and the selector docblock. NOT repaired in T4: closing it means changing
+        either the manual route's ceiling or the demo authority's, both explicitly out of that
+        slice's scope. Decide with F2H1R (which owns year validity) or T5.
+        (h) **A demo-only `season(Y)` year surfaces a STANDING user-visible rankings error.**
+        `loadSeasonRankings` throws on a total cache miss, `/api/rankings` maps that to 503, and
+        `CFBScheduleApp` records `CFBD rankings load failed: …`; the suppression filter for that
+        prefix applies only while the league is in PRESEASON. The draft board and Insights swallow
+        the miss, but the league app does not. Pre-existing mechanism, made PERMANENT for demo-only
+        years by T4. Recorded, not repaired — suppressing it correctly is a demo-presentation
+        decision (F2H3) rather than a targeting one. AGENTS.md
         deliberately forbids a shared cross-job predicate until all the slices exist — the coupling
         it would create is what forced F2H1B's reconstruction — so consolidation into one
         `League`-level predicate is a T5-closeout decision, not a defect.

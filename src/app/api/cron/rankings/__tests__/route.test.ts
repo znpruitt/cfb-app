@@ -251,7 +251,6 @@ test.after(() => {
 
 test('POSITIVE CONTROL: the observer records every input shape before parsing', async () => {
   const target = 'https://api.collegefootballdata.com/info?probe=1';
-  providerUrlLog.length = 0;
   await globalThis.fetch(target);
   await globalThis.fetch(new URL(target));
   await globalThis.fetch(new Request(target));
@@ -263,7 +262,6 @@ test('POSITIVE CONTROL: the observer records every input shape before parsing', 
 
 test('POSITIVE CONTROL: the observer records an endpoint the stub rejects', async () => {
   const unknown = 'https://api.collegefootballdata.com/teams?probe=1';
-  providerUrlLog.length = 0;
   // The stub throws for unrecognized endpoints, and BOTH callers on this path
   // swallow that throw — so a record-after-branch observer would report zero
   // requests for a request that really was made.

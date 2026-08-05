@@ -343,6 +343,8 @@ test('POSITIVE CONTROL: the receipt suite observer records real traffic and ever
   // All three input shapes resolve to the same href. `Request` is the one a
   // parse-then-record observer loses: `String(request)` is "[object Request]".
   const probe = 'https://api.collegefootballdata.com/info?probe=1';
+  // Load-bearing, unlike the route suite's: a real GET ran above, so the log is
+  // non-empty here and these direct calls must be isolated from it.
   providerUrlLog.length = 0;
   await globalThis.fetch(probe);
   await globalThis.fetch(new URL(probe));
@@ -351,7 +353,7 @@ test('POSITIVE CONTROL: the receipt suite observer records real traffic and ever
 
   // An unrecognized endpoint records even though the stub throws.
   const unknown = 'https://api.collegefootballdata.com/teams?probe=1';
-  providerUrlLog.length = 0;
+  providerUrlLog.length = 0; // load-bearing — the three shapes above are still logged
   await assert.rejects(() => globalThis.fetch(unknown));
   assert.deepEqual(providerUrlLog, [unknown]);
 });
