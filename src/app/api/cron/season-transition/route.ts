@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { completeSeasonTransition, getLeagues } from '@/lib/leagueRegistry';
+import { TEST_LEAGUE_SLUG } from '@/lib/league';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
@@ -77,7 +78,10 @@ type YearResult = {
   partialFailure?: boolean;
   failedSeasonTypes?: ScheduleSeasonType[];
   // PLATFORM-086F2H1B — the guarded dispositions for this year's snapshot
-  // targets (every `preseason` league, including `test` — exclusion is F2H1T).
+  // targets. Since PLATFORM-086F2H1T2 those are the NON-demo preseason leagues:
+  // `test` is filtered out before grouping, so it never appears in
+  // `targetLeagues` or any disposition. A count that looks short against Season
+  // Management is that policy, not data loss.
   // `leagues` above stays the list of leagues this invocation actually
   // transitioned; these are counts only, so no slug reaches the runtime
   // event or the durable receipt. Always present once the lifecycle gate is
@@ -153,9 +157,32 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       return NextResponse.json(result);
     }
 
+    // PLATFORM-086F2H1T2 — the demo league is MANUAL-ONLY for automatic season
+    // transition; its lifecycle is driven by the dedicated sandbox controls.
+    //
+    // Filtered HERE, before the zero-target decision and before grouping by
+    // year, so a demo-only year never reaches a schedule-probe read or write, a
+    // provider refresh, a lifecycle write, standings invalidation, or any
+    // target/disposition count on the response, runtime event, or durable
+    // receipt. Filtering after grouping would still spend a billed CFBD call on
+    // a year no production league occupies.
+    //
+    // The canonical slug is used directly rather than through a shared
+    // cross-job predicate: F2H1T3–T5 change their own surfaces, and a shared
+    // abstraction introduced here would couple them.
+    const automaticTargets = preseasonLeagues.filter((l) => l.slug !== TEST_LEAGUE_SLUG);
+    if (automaticTargets.length === 0) {
+      // Preseason leagues exist — they are just all demo. Reusing
+      // `no-preseason-leagues` here would be factually false on the operator's
+      // System Health row.
+      exec.result = 'skipped';
+      exec.reason = 'no-automatic-preseason-leagues';
+      return NextResponse.json(result);
+    }
+
     // Group leagues by their preseason year so each year is probed/transitioned independently
-    const byYear = new Map<number, typeof preseasonLeagues>();
-    for (const league of preseasonLeagues) {
+    const byYear = new Map<number, typeof automaticTargets>();
+    for (const league of automaticTargets) {
       const year = (league.status as { state: 'preseason'; year: number }).year;
       const group = byYear.get(year) ?? [];
       group.push(league);

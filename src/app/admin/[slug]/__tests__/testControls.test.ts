@@ -5,8 +5,20 @@ import test from 'node:test';
 // Next storage module loads, so the server actions' `revalidatePath` runs under
 // the bare node:test runner. Imported rather than re-implemented — the store
 // shape is a Next internal, and one copy is enough to maintain.
-import { runWithRevalidateContext as runInNextContext } from '../../../api/draft/[slug]/[year]/__tests__/_setup/revalidateContext';
+import {
+  runCapturingRevalidatedTags,
+  runWithRevalidateContext as runInNextContext,
+} from '../../../api/draft/[slug]/[year]/__tests__/_setup/revalidateContext';
 import { __withAdminActionAuthorizerForTests } from '../../../../lib/auth/requireAdminAction.ts';
+import { standingsSlugTag } from '../../../../lib/selectors/leagueStandings.ts';
+
+/** Authorized variant that also reports the tags the action revalidated. */
+function runAuthorizedCapturingTags<T>(fn: () => Promise<T>) {
+  return __withAdminActionAuthorizerForTests(
+    () => true,
+    () => runCapturingRevalidatedTags(fn)
+  );
+}
 
 /**
  * PLATFORM-086F2H1SB — every action in this suite now authorizes itself, and
@@ -280,4 +292,30 @@ test('season and offseason transitions delete no demo state', async () => {
   assert.deepEqual((await readLeague(TEST_LEAGUE_SLUG))?.status, { state: 'offseason' });
   assert.deepEqual(await demoScopesPresent(2026), [true, true, true], 'offseason deletes nothing');
   assert.deepEqual(await demoScopesPresent(2025), [true, true, true]);
+});
+
+// REGRESSION TEST — verified failing with the new `invalidateStandings` call
+// removed.
+//
+// Risk it protects: F2H1T2 excluded the demo league from the season-transition
+// cron, which had been the only thing invalidating its standings on the flip to
+// season. `resolveStandingsYear` returns `status.year` for BOTH preseason and
+// season, so the cache key does not change, and the snapshot is tag-only with
+// `revalidate: false`. Without this invalidation the demo league would serve a
+// stale PRESEASON standings view indefinitely after `Set: Season`.
+test('the manual season transition invalidates the demo league standings', async () => {
+  await seed(makeLeague(TEST_LEAGUE_SLUG, 2025, { state: 'preseason', year: 2026 }));
+
+  const { threw, tags } = await runAuthorizedCapturingTags(() => setTestLeagueStatus('season'));
+
+  assert.equal(threw, false, 'the control resolves');
+  assert.deepEqual(
+    (await readLeague(TEST_LEAGUE_SLUG))?.status,
+    { state: 'season', year: 2026 },
+    'the lifecycle write committed'
+  );
+  assert.ok(
+    tags.includes(standingsSlugTag(TEST_LEAGUE_SLUG)),
+    `the demo standings tag must be busted; saw ${JSON.stringify(tags)}`
+  );
 });

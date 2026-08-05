@@ -52,6 +52,37 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1T2-SEASON-TRANSITION-EXCLUSION-v2
+
+- Purpose: Make the demo league manual-only for preseason→season by excluding it from the daily
+  season-transition cron before any provider work, lifecycle write, or operational count.
+- Scope: `GET /api/cron/season-transition`, its closed reason vocabulary, route-level tests, and —
+  added by the user-authorized v2 scope correction — the standings invalidation the manual demo
+  control must inherit. Excludes weekly schedule maintenance (F2H1T3), rankings (F2H1T4), System
+  Health year selection (F2H1T5), demo UI copy (F2H3), rollover, recovery, cadence, and
+  `vercel.json`.
+- Outcome: `TEST_LEAGUE_SLUG` is filtered BEFORE the zero-target decision and before grouping, so a
+  demo-only year never reaches a probe read/write, provider refresh, lifecycle write, invalidation,
+  or any count on the response, event, or receipt. A demo-only registry reports
+  `skipped / no-automatic-preseason-leagues`; `no-preseason-leagues` keeps its exact meaning, since
+  reusing it would tell an operator no league awaits transition when one does. The receipt validator
+  does not enumerate reasons, so stored receipts are unaffected. Because the cron was the demo's
+  only automatic preseason→season path, `setTestLeagueStatus`'s season branch now calls
+  `invalidateStandings(TEST_LEAGUE_SLUG)` — without it the demo would serve a stale preseason
+  snapshot, since preseason and season resolve to the same cache key and the entry is tag-only with
+  `revalidate: false`.
+- Supersedes: v1 on the SAME branch — a user-authorized scope correction after the normal
+  remediation budget was spent, not an abandoned reconstruction. v1's cron exclusion and its tests
+  are unchanged; v2 adds only the compensating invalidation and its regression test.
+- Review / verification: Each gate its own command with an unmasked exit status against the final
+  behavior-reviewed commit `b24d4e6`. Four mutation-verified regressions, one at a time: exclusion
+  removed, exclusion applied after grouping, the reason reused, and the invalidation removed — the
+  last against a COMPILING mutant. The provider observer carries a positive control proving it
+  records calls and their year before any "zero calls" claim rests on it. `/code-review`
+  independently re-verified all four claims by reverting each fix. Closeout after `b24d4e6` is
+  comments, import hygiene, and owned documentation only.
+- Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
+
 ### PLATFORM-086F2H1SB-SERVER-ACTION-AUTHORIZATION-v1
 
 - Purpose: Make every repository-owned admin Server Action enforce platform-admin authorization at

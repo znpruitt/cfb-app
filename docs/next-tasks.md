@@ -222,8 +222,8 @@ Execution order within F2 (each slice is one independently deployable PR):
       would silently swallow the refusal at the other five. Pre-existing and codebase-wide;
       surfaced during the F2H1T1 v2 review. Deliberately NOT folded into F2H1T1 — bundling a
       security fix into a lifecycle slice is the scope mistake that required v1's reconstruction.
-      - **F2H1T2 — season-transition exclusion** — **NEXT**, then **F2H1T3 — weekly-schedule
-        exclusion**, then
+      - **F2H1T2 — season-transition exclusion** — implemented, in pre-merge review. Then
+        **F2H1T3 — weekly-schedule exclusion** — **NEXT**, then
         **F2H1T4 — rankings exclusion**, then **F2H1T5 — System Health operational-year isolation**.
         Separate because they are separate automation jobs under the binding sizing rule, and each
         needs its own route-level tests. Transition exclusion comes first: it removes the
@@ -232,13 +232,21 @@ Execution order within F2 (each slice is one independently deployable PR):
         expresses cross-cron ownership (`season-transition-owner` is a hardcoded label in the weekly
         route, not a read of the other cron's target set), so the risk is a receipt that misdescribes
         reality, and each slice must keep its own reason strings truthful.
-      - Carried into T2, both consequences of the demo league still being a transition target
-        between T1 and T2: (a) the reset year stays 2025, so the demo's next preseason is the LIVE
-        production year — resolved by the exclusions, not by redesigning the reset; and (b) T1
-        removed the demo reset's `schedule-probe/<year>` deletion (correctly — that key is shared
-        with production leagues), which was also the operator's only way to re-arm a stale probe for
-        a repeat dry run. Until T2 lands, a demo dry run cannot clear that probe from the UI. This
-        is a deliberate trade: a demo control must not mutate production schedule state.
+      - **Carried into T3/T5 by F2H1T2, at accurate severity.** My earlier note called the
+        intermediate state "a receipt that misdescribes reality"; that understated it. Between T2
+        and T3 a demo-only preseason year receives **no automatic schedule maintenance from any
+        job**: the weekly cron still builds `ownerByYear` from all leagues, classifies the year
+        `season-transition-owner` on an unarmed probe, and does no provider work — deferring to a
+        cron that now filters the demo out. Nothing arms the probe, so the deferral is permanent
+        and the weekly receipt names an owner that does not exist. Sharpest inside the final
+        seven-day window, where the weekly route defers unconditionally. Separately, until T5
+        `resolveOperationalSeasonYear` still counts the demo league, so a demo-only year can become
+        the System Health operational season while nothing will ever cache its schedule — making
+        `schedule-cache-missing` a PERSISTENT critical rather than a transient one. Both are
+        consequences of shipping the exclusions one job at a time, which the binding sizing rule
+        requires; T3 and T5 close them.
+      - Also carried: the reset year stays 2025, so the demo's next preseason is the live
+        production year — resolved by the exclusions, not by redesigning the reset.
     - **F2H1R — missing-lifecycle recovery** — planned after F2H1T: a separately confirmed recovery
       operation for genuinely missing legacy status, with corrupt-registry vs missing-league truth and
       an explicit consequence model for schedule/rankings targeting, rollover eligibility,
@@ -356,6 +364,8 @@ unless verified in merged work.
 - **Guarded Server Action refusals can reach the generic error boundary (PLATFORM-086F2H1SB, 2026-08-04).** Six client call sites and the two `<form action>` surfaces do not catch, so after an expired or refused session a guard throw becomes an unhandled rejection inside `startTransition` and replaces the admin page with the root error boundary. Before F2H1SB these actions threw only on data-integrity faults, so the path was effectively unreachable; the guard makes it routine. F2H1SB deliberately adds no partial client catches and no typed action-state UI — **F2H3 owns consistent operator-readable guarded refusal states** and should resolve all of them together rather than piecemeal. Note that Next redacts Server Action rejection messages in production, so a message-only surface cannot work; F2H3 needs a typed channel.
 - **Clerk registers four dependency-owned Server Action references (PLATFORM-086F2H1SB, 2026-08-04).** The production build registers 13 server references, not 9: `invalidateCacheAction` plus the three exports of Clerk's keyless-actions module, and unlike the app's own nine these are registered on EVERY route worker including public pages. Two return early behind a development-only flag; `syncKeylessConfigAction` has no such guard. These are dependency surfaces, not repository actions — F2H1SB neither patches `node_modules` nor claims them. Review through dependency upgrade or upstream analysis. Practical consequence for any future test: do NOT assert the build manifest contains exactly nine action ids.
 - **`setAssignmentMethod` does not validate `method` at runtime (2026-08-04).** Its `'draft' | 'manual'` annotation is erased at the Server Action boundary, where arguments cross HTTP unvalidated, and `updateLeague` blind-spreads the value. Readers branch on the union and fall through on anything else, so an out-of-union value silently disables both assignment paths in the preseason UI. Pre-existing input-validation debt, deliberately separate from the F2H1SB authorization fix. Not scheduled.
+- **Demo standings cache collisions on the non-season lifecycle paths (PLATFORM-086F2H1T2, 2026-08-05).** F2H1T2 wired standings invalidation into the demo's manual season transition, because the cron exclusion made that control its only preseason→season path. The manual `preseason` re-click, `offseason`, and `resetTestLeague` remain un-wired and share the SAME key-collision property that justified wiring season: `resolveStandingsYear` returns the same resolved year across a preseason re-click (while `clearTestLeagueYear` deletes the owner inputs that snapshot was built from), and an offseason write projects `league.year` to the outgoing season year. They are un-wired by SCOPE, not because they are safe — F2H1T2 was authorized to fix only the regression it caused. Pre-existing on `main`; the cron never invalidated on these paths either. Not scheduled.
+- **The demo season re-click invalidates unnecessarily (PLATFORM-086F2H1T2, 2026-08-05).** Clicking `Set: Season` when the demo is already in `season(N)` resolves to the same year, still reports `applied`, and busts the umbrella `standings:test` tag — recomputing every cached year for the league plus the Insights output cache that reuses the same tags, for a state that did not change. Performance only; correctness is unaffected. Gating on an actual state change, or passing the year variant, would avoid it. Not scheduled.
 - **Middleware matcher residuals carried out of PLATFORM-086F2H1SA (2026-08-04).** Three items,
   none of them a reproduced bypass. (a) The gate answers a non-GET request to a protected path with
   `NextResponse.redirect`, which defaults to **307** — method- and body-preserving — so an
