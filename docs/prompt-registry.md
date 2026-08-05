@@ -52,6 +52,70 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1T3-WEEKLY-SCHEDULE-DEMO-EXCLUSION-v1
+
+- Purpose: Make the demo league manual-only for weekly schedule maintenance by removing it from the
+  weekly cron's year-ownership computation, and close the false `season-transition-owner` deferral
+  T2 left behind.
+- Scope: `GET /api/cron/schedule-refresh` target selection, `ScheduleRefreshCronExecutionReason`,
+  and route/receipt tests. Excludes rankings targeting (F2H1T4), System Health year selection
+  (F2H1T5), demo UI copy (F2H3), E1A/probe/latch policy, cadence, scheduler provisioning, and
+  `vercel.json`.
+- Outcome: `TEST_LEAGUE_SLUG` is filtered PER LEAGUE inside the ownership loop — never against the
+  resolved `targetYears`, which would drop a year a production league also occupies. It is an
+  owner-selector change, not only a target removal: `season` outranks `preseason`, so a demo league
+  in `season(Y)` must not promote Y to the pause-exempt active-season policy over production leagues
+  in `preseason(Y)`. That is the direction the rule changes; production `season` precedence over
+  `preseason` is PRESERVED, not newly created, and its test is a contract pin rather than a
+  regression test (it passes with the exclusion removed). A
+  registry whose only active leagues are the demo reports `skipped /
+  no-automatic-maintenance-target`; `no-maintenance-target` keeps its exact meaning (no active
+  league at all). Such a year produces no per-year entry, provider request, settings read, probe or
+  latch operation, presentation refresh, or receipt target. Unlike T2, no league-scoped duty transfers to the manual
+  control — every durable key the route writes is year- or global-scoped. Two consequences of that
+  same fact are deliberate and documented rather than "fixed": existing `schedule-weekly-control`
+  boundary latches are RETAINED (the latch is a year-level fact derived from the shared canonical
+  schedule, and a production league later sharing the year is entitled to read it), and a demo-only
+  active registry stops refreshing the GLOBAL `venue-catalog` automatically, with an authenticated
+  manual full-year refresh remaining the supported path. Shared latch, probe, canonical schedule, and
+  presentation state is NOT deleted. The receipt reason type derives from the route union, so no
+  second vocabulary exists and stored receipts are unaffected.
+- Review / verification: each gate its own command with an unmasked exit status against the
+  final commit — focused route `47 → 53` and receipts `6 → 7` (net +7 tests after remediation folded
+  a near-duplicate pin into the existing one), six related suites 133/133, `npx tsc --noEmit`,
+  `npm run lint:all`, `npm test` 3279/3279. The provider
+  observer in BOTH suites resolves the URL from every input shape and carries a positive control
+  (expected production year, both partitions) before any zero-call assertion rests on it; the
+  negative latch assertions rest on the suite's existing positive latch control. The `Request` branch
+  in those stubs is defensive — every provider call on this route reaches `fetch` as a string — and
+  is retained so a stub throw can never silently empty the log. FIVE compiling mutations run one at a
+  time, each killing the intended tests: exclusion removed (4 route tests and 1 receipt test),
+  exclusion applied after owner grouping (2), the reason reused (2), demo `season` allowed to own a
+  shared year (3), and the `isActive` gate dropped (1). Codex review of `8df96ee` returned no
+  findings. `/code-review` is not model-invocable and was run by the user against `cd27721`, whose
+  behavior diff is identical; it returned twelve findings, and one authorized remediation round
+  applied nine — restoring pre-merge ledger truth (three ledgers had claimed merge before it), adding
+  the receipt suite's missing positive control, pinning the `isActive` gate and the response-body
+  reason, observing the probe record the test name claimed, folding a near-duplicate contract pin
+  into the existing one, and using `TEST_LEAGUE_SLUG` instead of a copy of its value. Three were
+  recorded rather than applied and are carried in `docs/next-tasks.md`: unvalidated `status.year` in
+  cron target selection (pre-existing, F2H1R's class), the declarative-vs-interleaved shape of the
+  two crons' target selection (behaviorally equivalent; the promote direction mutation-pinned, the preserved precedence contract-pinned), and the
+  five-site consolidation AGENTS.md defers until T5. A confirming pass of both reviewers then ran
+  against the remediated commit: Codex returned no findings; `/code-review` returned eleven, and a
+  user-authorized PROOF-SURFACE-ONLY round (production behavior frozen — the executable diff after it
+  is test-harness only) corrected what they exposed. Two of those corrections were claims I had made
+  and could not support: the receipt suite's zero-request assertion rested on an observer that
+  recorded only AFTER URL parsing and after the presentation early returns, while the comment
+  introduced with it claimed that vacuity was fixed; and the production-season/demo-preseason test was
+  labelled a regression test although it passes with the exclusion removed. The observer now records
+  every request before parsing or branching and carries a positive control covering canonical,
+  presentation, and string/`URL`/`Request` inputs, mutation-verified by moving the push back after the
+  early returns; the test is relabelled a contract pin; and the "both directions" claim is retired
+  everywhere in favor of the accurate one — production `season` precedence is preserved, not created.
+  The unreserved `test` slug is recorded as a follow-up rather than fixed here.
+- Status: **Implemented and in review — PR #449 open, not merged.** The T2→T3 maintenance window closes on merge, not on implementation.
+
 ### PLATFORM-086F2H1T2-SEASON-TRANSITION-EXCLUSION-v2
 
 - Purpose: Make the demo league manual-only for preseason→season by excluding it from the daily

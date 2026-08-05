@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { getLeagues } from '@/lib/leagueRegistry';
+import { TEST_LEAGUE_SLUG } from '@/lib/league';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
@@ -41,7 +42,12 @@ export const dynamic = 'force-dynamic';
  * provisioned per runbook §8h). One invocation authenticates CRON_SECRET, selects
  * the distinct `season` AND `preseason` years cache-only from the league registry
  * (any `season` league owns a mixed year — one execution under the active-season
- * policy; `offseason` is excluded), loads each year's prior-good canonical
+ * policy; `offseason` is excluded). AUTOMATIC ownership is resolved from
+ * PRODUCTION leagues only: the demo league is filtered out per league before
+ * ownership is resolved and is maintained manually (PLATFORM-086F2H1T3), so a
+ * registry whose only active leagues are the demo reports
+ * `skipped / no-automatic-maintenance-target`. The route then loads each year's
+ * prior-good canonical
  * schedule (plus, for preseason years, the durable schedule probe), classifies
  * the operation with the pure policies — active-season ordinary vs sticky
  * postseason-boundary, and preseason: cache-armed early preseason
@@ -148,11 +154,42 @@ export async function GET(req: Request): Promise<Response> {
     // league wins over `preseason` (a mixed year executes at most once, under the
     // active-season policy) — so E1A is never invoked twice for the same year.
     let targetYears: Array<{ year: number; owner: 'season' | 'preseason' }>;
+    // Set when an ACTIVE demo league was filtered out — so a zero-target run can
+    // report why truthfully rather than claiming no active league exists.
+    let excludedDemoCandidate = false;
     try {
       const leagues = await getLeagues();
       const ownerByYear = new Map<number, 'season' | 'preseason'>();
       for (const league of leagues) {
         const status = league.status;
+        const isActive = status?.state === 'season' || status?.state === 'preseason';
+
+        // PLATFORM-086F2H1T3 — the demo league is MANUAL-ONLY for weekly
+        // schedule maintenance.
+        //
+        // Filtered PER-LEAGUE, inside this loop. It cannot be filtered against
+        // `targetYears` below: that would drop an entire year a PRODUCTION
+        // league also occupies, removing its maintenance — a worse regression
+        // than the one this fixes.
+        //
+        // This is also an OWNER-SELECTOR rule, not merely a target removal.
+        // `season` outranks `preseason` for a shared year, so without this a
+        // demo league in `season(Y)` would promote Y to the active-season policy
+        // over production leagues in `preseason(Y)` — making that year
+        // pause-exempt and suppressing its probe re-derive. THAT direction is
+        // what this rule changes. The opposite direction is unchanged and was
+        // never at risk: the precedence below already prevents a `preseason`
+        // league from displacing a `season` owner, so production season
+        // precedence is PRESERVED here, not newly created.
+        //
+        // Gated on `isActive` so only a league that WOULD have produced a
+        // maintenance year sets the flag below; an `offseason` demo league was
+        // never a candidate and must not change the zero-target reason.
+        if (isActive && league.slug === TEST_LEAGUE_SLUG) {
+          excludedDemoCandidate = true;
+          continue;
+        }
+
         if (status?.state === 'season') {
           ownerByYear.set(status.year, 'season');
         } else if (status?.state === 'preseason' && ownerByYear.get(status.year) !== 'season') {
@@ -170,7 +207,14 @@ export async function GET(req: Request): Promise<Response> {
 
     if (targetYears.length === 0) {
       exec.result = 'skipped';
-      exec.reason = 'no-maintenance-target';
+      // An active demo league that was filtered out is NOT "no active league".
+      // Saying `no-maintenance-target` would be false on the operator's System
+      // Health row, exactly as F2H1T2 refused to reuse `no-preseason-leagues`.
+      // Top-level only: no per-year entry, provider attempt, settings read,
+      // probe/latch operation, or presentation refresh is produced either way.
+      exec.reason = excludedDemoCandidate
+        ? 'no-automatic-maintenance-target'
+        : 'no-maintenance-target';
       return NextResponse.json({ result: exec.result, reason: exec.reason, years: [] });
     }
 

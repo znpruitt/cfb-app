@@ -10,7 +10,7 @@ import '../../../draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStorage';
 import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
 
 import { GET } from '../route';
-import type { League } from '../../../../../lib/league.ts';
+import { TEST_LEAGUE_SLUG, type League } from '../../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -101,10 +101,30 @@ async function seedSchedule(year: number, kickoff: string): Promise<void> {
   });
 }
 
+/** Canonical `/games` partitions only, as `<year>:<seasonType>`. */
 const fetchLog: string[] = [];
+/**
+ * EVERY provider URL this suite's stub is handed, in order, recorded BEFORE any
+ * parsing or branching. This is the observer the zero-request assertions rest
+ * on, and the ordering is the whole point:
+ *   - `new URL(href)` is evaluated after the push, so an unparseable input
+ *     cannot empty the log while a call was in fact attempted
+ *     (`String(new Request(u))` is '[object Request]', which `new URL()`
+ *     rejects);
+ *   - the `/games/media` and `/venues` early returns are after the push, so a
+ *     PRESENTATION request is recorded too — `fetchLog` alone would only ever
+ *     have proven that zero CANONICAL calls happened.
+ *
+ * Both properties are mutation-verified by the positive control below.
+ */
+const providerUrlLog: string[] = [];
 function stubProvider(perYear: Record<number, string>): void {
-  globalThis.fetch = (async (input: URL | string) => {
-    const url = new URL(typeof input === 'string' ? input : input.toString());
+  globalThis.fetch = (async (input: URL | string | Request) => {
+    // Resolve the URL from every input shape, then record it — before parsing,
+    // before branching. See `providerUrlLog` above.
+    const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    providerUrlLog.push(href);
+    const url = new URL(href);
     if (url.pathname === '/games/media') return new Response('[]', { status: 200 });
     if (url.pathname === '/venues') return new Response('[]', { status: 200 });
     const year = Number(url.searchParams.get('year'));
@@ -177,6 +197,7 @@ test.beforeEach(async () => {
   resetScheduleRouteCacheForTests();
   __resetSchedulePresentationMemoForTests();
   fetchLog.length = 0;
+  providerUrlLog.length = 0;
   __setAppStateWriteFailureForTests(null);
   MUTABLE_ENV.NODE_ENV = 'development';
   MUTABLE_ENV.CRON_SECRET = CRON_SECRET;
@@ -277,6 +298,15 @@ test('a multi-year provider-attempting run records the bounded target and provid
   assert.ok(stored);
   assert.equal(stored.value.result, 'success');
   assert.equal(stored.value.providerCallAttempted, true, 'a year reached the provider');
+  // POSITIVE CONTROL for `fetchLog` — this suite's provider observer. The
+  // demo-only test below asserts it is EMPTY; that claim is worthless unless
+  // the same harness is shown recording real calls, with their years, here.
+  assert.deepEqual(fetchLog, [
+    '2020:regular',
+    '2020:postseason',
+    '2021:regular',
+    '2021:postseason',
+  ]);
   const target = stored.value.target as {
     kind: string;
     totalYears: number;
@@ -295,6 +325,80 @@ test('a multi-year provider-attempting run records the bounded target and provid
     target.years.every((entry) => entry.operation === 'postseason-boundary'),
     'each entry carries its classified operation'
   );
+});
+
+// PLATFORM-086F2H1T3 — REGRESSION TEST for the demo exclusion. A demo-only
+// truthful zero-target, provider-free receipt under the NEW reason. Verified
+// failing with the exclusion removed: the run classified 2031 as a target and
+// reported `success` instead of `skipped`.
+test('a demo-only active registry writes a zero-target provider-free receipt', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague(TEST_LEAGUE_SLUG, { state: 'season', year: 2031 }, 2031),
+  ]);
+  // A lifecycle-critical schedule: were the demo league a target, this year
+  // would reach the provider REGARDLESS of the operator pause gate.
+  await seedSchedule(2031, CRITICAL_KICKOFF);
+  stubProvider({ 2031: gameBody(2031) });
+
+  const { res, event } = await runRoute();
+  assert.equal(res.status, 200);
+  assert.equal(event.result, 'skipped');
+  assert.equal(event.reason, 'no-automatic-maintenance-target');
+  assert.deepEqual(fetchLog, [], 'no canonical provider request');
+  assert.deepEqual(
+    providerUrlLog,
+    [],
+    'NO provider request of any kind — canonical or presentation (complete observer)'
+  );
+
+  await deferrer.flush();
+  const stored = await readSchedulerReceipt('schedule-refresh');
+  assert.ok(stored);
+  assert.deepEqual(Object.keys(stored.value).slice().sort(), RECEIPT_KEYS, 'schema unchanged');
+  assert.equal(stored.value.result, 'skipped');
+  assert.equal(stored.value.reason, 'no-automatic-maintenance-target');
+  assert.equal(stored.value.providerCallAttempted, false);
+  assert.deepEqual(stored.value.target, {
+    kind: 'schedule-years',
+    totalYears: 0,
+    truncated: false,
+    years: [],
+  });
+});
+
+// POSITIVE CONTROL for `providerUrlLog` — the observer the demo-only test above
+// asserts is EMPTY. That claim is worthless unless the same harness is shown
+// recording real traffic, so this proves BOTH classes of request it must be able
+// to see, plus every input shape the stub accepts. Mutation-verified: moving the
+// push after the presentation early returns fails this test.
+test('the receipt suite observer records canonical, presentation, and every input shape', async () => {
+  await seedSeasonLeague(2031, 'alpha');
+  await seedSchedule(2031, CRITICAL_KICKOFF);
+  stubProvider({ 2031: gameBody(2031) });
+
+  const { event } = await runRoute();
+  assert.equal(event.result, 'success', 'the year executed — the observer had traffic to see');
+
+  const paths = providerUrlLog.map((href) => new URL(href).pathname);
+  assert.ok(paths.includes('/games'), `canonical request recorded; saw ${JSON.stringify(paths)}`);
+  assert.ok(
+    paths.includes('/games/media') || paths.includes('/venues'),
+    `a PRESENTATION request is recorded even though it returns before the fetchLog push; saw ${JSON.stringify(paths)}`
+  );
+  assert.ok(
+    providerUrlLog.some((href) => href.includes('year=2031')),
+    'the recorded value is the real href, not a placeholder'
+  );
+
+  // Input-shape control: the stub is handed a string, a URL, and a Request for
+  // the same endpoint. `String(new Request(u))` is '[object Request]', so a
+  // stub that stringified its input would record a value `new URL()` rejects.
+  const target = 'https://api.collegefootballdata.com/venues?probe=1';
+  providerUrlLog.length = 0;
+  await globalThis.fetch(target);
+  await globalThis.fetch(new URL(target));
+  await globalThis.fetch(new Request(target));
+  assert.deepEqual(providerUrlLog, [target, target, target], 'all three shapes record the href');
 });
 
 test('a receipt-store failure leaves the route response and runtime event unchanged', async () => {

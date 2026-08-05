@@ -33,7 +33,13 @@ export type ScheduleRefreshCronExecutionResult =
 export type ScheduleRefreshCronExecutionReason =
   | 'cron-secret-not-configured'
   | 'cron-authorization-invalid'
+  // No league is in `season` or `preseason` at all.
   | 'no-maintenance-target'
+  // PLATFORM-086F2H1T3 — active leagues EXIST, but every one that would have
+  // produced a maintenance year is the demo league, which is manual-only.
+  // Distinct from `no-maintenance-target` on purpose: reusing that reason would
+  // tell an operator no active league exists when one does.
+  | 'no-automatic-maintenance-target'
   | 'automation-paused-or-disabled'
   | 'season-transition-owner'
   | 'canonical-context-unavailable'
