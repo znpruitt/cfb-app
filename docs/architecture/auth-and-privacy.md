@@ -1,7 +1,7 @@
 # Auth & Privacy
 
 Status: Current
-Last verified: 2026-07-26
+Last verified: 2026-08-04
 Owner: Project documentation
 Canonical for: Clerk identity/roles, platform-admin route/API gating, ADMIN_API_TOKEN fallback, league-password privacy gate, cron auth
 Supersedes: (none — complements `AGENTS.md` → Auth Architecture Invariants; the deployment-runbook's auth summary is the operator-facing companion)
@@ -38,7 +38,7 @@ The game-stats data route **`/api/game-stats` is admin-only** (`src/lib/server/a
 
 **`ADMIN_API_TOKEN` is a transitional fallback** (Auth Invariant #5), retained for backward compatibility until the Phase 8 multi-tenant commissioner signup replaces it with commissioner-scoped Clerk roles. Do not build new flows that depend on it. (Note: when no token is configured, non-production environments treat requests as authorized for local dev convenience — production must set real auth.)
 
-Never hardcode `publicMetadata.role` checks in components or handlers; all role assertions go through the middleware and `requireAdminAuth`. Draft admin gates go through `src/lib/server/canAccessDraftBoard.ts`.
+Never hardcode `publicMetadata.role` checks in components or handlers; all role assertions go through the middleware, `requireAdminAuth`, and `requireAdminAction`. Draft admin gates go through `src/lib/server/canAccessDraftBoard.ts`.
 
 ## Server Action gating (`requireAdminAction`)
 
@@ -56,15 +56,18 @@ where every action was registered.
 executable statement of all nine exported actions in
 `src/app/admin/[slug]/actions.ts`. It:
 
-- refuses immediately when `CLERK_SECRET_KEY` is blank or whitespace. Clerk's
-  header-signature check is `HmacSHA1(token, SECRET_KEY)` and an unset key
-  silently becomes `''`, so the session report cannot be trusted without it;
-- otherwise calls `isPlatformAdminSession()` with **no argument**. Passing a
+- resolves `resolvePlatformAdminDecision()` with **no argument**. Passing a
   `Request` would reach `isAuthorizedAdminRequest`, whose no-token branch
   authorizes any caller outside production — an authorization hole, not merely
   inelegant. This is also why `requireAdminAuth` cannot serve here: it requires
   a `Request` and returns a `Response`;
-- treats a thrown authorization evaluation as a refusal, never a pass;
+- inherits, rather than duplicates, two properties of that shared decision. The
+  blank-`CLERK_SECRET_KEY` refusal lives in `adminAuth.ts` because ALL THREE
+  boundaries consume the same verdict — a Server-Action-only check would leave
+  the admin API routes and admin pages authorizing against an untrustworthy
+  session. And a failed evaluation resolves to `authorization-unavailable`
+  rather than `not-platform-admin`, so a Clerk outage is never recorded as a
+  role denial;
 - emits exactly one structured `admin-action-unauthorized` event built only from
   compile-time constants — a stable event name, the action name, and a closed
   reason. Never arguments, slug, body, claims, cookies, tokens, or exception

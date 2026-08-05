@@ -36,36 +36,78 @@ export function isAuthorizedAdminRequest(req: Request): boolean {
 }
 
 /**
- * Single source of truth for "is the current caller a platform admin?" as a
- * boolean predicate (contrast with `requireAdminAuth`, which is the API-route
- * boundary helper that returns a Response).
+ * The closed platform-admin decision (PLATFORM-086F2H1SB).
  *
- * Behavior:
- *   1. Clerk session check via auth() — returns true if a signed-in user's
- *      claims satisfy the shared isPlatformAdminClaims predicate (the single
- *      definition of the platform-admin app role, also used by middleware).
- *   2. If a Request is provided, falls back to the ADMIN_API_TOKEN path via
- *      isAuthorizedAdminRequest(req) — Phase 6 transition fallback; sunset
- *      tracked under docs/next-tasks.md item #5.
- *   3. Returns false on any auth() failure (Clerk misconfigured, etc.).
- *
- * Consumed by requireAdminAuth (passes req) and isAuthorizedForLeague (passes
- * req from gated API routes; page-render context calls without req and gets
- * Clerk-only evaluation). AGENTS.md invariant #6 prohibits inline
- * publicMetadata.role checks outside these helpers, so new callers use this
- * (or isPlatformAdminClaims) instead of re-reading sessionClaims.
+ * `authorized`               — a Clerk platform-admin session, or a valid
+ *                              ADMIN_API_TOKEN when a Request was supplied.
+ * `missing-clerk-secret`     — CLERK_SECRET_KEY is blank. Clerk's header
+ *                              signature check is an HMAC keyed on that value
+ *                              and an unset key silently becomes `''`, so the
+ *                              session verdict cannot be trusted at all.
+ * `not-platform-admin`       — evaluation succeeded; the caller is not an admin.
+ * `authorization-unavailable`— evaluation itself failed (Clerk unreachable or
+ *                              misconfigured). Distinct from the above ON
+ *                              PURPOSE: conflating an outage with a role denial
+ *                              makes the audit trail actively misleading.
  */
-export async function isPlatformAdminSession(req?: Request): Promise<boolean> {
-  try {
-    const { userId, sessionClaims } = await auth();
-    if (userId && isPlatformAdminClaims(sessionClaims)) return true;
-  } catch {
-    // Clerk not configured or session unreadable — fall through to token path.
+export type PlatformAdminDecision =
+  | 'authorized'
+  | 'missing-clerk-secret'
+  | 'not-platform-admin'
+  | 'authorization-unavailable';
+
+/**
+ * Single source of truth for "is the current caller a platform admin?", as a
+ * CLOSED decision rather than a boolean — so callers that need to tell an
+ * infrastructure failure from a role denial can.
+ *
+ *   1. Refuse outright when CLERK_SECRET_KEY is blank. This lives HERE rather
+ *      than at one call site because every consumer of this verdict —
+ *      `requireAdminAuth` for API routes, `requireAdminAction` for Server
+ *      Actions, and `isPlatformAdminClaims` in middleware — inherits the same
+ *      untrustworthy session if the key is unset.
+ *   2. Clerk session check via auth(); a throw is `authorization-unavailable`,
+ *      never a silent denial.
+ *   3. If a Request is provided, fall back to the ADMIN_API_TOKEN path —
+ *      Phase 6 transition, sunset tracked in docs/next-tasks.md. Server Actions
+ *      call WITHOUT a request and therefore cannot reach it, which matters
+ *      because the no-token branch authorizes any caller outside production.
+ *
+ * AGENTS.md prohibits inline publicMetadata.role checks outside these helpers,
+ * so new callers use this (or isPlatformAdminClaims) rather than re-reading
+ * sessionClaims.
+ */
+export async function resolvePlatformAdminDecision(req?: Request): Promise<PlatformAdminDecision> {
+  const secret = process.env.CLERK_SECRET_KEY;
+  if (!secret || secret.trim() === '') {
+    // A request-bearing caller may still present a valid configured token; that
+    // path does not depend on Clerk's signature at all.
+    if (req && isAdminTokenConfigured() && isAuthorizedAdminRequest(req)) return 'authorized';
+    return 'missing-clerk-secret';
   }
 
-  if (req && isAuthorizedAdminRequest(req)) return true;
+  let unavailable = false;
+  try {
+    const { userId, sessionClaims } = await auth();
+    if (userId && isPlatformAdminClaims(sessionClaims)) return 'authorized';
+  } catch {
+    // Evaluation failed — remember it rather than letting the token fallback
+    // or the final return disguise an outage as a role denial.
+    unavailable = true;
+  }
 
-  return false;
+  if (req && isAuthorizedAdminRequest(req)) return 'authorized';
+
+  return unavailable ? 'authorization-unavailable' : 'not-platform-admin';
+}
+
+/**
+ * Boolean compatibility wrapper over `resolvePlatformAdminDecision`. Existing
+ * callers (`requireAdminAuth`, `isAuthorizedForLeague`) keep their shape; use
+ * the decision directly when the REASON matters.
+ */
+export async function isPlatformAdminSession(req?: Request): Promise<boolean> {
+  return (await resolvePlatformAdminDecision(req)) === 'authorized';
 }
 
 function buildAdminAuthFailure(req: Request): { error: string; detail: string } {

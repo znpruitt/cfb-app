@@ -1,4 +1,4 @@
-import { isPlatformAdminSession } from '@/lib/server/adminAuth';
+import { resolvePlatformAdminDecision, type PlatformAdminDecision } from '@/lib/server/adminAuth';
 
 /**
  * PLATFORM-086F2H1SB — the platform-admin authorization boundary for Server
@@ -18,6 +18,14 @@ import { isPlatformAdminSession } from '@/lib/server/adminAuth';
  * NOTE: this module deliberately carries NO `'use server'` directive. Adding
  * one would make its exports Server Actions in their own right — a new
  * unguarded surface created by the very module meant to guard.
+ *
+ * It also carries no `import 'server-only'`, matching this repo's convention:
+ * no module here actually imports it (the references in `ownerRosterGuard.ts`
+ * and `providerDatasets.ts` are comments explaining its ABSENCE), because it
+ * throws under the bare `node:test` runner the suite uses. The module is
+ * server-only by usage — it reaches Clerk through `@/lib/server/adminAuth` —
+ * and `ADMIN_SERVER_ACTION_NAMES` is exported for the completeness test, not as
+ * a label source for the client.
  *
  * What the guard can and cannot promise, stated precisely:
  *
@@ -50,8 +58,11 @@ export const ADMIN_SERVER_ACTION_NAMES = [
 
 export type AdminServerActionName = (typeof ADMIN_SERVER_ACTION_NAMES)[number];
 
-/** Closed, caller-independent refusal reasons. Safe to log verbatim. */
-type RefusalReason = 'missing-clerk-secret' | 'not-platform-admin' | 'authorization-unavailable';
+/**
+ * Closed, caller-independent refusal reasons — the shared decision minus
+ * `authorized`. Derived rather than restated so the two cannot drift.
+ */
+type RefusalReason = Exclude<PlatformAdminDecision, 'authorized'>;
 
 /** The message every refusal throws. Deliberately generic and stable. */
 const REFUSAL_MESSAGE = 'Not authorized';
@@ -71,6 +82,11 @@ let __authorizerForTests: (() => boolean | Promise<boolean>) | null = null;
 
 /**
  * Resolve authorization. Any thrown evaluation is a refusal, never a pass.
+ *
+ * The REASON comes from the shared authority rather than being inferred here.
+ * `isPlatformAdminSession` swallows Clerk's throw internally and returns
+ * `false`, so a wrapper's own `catch` never fires for a real outage and every
+ * infrastructure failure would have been logged as a role denial.
  */
 async function evaluate(): Promise<{ ok: true } | { ok: false; reason: RefusalReason }> {
   if (!isProductionRuntime() && __authorizerForTests) {
@@ -83,23 +99,13 @@ async function evaluate(): Promise<{ ok: true } | { ok: false; reason: RefusalRe
     }
   }
 
-  // Clerk's session verification is anchored on CLERK_SECRET_KEY: with it
-  // blank, the header signature check degrades to an HMAC over the empty
-  // string and the token is only decoded, not verified. Refuse outright rather
-  // than consult a predicate that cannot be trusted.
-  const secret = process.env.CLERK_SECRET_KEY;
-  if (!secret || secret.trim() === '') return { ok: false, reason: 'missing-clerk-secret' };
-
-  try {
-    // NO argument, deliberately. Passing a `Request` would reach
-    // `isAuthorizedAdminRequest`, whose no-token branch authorizes ANY caller
-    // outside production — an authorization hole, not merely inelegant.
-    return (await isPlatformAdminSession())
-      ? { ok: true }
-      : { ok: false, reason: 'not-platform-admin' };
-  } catch {
-    return { ok: false, reason: 'authorization-unavailable' };
-  }
+  // NO argument, deliberately. Passing a `Request` would let the decision fall
+  // back to `isAuthorizedAdminRequest`, whose no-token branch authorizes ANY
+  // caller outside production — an authorization hole, not merely inelegant.
+  // The blank-CLERK_SECRET_KEY refusal now lives in the shared authority, so
+  // every consumer of that verdict inherits it.
+  const decision = await resolvePlatformAdminDecision();
+  return decision === 'authorized' ? { ok: true } : { ok: false, reason: decision };
 }
 
 /**

@@ -60,11 +60,16 @@ async function snapshotStore(): Promise<string> {
   const scopes = (await listAppStateScopes()).sort();
   const out: Record<string, unknown> = {};
   for (const scope of scopes) {
+    // `getAppStateEntries` returns an ARRAY of records carrying `key`. Keying
+    // the snapshot by array index would encode STORE POSITION instead: the DB
+    // branch selects with no ORDER BY, so identical content could serialize
+    // differently (a spurious failure) and a pure reorder could satisfy the
+    // positive control (a missed one).
     const entries = await getAppStateEntries<unknown>(scope);
     out[scope] = Object.fromEntries(
-      Object.entries(entries)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([k, v]) => [k, v])
+      entries
+        .map((entry) => [entry.key, { value: entry.value, updatedAt: entry.updatedAt }] as const)
+        .sort(([a], [b]) => String(a).localeCompare(String(b)))
     );
   }
   return JSON.stringify(out);
@@ -78,8 +83,11 @@ async function seedWorld(): Promise<void> {
     makeLeague('bravo', 2026, { state: 'preseason', year: 2026 }),
   ]);
   await setAppState('preseason-owners:test', '2026', ['Alice', 'Bob']);
+  // Distinguishable payloads: `migrateTestOwnersCsv(2025, 2026)` copies 2025
+  // over 2026, so identical seeds would leave only `updatedAt` differing and the
+  // positive control would rest on a millisecond.
   await setAppState('owners:test:2025', 'csv', 'team,owner\nTexas,Alice');
-  await setAppState('owners:test:2026', 'csv', 'team,owner\nTexas,Alice');
+  await setAppState('owners:test:2026', 'csv', 'team,owner\nOklahoma,Bob');
   // The demo league resolves to season 2025, so `autoCompleteDraft` targets
   // that year; 2026 is the year the preseason controls clear.
   for (const year of ['2025', '2026']) {
@@ -128,6 +136,28 @@ test.after(() => {
 });
 
 // ---------------------------------------------------------------------------
+// The capture harness must be able to SEE a tag on the rejecting path. Without
+// this, every "revalidated nothing" row below could pass because the helper
+// reports nothing — which is exactly how the first two versions of that
+// assertion were vacuous.
+
+test('the tag capture observes a revalidation that is followed by a throw', async () => {
+  const { revalidateTag } = await import('next/cache');
+
+  const leaked = await runCapturingRevalidatedTags(async () => {
+    revalidateTag('LEAKED-TAG');
+    throw new Error('Not authorized');
+  });
+  assert.equal(leaked.threw, true);
+  assert.deepEqual(leaked.tags, ['LEAKED-TAG'], 'a tag revalidated before a throw MUST be seen');
+
+  // And a clean run reports nothing, so an empty list means something.
+  const quiet = await runCapturingRevalidatedTags(async () => 'done');
+  assert.equal(quiet.threw, false);
+  assert.deepEqual(quiet.tags, []);
+});
+
+// ---------------------------------------------------------------------------
 // UNAUTHORIZED — the whole point of the slice.
 
 test('every action refuses an unauthorized caller and mutates nothing', async () => {
@@ -137,30 +167,25 @@ test('every action refuses an unauthorized caller and mutates nothing', async ()
     await seedWorld();
     const before = await snapshotStore();
 
-    // Capture the tags actually revalidated during the call — an empty array
-    // the test constructed itself would assert nothing.
-    const captured: string[] = [];
-    await assert.rejects(
-      () =>
-        __withAdminActionAuthorizerForTests(
-          () => false,
-          async () => {
-            const { tags } = await runCapturingRevalidatedTags(async () => {
-              await call();
-            });
-            captured.push(...tags);
-          }
-        ),
+    // The helper reports tags on BOTH paths, so this observes what the refused
+    // call actually revalidated rather than an array the test created.
+    const outcome = await __withAdminActionAuthorizerForTests(
+      () => false,
+      () => runCapturingRevalidatedTags(async () => call())
+    );
+
+    assert.equal(outcome.threw, true, `${name} must reject, never resolve`);
+    assert.match(
+      String((outcome.error as Error)?.message ?? ''),
       /Not authorized/,
       `${name} must refuse with the stable authorization error`
     );
-
     assert.equal(
       await snapshotStore(),
       before,
       `${name} must not read-modify-write, delete, or create ANY durable record`
     );
-    assert.deepEqual(captured, [], `${name} must not invalidate or revalidate anything`);
+    assert.deepEqual(outcome.tags, [], `${name} must not invalidate or revalidate anything`);
   }
 });
 
@@ -190,17 +215,24 @@ test('a value-returning action REJECTS rather than returning anything', async ()
   // any shape would be a security failure rather than a cosmetic one.
   await seedWorld();
 
-  for (const { name, call } of INVOCATIONS.filter((i) =>
+  const valueReturning = INVOCATIONS.filter((i) =>
     ['migrateTestOwnersCsv', 'autoCompleteDraft'].includes(i.name)
-  )) {
+  );
+  // Without this the loop could silently iterate zero times — a rename would
+  // leave the named security property untested and the test green.
+  assert.equal(valueReturning.length, 2, 'both value-returning actions are covered');
+
+  for (const { name, call } of valueReturning) {
     const outcome = await __withAdminActionAuthorizerForTests(
       () => false,
-      () =>
-        runWithRevalidateContext(async () => call().then(() => 'RESOLVED' as const)).catch(
-          () => 'REJECTED' as const
-        )
+      () => runCapturingRevalidatedTags(async () => call())
     );
-    assert.equal(outcome, 'REJECTED', `${name} must reject, never resolve`);
+    assert.equal(outcome.threw, true, `${name} must reject, never resolve`);
+    assert.match(
+      String((outcome.error as Error)?.message ?? ''),
+      /Not authorized/,
+      `${name} must reject for AUTHORIZATION, not some incidental error`
+    );
   }
 });
 
@@ -273,6 +305,35 @@ test('the real authorizer fails closed with no Clerk session', async () => {
   console.warn = (() => {}) as typeof console.warn;
   try {
     await assert.rejects(() => requireAdminAction('resetTestLeague'), /Not authorized/);
+  } finally {
+    console.warn = originalWarn;
+    if (originalSecret === undefined) delete MUTABLE_ENV.CLERK_SECRET_KEY;
+    else MUTABLE_ENV.CLERK_SECRET_KEY = originalSecret;
+  }
+});
+
+test('a Clerk evaluation failure logs authorization-unavailable, not a role denial', async () => {
+  // The REAL path, with no override installed. `resolvePlatformAdminDecision`
+  // must distinguish an outage from a non-admin caller — conflating them makes
+  // the only audit record actively misleading at exactly the moment it matters.
+  //
+  // Under the bare test runner Clerk's `auth()` throws (`server-only`), which is
+  // precisely the "evaluation failed" shape, so this exercises the distinction
+  // rather than a stub.
+  const originalSecret = process.env.CLERK_SECRET_KEY;
+  MUTABLE_ENV.CLERK_SECRET_KEY = 'sk_test_not_a_real_key';
+  const logs: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = ((...args: unknown[]) => void logs.push(String(args[0]))) as typeof console.warn;
+
+  try {
+    await assert.rejects(() => requireAdminAction('beginPreseason'), /Not authorized/);
+    const event = JSON.parse(logs[logs.length - 1]!) as { reason: string };
+    assert.equal(
+      event.reason,
+      'authorization-unavailable',
+      'a failed evaluation must not be reported as `not-platform-admin`'
+    );
   } finally {
     console.warn = originalWarn;
     if (originalSecret === undefined) delete MUTABLE_ENV.CLERK_SECRET_KEY;
@@ -464,12 +525,21 @@ test('no second repository Server Action module exists', () => {
     for (const entry of readdirSync(dir)) {
       const full = join(dir, entry);
       if (statSync(full).isDirectory()) {
-        walk(full);
+        // Tests are not shipped action modules, and this file necessarily
+        // contains the directive as a string literal.
+        if (entry !== '__tests__') walk(full);
         continue;
       }
       if (!/\.tsx?$/.test(entry)) continue;
-      const head = readFileSync(full, 'utf8').slice(0, 400);
-      if (/^\s*['"]use server['"]\s*;/m.test(head)) modules.push(full.slice(root.length + 1));
+      // WHOLE file, and no trailing-semicolon requirement. The inline form
+      // (`async function save() { 'use server'; ... }`) sits far past any byte
+      // cap in a real component, and a module-level directive is valid without
+      // a semicolon via ASI — either omission would let an unguarded action
+      // surface exist while this test stayed green.
+      const source = readFileSync(full, 'utf8');
+      if (/(^|[{;\n])\s*['"]use server['"]\s*;?/.test(source)) {
+        modules.push(full.slice(root.length + 1));
+      }
     }
   };
   walk(root);
@@ -479,4 +549,18 @@ test('no second repository Server Action module exists', () => {
     ['app/admin/[slug]/actions.ts'],
     'a new Server Action module requires an explicit authorization decision'
   );
+
+  // POSITIVE CONTROL: the matcher must actually recognize both forbidden
+  // shapes. Without this the scan could silently match nothing forever and
+  // every run would pass.
+  const DIRECTIVE = /(^|[{;\n])\s*['"]use server['"]\s*;?/;
+  assert.ok(DIRECTIVE.test("'use server';\n\nexport async function x() {}"), 'file-level');
+  assert.ok(DIRECTIVE.test('"use server"\n\nexport async function x() {}'), 'no semicolon (ASI)');
+  assert.ok(
+    DIRECTIVE.test(
+      'export default function P() {\n  async function save() {\n    "use server";\n  }\n}'
+    ),
+    'inline function-body directive, past any byte cap'
+  );
+  assert.ok(!DIRECTIVE.test('// a comment mentioning use server\nexport const x = 1;'), 'prose');
 });

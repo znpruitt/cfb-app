@@ -75,11 +75,17 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   read, write, cleanup, revalidation, redirect, or argument-dependent validation precedes
   authorization.
 - Review / verification: Each gate run as its own command with an unmasked exit status against the
-  exact reviewed commit. SIX mutations verified failing one at a time: a removed guard, a guard
-  moved below its first validation, production honouring the test override, the blank-secret
-  refusal removed, an unguarded tenth exported action, and `notFound()` replacing the throw. The
-  production-override mutation initially did NOT fail — the test verified only the setter's refusal
-  and not the guard's independent ignore — and the assertion was extended until it discriminated.
+  exact reviewed commit. Mutations verified failing one at a time: a removed guard, a guard moved
+  below its first validation AND below `invalidateStandings`, production honouring the test
+  override, the blank-secret refusal removed from the shared authority, an outage collapsed back
+  into a role denial, an unguarded tenth exported action, and `notFound()` replacing the throw.
+  **Two assertions were initially unfalsifiable and were corrected before merge.** (1) The
+  production-override check verified only the setter's refusal, not the guard's independent ignore.
+  (2) The "revalidated nothing" row asserted an array the test itself created: the first fix was
+  ALSO vacuous, because the capture helper returned tags only on the resolving path while every
+  unauthorized invocation rejects. Commit `3027c58`'s message claiming that fix was effective is
+  therefore inaccurate — corrected here. The helper now reports tags on both paths and carries a
+  positive control proving it observes a tag revalidated before a throw.
 - Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
 
 ### PLATFORM-086F2H1SA-PROTECTED-PATH-MATCHER-COVERAGE-v1
