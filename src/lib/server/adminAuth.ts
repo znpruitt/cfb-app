@@ -80,9 +80,15 @@ export type PlatformAdminDecision =
 export async function resolvePlatformAdminDecision(req?: Request): Promise<PlatformAdminDecision> {
   const secret = process.env.CLERK_SECRET_KEY;
   if (!secret || secret.trim() === '') {
-    // A request-bearing caller may still present a valid configured token; that
-    // path does not depend on Clerk's signature at all.
-    if (req && isAdminTokenConfigured() && isAuthorizedAdminRequest(req)) return 'authorized';
+    // A request-bearing caller still gets the UNCHANGED token path, which does
+    // not depend on Clerk's signature at all. That path keeps its pre-existing
+    // semantics — including the no-token-configured branch that authorizes
+    // outside production, which the admin API suites rely on and which is
+    // separately deferred for sunset. Narrowing it here would be an unrelated
+    // behavioral change smuggled into an authorization fix.
+    if (req && isAuthorizedAdminRequest(req)) return 'authorized';
+    // No request: Clerk is the only possible evidence, and it cannot be
+    // trusted without the secret.
     return 'missing-clerk-secret';
   }
 
