@@ -2322,6 +2322,56 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H1SA — Protected-Path Matcher Coverage — Complete
+
+- **Status:** Complete — merged to `main` via PR #446 (merge commit `533aed8`, 2026-08-04).
+- **PROMPT_ID(s):** `PLATFORM-086F2H1SA-PROTECTED-PATH-MATCHER-COVERAGE-v1`.
+- **Outcome:** Closed a demonstrated authentication bypass. The middleware matcher's static-file
+  exclusion was a SUBSTRING rule rather than a suffix rule about real assets, so any path merely
+  containing a listed extension was skipped: `/admin/audit.css` bypassed `clerkMiddleware` entirely
+  while still resolving to `app/admin/[slug]/page` — a worker where all nine Server Actions are
+  registered, none of which authorizes internally. Nothing else stopped it, since `clerkMiddleware`
+  with a callback is allowlist-shaped. Reach was not limited to the demo league: four of the nine
+  actions take a caller-supplied slug, and `confirmPreseasonOwners` validates neither existence,
+  lifecycle, nor year before writing and then invalidates standings, so substituted owner names
+  would have rendered on the PUBLIC league pages. Fixed by matching `/admin/:path*` and
+  `/debug/:path*` explicitly — matcher entries are OR'd, so their existence matters and their
+  position does not. Anchoring the extension group would NOT have fixed the reported case (those
+  paths genuinely end in `.css`); the `$` anchor is added alongside, closing the root-cause
+  `/foo/bar.css/baz` shape. `PLATFORM_ADMIN_PAGE_PREFIXES` is exported and a test asserts every
+  prefix has a matcher entry. The middleware BODY is unchanged — it already failed closed for
+  signed-out and non-admin callers; this slice only ensures it runs.
+- **Verification:** each gate its own command with an unmasked exit status against `b590a5f` —
+  focused matcher + platform-admin 14/14, `npx tsc --noEmit`, `npm run lint:all`, `npm test`
+  3250/3250, `npm run build`, `git diff --check`. Tests evaluate the REAL exported `config` AND the
+  real `next.config.ts` through Next's own `unstable_doesMiddlewareMatch`, because matching depends
+  on both inputs. **Test delta: +8 net (9 added, 1 removed)** — the removed query-string test was
+  vacuous, since the matcher only ever sees `pathname`. Mutation-verified against FIVE wrong states,
+  one revert at a time: the pre-fix config, the rejected anchor-only fix, a third protected prefix
+  without a matcher entry, the `$` anchor removed, and `requiresPlatformAdminPage` skipping
+  extension-looking paths. That last one is the composed invariant — under it this suite fails three
+  tests while `platformAdmin.test.ts` still passes 6/6, which is why both halves are asserted here
+  rather than delegated.
+- **Review:** two clean Codex passes. `/code-review` produced findings in two rounds — the first in
+  the single normal remediation DOCS-013 allows, the second in an explicitly authorized round for a
+  defect that remediation directly caused (it had deleted the composed-invariant assertion citing a
+  false ownership claim). Review closed by explicit user evaluation after the authorized second
+  round.
+- **Deferred, recorded in `docs/next-tasks.md`:** the 307 method- and body-preserving redirect on a
+  non-GET request to a protected path (a middleware BODY change, excluded here; the action never
+  executes, so it is not an authorization escape); the regression test's dependence on an
+  `unstable_` Next API, which fails loudly rather than silently; and the exclusion's remaining
+  NEGATIVE heuristic ("a dotted path is an asset"), false for any dynamic segment that can carry a
+  dot — `app/league/[slug]` has the same shape today. Scoping the exclusion positively would invert
+  the default and remove the two-place literal sync; it changes matching for every route, so it
+  needs its own slice. Encoded, doubled-slash, and case-variant prefixes are NOT recorded as
+  bypasses — none was reproduced.
+- **Still required:** `PLATFORM-086F2H1SB` (in-action Server Action authorization). Next treats an
+  exported Server Action as a public endpoint that must authorize internally, so routing is never
+  the authorization boundary.
+
+---
+
 ### PLATFORM-086F2H1T1 — Slugless Demo-League Lifecycle Authority — Complete
 
 - **Status:** Complete — merged to `main` via PR #445 (merge commit `8e6f122`, 2026-08-04).

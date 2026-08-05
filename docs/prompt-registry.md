@@ -79,7 +79,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - Review / verification: Each gate run as its own command with an unmasked exit status against the
   exact reviewed commit; the matcher change verified failing against BOTH the pre-fix config and the
   rejected anchored variant.
-- Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
+- Status: **✅ MERGED to `main` via PR #446 (merge commit `533aed8`), 2026-08-04.**
 
 ### PLATFORM-086F2H1T1-TEST-CONTROL-SAFETY-v2
 
