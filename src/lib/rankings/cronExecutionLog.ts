@@ -41,6 +41,12 @@ export type RankingsCronControlReason =
   | 'settings-unavailable'
   | 'registry-unavailable'
   | 'no-ranking-target'
+  // PLATFORM-086F2H1T4 — active leagues exist, but every one of them is the demo
+  // league, which is manual-only for automatic rankings publication. Distinct
+  // from `no-ranking-target` on purpose: that reason asserts no `season` or
+  // `preseason` league exists at all, which would be false here and would tell
+  // an operator on the System Health row that nothing awaits publication.
+  | 'no-automatic-ranking-target'
   | 'canonical-context-unavailable'
   | 'not-a-heartbeat-slot'
   | 'no-window-due'

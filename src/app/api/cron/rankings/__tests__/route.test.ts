@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { GET } from '../route';
-import type { League } from '../../../../../lib/league.ts';
+import { TEST_LEAGUE_SLUG, type League } from '../../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -61,12 +61,14 @@ function makeLeague(slug: string, status: League['status']): League {
   } as League;
 }
 
-async function seedLeague(year: number, state: 'season' | 'preseason' = 'season'): Promise<void> {
+/** Append one league. Pass `TEST_LEAGUE_SLUG` to seed the DEMO league. */
+async function seedLeague(
+  year: number,
+  state: 'season' | 'preseason' = 'season',
+  slug = `league-${year}-${state}`
+): Promise<void> {
   const existing = (await getAppState<League[]>('leagues', 'registry'))?.value ?? [];
-  await setAppState('leagues', 'registry', [
-    ...existing,
-    makeLeague(`league-${year}-${state}`, { state, year }),
-  ]);
+  await setAppState('leagues', 'registry', [...existing, makeLeague(slug, { state, year })]);
 }
 
 async function seedSchedule(year: number, firstKickoff: string): Promise<void> {
@@ -103,6 +105,21 @@ function usablePayload(year: number, school = 'Georgia'): unknown[] {
 type PartitionStub = unknown[] | 'fail';
 type InfoStub = { remainingCalls?: unknown; patronLevel?: unknown } | 'fail' | 'throw';
 
+/**
+ * PLATFORM-086F2H1T4 — every request URL this run observed, recorded BEFORE any
+ * parsing and BEFORE any path branching.
+ *
+ * `fetchLog` below stays the precise behavioral counter, but it can only record
+ * the two endpoints it recognizes, and only once `new URL()` has parsed. Both
+ * consumers on this path swallow a stub throw (the quota probe's `catch` in the
+ * route, and E2A's `fetch-failed` catch), so a counter that increments after
+ * parsing/branching would report zero for a request that really was attempted.
+ * Every "no provider request" assertion in this file rests on THIS log; the
+ * positive control below proves it records all three `fetch` input shapes and
+ * an unrecognized endpoint.
+ */
+const providerUrlLog: string[] = [];
+
 const fetchLog: { info: number; rankings: string[]; sequence: string[] } = {
   info: 0,
   rankings: [],
@@ -116,7 +133,13 @@ function stubProvider(opts: {
   onRankingsRequest?: () => void;
 }): void {
   globalThis.fetch = (async (input: URL | string | Request) => {
-    const url = new URL(typeof input === 'string' ? input : input.toString());
+    // Resolve the href from every input shape, then record — before parsing,
+    // before branching. `Request` does NOT override `toString()`, so
+    // `String(request)` is the literal "[object Request]" and `new URL()` on it
+    // throws; `.url` is the only correct resolution for that shape.
+    const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    providerUrlLog.push(href);
+    const url = new URL(href);
     if (url.pathname === '/info') {
       fetchLog.info += 1;
       fetchLog.sequence.push('info');
@@ -186,6 +209,10 @@ type CronBody = {
 };
 
 test.beforeEach(async () => {
+  providerUrlLog.length = 0;
+  fetchLog.info = 0;
+  fetchLog.rankings = [];
+  fetchLog.sequence = [];
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
   __resetSeasonRankingsCacheForTests();
@@ -202,9 +229,6 @@ test.beforeEach(async () => {
 
 test.afterEach(() => {
   console.log = ORIGINAL_CONSOLE_LOG;
-  fetchLog.info = 0;
-  fetchLog.rankings = [];
-  fetchLog.sequence = [];
 });
 
 test.after(() => {
@@ -214,6 +238,36 @@ test.after(() => {
   else MUTABLE_ENV.CFBD_API_KEY = ORIGINAL_CFBD_API_KEY;
   globalThis.fetch = ORIGINAL_FETCH;
   console.log = ORIGINAL_CONSOLE_LOG;
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1T4 — observer positive control
+//
+// Runs FIRST: every zero-provider-call assertion in this file (and the demo
+// exclusion tests below) is only meaningful if the observer would have caught a
+// request. Proven here for all three `fetch` input shapes AND for an endpoint
+// the stub does not recognize.
+// ---------------------------------------------------------------------------
+
+test('POSITIVE CONTROL: the observer records every input shape before parsing', async () => {
+  const target = 'https://api.collegefootballdata.com/info?probe=1';
+  await globalThis.fetch(target);
+  await globalThis.fetch(new URL(target));
+  await globalThis.fetch(new Request(target));
+  // `Request` is the shape a parse-then-record observer silently loses, because
+  // `String(request)` is "[object Request]" and `new URL()` rejects that. This
+  // deepEqual is the proof that matters: all three shapes reach the log.
+  assert.deepEqual(providerUrlLog, [target, target, target], 'all three shapes record the href');
+});
+
+test('POSITIVE CONTROL: the observer records an endpoint the stub rejects', async () => {
+  const unknown = 'https://api.collegefootballdata.com/teams?probe=1';
+  // The stub throws for unrecognized endpoints, and BOTH callers on this path
+  // swallow that throw — so a record-after-branch observer would report zero
+  // requests for a request that really was made.
+  await assert.rejects(() => globalThis.fetch(unknown));
+  assert.deepEqual(providerUrlLog, [unknown]);
+  assert.equal(fetchLog.info + fetchLog.rankings.length, 0, 'the specialized counters saw nothing');
 });
 
 // ---------------------------------------------------------------------------
@@ -319,6 +373,160 @@ test('no eligible lifecycle years is a provider-free no-ranking-target skip', as
   assert.equal(body.result, 'skipped');
   assert.equal(body.reason, 'no-ranking-target');
   assert.equal(fetchLog.info + fetchLog.rankings.length, 0);
+  assert.deepEqual(providerUrlLog, []);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1T4 — the demo league is manual-only for automatic rankings
+// publication. Ownership resolves from PRODUCTION leagues only.
+// ---------------------------------------------------------------------------
+
+// CONTRACT PIN — an inactive demo record is not an excluded CANDIDATE, so the
+// genuinely-empty reason keeps its exact meaning.
+test('T4 contract pin: an offseason demo league keeps the no-ranking-target reason', async () => {
+  await setAppState('leagues', 'registry', [makeLeague(TEST_LEAGUE_SLUG, { state: 'offseason' })]);
+  const res = await GET(request());
+  const body = (await res.json()) as CronBody;
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'no-ranking-target');
+  assert.deepEqual(providerUrlLog, []);
+});
+
+// REGRESSION TEST — the fixture is the happy path's: a DUE weekly window with a
+// funded quota and a usable payload, so without the exclusion this run reaches
+// `/info` and both rankings partitions.
+test('T4 regression: a gates-open demo-only registry with a DUE window spends nothing', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  await seedLeague(YEAR, 'season', TEST_LEAGUE_SLUG);
+  await seedSchedule(YEAR, FIRST_KICKOFF);
+  stubProvider({
+    info: { remainingCalls: 4000, patronLevel: 1 },
+    rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } },
+  });
+
+  const res = await GET(request());
+  const body = (await res.json()) as CronBody;
+  assert.equal(res.status, 200);
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'no-automatic-ranking-target');
+  assert.deepEqual(body.years, [], 'no per-year entry for a demo-only year');
+
+  // No provider request of any endpoint or input shape (observer proven above).
+  assert.deepEqual(providerUrlLog, []);
+  assert.equal(fetchLog.info + fetchLog.rankings.length, 0);
+
+  // No publication-window control, no rankings commit, no provider-status attempt.
+  assert.equal(await getAppState(RANKINGS_PUBLICATION_WINDOW_SCOPE, WEEKLY_KEY), null);
+  assert.equal(await getAppState('rankings', String(YEAR)), null);
+  assert.equal(
+    (await getProviderRefreshStatus('rankings', yearScope(YEAR))).latestAttemptOutcome,
+    null
+  );
+
+  // The single event mirrors the response exactly.
+  assert.equal(eventLines.length, 1);
+  assert.equal(eventLines[0]?.result, 'skipped');
+  assert.equal(eventLines[0]?.reason, 'no-automatic-ranking-target');
+  assert.deepEqual(eventLines[0]?.years, []);
+});
+
+// CONTRACT PIN — the automation gate stays AHEAD of target selection. The
+// registry read is poisoned: if selection ran first this would be
+// `failure / registry-unavailable`, raising a scheduler-execution issue for a
+// job the operator deliberately paused. It also pins that a paused demo-only
+// run keeps reporting the pause, not the new reason.
+test('T4 contract pin: a paused run never reaches target selection', async () => {
+  await seedLeague(YEAR, 'season', TEST_LEAGUE_SLUG);
+  await setGlobalPause(true);
+  __setAppStateReadFailureForTests(new Error('registry down'), 'leagues');
+  try {
+    const res = await GET(request());
+    const body = (await res.json()) as CronBody;
+    assert.equal(res.status, 200);
+    assert.equal(body.result, 'skipped');
+    assert.equal(body.reason, 'automation-paused-or-disabled');
+    assert.deepEqual(body.years, []);
+    assert.deepEqual(providerUrlLog, []);
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
+});
+
+// REGRESSION TEST — a SHARED year keeps production maintenance, and the demo no
+// longer determines its reported lifecycle. Doubles as a production POSITIVE
+// CONTROL: the same observer records the real `/info` + partition traffic.
+test('T4 regression: a shared year runs on the production league and its lifecycle', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  await seedLeague(YEAR, 'season', TEST_LEAGUE_SLUG); // would outrank...
+  await seedLeague(YEAR, 'preseason'); // ...this production league
+  await seedSchedule(YEAR, FIRST_KICKOFF);
+  stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
+
+  const res = await GET(request());
+  const body = (await res.json()) as CronBody;
+  assert.equal(body.result, 'success');
+  assert.equal(body.years.length, 1);
+  assert.equal(body.years[0]?.year, YEAR);
+  // Reporting truth only: `lifecycle` is inert in the publication classifier, so
+  // the window kind, publication key, quota gate, and provider requests asserted
+  // below are identical in both directions.
+  assert.equal(body.years[0]?.lifecycle, 'preseason');
+  assert.equal(body.years[0]?.publicationWindow, 'weekly-ap-coaches');
+  assert.equal(body.years[0]?.publicationKey, WEEKLY_KEY);
+  assert.equal(eventLines[0]?.years[0]?.lifecycle, 'preseason');
+
+  assert.equal(fetchLog.info, 1);
+  assert.deepEqual(fetchLog.rankings.sort(), [`${YEAR}:postseason`, `${YEAR}:regular`]);
+  assert.equal(providerUrlLog.length, 3, 'the observer saw exactly the probe plus both partitions');
+});
+
+// REGRESSION TEST — a demo-only year alongside a distinct production year is
+// absent from every surface. Its schedule is seeded so its own weekly window
+// WOULD be due without the exclusion.
+test('T4 regression: a demo-only year never appears while a production year executes', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  const DEMO_YEAR = 2033;
+  const DEMO_KEY = `${DEMO_YEAR}:weekly-ap-coaches:2031-10-05`;
+  await seedLeague(DEMO_YEAR, 'preseason', TEST_LEAGUE_SLUG);
+  await seedLeague(YEAR);
+  await seedSchedule(YEAR, FIRST_KICKOFF);
+  await seedSchedule(DEMO_YEAR, '2031-11-15T18:00:00.000Z');
+  stubProvider({
+    rankings: {
+      [YEAR]: { regular: usablePayload(YEAR), postseason: [] },
+      [DEMO_YEAR]: { regular: usablePayload(DEMO_YEAR, 'Michigan'), postseason: [] },
+    },
+  });
+
+  const res = await GET(request());
+  const body = (await res.json()) as CronBody;
+  assert.equal(body.result, 'success');
+  assert.deepEqual(
+    body.years.map((y) => y.year),
+    [YEAR],
+    'only the production year is a target'
+  );
+  assert.deepEqual(
+    eventLines[0]?.years.map((y) => y.year),
+    [YEAR]
+  );
+
+  // One probe, one partition pair — the demo year never reached the quota gate.
+  assert.equal(fetchLog.info, 1);
+  assert.deepEqual(fetchLog.rankings.sort(), [`${YEAR}:postseason`, `${YEAR}:regular`]);
+  assert.ok(
+    !providerUrlLog.some((url) => url.includes(`year=${DEMO_YEAR}`)),
+    'no request names the demo year'
+  );
+
+  // No durable trace of the demo year; the production year committed.
+  assert.equal(await getAppState(RANKINGS_PUBLICATION_WINDOW_SCOPE, DEMO_KEY), null);
+  assert.equal(await getAppState('rankings', String(DEMO_YEAR)), null);
+  assert.equal(
+    (await getProviderRefreshStatus('rankings', yearScope(DEMO_YEAR))).latestAttemptOutcome,
+    null
+  );
+  assert.ok(await getAppState('rankings', String(YEAR)), 'the production year committed');
 });
 
 // ---------------------------------------------------------------------------

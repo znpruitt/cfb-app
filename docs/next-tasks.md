@@ -224,13 +224,20 @@ Execution order within F2 (each slice is one independently deployable PR):
       security fix into a lifecycle slice is the scope mistake that required v1's reconstruction.
       - **F2H1T2 — season-transition exclusion** — ✅ MERGED (PR #448, `6ab927c`, 2026-08-05).
         **F2H1T3 — weekly-schedule exclusion** — ✅ MERGED (PR #449, `c15413e`, 2026-08-05). Then
-        **F2H1T4 — rankings exclusion** — **NEXT**, then
-        **F2H1T5 — System Health operational-year isolation**.
-        T3 established the shape T4 must follow: the demo league is filtered PER LEAGUE, before the
+        **F2H1T4 — rankings exclusion** — implemented, in review. Then
+        **F2H1T5 — System Health operational-year isolation** — **NEXT**.
+        T3 established the shape T4 followed: the demo league is filtered PER LEAGUE, before the
         job resolves which year it will act on — never against the resolved target list, which would
-        drop a year a production league also occupies. Rankings targeting must likewise resolve
-        ownership from PRODUCTION leagues only (`selectRankingsTargetYears`), not merely subtract
-        demo years afterward, and must keep its own zero-target reason truthful.
+        drop a year a production league also occupies. `selectRankingsTargetYears` now resolves
+        ownership from PRODUCTION leagues only and returns a closed
+        `{ years, excludedDemoCandidate }`, so the years and the exclusion truth that shaped them
+        cannot be observed apart; a demo-only active registry reports
+        `skipped / no-automatic-ranking-target`. **T3's owner-selector rationale did NOT transfer:**
+        `RankingsPublicationContext.lifecycle` is inert — no publication window branches on it, the
+        publication key omits it, and it never reaches the durable receipt — so a demo `season(Y)`
+        outranking production `preseason(Y)` only mislabelled the REPORTED lifecycle. That direction
+        is mutation-pinned as a reporting-truth fix; the preserved production-`season` precedence is
+        a CONTRACT PIN, since it passes with the exclusion fully removed.
         Separate because they are separate automation jobs under the binding sizing rule, and each
         needs its own route-level tests. Transition exclusion comes first: it removes the
         higher-frequency (daily) lifecycle and provider exposure without harming production leagues.
@@ -253,7 +260,14 @@ Execution order within F2 (each slice is one independently deployable PR):
         operational year whose schedule IS already cached was refreshed by the weekly cron before
         that change and no longer is, so `schedule-cache-stale` (`providerDataDiagnostics.ts` — "older than
         the weekly policy", raised whenever the operational season is active and the entry exceeds the
-        staleness window) becomes permanently true by design. Both are warnings an operator cannot
+        staleness window) becomes permanently true by design. **T4 adds the rankings half:** a demo-owned
+        operational year now also loses automatic rankings publication, so `rankings-cache-missing`
+        (severity `info`, but the dataset-freshness fold still turns the Provider-data tile yellow)
+        or, once a snapshot exists and ages past the 8-day horizon, `rankings-cache-stale`
+        (`warning` → `degraded`) becomes permanently true for that year. All carry a working Data
+        Maintenance repair link, but the repair does not stick, because nothing automatic
+        re-maintains the year. In the dominant case the missing schedule signal (severity `error`)
+        already subsumes them. Three warnings an operator cannot
         clear from the automation surface until T5. That is a consequence of shipping the exclusions one job at a
         time, which the binding sizing rule requires; T5 closes it.
       - Also carried: the reset year stays 2025, so the demo's next preseason is the live
@@ -272,16 +286,61 @@ Execution order within F2 (each slice is one independently deployable PR):
         mutable `excludedDemoCandidate` flag into its ownership loop because that loop also resolves
         the per-year owner. Behaviorally equivalent; the promote direction is mutation-pinned and the preserved production-season precedence is contract-pinned; converge
         the two shapes when T4/T5 touch the same code rather than restructuring reviewed code.
+        **T4 re-deferred this deliberately.** It added a THIRD shape — a per-league `continue` inside
+        a library selector that returns the exclusion truth in its result — because its ownership
+        loop lives in `selectRankingsTargetYears`, not in the route. Converging now would edit two
+        other automation jobs' reviewed code from a rankings slice. T5 completes the call-site set
+        and owns the decision.
         (c) **`TEST_LEAGUE_SLUG` is not in `RESERVED_ADMIN_SLUGS`.** `POST /api/admin/leagues`
         reserves `aliases, season, data, draft, diagnostics, leagues, cache` — not `test`. The demo
         record normally occupies the slug and a duplicate 409s, but the admin delete action can
         remove it, after which a real league may be created at `test` and then silently skipped by
-        rollover targeting, season-transition targeting, and weekly schedule maintenance, with no
-        warning on any surface. The bare slug comparison became load-bearing for a third automation
-        job with T3. One-line fix (add the constant to the reserved set) plus
+        rollover targeting, season-transition targeting, weekly schedule maintenance, and automatic
+        rankings publication, with no
+        warning on any surface. The bare slug comparison became load-bearing for a FOURTH automation
+        job with T4. One-line fix (add the constant to the reserved set) plus
         a test; deliberately NOT folded into a proof-surface round.
-        (d) **Five open-coded `slug === TEST_LEAGUE_SLUG` sites once T5 lands** (rollover targeting,
-        season-transition, weekly schedule, then rankings and the operational year). AGENTS.md
+        (d) **Four open-coded `slug === TEST_LEAGUE_SLUG` sites exist as of T4** (rollover targeting,
+        season-transition, weekly schedule, rankings); the fifth (the operational year) lands with T5.
+      - **Recorded by the F2H1T4 audit and review, deliberately NOT fixed in that slice.**
+        (e) **The unvalidated-`status.year` note in (a) UNDERSTATES the rankings cron.** (a) describes
+        only the `undefined` variant, whose per-year entry `JSON.stringify` drops. A FINITE FRACTIONAL
+        year is materially worse: `Date.UTC` applies `ToIntegerOrInfinity` to its year argument, so
+        `status.year = 2031.5` satisfies the `cfp-publication` window — which requires NO cached
+        schedule, championship, or poll context, only a Wednesday 04:00 UTC slot inside
+        `[Nov 1, Dec 11)`. That reaches a durable claim at
+        `rankings-publication-window/2031.5:cfp-publication:<date>`, a billed `/info` probe, and
+        billed `/rankings?year=2031.5` requests, and — being finite — it PASSES receipt validation
+        and renders a nonsense fractional year on System Health. Belongs with F2H1R. T4 was
+        constrained not to make it worse: its exclusion flag is derived from `slug` and
+        `status.state` only, never `status.year`.
+        (f) **Four copies of the `providerUrlLog` fetch observer.** T3 added two (the schedule-refresh
+        route and receipt suites) and T4 added two more (the rankings pair), each with its own
+        positive control proving the same property. A new `fetch` input shape would have to be
+        handled in four places, and a fix applied to one leaves the other three blind.
+        `src/lib/server/__tests__/schedulerReceiptTestHarness.ts` is the established home for shared
+        cron-test machinery. NOT converged in T4: doing so would edit another automation job's
+        reviewed proof surfaces from a rankings slice. Pair it with the (d) predicate decision at T5
+        closeout.
+        (g) **A demo year above `currentUTCYear + 1` has NO rankings upkeep path — automatic or
+        manual.** `GET /api/rankings` rejects any year above that ceiling with a 400 BEFORE
+        authorizing (`src/app/api/rankings/route.ts`), while `decideTestLeagueStatus` increments the
+        demo's year on every `Set: Pre-Season` under `isStructurallyValidSeasonYear` alone and states
+        outright that "No new arbitrary ceiling is introduced". Before T4 the cron would eventually
+        populate such a year — `cfp-publication` needs no cached context, only the calendar — so the
+        exclusion converts a reachable-but-slow year into an unreachable one. Surfaced by the T4
+        second-round review, which correctly refuted the unqualified "manual refresh is the supported
+        upkeep path" claim T4's first remediation round had introduced; the claim is now qualified in
+        both `AGENTS.md` and the selector docblock. NOT repaired in T4: closing it means changing
+        either the manual route's ceiling or the demo authority's, both explicitly out of that
+        slice's scope. Decide with F2H1R (which owns year validity) or T5.
+        (h) **A demo-only `season(Y)` year surfaces a STANDING user-visible rankings error.**
+        `loadSeasonRankings` throws on a total cache miss, `/api/rankings` maps that to 503, and
+        `CFBScheduleApp` records `CFBD rankings load failed: …`; the suppression filter for that
+        prefix applies only while the league is in PRESEASON. The draft board and Insights swallow
+        the miss, but the league app does not. Pre-existing mechanism, made PERMANENT for demo-only
+        years by T4. Recorded, not repaired — suppressing it correctly is a demo-presentation
+        decision (F2H3) rather than a targeting one. AGENTS.md
         deliberately forbids a shared cross-job predicate until all the slices exist — the coupling
         it would create is what forced F2H1B's reconstruction — so consolidation into one
         `League`-level predicate is a T5-closeout decision, not a defect.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { League } from '../../league.ts';
+import { TEST_LEAGUE_SLUG, type League } from '../../league.ts';
 import { loadRankingsPublicationContext, selectRankingsTargetYears } from '../automaticContext.ts';
 import {
   __deleteAppStateFileForTests,
@@ -89,10 +89,13 @@ test('target selection: preseason+season status years ascending; offseason exclu
     league('d', { state: 'preseason', year: 2032 }), // mixed year → season wins
     league('e', { state: 'preseason', year: 2031 }), // duplicate → one entry
   ]);
-  assert.deepEqual(targets, [
-    { year: 2031, lifecycle: 'preseason' },
-    { year: 2032, lifecycle: 'season' },
-  ]);
+  assert.deepEqual(targets, {
+    years: [
+      { year: 2031, lifecycle: 'preseason' },
+      { year: 2032, lifecycle: 'season' },
+    ],
+    excludedDemoCandidate: false,
+  });
 });
 
 test('target selection: season precedence is order-independent', () => {
@@ -104,12 +107,108 @@ test('target selection: season precedence is order-independent', () => {
     league('b', { state: 'preseason', year: 2031 }),
     league('a', { state: 'season', year: 2031 }),
   ]);
-  assert.deepEqual(seasonFirst, [{ year: 2031, lifecycle: 'season' }]);
+  assert.deepEqual(seasonFirst, {
+    years: [{ year: 2031, lifecycle: 'season' }],
+    excludedDemoCandidate: false,
+  });
   assert.deepEqual(preseasonFirst, seasonFirst);
 });
 
 test('target selection: no eligible lifecycle states yields no targets', () => {
-  assert.deepEqual(selectRankingsTargetYears([league('c', { state: 'offseason' })]), []);
+  assert.deepEqual(selectRankingsTargetYears([league('c', { state: 'offseason' })]), {
+    years: [],
+    excludedDemoCandidate: false,
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1T4 — production-only target ownership
+//
+// The demo league is manual-only for automatic rankings publication. It is
+// filtered PER LEAGUE inside the ownership loop, so it can contribute neither
+// year membership nor lifecycle precedence, and the excluded-candidate fact
+// travels back on the same result the years do.
+// ---------------------------------------------------------------------------
+
+// CONTRACT PIN — the inputs that must keep `excludedDemoCandidate: false`, so
+// the new zero-target reason can never displace `no-ranking-target`. An
+// `offseason` or status-less demo record was never an eligible candidate.
+test('T4 contract pin: empty, status-less, and offseason-only inputs exclude no candidate', () => {
+  const noCandidate = { years: [], excludedDemoCandidate: false };
+  assert.deepEqual(selectRankingsTargetYears([]), noCandidate, 'empty registry');
+  assert.deepEqual(
+    selectRankingsTargetYears([league(TEST_LEAGUE_SLUG, undefined as unknown as League['status'])]),
+    noCandidate,
+    'demo record with no status'
+  );
+  assert.deepEqual(
+    selectRankingsTargetYears([
+      league(TEST_LEAGUE_SLUG, { state: 'offseason' }),
+      league('a', { state: 'offseason' }),
+    ]),
+    noCandidate,
+    'offseason demo is not an excluded candidate'
+  );
+});
+
+// REGRESSION TEST — the demo alone produces no automatic target, and says so.
+test('T4 regression: an active demo-only registry yields no years and flags the exclusion', () => {
+  assert.deepEqual(
+    selectRankingsTargetYears([league(TEST_LEAGUE_SLUG, { state: 'season', year: 2031 })]),
+    { years: [], excludedDemoCandidate: true },
+    'demo season'
+  );
+  assert.deepEqual(
+    selectRankingsTargetYears([league(TEST_LEAGUE_SLUG, { state: 'preseason', year: 2032 })]),
+    { years: [], excludedDemoCandidate: true },
+    'demo preseason'
+  );
+});
+
+// REGRESSION TEST — the demo must not determine a SHARED year's lifecycle.
+// Removing the exclusion returns `lifecycle: 'season'` here. This is a
+// REPORTING-truth fix: lifecycle is inert in the publication classifier, so no
+// window, key, quota gate, or provider request changes with it.
+test('T4 regression: demo season(Y) does not outrank production preseason(Y)', () => {
+  const both = [
+    league(TEST_LEAGUE_SLUG, { state: 'season', year: 2031 }),
+    league('alpha', { state: 'preseason', year: 2031 }),
+  ];
+  assert.deepEqual(selectRankingsTargetYears(both), {
+    years: [{ year: 2031, lifecycle: 'preseason' }],
+    excludedDemoCandidate: true,
+  });
+  // Order-independent, exactly as production precedence is.
+  assert.deepEqual(selectRankingsTargetYears([...both].reverse()), {
+    years: [{ year: 2031, lifecycle: 'preseason' }],
+    excludedDemoCandidate: true,
+  });
+});
+
+// CONTRACT PIN — NOT a regression test. The pre-existing precedence guard
+// already prevents `preseason` from displacing a `season` owner, so this passes
+// with the exclusion fully removed. It pins that T4 PRESERVED that direction.
+test('T4 contract pin: production season(Y) precedence survives a demo preseason(Y)', () => {
+  assert.deepEqual(
+    selectRankingsTargetYears([
+      league(TEST_LEAGUE_SLUG, { state: 'preseason', year: 2031 }),
+      league('alpha', { state: 'season', year: 2031 }),
+    ]),
+    { years: [{ year: 2031, lifecycle: 'season' }], excludedDemoCandidate: true }
+  );
+});
+
+// REGRESSION TEST — a demo-only year is dropped whole; the production year is
+// untouched. Subtracting demo years AFTER grouping would also pass here, which
+// is why the shared-year cases above carry that mutation.
+test('T4 regression: a demo-only year is dropped while a distinct production year survives', () => {
+  assert.deepEqual(
+    selectRankingsTargetYears([
+      league(TEST_LEAGUE_SLUG, { state: 'preseason', year: 2033 }),
+      league('alpha', { state: 'season', year: 2031 }),
+    ]),
+    { years: [{ year: 2031, lifecycle: 'season' }], excludedDemoCandidate: true }
+  );
 });
 
 // ---------------------------------------------------------------------------
