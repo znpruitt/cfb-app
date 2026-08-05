@@ -1,7 +1,12 @@
 import { cache } from 'react';
 
 import { getAppState, withAppStateKeyTransaction } from './server/appStateStore.ts';
-import { isStructurallyValidSeasonYear, type League, type LeagueStatus } from './league.ts';
+import {
+  isStructurallyValidSeasonYear,
+  TEST_LEAGUE_SLUG,
+  type League,
+  type LeagueStatus,
+} from './league.ts';
 
 const REGISTRY_SCOPE = 'leagues';
 const REGISTRY_KEY = 'registry';
@@ -57,8 +62,8 @@ export async function addLeague(league: League): Promise<League[]> {
 /**
  * Generic league CONFIGURATION update (display name, founded year, password
  * material, assignment configuration). The lifecycle fields — `year` and
- * `status` — are reserved for `updateLeagueStatus`, the single lifecycle-year
- * mutation authority (PLATFORM-086F2B): `league.status` is the lifecycle
+ * `status` — are reserved for the guarded lifecycle operations in this module
+ * (PLATFORM-086F2B, F2H1B, F2H1T1): `league.status` is the lifecycle
  * source of truth and the top-level `league.year` is only its synchronized
  * compatibility projection, so no generic caller may write either field. The
  * type excludes them and the runtime guard rejects untyped callers.
@@ -69,7 +74,7 @@ export async function updateLeague(
 ): Promise<League | null> {
   if ('year' in updates || 'status' in updates) {
     throw new Error(
-      'updateLeague cannot mutate lifecycle fields (year/status) — use updateLeagueStatus'
+      'updateLeague cannot mutate lifecycle fields (year/status) — use a guarded lifecycle operation in leagueRegistry.ts'
     );
   }
   return mutateRegistry((leagues) => {
@@ -106,8 +111,8 @@ type GuardedLifecycleDecision<T> =
  * The single lifecycle write authority. It runs a decision against the record
  * read under the registry lock; a refusal writes nothing, while an accepted
  * status and its year projection share one registry commit. Both guarded
- * transitions and the compatibility `updateLeagueStatus` setter delegate here,
- * so adding an expected-state check never creates a second write path.
+ * transitions and the fixed-target demo-league control delegate here, so adding
+ * an expected-state check never creates a second write path.
  */
 async function guardedLifecycleWrite<T>(
   slug: string,
@@ -130,19 +135,147 @@ async function guardedLifecycleWrite<T>(
   });
 }
 
+/** The lifecycle states the demo controls may request. */
+export type TestLeagueLifecycleState = 'season' | 'offseason' | 'preseason';
+
+/** The fixed season a demo hard-reset returns the league to. */
+export const TEST_LEAGUE_RESET_YEAR = 2025;
+
+export type TestLeagueLifecycleOutcome =
+  // Committed. `status` is the CLOSED `LeagueStatus` union — scalars only, no
+  // league record — and carries the year the authority resolved under the lock,
+  // so a caller never re-derives it from a pre-transaction read.
+  | { outcome: 'applied'; status: LeagueStatus }
+  // Absent from the registry. Same spelling as the sibling commissioner
+  // authorities, so a consumer switching across them needs no alias table.
+  | { outcome: 'league-not-found' }
+  // The stored year cannot participate in lifecycle arithmetic.
+  | { outcome: 'unusable-stored-year' }
+  // The stored year is usable but its successor is not representable.
+  | { outcome: 'unusable-derived-year' }
+  // The requested state is not one this authority recognizes. Reachable
+  // because the caller is a Server Action: its argument crosses HTTP and is
+  // never runtime-validated, so an unknown value must produce a typed refusal
+  // rather than a crash.
+  | { outcome: 'unsupported-state' };
+
+/** The refusal shape shared by `setTestLeagueLifecycleState`'s decision. */
+type TestLeagueRefusal = Exclude<TestLeagueLifecycleOutcome, { outcome: 'applied' }>;
+
+/** Narrower outcome for the reset, which derives nothing and cannot refuse on a year. */
+export type TestLeagueResetOutcome =
+  | { outcome: 'applied'; status: LeagueStatus }
+  | { outcome: 'league-not-found' };
+
 /**
- * Compatibility lifecycle setter retained for the existing cron and test
- * controls. The guarded commissioner operations below use the same authority
- * with expected-state predicates instead of calling this unrestricted setter.
+ * Resolve the requested demo-league status from the record read under the
+ * registry lock. Exhaustive over the closed state union — a future variant
+ * fails to compile rather than being silently reinterpreted.
  */
-export async function updateLeagueStatus(
-  slug: string,
-  status: LeagueStatus
-): Promise<League | null> {
-  return guardedLifecycleWrite<League | null>(slug, null, () => ({
-    status,
-    project: (written) => written,
-  }));
+function decideTestLeagueStatus(
+  current: League,
+  state: TestLeagueLifecycleState
+): { status: LeagueStatus } | { refusal: TestLeagueRefusal } {
+  const stored = current.status;
+
+  switch (state) {
+    case 'offseason':
+      // `applyLifecycleStatus` projects the last authoritative season year into
+      // `league.year`, so that value must itself be usable — an offseason write
+      // is the one path that carries a stored year forward untouched.
+      return isStructurallyValidSeasonYear(lastAuthoritativeYear(current))
+        ? { status: { state: 'offseason' } }
+        : { refusal: { outcome: 'unusable-stored-year' } };
+
+    case 'season': {
+      // `lastAuthoritativeYear` already returns `status.year` for a preseason
+      // record, so this carries the increment set by 'Set: Pre-Season' forward
+      // without a special case.
+      const year = lastAuthoritativeYear(current);
+      return isStructurallyValidSeasonYear(year)
+        ? { status: { state: 'season', year } }
+        : { refusal: { outcome: 'unusable-stored-year' } };
+    }
+
+    case 'preseason': {
+      // preseason(N) stays at N — re-requesting must not double-increment.
+      if (stored?.state === 'preseason') {
+        return isStructurallyValidSeasonYear(stored.year)
+          ? { status: { state: 'preseason', year: stored.year } }
+          : { refusal: { outcome: 'unusable-stored-year' } };
+      }
+      // season(N) → N+1; offseason/missing → authoritative year + 1.
+      const base = lastAuthoritativeYear(current);
+      if (!isStructurallyValidSeasonYear(base)) {
+        return { refusal: { outcome: 'unusable-stored-year' } };
+      }
+      const next = base + 1;
+      // The predicate requires a SAFE integer, so a boundary predecessor whose
+      // successor cannot be represented exactly refuses instead of persisting a
+      // silently-rounded year. No new arbitrary ceiling is introduced.
+      return isStructurallyValidSeasonYear(next)
+        ? { status: { state: 'preseason', year: next } }
+        : { refusal: { outcome: 'unusable-derived-year' } };
+    }
+
+    default:
+      // Unreachable for a well-typed caller; reachable across the Server Action
+      // boundary, where the argument is untrusted. Refuse with a typed outcome
+      // instead of returning `undefined` and crashing the caller.
+      return { refusal: { outcome: 'unsupported-state' } };
+  }
+}
+
+/**
+ * Set the DEMO league's lifecycle status (PLATFORM-086F2H1T1).
+ *
+ * Structurally restricted: it accepts NO slug and always targets
+ * `TEST_LEAGUE_SLUG`, so no production league is reachable through it. Every
+ * read, derivation, validation, and write happens inside the serialized
+ * registry transaction — a caller cannot read the league, compute a year, and
+ * submit it against a record that has since moved. That matters because
+ * `getLeague` is React-`cache`d, so a pre-lock read can be a memoized snapshot.
+ *
+ * This replaces the arbitrary-slug compatibility setter, which took a caller's
+ * year on trust. Forcing a state is still what the sandbox controls exist to
+ * do, so there is no expected-state predicate; what IS enforced is that the
+ * year can safely participate in lifecycle arithmetic.
+ */
+export async function setTestLeagueLifecycleState(
+  state: TestLeagueLifecycleState
+): Promise<TestLeagueLifecycleOutcome> {
+  return guardedLifecycleWrite<TestLeagueLifecycleOutcome>(
+    TEST_LEAGUE_SLUG,
+    { outcome: 'league-not-found' },
+    (current) => {
+      const decision = decideTestLeagueStatus(current, state);
+      if ('refusal' in decision) return { status: null, result: decision.refusal };
+      return {
+        status: decision.status,
+        project: () => ({ outcome: 'applied', status: decision.status }),
+      };
+    }
+  );
+}
+
+/**
+ * Hard-reset the demo league's lifecycle to a known-good state. Deliberately
+ * derives NOTHING from the stored record, so it recovers a league whose
+ * persisted year is structurally unusable — the one path that always works.
+ *
+ * Builds a fresh status per call: the value is both written into the registry
+ * record and returned to the caller, so a shared module-level object would give
+ * every reset in the process one mutable identity.
+ */
+export async function resetTestLeagueLifecycle(): Promise<TestLeagueResetOutcome> {
+  return guardedLifecycleWrite<TestLeagueResetOutcome>(
+    TEST_LEAGUE_SLUG,
+    { outcome: 'league-not-found' },
+    () => {
+      const status: LeagueStatus = { state: 'season', year: TEST_LEAGUE_RESET_YEAR };
+      return { status, project: () => ({ outcome: 'applied', status }) };
+    }
+  );
 }
 
 export type SeasonTransitionOutcome =

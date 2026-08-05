@@ -177,12 +177,51 @@ Execution order within F2 (each slice is one independently deployable PR):
       including `test`), and `updateLeagueStatus` is retained: a first attempt bundled demo-league
       exclusion plus the weekly schedule cron's ownership rewiring and was reconstructed out for
       breaching the PR-sizing rule and for shipping the second cron without route-level tests.
-    - **F2H1T — demo-league automation policy** — **NEXT.** Decide explicitly
-      whether the demo league participates in automatic schedule maintenance and automatic season
-      transition. If exclusion is chosen, implement the two scheduler changes as separately reviewed
-      steps in a safe order — never leaving one cron owning a year the other refuses — each with
-      actual route-level tests. Retiring the arbitrary-slug `updateLeagueStatus` in favour of a
-      slugless test-league setter belongs here too, since it exists to serve the demo controls.
+    - **F2H1T — demo-league automation policy (LOCKED: manual-only)** — the demo league keeps its
+      sandbox controls but must not independently trigger automatic lifecycle, schedule, or rankings
+      work, and must not select the System Health operational year. A shared production year may
+      still supply globally cached data to it. Five reviewed slices:
+      - **F2H1T1 — test-control safety** — **NEXT** (v2 implemented, in pre-merge review). Slugless
+        demo authority deriving and validating the year inside the registry transaction;
+        `updateLeagueStatus` retired; the demo reset no longer deletes the SHARED
+        `schedule-probe/<year>` record. Lands FIRST because excluding the demo league from automatic
+        transition promotes the manual control to its sole preseason→season path. v1 was permanently
+        stopped under the DOCS-013 review limits and never reached `main`; v2 was re-derived from
+        clean post-DOCS-013 `main`. `TestLeagueControls.tsx` is untouched — operator-readable
+        feedback is F2H3's, because Next redacts Server Action rejection messages in production, so
+        a message-only surface cannot work there.
+    - **F2H1S — admin Server Action authorization** — **NEXT after F2H1T1, before F2H1T2.**
+      Next.js resolves a Server Action from the `Next-Action` header, not the request path, so the
+      path-prefix middleware gate (`requiresPlatformAdminPage`) does not cover direct invocation:
+      an unauthenticated POST to a public path carrying an action ID reaches the action. Official
+      Next.js guidance is that Server Actions must be treated as public endpoints and authorized
+      INSIDE the action
+      ([authentication guide](https://nextjs.org/docs/app/guides/authentication#server-actions)).
+      All NINE exported actions in `src/app/admin/[slug]/actions.ts` are affected —
+      `setTestLeagueStatus`, `resetTestDraft`, `resetTestLeague`, `beginPreseason`,
+      `setAssignmentMethod`, `confirmPreseasonOwners`, `completeSetup`, `migrateTestOwnersCsv`,
+      `autoCompleteDraft` — and four of them take a slug, so the exposure reaches PRODUCTION
+      leagues, not just the demo. Add one shared platform-admin guard invoked inside each action,
+      refusing before any read, write, cleanup, or revalidation, and test direct invocation
+      independently of the requested pathname. Pre-existing and codebase-wide; surfaced during the
+      F2H1T1 v2 review. Deliberately NOT folded into F2H1T1 — bundling a security fix into a
+      lifecycle slice is the scope mistake that required v1's reconstruction.
+      - **F2H1T2 — season-transition exclusion**, then **F2H1T3 — weekly-schedule exclusion**, then
+        **F2H1T4 — rankings exclusion**, then **F2H1T5 — System Health operational-year isolation**.
+        Separate because they are separate automation jobs under the binding sizing rule, and each
+        needs its own route-level tests. Transition exclusion comes first: it removes the
+        higher-frequency (daily) lifecycle and provider exposure without harming production leagues.
+        This supersedes the earlier "safe order to avoid an ownership gap" framing — no code path
+        expresses cross-cron ownership (`season-transition-owner` is a hardcoded label in the weekly
+        route, not a read of the other cron's target set), so the risk is a receipt that misdescribes
+        reality, and each slice must keep its own reason strings truthful.
+      - Carried into T2, both consequences of the demo league still being a transition target
+        between T1 and T2: (a) the reset year stays 2025, so the demo's next preseason is the LIVE
+        production year — resolved by the exclusions, not by redesigning the reset; and (b) T1
+        removed the demo reset's `schedule-probe/<year>` deletion (correctly — that key is shared
+        with production leagues), which was also the operator's only way to re-arm a stale probe for
+        a repeat dry run. Until T2 lands, a demo dry run cannot clear that probe from the UI. This
+        is a deliberate trade: a demo control must not mutate production schedule state.
     - **F2H1R — missing-lifecycle recovery** — planned after F2H1T: a separately confirmed recovery
       operation for genuinely missing legacy status, with corrupt-registry vs missing-league truth and
       an explicit consequence model for schedule/rankings targeting, rollover eligibility,

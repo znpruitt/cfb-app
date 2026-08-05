@@ -3,6 +3,14 @@ export type LeagueStatus =
   | { state: 'offseason' }
   | { state: 'preseason'; year: number; setupComplete?: boolean };
 
+/**
+ * The demo/sandbox league. Defined here — the lifecycle-neutral league module —
+ * so neither the rollover policy nor the demo lifecycle controls has to import
+ * the other merely to learn it. Its lifecycle is driven by the dedicated demo
+ * controls; `groupRolloverTargets` excludes it from automatic rollover.
+ */
+export const TEST_LEAGUE_SLUG = 'test';
+
 /** Earliest year accepted when a new league is created. */
 export const MIN_SEASON_YEAR = 2000;
 

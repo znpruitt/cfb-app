@@ -52,6 +52,53 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1S-SERVER-ACTION-AUTHORIZATION-v1
+
+- Purpose: Authorize the admin Server Actions inside the actions themselves, rather than relying on
+  the path-prefix middleware gate that direct invocation bypasses.
+- Scope: the nine exported actions in `src/app/admin/[slug]/actions.ts`, one shared platform-admin
+  guard, and tests that invoke each action directly, independently of the requested pathname.
+  Excludes lifecycle behavior, cron targeting, and UI.
+- Status: **Planned — NEXT after F2H1T1 merges, before F2H1T2.** Not implemented.
+
+### PLATFORM-086F2H1T1-TEST-CONTROL-SAFETY-v2
+
+- Purpose: Make the demo league's manual lifecycle controls structurally safe BEFORE removing the
+  demo league from automatic jobs — exclusion promotes the manual control to that league's sole
+  preseason→season path.
+- Scope: `src/lib/leagueRegistry.ts` (slugless demo authority; `updateLeagueStatus` retired),
+  `src/app/admin/[slug]/actions.ts`, `TEST_LEAGUE_SLUG` relocated to `src/lib/league.ts`, focused
+  behavioral tests. **No cron target selection changes** (F2H1T2–F2H1T5 own those) and
+  `TestLeagueControls.tsx` is byte-identical to `main` — typed operator feedback is F2H3.
+- Outcome: `setTestLeagueLifecycleState(state)` / `resetTestLeagueLifecycle()` take NO slug and
+  derive + structurally validate the year INSIDE the serialized registry transaction, so a caller
+  cannot compute a year from a React-`cache`d pre-lock read and submit it against a record that
+  moved. An unusable stored year or an unrepresentable successor refuses with the registry
+  byte-equivalent; reset derives nothing and always recovers a corrupt record. Preseason cleanup
+  uses the year the authority returned and runs strictly AFTER the confirmed commit (registry and
+  cleanup scopes are not atomic together). Fixes a live cross-league defect: the demo reset deleted
+  `schedule-probe/<year>`, which is keyed by year alone and shared with production leagues. The
+  reset year stays 2025 as pre-existing behavior — its automation collision is F2H1T2–T5's, not
+  redesigned here.
+- Supersedes: `PLATFORM-086F2H1T1-TEST-CONTROL-SAFETY-v1` — **never implemented on `main`.** Its
+  branch took two remediation rounds and was permanently stopped under the DOCS-013 limits; it was
+  never pushed and no PR was opened. v2 was re-derived from clean post-DOCS-013 `main` rather than
+  cherry-picked, so none of v1's defects carried over: a client-feedback layer that could not work
+  in production (Next redacts Server Action rejection messages), a false claim in a commit message
+  about a re-export that was never removed, and a tautological retirement assertion.
+- Review / verification: Each gate run as its own command with an unmasked exit status against the
+  exact reviewed commit. FOUR guards were mutation-verified — each confirmed failing against its own
+  pre-fix code, one revert at a time: the shared `schedule-probe` deletion, the derived reset
+  cleanup year (bumping `TEST_LEAGUE_RESET_YEAR` with the action hardcoded), the
+  `rolloverTargeting.ts` re-export, and the retirement scan. Two more were mutation-verified in the
+  remediation round: the `unsupported-state` default and the non-preseason no-delete guard. The
+  cleanup-year test is NOT among them: old and new year derivations are identical for every stored
+  shape (`season`, `preseason`, `offseason`, missing), so no single-threaded test can discriminate
+  them — the change is WHERE derivation happens (inside the registry lock rather than from a
+  React-`cache`d read), which only concurrency can observe. That test is a contract pin, not a
+  mutation-verified regression.
+- Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
+
 ### PLATFORM-086F2H1B-AUTOMATED-TRANSITION-CONVERGENCE-v1
 
 - Purpose: Migrate the daily season-transition cron onto an exact-year, transaction-guarded
