@@ -223,8 +223,8 @@ Execution order within F2 (each slice is one independently deployable PR):
       surfaced during the F2H1T1 v2 review. Deliberately NOT folded into F2H1T1 — bundling a
       security fix into a lifecycle slice is the scope mistake that required v1's reconstruction.
       - **F2H1T2 — season-transition exclusion** — ✅ MERGED (PR #448, `6ab927c`, 2026-08-05).
-        **F2H1T3 — weekly-schedule exclusion** — ✅ MERGED (PR #449, 2026-08-05). Then
-        **F2H1T4 — rankings exclusion** — **NEXT**, then
+        **F2H1T3 — weekly-schedule exclusion** — IN REVIEW (PR #449, open; not merged). Then
+        **F2H1T4 — rankings exclusion** — **NEXT** once T3 merges, then
         **F2H1T5 — System Health operational-year isolation**.
         T3 established the shape T4 must follow: the demo league is filtered PER LEAGUE, before the
         job resolves which year it will act on — never against the resolved target list, which would
@@ -246,13 +246,37 @@ Execution order within F2 (each slice is one independently deployable PR):
         not exist. T3 removes that false deferral at its source: a demo-only year is no longer a
         weekly candidate at all, so the run reports `skipped / no-automatic-maintenance-target`
         instead of naming a nonexistent owner, and the demo can no longer change which policy a
-        SHARED year runs under. **Still open until T5:** `resolveOperationalSeasonYear` counts the
-        demo league, so a demo-only year can become the System Health operational season while
-        nothing will ever cache its schedule — making `schedule-cache-missing` a PERSISTENT critical
-        rather than a transient one. That is a consequence of shipping the exclusions one job at a
+        SHARED year runs under. **Still open until T5, and T3 widens it:**
+        `resolveOperationalSeasonYear` counts the demo league, so a demo-only year can become the
+        System Health operational season. If nothing ever caches its schedule, `schedule-cache-missing`
+        is a PERSISTENT critical rather than a transient one. T3 adds the second half: a demo-owned
+        operational year whose schedule IS already cached was refreshed by the weekly cron before this
+        change and now never is, so `schedule-cache-stale` (`providerDataDiagnostics.ts` — "older than
+        the weekly policy", raised whenever the operational season is active and the entry exceeds the
+        staleness window) becomes permanently true by design. Both are warnings an operator cannot
+        clear from the automation surface until T5. That is a consequence of shipping the exclusions one job at a
         time, which the binding sizing rule requires; T5 closes it.
       - Also carried: the reset year stays 2025, so the demo's next preseason is the live
         production year — resolved by the exclusions, not by redesigning the reset.
+      - **Recorded by the F2H1T3 review, deliberately NOT fixed in that slice.**
+        (a) **Unvalidated `status.year` in cron target selection.** `getLeagues()` casts raw durable
+        JSON with no per-record validation, so a legacy row with `state` but no `year` makes the
+        weekly cron's ownership loop set an `undefined` year, pass the zero-target gate, read
+        `schedule/undefined-all-all`, and emit a per-year entry whose `year` key `JSON.stringify`
+        drops — which can make the durable receipt fail validation and vanish from System Health.
+        Pre-existing and shared by the other target-selecting crons; `isStructurallyValidSeasonYear`
+        already exists. Belongs with F2H1R (corrupt/missing lifecycle status), not with a demo-league
+        exclusion slice.
+        (b) **Declarative vs interleaved target selection.** The season-transition cron expresses this
+        policy as two sequential filters with a length comparison; the weekly cron interleaves a
+        mutable `excludedDemoCandidate` flag into its ownership loop because that loop also resolves
+        the per-year owner. Behaviorally equivalent and now test-pinned in both directions; converge
+        the two shapes when T4/T5 touch the same code rather than restructuring reviewed code.
+        (c) **Five open-coded `slug === TEST_LEAGUE_SLUG` sites once T5 lands** (rollover targeting,
+        season-transition, weekly schedule, then rankings and the operational year). AGENTS.md
+        deliberately forbids a shared cross-job predicate until all the slices exist — the coupling
+        it would create is what forced F2H1B's reconstruction — so consolidation into one
+        `League`-level predicate is a T5-closeout decision, not a defect.
     - **F2H1R — missing-lifecycle recovery** — planned after F2H1T: a separately confirmed recovery
       operation for genuinely missing legacy status, with corrupt-registry vs missing-league truth and
       an explicit consequence model for schedule/rankings targeting, rollover eligibility,

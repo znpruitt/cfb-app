@@ -74,17 +74,27 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   reader outside the route. The receipt reason type derives from the route union, so no second
   vocabulary exists and stored receipts are unaffected.
 - Review / verification: each gate its own command with an unmasked exit status against the
-  behavior-reviewed commit `8df96ee` — focused route `47 → 54` and receipts `6 → 7` (+8 tests), six
-  related suites 134/134, `npx tsc --noEmit`, `npm run lint:all`, `npm test` 3280/3280. The provider
-  observer was hardened FIRST to record the real URL for string/`URL`/`Request` inputs and given a
-  positive control (expected production year, both partitions) before any zero-call assertion rested
-  on it; the negative latch assertions rest on the suite's existing positive latch control. Four
-  COMPILING mutations run one at a time, each killing the intended tests: exclusion removed (4
-  route tests and 1 receipt test), exclusion applied after owner grouping (2), the reason reused (2),
-  and demo `season` allowed to own a shared year (3). Codex review of the behavior commit returned
-  no findings; `/code-review` is not model-invocable in this environment, so that half was performed
-  manually and is recorded as such rather than claimed. Closeout after `8df96ee` is documentation
-  and comment truthfulness only.
+  final commit — focused route `47 → 53` and receipts `6 → 7` (net +7 tests after remediation folded
+  a near-duplicate pin into the existing one), six related suites 133/133, `npx tsc --noEmit`,
+  `npm run lint:all`, `npm test` 3279/3279. The provider
+  observer in BOTH suites resolves the URL from every input shape and carries a positive control
+  (expected production year, both partitions) before any zero-call assertion rests on it; the
+  negative latch assertions rest on the suite's existing positive latch control. The `Request` branch
+  in those stubs is defensive — every provider call on this route reaches `fetch` as a string — and
+  is retained so a stub throw can never silently empty the log. FIVE compiling mutations run one at a
+  time, each killing the intended tests: exclusion removed (4 route tests and 1 receipt test),
+  exclusion applied after owner grouping (2), the reason reused (2), demo `season` allowed to own a
+  shared year (3), and the `isActive` gate dropped (1). Codex review of `8df96ee` returned no
+  findings. `/code-review` is not model-invocable and was run by the user against `cd27721`, whose
+  behavior diff is identical; it returned twelve findings, and one authorized remediation round
+  applied nine — restoring pre-merge ledger truth (three ledgers had claimed merge before it), adding
+  the receipt suite's missing positive control, pinning the `isActive` gate and the response-body
+  reason, observing the probe record the test name claimed, folding a near-duplicate contract pin
+  into the existing one, and using `TEST_LEAGUE_SLUG` instead of a copy of its value. Three were
+  recorded rather than applied and are carried in `docs/next-tasks.md`: unvalidated `status.year` in
+  cron target selection (pre-existing, F2H1R's class), the declarative-vs-interleaved shape of the
+  two crons' target selection (behaviorally equivalent, now pinned in both directions), and the
+  five-site consolidation AGENTS.md defers until T5.
 - Status: **Open — PR #449, awaiting review/merge.**
 
 ### PLATFORM-086F2H1T2-SEASON-TRANSITION-EXCLUSION-v2

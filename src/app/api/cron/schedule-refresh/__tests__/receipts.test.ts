@@ -10,7 +10,7 @@ import '../../../draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStorage';
 import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
 
 import { GET } from '../route';
-import type { League } from '../../../../../lib/league.ts';
+import { TEST_LEAGUE_SLUG, type League } from '../../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -103,8 +103,13 @@ async function seedSchedule(year: number, kickoff: string): Promise<void> {
 
 const fetchLog: string[] = [];
 function stubProvider(perYear: Record<number, string>): void {
-  globalThis.fetch = (async (input: URL | string) => {
-    const url = new URL(typeof input === 'string' ? input : input.toString());
+  globalThis.fetch = (async (input: URL | string | Request) => {
+    // Resolve the URL from every input shape. `String(new Request(u))` is
+    // '[object Request]', which `new URL()` rejects — and a throw before the
+    // `fetchLog` push would leave the log empty while a call WAS attempted,
+    // making this suite's zero-call assertion vacuous.
+    const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const url = new URL(href);
     if (url.pathname === '/games/media') return new Response('[]', { status: 200 });
     if (url.pathname === '/venues') return new Response('[]', { status: 200 });
     const year = Number(url.searchParams.get('year'));
@@ -277,6 +282,15 @@ test('a multi-year provider-attempting run records the bounded target and provid
   assert.ok(stored);
   assert.equal(stored.value.result, 'success');
   assert.equal(stored.value.providerCallAttempted, true, 'a year reached the provider');
+  // POSITIVE CONTROL for `fetchLog` — this suite's provider observer. The
+  // demo-only test below asserts it is EMPTY; that claim is worthless unless
+  // the same harness is shown recording real calls, with their years, here.
+  assert.deepEqual(fetchLog, [
+    '2020:regular',
+    '2020:postseason',
+    '2021:regular',
+    '2021:postseason',
+  ]);
   const target = stored.value.target as {
     kind: string;
     totalYears: number;
@@ -303,7 +317,7 @@ test('a multi-year provider-attempting run records the bounded target and provid
 // reported `success` instead of `skipped`.
 test('a demo-only active registry writes a zero-target provider-free receipt', async () => {
   await setAppState('leagues', 'registry', [
-    makeLeague('test', { state: 'season', year: 2031 }, 2031),
+    makeLeague(TEST_LEAGUE_SLUG, { state: 'season', year: 2031 }, 2031),
   ]);
   // A lifecycle-critical schedule: were the demo league a target, this year
   // would reach the provider REGARDLESS of the operator pause gate.

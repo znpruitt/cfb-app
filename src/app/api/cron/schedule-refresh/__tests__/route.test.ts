@@ -8,7 +8,7 @@ import '../../../draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStorage';
 import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
 
 import { GET } from '../route';
-import type { League } from '../../../../../lib/league.ts';
+import { TEST_LEAGUE_SLUG, type League } from '../../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -248,7 +248,17 @@ test('invalid authorization → 401, one failure event', async () => {
 // E1B1 tests 1/2 — no preseason/season league (empty / offseason-only) →
 // no-maintenance-target (preseason years ARE targets now — covered below).
 test('no maintenance target → skipped/no-maintenance-target (empty, offseason-only)', async () => {
-  const registries: League[][] = [[], [makeLeague('off', { state: 'offseason' })]];
+  const registries: League[][] = [
+    [],
+    [makeLeague('off', { state: 'offseason' })],
+    // A league with no lifecycle status at all.
+    [makeLeague('off', undefined)],
+    // PLATFORM-086F2H1T3 — an OFFSEASON demo league. It was never a candidate,
+    // so it must NOT flip the reason to `no-automatic-maintenance-target`; this
+    // pins the `isActive` gate on the exclusion. Mutation-verified: dropping
+    // `isActive &&` from the route fails this case.
+    [makeLeague(TEST_LEAGUE_SLUG, { state: 'offseason' })],
+  ];
   for (const registry of registries) {
     await __deleteAppStateFileForTests();
     __resetAppStateForTests();
@@ -1345,8 +1355,6 @@ test('a presentation failure changes nothing about canonical weekly results', as
 // maintenance. Labels follow AGENTS.md → Verification.
 // ---------------------------------------------------------------------------
 
-const DEMO = 'test';
-
 // POSITIVE CONTROL for the provider observer. Every "zero provider work"
 // assertion below is worthless unless this passes: it proves the same harness
 // records the expected production year AND both partitions.
@@ -1365,29 +1373,10 @@ test('the provider observer records the production year and both partitions', as
   );
 });
 
-// CONTRACT PIN — the genuinely-empty cases keep the existing reason.
-test('an empty or offseason-only registry keeps no-maintenance-target', async () => {
-  for (const registry of [
-    [],
-    [makeLeague('alpha', { state: 'offseason' })],
-    [makeLeague('alpha', undefined)],
-  ]) {
-    await setAppState('leagues', 'registry', registry);
-    fetchLog.length = 0;
-    providerUrlLog.length = 0;
-
-    const { events } = await runRoute();
-
-    assert.equal(events[0]?.result, 'skipped');
-    assert.equal(events[0]?.reason, 'no-maintenance-target');
-    assert.deepEqual(fetchLog, []);
-  }
-});
-
 // REGRESSION TEST — verified failing with the exclusion removed.
 test('a demo-only ACTIVE-SEASON year is skipped with no provider or durable work', async () => {
   await setAppState('leagues', 'registry', [
-    makeLeague(DEMO, { state: 'season', year: 2031 }, 2031),
+    makeLeague(TEST_LEAGUE_SLUG, { state: 'season', year: 2031 }, 2031),
   ]);
   // A canonical schedule whose latest kickoff is long past — the shape that
   // classifies `postseason-boundary`, the pause-EXEMPT operation.
@@ -1395,6 +1384,7 @@ test('a demo-only ACTIVE-SEASON year is skipped with no provider or durable work
   stubProvider({ 2031: { regular: gameBody(2031), postseason: '[]' } });
 
   const { res, events } = await runRoute();
+  const body = (await res.json()) as { result: string; reason: string };
 
   assert.equal(res.status, 200);
   assert.equal(events[0]?.result, 'skipped');
@@ -1403,6 +1393,10 @@ test('a demo-only ACTIVE-SEASON year is skipped with no provider or durable work
     'no-automatic-maintenance-target',
     'an active demo league exists — `no-maintenance-target` would be false'
   );
+  // The response body is a SEPARATE read of `exec.reason`; QStash and manual
+  // callers see this one.
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'no-automatic-maintenance-target');
   assert.deepEqual(events[0]?.years, [], 'no per-year entry');
   assert.deepEqual(fetchLog, [], 'no billed provider call');
   assert.deepEqual(providerUrlLog, []);
@@ -1419,18 +1413,29 @@ test('a demo-only ACTIVE-SEASON year is skipped with no provider or durable work
 // REGRESSION TEST — verified failing with the exclusion removed.
 test('a demo-only armed early-preseason year does no provider or probe work', async () => {
   await setAppState('leagues', 'registry', [
-    makeLeague(DEMO, { state: 'preseason', year: 2031 }, 2031),
+    makeLeague(TEST_LEAGUE_SLUG, { state: 'preseason', year: 2031 }, 2031),
   ]);
   await seedProbe(2031, EARLY_FIRST_KICKOFF);
   await seedSchedule(2031, '2020-12-01T00:00:00.000Z');
   stubProvider({ 2031: { regular: gameBody(2031), postseason: '[]' } });
 
-  const { events } = await runRoute();
+  const probeBefore = await getAppState('schedule-probe', '2031');
+
+  const { res, events } = await runRoute();
+  const body = (await res.json()) as { reason: string };
 
   assert.equal(events[0]?.result, 'skipped');
   assert.equal(events[0]?.reason, 'no-automatic-maintenance-target');
+  assert.equal(body.reason, 'no-automatic-maintenance-target');
   assert.deepEqual(fetchLog, [], 'the armed probe would otherwise mean preseason-maintenance');
   assert.deepEqual(presentationFetchLog, []);
+  // The name claims "no probe work" — observe it. A preseason year that ran
+  // would re-derive `firstGameDate` after a successful refresh.
+  assert.deepEqual(
+    await getAppState('schedule-probe', '2031'),
+    probeBefore,
+    'the probe record is untouched'
+  );
 });
 
 // REGRESSION TEST — verified failing when the demo is allowed to own the year.
@@ -1438,7 +1443,7 @@ test('a demo-only armed early-preseason year does no provider or probe work', as
 // policy over a production league in preseason.
 test('a demo season year does not override a production preseason year', async () => {
   await setAppState('leagues', 'registry', [
-    makeLeague(DEMO, { state: 'season', year: 2031 }, 2031),
+    makeLeague(TEST_LEAGUE_SLUG, { state: 'season', year: 2031 }, 2031),
     makeLeague('alpha', { state: 'preseason', year: 2031 }, 2031),
   ]);
   await seedProbe(2031, EARLY_FIRST_KICKOFF);
@@ -1464,7 +1469,7 @@ test('a demo season year does not override a production preseason year', async (
 // REGRESSION TEST — the other owner direction: production keeps its policy.
 test('a demo preseason year does not demote a production season year', async () => {
   await setAppState('leagues', 'registry', [
-    makeLeague(DEMO, { state: 'preseason', year: 2031 }, 2031),
+    makeLeague(TEST_LEAGUE_SLUG, { state: 'preseason', year: 2031 }, 2031),
     makeLeague('alpha', { state: 'season', year: 2031 }, 2031),
   ]);
   await seedSchedule(2031, '2020-12-01T00:00:00.000Z');
@@ -1481,7 +1486,7 @@ test('a demo preseason year does not demote a production season year', async () 
 // REGRESSION TEST — verified failing with the exclusion removed.
 test('a demo-only year is absent from every surface while a production year runs', async () => {
   await setAppState('leagues', 'registry', [
-    makeLeague(DEMO, { state: 'season', year: 2030 }, 2030),
+    makeLeague(TEST_LEAGUE_SLUG, { state: 'season', year: 2030 }, 2030),
     makeLeague('alpha', { state: 'season', year: 2031 }, 2031),
   ]);
   await seedSchedule(2030, '2020-12-01T00:00:00.000Z');
