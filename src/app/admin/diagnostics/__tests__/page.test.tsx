@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import AdminSystemHealthPage from '../page';
 import SystemHealthDashboard from '@/components/admin/systemHealth/SystemHealthDashboard';
+import { TEST_LEAGUE_SLUG } from '@/lib/league';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -62,6 +63,42 @@ test('falls back deterministically when no league is active', async () => {
   const element = await AdminSystemHealthPage();
   const model = (element.props as { model: { year: number } }).model;
   assert.equal(model.year, 2024); // highest stored league.year
+});
+
+// PLATFORM-086F2H1T5 — REGRESSION. The production caller must resolve the year
+// from PRODUCTION leagues only. Proves the exclusion is reachable through the
+// real page, not just the pure resolver: the demo is active at a HIGHER year
+// than the production league, so before this slice `model.year` was 2027.
+test('T5 regression: the page builds its one model for the production-resolved year', async () => {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'a',
+      name: 'A',
+      year: 2019,
+      createdAt: '2019-01-01T00:00:00.000Z',
+      status: { state: 'season', year: 2026 },
+    },
+    {
+      slug: TEST_LEAGUE_SLUG,
+      name: 'Demo',
+      year: 2027,
+      createdAt: '2019-01-01T00:00:00.000Z',
+      status: { state: 'season', year: 2027 },
+    },
+  ]);
+
+  const element = await AdminSystemHealthPage();
+  assert.equal(element.type, SystemHealthDashboard);
+  const model = (
+    element.props as {
+      model: { year: number; panels: unknown[]; schedulerJobs: unknown[]; datasets: unknown[] };
+    }
+  ).model;
+  assert.equal(model.year, 2026, 'the demo league does not select the operational season');
+  // The rest of the model is unchanged by the exclusion.
+  assert.equal(model.schedulerJobs.length, 7);
+  assert.equal(model.datasets.length, 6);
+  assert.equal(model.panels.length, 6);
 });
 
 test('the page exposes no ?year= selection seam (takes no arguments)', () => {
