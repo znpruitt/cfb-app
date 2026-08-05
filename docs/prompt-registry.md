@@ -52,14 +52,45 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
-### PLATFORM-086F2H1S-SERVER-ACTION-AUTHORIZATION-v1
+### PLATFORM-086F2H1SA-PROTECTED-PATH-MATCHER-COVERAGE-v1
 
-- Purpose: Authorize the admin Server Actions inside the actions themselves, rather than relying on
-  the path-prefix middleware gate that direct invocation bypasses.
-- Scope: the nine exported actions in `src/app/admin/[slug]/actions.ts`, one shared platform-admin
-  guard, and tests that invoke each action directly, independently of the requested pathname.
-  Excludes lifecycle behavior, cron targeting, and UI.
-- Status: **Planned — NEXT after F2H1T1 merges, before F2H1T2.** Not implemented.
+- Purpose: Close a DEMONSTRATED authentication bypass. The middleware matcher's static-file
+  exclusion is a substring rule, not a suffix rule about real assets, so any `/admin` or `/debug`
+  path containing a listed extension (e.g. `/admin/audit.css`) skipped `clerkMiddleware` entirely
+  while still resolving to `app/admin/[slug]/page` — a worker where all nine Server Actions are
+  registered, none of which authorizes internally.
+- Scope: `src/middleware.ts` (matcher array only) and one new test file. The middleware BODY is
+  unchanged — it already fails closed for signed-out and non-admin callers; this slice only ensures
+  it runs. No auth logic, action, UI, API, or lifecycle change.
+- Outcome: `/admin/:path*` and `/debug/:path*` are matched explicitly, ahead of the generic
+  exclusion. Anchoring the extension group does NOT work — the bypass paths genuinely end in the
+  excluded extension — and that wrong fix is pinned as failing by the tests. Tests evaluate the REAL
+  exported `config` through Next's own `unstable_doesMiddlewareMatch`, because a hand-copied regex
+  would keep passing while the shipped matcher stayed broken. Genuine static assets, API routes, and
+  neighbouring prefixes (`/admin-x`, `/administrator`, `/debugger`) are verified unaffected.
+- Review / verification: Each gate run as its own command with an unmasked exit status against the
+  exact reviewed commit; the matcher change verified failing against BOTH the pre-fix config and the
+  rejected anchored variant.
+- Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
+
+### PLATFORM-086F2H1SB-SERVER-ACTION-AUTHORIZATION-v1
+
+- Purpose: Authorize the admin Server Actions inside the actions themselves. Required by Next's own
+  guidance regardless of routing — an exported Server Action is a public endpoint — and therefore
+  still mandatory after F2H1SA closes the matcher bypass.
+- Scope: the nine exported actions in `src/app/admin/[slug]/actions.ts` and one shared
+  platform-admin guard invoked as the first awaited operation in each, before any read, write,
+  cleanup, revalidation, or redirect. Tests invoke all nine directly, independently of the requested
+  pathname. Excludes middleware, UI, lifecycle, API-token, and commissioner-scope changes.
+- Design notes from the F2H1S audit: use `isPlatformAdminSession()` with NO argument — the only
+  helper callable without a `Request`, and the no-arg path evaluates the Clerk session alone, so it
+  fails closed in every environment. Do NOT synthesize a `Request` to reuse the token path: that
+  inherits the dev-open branch (`ADMIN_API_TOKEN` unset + non-production authorizes ANY caller).
+  `requireAdminAuth` cannot be reused — it returns a `Response`. Keep THROWING on refusal: typed
+  outcomes are a hard type error at the two `<form action>` sites (Server Components with no client
+  wrapper, so fixing them imports F2H3 presentation work), and for the other five they would
+  silently swallow the refusal, rendering an unauthorized call as success.
+- Status: **Planned — NEXT after F2H1SA, before F2H1T2.** Not implemented.
 
 ### PLATFORM-086F2H1T1-TEST-CONTROL-SAFETY-v2
 
