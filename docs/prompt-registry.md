@@ -62,12 +62,20 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - Scope: `src/middleware.ts` (matcher array only) and one new test file. The middleware BODY is
   unchanged — it already fails closed for signed-out and non-admin callers; this slice only ensures
   it runs. No auth logic, action, UI, API, or lifecycle change.
-- Outcome: `/admin/:path*` and `/debug/:path*` are matched explicitly, ahead of the generic
-  exclusion. Anchoring the extension group does NOT work — the bypass paths genuinely end in the
-  excluded extension — and that wrong fix is pinned as failing by the tests. Tests evaluate the REAL
-  exported `config` through Next's own `unstable_doesMiddlewareMatch`, because a hand-copied regex
-  would keep passing while the shipped matcher stayed broken. Genuine static assets, API routes, and
-  neighbouring prefixes (`/admin-x`, `/administrator`, `/debugger`) are verified unaffected.
+- Outcome: `/admin/:path*` and `/debug/:path*` are matched explicitly. Matcher entries are OR'd, so
+  their POSITION in the array carries no meaning — only their existence does. Anchoring the
+  extension group would NOT have fixed the reported case (those paths genuinely end in the excluded
+  extension), and that wrong fix is pinned as failing by the tests; the `$` anchor is nonetheless
+  added alongside, closing the root-cause `/foo/bar.css/baz` shape for any future middleware
+  responsibility. `PLATFORM_ADMIN_PAGE_PREFIXES` is exported and a test asserts every prefix has a
+  matcher entry, so adding a third protected family cannot silently reopen the bypass. Tests
+  evaluate the REAL exported `config` AND the real `next.config.ts` through Next's own
+  `unstable_doesMiddlewareMatch` — matching depends on both inputs, and hardcoding `nextConfig: {}`
+  would reintroduce the same fidelity failure on the second one. Genuine static assets and API
+  routes are verified unaffected; `/admin-x` and `/debug-tools` assets stay excluded. NOT asserted
+  here: whether `/administrator` and `/debugger` reach the middleware — they do, via the generic
+  pattern, and are simply not gated; that predicate contract is owned by
+  `src/lib/auth/__tests__/platformAdmin.test.ts`.
 - Review / verification: Each gate run as its own command with an unmasked exit status against the
   exact reviewed commit; the matcher change verified failing against BOTH the pre-fix config and the
   rejected anchored variant.
@@ -82,15 +90,10 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   platform-admin guard invoked as the first awaited operation in each, before any read, write,
   cleanup, revalidation, or redirect. Tests invoke all nine directly, independently of the requested
   pathname. Excludes middleware, UI, lifecycle, API-token, and commissioner-scope changes.
-- Design notes from the F2H1S audit: use `isPlatformAdminSession()` with NO argument — the only
-  helper callable without a `Request`, and the no-arg path evaluates the Clerk session alone, so it
-  fails closed in every environment. Do NOT synthesize a `Request` to reuse the token path: that
-  inherits the dev-open branch (`ADMIN_API_TOKEN` unset + non-production authorizes ANY caller).
-  `requireAdminAuth` cannot be reused — it returns a `Response`. Keep THROWING on refusal: typed
-  outcomes are a hard type error at the two `<form action>` sites (Server Components with no client
-  wrapper, so fixing them imports F2H3 presentation work), and for the other five they would
-  silently swallow the refusal, rendering an unauthorized call as success.
-- Status: **Planned — NEXT after F2H1SA, before F2H1T2.** Not implemented.
+- Outcome: not yet implemented. Design constraints from the F2H1S audit are recorded in
+  `docs/next-tasks.md`, which owns forward-looking specification.
+- Review / verification: not yet run.
+- Status: **Not implemented.** Queue position is owned by `docs/next-tasks.md`.
 
 ### PLATFORM-086F2H1T1-TEST-CONTROL-SAFETY-v2
 

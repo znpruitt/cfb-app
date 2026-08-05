@@ -2375,11 +2375,17 @@ Key architectural decisions across Phase 5:
   claim, the cleanup test's billing, the `AGENTS.md` cleanup rule, the arity assertion's scope,
   stale literals in the reset docstring, and "structurally demo-only" reading as an authorization
   claim) with no executable or assertion change. Review closed by explicit user evaluation.
-- **Follow-up queued:** `PLATFORM-086F2H1S-SERVER-ACTION-AUTHORIZATION-v1` — NEXT, before F2H1T2.
-  Next resolves a Server Action from the `Next-Action` header rather than the request path, so the
-  path-prefix middleware gate does not cover direct invocation. All nine exported admin actions are
-  affected and four take a slug, so the exposure reaches PRODUCTION leagues. Pre-existing and
-  codebase-wide; deliberately not folded in.
+- **Follow-up queued:** split by the F2H1S audit into
+  `PLATFORM-086F2H1SA-PROTECTED-PATH-MATCHER-COVERAGE-v1` and
+  `PLATFORM-086F2H1SB-SERVER-ACTION-AUTHORIZATION-v1`, both before F2H1T2.
+  The audit REFUTED the mechanism recorded here originally: a POST to a public path does not reach
+  these actions (Next forwards it to the admin worker, which re-enters middleware). The
+  demonstrated bypass was instead a middleware matcher gap — the static-file exclusion was a
+  substring rule, so `/admin/audit.css` skipped `clerkMiddleware` while still resolving to a worker
+  where all nine actions are registered. F2H1SA closes that; F2H1SB remains mandatory because Next
+  treats an exported Server Action as a public endpoint that must authorize internally. All nine
+  actions are affected and four take a slug, so the exposure reached PRODUCTION leagues.
+  Pre-existing and codebase-wide; deliberately not folded in.
 
 ---
 

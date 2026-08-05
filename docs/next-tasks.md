@@ -190,13 +190,16 @@ Execution order within F2 (each slice is one independently deployable PR):
         clean post-DOCS-013 `main`. `TestLeagueControls.tsx` is untouched — operator-readable
         feedback is F2H3's, because Next redacts Server Action rejection messages in production, so
         a message-only surface cannot work there.
-    - **F2H1SA — protected-path matcher coverage** — **NEXT** (before F2H1T2). Closes a
+    - **F2H1SA — protected-path matcher coverage** — implemented, in pre-merge review (before
+      F2H1T2). Closes a
       DEMONSTRATED bypass, independently reproduced: the middleware matcher's static-file exclusion
       is a substring rule, so `/admin/audit.css` skipped `clerkMiddleware` while still resolving to
       the admin route worker where all nine Server Actions are registered. Fixed by matching
       `/admin/:path*` and `/debug/:path*` explicitly ahead of the exclusion — anchoring the
-      extension group does NOT work, because those paths genuinely end in the excluded extension.
-    - **F2H1SB — admin Server Action authorization** — after F2H1SA, before F2H1T2. Still mandatory
+      extension group alone does NOT work, because those paths genuinely end in the excluded
+      extension; the `$` anchor is added alongside to close the root-cause `/foo/bar.css/baz` shape.
+      Matcher entries are OR'd — position in the array carries no meaning, only existence does.
+    - **F2H1SB — admin Server Action authorization** — **NEXT after F2H1SA**, before F2H1T2. Still mandatory
       once the matcher is fixed: Next treats an exported Server Action as a public endpoint that
       must authorize internally.
       CORRECTED MECHANISM (the earlier framing was refuted by the F2H1S audit and by an
