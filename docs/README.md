@@ -16,7 +16,7 @@ This is the **source-of-truth map** for the project's documentation. Start here 
 |----------|----------------------------|--------|
 | [`AGENTS.md`](../AGENTS.md) | Code architecture + **binding engineering/architecture invariants** + agent operating rules | Current (canonical) |
 | [`DESIGN.md`](../DESIGN.md) | UI/UX and the design system — layout, tables, cards, color, typography, component presentation | Current (canonical; the previously-tracked rank-number and game-card-border contradictions were reconciled in DOCS-004) |
-| [`CLAUDE.md`](../CLAUDE.md) | Claude-specific working guidance only; points back at `AGENTS.md`/`DESIGN.md` | Current |
+| [`CLAUDE.md`](../CLAUDE.md) | Claude-specific INVOCATION guidance only (tooling, review-tool availability, commands); states no binding rules — DOCS-013 | Current |
 | [`README.md`](../README.md) | Repository onboarding — what the app is, how to run it, and where the authoritative docs live | Current (onboarding) |
 | [`docs/README.md`](README.md) | This documentation map + doc-ownership boundaries + the documentation-system's own maintenance roadmap | Current |
 | [`docs/next-tasks.md`](next-tasks.md) | Current execution order, planned/parked work, blockers, and the ONE canonical list of unresolved decisions/deferrals; the only doc that may mark work `NEXT`/`CURRENT` | Current |
@@ -96,7 +96,7 @@ When documents disagree, this ownership hierarchy decides:
 
 - **`AGENTS.md`** — binding engineering and architecture invariants. Canonical for anything about how the code is structured or how agents must operate. Wins on architecture/rules.
 - **`DESIGN.md`** — durable UI principles and the design system. Canonical for anything visual/layout. Wins on UI.
-- **`CLAUDE.md`** — Claude-specific workflow guidance only. Points at `AGENTS.md`/`DESIGN.md`; never restates or overrides them.
+- **`CLAUDE.md`** — Claude-specific INVOCATION guidance only: how to drive this repo's tooling, which review commands Claude can and cannot start, and the exact test-invocation gotchas. DOCS-013 reduced it to a pointer table; every binding rule (scope and sizing, review limits, verification, reconstruction) lives in `AGENTS.md`.
 - **`docs/README.md`** (this file) — the documentation map and source-of-truth ownership. It does not carry architecture, design, or **product/engineering** planning content — it points at the doc that owns each. The one exception is the **documentation-system's own maintenance roadmap** (the DOCS-002x consolidation follow-ups below), which this index owns because they are meta-work on the docs themselves; each graduates to `docs/next-tasks.md` when it becomes active implementation work.
 - **`docs/next-tasks.md`** — the active product/engineering queue and the single home for unresolved **product** decisions/deferrals.
 - **`docs/prompt-registry.md`** — the historical prompt ledger.
