@@ -81,7 +81,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   records calls and their year before any "zero calls" claim rests on it. `/code-review`
   independently re-verified all four claims by reverting each fix. Closeout after `b24d4e6` is
   comments, import hygiene, and owned documentation only.
-- Status: **Implemented; in final pre-merge review. Not merged, not deployed.**
+- Status: **✅ MERGED to `main` via PR #448 (merge commit `6ab927c`), 2026-08-05.**
 
 ### PLATFORM-086F2H1SB-SERVER-ACTION-AUTHORIZATION-v1
 

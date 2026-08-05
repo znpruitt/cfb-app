@@ -2322,6 +2322,61 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H1T2 — Season-Transition Demo-League Exclusion — Complete
+
+- **Status:** Complete — merged to `main` via PR #448 (merge commit `6ab927c`), 2026-08-05.
+- **PROMPT_ID(s):** `PLATFORM-086F2H1T2-SEASON-TRANSITION-EXCLUSION-v2`. v2 is a user-authorized
+  scope correction on the SAME branch after the normal remediation budget was spent — not an
+  abandoned reconstruction. v1's exclusion and its tests shipped unchanged.
+- **Outcome:** The first of four automation slices making the demo league manual-only.
+  `TEST_LEAGUE_SLUG` is filtered from `GET /api/cron/season-transition` BEFORE the zero-target
+  decision and before grouping by year, so a demo-only year never reaches a schedule-probe read or
+  write, a provider refresh, a lifecycle write, standings invalidation, or any target or disposition
+  count on the HTTP response, runtime event, or durable receipt. Filtering after grouping would
+  still have spent a billed CFBD call on a year no production league occupies — that ordering is
+  mutation-verified, not assumed. The canonical slug is used directly with NO cross-job predicate:
+  F2H1T3–T5 change their own surfaces, and that coupling is what required F2H1B's reconstruction.
+- **Truthful reporting:** `no-preseason-leagues` keeps its exact meaning; a registry whose preseason
+  leagues are all demo reports the new `no-automatic-preseason-leagues`, because reusing the old
+  reason would tell an operator no league awaits transition when one does. The receipt validator
+  deliberately does not enumerate reasons, so stored receipts were unaffected and no compatibility
+  shim was needed; `docs/operations/diagnostics.md` documents the new literal.
+- **The v2 correction:** excluding the demo league made `setTestLeagueStatus` its ONLY
+  preseason→season path, and that control never invalidated standings — the cron always had.
+  `resolveStandingsYear` returns `status.year` for BOTH preseason and season, so the cache key is
+  unchanged across the flip and the entry is tag-only with `revalidate: false`; the demo would have
+  served a stale preseason snapshot indefinitely. The season branch now calls
+  `invalidateStandings(TEST_LEAGUE_SLUG)`, slug-wide, matching what the cron did.
+- **Verification:** each gate its own command with an unmasked exit status against the final
+  behavior-reviewed commit `b24d4e6` — focused 101/101, `npx tsc --noEmit`, `npm run lint:all`,
+  `npm test` 3272/3272, `npm run build`, `git diff --check`. **Test delta: +6 (5 exclusion,
+  1 invalidation), 0 weakened.** FOUR mutations verified failing one at a time: exclusion removed,
+  exclusion applied after grouping, the reason reused, and the invalidation removed — the last
+  against a COMPILING mutant. The provider observer carries a positive control proving it records
+  calls AND their year before any "zero calls" claim rests on it, and resolves URL/Request/string
+  inputs because `String(new Request(url))` would otherwise have made those negative assertions
+  vacuous. `/code-review` independently re-verified all four mutation claims by reverting each fix
+  itself. The closeout commit was comments, import hygiene, and owned documentation only, so only
+  `tsc`, `lint:all`, and `git diff --check` were re-run against it.
+- **Carried consequences, corrected upward from my earlier note.** I had recorded the T2→T3 window
+  as "a receipt that misdescribes reality." That understated it. Until F2H1T3, a demo-only preseason
+  year receives NO automatic schedule maintenance from any job: the weekly cron still builds
+  `ownerByYear` from all leagues, classifies the year `season-transition-owner` on an unarmed probe,
+  and does no provider work — deferring to a cron that now filters the demo out. Nothing arms the
+  probe, so the deferral is permanent and the weekly receipt names an owner that does not exist;
+  sharpest inside the final seven-day window, where the weekly route defers unconditionally. Until
+  F2H1T5, `resolveOperationalSeasonYear` still counts the demo league, so such a year can become the
+  System Health operational season while nothing will ever cache its schedule, making
+  `schedule-cache-missing` a PERSISTENT critical rather than a transient one. Both follow from
+  shipping the exclusions one job at a time, which the binding sizing rule requires.
+- **Follow-ups recorded:** the non-season demo lifecycle paths (preseason re-click, offseason,
+  reset) share the SAME cache-key collision that justified wiring the season branch — un-wired by
+  scope, not because they are safe, and pre-existing since the cron never invalidated on them
+  either; and the season re-click invalidates the umbrella tag for an unchanged state (performance
+  only).
+
+---
+
 ### PLATFORM-086F2H1SB — Admin Server Action Authorization — Complete
 
 - **Status:** Complete — merged to `main` via PR #447 (merge commit `8021b1f`), 2026-08-05.

@@ -222,7 +222,7 @@ Execution order within F2 (each slice is one independently deployable PR):
       would silently swallow the refusal at the other five. Pre-existing and codebase-wide;
       surfaced during the F2H1T1 v2 review. Deliberately NOT folded into F2H1T1 — bundling a
       security fix into a lifecycle slice is the scope mistake that required v1's reconstruction.
-      - **F2H1T2 — season-transition exclusion** — implemented, in pre-merge review. Then
+      - **F2H1T2 — season-transition exclusion** — ✅ MERGED (PR #448, `6ab927c`, 2026-08-05). Then
         **F2H1T3 — weekly-schedule exclusion** — **NEXT**, then
         **F2H1T4 — rankings exclusion**, then **F2H1T5 — System Health operational-year isolation**.
         Separate because they are separate automation jobs under the binding sizing rule, and each
