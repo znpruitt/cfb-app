@@ -114,7 +114,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   early returns; the test is relabelled a contract pin; and the "both directions" claim is retired
   everywhere in favor of the accurate one — production `season` precedence is preserved, not created.
   The unreserved `test` slug is recorded as a follow-up rather than fixed here.
-- Status: **Implemented and in review — PR #449 open, not merged.** The T2→T3 maintenance window closes on merge, not on implementation.
+- Status: **✅ MERGED to `main` via PR #449 (merge commit `c15413e`), 2026-08-05.** The T2→T3 maintenance window closed on that merge.
 
 ### PLATFORM-086F2H1T2-SEASON-TRANSITION-EXCLUSION-v2
 
