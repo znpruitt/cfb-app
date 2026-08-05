@@ -224,7 +224,7 @@ Execution order within F2 (each slice is one independently deployable PR):
       security fix into a lifecycle slice is the scope mistake that required v1's reconstruction.
       - **F2H1T2 — season-transition exclusion** — ✅ MERGED (PR #448, `6ab927c`, 2026-08-05).
         **F2H1T3 — weekly-schedule exclusion** — ✅ MERGED (PR #449, `c15413e`, 2026-08-05). Then
-        **F2H1T4 — rankings exclusion** — implemented, in review. Then
+        **F2H1T4 — rankings exclusion** — ✅ MERGED (PR #450, `27a6c37`, 2026-08-05). Then
         **F2H1T5 — System Health operational-year isolation** — **NEXT**.
         T3 established the shape T4 followed: the demo league is filtered PER LEAGUE, before the
         job resolves which year it will act on — never against the resolved target list, which would

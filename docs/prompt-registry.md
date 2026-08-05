@@ -92,7 +92,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   unconditional upkeep path (`/api/rankings` rejects years above `currentUTCYear + 1` before
   authorizing, while the demo authority has no ceiling). Docs-only: the corrected claims, two new
   recorded deferrals (g)/(h), and removal of two dead observer resets. No production-code change.
-- Status: Implemented — PR open.
+- Status: MERGED via PR #450 (`27a6c37`), 2026-08-05.
 
 ### PLATFORM-086F2H1T3-WEEKLY-SCHEDULE-DEMO-EXCLUSION-v1
 

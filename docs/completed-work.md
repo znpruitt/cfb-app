@@ -2322,6 +2322,88 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H1T4 — Rankings Demo-League Exclusion — Complete
+
+- **Status:** Complete — merged to `main` via PR #450 (merge commit `27a6c37`), 2026-08-05.
+- **PROMPT_ID(s):** `PLATFORM-086F2H1T4-RANKINGS-DEMO-EXCLUSION-v1`.
+- **Outcome:** The third of four automation slices making the demo league manual-only.
+  `selectRankingsTargetYears` resolves ownership from PRODUCTION leagues alone, filtering
+  `TEST_LEAGUE_SLUG` PER LEAGUE inside its ownership loop — never against the resolved years, which
+  would drop an entire year a production league also occupies and remove its automatic publication.
+  It returns a closed `{ years, excludedDemoCandidate }`, so the years and the exclusion truth that
+  shaped them are produced by one loop and cannot be observed apart. The flag derives from `slug`
+  and `status.state` ONLY, never `status.year`, so an unvalidated legacy year cannot flip the
+  zero-target reason, and an `offseason` demo record is not an excluded CANDIDATE.
+- **T3's owner-selector rationale did NOT transfer, and saying so was the point.** `season` still
+  outranks `preseason`, so a demo league in `season(Y)` did determine the reported lifecycle of a
+  year whose only production leagues are in `preseason(Y)`. But `RankingsPublicationContext.lifecycle`
+  is INERT — no publication window branches on it, the publication key omits it, and it never reaches
+  the durable receipt — so that direction changes only a reported string: no window decision, quota
+  gate, provider request, or durable write. It is pinned as a REPORTING-truth fix, and the audit
+  explicitly refused to reuse T3's "pause-exempt policy / suppressed probe re-derive" language, which
+  would have been false here. The preserved production-`season` precedence is a CONTRACT PIN, not a
+  regression test, because it passes with the exclusion fully removed — the same mislabel T3 had to
+  correct, avoided here by construction.
+- **Truthful reporting:** a registry whose only active leagues are the demo reports the new
+  `skipped / no-automatic-ranking-target`; `no-ranking-target` keeps its exact meaning (no eligible
+  league at all). No receipt-schema migration or shim was needed — the durable validator accepts any
+  non-empty reason string and System Health branches on `result`, not `reason`. Gate order is
+  UNCHANGED (auth → automation settings → registry/selector): a paused demo-only run still reports
+  `automation-paused-or-disabled`, and a registry fault can never turn a deliberately paused job into
+  a scheduler failure. That ordering was chosen over the alternative because the four sibling routes
+  with the same global-gate design all read the gate immediately after auth, and reordering would
+  have silently changed two untested non-demo paths.
+- **No league-scoped duty transfers to the demo controls** — this path writes none, unlike F2H1T2's
+  standings invalidation. Existing `rankings-publication-window/<year>:<kind>:<date>`,
+  `rankings/<year>`, lease, and year-scoped provider-refresh records are RETAINED: they are
+  year-scoped provider evidence a production league later sharing the year is entitled to read, and a
+  completed window key names a slot that has already ELAPSED, so deleting it could not change any
+  future run. No cleanup or migration was performed, deliberately.
+- **Provider-spend context established by the audit.** The exposure is per publication WINDOW, not
+  two refreshes a day: ~3 billed requests per due window (1 `/info` + 2 partitions). The
+  `cfp-publication` window is the floor case and is CONTEXT-FREE — it needs no cached schedule,
+  championship, or poll data, only a Wednesday 04:00 UTC slot in `[Nov 1, Dec 11)` — so a demo-only
+  year with nothing cached still cost ~15-18 billed requests every November.
+- **Verification:** each gate its own command with an unmasked exit status against the final commit
+  `55b3662` — focused suites 20 / 35 / 10, `npx tsc --noEmit`, `npm run lint:all`, `npm test`
+  3295/3295, `npm run build`, `git diff --check`. **Test delta: +15 (5 selector, 7 route, 3 receipt),
+  0 weakened**, reconciling exactly with the full-suite 3280 → 3295. SIX compiling mutations verified
+  failing one at a time: exclusion removed, subtraction applied after grouping, the `isActive` gate
+  dropped, the reason reused, selection moved ahead of the automation gate, and the observer's push
+  placement. The second of those is killed ONLY by a shared-year registry — demo-only and
+  distinct-year fixtures do not discriminate it — which the audit predicted and the suite was built
+  to satisfy.
+- **Observers.** Both suites record every request URL BEFORE parsing and BEFORE branching, resolving
+  `string | URL | Request` via `.url` (`String(request)` is `"[object Request]"`, which `new URL()`
+  rejects). `receipts.test.ts` had NO observer at all beforehand, and its `providerCallAttempted`
+  field is documented as unusable for that proof — it is trivially false with zero year entries and
+  false by design after a billed `/info` probe.
+- **Review history and the two claims that did not survive it.** Codex returned no actionable finding
+  on the behavior commit and again on the merged head; both of its failed commands were invocation
+  errors on its side (an `eslint` CLI failure where `lint:all` passes, and a focused test run missing
+  `APP_STATE_TEST_ISOLATION=1`, under which five PRE-EXISTING tests also fail). `/code-review`
+  returned 9 findings on the first pass (one authorized round applied 4, recorded 5) and 9 on the
+  confirming pass, which produced a user-authorized DOCS-ONLY second round. That round corrected two
+  claims the FIRST remediation round had introduced and the closeout had propagated into binding
+  `AGENTS.md`, both verified false: that every rankings reader treats a cache miss as absence (the
+  league app instead surfaces a standing `CFBD rankings load failed:` note outside preseason, because
+  `loadSeasonRankings` THROWS on a total miss), and that manual refresh is an unconditional upkeep
+  path (`/api/rankings` rejects years above `currentUTCYear + 1` BEFORE authorizing, while the demo
+  authority has no ceiling). Same class as the F2H1T3 and F2H1SB lessons: an "X is safe/handled"
+  claim must rest on a COMPLETE survey of the consumers, not the two that were convenient to check.
+- **Follow-ups recorded** in `docs/next-tasks.md`: (e) the F2H1R year-validity note escalated — a
+  finite FRACTIONAL `status.year` satisfies the context-free CFP window, reaching a durable claim and
+  billed provider requests while PASSING receipt validation and rendering a nonsense year; (f) four
+  copies of the `providerUrlLog` observer now exist (two from T3, two here), whose convergence into
+  the shared receipt harness would have edited another job's reviewed proof surfaces; (g) a demo year
+  above `currentUTCYear + 1` has NO upkeep path at all, automatic or manual — this slice converted a
+  reachable-but-slow year into an unreachable one; (h) a demo-only `season(Y)` year surfaces a
+  standing user-visible rankings error, a pre-existing mechanism made permanent here. Plus the
+  carried T5 operational-year risk, now three permanently-unclearable System Health signals, and the
+  four-site targeting-predicate consolidation AGENTS.md defers until T5.
+
+---
+
 ### PLATFORM-086F2H1T3 — Weekly-Schedule Demo-League Exclusion — Complete
 
 - **Status:** Complete — merged to `main` via PR #449 (merge commit `c15413e`), 2026-08-05.
