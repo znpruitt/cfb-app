@@ -52,6 +52,34 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1T5-SYSTEM-HEALTH-YEAR-ISOLATION-v1
+
+- Purpose: Stop the demo league selecting the System Health operational season, resolving the year
+  from production registry state alone while preserving lifecycle precedence, both fallbacks, the
+  clamp, and the numeric return type.
+- Scope: `resolveOperationalSeasonYear` (`src/lib/server/systemHealthYear.ts`), its focused suite,
+  the diagnostics page suite, truthful source comments, and the owning documentation. No cron,
+  rollover, shared predicate, league creation, UI/view-model, provider, scheduler, cache, or durable
+  state change; no cleanup or migration.
+- Outcome: The resolver filters `TEST_LEAGUE_SLUG` from its population ONCE, before both branches,
+  delegating the unchanged three-step rule to a private helper that receives only the filtered list —
+  so the unfiltered registry is out of lexical scope where the rule runs. The exclusion is
+  UNCONDITIONAL, deliberately unlike F2H1T3/T4: the stored-year branch reads the top-level
+  `league.year`, which `applyLifecycleStatus` retains when the demo moves to `offseason`, so an
+  active-gated exclusion would leave a parked demo still selecting the year. The predicate is
+  slug-only and never reads a demo year. No new reason, receipt field, event, counter, or provenance —
+  the resolver is total, so there is no zero-target state to report.
+- Review / verification: Six compiling mutations verified one at a time, each killed by a named test:
+  exclusion removed (4 resolver + 1 page), active-branch-only (3), stored-branch-only (3 + 1 page),
+  the F2H1T3/T4 `isActive` copy-paste (killed UNIQUELY by the offseason case), exclusion only when no
+  production league exists (1), and the calendar fallback replaced by `getUTCFullYear()` (1 — killed
+  only because the demo-only case uses a March clock, since the suite's October clock cannot separate
+  the two calendar rules). Contract pins for lifecycle authority, multi-active precedence,
+  empty-registry fallback, and the no-`?year=` seam already existed and were NOT duplicated. Focused
+  deltas: resolver 8 → 12, diagnostics page 3 → 4 (11 → 16). `npx tsc --noEmit`, `npm run lint:all`,
+  `npm test`, `npm run build`, and `git diff --check` each run separately with unmasked exit status.
+- Status: Implemented — in review.
+
 ### PLATFORM-086F2H1T4-RANKINGS-DEMO-EXCLUSION-v1
 
 - Purpose: Make the demo league manual-only for automatic rankings publication by resolving
