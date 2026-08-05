@@ -63,16 +63,23 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `vercel.json`.
 - Outcome: `TEST_LEAGUE_SLUG` is filtered PER LEAGUE inside the ownership loop — never against the
   resolved `targetYears`, which would drop a year a production league also occupies. It is an
-  owner-selector change, not only a target removal: `season` outranks `preseason`, so ownership now
-  resolves from production leagues alone in BOTH directions and the demo can neither promote a
-  shared year to the pause-exempt active-season policy nor demote a production season year. A
+  owner-selector change, not only a target removal: `season` outranks `preseason`, so a demo league
+  in `season(Y)` must not promote Y to the pause-exempt active-season policy over production leagues
+  in `preseason(Y)`. That is the direction the rule changes; production `season` precedence over
+  `preseason` is PRESERVED, not newly created, and its test is a contract pin rather than a
+  regression test (it passes with the exclusion removed). A
   registry whose only active leagues are the demo reports `skipped /
   no-automatic-maintenance-target`; `no-maintenance-target` keeps its exact meaning (no active
   league at all). Such a year produces no per-year entry, provider request, settings read, probe or
-  latch operation, presentation refresh, or receipt target. Unlike T2, NO duty is inherited: every
-  durable key the route writes is year- or global-scoped, and the postseason-boundary latch has no
-  reader outside the route. The receipt reason type derives from the route union, so no second
-  vocabulary exists and stored receipts are unaffected.
+  latch operation, presentation refresh, or receipt target. Unlike T2, no league-scoped duty transfers to the manual
+  control — every durable key the route writes is year- or global-scoped. Two consequences of that
+  same fact are deliberate and documented rather than "fixed": existing `schedule-weekly-control`
+  boundary latches are RETAINED (the latch is a year-level fact derived from the shared canonical
+  schedule, and a production league later sharing the year is entitled to read it), and a demo-only
+  active registry stops refreshing the GLOBAL `venue-catalog` automatically, with an authenticated
+  manual full-year refresh remaining the supported path. Shared latch, probe, canonical schedule, and
+  presentation state is NOT deleted. The receipt reason type derives from the route union, so no
+  second vocabulary exists and stored receipts are unaffected.
 - Review / verification: each gate its own command with an unmasked exit status against the
   final commit — focused route `47 → 53` and receipts `6 → 7` (net +7 tests after remediation folded
   a near-duplicate pin into the existing one), six related suites 133/133, `npx tsc --noEmit`,
@@ -93,9 +100,21 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   into the existing one, and using `TEST_LEAGUE_SLUG` instead of a copy of its value. Three were
   recorded rather than applied and are carried in `docs/next-tasks.md`: unvalidated `status.year` in
   cron target selection (pre-existing, F2H1R's class), the declarative-vs-interleaved shape of the
-  two crons' target selection (behaviorally equivalent, now pinned in both directions), and the
-  five-site consolidation AGENTS.md defers until T5.
-- Status: **Open — PR #449, awaiting review/merge.**
+  two crons' target selection (behaviorally equivalent; the promote direction mutation-pinned, the preserved precedence contract-pinned), and the
+  five-site consolidation AGENTS.md defers until T5. A confirming pass of both reviewers then ran
+  against the remediated commit: Codex returned no findings; `/code-review` returned eleven, and a
+  user-authorized PROOF-SURFACE-ONLY round (production behavior frozen — the executable diff after it
+  is test-harness only) corrected what they exposed. Two of those corrections were claims I had made
+  and could not support: the receipt suite's zero-request assertion rested on an observer that
+  recorded only AFTER URL parsing and after the presentation early returns, while the comment
+  introduced with it claimed that vacuity was fixed; and the production-season/demo-preseason test was
+  labelled a regression test although it passes with the exclusion removed. The observer now records
+  every request before parsing or branching and carries a positive control covering canonical,
+  presentation, and string/`URL`/`Request` inputs, mutation-verified by moving the push back after the
+  early returns; the test is relabelled a contract pin; and the "both directions" claim is retired
+  everywhere in favor of the accurate one — production `season` precedence is preserved, not created.
+  The unreserved `test` slug is recorded as a follow-up rather than fixed here.
+- Status: **Implemented and in review — PR #449 open, not merged.** The T2→T3 maintenance window closes on merge, not on implementation.
 
 ### PLATFORM-086F2H1T2-SEASON-TRANSITION-EXCLUSION-v2
 

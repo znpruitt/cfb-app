@@ -42,7 +42,12 @@ export const dynamic = 'force-dynamic';
  * provisioned per runbook §8h). One invocation authenticates CRON_SECRET, selects
  * the distinct `season` AND `preseason` years cache-only from the league registry
  * (any `season` league owns a mixed year — one execution under the active-season
- * policy; `offseason` is excluded), loads each year's prior-good canonical
+ * policy; `offseason` is excluded). AUTOMATIC ownership is resolved from
+ * PRODUCTION leagues only: the demo league is filtered out per league before
+ * ownership is resolved and is maintained manually (PLATFORM-086F2H1T3), so a
+ * registry whose only active leagues are the demo reports
+ * `skipped / no-automatic-maintenance-target`. The route then loads each year's
+ * prior-good canonical
  * schedule (plus, for preseason years, the durable schedule probe), classifies
  * the operation with the pure policies — active-season ordinary vs sticky
  * postseason-boundary, and preseason: cache-armed early preseason
@@ -171,8 +176,11 @@ export async function GET(req: Request): Promise<Response> {
         // `season` outranks `preseason` for a shared year, so without this a
         // demo league in `season(Y)` would promote Y to the active-season policy
         // over production leagues in `preseason(Y)` — making that year
-        // pause-exempt and suppressing its probe re-derive. Ownership resolves
-        // from production leagues alone, in both directions.
+        // pause-exempt and suppressing its probe re-derive. THAT direction is
+        // what this rule changes. The opposite direction is unchanged and was
+        // never at risk: the precedence below already prevents a `preseason`
+        // league from displacing a `season` owner, so production season
+        // precedence is PRESERVED here, not newly created.
         //
         // Gated on `isActive` so only a league that WOULD have produced a
         // maintenance year sets the flag below; an `offseason` demo league was

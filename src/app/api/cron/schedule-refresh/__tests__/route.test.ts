@@ -1356,8 +1356,10 @@ test('a presentation failure changes nothing about canonical weekly results', as
 // ---------------------------------------------------------------------------
 
 // POSITIVE CONTROL for the provider observer. Every "zero provider work"
-// assertion below is worthless unless this passes: it proves the same harness
-// records the expected production year AND both partitions.
+// assertion below is worthless unless the same harness is shown recording real
+// calls: it proves the observer captures the expected production year AND both
+// canonical partitions. The contract pin at the end of this block exercises the
+// identical fixture through the shared-year path and repeats these assertions.
 test('the provider observer records the production year and both partitions', async () => {
   await seedSeasonLeague(2031);
   await seedSchedule(2031, '2020-12-01T00:00:00.000Z');
@@ -1466,8 +1468,17 @@ test('a demo season year does not override a production preseason year', async (
   );
 });
 
-// REGRESSION TEST — the other owner direction: production keeps its policy.
-test('a demo preseason year does not demote a production season year', async () => {
+// CONTRACT PIN — NOT a regression test for the exclusion, and mislabelled as one
+// when first written. Verified: this case still passes with the exclusion
+// removed, because the pre-existing precedence rule
+// (`ownerByYear.get(year) !== 'season'`) already prevents a preseason league
+// from displacing a `season` owner. Only the OPPOSITE direction is load-bearing
+// for PLATFORM-086F2H1T3 — a demo `season(Y)` must not promote a production
+// `preseason(Y)` to the pause-exempt active-season policy, which the test above
+// covers and mutation kills. This pin exists to prove the exclusion did not
+// DISTURB the precedence that was already there, and it doubles as the
+// `fetchLog`/`providerUrlLog` positive control for a production-year run.
+test('a demo preseason year does not disturb existing production season precedence', async () => {
   await setAppState('leagues', 'registry', [
     makeLeague(TEST_LEAGUE_SLUG, { state: 'preseason', year: 2031 }, 2031),
     makeLeague('alpha', { state: 'season', year: 2031 }, 2031),
