@@ -297,6 +297,40 @@ test('a multi-year provider-attempting run records the bounded target and provid
   );
 });
 
+// PLATFORM-086F2H1T3 — REGRESSION TEST. A demo-only active registry writes a
+// truthful zero-target, provider-free receipt under the NEW reason. Verified
+// failing with the exclusion removed: the run classified 2031 as a target and
+// reported `success` instead of `skipped`.
+test('a demo-only active registry writes a zero-target provider-free receipt', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('test', { state: 'season', year: 2031 }, 2031),
+  ]);
+  // A lifecycle-critical schedule: were the demo league a target, this year
+  // would reach the provider REGARDLESS of the operator pause gate.
+  await seedSchedule(2031, CRITICAL_KICKOFF);
+  stubProvider({ 2031: gameBody(2031) });
+
+  const { res, event } = await runRoute();
+  assert.equal(res.status, 200);
+  assert.equal(event.result, 'skipped');
+  assert.equal(event.reason, 'no-automatic-maintenance-target');
+  assert.deepEqual(fetchLog, [], 'no provider request');
+
+  await deferrer.flush();
+  const stored = await readSchedulerReceipt('schedule-refresh');
+  assert.ok(stored);
+  assert.deepEqual(Object.keys(stored.value).slice().sort(), RECEIPT_KEYS, 'schema unchanged');
+  assert.equal(stored.value.result, 'skipped');
+  assert.equal(stored.value.reason, 'no-automatic-maintenance-target');
+  assert.equal(stored.value.providerCallAttempted, false);
+  assert.deepEqual(stored.value.target, {
+    kind: 'schedule-years',
+    totalYears: 0,
+    truncated: false,
+    years: [],
+  });
+});
+
 test('a receipt-store failure leaves the route response and runtime event unchanged', async () => {
   await setAppState('leagues', 'registry', []);
   __setAppStateWriteFailureForTests(new Error('receipt write boom'), 'scheduler-execution-status');
