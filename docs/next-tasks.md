@@ -222,9 +222,15 @@ Execution order within F2 (each slice is one independently deployable PR):
       would silently swallow the refusal at the other five. Pre-existing and codebase-wide;
       surfaced during the F2H1T1 v2 review. Deliberately NOT folded into F2H1T1 — bundling a
       security fix into a lifecycle slice is the scope mistake that required v1's reconstruction.
-      - **F2H1T2 — season-transition exclusion** — ✅ MERGED (PR #448, `6ab927c`, 2026-08-05). Then
-        **F2H1T3 — weekly-schedule exclusion** — **NEXT**, then
-        **F2H1T4 — rankings exclusion**, then **F2H1T5 — System Health operational-year isolation**.
+      - **F2H1T2 — season-transition exclusion** — ✅ MERGED (PR #448, `6ab927c`, 2026-08-05).
+        **F2H1T3 — weekly-schedule exclusion** — ✅ MERGED (PR #449, 2026-08-05). Then
+        **F2H1T4 — rankings exclusion** — **NEXT**, then
+        **F2H1T5 — System Health operational-year isolation**.
+        T3 established the shape T4 must follow: the demo league is filtered PER LEAGUE, before the
+        job resolves which year it will act on — never against the resolved target list, which would
+        drop a year a production league also occupies. Rankings targeting must likewise resolve
+        ownership from PRODUCTION leagues only (`selectRankingsTargetYears`), not merely subtract
+        demo years afterward, and must keep its own zero-target reason truthful.
         Separate because they are separate automation jobs under the binding sizing rule, and each
         needs its own route-level tests. Transition exclusion comes first: it removes the
         higher-frequency (daily) lifecycle and provider exposure without harming production leagues.
@@ -232,19 +238,19 @@ Execution order within F2 (each slice is one independently deployable PR):
         expresses cross-cron ownership (`season-transition-owner` is a hardcoded label in the weekly
         route, not a read of the other cron's target set), so the risk is a receipt that misdescribes
         reality, and each slice must keep its own reason strings truthful.
-      - **Carried into T3/T5 by F2H1T2, at accurate severity.** My earlier note called the
-        intermediate state "a receipt that misdescribes reality"; that understated it. Between T2
-        and T3 a demo-only preseason year receives **no automatic schedule maintenance from any
-        job**: the weekly cron still builds `ownerByYear` from all leagues, classifies the year
-        `season-transition-owner` on an unarmed probe, and does no provider work — deferring to a
-        cron that now filters the demo out. Nothing arms the probe, so the deferral is permanent
-        and the weekly receipt names an owner that does not exist. Sharpest inside the final
-        seven-day window, where the weekly route defers unconditionally. Separately, until T5
-        `resolveOperationalSeasonYear` still counts the demo league, so a demo-only year can become
-        the System Health operational season while nothing will ever cache its schedule — making
-        `schedule-cache-missing` a PERSISTENT critical rather than a transient one. Both are
-        consequences of shipping the exclusions one job at a time, which the binding sizing rule
-        requires; T3 and T5 close them.
+      - **The T2→T3 window is CLOSED; the T5 risk remains.** Between T2 and T3 a demo-only
+        preseason year received no automatic schedule maintenance from any job — the weekly cron
+        still built `ownerByYear` from every league and classified the year `season-transition-owner`
+        on an unarmed probe, deferring to a cron that had already filtered the demo out, and nothing
+        armed the probe, so the deferral was permanent and the weekly receipt named an owner that did
+        not exist. T3 removes that false deferral at its source: a demo-only year is no longer a
+        weekly candidate at all, so the run reports `skipped / no-automatic-maintenance-target`
+        instead of naming a nonexistent owner, and the demo can no longer change which policy a
+        SHARED year runs under. **Still open until T5:** `resolveOperationalSeasonYear` counts the
+        demo league, so a demo-only year can become the System Health operational season while
+        nothing will ever cache its schedule — making `schedule-cache-missing` a PERSISTENT critical
+        rather than a transient one. That is a consequence of shipping the exclusions one job at a
+        time, which the binding sizing rule requires; T5 closes it.
       - Also carried: the reset year stays 2025, so the demo's next preseason is the live
         production year — resolved by the exclusions, not by redesigning the reset.
     - **F2H1R — missing-lifecycle recovery** — planned after F2H1T: a separately confirmed recovery

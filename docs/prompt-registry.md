@@ -52,6 +52,41 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1T3-WEEKLY-SCHEDULE-DEMO-EXCLUSION-v1
+
+- Purpose: Make the demo league manual-only for weekly schedule maintenance by removing it from the
+  weekly cron's year-ownership computation, and close the false `season-transition-owner` deferral
+  T2 left behind.
+- Scope: `GET /api/cron/schedule-refresh` target selection, `ScheduleRefreshCronExecutionReason`,
+  and route/receipt tests. Excludes rankings targeting (F2H1T4), System Health year selection
+  (F2H1T5), demo UI copy (F2H3), E1A/probe/latch policy, cadence, scheduler provisioning, and
+  `vercel.json`.
+- Outcome: `TEST_LEAGUE_SLUG` is filtered PER LEAGUE inside the ownership loop — never against the
+  resolved `targetYears`, which would drop a year a production league also occupies. It is an
+  owner-selector change, not only a target removal: `season` outranks `preseason`, so ownership now
+  resolves from production leagues alone in BOTH directions and the demo can neither promote a
+  shared year to the pause-exempt active-season policy nor demote a production season year. A
+  registry whose only active leagues are the demo reports `skipped /
+  no-automatic-maintenance-target`; `no-maintenance-target` keeps its exact meaning (no active
+  league at all). Such a year produces no per-year entry, provider request, settings read, probe or
+  latch operation, presentation refresh, or receipt target. Unlike T2, NO duty is inherited: every
+  durable key the route writes is year- or global-scoped, and the postseason-boundary latch has no
+  reader outside the route. The receipt reason type derives from the route union, so no second
+  vocabulary exists and stored receipts are unaffected.
+- Review / verification: each gate its own command with an unmasked exit status against the
+  behavior-reviewed commit `8df96ee` — focused route `47 → 54` and receipts `6 → 7` (+8 tests), six
+  related suites 134/134, `npx tsc --noEmit`, `npm run lint:all`, `npm test` 3280/3280. The provider
+  observer was hardened FIRST to record the real URL for string/`URL`/`Request` inputs and given a
+  positive control (expected production year, both partitions) before any zero-call assertion rested
+  on it; the negative latch assertions rest on the suite's existing positive latch control. Four
+  COMPILING mutations run one at a time, each killing the intended tests: exclusion removed (4
+  route tests and 1 receipt test), exclusion applied after owner grouping (2), the reason reused (2),
+  and demo `season` allowed to own a shared year (3). Codex review of the behavior commit returned
+  no findings; `/code-review` is not model-invocable in this environment, so that half was performed
+  manually and is recorded as such rather than claimed. Closeout after `8df96ee` is documentation
+  and comment truthfulness only.
+- Status: **Open — PR #449, awaiting review/merge.**
+
 ### PLATFORM-086F2H1T2-SEASON-TRANSITION-EXCLUSION-v2
 
 - Purpose: Make the demo league manual-only for preseason→season by excluding it from the daily

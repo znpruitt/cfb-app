@@ -167,12 +167,16 @@ export async function GET(req: Request): Promise<Response> {
         // league also occupies, removing its maintenance — a worse regression
         // than the one this fixes.
         //
-        // This is also an OWNER-SELECTOR change, not merely a target removal.
-        // `season` outranks `preseason` for a shared year, so a demo league in
-        // `season(Y)` currently promotes Y to the active-season policy over
-        // production leagues in `preseason(Y)` — making that year pause-exempt
-        // and suppressing its probe re-derive. Ownership is now resolved from
-        // production leagues alone, in both directions.
+        // This is also an OWNER-SELECTOR rule, not merely a target removal.
+        // `season` outranks `preseason` for a shared year, so without this a
+        // demo league in `season(Y)` would promote Y to the active-season policy
+        // over production leagues in `preseason(Y)` — making that year
+        // pause-exempt and suppressing its probe re-derive. Ownership resolves
+        // from production leagues alone, in both directions.
+        //
+        // Gated on `isActive` so only a league that WOULD have produced a
+        // maintenance year sets the flag below; an `offseason` demo league was
+        // never a candidate and must not change the zero-target reason.
         if (isActive && league.slug === TEST_LEAGUE_SLUG) {
           excludedDemoCandidate = true;
           continue;
