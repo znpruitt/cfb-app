@@ -225,8 +225,8 @@ Execution order within F2 (each slice is one independently deployable PR):
       - **F2H1T2 — season-transition exclusion** — ✅ MERGED (PR #448, `6ab927c`, 2026-08-05).
         **F2H1T3 — weekly-schedule exclusion** — ✅ MERGED (PR #449, `c15413e`, 2026-08-05). Then
         **F2H1T4 — rankings exclusion** — ✅ MERGED (PR #450, `27a6c37`, 2026-08-05). Then
-        **F2H1T5 — System Health operational-year isolation** — implemented, in review. No slice
-        carries the **NEXT** marker while T5 is in flight; **F2H1R** takes it at T5's merge. It resolves the operational season from PRODUCTION leagues only, filtering
+        **F2H1T5 — System Health operational-year isolation** — ✅ MERGED (PR #451, `6e881b5`,
+        2026-08-05). **The F2H1T campaign is COMPLETE** — F2H1R is now the queue front. It resolved the operational season from PRODUCTION leagues only, filtering
         `TEST_LEAGUE_SLUG` from the population ONCE before both branches. **The F2H1T3/T4
         `isActive &&` shape must NOT be copied here and is a verified mutation:** the stored-year
         branch reads the top-level `league.year`, which is retained when the demo moves to
@@ -258,7 +258,7 @@ Execution order within F2 (each slice is one independently deployable PR):
         receipt named an owner that did not exist. T3 removed that false deferral at its source: a
         demo-only year is no longer a weekly candidate at all, the run reports
         `skipped / no-automatic-maintenance-target` instead of naming a nonexistent owner, and the
-        demo can no longer change which policy a SHARED year runs under. **Closed by T5 (implemented, in review), and T3 had widened it:**
+        demo can no longer change which policy a SHARED year runs under. **CLOSED as of PR #451, and T3 had widened it:**
         `resolveOperationalSeasonYear` counted the demo league, so a demo-only year could become the
         System Health operational season. If nothing ever caches its schedule, `schedule-cache-missing`
         is a PERSISTENT critical rather than a transient one. T3 added a second half: a demo-owned
@@ -281,7 +281,7 @@ Execution order within F2 (each slice is one independently deployable PR):
         re-maintains the year. In the dominant case the missing schedule signal (severity `error`)
         already subsumes them. Three warnings an operator could not
         clear from the automation surface. That is a consequence of shipping the exclusions one job at a
-        time, which the binding sizing rule requires. **T5 (implemented, in review) removes them from
+        time, which the binding sizing rule requires. **T5 (PR #451) removed them from
         the operator's surface by no longer REPORTING on demo-owned years — it does not restore
         maintenance to those years, and the same signals stay reachable on the two production
         fallbacks. See the T5 paragraph above for the precise scope.**
@@ -410,10 +410,14 @@ Execution order within F2 (each slice is one independently deployable PR):
         reconstruction" is FALSE. The binding record states the actual cause — the branch crossed two
         automation jobs and shipped the second surface untested. Do not cite the coupling story as an
         argument for or against consolidation.
-    - **F2H1R — missing-lifecycle recovery** — planned after F2H1T: a separately confirmed recovery
-      operation for genuinely missing legacy status, with corrupt-registry vs missing-league truth and
-      an explicit consequence model for schedule/rankings targeting, rollover eligibility,
-      operational-season resolution, and cache invalidation.
+    - **F2H1R — missing-lifecycle recovery** — **NEXT** (F2H1T completed at PR #451): a separately
+      confirmed recovery operation for genuinely missing legacy status, with corrupt-registry vs
+      missing-league truth and an explicit consequence model for schedule/rankings targeting,
+      rollover eligibility, operational-season resolution, and cache invalidation. It now also owns
+      the year-VALIDITY items every F2H1T slice deliberately refused: (a) unvalidated `status.year`
+      in cron target selection, (e) a fractional year reaching the rankings cron's context-free CFP
+      window and billing provider requests, and (i) `resolveOperationalSeasonYear` laundering an
+      unusable year through the clamp into one `validateYear` accepts.
     - **F2H2 — rollover/archive/backfill consolidation** — planned: converge the remaining rollover
       projection/result contract, fix benign redelivery reporting without hiding genuine refusals,
       consolidate the duplicate strict rollover UI, and organize archive/backfill operations.

@@ -2322,6 +2322,87 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H1T5 — System Health Operational-Year Isolation — Complete
+
+- **Status:** Complete — merged to `main` via PR #451 (merge commit `6e881b5`), 2026-08-05.
+  **This completes the F2H1T demo-league automation policy (T1–T5, PRs #445, #448–#451).**
+- **PROMPT_ID(s):** `PLATFORM-086F2H1T5-SYSTEM-HEALTH-YEAR-ISOLATION-v1`.
+- **Outcome:** The last of five slices making the demo league manual-only.
+  `resolveOperationalSeasonYear` filters `TEST_LEAGUE_SLUG` from its population ONCE, before both
+  resolution branches, delegating the unchanged three-step rule to a private helper that receives
+  only the filtered list — so the unfiltered registry is not in lexical scope where the rule runs.
+  Lifecycle authority, both fallbacks, the clamp, `Number.isInteger`, and the `number` return are
+  preserved exactly. No provenance, new reason, receipt field, event, or counter: the resolver is
+  TOTAL, so there is no zero-target state to report and its sole caller consumes only the number.
+- **The sibling shape was the defect here, and that is the transferable lesson.** F2H1T3 and F2H1T4
+  gate their exclusion on an active lifecycle state, because an `offseason` demo was never an
+  automatic TARGET and flagging it would falsify their zero-target reason. Copying that gate here
+  ships the bug: the stored-year branch reads the top-level `league.year`, which
+  `applyLifecycleStatus` keeps synchronized to the demo's lifecycle and RETAINS on the move to
+  `offseason`, so an active-only exclusion leaves a demo parked in offseason still selecting the
+  year. The exclusion is unconditional, offseason and status-less records included, and the
+  `isActive`-gated variant is a verified mutation. The module header leads with a warning against
+  exactly that edit.
+- **Scope truth, stated rather than implied.** The migration map had promised T5 would stop the axis
+  landing on "a year no automation services". It cannot deliver that — an all-offseason registry
+  resolves to the last authoritative production projection and a no-production registry to the
+  calendar season, either of which may still need manual provider-data preparation — so the row now
+  claims only what the code proves: the demo league can no longer select the year System Health
+  reports on. Two adjacent overstatements were corrected in the same pass: `admin-control-plane.md`
+  stated the resolver rule without the production qualifier (the direct analogue of the
+  `game-data-flow.md` line `/code-review` caught during T4), and the "only the provider-data axis is
+  season-scoped" framing was refuted — the FACTS are year-free, but the issues and freshness derived
+  from the year-scoped inputs feed `overallState`, `issueCounts`, and the headline Overall tile, and
+  a wrong year both fabricates faults for the year it names and HIDES genuine provider-refresh
+  failures for the year it displaced.
+- **Verification:** each gate its own command with an unmasked exit status against the final commit
+  `9983a2e` — focused 17/17 (resolver 13, page 4), `npx tsc --noEmit`, `npm run lint:all`,
+  `npm test` 3301/3301, `npm run build`, `git diff --check`. **Test delta: +6 (5 resolver, 1 page),
+  0 weakened**, reconciling with the full-suite 3295 → 3301. SEVEN compiling mutations verified
+  failing one at a time — exclusion removed, active-branch only, stored-branch only, the T3/T4
+  `isActive` copy-paste, the predicate narrowed to `&& league.status`, exclusion only when no
+  production league exists, and the calendar fallback replaced by `getUTCFullYear()` — and all were
+  RE-verified after the remediation round changed the proof surfaces. Contract pins for lifecycle
+  authority, multi-active precedence, empty-registry fallback, and the no-`?year=` seam already
+  existed and were deliberately NOT duplicated.
+- **Review history and the two test weaknesses it caught.** Codex returned no actionable regression;
+  its one failed command was the same `eslint` CLI error as the T4 round (eslint exits 0 on all four
+  changed files). `/code-review` returned 12 findings — nine applied in one authorized round, one
+  newly recorded, two adjudicated as already-recorded or out of scope. Two were real weaknesses in
+  tests written for this slice, both verified empirically before being fixed: a STATUS-LESS demo
+  record had no test, so a predicate narrowed to `slug === TEST_LEAGUE_SLUG && league.status`
+  compiled and survived all sixteen tests while the docblock AND the new binding rule both asserted
+  such records are excluded; and the page-level regression hard-coded years against the real host
+  clock, going vacuous at host year 2025 (the clamp folds the unfiltered answer onto the production
+  one) and failing outright at 2024 — it discriminated only because the current year is 2026. Same
+  class as the F2H1SB, F2H1T3, and F2H1T4 lessons: prove the observation can SEE the forbidden
+  event, and do not assert a property no test stands behind.
+- **Ledger discipline:** the pre-merge closeout initially wrote four self-contradictions of its own —
+  the roadmap calling T5 both "in review" and "next", the execution queue marking an implemented
+  slice **NEXT**, the registry claiming an open PR before the branch was pushed, and a carried-risk
+  bullet still asserting the pre-T5 behavior in the present tense three paragraphs from the text
+  explaining otherwise. All were corrected in the remediation round, before merge.
+- **The shared-predicate decision, deferred since F2H1T2, is CLOSED: no universal predicate is
+  warranted.** The five sites share the canonical slug identity but not lifecycle eligibility or
+  ownership semantics — `{season}` for rollover, `{preseason}` for the season transition,
+  `{season, preseason}` for weekly schedule and rankings, and EVERY league for the operational year.
+  Any predicate carrying an active-state gate is provably wrong at the fifth site, and the largest
+  expression true at all five is `slug === TEST_LEAGUE_SLUG`, which `TEST_LEAGUE_SLUG` already is.
+  A related ledger claim was corrected: a shared abstraction did NOT force F2H1B's reconstruction —
+  the binding record states the cause was crossing two automation jobs with the second untested.
+- **Follow-ups recorded** in `docs/next-tasks.md`: the genuine weekly-schedule/rankings selector
+  duplication (token-identical modulo two renames, needing its own plan and tests); (i)
+  `resolveOperationalSeasonYear` laundering an unusable year through the clamp into one
+  `validateYear` accepts, displacing a real production year (F2H1R); (j) `season-rollover` reporting
+  `no-season-leagues` when the only `season` league is the excluded demo — the exact falsehood T2,
+  T3, and T4 each refused to ship, and the only one of the five sites with no exclusion-truth
+  channel (F2H2); (k) System Health and Data Maintenance now disagreeing on the default year, since
+  the repair link carries none and `/admin/data/cache` still defaults to the first `preseason`
+  league; plus the carried T4 items on demo rankings upkeep and the unreserved `test` slug, whose
+  fix is now known to need a demo bootstrap/recovery path as well.
+
+---
+
 ### PLATFORM-086F2H1T4 — Rankings Demo-League Exclusion — Complete
 
 - **Status:** Complete — merged to `main` via PR #450 (merge commit `27a6c37`), 2026-08-05.

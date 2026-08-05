@@ -78,7 +78,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   empty-registry fallback, and the no-`?year=` seam already existed and were NOT duplicated. Focused
   deltas: resolver 8 → 12, diagnostics page 3 → 4 (11 → 16). `npx tsc --noEmit`, `npm run lint:all`,
   `npm test`, `npm run build`, and `git diff --check` each run separately with unmasked exit status.
-- Status: Implemented — in review.
+- Status: MERGED via PR #451 (`6e881b5`), 2026-08-05.
 
 ### PLATFORM-086F2H1T4-RANKINGS-DEMO-EXCLUSION-v1
 
