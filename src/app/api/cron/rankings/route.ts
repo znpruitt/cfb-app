@@ -6,6 +6,7 @@ import { getLeagues } from '@/lib/leagueRegistry';
 import {
   loadRankingsPublicationContext,
   selectRankingsTargetYears,
+  type RankingsTargetSelection,
   type RankingsTargetYear,
 } from '@/lib/rankings/automaticContext';
 import {
@@ -41,12 +42,15 @@ export const dynamic = 'force-dynamic';
  * 22:00 UTC once provisioned per runbook §8j). The heartbeat is ONLY a trigger:
  * one invocation authenticates CRON_SECRET, applies the Rankings automation
  * gate (all rankings automation is noncritical and pausable), selects the
- * distinct `preseason`/`season` years cache-only from the league registry
- * (never the calendar), resolves each year's publication window cache-only
- * through the merged E2A classifier, durably claims each DUE window exactly
- * once (a completed window never spends quota again), gates each claimed year
- * on a FRESH CFBD `/info` probe against the rankings reserve (≥ 1,007), and
- * delegates the refresh to the merged E2A authority
+ * distinct `preseason`/`season` years cache-only from the PRODUCTION leagues in
+ * the registry (never the calendar; the demo league is manual-only and is
+ * excluded per league before it can contribute a year — PLATFORM-086F2H1T4, and
+ * a registry whose only active leagues are the demo reports
+ * `skipped / no-automatic-ranking-target`), resolves each year's publication
+ * window cache-only through the merged E2A classifier, durably claims each DUE
+ * window exactly once (a completed window never spends quota again), gates each
+ * claimed year on a FRESH CFBD `/info` probe against the rankings reserve
+ * (≥ 1,007), and delegates the refresh to the merged E2A authority
  * (`refreshSeasonRankings({trigger:'automatic'})`) sequentially in ascending
  * year order. The authority owns the lease, provider fetch pair, validation,
  * completeness gate, observation-ordered commit, memo, and provider-refresh
@@ -182,18 +186,36 @@ export async function GET(req: Request): Promise<Response> {
     }
 
     // Target selection — cache-only registry read; `preseason` + `season` years
-    // ascending (`season` owns a mixed year), never calendar-derived.
-    let targets: RankingsTargetYear[];
+    // ascending (`season` owns a mixed year), never calendar-derived. Ownership
+    // is PRODUCTION-only: the selector filters the demo league per league before
+    // it can contribute a year or a lifecycle (PLATFORM-086F2H1T4), and reports
+    // whether it did so.
+    //
+    // This read stays BEHIND the automation gate above. A paused demo-only
+    // invocation therefore keeps reporting `automation-paused-or-disabled` — the
+    // pause is the first cause that genuinely decided the run, and the exclusion
+    // has no consequence in that state. Ordering it the other way would also let
+    // a registry fault turn a deliberately paused run into a scheduler failure.
+    let selection: RankingsTargetSelection;
     try {
-      targets = selectRankingsTargetYears(await getLeagues());
+      selection = selectRankingsTargetYears(await getLeagues());
     } catch {
       exec.result = 'failure';
       exec.reason = 'registry-unavailable';
       return NextResponse.json({ result: exec.result, reason: exec.reason, years: [] });
     }
+    const targets = selection.years;
     if (targets.length === 0) {
       exec.result = 'skipped';
-      exec.reason = 'no-ranking-target';
+      // An active demo league that was filtered out is NOT "no eligible league".
+      // Saying `no-ranking-target` would be false on the operator's System Health
+      // row, exactly as F2H1T2 and F2H1T3 refused to reuse their own zero-target
+      // reasons. Top-level only: no per-year entry, publication context load,
+      // window claim, `/info` probe, provider request, or receipt target year is
+      // produced either way.
+      exec.reason = selection.excludedDemoCandidate
+        ? 'no-automatic-ranking-target'
+        : 'no-ranking-target';
       return NextResponse.json({ result: exec.result, reason: exec.reason, years: [] });
     }
 

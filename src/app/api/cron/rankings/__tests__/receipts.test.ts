@@ -5,7 +5,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import { GET } from '../route';
-import type { League } from '../../../../../lib/league.ts';
+import { TEST_LEAGUE_SLUG, type League } from '../../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -63,6 +63,18 @@ async function seedLeague(year: number, state: 'season' | 'preseason' = 'season'
   ]);
 }
 
+/** Seed the DEMO league (`TEST_LEAGUE_SLUG`) in an active lifecycle state. */
+async function seedDemoLeague(
+  year: number,
+  state: 'season' | 'preseason' = 'season'
+): Promise<void> {
+  const existing = (await getAppState<League[]>('leagues', 'registry'))?.value ?? [];
+  await setAppState('leagues', 'registry', [
+    ...existing,
+    makeLeague(TEST_LEAGUE_SLUG, { state, year }),
+  ]);
+}
+
 async function seedSchedule(year: number, firstKickoff: string): Promise<void> {
   await setAppState('schedule', `${year}-all-all`, {
     at: 1,
@@ -93,12 +105,30 @@ function usablePayload(year: number, school = 'Georgia'): unknown[] {
   ];
 }
 
+/**
+ * PLATFORM-086F2H1T4 — this suite previously had NO provider observer at all,
+ * so it could make no claim about provider spend. Two properties matter here:
+ *
+ *   1. Requests are recorded BEFORE parsing and BEFORE path branching, so an
+ *      unrecognized endpoint or an input shape the stub cannot parse is still
+ *      visible (both callers on this path swallow a stub throw).
+ *   2. The receipt's own `providerCallAttempted` field is NOT a substitute. It
+ *      reports rankings REFRESH attempts only, is hard-false on every inert
+ *      per-year entry, and is trivially false when there are no year entries at
+ *      all — so it stays false even after a real, billed `/info` quota probe.
+ */
+const providerUrlLog: string[] = [];
+const fetchLog: { info: number; rankings: string[] } = { info: 0, rankings: [] };
+
 function stubProvider(
   rankings?: Record<number, { regular: unknown[]; postseason: unknown[] }>
 ): void {
   globalThis.fetch = (async (input: URL | string | Request) => {
-    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    providerUrlLog.push(href);
+    const url = new URL(href);
     if (url.pathname === '/info') {
+      fetchLog.info += 1;
       return new Response(JSON.stringify({ remainingCalls: 4000, patronLevel: 1 }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
@@ -108,6 +138,7 @@ function stubProvider(
       const year = Number(url.searchParams.get('year'));
       const seasonType =
         url.searchParams.get('seasonType') === 'postseason' ? 'postseason' : 'regular';
+      fetchLog.rankings.push(`${year}:${seasonType}`);
       const body = rankings?.[year]?.[seasonType] ?? [];
       return new Response(JSON.stringify(body), {
         status: 200,
@@ -140,6 +171,9 @@ function request(auth: string | null = `Bearer ${CRON_SECRET}`): Request {
 }
 
 test.beforeEach(async () => {
+  providerUrlLog.length = 0;
+  fetchLog.info = 0;
+  fetchLog.rankings = [];
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
   __resetSeasonRankingsCacheForTests();
@@ -295,6 +329,105 @@ test('no credential canary leaks into the receipt', async (t) => {
   for (const marker of [CRON_MARKER, CFBD_MARKER, 'Georgia', 'authorization']) {
     assert.ok(!serialized.includes(marker), `receipt never leaks ${marker}`);
   }
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1T4 — demo-league exclusion, receipt projection
+// ---------------------------------------------------------------------------
+
+// POSITIVE CONTROL — this suite's observer is new; the zero-request assertions
+// below are only meaningful because it demonstrably records real traffic, every
+// `fetch` input shape, and endpoints the stub itself rejects.
+test('POSITIVE CONTROL: the receipt suite observer records real traffic and every input shape', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  await seedLeague(YEAR);
+  await seedSchedule(YEAR, FIRST_KICKOFF);
+  stubProvider({ [YEAR]: { regular: usablePayload(YEAR), postseason: [] } });
+
+  await GET(request());
+  assert.equal(fetchLog.info, 1, 'the real run made a quota probe');
+  assert.deepEqual(fetchLog.rankings.sort(), [`${YEAR}:postseason`, `${YEAR}:regular`]);
+  assert.equal(providerUrlLog.length, 3, 'the URL log saw the same three requests');
+  assert.ok(providerUrlLog.some((url) => url.includes(`year=${YEAR}`)));
+
+  // All three input shapes resolve to the same href. `Request` is the one a
+  // parse-then-record observer loses: `String(request)` is "[object Request]".
+  const probe = 'https://api.collegefootballdata.com/info?probe=1';
+  providerUrlLog.length = 0;
+  await globalThis.fetch(probe);
+  await globalThis.fetch(new URL(probe));
+  await globalThis.fetch(new Request(probe));
+  assert.deepEqual(providerUrlLog, [probe, probe, probe]);
+
+  // An unrecognized endpoint records even though the stub throws.
+  const unknown = 'https://api.collegefootballdata.com/teams?probe=1';
+  providerUrlLog.length = 0;
+  await assert.rejects(() => globalThis.fetch(unknown));
+  assert.deepEqual(providerUrlLog, [unknown]);
+});
+
+// REGRESSION TEST — a gates-open demo-only run with a DUE window. Without the
+// exclusion this fixture reaches `/info` and both rankings partitions and writes
+// the demo year into the receipt target.
+test('T4 regression: a demo-only run records the new reason, zero target years, and no request', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  await seedDemoLeague(YEAR);
+  await seedSchedule(YEAR, FIRST_KICKOFF);
+  stubProvider({ [YEAR]: { regular: usablePayload(YEAR), postseason: [] } });
+
+  const res = await GET(request());
+  assert.equal(res.status, 200);
+  assert.equal(eventLines[0]?.reason, 'no-automatic-ranking-target');
+
+  assert.equal(deferrer.count(), 1, 'an authenticated invocation still writes a receipt');
+  await deferrer.flush();
+  const stored = await readSchedulerReceipt('rankings');
+  assert.ok(stored);
+  assert.deepEqual(Object.keys(stored.value).slice().sort(), RECEIPT_KEYS);
+  assert.equal(stored.value.result, 'skipped');
+  assert.equal(stored.value.reason, 'no-automatic-ranking-target');
+  assert.equal(stored.value.providerCallAttempted, false);
+  assert.deepEqual(stored.value.target, {
+    kind: 'rankings-years',
+    totalYears: 0,
+    truncated: false,
+    years: [],
+  });
+  // The observed truth, independent of the receipt's self-report.
+  assert.deepEqual(providerUrlLog, []);
+  assert.equal(fetchLog.info + fetchLog.rankings.length, 0);
+  // No receipt or event ever names a league slug.
+  assert.ok(!JSON.stringify(stored.value).includes(TEST_LEAGUE_SLUG));
+});
+
+// REGRESSION TEST — a mixed registry projects only the production year into the
+// bounded receipt target.
+test('T4 regression: a mixed run stores only the production year in the receipt target', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  const DEMO_YEAR = 2033;
+  await seedDemoLeague(DEMO_YEAR, 'preseason');
+  await seedLeague(YEAR);
+  await seedSchedule(YEAR, FIRST_KICKOFF);
+  await seedSchedule(DEMO_YEAR, '2031-11-15T18:00:00.000Z');
+  stubProvider({
+    [YEAR]: { regular: usablePayload(YEAR), postseason: [] },
+    [DEMO_YEAR]: { regular: usablePayload(DEMO_YEAR, 'Michigan'), postseason: [] },
+  });
+
+  await GET(request());
+  await deferrer.flush();
+  const stored = await readSchedulerReceipt('rankings');
+  assert.ok(stored);
+  assert.equal(stored.value.result, 'success');
+  assert.equal(stored.value.providerCallAttempted, true);
+  assert.deepEqual(stored.value.target, {
+    kind: 'rankings-years',
+    totalYears: 1,
+    truncated: false,
+    years: [{ year: YEAR, publicationWindow: 'weekly-ap-coaches' }],
+  });
+  assert.deepEqual(fetchLog.rankings.sort(), [`${YEAR}:postseason`, `${YEAR}:regular`]);
+  assert.ok(!providerUrlLog.some((url) => url.includes(`year=${DEMO_YEAR}`)));
 });
 
 // The route is fully guarded after authentication (settings, registry, context,

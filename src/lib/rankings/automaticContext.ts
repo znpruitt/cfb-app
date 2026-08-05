@@ -4,9 +4,13 @@
  *
  * Target years come ONLY from the durable league registry (`preseason` and
  * `season` lifecycle states, grouped by `status.year`, ascending; any `season`
- * league owns a mixed year) — never from the calendar and never from
- * `league.year`. For each target year this module loads the cache-only context
- * the merged E2A publication-window classifier consumes: the earliest valid
+ * PRODUCTION league owns a mixed year) — never from the calendar and never from
+ * `league.year`. PLATFORM-086F2H1T4 made ownership production-only: the demo
+ * league is manual-only for automatic rankings publication and is excluded
+ * before it can contribute a target year.
+ *
+ * For each target year this module loads the cache-only context the merged E2A
+ * publication-window classifier consumes: the earliest valid
  * canonical schedule kickoff, the structured CFP national-championship kickoff
  * (through the existing E1A resolver — no text inference is reproduced here),
  * and which poll sources already have usable cached rankings data.
@@ -22,7 +26,7 @@
  *   - ABSENT rankings are valid absence — all three poll flags false.
  */
 
-import type { League } from '../league.ts';
+import { TEST_LEAGUE_SLUG, type League } from '../league.ts';
 import type { ScheduleWireItem } from '../schedule.ts';
 import { resolveStructuredChampionshipItem } from '../schedule/nationalChampionshipRollover.ts';
 import { getAppState } from '../server/appStateStore.ts';
@@ -37,24 +41,74 @@ export type RankingsTargetYear = {
 };
 
 /**
+ * The closed result of target selection: the production-owned target years plus
+ * the one fact the caller cannot re-derive from them — whether an otherwise
+ * eligible demo target was excluded. Both are produced by the SAME loop, so a
+ * caller can never observe years without the exclusion truth that shaped them.
+ */
+export type RankingsTargetSelection = {
+  years: RankingsTargetYear[];
+  /** True when an ACTIVE demo league was excluded from selection. */
+  excludedDemoCandidate: boolean;
+};
+
+/**
  * Select the distinct target years from the league registry: `preseason` and
  * `season` states only (`offseason` excluded), keyed by `status.year`,
  * ascending. A year with both lifecycle states resolves to `season`. Pure —
  * the caller owns the registry read (and its failure handling).
+ *
+ * PLATFORM-086F2H1T4 — the demo league is MANUAL-ONLY for automatic rankings
+ * publication, so ownership resolves from PRODUCTION leagues alone.
+ *
+ * `TEST_LEAGUE_SLUG` is filtered PER LEAGUE, inside this loop, before the league
+ * can contribute year membership or lifecycle precedence. It cannot be filtered
+ * against the returned `years`: that would drop an entire year a PRODUCTION
+ * league also occupies, removing its automatic publication — a worse regression
+ * than the one this fixes.
+ *
+ * Unlike PLATFORM-086F2H1T3 this is NOT an owner-selector correction with
+ * behavioral weight. `season` still outranks `preseason` for a shared year, so a
+ * demo league in `season(Y)` did previously determine the reported lifecycle of a
+ * year whose only production leagues are in `preseason(Y)` — but
+ * `RankingsPublicationContext.lifecycle` is inert (see `publicationPolicy.ts`:
+ * no window branches on it, and the publication key omits it), so that direction
+ * is a REPORTING-truth fix only: no window decision, publication key, quota
+ * gate, provider request, or durable write changes. The per-league placement is
+ * required by target survival, not by lifecycle resolution.
+ *
+ * The exclusion flag is derived from `slug` and `status.state` ONLY — never from
+ * `status.year` — so an unvalidated legacy year (F2H1R) can never flip the
+ * caller's zero-target reason.
  */
-export function selectRankingsTargetYears(leagues: readonly League[]): RankingsTargetYear[] {
+export function selectRankingsTargetYears(leagues: readonly League[]): RankingsTargetSelection {
   const lifecycleByYear = new Map<number, RankingsTargetLifecycle>();
+  let excludedDemoCandidate = false;
   for (const league of leagues) {
     const status = league.status;
+    const isActive = status?.state === 'season' || status?.state === 'preseason';
+
+    // An `offseason` (or status-less) demo record is not an excluded CANDIDATE —
+    // it was never eligible. Setting the flag on the slug alone would make every
+    // empty-target run report the demo reason and leave `no-ranking-target`
+    // unreachable, which is exactly the falsehood this slice exists to avoid.
+    if (isActive && league.slug === TEST_LEAGUE_SLUG) {
+      excludedDemoCandidate = true;
+      continue;
+    }
+
     if (status?.state === 'season') {
       lifecycleByYear.set(status.year, 'season');
     } else if (status?.state === 'preseason' && lifecycleByYear.get(status.year) !== 'season') {
       lifecycleByYear.set(status.year, 'preseason');
     }
   }
-  return [...lifecycleByYear.entries()]
-    .map(([year, lifecycle]) => ({ year, lifecycle }))
-    .sort((a, b) => a.year - b.year);
+  return {
+    years: [...lifecycleByYear.entries()]
+      .map(([year, lifecycle]) => ({ year, lifecycle }))
+      .sort((a, b) => a.year - b.year),
+    excludedDemoCandidate,
+  };
 }
 
 export type RankingsPublicationContextResult =
