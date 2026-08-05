@@ -1947,6 +1947,44 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### DOCS-013 — Binding Execution Boundaries — Complete
+
+- **Status:** Complete — merged to `main` via PR #444 (merge commit `2b09e82`, 2026-08-04).
+  Documentation-only; five files (`AGENTS.md`, `CLAUDE.md`, and three ledger/index documents).
+- **PROMPT_ID(s):** `DOCS-013-EXECUTION-BOUNDARIES-v1`.
+- **Outcome:** The boundaries that repeated F2H failures exposed are now binding and discoverable in
+  one place instead of re-derived per prompt. `AGENTS.md` gains three sections. **Review and
+  remediation limits** replaces the fixed three-round convergence loop with an ADAPTIVE limit,
+  because repeated rounds were the mechanism by which remediations introduced their own defects:
+  both reviews are gathered against the SAME commit before anything is patched; every finding is
+  evaluated for reachability and attribution before being accepted or dismissed (refuting with
+  evidence is a valid outcome); at most ONE normal cohesive remediation round runs; a second
+  requires explicit user approval and only for a defect directly caused by the first; after that
+  there is no further patching. The same section prescribes **reconstruction over accumulation** —
+  when a branch has taken two rounds and still yields credible findings, or review shows the scope
+  itself was wrong, abandon it and rebuild from clean `main` by re-deriving rather than
+  cherry-picking, since the stopped history carries the defects that stopped it. **Scope and
+  sizing** absorbs the binding PR-sizing rule from `next-tasks.md` and adds that every surface a PR
+  touches must carry its own tests — an untested widened scope is a scope violation, not a test
+  gap, and if deleting a new guard leaves the suite green the guard is not in the acceptance
+  contract. **Verification** requires each gate to run as its own command with an unmasked exit
+  status, binds results to an exact commit with a clean worktree, requires a regression to be
+  verified failing against its own pre-fix code one fix at a time, and replaces raw suite totals
+  with test deltas mapped to the risk each protects.
+- **Other ledgers:** `CLAUDE.md` reduced from 183 to 127 lines — a pointer table plus
+  Claude-specific invocation guidance only (which review command Claude can start, the single-test
+  env vars, the bracketed-path glob trap), stating explicitly that it is not a source of truth.
+  `next-tasks.md` keeps campaign sequencing and gains an explicit five-condition F2 exit definition
+  so completion is not inferred from slice count. `docs/README.md` ownership rows updated.
+- **Named failure cases recorded:** `PLATFORM-086A` (77 files / ~12k lines);
+  `PLATFORM-086F2H1B` v1 (two automation jobs, the second shipped untested);
+  `PLATFORM-086F2H1T1` v1 (two remediation rounds, a false claim in a commit message, and a
+  client-feedback layer that could not work in production).
+- **Verification:** `npm run lint:all` and `git diff --check`, each run as its own command, both
+  exit 0. No code, tests, or behavior changed, so the suite and build were not re-run.
+
+---
+
 ### DOCS-012 — Current-Ledger Deconfliction + Ledger-Ownership Governance — Complete
 
 - **Status:** Complete — merged to `main` via PR #429 (merge commit `ea4fa60`, 2026-07-30).

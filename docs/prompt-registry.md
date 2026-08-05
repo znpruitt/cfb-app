@@ -545,7 +545,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   be verified failing against their own pre-fix code. Test accounting reports deltas and the risk
   each protects rather than a raw suite total.
 - Review / verification: `npm run lint:all` and `git diff --check`, each as its own command.
-- Status: **Implemented; in final pre-merge review. Not merged.**
+- Status: **✅ MERGED to `main` via PR #444 (merge commit `2b09e82`), 2026-08-04.**
 
 ### DOCS-012-CURRENT-LEDGER-DECONFLICTION-v2
 
