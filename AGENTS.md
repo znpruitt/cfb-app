@@ -247,7 +247,7 @@ When practical, verify key runtime flows still behave:
 1. **The full `npm test` suite is a valid verification gate; scoped suites are the fast path.**
    - The historical Overview-related full-suite hang was fixed under the `TEST-SUITE-BASELINE-CLEANUP` arc (`--test-timeout` + baseline cleanup + per-process app-state isolation), so `npm test` now runs deterministically to completion. Do not repeat the old "the full suite hangs / gives no signal" warning.
    - For tightly-scoped changes, running only the relevant test files plus selector tests in `src/lib/selectors/__tests__/` is still the quickest way to iterate.
-   - Confirm the relevant suite count holds or grows; the historical "71-failure" full-suite baseline is obsolete — do not compare against it.
+   - Report the TEST DELTA and the risk each new test protects, not a raw suite total — see **Verification → Test accounting**. The historical "71-failure" full-suite baseline is obsolete; do not compare against it.
 
 2. **Visual references must exist at the path a prompt references.**
    - Mockups (HTML/PNG) belong in `mockups/`; design specs (markdown) belong in `docs/`.
@@ -271,23 +271,60 @@ Be explicit and accurate.
 
 ---
 
-## Automatic review/remediation convergence
+## Review and remediation limits (binding)
 
-Implementation prompts should normally automate the review/remediation cycle instead of requiring the user to relay each review result. Unless a prompt explicitly opts out for trivial or documentation-only work, use this sequence:
+Implementation prompts automate the review cycle instead of relaying each result through the user. The limit is **adaptive, not a fixed round count** — repeated rounds were the mechanism by which remediations introduced their own defects.
 
-1. The implementer completes the scoped work and verification, then runs one self-review.
-2. An independent Codex review examines the complete implementation diff.
-3. The implementer evaluates every finding before changing code; a reviewer label alone does not make a finding actionable.
-4. After accepted remediations, Codex reviews the complete final diff again. Repeat only when the preceding round produced an accepted remediation; do not rerun an unchanged diff merely to seek a literal “clean” verdict.
+1. Complete the scoped work and its verification, then run one self-review.
+2. Gather **both** independent reviews — Codex and `/code-review` — against the **same commit**, before changing anything. Do not remediate one reviewer's findings while the other is still running: an early patch invalidates the second review's target.
+3. Evaluate every finding against the code before accepting or dismissing it. Establish **reachability** (can real inputs reach it, or does a guard upstream stop them?) and **attribution** (`git show <base>:<file>` — new in this diff, or pre-existing?). A severity label is not evidence. Refuting a finding with evidence is a valid, expected outcome.
+4. Apply **at most one normal cohesive remediation round**, covering the accepted findings together.
+5. Run one confirming pass of each reviewer against the remediated commit.
+6. **A second remediation round requires explicit user approval**, and only for a narrow defect **directly caused by** the first round. Anything else — a newly surfaced pre-existing issue, a broader design concern, an accumulation of P3s — is a follow-up, not a second round.
+7. After that, **no further patching**. Report the finding, evidence, impact, and a recommendation, and stop. Do not claim convergence.
 
-The convergence gate is evidence- and scope-based:
+**Reconstruction over accumulation.** When a branch has taken two remediation rounds and still yields credible findings, or when review shows the scope itself was wrong (crossing automation jobs, shipping an untested second surface), **abandon the branch and rebuild the settled behavior from clean `main`** rather than patching further. Reconstruct by re-deriving, not by cherry-picking the stopped commits — the stopped history carries the defects that stopped it. Record the abandoned attempt as superseded/unimplemented and the replacement as the execution record. Named failure case: `PLATFORM-086F2H1T1` v1 (two remediation rounds, a false claim in a commit message, and a client-feedback layer that could not work in production).
 
-- Fix findings attributable to the current change that are P0/P1, or that concretely demonstrate an acceptance-contract, binding-invariant, security, data-integrity, or user-visible behavioral regression.
-- Fix remediation-caused regressions under the same standard.
-- Defer P3/nits, speculative hardening without a reachable failure, unrelated or pre-existing findings, and changes that would materially expand the approved scope. Record meaningful deferrals in the appropriate active queue; do not silently discard them.
-- A literal reviewer verdict of “clean” is not required. Review is resolved when no actionable in-scope findings remain.
+**What resolves review:** no credible in-scope P0/P1/P2 remains. A literal "clean" verdict is not required. P3s and unrelated or pre-existing findings become tracked follow-ups; do not silently discard them.
 
-Up to three independent Codex review/remediation cycles may run automatically. The loop may converge earlier whenever no actionable findings remain. After the third Codex review, stop automatic remediation: any credible P0, P1, or P2 findings require user evaluation before more code changes or another review round. Present the finding, evidence, impact, and a fix/defer recommendation; do not treat the severity label alone as proof. P3/nits and other non-actionable findings remain follow-ups and do not require an additional round. Any work beyond round three requires explicit user authorization. Documentation closeout begins only after review converges or the user resolves the post-round-three evaluation.
+---
+
+## Scope and sizing (binding)
+
+Applies to all campaign work.
+
+The goal is a correctly sized, cohesive PR: **one cohesive objective with a clear acceptance contract, independently reviewable, verifiable, deployable, and revertible.**
+
+**Stop-and-reassess signals** (not hard limits): more than 15 changed files, or more than 1,500 net changed lines excluding lockfiles and generated data → stop, explain in the PR what expanded and why, then split or obtain explicit approval. Record the approval and the actual diffstat in the registry entry.
+
+**A planning split is MANDATORY before implementation** when work crosses distinct provider families, **separate automation jobs**, substantial independent UI surfaces, or components shipping on different schedules. Related fixes may stay together when they share one provider family or one end-to-end behavior. Artificial one-finding-per-PR fragmentation is the opposite failure mode.
+
+Never bundle live scores with Odds. Never fold information-architecture work into correctness or automation PRs. No opportunistic architecture cleanup outside the acceptance contract. Unrelated review findings become separately tracked follow-ups.
+
+**Every surface a PR touches must carry its own tests.** Widening scope to a second module or job and shipping it without route-level coverage is a scope violation in itself, not merely a test gap — if deleting the new guard leaves the suite green, the guard is not in the PR's acceptance contract. Named failure cases: `PLATFORM-086A` (77 files / ~12k lines); `PLATFORM-086F2H1B` v1 (two automation jobs, second one untested).
+
+---
+
+## Verification (binding)
+
+**Every gate runs as its own shell command, and its real exit code is reported.** Never behind a pipe, `grep`, `tail`, or a chained command whose status can be masked — a pipeline's exit status is the last command's, and `PIPESTATUS` is bash syntax that is empty under zsh. For noisy commands redirect to a file and echo `$?` on its own line, then inspect the log separately.
+
+**Verification binds to an exact commit.** Report the SHA the gates ran against, and confirm the worktree was clean and `HEAD` unchanged at that moment. Results never carry forward across a commit: after any change to the tree, re-run every required gate against the new commit before reporting.
+
+**A regression test must be verified failing against its own pre-fix code**, reverting one fix at a time. A multi-fix revert that breaks compilation fails the whole file and proves nothing. State explicitly that this was done. A test whose stated discriminating property is false is worse than no test.
+
+### Test accounting
+
+Report **test deltas and the risk each protects** — not a raw full-suite total. A full-suite count is a smoke signal, not evidence that the change is covered.
+
+| Report | Not |
+| --- | --- |
+| Tests added / replaced / removed, by name or intent | "3240 tests pass" alone |
+| The acceptance risk each new test protects | The focused-suite total by itself |
+| Which existing assertions were retargeted, and that none were weakened | "Updated the affected tests" |
+| Focused-suite result **and** full-suite result, distinguished | One number standing for both |
+
+When a test is retargeted because an API was retired, preserve every assertion and say so. Weakening an assertion to accommodate a deletion is a silent coverage loss.
 
 ---
 

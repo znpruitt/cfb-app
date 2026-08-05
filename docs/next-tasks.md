@@ -198,19 +198,24 @@ Execution order within F2 (each slice is one independently deployable PR):
 
 The legacy diagnostics tools remain available and unmoved until the corresponding slice ships.
 
-**Binding PR-sizing rule (applies to 086F2 and all future campaign work):** the goal is correctly
-sized, cohesive PRs — one cohesive objective with a clear acceptance contract, independently
-reviewable, verifiable, deployable, and revertible. Stop-and-reassess signals (not hard limits):
-more than 15 changed files or more than 1,500 net changed lines (excluding lockfiles/generated
-data) → stop, explain what expanded, then split or obtain explicit approval. Related fixes MAY stay
-together when they share one provider family or end-to-end behavior; split work that crosses
-distinct provider families, separate automation jobs, substantial independent UI surfaces, or
-components shipping on different schedules — a planning split is mandatory before implementation
-in those cases, and artificial one-finding-per-PR fragmentation is the opposite failure mode. Never
-bundle live scores with Odds; never fold diagnostics information-architecture work into correctness
-or automation PRs; no opportunistic architecture cleanup outside the acceptance contract;
-documentation is updated near the end of implementation; unrelated review findings become
-separately tracked follow-ups. Named failure case: PLATFORM-086A (77 files / ~12k lines).
+**PR sizing, review limits, verification, and reconstruction are binding rules in
+[`AGENTS.md`](../AGENTS.md)** — see **Scope and sizing**, **Review and remediation limits**, and
+**Verification**. They are not restated here; this file owns campaign sequencing and status only
+(DOCS-012 ledger ownership, extended by DOCS-013).
+
+**F2 exit condition.** The 086F2 admin control-plane campaign is complete when ALL of the following
+hold, and not before:
+
+1. Every slice F2A–F2J is either merged or explicitly retired with a recorded reason.
+2. No admin surface still reads or mutates lifecycle, provider, or scheduler state through a path
+   that bypasses its guarded authority.
+3. Every automatic job's target selection is covered by route-level tests — deleting a targeting
+   guard must fail the suite.
+4. The System Health operational season is derived from production lifecycle state alone.
+5. Every deferral this campaign opened is either closed or recorded in the canonical deferrals
+   section below with an owner slice.
+
+Until all five hold, F2 remains open regardless of how many slices have merged.
 
 ### Provider campaign (PLATFORM-086) — completed record
 

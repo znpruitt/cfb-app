@@ -1,155 +1,105 @@
 # CLAUDE.md
 
 Status: Current
-Last verified: 2026-07-27
+Last verified: 2026-08-04
 Owner: Project documentation
-Canonical for: Claude-specific workflow guidance and prompt-handoff expectations; points back to AGENTS.md/DESIGN.md and does not supersede or override them
+Canonical for: Claude-specific invocation guidance only — how to drive this repo's tooling. It states NO binding rules of its own.
 Supersedes: docs/archive/governance/cfb-engineering-operating-instructions.md (Claude-workflow portion; jointly with AGENTS.md, which is canonical for the binding rules)
 
-Claude Code-specific companion to `AGENTS.md`. Read `AGENTS.md` first — this file adds Claude-specific context only and does not restate shared project operating content.
+Claude Code companion to `AGENTS.md`. **Read `AGENTS.md` first.**
 
-> **Doc authority (source of truth):** `AGENTS.md` = code architecture + agent operating rules (canonical). `DESIGN.md` = UI/UX + design system (canonical). `CLAUDE.md` (this file) = Claude-specific working guidance, which **points to** those two rather than restating them. If anything here duplicates and drifts from `AGENTS.md`/`DESIGN.md`, those win — fix the pointer here. [`docs/README.md`](docs/README.md) is the full documentation map and per-doc ownership index.
+> **This file is not a source of truth.** DOCS-013 reduced it to invocation guidance. Every binding
+> rule — scope and sizing, review and remediation limits, verification, reconstruction, lifecycle and
+> standings and auth invariants, documentation closeout — lives in `AGENTS.md`. `DESIGN.md` is
+> canonical for UI/UX. If anything here appears to state a rule, `AGENTS.md` wins and this file is
+> the bug. [`docs/README.md`](docs/README.md) is the full documentation map.
+
+---
+
+## Where the rules live
+
+| Need | Read |
+| --- | --- |
+| How big a PR may be; when a split is mandatory | `AGENTS.md` → **Scope and sizing** |
+| How many remediation rounds; when to stop; when to reconstruct | `AGENTS.md` → **Review and remediation limits** |
+| How to run gates and report results; test accounting | `AGENTS.md` → **Verification** |
+| Lifecycle / standings / ownership / auth invariants | `AGENTS.md` → the **Invariants** sections |
+| When documentation is finalized; which ledger owns what | `AGENTS.md` → **Documentation closeout timing** |
+| UI and design decisions | `DESIGN.md` |
+| What is queued next, and campaign status | `docs/next-tasks.md` |
+| Which prompt IDs exist | `docs/prompt-registry.md` |
+| Doc ownership map | `docs/README.md` |
 
 ---
 
 ## Role on this project
 
-Roles are assigned **per task by the prompt**, not fixed by tool. Claude may plan, implement, remediate, diagnose, or review depending on what the prompt asks. Codex commonly provides independent read-only review of Claude's work (and can also take scoped implementation), but either system can receive scoped work of any kind.
-
-Whatever the assigned role, Claude is expected to:
-
-- diagnose accurately and flag architectural inconsistencies
-- keep changes within the prompt's stated scope
-- follow the prompt/response and commit conventions in the docs below
-- report outcomes honestly, preserving known unresolved risks as unresolved
-
----
-
-## Canonical doc pointers
-
-Full map + per-doc ownership and lifecycle status: [`docs/README.md`](docs/README.md). The Claude-relevant subset:
-
-| Doc                                                                 | Purpose                                                                                                                                 |
-| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `docs/README.md`                                                    | Documentation map — which doc owns what (start here when unsure)                                                                        |
-| `AGENTS.md`                                                         | Project operating instructions (shared across all AI coders)                                                                            |
-| `docs/archive/governance/cfb-engineering-operating-instructions.md` | _Historical / superseded_ — original prompt-governance model; archived, retained for context, does not override `AGENTS.md`/`CLAUDE.md` |
-| `docs/next-tasks.md`                                                | Active task queue and current phase focus                                                                                               |
-| `docs/prompt-registry.md`                                           | Prompt ID registry — check before assigning new IDs                                                                                     |
-| `docs/completed-work.md`                                            | Append-only milestone log                                                                                                               |
-| `DESIGN.md`                                                         | UI/UX design principles — read before any UI work                                                                                       |
-| `docs/roadmap.md`                                                   | Campaign definitions and development philosophy                                                                                         |
-| `docs/deployment-runbook.md`                                        | Hosted deployment checklist                                                                                                             |
-
----
+Roles are assigned **per task by the prompt**, not fixed by tool. Claude may plan, implement,
+remediate, diagnose, or review; Codex commonly provides independent read-only review and can also
+take scoped implementation. Whatever the assigned role, diagnose accurately, keep changes within the
+prompt's stated scope, and report outcomes honestly — preserving known unresolved risks as
+unresolved.
 
 ## Interaction preferences
 
-(Originally from the now-historical `docs/archive/governance/cfb-engineering-operating-instructions.md`; these preferences remain current.)
-
-- Concise, technically precise, professional but direct.
-- No engagement bait, artificial hooks, or teasing.
-- State insights and improvements immediately — do not withhold them.
-- Proactively recommend better approaches when visible.
+- Concise, technically precise, professional, direct.
+- No engagement bait or teasing. State insights and improvements immediately.
+- Proactively recommend better approaches when visible; flag conflicts with `AGENTS.md` explicitly
+  before proceeding rather than resolving them silently.
 
 ---
 
-## Prompt generation responsibility
+## Invoking the review tools
 
-Every Codex prompt Claude produces must:
+- `/code-review` is **user-invocable only** in this environment — Claude cannot call it. When a
+  workflow requires it, run everything else, then stop and ask the user to invoke it against the
+  exact commit. Report the limitation; never substitute a self-review and call it the same thing.
+- `/codex:review` can be started by Claude in the background.
+- Both reviews must run against the **same commit**, and both must be gathered before any
+  remediation — see `AGENTS.md` → **Review and remediation limits**.
 
-1. Begin with the standard header (the binding rule lives in `AGENTS.md` → prompt governance):
+## Prompt headers
 
-   ```text
-   PROMPT_ID: <CAMPAIGN>-<###>-<SHORT_NAME>-v<version>
-   PURPOSE: <1–2 sentences>
-   SCOPE: <files/modules + constraints>
-   ```
+Every generated prompt begins with:
 
-   Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`, `DOCS` (documentation/governance). Split/multi-part tasks may use a lettered sub-sequence (e.g. `PLATFORM-079a`/`079b`, `DOCS-002A`/`002B`/`002C`).
-   Example: `INSIGHTS-001-OWNER-AGGREGATION-v1`, `DRAFT-001-SLOW-MODE-v1`.
-   Existing `P{n}` prompt IDs (e.g. `P7B-GAME-STATS-PIPELINE-A`) are grandfathered — do not renumber them.
+```text
+PROMPT_ID: <CAMPAIGN>-<###>-<SHORT_NAME>-v<version>
+PURPOSE: <1–2 sentences>
+SCOPE: <files/modules + constraints>
+```
 
-2. Include a **Final Response Requirement** section (Section 3.11) that restates the expected `PROMPT_ID` first-line and required response structure.
-3. Be registered in `docs/prompt-registry.md` as part of the **pre-merge documentation closeout** — finalized after implementation and independent review/remediation are complete, immediately before merge, so the entry describes actual final behavior (see `AGENTS.md` → "Documentation closeout timing", the binding rule). Do not mark work complete in the registry while review findings remain open.
+Campaign prefixes: `INSIGHTS`, `DRAFT`, `PLATFORM`, `POLISH`, `DOCS`. Split work may use a lettered
+sub-sequence (`PLATFORM-079a`/`079b`). Existing `P{n}` IDs are grandfathered — do not renumber.
+Check `docs/prompt-registry.md` for collisions before assigning an ID; the registry entry itself is
+written during the pre-merge documentation closeout, not before.
 
-Check `docs/prompt-registry.md` for related existing prompts before assigning a new ID.
-
----
-
-## Automatic implementation review workflow
-
-Every implementation prompt should include the automatic review/remediation workflow defined canonically in `AGENTS.md` → “Automatic review/remediation convergence,” unless the prompt explicitly opts out for trivial or documentation-only work.
-
-Claude should carry out the workflow without requiring the user to shuttle findings between tools:
-
-1. Finish the implementation and scoped verification.
-2. Run Claude's `/code-review` once as a self-review and remediate findings that pass the `AGENTS.md` convergence gate.
-3. Start `/codex:review` against the complete diff (Codex round 1).
-4. Evaluate each finding against the acceptance contract, binding invariants, reachability, attribution to the current diff, and remediation scope. Remediate only actionable findings.
-5. When round 1 produced accepted remediation, start `/codex:review` again against the complete final diff (Codex round 2). Close review immediately if no actionable findings remain; the reviewer need not return the literal word “clean.”
-6. When round 2 produced accepted remediation, start `/codex:review` against the complete final diff once more (Codex round 3). Do not run the next round against an unchanged diff.
-7. After round 3, stop automatic remediation. Present any credible P0/P1/P2 findings to the user with evidence, impact, and a fix/defer recommendation, and wait for the user to decide whether another remediation/review cycle is warranted. Additional rounds require explicit user authorization.
-
-If round 3 has no credible P0/P1/P2 finding, record meaningful non-blockers as follow-ups and proceed to the pre-merge documentation closeout. Do not repeatedly rerun Claude's self-review after each Codex round, and do not let P3/nits, speculative edge-case hardening, unrelated findings, or disproportionate scope expansion keep the implementation loop open.
-
-If `/code-review` or `/codex:review` is unavailable in the active environment, report that limitation clearly rather than pretending the corresponding review occurred.
+Before any UI work, read `DESIGN.md`.
 
 ---
 
-## Design principles
+## Commands
 
-Before implementing any UI work, read `DESIGN.md` at the project root. All UI decisions must be consistent with the established design principles.
-
----
-
-## Architectural guardrails
-
-The **binding, canonical** guardrails live in `AGENTS.md` — its **Core rules**, **Standings Ownership Invariants**, **Auth Architecture Invariants**, and **Season Launch Hardening Invariants**. Read the relevant sections there before generating or implementing prompts that touch schedule/identity, standings, ownership, the draft, auth, or the insights engine. Prefer pointing at `AGENTS.md` over re-deriving its rules here.
-
-The list below is a **deliberate minimal echo** of the few invariants worth keeping in front of Claude for day-to-day implementation safety — not a second source of truth. `AGENTS.md` states each one authoritatively; if this echo and `AGENTS.md` ever disagree, `AGENTS.md` wins and this echo is the bug. Kept short precisely so it rarely needs to change; detail (e.g. exact deferred-module lists) is pointed at, not copied.
-
-- **Schedule/canonical games are the source of truth.** Scores, odds, ownership, standings, archive, insights, and UI attach to schedule-derived canonical `AppGame`s — no parallel game-identity construction.
-- **Team identity resolution goes through `src/lib/teamIdentity.ts`** — no duplicate/raw-label matching elsewhere. (Roster fuzzy matching stays in the CSV upload layer only.)
-- **Current-season ownership attribution flows through `src/lib/gameOwnership.ts`** — no duplicated ownership-resolution logic or raw provider-label owner equality on current-season paths. Two _separate_ known deferrals exist (do not conflate): normalized ownership-**key** indexing (`PLATFORM-040`) and the historical/archive surfaces that still raw-label match. Both are known, not fresh violations — see `AGENTS.md` Core rule #11 for the authoritative deferral list and exact modules.
-- **League password access is separate from Clerk/admin authorization.** Clerk provides identity + app roles; the league password gate (`LEAGUE_AUTH_SECRET`) only unlocks a passworded league's pages and grants no role. See `AGENTS.md` → Auth Architecture Invariants and `docs/deployment-runbook.md`.
-- **CSV is not the default current-season ownership path** — draft/team-assignment is; current-season CSV import is explicit admin repair. CSV is never a game-identity source. (See `AGENTS.md` Core rule on CSV — honest transitional state noted there.)
-
-If a proposed solution conflicts with any `AGENTS.md` guardrail, flag it explicitly before proceeding. Quota discipline (CFBD Tier 1 5,000 calls/mo, Odds ~500 credits/mo, cache-first) and admin-only refresh of season-persistent data also remain binding — see `AGENTS.md`.
-
----
-
-## Common commands
-
-- `npm run dev` — start Next.js dev server (localhost:3000)
+- `npm run dev` — Next.js dev server (localhost:3000)
 - `npm run build` — production build
-- `npm run lint` — fast scoped ESLint + Prettier (skips tests/data); use during local iteration only
-- `npm run lint:all` — full-project lint including test files; **always run this before pushing** — it is what Vercel runs, and `npm run lint` will miss violations in test files
-- `npm run lint:fix` — auto-fix on the fast scope
+- `npm run lint` — fast scoped lint (skips tests/data); local iteration only
+- `npm run lint:all` — **the pre-merge gate.** Full-project ESLint + Prettier + markdownlint; this
+  is what Vercel runs, and `npm run lint` misses violations in test files
 - `npx tsc --noEmit` — type-check
-- `npm test` — full test suite via `node:test` + `tsx` loader; tests live in `src/**/__tests__/`
-- Run a single test: `node --import tsx --test src/path/to/__tests__/file.test.ts`
+- `npm test` — full suite (`node:test` + `tsx`); tests live in `src/**/__tests__/`
+- Single test file: `APP_STATE_TEST_ISOLATION=1 TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx --test <path>`
+  — the env vars matter; `npm test` sets them, and omitting `APP_STATE_TEST_ISOLATION` lets suites
+  share a durable store. For paths containing `[brackets]`, use a `**` traversal glob
+  (`'src/app/admin/**/__tests__/*.test.ts'`) — a quoted bracketed path is read as a glob character
+  class and silently matches nothing.
 - `npm run fetch:teams` — regenerate `src/data/teams.json` from CFBD
 
-There is no Vitest/Jest config — test runner is Node's built-in. There is no CI workflow checked in; `npm run lint:all` is the intended pre-merge gate.
-
-**Full `npm test` is now a valid gate.** The historical Overview-related hang was fixed under the `TEST-SUITE-BASELINE-CLEANUP` arc, so the full suite runs deterministically to completion. Running only the scoped test files relevant to your change (plus selector tests in `src/lib/selectors/__tests__/`) is still the quickest way to iterate. See `AGENTS.md` → "Verification and reference conventions" for the full convention.
-
----
-
-## Architecture at a glance
-
-The canonical architecture map (runtime flow, module catalog, selectors, invariants) lives in `AGENTS.md` → **Architecture overview** and `docs/CFB_APP_ARCHITECTURE.md`. Read those rather than a duplicate here. The orientation Claude needs before diagnosing:
-
-- Upstream → downstream flow: CFBD → schedule normalization + identity resolution (`teamIdentity.ts`) → canonical game model (`AppGame`) → score/odds attachment → durable game-stat evidence evaluation/projection against canonical games → ownership/standings/server-derived summaries → client selectors/state → UI. The team-identity step runs _inside_ `buildScheduleFromApi`, not as a later pass; scores/odds attach onto the `AppGame`, while game-stat evidence is projected against canonical games (not inline `AppGame` fields) and never creates a parallel identity. Diagnose in that order (see Debugging order below).
-- `getCanonicalStandings` (`src/lib/selectors/leagueStandings.ts`) is the standings source of truth; `LiveDelta` is a client-only overlay never merged with canonical at render time.
-- `src/lib/selectors/` is the home for cross-surface derived view models. On the client, canonical standings (`getCanonicalStandings` in `src/lib/selectors/leagueStandings.ts`) are the single source for standings/owner data — the PLATFORM-079 client-side `deriveStandings` fallback in `CFBScheduleApp.tsx` has been retired (the component now sources directly from `canonicalStandings`; `LiveDelta` remains the only client overlay). The lower-level derivation helpers (`deriveStandings`/`deriveStandingsCoverage`/`deriveStandingsHistory` in `src/lib/standings.ts` and `standingsHistory.ts`) still exist and are legitimately called _inside_ the canonical selector boundary — that is the canonical-selector-boundary vs. helpers-within-it distinction, not a parallel client derivation.
+No Vitest/Jest. No CI workflow is checked in; `npm run lint:all` is the intended pre-merge gate.
 
 ---
 
 ## Debugging order
 
-Always diagnose upstream-first:
+Always diagnose upstream-first — never start at the UI when an upstream layer may be wrong:
 
 ```text
 1. API response
@@ -159,25 +109,19 @@ Always diagnose upstream-first:
 5. UI
 ```
 
-Never start at the UI when an upstream layer may be wrong.
-
----
-
-## Campaign and task awareness
-
-- Check `AGENTS.md` and `docs/next-tasks.md` for current campaign status before planning work.
-- Reference all prior prompts by explicit `PROMPT_ID` — never use vague references like "that earlier prompt."
-- When generating a new prompt, verify the candidate ID does not collide with an existing one in `docs/prompt-registry.md`.
-- **Unresolved decisions and deferrals** live in one canonical place: `docs/next-tasks.md` → "Audit-driven correctness + docs sequence" → "Unresolved decisions & known deferrals" (the audit's P1/P2 correctness sequence has shipped; per-item history is in `docs/prompt-registry.md`). Read it there before planning; do not copy the item statuses into this file (they drift as work ships).
+The architecture map lives in `AGENTS.md` → **Architecture overview** and
+`docs/CFB_APP_ARCHITECTURE.md`.
 
 ---
 
 ## Preview branch
 
-After completing any implementation and pushing to the feature branch, always run the following command before ending the session:
+After completing an implementation and pushing the feature branch:
 
 ```bash
 git push origin HEAD:preview --force
 ```
 
-This keeps the `preview` branch current for UI validation on a stable Vercel URL. The `--force` flag is intentional — `preview` is a throwaway testing surface that always reflects the latest work in progress. Never open a PR from `preview`. Never merge `preview` into `main`.
+`preview` is a throwaway surface that always reflects the latest work in progress, so the force push
+is intentional. Never open a PR from `preview`; never merge `preview` into `main`. Do not push
+unreviewed work there.

@@ -527,6 +527,26 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   invariant): fixed with user authorization — mandatory status recording assigned to F2C.
 - Status: Merged (PR #430, `4d6b897`, 2026-07-30).
 
+### DOCS-013-EXECUTION-BOUNDARIES-v1
+
+- Purpose: Make the execution boundaries that repeated F2H failures exposed BINDING and
+  discoverable in one place, instead of re-deriving them per prompt.
+- Scope: `AGENTS.md` (new **Review and remediation limits**, **Scope and sizing**, **Verification**
+  sections, replacing the fixed three-round convergence loop); `CLAUDE.md` reduced to invocation
+  guidance; `docs/next-tasks.md` keeps campaign sequencing and gains an explicit F2 exit condition;
+  `docs/README.md` ownership rows. Documentation only — no code.
+- Outcome: The review limit is ADAPTIVE, not a round count — both reviews are gathered on the same
+  commit before any patch, one normal cohesive remediation is allowed, a second requires explicit
+  user approval and only for a defect directly caused by the first, and there is no third.
+  Reconstruction from clean `main` is the prescribed response to accumulation, re-derived rather
+  than cherry-picked. Sizing moves to `AGENTS.md` with the addition that every surface a PR touches
+  must carry its own tests — an untested widened scope is a scope violation, not a test gap.
+  Verification binds to an exact commit, forbids masked exit statuses, and requires regressions to
+  be verified failing against their own pre-fix code. Test accounting reports deltas and the risk
+  each protects rather than a raw suite total.
+- Review / verification: `npm run lint:all` and `git diff --check`, each as its own command.
+- Status: **Implemented; in final pre-merge review. Not merged.**
+
 ### DOCS-012-CURRENT-LEDGER-DECONFLICTION-v2
 
 - Purpose: Reconcile the current planning and historical ledgers so each document has one clear
