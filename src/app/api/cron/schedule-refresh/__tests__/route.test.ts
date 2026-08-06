@@ -1694,38 +1694,51 @@ test('R2 contract pin: inactive production records are not invalid targets', asy
 // year is also the POSITIVE CONTROL for the zero-provider assertions above —
 // it proves this same path does reach the provider.
 test('R2 regression: a mixed registry executes the valid year and reports the refusal', async () => {
-  await setAppState('leagues', 'registry', [
-    makeLeague('league-2020', { state: 'season', year: 2020 }, 2020),
-    makeUnusableLeague('broken', 2020.5),
-  ]);
-  await seedSchedule(2020, CRITICAL_KICKOFF);
-  await seedSchedule('2020.5' as unknown as number, CRITICAL_KICKOFF);
-  stubProvider({ 2020: { regular: gameBody(2020), postseason: '[]' } });
+  const valid = () => makeLeague('league-2020', { state: 'season', year: 2020 }, 2020);
+  const invalid = () => makeUnusableLeague('broken', 2020.5);
+  // BOTH orderings. With the invalid record FIRST, a refusal that `break`s out
+  // of the ownership loop instead of continuing would silently drop the valid
+  // year — one invalid record must never abort the run.
+  const orderings: Array<[string, League[]]> = [
+    ['valid first', [valid(), invalid()]],
+    ['invalid first', [invalid(), valid()]],
+  ];
+  for (const [label, registry] of orderings) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    resetScheduleRouteCacheForTests();
+    providerUrlLog.length = 0;
+    await setAppState('leagues', 'registry', [...registry]);
+    await seedSchedule(2020, CRITICAL_KICKOFF);
+    await seedSchedule('2020.5' as unknown as number, CRITICAL_KICKOFF);
+    stubProvider({ 2020: { regular: gameBody(2020), postseason: '[]' } });
 
-  const { res, events } = await runRoute();
-  const body = (await res.json()) as {
-    result: string;
-    years: Array<{ year: number }>;
-    invalidLifecycleTargets: number;
-  };
+    const { res, events } = await runRoute();
+    const body = (await res.json()) as {
+      result: string;
+      years: Array<{ year: number }>;
+      invalidLifecycleTargets: number;
+    };
 
-  assert.ok(providerUrlLog.length > 0, 'the valid year still reached the provider');
-  assert.ok(
-    !providerUrlLog.some((url) => url.includes('2020.5')),
-    'no provider request names the refused year'
-  );
-  assert.deepEqual(
-    body.years.map((y) => y.year),
-    [2020],
-    'only the valid year produced an entry'
-  );
-  assert.deepEqual(
-    events[0]?.years.map((y) => y.year),
-    [2020]
-  );
-  assert.equal(body.invalidLifecycleTargets, 1);
-  assert.equal(events[0]?.invalidLifecycleTargets, 1);
-  // The valid year succeeded, so the refusal makes the run `partial`.
-  assert.equal(body.result, 'partial');
-  assert.equal(events[0]?.result, 'partial');
+    assert.ok(providerUrlLog.length > 0, `${label}: the valid year still reached the provider`);
+    assert.ok(
+      !providerUrlLog.some((url) => url.includes('2020.5')),
+      `${label}: no provider request names the refused year`
+    );
+    assert.deepEqual(
+      body.years.map((y) => y.year),
+      [2020],
+      `${label}: only the valid year produced an entry`
+    );
+    assert.deepEqual(
+      events[0]?.years.map((y) => y.year),
+      [2020],
+      label
+    );
+    assert.equal(body.invalidLifecycleTargets, 1, label);
+    assert.equal(events[0]?.invalidLifecycleTargets, 1, label);
+    // The valid year succeeded, so the refusal makes the run `partial`.
+    assert.equal(body.result, 'partial', label);
+    assert.equal(events[0]?.result, 'partial', label);
+  }
 });
