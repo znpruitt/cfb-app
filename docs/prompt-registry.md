@@ -52,6 +52,64 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1R3-RANKINGS-YEAR-VALIDITY-v1
+
+- Purpose: Apply the R1/R2 registry-container and lifecycle-year truth to the rankings publication
+  cron, so a corrupt registry stops reading as an empty one and a structurally unusable production
+  `status.year` can no longer select a rankings year, claim a publication window, consume quota,
+  call CFBD, write rankings, or poison the durable receipt. Third of five F2H1R slices; touches
+  exactly one automation job.
+- Scope: `GET /api/cron/rankings` targeting and aggregation, `selectRankingsTargetYears`, the
+  rankings reason/event/receipt contract, the `rankings-years` receipt-target summary, focused
+  selector/route/receipt/parser/presentation tests, and owning documentation. No other cron, no
+  rollover, no recovery operation, no change to `readLeagueRegistry()` or `getLeagues()`, no
+  per-record registry validation, no plausibility ceiling, no manual `/api/rankings` change.
+- Outcome: the container is read through `readLeagueRegistry()` and a malformed one refuses with
+  `failure / registry-malformed` before any publication-context read, window claim, `/info` probe,
+  provider request, refresh lease/status write, or commit. The read stays BEHIND the automation
+  gate, so a corrupt registry can never turn a deliberately paused run into a scheduler failure.
+  Production candidates surviving the demo exclusion are validated with
+  `isStructurallyValidSeasonYear`; the ordering is mutation-pinned, since validating first would
+  count a malformed demo record as an invalid production target and undo F2H1T4's reason. Zero-
+  target precedence puts the production integrity refusal above the demo exclusion. Run-level
+  `invalidLifecycleTargets` reaches every authenticated response, the event, and the receipt on the
+  R1 schema pattern, so no migration; the empty-`years` guard closes the `rankings-years` half of
+  the dangling-colon item.
+- What it actually prevented, established rather than asserted: the hazard is NOT fractional-only.
+  `Date.UTC` COERCES, so `Date.UTC('2031', 10, 1)` is a real instant rather than `NaN`, and the CFP
+  publication window is context-free. A STRING year therefore made the window due and billed
+  `/info` plus both rankings partitions. The regression test runs at a Wednesday 04:00 UTC CFP slot
+  and is paired with a POSITIVE CONTROL proving a valid year on the same fixture does reach the
+  provider — so the zero-provider assertions are not vacuous.
+- Campaign decisions closed here rather than re-deferred: (o) HTTP status follows the DELIVERY
+  BOUNDARY, not the reason literal — QStash routes answer controlled outcomes with 200, Vercel-
+  native lifecycle crons keep 500, so one reason literal carrying two statuses is intended. (p) A
+  deferral alone never causes failure; an unusable production target does, with the valid years'
+  reason preserved. Both consequences of (p) are ACCEPTED and recorded, including the severe one:
+  because `skipped` is the rankings cron's modal outcome, one unrepaired record makes nearly every
+  run classify `failure` and shows a standing System Health warning until the record is fixed.
+- Review / verification: both reviews gathered against the same commit (`c2e060f`) before patching.
+  Codex raised ONE P1; `/code-review` raised eleven findings including the same P1 independently.
+  One cohesive round applied six and recorded five. The P1 is the uncomfortable one:
+  `selectRankingsTargetYears` counted refusals into a local returned after the loop, so a corrupt
+  RECORD throwing mid-selection discarded them and all three surfaces reported zero — violating the
+  AGENTS.md rule written in R2's own closeout one slice earlier, after fixing that exact defect
+  there. R2 put the counter on the run state because the route owned the loop; R3 moved the loop
+  into the pure selector, where the run state is not in scope, and the rule silently stopped being
+  satisfied. The original thirteen-mutation set contained no mid-selection throw, so nothing caught
+  it. Fixed with a REQUIRED refusal sink published during iteration, pinned by a regression test
+  with a positive control and a load-bearing fixture order, and covered by two NEW mutations.
+  Also corrected: a malformed refusal returning from inside the catch's own try (which would
+  relabel corruption as unavailability), a doc claim this slice falsifies, a REGRESSION TEST label
+  asserting a mechanism its fixtures did not exhibit (only `undefined` drops the key under
+  `JSON.stringify`; `2031.5` would have parsed cleanly pre-R3), an over-claimed 500 precedent, and
+  five hand-maintained copies of one response body. SEVENTEEN mutations total, each compiling,
+  applied alone, and killed by a named test. Focused deltas: `automaticContext` 20 → 28,
+  `rankings/route` 35 → 47, `rankings/receipts` 10 → 15. Full suite 3327 → 3352. `npx tsc --noEmit`,
+  `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each run as their own
+  command with unmasked exit status.
+- Status: Implemented; in final pre-merge review. Not merged.
+
 ### PLATFORM-086F2H1R2-WEEKLY-SCHEDULE-YEAR-VALIDITY-v1
 
 - Purpose: Apply the R1 registry-container and lifecycle-year truth to the weekly schedule cron, so
