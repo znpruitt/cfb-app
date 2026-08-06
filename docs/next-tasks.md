@@ -79,7 +79,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Platform            | Multi-tenant Commissioner Sign-up                                                       | Planned               |
 | Platform            | Server Action Auth Hardening                                                            | Planned               |
 | Platform            | Provider Refresh Observability (PLATFORM-086A)                                          | ✅ Complete (PR #391) |
-| Platform            | Provider Automation & Correctness (PLATFORM-086B–I)                                     | ✅ Complete except 086F2 (NEXT) |
+| Platform            | Provider Automation & Correctness (PLATFORM-086B–I)                                     | ✅ Complete except 086F2 (resumes after INSIGHTS-021) |
 | Polish              | Design Audit (remaining pages)                                                          | Planned               |
 | Polish              | Copy / UX Writing Audit                                                                 | Planned               |
 | Polish              | Back Button Audit                                                                       | Planned               |
@@ -89,7 +89,26 @@ All foundational phases are complete. Work is now organized into named workstrea
 
 ## Active priorities
 
-### 1. PLATFORM-086F2 — admin control-plane information-architecture redesign — NEXT
+### 0. INSIGHTS-021 — current-year authority (preseason truth) — NEXT
+
+**A ONE-PR INTERRUPTION of PLATFORM-086F2**, and the only Insights work permitted to interrupt it,
+because it is a LIVE preseason truth defect rather than an improvement. Its closeout returns the
+sole `NEXT` marker to F2H2.
+
+`buildLeagueInsightContext` derives `lifecycleState` from `league.status` (correct) but takes
+`currentYear` from the top-level `league.year` projection, so on the live `tsc` shape
+(`league.year=2025`, `preseason(2026)`) the page labels 2025 and scopes career stats, records, and
+suppression to 2025 — the season already archived. Owner intent: **preseason belongs to the UPCOMING
+year; it is the first state of the new season, not the final state of the previous one.**
+
+Paired: `isRookie` always returns a boolean, so during preseason it answers a question it cannot
+know. It becomes a closed tri-state — `rookie` / `not-rookie` / `indeterminate` — with
+`setupComplete` as the finalization signal, and the generator emits only for `rookie`.
+
+Full scope, rules, and verification contract are in the prompt; see also
+INSIGHTS-CURRENT-YEAR-AUTHORITY in the planned backlog for the underlying findings.
+
+### 1. PLATFORM-086F2 — admin control-plane information-architecture redesign
 
 Activated from backlog slug `PLATFORM-086F-ADMIN-DIAGNOSTICS-DASHBOARD-v1`. The read-only audit is
 complete and accepted; the canonical inventory, target information architecture, locked decisions,
@@ -445,14 +464,24 @@ Execution order within F2 (each slice is one independently deployable PR):
         Refusal lands before any archive: rollover is the only consumer that WRITES durable data
         keyed on the year. Closed the LAST dangling-colon branch (r) and the
         `guardedLifecycleWrite` false claim (s).
-      - **F2H1R5 — RESOLVED BY DECISION, 2026-08-06.** The slice as chartered is closed out in
-        three parts rather than executed as one:
-        - **R5a — System Health year validity — NEXT.** Small, independent, read-only, no job. The
-          clamp silently SUBSTITUTES an out-of-range integer (`1800` → 2000, `999999` → 2027) and
-          then renders a full health picture for a year no league occupies. Note
-          `buildSystemHealthViewModel` has its own `validateYear` that THROWS outside [2000, 2100],
-          so the clamp is partly load-bearing — removing it naively turns a bad record into a 500 on
-          `/admin/diagnostics`.
+      - **F2H1R5 — RETIRED IN FULL BY DECISION, 2026-08-06.** All three parts are retired; F2H1R
+        is COMPLETE through merged R1–R4 plus these recorded decisions. The deciding factor was
+        value, not difficulty: every remaining part defends a condition that is **unreachable
+        through current application writes** — creation validates the year and writes an explicit
+        status, `updateLeague` throws on lifecycle fields, the per-league PATCH rejects `year`, and
+        every transition is guarded — in a production registry verified (read-only, 2026-08-06) to
+        hold exactly two structurally sound leagues. The condition remains possible through a
+        restore from an old backup or a direct data edit, which is why PLATFORM-087 stays documented
+        as a response plan rather than deleted.
+        - **R5a — RETIRED.** System Health year validity. The clamp silently SUBSTITUTES an
+          out-of-range integer (`1800` → 2000, `999999` → 2027) and renders a full health picture
+          for a year no league occupies — cache-only, nothing billed, on an admin-only page. An
+          implementation exists (`e2c7188`, unmerged) and its review established that the fix cannot
+          be both small and correct: stopping the substitution requires either choosing a
+          plausibility bound — which recorded item (l) reserves as one decision for all five
+          consumers — or adding a refusal signal, which needs a surface this slice deliberately
+          excluded. **The existing clamp and the AGENTS.md invariant that binds it are left
+          UNCHANGED**; there is no code change to close out.
         - **R5b — RETIRED as a standalone slice; re-planned as PLATFORM-087.** Two attempts were
           built and neither is shippable. v1 (`dd591ca`) DROPPED unusable elements and returned the
           usable subset, which made an all-corrupt registry classify `ok` with zero leagues — every
@@ -467,6 +496,10 @@ Execution order within F2 (each slice is one independently deployable PR):
           mutator refuses and nothing else writes the key. **Reader-level validation is not
           independently shippable while it creates false 404s, silent empty pages, generic 500s, and
           no recovery path.** See PLATFORM-087.
+          Both attempts are **unmerged evidence**: `dd591ca` (v1) and `f5d9b65` (v2). Neither
+          reached `main`; the local branches are deleted. Each carries a full review record — Codex
+          plus `/code-review` gathered on the same commit — and the v2 review is the source of
+          PLATFORM-087's edge inventory.
         - **R5c — RETIRED.** The confirmed missing-status recovery has ZERO production targets and
           no current write path can create one (see the audit below). It was also the highest-risk
           item in the campaign, arming three jobs including an archive-producing one. NOT to be
@@ -620,7 +653,9 @@ Execution order within F2 (each slice is one independently deployable PR):
         shape — an exact season+year re-check producing a typed outcome). The consequence the false
         claim was hiding is fixed: rollover now has its own structural year check. Converging the
         two writers remains F2H2's.
-    - **F2H2 — rollover/archive/backfill consolidation** — planned: converge the remaining rollover
+    - **F2H2 — rollover/archive/backfill consolidation** — **NEXT once
+      INSIGHTS-021-CURRENT-YEAR-AUTHORITY-v1 closes out.** Audit FIRST: this surface writes
+      permanent archives. Planned: converge the remaining rollover
       projection/result contract, fix benign redelivery reporting without hiding genuine refusals,
       consolidate the duplicate strict rollover UI, and organize archive/backfill operations.
     - **F2H3 — Season Management presentation** — planned: render per-league lifecycle separately
