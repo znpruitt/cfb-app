@@ -72,6 +72,7 @@ function makeYearStatus(
 
 function previewResponse(year: number): ManualRolloverPreviewResponse {
   return {
+    invalidLifecycleTargets: 0,
     preview: {
       year,
       championshipDate: `${year + 1}-01-09T00:00:00.000Z`,
@@ -94,6 +95,7 @@ function previewResponse(year: number): ManualRolloverPreviewResponse {
 
 function executeResponse(year: number): ManualRolloverExecuteResponse {
   return {
+    invalidLifecycleTargets: 0,
     success: true,
     year,
     archivedLeagues: [`league-${year}`],
@@ -125,6 +127,7 @@ afterEach(() => {
 test('renders nothing when no year is eligible (no execute control for ineligible/unavailable)', async () => {
   statusPayload = {
     generatedAt: '2026-01-01T00:00:00.000Z',
+    invalidLifecycleTargets: 0,
     years: [makeYearStatus(2023, 'not-eligible'), makeYearStatus(2024, 'unavailable')],
   };
 
@@ -136,6 +139,7 @@ test('renders nothing when no year is eligible (no execute control for ineligibl
 test('preview and confirm send the selected explicit year; success persists across the reload', async () => {
   statusPayload = {
     generatedAt: '2026-01-01T00:00:00.000Z',
+    invalidLifecycleTargets: 0,
     years: [makeYearStatus(2023, 'eligible'), makeYearStatus(2024, 'eligible')],
   };
 
@@ -164,6 +168,7 @@ test('preview and confirm send the selected explicit year; success persists acro
   // so the post-success status DROPS 2023 from the eligible list.
   statusPayload = {
     generatedAt: '2026-01-01T00:00:01.000Z',
+    invalidLifecycleTargets: 0,
     years: [makeYearStatus(2024, 'eligible')],
   };
 
@@ -191,6 +196,7 @@ test('preview and confirm send the selected explicit year; success persists acro
 test('a mid-flow gate refusal shows the stable reason, clears the preview, and resyncs', async () => {
   statusPayload = {
     generatedAt: '2026-01-01T00:00:00.000Z',
+    invalidLifecycleTargets: 0,
     years: [makeYearStatus(2023, 'eligible')],
   };
   confirmResponse = () =>

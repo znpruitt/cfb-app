@@ -304,3 +304,163 @@ test('multiple season years are evaluated independently for rollover', async () 
   assert.equal(bySlug.alpha, 'offseason', '2023 rolled to offseason');
   assert.equal(bySlug.beta, 'season', '2024 (not final) stays in season');
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1R4 — registry-container truth + lifecycle-year validity.
+//
+// Rollover WRITES durable data derived from the year: `saveSeasonArchive` keys
+// on `String(archive.year)`, and the written status is `{ state: 'offseason' }`
+// which carries NO year — so the top-level `league.year` becomes the only
+// surviving record. An unusable year would mint a permanent archive under a key
+// like `2024.5` AND poison the operational-year resolver, with no status year
+// left to contradict it.
+// ---------------------------------------------------------------------------
+
+/** Seed one league whose `status.year` is deliberately unusable. */
+async function seedUnusableLeague(year: unknown, slug = 'unusable'): Promise<void> {
+  const existing = (await getAppState<League[]>('leagues', 'registry'))?.value ?? [];
+  await setAppState('leagues', 'registry', [
+    ...existing,
+    { ...makeLeague(slug, { state: 'season', year } as unknown as League['status']) },
+  ]);
+}
+
+/** Every durable archive key that exists right now, across all league scopes. */
+async function archiveKeysFor(slug: string): Promise<string[]> {
+  const keys: string[] = [];
+  for (const candidate of [
+    String(YEAR),
+    '2024',
+    '2024.5',
+    'undefined',
+    'null',
+    '9007199254740992',
+    '1800',
+  ]) {
+    const rec = await getAppState<unknown>(`standings-archive:${slug}`, candidate);
+    if (rec !== null) keys.push(candidate);
+  }
+  return keys;
+}
+
+// REGRESSION TEST — a corrupt CONTAINER is refused with 500 before ANY rollover
+// work. Before R4 this reported `skipped / no leagues in season state`.
+test('R4 regression: a malformed registry container refuses with 500 registry-malformed', async () => {
+  await setAppState('leagues', 'registry', { alpha: 1 });
+  await seedScheduleWithChampionship('2023-01-09T00:00:00.000Z');
+
+  const { result: res, tags } = await runCapturingTags(() => GET(cronRequest()));
+  const body = (await res.json()) as { reason?: string; invalidLifecycleTargets?: number };
+
+  assert.equal(res.status, 500, 'Vercel-native lifecycle cron: integrity refusal is 500');
+  assert.equal(body.reason, 'registry-malformed');
+  assert.equal(body.invalidLifecycleTargets, 0, 'no candidate was reached to refuse');
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    [],
+    'no standings invalidation'
+  );
+});
+
+// REGRESSION TEST — the whole point of the slice on this job. A production
+// league whose `status.year` is unusable must not archive or transition, even
+// though the schedule and a final championship are seeded so pre-R4 code would
+// have proceeded all the way to `buildSeasonArchive`.
+test('R4 regression: an unusable production year creates no archive and no lifecycle write', async () => {
+  await seedUnusableLeague(2024.5, 'alpha');
+  await seedScheduleWithChampionship('2023-01-09T00:00:00.000Z');
+
+  const { result: res, tags } = await runCapturingTags(() => GET(cronRequest()));
+  const body = (await res.json()) as { reason?: string; invalidLifecycleTargets?: number };
+
+  assert.equal(body.reason, 'unusable-lifecycle-year');
+  assert.equal(body.invalidLifecycleTargets, 1);
+  assert.deepEqual(await archiveKeysFor('alpha'), [], 'NO durable archive under any key');
+  const leagues = await getAppState<League[]>('leagues', 'registry');
+  assert.equal(
+    (leagues?.value?.[0]?.status as { state?: string } | undefined)?.state,
+    'season',
+    'the league was not transitioned'
+  );
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    [],
+    'no standings invalidation'
+  );
+});
+
+// POSITIVE CONTROL for the test above — a VALID year on the SAME fixture does
+// archive and transition. Without this, the "no archive" assertion could pass
+// for any unrelated reason (an unmet championship gate, a missing schedule) and
+// would prove nothing about the guard.
+test('R4 positive control: a valid year on the same fixture DOES archive and transition', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('alpha', { state: 'season', year: YEAR })]);
+  await seedScheduleWithChampionship('2023-01-09T00:00:00.000Z');
+
+  await runCapturingTags(() => GET(cronRequest()));
+
+  assert.deepEqual(
+    await archiveKeysFor('alpha'),
+    [String(YEAR)],
+    'the fixture genuinely reaches archive creation for a usable year'
+  );
+  const leagues = await getAppState<League[]>('leagues', 'registry');
+  assert.equal((leagues?.value?.[0]?.status as { state?: string } | undefined)?.state, 'offseason');
+});
+
+// REGRESSION TEST — a valid year still rolls alongside a refusal, in BOTH
+// registry orders, and the refusal is reported consistently.
+test('R4 regression: a valid year still rolls alongside a refusal, in either order', async () => {
+  for (const order of ['valid first', 'invalid first'] as const) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    __resetTeamDatabaseStoreForTests();
+    if (order === 'valid first') {
+      await setAppState('leagues', 'registry', [
+        makeLeague('alpha', { state: 'season', year: YEAR }),
+      ]);
+      await seedUnusableLeague('2024', 'bad');
+    } else {
+      await setAppState('leagues', 'registry', [
+        { ...makeLeague('bad', { state: 'season', year: '2024' } as unknown as League['status']) },
+      ]);
+      const existing = (await getAppState<League[]>('leagues', 'registry'))?.value ?? [];
+      await setAppState('leagues', 'registry', [
+        ...existing,
+        makeLeague('alpha', { state: 'season', year: YEAR }),
+      ]);
+    }
+    await seedScheduleWithChampionship('2023-01-09T00:00:00.000Z');
+
+    const { result: res } = await runCapturingTags(() => GET(cronRequest()));
+    const body = (await res.json()) as {
+      leaguesRolledOver?: string[];
+      invalidLifecycleTargets?: number;
+    };
+
+    assert.deepEqual(body.leaguesRolledOver, ['alpha'], `${order}: the valid year still rolled`);
+    assert.equal(body.invalidLifecycleTargets, 1, order);
+    assert.deepEqual(
+      await archiveKeysFor('bad'),
+      [],
+      `${order}: the refused league never archived`
+    );
+  }
+});
+
+// REGRESSION TEST — refusal durability across a mid-loop throw at ROUTE level.
+// A corrupt record after a refusable one must not zero the count on the
+// response, even though the run ends as `registry-unavailable`.
+test('R4 regression: a refusal counted before a mid-loop throw survives the 500', async () => {
+  await setAppState('leagues', 'registry', [
+    { ...makeLeague('alpha', { state: 'season', year: '2024' } as unknown as League['status']) },
+    null as unknown as League,
+  ]);
+
+  const { result: res } = await runCapturingTags(() => GET(cronRequest()));
+  const body = (await res.json()) as { invalidLifecycleTargets?: number };
+
+  // POSITIVE CONTROL — the throw really happened and really was caught here.
+  assert.equal(res.status, 500, 'the corrupt record threw into the registry catch');
+  assert.equal(body.invalidLifecycleTargets, 1, 'the refusal already counted is not discarded');
+});

@@ -26,8 +26,10 @@ import {
 } from '../../../../../lib/server/__tests__/schedulerReceiptTestHarness.ts';
 import {
   buildSchedulerExecutionReceipt,
+  parseSchedulerExecutionReceipt,
   recordSchedulerExecutionReceipt,
 } from '../../../../../lib/server/schedulerExecutionStatus.ts';
+import { summarizeReceiptTarget } from '../../../../../components/admin/systemHealth/systemHealthPresentation.ts';
 import type { SeasonRolloverCronExecutionEvent } from '../../../../../lib/lifecycleCronExecutionLog.ts';
 
 // PLATFORM-086F2E2A — durable receipts + one secret-safe runtime event for the
@@ -226,6 +228,7 @@ async function seedPriorReceipt() {
       kind: 'season-rollover-years',
       totalYears: 1,
       truncated: false,
+      invalidLifecycleTargets: 0,
       years: [{ year: 2023, targetLeagues: 1, rolledOverLeagues: 1 }],
     },
   });
@@ -282,6 +285,7 @@ test('no season leagues: skipped/no-season-leagues event and receipt with zero y
     kind: 'season-rollover-years',
     totalYears: 0,
     truncated: false,
+    invalidLifecycleTargets: 0,
     years: [],
   });
 });
@@ -345,6 +349,7 @@ test('a complete rollover is success/rollover-complete with truthful counts and 
     kind: 'season-rollover-years',
     totalYears: 1,
     truncated: false,
+    invalidLifecycleTargets: 0,
     years: [{ year: 2023, targetLeagues: 1, rolledOverLeagues: 1 }],
   });
 });
@@ -530,4 +535,139 @@ test('an invalidation failure on a rolled league is partial/rollover-partial, no
 
   await deferrer.flush();
   assert.equal((await readSchedulerReceipt('season-rollover'))?.value.reason, 'rollover-partial');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1R4 — the refusal count on the durable receipt.
+//
+// Routed through the REAL parser: the harness's `readSchedulerReceipt` is a raw
+// read that validates nothing, so a "still parses" claim made against it would
+// prove nothing.
+// ---------------------------------------------------------------------------
+
+/** A parse clock just after the hand-authored fixtures' `completedAt`. */
+const R4_PARSE_NOW_MS = Date.parse('2026-01-20T00:00:05.000Z');
+
+function legacyRolloverReceipt(overrides: Record<string, unknown> = {}) {
+  return {
+    version: 1,
+    job: 'season-rollover',
+    invocationId: '77777777-7777-4777-8777-777777777777',
+    source: 'vercel-cron',
+    result: 'success',
+    reason: 'rollover-complete',
+    providerCallAttempted: false,
+    startedAt: '2026-01-20T00:00:00.000Z',
+    completedAt: '2026-01-20T00:00:01.000Z',
+    durationMs: 1000,
+    target: {
+      kind: 'season-rollover-years',
+      totalYears: 1,
+      truncated: false,
+      // `invalidLifecycleTargets` DELIBERATELY absent — the pre-R4 shape.
+      years: [{ year: 2025, targetLeagues: 1, rolledOverLeagues: 1 }],
+      ...(overrides.target as Record<string, unknown> | undefined),
+    },
+  };
+}
+
+// CONTRACT PIN — a LEGACY receipt written before R4 omits the field and must
+// still parse, normalizing to 0. Rejecting it would degrade the System Health
+// row to `invalid` until the next cron run rewrote it.
+test('R4 contract pin: a legacy rollover receipt omitting the count parses and normalizes to 0', () => {
+  const parsed = parseSchedulerExecutionReceipt(
+    legacyRolloverReceipt(),
+    'season-rollover',
+    R4_PARSE_NOW_MS
+  );
+  assert.ok(parsed, 'a pre-R4 receipt still parses');
+  assert.equal(parsed.target.kind, 'season-rollover-years');
+  if (parsed.target.kind !== 'season-rollover-years') return;
+  assert.equal(parsed.target.invalidLifecycleTargets, 0, 'normalized, not rejected');
+});
+
+// REGRESSION TEST — an invalid PRESENT value rejects the whole record.
+// Optional-on-read must not become "ignored on read": a corrupt count is
+// corruption, and normalizing it would launder bad data into a clean row.
+test('R4 regression: an invalid present count rejects the rollover receipt', () => {
+  for (const bad of [-1, 1.5, '2', null, {}]) {
+    const receipt = legacyRolloverReceipt({
+      target: {
+        kind: 'season-rollover-years',
+        totalYears: 1,
+        truncated: false,
+        invalidLifecycleTargets: bad,
+        years: [{ year: 2025, targetLeagues: 1, rolledOverLeagues: 1 }],
+      },
+    });
+    assert.equal(
+      parseSchedulerExecutionReceipt(receipt, 'season-rollover', R4_PARSE_NOW_MS),
+      null,
+      `a present ${JSON.stringify(bad)} is corruption, not absence`
+    );
+  }
+});
+
+// REGRESSION TEST — an all-refused run writes a receipt the real parser accepts
+// with zero year entries and a truthful count.
+test('R4 regression: an all-refused run writes a parseable receipt with the count', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'season', year: '2025' } as unknown as League['status'], 2025),
+    makeLeague('bravo', { state: 'season', year: 2025.5 } as unknown as League['status'], 2025),
+  ]);
+  await seedTeams();
+
+  const { event } = await runRoute();
+  await deferrer.flush();
+
+  assert.equal(event.reason, 'unusable-lifecycle-year');
+  assert.equal(event.invalidLifecycleTargets, 2);
+
+  const stored = await readSchedulerReceipt('season-rollover');
+  assert.ok(stored, 'a receipt was written');
+  const parsed = parseSchedulerExecutionReceipt(stored.value, 'season-rollover', Date.now());
+  assert.ok(parsed, 'the REAL parser accepts it');
+  assert.equal(parsed.target.kind, 'season-rollover-years');
+  if (parsed.target.kind !== 'season-rollover-years') return;
+  assert.equal(parsed.target.invalidLifecycleTargets, 2);
+  assert.deepEqual(parsed.target.years, [], 'no year entry to poison the receipt');
+});
+
+// REGRESSION TEST — the System Health summary. The all-refused case closes the
+// LAST branch of the dangling-colon deferral (R1 season-transition, R2
+// schedule, R3 rankings, R4 rollover).
+test('R4 regression: the rollover target summary handles clean, mixed, and all-refused', () => {
+  assert.equal(
+    summarizeReceiptTarget({
+      kind: 'season-rollover-years',
+      totalYears: 1,
+      truncated: false,
+      invalidLifecycleTargets: 0,
+      years: [{ year: 2025, targetLeagues: 2, rolledOverLeagues: 2 }],
+    }),
+    '1 year(s): 2025 (2/2 leagues)',
+    'a clean run renders exactly as it did pre-R4'
+  );
+  assert.equal(
+    summarizeReceiptTarget({
+      kind: 'season-rollover-years',
+      totalYears: 1,
+      truncated: false,
+      invalidLifecycleTargets: 3,
+      years: [{ year: 2025, targetLeagues: 2, rolledOverLeagues: 2 }],
+    }),
+    '1 year(s): 2025 (2/2 leagues) · 3 unusable lifecycle target(s)',
+    'mixed appends the count at RUN level'
+  );
+  assert.equal(
+    summarizeReceiptTarget({
+      kind: 'season-rollover-years',
+      totalYears: 0,
+      truncated: false,
+      invalidLifecycleTargets: 2,
+      years: [],
+    }),
+    '0 year(s) · 2 unusable lifecycle target(s)',
+    'all-refused: no dangling separator'
+  );
 });

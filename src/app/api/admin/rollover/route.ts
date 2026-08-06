@@ -1,6 +1,6 @@
 import { requireAdminAuth } from '@/lib/server/adminAuth';
 import { clearAllSuppressionRecords } from '@/lib/insights/suppression';
-import { completeSeasonRollover, getLeagues } from '@/lib/leagueRegistry';
+import { completeSeasonRollover, readLeagueRegistry } from '@/lib/leagueRegistry';
 import { sanitizeLeagues } from '@/lib/leagueSanitize';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { getSeasonArchive, saveSeasonArchive, diffSeasonArchives } from '@/lib/seasonArchive';
@@ -74,7 +74,25 @@ export async function GET(req: Request): Promise<Response> {
   const authFailure = await requireAdminAuth(req);
   if (authFailure) return authFailure;
 
-  const groups = groupRolloverTargets(await getLeagues());
+  // PLATFORM-086F2H1R4 — a local sink: this handler has no run-scoped execution
+  // state, and each request is its own scope. The grouping policy publishes
+  // refusals into it as it counts them, so a corrupt record throwing mid-loop
+  // cannot discard one already observed.
+  const refusals = { invalidLifecycleTargets: 0 };
+  const registry = await readLeagueRegistry();
+  if (registry.kind === 'malformed') {
+    // 409, not 400 or 503: the request is well-formed and no dependency is
+    // down — stored state prevents the operation. Sanitized: the corrupt value
+    // is never echoed. Refused before any championship/cache resolution.
+    return Response.json(
+      {
+        error: 'rollover-registry-malformed',
+        detail: 'The league registry record exists but does not hold a list of leagues.',
+      },
+      { status: 409 }
+    );
+  }
+  const groups = groupRolloverTargets(registry.kind === 'ok' ? registry.leagues : [], refusals);
   const now = Date.now();
 
   const years: ManualRolloverYearStatus[] = [];
@@ -86,6 +104,9 @@ export async function GET(req: Request): Promise<Response> {
   const body: ManualRolloverStatusResponse = {
     generatedAt: new Date().toISOString(),
     years,
+    // Valid groups stay fully usable when unrelated unusable candidates coexist:
+    // the count reports them without withholding work an operator can do.
+    invalidLifecycleTargets: refusals.invalidLifecycleTargets,
   };
   return Response.json(body);
 }
@@ -171,13 +192,40 @@ export async function POST(req: Request): Promise<Response> {
 
   // The requested year must be a CURRENT lifecycle-year group (non-test leagues
   // in `season` whose status.year matches exactly).
-  const groups = groupRolloverTargets(await getLeagues());
+  const refusals = { invalidLifecycleTargets: 0 };
+  const registry = await readLeagueRegistry();
+  if (registry.kind === 'malformed') {
+    return Response.json(
+      {
+        error: 'rollover-registry-malformed',
+        detail: 'The league registry record exists but does not hold a list of leagues.',
+      },
+      { status: 409 }
+    );
+  }
+  const groups = groupRolloverTargets(registry.kind === 'ok' ? registry.leagues : [], refusals);
   const group = groups.find((g) => g.year === year);
   if (!group) {
+    // A refused production record makes `rollover-year-not-active` FALSE: the
+    // league exists and is in season, its year is merely unusable. Naming the
+    // integrity condition is what tells an operator the repair is a data fix,
+    // not a wait.
+    if (refusals.invalidLifecycleTargets > 0) {
+      return Response.json(
+        {
+          error: 'rollover-unusable-lifecycle-year',
+          detail:
+            'One or more leagues in season carry a structurally invalid year and were refused.',
+          invalidLifecycleTargets: refusals.invalidLifecycleTargets,
+        },
+        { status: 409 }
+      );
+    }
     return Response.json(
       {
         error: 'rollover-year-not-active',
         detail: `No non-test league is currently in season for year ${year}.`,
+        invalidLifecycleTargets: refusals.invalidLifecycleTargets,
       },
       { status: 409 }
     );
@@ -207,6 +255,7 @@ export async function POST(req: Request): Promise<Response> {
   if (!confirmed) {
     const previews = await Promise.all(group.leagues.map((l) => buildLeaguePreview(l, year)));
     const body: ManualRolloverPreviewResponse = {
+      invalidLifecycleTargets: refusals.invalidLifecycleTargets,
       preview: {
         year,
         championshipDate: decision.championshipDate,
@@ -239,6 +288,7 @@ export async function POST(req: Request): Promise<Response> {
 
   if (errors.length > 0) {
     const body: ManualRolloverExecuteResponse = {
+      invalidLifecycleTargets: refusals.invalidLifecycleTargets,
       success: false,
       year,
       archivedLeagues,
@@ -264,7 +314,10 @@ export async function POST(req: Request): Promise<Response> {
         errors.push({
           leagueSlug: league.slug,
           stage: 'status',
-          error: `league is no longer in the requested ${year} season group`,
+          error:
+            transition.outcome === 'unusable-target-year'
+              ? 'league carries a structurally invalid season year and was refused'
+              : `league is no longer in the requested ${year} season group`,
         });
         continue;
       }
@@ -295,6 +348,7 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const body: ManualRolloverExecuteResponse = {
+    invalidLifecycleTargets: refusals.invalidLifecycleTargets,
     success: errors.length === 0,
     year,
     archivedLeagues,

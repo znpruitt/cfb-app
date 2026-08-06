@@ -283,10 +283,29 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
           : '';
       return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}${yearDetail}${unusable}`;
     }
-    case 'season-rollover-years':
-      return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}: ${target.years
-        .map((y) => `${y.year} (${y.rolledOverLeagues}/${y.targetLeagues} leagues)`)
-        .join(', ')}`;
+    case 'season-rollover-years': {
+      // PLATFORM-086F2H1R4 — refused CANDIDATES (leagues, not distinct years)
+      // have no year to file them under, so they are appended at RUN level, and
+      // only when non-zero, so a clean run — and a legacy receipt, which
+      // normalizes to 0 — renders exactly as before. A count only: never a slug
+      // or the invalid value.
+      //
+      // The empty-`years` guard closes the LAST branch of the recorded
+      // dangling-colon deferral (R1 fixed season-transition, R2 schedule, R3
+      // rankings): an all-refused receipt would otherwise render `0 year(s): `
+      // with nothing after the separator.
+      const yearDetail =
+        target.years.length > 0
+          ? `: ${target.years
+              .map((y) => `${y.year} (${y.rolledOverLeagues}/${y.targetLeagues} leagues)`)
+              .join(', ')}`
+          : '';
+      const unusable =
+        target.invalidLifecycleTargets > 0
+          ? ` · ${target.invalidLifecycleTargets} unusable lifecycle target(s)`
+          : '';
+      return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}${yearDetail}${unusable}`;
+    }
   }
 }
 

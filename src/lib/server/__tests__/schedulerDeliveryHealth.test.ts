@@ -62,7 +62,7 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
         0
       );
     case 'season-rollover':
-      return seasonRolloverYearsTarget([{ year: 2026, targetLeagues: 1, rolledOverLeagues: 0 }]);
+      return seasonRolloverYearsTarget([{ year: 2026, targetLeagues: 1, rolledOverLeagues: 0 }], 0);
   }
 }
 

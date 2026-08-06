@@ -637,3 +637,104 @@ test('a status-write failure is reported truthfully, never as full success', asy
     'suppression clearing happens only after a successful status transition'
   );
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1R4 — registry-container truth + lifecycle-year validity on
+// the MANUAL surface. It shares `groupRolloverTargets` with the cron but keeps
+// its admin API contract: integrity refusals are 409 (stored state prevents the
+// operation), not 400 (the request is well-formed) and not 503 (nothing is
+// unavailable).
+// ---------------------------------------------------------------------------
+
+// REGRESSION TEST — a malformed container is refused on BOTH verbs, sanitized,
+// before any championship/cache resolution.
+test('R4 regression: a malformed registry refuses both verbs with a sanitized 409', async () => {
+  await setAppState('leagues', 'registry', { alpha: 1, secret: 'HASH-CANARY' });
+  await seedTeams();
+
+  const getRes = await GET(getRequest());
+  const getBody = (await getRes.json()) as { error?: string; detail?: string };
+  assert.equal(getRes.status, 409, 'stored state prevents the operation');
+  assert.equal(getBody.error, 'rollover-registry-malformed');
+  assert.ok(!JSON.stringify(getBody).includes('HASH-CANARY'), 'the corrupt value never leaks');
+
+  const { result: postRes, tags } = await runCapturingTags(() =>
+    POST(postRequest({ year: 2023, confirmed: true }))
+  );
+  const postBody = (await postRes.json()) as { error?: string };
+  assert.equal(postRes.status, 409);
+  assert.equal(postBody.error, 'rollover-registry-malformed');
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    [],
+    'no execution work ran'
+  );
+});
+
+// REGRESSION TEST — GET reports valid groups AND the refusal count. A valid
+// group stays fully usable when an unrelated unusable record coexists: the
+// count reports the problem without withholding work an operator can do.
+test('R4 regression: GET reports valid groups plus the refusal count', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', 2023, { state: 'season', year: 2023 }),
+    makeLeague('bad', 2024, { state: 'season', year: '2024' } as unknown as League['status']),
+  ]);
+  await seedTeams();
+  await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z');
+
+  const res = await GET(getRequest());
+  const body = (await res.json()) as ManualRolloverStatusResponse;
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    body.years.map((y) => y.year),
+    [2023],
+    'the valid group is still offered'
+  );
+  assert.equal(body.invalidLifecycleTargets, 1);
+  assert.ok(!JSON.stringify(body).includes('2024'), 'the unusable value never rides out');
+});
+
+// REGRESSION TEST — a POST for a VALID group still executes with refusals
+// present, and the absent-group case names the integrity condition instead of
+// the (false) `rollover-year-not-active`.
+test('R4 regression: POST executes a valid group and names the integrity refusal otherwise', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', 2023, { state: 'season', year: 2023 }),
+    makeLeague('bad', 2024, { state: 'season', year: '2024' } as unknown as League['status']),
+  ]);
+  await seedTeams();
+  await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z');
+
+  // The requested year IS a valid group — execution proceeds normally.
+  const { result: okRes } = await runCapturingTags(() =>
+    POST(postRequest({ year: 2023, confirmed: false }))
+  );
+  const okBody = (await okRes.json()) as ManualRolloverPreviewResponse;
+  assert.equal(okRes.status, 200);
+  assert.equal(okBody.preview.year, 2023, 'a valid group previews normally');
+  assert.equal(okBody.invalidLifecycleTargets, 1, 'and still reports the refusal');
+
+  // The requested year has no group AND refusals exist → the stable integrity code.
+  const badRes = await POST(postRequest({ year: 2024, confirmed: false }));
+  const badBody = (await badRes.json()) as { error?: string; invalidLifecycleTargets?: number };
+  assert.equal(badRes.status, 409);
+  assert.equal(badBody.error, 'rollover-unusable-lifecycle-year');
+  assert.equal(badBody.invalidLifecycleTargets, 1);
+});
+
+// CONTRACT PIN — with NO refusals, an absent group keeps the pre-R4 code.
+// Without this, the new branch could swallow the ordinary not-active case.
+test('R4 contract pin: an absent group with no refusals still reports rollover-year-not-active', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', 2023, { state: 'season', year: 2023 }),
+  ]);
+  await seedTeams();
+  await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z');
+
+  const res = await POST(postRequest({ year: 2099, confirmed: false }));
+  const body = (await res.json()) as { error?: string; invalidLifecycleTargets?: number };
+  assert.equal(res.status, 409);
+  assert.equal(body.error, 'rollover-year-not-active');
+  assert.equal(body.invalidLifecycleTargets, 0);
+});
