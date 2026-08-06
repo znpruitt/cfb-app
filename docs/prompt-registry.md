@@ -52,6 +52,49 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1R2-WEEKLY-SCHEDULE-YEAR-VALIDITY-v1
+
+- Purpose: Apply the R1 registry-container and lifecycle-year truth to the weekly schedule cron, so
+  a corrupt registry stops reading as an empty one and a structurally invalid production
+  `status.year` can no longer own a maintenance year or bill the provider. Second of five F2H1R
+  slices; touches exactly one automation job.
+- Scope: `GET /api/cron/schedule-refresh` targeting and aggregation, its reason and receipt
+  contract (`cronExecutionLog.ts`, the `schedule-years` receipt target), the `schedule-years`
+  receipt-target summary, focused tests, and owning documentation. No other cron, no rollover, no
+  recovery operation, no change to `readLeagueRegistry()` or `getLeagues()`, no shared cross-job
+  predicate, no per-record validation.
+- Outcome: the route reads the container through `readLeagueRegistry()` and refuses a malformed one
+  with `failure / registry-malformed` before any schedule read, probe, latch, settings read,
+  provider request, or presentation refresh — instead of `no-maintenance-target`, which asserted no
+  active league exists. Production candidates surviving the demo exclusion are validated with
+  `isStructurallyValidSeasonYear`; the ordering is mutation-pinned, since validating first would
+  count a malformed demo record as an invalid production target and undo F2H1T3. Before this, an
+  unusable year became a Map key and reached CFBD as `year=undefined` — proven, not assumed, by
+  neutralising every other assertion in the matrix until only the provider assertion remained. Run-
+  level `invalidLifecycleTargets` reaches the response, event, and receipt on the R1 schema pattern
+  (required on the type, optional in the stored validator, normalizing to 0), so no migration. The
+  empty-`years` guard also closes the `schedule-years` half of the recorded dangling-colon item.
+- Deliberate divergence from R1, stated rather than smoothed over: `registry-malformed` answers
+  HTTP 200 here, not 500. This route answers every controlled outcome with 200 and reserves non-200
+  for auth; matching R1's 500 would have broken that convention instead of establishing a rule. The
+  result is that one reason code now carries different HTTP semantics on two jobs — recorded as a
+  third data point on deferral (o), to be decided campaign-wide before R3 and R4 copy it.
+- Review / verification: Codex found no actionable regression (its `eslint --no-cache` exit 2 was
+  verified as the same CLI error present on main, with eslint clean on all four changed source
+  files). `/code-review` returned 12 findings against the same commit; one cohesive round applied 6
+  and recorded 6. The P1 was a real defect: refusals counted in the ownership loop were discarded
+  whenever a later league threw, so all three surfaces reported 0 on a run that had found them.
+  Publishing after the loop but inside the try does NOT fix it — a mid-loop throw skips that line
+  too — which mutation testing caught and which R1's "publish before the loop" pattern cannot
+  express here, because the loop that counts refusals is the loop that can throw; `exec` is now the
+  counter itself. A second P2 was a vacuous positive control: the matrix's zero-provider assertion
+  was uncontrolled for all six `preseason` cases, since an unarmed probe classifies
+  `season-transition-owner`, a provider-free deferral that would never have called the provider with
+  or without the guard. Focused deltas: `schedule-refresh/route` 53 → 60, `schedule-refresh/receipts`
+  8 → 12. Full suite 3316 → 3327. `npx tsc --noEmit`, `npm run lint:all`, `npm test`,
+  `npm run build`, and `git diff --check` each run as their own command with unmasked exit status.
+- Status: Implemented; in final pre-merge review. Not merged.
+
 ### PLATFORM-086F2H1R1-SEASON-TRANSITION-YEAR-VALIDITY-v1
 
 - Purpose: Give the league-registry read a truthful container classification, and stop malformed

@@ -420,7 +420,15 @@ Execution order within F2 (each slice is one independently deployable PR):
         `getLeagues()` semantics UNCHANGED, and hardens `GET /api/cron/season-transition`. See the
         ledger entry for the contract; the corrections it made to long-standing claims are recorded
         below.
-      - **F2H1R2 — weekly-schedule validity** — **NEXT**. · **F2H1R3 — rankings validity** ·
+      - **F2H1R2 — weekly-schedule validity** — **NEXT**, implemented and in review. Applies the
+        R1 shape to `GET /api/cron/schedule-refresh`: the container read (`registry-malformed`) and
+        `status.year` validation AFTER the demo exclusion, refusing before any schedule read, probe,
+        latch, settings read, billed E1A refresh, or presentation refresh. HTTP status DIVERGES from
+        R1 on purpose — 200, this route's convention for every controlled outcome — which sharpens
+        (o) rather than resolving it. The count is accumulated on the run state, not a local
+        published after the loop, because here the loop that counts refusals is also the loop a
+        corrupt record can throw from. Closes the `schedule-years` half of (r).
+      - **F2H1R3 — rankings validity** ·
         **F2H1R4 — rollover validity** (both the cron and the shared manual route, plus the missing
         structural check in `completeSeasonRollover`) · **F2H1R5 — System Health validity + the
         confirmed missing-status recovery**, which lands LAST because it is the only slice that ARMS
@@ -439,11 +447,11 @@ Execution order within F2 (each slice is one independently deployable PR):
         shared predicate because the prompt forbade substituting the tighter creation horizon, and
         because narrowing it changes production behavior. Same class as (i). Decide the bound once,
         for all five consumers.
-        (m) **The malformed-vs-empty collapse is closed on ONE of four registry consumers.** Until
-        R2–R4 land, `season-rollover`, `rankings`, and `schedule-refresh` still report zero-target
-        reasons asserting no league exists on the very same corrupt registry — the falsehood class
-        T2/T3/T4 each refused. This is the intended intermediate state of the split, in the same
-        family as the recorded T2→T3 window, and it is LIVE while it lasts.
+        (m) **The malformed-vs-empty collapse is closed on TWO of four registry consumers.**
+        R2 closed `schedule-refresh`. Until R3 and R4 land, `rankings` and `season-rollover` still
+        report zero-target reasons asserting no league exists on the very same corrupt registry —
+        the falsehood class T2/T3/T4 each refused. This is the intended intermediate state of the
+        split, in the same family as the recorded T2→T3 window, and it is LIVE while it lasts.
         (n) **`readLeagueRegistry` classifies the CONTAINER only.** A `[null]` or `[{}, null]`
         registry classifies `ok` and then throws downstream into the generic `unexpected-error` 500.
         Pre-existing and unchanged — `getLeagues()` returned the same array before — and per-record
@@ -453,18 +461,41 @@ Execution order within F2 (each slice is one independently deployable PR):
         sibling integrity refusal `registry-malformed` returns 500 for the stated reason that an
         operator must not read it as "nothing to do". The body does carry `invalidLifecycleTargets`,
         but two data-integrity refusals in one handler have opposite HTTP semantics. Decide once.
+        **R2 added a third data point rather than resolving this**: on `schedule-refresh`,
+        `registry-malformed` answers 200, not 500 — that route answers every controlled outcome with
+        200 and reserves non-200 for auth. So the SAME reason code now carries different HTTP
+        semantics on two jobs. Both are prompt-specified and both are internally consistent with
+        their own route; what is missing is a campaign-level rule. Decide it before R3/R4 copy the
+        pattern a third and fourth time.
         (p) **The mixed case can pair `result: failure` with a benign per-year reason** (e.g.
         `refresh-not-due`), and `unusable-lifecycle-year` is UNREACHABLE whenever any valid year
         exists, because the early return requires zero entries — so an alert keyed on that code never
         fires on a partially-corrupt registry. Inherent to the approved aggregation table (preserve
         the executed years' reason; classify by their aggregate). A decision, not a defect.
+        **R2's review raised a sharper instance.** On the weekly cron the executed years can all be
+        DEFERRALS — `season-transition-owner` (a year the daily cron owns) or
+        `automation-paused-or-disabled` (an operator pause). Their aggregate is `skipped`, which is
+        neither `success` nor `partial`, so the table classifies the run `failure`. That contradicts
+        the weekly job's long-standing rule that a deferral is never a failure, and it fires on the
+        CURRENT production shape: 2026 is transition-owned today, so a single corrupt record would
+        turn every weekly delivery red. The count is the honest signal; the `result` is not. Needs a
+        decision — the table is R1-approved and shared, so changing it is not R2's to do alone.
         (q) **The refusal count has no summary-level surface.** It renders at the end of the Target
         string inside the scheduler row's collapsed `<details>`, beside a reason that may name
         something benign, and `systemHealthIssues` derives from `result` only — so there is no issue
         code and no repair link. Presentation work; F2H3's class.
-        (r) **Three sibling receipt kinds still render a dangling `": "`** for an empty year list
-        (`schedule-years`, `rankings-years`, `season-rollover-years`). R1 fixed only the branch it
-        touched; generalizing is opportunistic cleanup outside its contract.
+        (r) **Two sibling receipt kinds still render a dangling `": "`** for an empty year list
+        (`rankings-years`, `season-rollover-years`). R1 fixed `season-transition-years` and R2 fixed
+        `schedule-years`, each only the branch it touched; generalizing is opportunistic cleanup
+        outside their contracts. R3 and R4 own the remaining two by the same rule.
+        (t) **The `schedule-years` and `season-transition-years` summary branches are now
+        near-duplicates**, and R2 inlined the aggregation policy that R1 expressed as a named helper.
+        Both are cosmetic convergence, deliberately deferred: doing it once across R3–R5, when all
+        four consumers exist, beats doing it twice in slices that each own one job.
+        (u) **`excludedDemoCandidate` is discarded when refusals coexist.** A run whose active
+        registry held both a demo league and an unusable-year production league reports only the
+        refusal; the demo exclusion becomes invisible. Zero-target reasons are single-valued by
+        construction, so surfacing both needs a reporting-shape decision, not a one-line fix.
         (s) **`guardedLifecycleWrite` is not the single lifecycle write authority**, despite the
         module comment saying so. `completeSeasonRollover` calls `mutateRegistry` directly, bypasses
         `applyLifecycleStatus`, and is the only lifecycle writer with no structural year check. The
