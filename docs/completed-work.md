@@ -2322,6 +2322,71 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H1R2 — Weekly-Schedule Registry-Container Truth + Year Validity — Complete
+
+- **Status:** Complete — merged to `main` via PR #453 (merge commit `3a58767`), 2026-08-06.
+  **Second of five F2H1R slices**; R3 rankings is next.
+- **PROMPT_ID(s):** `PLATFORM-086F2H1R2-WEEKLY-SCHEDULE-YEAR-VALIDITY-v1`.
+- **Outcome:** `GET /api/cron/schedule-refresh` reads the registry CONTAINER through R1's
+  `readLeagueRegistry()` and refuses a malformed one with `failure / registry-malformed` before any
+  schedule read, probe, latch, settings read, provider request, or presentation refresh — instead of
+  `no-maintenance-target`, which asserted no active league exists on a registry that is merely
+  unreadable as a list. Production candidates surviving the demo exclusion are validated with
+  `isStructurallyValidSeasonYear`; the ordering is mutation-pinned, because validating first would
+  count a malformed demo record as an invalid production target and undo F2H1T3's reason. A refused
+  candidate contributes no year key, owner precedence, per-year entry, `schedule/<raw>-all-all`
+  read, boundary-latch or probe operation, settings decision, billed E1A refresh, or presentation
+  refresh. Run-level `invalidLifecycleTargets` reaches the response, the runtime event, and the
+  receipt on R1's schema pattern (required on the type, optional in the stored validator,
+  normalizing to `0`), so no migration. The empty-`years` guard also closed the `schedule-years`
+  half of the recorded dangling-colon item.
+- **What it actually prevented, proven rather than asserted.** Before this slice an unusable
+  `status.year` became a Map key and reached CFBD as `year=undefined`. That was established by
+  deleting the guard and neutralising every other assertion in the unusable-year matrix until only
+  the zero-provider assertion remained — at which point it failed on the real request URL. The same
+  exercise exposed that the matrix's `preseason` half had never been controlled at all: an unarmed
+  probe classifies `season-transition-owner`, a deliberate provider-free deferral that would not
+  have called the provider with or without the guard, so six of the twelve cases were proving
+  nothing. Arming the probe restored the control.
+- **The P1, and why its obvious fix was also wrong.** Refusals counted in the ownership loop were
+  discarded whenever a later league threw, so the response, the event, and the receipt all reported
+  `0` unusable targets on a run that had found them. The natural fix — publish the count after the
+  loop but inside the `try` — does NOT work, because a mid-loop throw skips that line too; mutation
+  testing caught it, the review had not. R1's "publish before the per-year loop" pattern cannot be
+  applied here either: on this route the loop that COUNTS refusals is the loop that can THROW. The
+  run state is now the counter itself. The throw is reachable because the registry array is typed
+  `League[]` while nothing validates each element, so a non-object member throws on property
+  access — a corrupt RECORD, distinct from the corrupt CONTAINER the reader classifies.
+- **Deliberate divergence from R1, stated rather than smoothed over.** `registry-malformed` answers
+  HTTP 200 here, not 500. This route answers every controlled outcome with 200 and reserves non-200
+  for auth; matching R1 would have broken that convention rather than establishing a rule. The
+  consequence — one reason code carrying different HTTP semantics on two jobs — is recorded as a
+  third data point on deferral (o), to be decided campaign-wide before R3 and R4 copy it.
+- **Known and recorded, not fixed.** An all-deferred run that also refuses a target classifies
+  `failure`, because the deferrals' aggregate (`season-transition-owner`,
+  `automation-paused-or-disabled`) is `skipped` — neither `success` nor `partial`. That contradicts
+  the weekly job's long-standing rule that a deferral is never a failure, and it fires on the
+  CURRENT production shape: 2026 is transition-owned, so a single corrupt record would turn every
+  weekly delivery red. The count is the honest signal; the `result` is not. The aggregation table is
+  R1-approved and shared across jobs, so changing it was not this slice's to do alone — recorded as
+  a sharper instance of deferral (p). Also recorded: the two summary branches are now
+  near-duplicates and R2 inlined an aggregation policy R1 expressed as a named helper (t), and
+  `excludedDemoCandidate` is discarded when refusals coexist (u).
+- **Review:** both reviews gathered against the same commit (`3cf4a76`) before any patching. Codex
+  found no actionable regression — its `eslint --no-cache` exit 2 was verified as the same CLI error
+  present on `main`, with eslint clean on all four changed source files. `/code-review` returned 12
+  findings; ONE cohesive round under DOCS-013 applied 6 and recorded 6. One finding (the 401 body
+  omitting the count) was not applied: this route's 401 body is `{error}` only and always has been,
+  and the prompt scoped the field to authenticated bodies.
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Focused
+  deltas: `schedule-refresh/route` 53 → 60, `schedule-refresh/receipts` 8 → 12. Full suite
+  3316 → 3327.
+- **Live intermediate state this leaves.** The malformed-vs-empty collapse is now closed on TWO of
+  four registry consumers. `rankings` and `season-rollover` still report zero-target reasons
+  asserting no league exists on a corrupt registry until R3 and R4 land — the intended intermediate
+  state of the split, in the same family as the recorded T2→T3 window, and LIVE while it lasts.
+
 ### PLATFORM-086F2H1R1 — Registry-Read Truth + Season-Transition Year Validity — Complete
 
 - **Status:** Complete — merged to `main` via PR #452 (merge commit `e29bb47`), 2026-08-06.

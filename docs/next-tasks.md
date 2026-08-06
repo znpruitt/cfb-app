@@ -420,15 +420,16 @@ Execution order within F2 (each slice is one independently deployable PR):
         `getLeagues()` semantics UNCHANGED, and hardens `GET /api/cron/season-transition`. See the
         ledger entry for the contract; the corrections it made to long-standing claims are recorded
         below.
-      - **F2H1R2 — weekly-schedule validity** — **NEXT**, implemented and in review. Applies the
-        R1 shape to `GET /api/cron/schedule-refresh`: the container read (`registry-malformed`) and
-        `status.year` validation AFTER the demo exclusion, refusing before any schedule read, probe,
-        latch, settings read, billed E1A refresh, or presentation refresh. HTTP status DIVERGES from
-        R1 on purpose — 200, this route's convention for every controlled outcome — which sharpens
-        (o) rather than resolving it. The count is accumulated on the run state, not a local
-        published after the loop, because here the loop that counts refusals is also the loop a
-        corrupt record can throw from. Closes the `schedule-years` half of (r).
-      - **F2H1R3 — rankings validity** ·
+      - **F2H1R2 — weekly-schedule validity** — ✅ MERGED (PR #453, `3a58767`, 2026-08-06).
+        Applies the R1 shape to `GET /api/cron/schedule-refresh`: the container read
+        (`registry-malformed`) and `status.year` validation AFTER the demo exclusion, refusing
+        before any schedule read, probe, latch, settings read, billed E1A refresh, or presentation
+        refresh. HTTP status DIVERGES from R1 on purpose — 200, this route's convention for every
+        controlled outcome — which sharpens (o) rather than resolving it. The count is accumulated
+        on the run state, not a local published after the loop, because here the loop that counts
+        refusals is also the loop a corrupt record can throw from. Closed the `schedule-years` half
+        of (r).
+      - **F2H1R3 — rankings validity** — **NEXT**. ·
         **F2H1R4 — rollover validity** (both the cron and the shared manual route, plus the missing
         structural check in `completeSeasonRollover`) · **F2H1R5 — System Health validity + the
         confirmed missing-status recovery**, which lands LAST because it is the only slice that ARMS

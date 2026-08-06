@@ -93,7 +93,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   or without the guard. Focused deltas: `schedule-refresh/route` 53 → 60, `schedule-refresh/receipts`
   8 → 12. Full suite 3316 → 3327. `npx tsc --noEmit`, `npm run lint:all`, `npm test`,
   `npm run build`, and `git diff --check` each run as their own command with unmasked exit status.
-- Status: Implemented; in final pre-merge review. Not merged.
+- Status: MERGED via PR #453 (`3a58767`), 2026-08-06.
 
 ### PLATFORM-086F2H1R1-SEASON-TRANSITION-YEAR-VALIDITY-v1
 
