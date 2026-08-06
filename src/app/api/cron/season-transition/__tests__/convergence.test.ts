@@ -1587,3 +1587,52 @@ test('R1 regression: a mid-run throw does not erase an already-detected refusal'
   if (receipt.value.target.kind !== 'season-transition-years') return;
   assert.equal(receipt.value.target.invalidLifecycleTargets, 1);
 });
+
+// REGRESSION TEST — the `failure` arm of the mixed-case classification.
+//
+// Round 1 introduced the rule that a refusal must not UPGRADE a run whose valid
+// years did nothing, but every fixture reaching it had a valid year that
+// succeeded or was partial, so replacing the whole ternary with `'partial'`
+// compiled and left all 74 season-transition tests green. AGENTS.md: "if
+// deleting the new guard leaves the suite green, the guard is not in the PR's
+// acceptance contract."
+//
+// Here the only valid year is `skipped / refresh-not-due` — a future first-game
+// date with a probe already cached, so no refresh is due and nothing is
+// committed. Alongside a refusal that must classify `failure`, not `partial`.
+test('R1 regression: a refusal alongside a year that did nothing classifies failure', async () => {
+  await seedRegistry([
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+    makeUnusableLeague('broken', 2023.5),
+  ]);
+  // A far-future first game with a fresh probe: `shouldFetch` is false, so the
+  // year is `skipped / refresh-not-due` and commits nothing.
+  await setAppState('schedule-probe', String(YEAR), {
+    year: YEAR,
+    baseCachedAt: '2023-01-01T00:00:00.000Z',
+    firstGameDate: '2099-09-01T00:00:00.000Z',
+  });
+
+  const run = await runRoute();
+
+  // POSITIVE CONTROL: the valid year really did nothing — no provider call, and
+  // its own outcome is the benign skip this arm is meant to refuse to upgrade.
+  assert.equal(run.providerCalls, 0, 'no refresh was due');
+  assert.equal(run.event.years.length, 1);
+  assert.equal(run.event.years[0]!.result, 'skipped');
+  assert.equal(run.event.years[0]!.reason, 'refresh-not-due');
+
+  // The refusal must not turn a run that committed nothing into `partial`.
+  assert.equal(run.event.result, 'failure');
+  assert.equal(run.event.invalidLifecycleTargets, 1);
+  // The reason still names the executed year, per the approved table.
+  assert.equal(run.event.reason, 'refresh-not-due');
+
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('season-transition');
+  assert.ok(receipt);
+  assert.equal(receipt.value.result, 'failure');
+  assert.equal(receipt.value.target.kind, 'season-transition-years');
+  if (receipt.value.target.kind !== 'season-transition-years') return;
+  assert.equal(receipt.value.target.invalidLifecycleTargets, 1);
+});
