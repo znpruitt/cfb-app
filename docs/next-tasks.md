@@ -415,11 +415,12 @@ Execution order within F2 (each slice is one independently deployable PR):
       (season-transition, weekly schedule, rankings, rollover), which AGENTS.md names as a mandatory
       planning-split trigger, and `PLATFORM-086F2H1B` v1 was reconstructed for crossing _two_ with
       the second untested. Each slice touches at most one automation job.
-      - **F2H1R1 — registry-read truth + season-transition validity** — **NEXT**, implemented and in
-        review. Adds `readLeagueRegistry()` (`ok` / `missing` / `malformed`) with `getLeagues()`
-        semantics UNCHANGED, and hardens `GET /api/cron/season-transition`. See the ledger entry for
-        the contract; the corrections it made to long-standing claims are recorded below.
-      - **F2H1R2 — weekly-schedule validity** · **F2H1R3 — rankings validity** ·
+      - **F2H1R1 — registry-read truth + season-transition validity** — ✅ MERGED (PR #452,
+        `e29bb47`, 2026-08-06). Adds `readLeagueRegistry()` (`ok` / `missing` / `malformed`) with
+        `getLeagues()` semantics UNCHANGED, and hardens `GET /api/cron/season-transition`. See the
+        ledger entry for the contract; the corrections it made to long-standing claims are recorded
+        below.
+      - **F2H1R2 — weekly-schedule validity** — **NEXT**. · **F2H1R3 — rankings validity** ·
         **F2H1R4 — rollover validity** (both the cron and the shared manual route, plus the missing
         structural check in `completeSeasonRollover`) · **F2H1R5 — System Health validity + the
         confirmed missing-status recovery**, which lands LAST because it is the only slice that ARMS

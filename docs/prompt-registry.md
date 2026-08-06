@@ -89,7 +89,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `leagueRegistry.readRegistry` 0 → 6 (new), `convergence` 32 → 41. Full suite 3315 → 3316.
   `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
   run as their own command with unmasked exit status.
-- Status: Implemented — in review.
+- Status: MERGED via PR #452 (`e29bb47`), 2026-08-06.
 
 ### PLATFORM-086F2H1T5-SYSTEM-HEALTH-YEAR-ISOLATION-v1
 

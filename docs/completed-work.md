@@ -2322,6 +2322,91 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H1R1 — Registry-Read Truth + Season-Transition Year Validity — Complete
+
+- **Status:** Complete — merged to `main` via PR #452 (merge commit `e29bb47`), 2026-08-06.
+  **First of five F2H1R slices**; R2 weekly schedule is next.
+- **PROMPT_ID(s):** `PLATFORM-086F2H1R1-SEASON-TRANSITION-YEAR-VALIDITY-v1`.
+- **Why five slices.** F2H1R as chartered crosses FOUR separate automation jobs, which
+  `AGENTS.md` names as a mandatory planning-split trigger by name, and `PLATFORM-086F2H1B` v1 was
+  reconstructed for crossing _two_ with the second untested. The audit also found the ordering the
+  charter implied was backwards: the confirmed missing-status repair must land LAST, because it is
+  the only slice that ARMS automation — a status-less record is inert to every target selector
+  today, and repairing it to `season(Y)` makes it a rollover target (archive-producing), a
+  weekly-schedule `season` owner (the pause-exempt branch), and a rankings target within 24 hours.
+- **Outcome:** `readLeagueRegistry()` classifies the registry CONTAINER as `ok` / `missing` /
+  `malformed`. A store failure still THROWS, so unavailability stays distinct from corruption; a
+  present record whose value is not an array is `malformed`, including a stored JSON `null` — a
+  deliberate divergence from `readScheduleItems`, where a null-valued record is ordinary absence.
+  `getLeagues()` delegates with behavior UNCHANGED (~69 consumers). `GET /api/cron/season-transition`
+  refuses a malformed container with `failure / registry-malformed` (500) before any probe, provider,
+  lifecycle, or invalidation work, then validates production `status.year` with the existing
+  `isStructurallyValidSeasonYear` AFTER the demo exclusion — reversing that order would let a
+  malformed demo record flip the zero-target reason and undo F2H1T2, and that direction is
+  mutation-pinned. Refusals are reported as one run-level `invalidLifecycleTargets` count on the
+  response, event, and receipt; the receipt field is required on the type, optional in the stored
+  validator, normalized to 0 for legacy records, so no schema migration.
+- **The concrete hazard closed.** An `undefined` `status.year` became a Map key, survived the
+  zero-target gate, drove a probe read and a billed E1A refresh, and produced a per-year entry whose
+  `year` key `JSON.stringify` DROPS — failing `isFiniteNumber` so that
+  `parseSchedulerExecutionReceipt` rejected the ENTIRE record. One corrupt league erased a whole
+  job's latest receipt from System Health.
+- **Two deliberate deviations from the prompt's specified aggregation table**, each verified against
+  the code and confirmed by the maintainer before landing. (1) The aggregate reason no longer
+  collapses to `year-results` on a refusal: the refusal already rides on the count across all three
+  surfaces, while the receipt's `season-transition-years` year entries carry counts and NO reason
+  field, so the collapse bought nothing and erased the only durable record of why the valid years
+  failed — and `year-results` is defined in this repo as "the per-year reasons disagree", which is
+  false for a single year. (2) The mixed-case result table mapped `no-op` and `in-progress` UP to
+  `partial` while mapping `skipped` DOWN to `failure`, classifying two "nothing happened" outcomes
+  oppositely and contradicting this route's own rule that a year which "wrote NOTHING" is a clean
+  `failure`. A third correction came from the maintainer: my comment claimed `partial` is reserved
+  for a run that accomplished something, which is NOT an invariant —
+  `aggregateLifecycleCronResult` also returns `partial` for `failure` + `no-op`. The comment now
+  states the exact table and disclaims the stronger reading.
+- **Verification:** each gate its own command with an unmasked exit status against the final
+  behavior commit `1b30ce4` — focused suites (registry reader 6, convergence 41), `npx tsc --noEmit`,
+  `npm run lint:all`, `npm test` 3316/3316, `npm run build`, `git diff --check`. **Test delta: +15
+  (6 registry reader, 9 convergence), 0 weakened.** The closeout commit `344c466` was
+  documentation-only, verified by the absence of any `src/**` diff since `1b30ce4`; `tsc` and
+  `lint:all` were rerun on it and `npm test` / `build` were not, which the PR states.
+- **TWELVE compiling mutations verified one at a time.** The plan had nine; three exist because
+  verification found gaps rather than confirming assumptions. The catch-path mutation was originally
+  killed by NOTHING — every fixture reached the normal post-loop path — so a throw-alongside-refusal
+  fixture was added, and when the round-1 aggregation correction removed the reason discriminator it
+  was redefined as "set the count after the loop". Two presentation mutations exist because
+  `/code-review` correctly found that deleting either new branch left the whole suite green. And the
+  `: 'failure'` arm of the corrected table was found unpinned by the CONFIRMING pass — verified
+  surviving, then killed. Separately, the "bypass the reader" mutation initially only broke
+  compilation: TypeScript proves the downstream `malformed` check dead once the reader is removed,
+  so it was reworked into the full pre-R1 shape and reported only after compiling clean.
+- **Review history.** Codex found no actionable correctness issue on either pass. `/code-review`
+  returned 11 findings on the first pass (7 applied in one authorized round, 4 adjudicated and
+  recorded) and 9 on the confirming pass, which produced a maintainer-approved SECOND round scoped
+  strictly to the one defect the first round caused — the untested `: 'failure'` arm. The recurring
+  campaign lesson held again in a new form: this time it was not a vacuous assertion but an entire
+  branch with no acceptance contract, found only because the mutation was run rather than assumed.
+- **A long-standing false claim corrected.** `leagueRegistry.ts` states that
+  `guardedLifecycleWrite` is the single lifecycle write authority. It is not:
+  `completeSeasonRollover` calls `mutateRegistry` directly, bypasses `applyLifecycleStatus`, and is
+  the only lifecycle writer with no structural year check. `AGENTS.md` now records this; the code
+  fix belongs to R4.
+- **Limits stated rather than left to be discovered.** The predicate is STRUCTURAL, not a
+  plausibility window — an in-range but absurd year (`999999`) still passes and still drives billed
+  work. And the malformed-vs-empty collapse is closed on ONE of four registry consumers, so the
+  falsehood remains live on `season-rollover`, `rankings`, and `schedule-refresh` until their slices
+  land: the intended intermediate state of the split, in the same family as the recorded T2→T3
+  window.
+- **Follow-ups recorded** in `docs/next-tasks.md` as (l)–(s): the missing plausibility bound; the
+  three unmigrated consumers; container-only classification leaving `[null]` to throw downstream;
+  an all-refused run returning HTTP 200 while its event and receipt say `failure`; the mixed case
+  pairing `result: failure` with a benign per-year reason, which also makes `unusable-lifecycle-year`
+  unreachable whenever a valid year exists; the refusal count having no summary-level surface; the
+  dangling `": "` on three sibling receipt kinds; and `completeSeasonRollover`'s bypass. The last two
+  of those are decisions rather than defects and are recorded as such.
+
+---
+
 ### PLATFORM-086F2H1T5 — System Health Operational-Year Isolation — Complete
 
 - **Status:** Complete — merged to `main` via PR #451 (merge commit `6e881b5`), 2026-08-05.
