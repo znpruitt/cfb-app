@@ -446,7 +446,44 @@ Execution order within F2 (each slice is one independently deployable PR):
         keyed on the year. Closed the LAST dangling-colon branch (r) and the
         `guardedLifecycleWrite` false claim (s).
       - **F2H1R5 — System Health validity + the confirmed missing-status recovery** — **NEXT**, and
-        the FINAL slice of F2H1R. It lands last because it is the only slice that ARMS automation: a
+        the FINAL slice of F2H1R. **AUDITED 2026-08-06 — read-only; the charter's central premise
+        does not hold, and the slice should be reduced.** The production registry was queried
+        (read-only Neon role) and contains exactly two league records, both structurally sound:
+        `tsc` preseason(2026) and `test` preseason(2027), both objects, both with valid integer
+        years and explicit lifecycle status.
+        - **The confirmed missing-status recovery has ZERO targets.** No record lacks a status, and
+          no current write path can produce one: creation validates the year and writes an explicit
+          status (F2B), `updateLeague` throws on lifecycle fields, the per-league PATCH rejects
+          `year`, and every transition is guarded. Missing-status records are pre-F2B archaeology
+          that this registry does not contain. Recommendation: **retire the durable recovery write**
+          rather than build it — it is the highest-risk item in the campaign (it ARMS three jobs,
+          one archive-producing) against a benefit that does not exist. If any coverage is wanted,
+          a detection-only report costs almost nothing and never writes.
+        - **Per-record validation (n) survives on its own merits and is the strongest remaining
+          item.** Both readers pass corrupt ELEMENTS straight through (`[null]`, `[{}]`, `['str']`
+          all classify `ok`), and 25 consumer files receive them typed as `League`. Probed
+          consequences: `sanitizeLeagues([null])` THROWS — that is `src/app/page.tsx`, the PUBLIC
+          homepage — and `sanitizeLeagues(['str'])` returns a character-indexed object served to
+          visitors. This is the last path where corrupt data reaches an unauthenticated surface.
+          No live instance today; nothing in the running code can create one; a bad restore or a
+          hand-edit could.
+        - **System Health year validity (i) is narrower than recorded.** The resolver already drops
+          non-integers via `Number.isInteger`, so the fractional/string/null cases never reach the
+          clamp. The real defect is silent SUBSTITUTION of out-of-range integers (`1800` → 2000,
+          `999999` → 2027), after which the dashboard renders a full health picture for a year no
+          league occupies with no signal it substituted one. Cache-only, so nothing is billed. Note
+          `buildSystemHealthViewModel` has its own `validateYear` that THROWS outside [2000, 2100],
+          so the clamp is partly load-bearing — removing it naively turns a bad record into a 500
+          on `/admin/diagnostics`. Marginal at two leagues.
+        - **`tsc` carries a projection mismatch** — preseason `status.year=2026` with top-level
+          `year=2025`, violating the `applyLifecycleStatus` invariant. It is pre-`f3caa05`
+          archaeology (that commit introduced the projection sync). It is NOT a repair target: it
+          self-heals when the season transition writes `season(2026)`, and `completeSeasonTransition`
+          additionally has an explicit `already-in-target-season` + `healed` path for exactly this.
+          The real defect it exposed is on the READ side and is now
+          **INSIGHTS-CURRENT-YEAR-AUTHORITY** in the insights backlog.
+        Original charter text follows; the arming rationale still holds for whatever recovery, if
+        any, is eventually built. It lands last because it is the only slice that ARMS automation: a
         status-less record is inert to every target selector today, and repairing it to `season(Y)`
         makes it a rollover target (archive-producing, and now year-validated by R4), a
         weekly-schedule `season` owner (the pause-exempt branch), and a rankings target within 24h.
@@ -734,7 +771,18 @@ Items surfaced during the Insights Panel Redesign + Polish campaign and queued f
 - **INSIGHTS-017-PALETTE** — Category microlabel palette rationalization. Resolves HISTORICAL/STANDINGS/SEASON shared-purple and STATS/LEAGUE/fallback shared-slate token collisions. Includes micro-discovery on why SEASON labels render when no generator appears to set that category. Constrained by `DESIGN.md`'s strict ban on amber/green/red/blue hues for category use.
 - **LINK-STYLING-AUDIT** — App-wide standardization of "view more" / "full view" / "see all" cross-links. Current split: blue `↗` on history/Overview column headers vs. muted `→` on Insights "See all". Convention chosen: muted text + horizontal arrow. Removes redundant blue accent on already-interactive links, aligns with `DESIGN.md`'s single-purpose use of blue for interactivity.
 - **STANDINGS-PAGE-LIFECYCLE-LABELING** — Broader "Offseason" vs "{year} Season" label inconsistency audit across surfaces beyond the standings page. STANDINGS-SUBHEADER-FIX addressed the standings page itself; other surfaces may still show stale or contradictory year/lifecycle labels during offseason.
-- **INSIGHTS-RANKER-TUNING** — Audit base priority weights across all 26 generators. Add sample-depth awareness (e.g. "perfect record at 6 games" should not rank as high as "perfect record at 20 games"). Foundation for eventually restoring row-1 prominence once the ranker earns it. Revisit when priority decay ships.
+- **INSIGHTS-RANKER-TUNING** — Audit base priority weights across all 26 generators. Add sample-depth awareness (e.g. "perfect record at 6 games" should not rank as high as "perfect record at 20 games"). Foundation for eventually restoring row-1 prominence once the ranker earns it. Revisit when priority decay ships — now defined as **INSIGHTS-PRIORITY-DECAY** below. These two are coupled: decay is multiplicative over the base weights, so the weights must be commensurable before decay can be trusted.
+- **INSIGHTS-PRIORITY-DECAY** — Time-dependent weighting to replace binary lifecycle gating. Two prior items already referenced "when priority decay ships" without it ever being defined; this is that item.
+  **Why.** Eligibility today is a binary `supportedLifecycles` list plus a static `priorityScore`; the engine sorts and takes the top N. There is NO time dimension anywhere, and priority is not lifecycle-aware. So "recently relevant" can only be expressed as an on/off gate, which produces a cliff rather than a fade.
+  **What the audit found (2026-08-06).** The `fresh_offseason` → `offseason` boundary is a PURE SUBTRACTION: zero generators are offseason-only, so nothing turns on at the cutoff. Exactly four families turn off (`SEASON_WRAP`, `STATS`, `ROOKIE`, `RETURNING_OWNER_TRENDING`); the other ~10 (historical, evergreen, rivalry, career) run identically on BOTH sides at identical priority. The intended "treat all years more equally in the regular offseason" therefore does not happen — that content was already running at full strength before the cutoff. Whether the cutoff changes anything visible is incidental to the score ordering.
+  **Shape.** A recap scores high at rollover, decays over weeks, and settles into rotation rather than vanishing. Roster content stays eligible year-round with a lift approaching preseason. Historical content holds a flat baseline and rises naturally as seasonal content decays — the desired rebalance achieved by NOT special-casing anything.
+  **Constraints.** (1) Decay needs an anchor; the only true one is the most recent archive's `archivedAt` (already loaded into the insight context) — a calendar date reintroduces the arbitrariness this replaces. (2) It SUPERSEDES `fresh_offseason` rather than complementing it: if weight is time-derived, that state exists only to approximate "recently", and collapsing it back to one `offseason` state is a breaking change to every generator's lifecycle list and to `deriveLifecycleState`. (3) Existing `priorityScore` values are per-generator constants on no shared scale; making them commensurable is the bulk of the work, not the decay mechanism.
+  Precedent worth reusing: `framing.ts` already has `applyLastSeasonFraming` — the system can already reframe an insight for distance, it just cannot re-rank for it.
+- **INSIGHTS-OFFSEASON-ROSTER-CONTENT** — `ROOKIE` and `RETURNING_OWNER_TRENDING` are gated to `['fresh_offseason', 'preseason']`, so both go dark for the entire stretch between the fresh cutoff and preseason — exactly the window where "who is returning / who is new" is most relevant. Owner decision (2026-08-06): these categories are EVERGREEN even though the eligible owners change, so the gap looks like a side effect of grouping them with recap content rather than a decision. Adding `offseason` to both sets closes it without touching anything else, and does not require decay first (unlike `SEASON_WRAP`, which at flat priority would keep a stale recap competing all year — that one waits for INSIGHTS-PRIORITY-DECAY).
+- **INSIGHTS-CURRENT-YEAR-AUTHORITY** — LIVE minor defect. `buildLeagueInsightContext` derives `lifecycleState` from `league.status` (correct) but takes `currentYear` from the top-level `league.year` projection (`context.ts:378/387/393`, and `applySuppression` at `loadInsights.ts:299`). Owner intent (2026-08-06): **preseason belongs to the UPCOMING year — it is the first state of the new season, not the final state of the previous one.** So `currentYear` must read `status.year`. Live effect on `tsc` (preseason 2026, projection 2025): career/records/suppression are scoped to 2025 and the page labels 2025. NOT a data-integrity problem — archives remain the sole source of accumulated totals and there is no double-count (`buildOwnerCareerStats` iterates archives only; `currentYear` is a reference point). The projection self-heals when the season transition runs, but reading the authority fixes it immediately and permanently.
+  Paired change: `isRookie: firstSeason === currentYear` always returns a boolean, so during preseason it answers a question it cannot know. Owner intent: **rookie is INDETERMINATE until owners are finalized**, and an owner who completed 2025 is not a rookie in the 2026 preseason. The preseason status already carries `setupComplete` as that signal. Rookie becomes tri-state; this changes a generator's output shape and needs its own care.
+  Checked and requiring NO action: the `STATS` lifecycle gate is redundant — those five generators read `context.ownerGameStats`, which the context sets to `null` for preseason and offseason anyway, so they return `[]` regardless of the gate. Turning `STATS` off disables nothing historical (`stats:team_identity` is evergreen and archive-backed).
+- **INSIGHTS-FRESH-WINDOW-ANCHOR** — `deriveLifecycleState` cuts `fresh_offseason` → `offseason` at a hardcoded **March 1** (`lifecycle.ts:19`), while rollover is derived from the real world (`ROLLOVER_DELAY_MS` = championship + 7 days). One boundary is an event, the other a calendar constant, so the window LENGTH is uncontrolled: it shrinks as the expanded playoff pushes the championship later, shrinks further if rollover is delayed (roll on Feb 20 → nine days of `fresh_offseason`), and would vanish entirely if rollover ever landed after March 1. Owner notes the date was arbitrary. If `fresh_offseason` survives INSIGHTS-PRIORITY-DECAY at all, anchor it to `archivedAt + N days`; if decay ships, this item is absorbed by it.
 
 ## Planned backlog (from Standings Ownership Redesign campaign)
 

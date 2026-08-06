@@ -145,7 +145,7 @@ Future polish work (grouping by category, lifecycle filtering, pagination for lo
 
 #### Insights Ranker — Priority Tuning (planned)
 
-Audit base priority weights across all 26 generators. Add sample-depth awareness (e.g. "perfect record at 6 games" should not rank as high as "perfect record at 20 games"). Foundation for restoring row-1 visual prominence once the ranker earns it. Revisit when priority decay ships.
+Audit base priority weights across all 26 generators. Add sample-depth awareness (e.g. "perfect record at 6 games" should not rank as high as "perfect record at 20 games"). Foundation for restoring row-1 visual prominence once the ranker earns it. Revisit when priority decay ships — defined as INSIGHTS-PRIORITY-DECAY in `docs/next-tasks.md` (previously a dangling reference).
 
 - **Backlog slug (provisional):** `INSIGHTS-RANKER-TUNING-v1`
 
