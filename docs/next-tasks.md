@@ -429,14 +429,14 @@ Execution order within F2 (each slice is one independently deployable PR):
         on the run state, not a local published after the loop, because here the loop that counts
         refusals is also the loop a corrupt record can throw from. Closed the `schedule-years` half
         of (r).
-      - **F2H1R3 — rankings validity** — **NEXT**, implemented and in review. Same shape as R2,
+      - **F2H1R3 — rankings validity** — ✅ MERGED (PR #454, `10186b2`, 2026-08-06). Same shape as R2,
         with the container read kept BEHIND the automation gate (a paused run never reads the
         registry) and the refusal count published into a REQUIRED sink, because here the counting
         loop lives inside the pure selector where the run state is not in scope. Closed the
         fractional-AND-string CFP hazard: `Date.UTC` coerces, so a string year made the
         context-free publication window due and billed `/info` plus both partitions. Closed the
         `rankings-years` half of (r), and closed (o) and (p) as decisions below.
-      - **F2H1R4 — rollover validity** (both the cron and the shared manual route, plus the missing
+      - **F2H1R4 — rollover validity** — **NEXT**. (both the cron and the shared manual route, plus the missing
         structural check in `completeSeasonRollover`) · **F2H1R5 — System Health validity + the
         confirmed missing-status recovery**, which lands LAST because it is the only slice that ARMS
         automation: a status-less record is inert to every target selector today, and repairing it to
@@ -492,10 +492,20 @@ Execution order within F2 (each slice is one independently deployable PR):
         noise unacceptable in practice, the correct fix is a dedicated issue code with a repair link
         (item (q)), NOT softening the aggregate — that would hide the condition rather than surface
         it.
-        (q) **The refusal count has no summary-level surface.** It renders at the end of the Target
-        string inside the scheduler row's collapsed `<details>`, beside a reason that may name
-        something benign, and `systemHealthIssues` derives from `result` only — so there is no issue
-        code and no repair link. Presentation work; F2H3's class.
+        (q) **OWNED FOLLOW-UP — a dedicated lifecycle-integrity issue with a repair link.**
+        User decision, 2026-08-06, taken together with closing (p): the continuous `failure` is
+        APPROPRIATE and must not be softened. A corrupt league record stays actionable on every
+        run, even when rankings publication is not due, and reclassifying the aggregate to
+        `skipped` would make the scheduler look healthy while it is repeatedly refusing a
+        production target. **The real problem is actionability, not severity.**
+        Today the count renders only at the end of the Target string inside the scheduler row's
+        collapsed `<details>`, beside a reason that may name something benign, and
+        `systemHealthIssues` derives from `result` alone — so there is no issue code, no
+        operator-readable statement of what is wrong, and no repair link. The work: derive a
+        dedicated issue from `invalidLifecycleTargets > 0` (NOT from `result`), with a stable code,
+        a message naming the condition, and a repair link to the lifecycle recovery surface.
+        Owner: the System Health / F2H3 presentation work. **Explicitly NOT a reason to reopen
+        R3** — the aggregate stays as merged.
         (r) **One sibling receipt kind still renders a dangling `": "`** for an empty year list
         (`season-rollover-years`). R1 fixed `season-transition-years`, R2 `schedule-years`, and R3
         `rankings-years`, each only the branch it touched. R4 owns the last one by the same rule.

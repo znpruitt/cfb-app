@@ -2322,6 +2322,72 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H1R3 — Rankings Registry-Container Truth + Year Validity — Complete
+
+- **Status:** Complete — merged to `main` via PR #454 (merge commit `10186b2`), 2026-08-06.
+  **Third of five F2H1R slices**; R4 rollover is next.
+- **PROMPT_ID(s):** `PLATFORM-086F2H1R3-RANKINGS-YEAR-VALIDITY-v1`.
+- **Outcome:** `GET /api/cron/rankings` reads the registry CONTAINER through `readLeagueRegistry()`
+  and refuses a malformed one with `failure / registry-malformed` before any publication-context
+  read, window claim, `/info` quota probe, provider request, refresh lease/status write, or rankings
+  commit. The read stays BEHIND the automation gate, so a corrupt registry can never turn a
+  deliberately paused run into a scheduler failure. `selectRankingsTargetYears` validates an active
+  production candidate's `status.year` AFTER the demo exclusion — mutation-pinned, because
+  validating first would count a malformed demo record as an invalid production target and undo
+  F2H1T4's reason. Run-level `invalidLifecycleTargets` reaches every authenticated response, the
+  runtime event, and the receipt on the R1 schema pattern, so no migration; the empty-`years` guard
+  closed the `rankings-years` half of the dangling-colon item.
+- **What it actually prevented, established rather than asserted.** The hazard was NOT
+  fractional-only. `Date.UTC` COERCES, so `Date.UTC('2031', 10, 1)` is a real instant rather than
+  `NaN`, and the CFP publication window is context-free — it needs no cached schedule and no
+  championship. A STRING year therefore made the window become due and billed `/info` plus both
+  rankings partitions under an unusable year. Proven by running at a Wednesday 04:00 UTC CFP slot
+  and pairing the refusal test with a POSITIVE CONTROL showing a valid year on the same fixture
+  does reach the provider.
+- **The P1, and the part worth remembering.** `selectRankingsTargetYears` counted refusals into a
+  local returned after the loop, so a corrupt RECORD throwing mid-selection discarded them and the
+  response, event, and receipt all reported zero. Both reviewers found it independently. It
+  violated the AGENTS.md rule written in **R2's own closeout one slice earlier**, after fixing that
+  exact defect there: R2 put the counter on the run state because the ROUTE owned the loop; R3
+  moved the loop into the pure selector, where the run state is not in scope, and the rule silently
+  stopped being satisfied. The original thirteen-mutation set contained no mid-selection throw, so
+  nothing caught it. **Authoring a binding rule is not coverage for it** — only a mutation is. Fixed
+  with a REQUIRED refusal sink published during iteration (deliberately not also on the return
+  value: two channels for one fact drift, and a caller reading both would double-count).
+- **Also corrected in the same round:** a malformed refusal returning from inside the catch's own
+  try, which would have relabelled corruption as unavailability — the two conditions the slice
+  exists to separate; a doc comment retaining a generalization this slice falsifies; a
+  `REGRESSION TEST` label asserting a mechanism its fixtures did not exhibit (only `undefined` drops
+  the key under `JSON.stringify`; `2031.5` would have parsed cleanly pre-R3); an over-claimed 500
+  precedent; and five hand-maintained copies of one response body.
+- **Two campaign decisions CLOSED, not re-deferred.** (o) HTTP status follows the DELIVERY
+  BOUNDARY, not the reason literal: QStash-delivered routes answer controlled outcomes with 200 and
+  reserve non-200 for auth, because an at-least-once layer must not read a controlled refusal as a
+  transport fault; Vercel-native lifecycle crons keep 500, and R4 follows that side. (p) A deferral
+  alone never causes failure; an unusable production target does, with the valid years' reason
+  always preserved.
+- **The standing-warning consequence, and the user's decision on it.** Because `skipped` is the
+  rankings cron's modal outcome — the publication window is due on a small minority of in-season
+  deliveries and on NONE from January through July — one unrepaired record makes nearly every run
+  classify `failure` and shows a continuous System Health warning. Raised explicitly before merge;
+  the user confirmed the severity is CORRECT: the corrupt record remains actionable on every run,
+  and softening the aggregate to `skipped` would make the scheduler look healthy while it is
+  repeatedly refusing a production target. **The real problem is actionability, not severity** —
+  carried forward as item (q): a dedicated lifecycle-integrity issue derived from
+  `invalidLifecycleTargets > 0` (not from `result`) with a stable code and a repair link, owned by
+  the System Health / F2H3 presentation work.
+- **Review:** both reviews gathered against the same commit (`c2e060f`) before any patching. Codex
+  raised ONE P1; `/code-review` raised eleven findings and reached the same P1 independently. ONE
+  cohesive round under DOCS-013 applied six and recorded five.
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. SEVENTEEN
+  mutations, each compiling, applied alone, and killed by a named test. Focused deltas:
+  `automaticContext` 20 → 28, `rankings/route` 35 → 47, `rankings/receipts` 10 → 15. Full suite
+  3327 → 3352.
+- **Live intermediate state this leaves.** The malformed-vs-empty collapse is now closed on THREE of
+  four registry consumers. `season-rollover` alone still reports a zero-target reason asserting no
+  league exists on a corrupt registry until R4 lands.
+
 ### PLATFORM-086F2H1R2 — Weekly-Schedule Registry-Container Truth + Year Validity — Complete
 
 - **Status:** Complete — merged to `main` via PR #453 (merge commit `3a58767`), 2026-08-06.
