@@ -1609,10 +1609,13 @@ test('R2 contract pin: missing and unreadable registries keep their existing rea
 // REGRESSION TEST — every unusable-year shape is refused, for BOTH active
 // lifecycle states, before ownership or any downstream work.
 //
-// The fixture deliberately seeds `schedule/<raw-year>-all-all` with a parseable
-// kickoff, so on pre-R2 code the year classifies as ordinary maintenance and
-// reaches the provider. Without that the zero-provider assertion would pass
-// merely because `canonical-context-unavailable` short-circuited first.
+// The fixture must make the pre-R2 path genuinely reach the provider, or the
+// zero-provider assertion is vacuous. That needs BOTH halves handled, and they
+// differ: a `season` year needs a populated `schedule/<raw-year>-all-all` with a
+// parseable kickoff, while a `preseason` year additionally needs an ARMED
+// `schedule-probe/<raw-year>` — without one it classifies `season-transition-owner`,
+// a deliberate provider-free deferral, and would never have called the provider
+// with or without the guard.
 test('R2 regression: unusable-only production years refuse without reaching the provider', async () => {
   const cases: Array<[string, unknown]> = [
     ['missing', undefined],
@@ -1632,6 +1635,12 @@ test('R2 regression: unusable-only production years refuse without reaching the 
       await setAppState('leagues', 'registry', [makeUnusableLeague('alpha', year, state)]);
       // The schedule the raw year WOULD have read, populated and classifiable.
       await seedSchedule(String(year) as unknown as number, CRITICAL_KICKOFF);
+      if (state === 'preseason') {
+        // Arm the probe so the pre-R2 path is `preseason-maintenance`, which
+        // DOES call the provider — otherwise the zero-provider assertion below
+        // proves nothing for this half.
+        await seedProbe(String(year) as unknown as number, ORDINARY_KICKOFF);
+      }
       stubProvider({ 2020: { regular: gameBody(2020), postseason: '[]' } });
 
       const { res, events } = await runRoute();
@@ -1653,6 +1662,41 @@ test('R2 regression: unusable-only production years refuse without reaching the 
       assert.deepEqual(presentationFetchLog, [], `${where}: no presentation refresh`);
     }
   }
+});
+
+// REGRESSION TEST — refusal DURABILITY across a mid-loop throw.
+//
+// The ownership loop both counts refusals and can throw: `leagues` is typed
+// `League[]`, but nothing validates each element, so a non-object member throws
+// on property access. Counting into a local and publishing it onto `exec` after
+// the loop therefore loses every refusal already found — the response, the
+// runtime event, and the receipt each report 0 unusable targets on a run that
+// found one. The order in the fixture is load-bearing: the refusable league must
+// come FIRST, or the throw happens before anything has been counted and the
+// assertion cannot distinguish the two implementations.
+test('R2 regression: refusals counted before a mid-loop throw survive into the response and event', async () => {
+  await setAppState('leagues', 'registry', [
+    makeUnusableLeague('alpha', 2020.5, 'season'),
+    // A corrupt RECORD (not a corrupt container): reading `.status` throws.
+    null,
+  ]);
+
+  const { res, events } = await runRoute();
+  const body = (await res.json()) as {
+    result: string;
+    reason: string;
+    invalidLifecycleTargets: number;
+  };
+
+  // POSITIVE CONTROL — the throw really did happen and really was caught here,
+  // rather than the run ending for some other reason that would make the count
+  // assertion below meaningless.
+  assert.equal(body.result, 'failure');
+  assert.equal(body.reason, 'canonical-context-unavailable', 'the corrupt record threw');
+
+  assert.equal(body.invalidLifecycleTargets, 1, 'the refusal already counted is not discarded');
+  assert.equal(events[0]?.invalidLifecycleTargets, 1, 'and it reaches the runtime event');
+  assert.deepEqual(providerUrlLog, [], 'no billed provider work');
 });
 
 // REGRESSION TEST — ordering. An active DEMO record with a malformed year stays

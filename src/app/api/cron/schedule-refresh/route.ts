@@ -46,8 +46,13 @@ export const dynamic = 'force-dynamic';
  * PRODUCTION leagues only: the demo league is filtered out per league before
  * ownership is resolved and is maintained manually (PLATFORM-086F2H1T3), so a
  * registry whose only active leagues are the demo reports
- * `skipped / no-automatic-maintenance-target`. The route then loads each year's
- * prior-good canonical
+ * `skipped / no-automatic-maintenance-target`. A surviving production league is
+ * then checked for a STRUCTURALLY VALID lifecycle year (PLATFORM-086F2H1R2) and
+ * refused if it has none — counted at run level as `invalidLifecycleTargets`,
+ * never silently coerced — and the registry CONTAINER is read through the typed
+ * reader, so a malformed registry reports `failure / registry-malformed` instead
+ * of claiming no active league exists. The route then loads each surviving
+ * year's prior-good canonical
  * schedule (plus, for preseason years, the durable schedule probe), classifies
  * the operation with the pure policies — active-season ordinary vs sticky
  * postseason-boundary, and preseason: cache-armed early preseason
@@ -160,7 +165,13 @@ export async function GET(req: Request): Promise<Response> {
     // PLATFORM-086F2H1R2 — active PRODUCTION leagues refused for a structurally
     // invalid `status.year`. Run-level, because a refused candidate has no
     // usable year to file it under.
-    let invalidLifecycleTargets = 0;
+    // Counted DIRECTLY on `exec` rather than in a local that is published after
+    // the loop: a throw on a later league would skip that publication and
+    // discard every refusal already counted, so the response, the runtime event,
+    // and the receipt would all report 0 unusable targets on a run that found
+    // them. There is no "publish before the loop" option here — unlike R1's
+    // season-transition sibling, the loop that counts refusals IS the loop that
+    // can throw — so the counter itself must be the durable one.
     // Set when the container itself is corrupt — readable, but not a league
     // array. Reported separately from every zero-target reason, each of which
     // asserts something about leagues a corrupt container cannot support.
@@ -225,7 +236,7 @@ export async function GET(req: Request): Promise<Response> {
         // Offseason and status-less production records are NOT counted: they
         // were never candidates, exactly as they were never targets.
         if (isActive && !isStructurallyValidSeasonYear(status.year)) {
-          invalidLifecycleTargets += 1;
+          exec.invalidLifecycleTargets += 1;
           continue;
         }
 
@@ -239,7 +250,12 @@ export async function GET(req: Request): Promise<Response> {
         .map(([year, owner]) => ({ year, owner }))
         .sort((a, b) => a.year - b.year);
     } catch {
-      // A genuine store READ failure — distinct from a corrupt container below.
+      // A throw while READING the registry or walking it. Two sources, not one:
+      // a genuine store read failure (`readLeagueRegistry` propagates it rather
+      // than laundering it into a classification), and a corrupt RECORD inside
+      // an otherwise `ok` container — `leagues` is typed `League[]`, but nothing
+      // validates each element, so a non-object member throws on property
+      // access. Both are distinct from the corrupt CONTAINER handled below.
       exec.result = 'failure';
       exec.reason = 'canonical-context-unavailable';
       return NextResponse.json({
@@ -249,7 +265,6 @@ export async function GET(req: Request): Promise<Response> {
         invalidLifecycleTargets: exec.invalidLifecycleTargets,
       });
     }
-    exec.invalidLifecycleTargets = invalidLifecycleTargets;
 
     if (registryMalformed) {
       // A present-but-corrupt container. Refuse before any schedule, probe,
@@ -263,7 +278,7 @@ export async function GET(req: Request): Promise<Response> {
         result: exec.result,
         reason: exec.reason,
         years: [],
-        invalidLifecycleTargets: 0,
+        invalidLifecycleTargets: exec.invalidLifecycleTargets,
       });
     }
 
@@ -274,7 +289,7 @@ export async function GET(req: Request): Promise<Response> {
       // Health row, exactly as F2H1T2 refused to reuse `no-preseason-leagues`.
       // Top-level only: no per-year entry, provider attempt, settings read,
       // probe/latch operation, or presentation refresh is produced either way.
-      if (invalidLifecycleTargets > 0) {
+      if (exec.invalidLifecycleTargets > 0) {
         // Active PRODUCTION leagues existed; every one carried an unusable year.
         // Neither reason below is true here — both assert something about
         // eligible leagues, and these were eligible until their year was read.
@@ -289,7 +304,7 @@ export async function GET(req: Request): Promise<Response> {
         result: exec.result,
         reason: exec.reason,
         years: [],
-        invalidLifecycleTargets,
+        invalidLifecycleTargets: exec.invalidLifecycleTargets,
       });
     }
 
@@ -510,7 +525,7 @@ export async function GET(req: Request): Promise<Response> {
     const yearsResult = aggregateScheduleCronResult(entries);
     exec.reason = aggregateScheduleCronReason(entries);
     exec.result =
-      invalidLifecycleTargets === 0
+      exec.invalidLifecycleTargets === 0
         ? yearsResult
         : // A refusal alongside executed years. Classify `partial` when the
           // valid years' own aggregate is `success` or `partial`, else
