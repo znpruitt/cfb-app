@@ -254,9 +254,18 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
      * normal post-loop path and the per-year catch path, so a later throw can
      * never erase an invalid-target count detected before it.
      *
-     * Refused candidates are an independent fact from the executed years'
-     * outcomes, so the mixed case keeps `year-results` rather than overwriting
-     * the per-year reasons with a single integrity reason.
+     * The exact table:
+     *   - no invalid targets                  → preserve the normal aggregate;
+     *   - invalid targets only (no entries)   → `failure / unusable-lifecycle-year`;
+     *   - invalid targets PLUS valid years    → preserve the valid years' uniform
+     *     reason, using `year-results` only when their reasons genuinely disagree;
+     *     classify `partial` when their aggregate is `success` or `partial`, and
+     *     `failure` otherwise.
+     *
+     * A refusal never rewrites the reason: it already rides on
+     * `invalidLifecycleTargets` across all three surfaces, while the receipt's
+     * year entries carry counts and no reason field, so overwriting would erase
+     * the only durable record of what the valid years did.
      */
     const finalizeAggregate = (): void => {
       const yearsResult = aggregateLifecycleCronResult(entries);
@@ -282,12 +291,16 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         return;
       }
 
-      // A refusal alongside executed years. `partial` is reserved for a run that
-      // actually accomplished something — the same rule this route applies to a
-      // single year below, where a year that "wrote NOTHING" is a clean
-      // `failure` because `partial` would assert progress that did not happen.
-      // So `no-op`, `in-progress`, and `skipped` all classify `failure` here:
-      // the run refused a target and committed nothing.
+      // A refusal alongside executed years. Classify `partial` when the valid
+      // years' own aggregate is `success` or `partial`, else `failure` — so
+      // `no-op`, `in-progress`, and `skipped` all read `failure` here.
+      //
+      // This is deliberately NOT the claim that a `partial` aggregate proves
+      // work was committed: `aggregateLifecycleCronResult` also returns
+      // `partial` for `failure` + `no-op`, where nothing landed. The rule is
+      // simply that a refusal must not UPGRADE a run whose valid years did
+      // nothing, which is the same instinct the per-year branches below apply
+      // when they refuse `partial` for a year that "wrote NOTHING".
       exec.result = yearsResult === 'success' || yearsResult === 'partial' ? 'partial' : 'failure';
     };
 

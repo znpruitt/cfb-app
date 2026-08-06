@@ -1531,9 +1531,10 @@ test('R1 contract pin: a wholly valid run still reports zero refusals', async ()
 
 // REGRESSION TEST — the per-year CATCH path must aggregate through the same
 // authority as the normal path. A throw arriving after a refusal was already
-// detected must not erase it: the run's reason has to stay `year-results`
-// (per-year outcomes and the refusal are independent facts) rather than
-// collapsing to the single throwing year's reason as if nothing was refused.
+// detected must not erase the refusal: `invalidLifecycleTargets` is assigned
+// ahead of the per-year loop for exactly that reason, and it must still reach
+// the event and the receipt. The reason meanwhile names the fault that actually
+// occurred — the refusal has its own carrier and does not rewrite it.
 test('R1 regression: a mid-run throw does not erase an already-detected refusal', async () => {
   const { __setAppStateWriteFailureForTests } = await import(
     '../../../../../lib/server/appStateStore.ts'
