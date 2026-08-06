@@ -165,6 +165,18 @@ export type SeasonRolloverCronControlReason =
   | 'cron-authorization-invalid'
   | 'no-season-leagues'
   | 'registry-unavailable'
+  // PLATFORM-086F2H1R4 — the registry record EXISTS but does not hold a league
+  // array. Distinct from `registry-unavailable`, where the store read itself
+  // failed: corruption and unavailability are different operator conditions.
+  // Also distinct from `no-season-leagues`, which asserts no league is in
+  // season — a claim a corrupt container cannot support.
+  | 'registry-malformed'
+  // PLATFORM-086F2H1R4 — every surviving production candidate carried a
+  // structurally invalid `status.year`, so the run has no usable target. Note
+  // it is unreachable as an aggregate REASON whenever any valid year executed:
+  // the mixed path preserves the valid years' reason and reports the refusal
+  // through `invalidLifecycleTargets` instead.
+  | 'unusable-lifecycle-year'
   | 'read-failed'
   | 'rollover-complete'
   | 'rollover-partial'
@@ -196,6 +208,15 @@ export type SeasonRolloverCronExecutionEvent = {
   event: 'season-rollover-cron';
   result: LifecycleCronExecutionResult;
   reason: SeasonRolloverCronExecutionReason;
+  /**
+   * PLATFORM-086F2H1R4 — how many ACTIVE PRODUCTION league records were refused
+   * this run for a structurally invalid `status.year`. A COUNT only: never a
+   * slug and never the unusable value. Run-level because a refused candidate
+   * has no usable year to file it under, and per LEAGUE RECORD, not per
+   * distinct raw year. A demo record is never counted (the demo exclusion runs
+   * first), and neither are non-`season` records.
+   */
+  invalidLifecycleTargets: number;
   years: SeasonRolloverCronYearExecution[];
   durationMs: number;
 };
@@ -207,7 +228,7 @@ export type SeasonRolloverCronExecutionState = Omit<
 
 /** Initialize the tracker as pessimistic `failure / unexpected-error`, no years. */
 export function createSeasonRolloverCronExecutionState(): SeasonRolloverCronExecutionState {
-  return { result: 'failure', reason: 'unexpected-error', years: [] };
+  return { result: 'failure', reason: 'unexpected-error', invalidLifecycleTargets: 0, years: [] };
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +330,7 @@ export function emitSeasonRolloverCronExecutionEvent(
       event: 'season-rollover-cron',
       result: state.result,
       reason: state.reason,
+      invalidLifecycleTargets: state.invalidLifecycleTargets,
       years: state.years.map((entry) => ({
         year: entry.year,
         result: entry.result,

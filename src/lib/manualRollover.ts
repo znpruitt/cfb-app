@@ -26,6 +26,13 @@ export type ManualRolloverYearStatus = {
 export type ManualRolloverStatusResponse = {
   generatedAt: string;
   years: ManualRolloverYearStatus[];
+  /**
+   * PLATFORM-086F2H1R4 — active PRODUCTION league records refused this request
+   * for a structurally invalid `status.year`. A COUNT only: never a slug and
+   * never the unusable value. Counted per league RECORD. Optional on the wire
+   * so a client parsing a pre-R4 response still succeeds, normalized to 0.
+   */
+  invalidLifecycleTargets: number;
 };
 
 export type ManualRolloverRequest = {
@@ -36,10 +43,26 @@ export type ManualRolloverRequest = {
 /** Stable refusal error codes returned by POST /api/admin/rollover. */
 export type ManualRolloverRefusalError =
   | 'rollover-year-not-active'
+  // PLATFORM-086F2H1R4 — the registry record EXISTS but does not hold a league
+  // array. 409, not 400 or 503: the request is well-formed and no dependency is
+  // down; it is STORED STATE that prevents the operation, exactly like
+  // `rollover-year-not-active`.
+  | 'rollover-registry-malformed'
+  // PLATFORM-086F2H1R4 — the requested year has no active group AND production
+  // records were refused for unusable `status.year`. Distinct from
+  // `rollover-year-not-active`, which asserts no league is in season for the
+  // year — false when the league exists but its year is unusable.
+  | 'rollover-unusable-lifecycle-year'
   | 'rollover-not-eligible'
   | 'rollover-eligibility-unavailable';
 
 export type ManualRolloverRefusal = {
+  /**
+   * PLATFORM-086F2H1R4 — present on refusals produced AFTER target selection.
+   * Declared here because both panels decode through this module; a client
+   * wanting to surface the count from a 409 otherwise has no typed field.
+   */
+  invalidLifecycleTargets?: number;
   error: ManualRolloverRefusalError;
   reason?: ManualRolloverReason;
   detail?: string;
@@ -65,6 +88,8 @@ export type ManualRolloverLeaguePreview = {
 };
 
 export type ManualRolloverPreviewResponse = {
+  /** PLATFORM-086F2H1R4 — refused production records this request (count only). */
+  invalidLifecycleTargets: number;
   preview: {
     year: number;
     championshipDate: string;
@@ -74,6 +99,8 @@ export type ManualRolloverPreviewResponse = {
 };
 
 export type ManualRolloverExecuteResponse = {
+  /** PLATFORM-086F2H1R4 — refused production records this request (count only). */
+  invalidLifecycleTargets: number;
   success: boolean;
   year: number;
   archivedLeagues: string[];
@@ -124,7 +151,20 @@ export function parseManualRolloverStatusResponse(
       leagues: y.leagues as PublicLeague[],
     });
   }
-  return { generatedAt: obj.generatedAt, years };
+  // Optional on the wire: a pre-R4 server omits it, and a client that rejected
+  // the payload for that would report a load failure against a valid response.
+  const rawCount = obj.invalidLifecycleTargets;
+  if (
+    rawCount !== undefined &&
+    (typeof rawCount !== 'number' || !Number.isInteger(rawCount) || rawCount < 0)
+  ) {
+    return null;
+  }
+  return {
+    generatedAt: obj.generatedAt,
+    years,
+    invalidLifecycleTargets: typeof rawCount === 'number' ? rawCount : 0,
+  };
 }
 
 /**
@@ -140,6 +180,10 @@ export function describeManualRolloverRefusal(payload: unknown): string | null {
   switch (obj.error as ManualRolloverRefusalError) {
     case 'rollover-year-not-active':
       return 'This year is no longer an active season group — reload the rollover status.';
+    case 'rollover-registry-malformed':
+      return 'The league registry could not be read as a list of leagues. No rollover can run until the stored record is repaired.';
+    case 'rollover-unusable-lifecycle-year':
+      return 'This year has no active season group, and one or more league records in season were refused for an unusable season year. Repair those records, then reload — the year you meant may be among them.';
     case 'rollover-not-eligible':
       return `Rollover refused: ${describeManualRolloverReason(reason)}`;
     case 'rollover-eligibility-unavailable':

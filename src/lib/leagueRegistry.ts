@@ -156,11 +156,20 @@ type GuardedLifecycleDecision<T> =
   | { status: null; result: T };
 
 /**
- * The single lifecycle write authority. It runs a decision against the record
- * read under the registry lock; a refusal writes nothing, while an accepted
- * status and its year projection share one registry commit. Both guarded
- * transitions and the fixed-target demo-league control delegate here, so adding
- * an expected-state check never creates a second write path.
+ * The lifecycle write authority for the STATUS-TRANSITION family. It runs a
+ * decision against the record read under the registry lock; a refusal writes
+ * nothing, while an accepted status and its year projection share one registry
+ * commit. The guarded transitions and the fixed-target demo-league control all
+ * delegate here.
+ *
+ * It is NOT the only lifecycle write path, despite what this comment claimed
+ * before PLATFORM-086F2H1R4: `completeSeasonRollover` calls `mutateRegistry`
+ * directly and does not route through here. That divergence is deliberate and
+ * retained — rollover's guard is a different shape (an exact season+year
+ * re-check producing a typed `SeasonRolloverTransition`) and converging the two
+ * is F2H2's. What R4 fixed is the consequence the false claim was hiding:
+ * rollover was the one lifecycle writer with no structural year check, so it
+ * now validates independently below.
  */
 async function guardedLifecycleWrite<T>(
   slug: string,
@@ -485,7 +494,20 @@ export async function completePreseasonSetup(
 
 export type SeasonRolloverTransition =
   | { outcome: 'transitioned'; league: League }
-  | { outcome: 'not-in-target-season'; league: League | null };
+  | { outcome: 'not-in-target-season'; league: League | null }
+  // PLATFORM-086F2H1R4 — the requested year, or the stored season year, is not
+  // a structurally valid season year. Nothing is written. Distinct from
+  // `not-in-target-season`, which asserts the league moved on: here the league
+  // may be exactly where the caller expects, carrying an unusable year.
+  //
+  // Deliberately NEUTRAL about WHICH side is unusable: a caller cannot tell,
+  // and both callers' operator messages must therefore not assert that the
+  // league record is the corrupt one. For the two real callers the year comes
+  // from target selection and is already validated, so in practice this means
+  // stored corruption — but a direct caller passing a bad year gets the same
+  // outcome, and telling that operator to repair a healthy record would be
+  // false.
+  | { outcome: 'unusable-target-year'; league: League | null };
 
 /**
  * The GUARDED season→offseason rollover transition (PLATFORM-086F2B, Codex
@@ -495,6 +517,21 @@ export type SeasonRolloverTransition =
  * another actor has since rolled over and advanced to preseason. A refusal is a
  * typed outcome (the caller reports it as a status-stage failure), never a
  * silent overwrite.
+ *
+ * PLATFORM-086F2H1R4 — it ALSO validates the year structurally, independently
+ * of any caller. Both the cron and the manual admin route now refuse unusable
+ * years during target selection, but this is the last writer before durable
+ * state and is reachable directly, so a selector-only fix would leave it
+ * exposed. Both the requested year AND the stored `status.year` are checked:
+ * the exact-match guard below proves they are equal, not that either is usable.
+ *
+ * What an unusable year would otherwise persist is uniquely bad on this path.
+ * The written status is `{ state: 'offseason' }`, which carries NO year, so the
+ * top-level `league.year` written here becomes the ONLY surviving record of the
+ * season — and that is the field `resolveOperationalSeasonYear` reads for
+ * offseason leagues (PLATFORM-086F2H1T5). A corrupt rollover would therefore
+ * poison the operational-year resolver permanently, with no status year left to
+ * contradict it.
  */
 export async function completeSeasonRollover(
   slug: string,
@@ -504,7 +541,25 @@ export async function completeSeasonRollover(
     const idx = leagues.findIndex((l) => l.slug === slug);
     if (idx === -1) return { result: { outcome: 'not-in-target-season', league: null } };
     const current = leagues[idx]!;
-    if (current.status?.state !== 'season' || current.status.year !== year) {
+    if (current.status?.state !== 'season') {
+      return { result: { outcome: 'not-in-target-season', league: current } };
+    }
+    // Validity is decided BEFORE the exact-year comparison, on BOTH sides.
+    //
+    // Ordering it after the comparison makes the stored-year check dead: an
+    // equality match plus a valid requested year already implies a valid stored
+    // year. Worse, a corrupt stored record would then fall into the mismatch
+    // branch and report `not-in-target-season` — telling an operator another
+    // actor moved the league, when the truth is data corruption needing repair.
+    // Those are different remedies (retry vs. fix the record), which is exactly
+    // the conflation this slice exists to remove.
+    if (
+      !isStructurallyValidSeasonYear(current.status.year) ||
+      !isStructurallyValidSeasonYear(year)
+    ) {
+      return { result: { outcome: 'unusable-target-year', league: current } };
+    }
+    if (current.status.year !== year) {
       return { result: { outcome: 'not-in-target-season', league: current } };
     }
     const next: League = { ...current, status: { state: 'offseason' }, year };

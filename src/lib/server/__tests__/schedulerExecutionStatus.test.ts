@@ -284,7 +284,10 @@ test('all seven jobs derive the correct source and persist their target shape', 
       result: 'success',
       reason: 'rollover-complete',
       providerCallAttempted: false,
-      target: seasonRolloverYearsTarget([{ year: 2025, targetLeagues: 1, rolledOverLeagues: 1 }]),
+      target: seasonRolloverYearsTarget(
+        [{ year: 2025, targetLeagues: 1, rolledOverLeagues: 1 }],
+        0
+      ),
     }),
   ];
   for (const input of inputs) {
@@ -350,7 +353,10 @@ test('a caller-claimed wrong source is normalized to the job source, never store
       result: 'success',
       reason: 'rollover-complete',
       providerCallAttempted: false,
-      target: seasonRolloverYearsTarget([{ year: 2025, targetLeagues: 1, rolledOverLeagues: 1 }]),
+      target: seasonRolloverYearsTarget(
+        [{ year: 2025, targetLeagues: 1, rolledOverLeagues: 1 }],
+        0
+      ),
     })
   );
   // The builder already derived the correct source; forcing a wrong one and
@@ -414,7 +420,7 @@ test('lifecycle multi-year targets cap at eight entries with truthful totalYears
     [2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022]
   );
 
-  const r = seasonRolloverYearsTarget([{ year: 2025, targetLeagues: 3, rolledOverLeagues: 2 }]);
+  const r = seasonRolloverYearsTarget([{ year: 2025, targetLeagues: 3, rolledOverLeagues: 2 }], 0);
   assert.equal(r.totalYears, 1);
   assert.equal(r.truncated, false);
 });

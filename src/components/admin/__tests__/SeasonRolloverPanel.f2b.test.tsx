@@ -101,6 +101,7 @@ function makeYearStatus(
 
 function previewResponse(year: number): ManualRolloverPreviewResponse {
   return {
+    invalidLifecycleTargets: 0,
     preview: {
       year,
       championshipDate: `${year + 1}-01-09T00:00:00.000Z`,
@@ -123,6 +124,7 @@ function previewResponse(year: number): ManualRolloverPreviewResponse {
 
 function executeResponse(year: number): ManualRolloverExecuteResponse {
   return {
+    invalidLifecycleTargets: 0,
     success: true,
     year,
     archivedLeagues: [`alpha-${year}`, `bravo-${year}`],
@@ -152,6 +154,7 @@ afterEach(() => {
 test('ineligible and unavailable years expose reasons but never an execute control', async () => {
   statusPayload = {
     generatedAt: '2026-01-01T00:00:00.000Z',
+    invalidLifecycleTargets: 0,
     years: [makeYearStatus(2023, 'not-eligible'), makeYearStatus(2024, 'unavailable')],
   };
 
@@ -166,7 +169,11 @@ test('ineligible and unavailable years expose reasons but never an execute contr
 });
 
 test('no active season years → truthful empty message', async () => {
-  statusPayload = { generatedAt: '2026-01-01T00:00:00.000Z', years: [] };
+  statusPayload = {
+    generatedAt: '2026-01-01T00:00:00.000Z',
+    years: [],
+    invalidLifecycleTargets: 0,
+  };
   const { getByText } = render(withRouter(<SeasonRolloverPanel />, makeRouter()));
   await waitFor(() => getByText(/No production league is currently in season/));
 });
@@ -174,6 +181,7 @@ test('no active season years → truthful empty message', async () => {
 test('preview/execute carry the exact year; multi-year state never cross-wires; success reloads', async () => {
   statusPayload = {
     generatedAt: '2026-01-01T00:00:00.000Z',
+    invalidLifecycleTargets: 0,
     years: [makeYearStatus(2023, 'eligible'), makeYearStatus(2024, 'eligible')],
   };
   const router = makeRouter();
@@ -202,6 +210,7 @@ test('preview/execute carry the exact year; multi-year state never cross-wires; 
   // so the post-success status DROPS the 2023 row.
   statusPayload = {
     generatedAt: '2026-01-01T00:00:01.000Z',
+    invalidLifecycleTargets: 0,
     years: [makeYearStatus(2024, 'eligible')],
   };
 
@@ -229,6 +238,7 @@ test('preview/execute carry the exact year; multi-year state never cross-wires; 
 test('a mid-flow gate refusal shows the stable reason, clears the preview, and resyncs', async () => {
   statusPayload = {
     generatedAt: '2026-01-01T00:00:00.000Z',
+    invalidLifecycleTargets: 0,
     years: [makeYearStatus(2023, 'eligible')],
   };
   confirmResponse = () =>

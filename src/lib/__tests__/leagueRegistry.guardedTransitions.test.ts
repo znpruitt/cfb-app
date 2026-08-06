@@ -7,7 +7,11 @@ import {
   MIN_SEASON_YEAR,
   type League,
 } from '../league.ts';
-import { beginPreseasonTransition, completePreseasonSetup } from '../leagueRegistry.ts';
+import {
+  beginPreseasonTransition,
+  completePreseasonSetup,
+  completeSeasonRollover,
+} from '../leagueRegistry.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -221,4 +225,106 @@ test('a failed guarded commit leaves status and year fully unchanged', async () 
   }
 
   assert.deepEqual(await readRegistry(), before);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1R4 — `completeSeasonRollover` validates structurally, on its
+// own, inside the serialized registry transaction.
+//
+// Both callers now refuse unusable years during target selection, but this is
+// the LAST writer before durable state and is reachable directly, so a
+// selector-only fix would leave it exposed. What it would otherwise persist is
+// uniquely bad: the written status is `{ state: 'offseason' }`, which carries
+// no year, so the top-level `league.year` written here becomes the ONLY
+// surviving record of the season — and that is the field
+// `resolveOperationalSeasonYear` reads for offseason leagues (F2H1T5).
+// ---------------------------------------------------------------------------
+
+// REGRESSION TEST — a direct call with an unusable year refuses and writes
+// nothing. Table-driven over the same shapes the selector refuses.
+test('R4 regression: completeSeasonRollover refuses an unusable requested year and writes nothing', async () => {
+  for (const [label, year] of [
+    ['missing', undefined],
+    ['string', '2024'],
+    ['fractional', 2024.5],
+    ['unsafe integer', 2 ** 53],
+    ['pre-football', 1800],
+    ['null', null],
+  ] as Array<[string, unknown]>) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    const seeded = [makeLeague('alpha', 2024, { state: 'season', year: 2024 })];
+    await setAppState('leagues', 'registry', seeded);
+
+    const transition = await completeSeasonRollover('alpha', year as number);
+
+    assert.equal(transition.outcome, 'unusable-target-year', label);
+    const after = await getAppState<League[]>('leagues', 'registry');
+    assert.deepEqual(after?.value, seeded, `${label}: the registry is byte-for-byte unchanged`);
+  }
+});
+
+// REGRESSION TEST — the STORED year is validated INDEPENDENTLY, and validity is
+// decided BEFORE the exact-year comparison.
+//
+// The requested year here is perfectly VALID and DIFFERENT from the stored one,
+// so the requested-year check cannot fire. That is what makes this reach the
+// stored-year branch. Ordering validity after the comparison makes that branch
+// dead code, and a corrupt record then falls into the mismatch branch and
+// reports `not-in-target-season` — telling an operator another actor moved the
+// league, when the truth is data corruption needing repair. Two different
+// remedies (retry vs. fix the record), which is the conflation this slice
+// exists to remove.
+test('R4 regression: a corrupt STORED year refuses as unusable, not as a stale target', async () => {
+  const seeded = [
+    makeLeague('alpha', 2024, { state: 'season', year: 2024.5 } as unknown as League['status']),
+  ];
+  await setAppState('leagues', 'registry', seeded);
+
+  // A VALID requested year that does not equal the corrupt stored one.
+  const transition = await completeSeasonRollover('alpha', 2024);
+
+  assert.equal(
+    transition.outcome,
+    'unusable-target-year',
+    'the stored corruption decides, not the year mismatch'
+  );
+  const after = await getAppState<League[]>('leagues', 'registry');
+  assert.deepEqual(after?.value, seeded, 'nothing was written');
+});
+
+// REGRESSION TEST — the echoed-corrupt-year case still refuses too. Kept
+// separate from the case above because it is caught by the REQUESTED-year
+// check, not the stored one; conflating them is what made the original test
+// pass without ever entering the branch it claimed to cover.
+test('R4 regression: an echoed corrupt year refuses via the requested-year check', async () => {
+  const seeded = [
+    makeLeague('alpha', 2024, { state: 'season', year: 2024.5 } as unknown as League['status']),
+  ];
+  await setAppState('leagues', 'registry', seeded);
+
+  const transition = await completeSeasonRollover('alpha', 2024.5);
+
+  assert.equal(transition.outcome, 'unusable-target-year');
+  const after = await getAppState<League[]>('leagues', 'registry');
+  assert.deepEqual(after?.value, seeded, 'nothing was written');
+});
+
+// CONTRACT PIN — the pre-R4 behavior is otherwise unchanged: a usable year
+// still transitions, and a genuine target mismatch is still
+// `not-in-target-season`, NOT the new outcome. Without this the new refusal
+// could swallow the existing guard.
+test('R4 contract pin: a usable year still transitions; a mismatch is still not-in-target-season', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', 2024, { state: 'season', year: 2024 }),
+  ]);
+
+  const mismatch = await completeSeasonRollover('alpha', 2023);
+  assert.equal(mismatch.outcome, 'not-in-target-season', 'a real mismatch keeps its own outcome');
+
+  const ok = await completeSeasonRollover('alpha', 2024);
+  assert.equal(ok.outcome, 'transitioned');
+  const after = await getAppState<League[]>('leagues', 'registry');
+  assert.equal(after?.value?.[0]?.status?.state, 'offseason');
+  assert.equal(after?.value?.[0]?.year, 2024, 'the surviving top-level year is the usable one');
 });

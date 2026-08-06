@@ -296,8 +296,17 @@ export default function RolloverPanel() {
         headers: authHeaders,
       });
       if (!res.ok) {
-        const text = await res.text();
-        setLoadError(text || `GET /api/admin/rollover ${res.status}`);
+        // The GET can now answer with a typed refusal (409 registry-malformed).
+        // `res.text()` rendered that JSON body verbatim as prose; the
+        // operator-readable string already exists for exactly this case.
+        //
+        // This panel deliberately still HIDES when no year is eligible: it owns
+        // execute controls only, and ineligible/unavailable years surface on
+        // SeasonRolloverPanel, which R4 made truthful about refused records.
+        const payload: unknown = await res.json().catch(() => null);
+        setLoadError(
+          describeManualRolloverRefusal(payload) ?? `GET /api/admin/rollover ${res.status}`
+        );
         return;
       }
       const data = parseManualRolloverStatusResponse(await res.json());

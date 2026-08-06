@@ -436,7 +436,15 @@ Execution order within F2 (each slice is one independently deployable PR):
         fractional-AND-string CFP hazard: `Date.UTC` coerces, so a string year made the
         context-free publication window due and billed `/info` plus both partitions. Closed the
         `rankings-years` half of (r), and closed (o) and (p) as decisions below.
-      - **F2H1R4 — rollover validity** — **NEXT**. (both the cron and the shared manual route, plus the missing
+      - **F2H1R4 — rollover validity** — **NEXT**, implemented and in review. Completes container
+        truth on ALL FOUR registry consumers. The cron refuses a malformed container with 500 and
+        the shared manual route with 409 (admin API contract: the request is well-formed and no
+        dependency is down). `completeSeasonRollover` validates independently inside its
+        transaction, on BOTH the stored and requested year and BEFORE the equality check — ordering
+        it after makes the stored check dead code and misreports corruption as a stale target.
+        Refusal lands before any archive: rollover is the only consumer that WRITES durable data
+        keyed on the year. Closed the LAST dangling-colon branch (r) and the
+        `guardedLifecycleWrite` false claim (s). (both the cron and the shared manual route, plus the missing
         structural check in `completeSeasonRollover`) · **F2H1R5 — System Health validity + the
         confirmed missing-status recovery**, which lands LAST because it is the only slice that ARMS
         automation: a status-less record is inert to every target selector today, and repairing it to
@@ -454,11 +462,11 @@ Execution order within F2 (each slice is one independently deployable PR):
         shared predicate because the prompt forbade substituting the tighter creation horizon, and
         because narrowing it changes production behavior. Same class as (i). Decide the bound once,
         for all five consumers.
-        (m) **The malformed-vs-empty collapse is closed on THREE of four registry consumers.**
-        R2 closed `schedule-refresh`; R3 closed `rankings`. Until R4 lands, `season-rollover` alone
-        still reports a zero-target reason asserting no league exists on the very same corrupt
-        registry — the falsehood class T2/T3/T4 each refused. This is the intended intermediate
-        state of the split, and it is LIVE while it lasts.
+        (m) ✅ **CLOSED at R4 — the malformed-vs-empty collapse is closed on ALL FOUR registry
+        consumers** (R1 season-transition, R2 schedule-refresh, R3 rankings, R4 season-rollover plus
+        its shared manual route). No automation job now reports a zero-target reason asserting no
+        league exists on a corrupt registry. Per-RECORD validation inside an `ok` container remains
+        open and is R5's — see (n).
         (n) **`readLeagueRegistry` classifies the CONTAINER only.** A `[null]` or `[{}, null]`
         registry classifies `ok` and then throws downstream into the generic `unexpected-error` 500.
         Pre-existing and unchanged — `getLeagues()` returned the same array before — and per-record
@@ -506,17 +514,28 @@ Execution order within F2 (each slice is one independently deployable PR):
         a message naming the condition, and a repair link to the lifecycle recovery surface.
         Owner: the System Health / F2H3 presentation work. **Explicitly NOT a reason to reopen
         R3** — the aggregate stays as merged.
-        (r) **One sibling receipt kind still renders a dangling `": "`** for an empty year list
-        (`season-rollover-years`). R1 fixed `season-transition-years`, R2 `schedule-years`, and R3
-        `rankings-years`, each only the branch it touched. R4 owns the last one by the same rule.
-        (t) **THREE summary branches are now near-duplicates** (`schedule-years`,
-        `rankings-years`, `season-transition-years`), each recomputing the same unusable-suffix and
-        empty-year-list guard; R3 added the third copy rather than extracting the helper, and R4
-        will add a fourth if this is still open. A single `unusableSuffix(count)` plus a
-        `yearList(entries, render)` collapses all of them. R2 also inlined the aggregation policy
-        that R1 expressed as a named helper.
+        (r) ✅ **CLOSED at R4** — all four receipt summary branches now guard the empty year list
+        (R1 `season-transition-years`, R2 `schedule-years`, R3 `rankings-years`, R4
+        `season-rollover-years`). Having to fix the same defect four times is itself the argument
+        for (t).
+        (t) **READY NOW — FOUR summary branches are near-identical** (`schedule-years`,
+        `rankings-years`, `season-transition-years`, `season-rollover-years`), each recomputing the
+        same unusable-suffix and empty-year-list guard, differing only in the per-entry mapper. The
+        deferral window was "once across R3–R5, when all four consumers exist" — they now do, and
+        the dangling-colon defect had to be fixed four separate times for exactly this reason. A
+        single `formatLifecycleYearsTarget(target, renderEntry)` collapses all four and makes the
+        next lifecycle target kind a one-liner. Related: `RolloverRefusalSink` is the THIRD
+        structurally identical refusal-sink declaration (`RankingsRefusalSink`, and an open-coded
+        one on `schedule-refresh`), each restating the same mid-loop-throw rationale; one exported
+        `LifecycleRefusalSink` would carry it once.
         Both are cosmetic convergence, deliberately deferred: doing it once across R3–R5, when all
         four consumers exist, beats doing it twice in slices that each own one job.
+        (w) **Two integrity refusals on the season-rollover cron carry different HTTP statuses**:
+        `registry-malformed` is 500 while `unusable-lifecycle-year` is 200, though both set
+        `result: 'failure'`. R1 has the same asymmetry, so R4 inherited rather than introduced it,
+        and the delivery-boundary rule (o) settles QStash-vs-Vercel but not two refusals on ONE
+        Vercel-native route. To a cron dashboard the 200 reads as a successful invocation. Decide
+        once, across R1 and R4 together.
         (v) **The two rankings cron suites duplicate six fixture helpers verbatim**
         (`makeLeague`, `seedLeague`, `seedSchedule`, `seedUnusableLeague`, `usablePayload`, and the
         provider stub). R3 aligned the two `seedUnusableLeague` signatures so a positional mix-up
@@ -526,10 +545,12 @@ Execution order within F2 (each slice is one independently deployable PR):
         registry held both a demo league and an unusable-year production league reports only the
         refusal; the demo exclusion becomes invisible. Zero-target reasons are single-valued by
         construction, so surfacing both needs a reporting-shape decision, not a one-line fix.
-        (s) **`guardedLifecycleWrite` is not the single lifecycle write authority**, despite the
-        module comment saying so. `completeSeasonRollover` calls `mutateRegistry` directly, bypasses
-        `applyLifecycleStatus`, and is the only lifecycle writer with no structural year check. The
-        comment is corrected in `AGENTS.md`; the code is R4's.
+        (s) ✅ **CLOSED at R4.** The module comment is corrected in place:
+        `guardedLifecycleWrite` owns the STATUS-TRANSITION family, and
+        `completeSeasonRollover` deliberately does not route through it (its guard is a different
+        shape — an exact season+year re-check producing a typed outcome). The consequence the false
+        claim was hiding is fixed: rollover now has its own structural year check. Converging the
+        two writers remains F2H2's.
     - **F2H2 — rollover/archive/backfill consolidation** — planned: converge the remaining rollover
       projection/result contract, fix benign redelivery reporting without hiding genuine refusals,
       consolidate the duplicate strict rollover UI, and organize archive/backfill operations.

@@ -250,6 +250,13 @@ function YearRow({
 export default function SeasonRolloverPanel(): React.ReactElement {
   const router = useRouter();
   const [years, setYears] = useState<ManualRolloverYearStatus[] | null>(null);
+  // PLATFORM-086F2H1R4 — production records the server refused for an unusable
+  // lifecycle year. Without it an all-refused registry renders "No production
+  // league is currently in season", which is FALSE: leagues are in season, they
+  // are merely unusable. That is the exact falsehood class this campaign has
+  // refused to ship since F2H1T2. A count and a truthful sentence only — the
+  // issue code and repair link are F2H3's.
+  const [invalidLifecycleTargets, setInvalidLifecycleTargets] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<ManualRolloverExecuteResponse | null>(null);
 
@@ -261,8 +268,13 @@ export default function SeasonRolloverPanel(): React.ReactElement {
         headers: getAdminAuthHeaders(),
       });
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        setLoadError(text || `GET /api/admin/rollover ${res.status}`);
+        // The GET can now answer with a typed refusal (409 registry-malformed).
+        // Rendering the raw JSON body as prose would show an operator a blob;
+        // the operator-readable string already exists for exactly this case.
+        const payload: unknown = await res.json().catch(() => null);
+        setLoadError(
+          describeManualRolloverRefusal(payload) ?? `GET /api/admin/rollover ${res.status}`
+        );
         return;
       }
       const data = parseManualRolloverStatusResponse(await res.json());
@@ -271,6 +283,7 @@ export default function SeasonRolloverPanel(): React.ReactElement {
         return;
       }
       setYears(data.years);
+      setInvalidLifecycleTargets(data.invalidLifecycleTargets);
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Unexpected error');
     }
@@ -341,7 +354,9 @@ export default function SeasonRolloverPanel(): React.ReactElement {
       )}
       {years !== null && years.length === 0 && (
         <p className="text-xs text-gray-500 dark:text-zinc-400">
-          No production league is currently in season — nothing to roll over.
+          {invalidLifecycleTargets > 0
+            ? `${invalidLifecycleTargets} league record(s) in season carry an unusable season year and were refused — repair those records before rolling over.`
+            : 'No production league is currently in season — nothing to roll over.'}
         </p>
       )}
 

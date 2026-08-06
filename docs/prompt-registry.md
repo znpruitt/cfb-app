@@ -52,6 +52,52 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1R4-ROLLOVER-YEAR-VALIDITY-v1
+
+- Purpose: Prevent malformed registry containers and unusable lifecycle years from reaching
+  automatic or manual season rollover, permanent archive storage, or lifecycle persistence. Fourth
+  of five F2H1R slices; completes container truth across all four registry consumers.
+- Scope: the season-rollover cron, its shared manual `/api/admin/rollover` consumer,
+  `groupRolloverTargets`, `completeSeasonRollover`, and their event/receipt/manual contracts. No
+  recovery implementation, UI redesign, archive cleanup, or other automation job.
+- Outcome: `groupRolloverTargets` takes a REQUIRED refusal sink and validates production
+  `status.year` AFTER the demo exclusion, publishing refusals as it counts them. The cron refuses a
+  malformed container with `failure / registry-malformed` at HTTP 500 (Vercel-native delivery
+  boundary) and the manual route with 409 (admin API contract: the request is well-formed and no
+  dependency is down). `completeSeasonRollover` validates independently inside its serialized
+  transaction with a closed `unusable-target-year` outcome that writes nothing. Run-level
+  `invalidLifecycleTargets` on responses, event, and receipt; legacy receipts normalize to 0 and an
+  invalid present value rejects. Closed the LAST dangling-colon summary branch.
+- Why this slice mattered most of the four: rollover is the only registry consumer that WRITES
+  durable data derived from the year. `saveSeasonArchive` keys on `String(archive.year)` with no
+  TTL, and the written `{ state: 'offseason' }` status carries no year — so the top-level
+  `league.year` becomes the ONLY surviving record of the season and feeds
+  `resolveOperationalSeasonYear`. The other three jobs' worst case was a billed provider call and a
+  false report; this one would have minted a permanent artifact under a corrupt key and poisoned the
+  operational-year resolver with nothing left to contradict it.
+- Review / verification: both reviews gathered against the same commit (`2f19802`) before patching.
+  Codex raised three P2s; `/code-review` raised fifteen findings and reached the same top three
+  independently. ONE cohesive round applied ten and recorded five. The central finding is one my own
+  test was passing for the wrong reason: `completeSeasonRollover`'s stored-year check was
+  UNREACHABLE (reaching it already proved equality, and the requested year had just been validated),
+  and a corrupt stored record therefore reported `not-in-target-season` — telling an operator to
+  retry when the fix is a data repair. Verified by probe before accepting. Validity is now decided
+  on BOTH sides BEFORE the equality comparison, and the test is split so each covers the branch it
+  names. Also corrected: an authenticated 500 omitting the count while the event and receipt carried
+  it (with `CronResult` never declaring the field, so five emitting sites escaped the contract via
+  `NextResponse`'s phantom type parameter); a manual-surface sink comment claiming throw-durability
+  the handlers did not implement; both panels discarding the count and rendering "No production
+  league is currently in season" on an all-refused registry — the exact falsehood class this
+  campaign has refused since F2H1T2, which R4 would have introduced at the UI layer while removing
+  it everywhere else; and two panels rendering a 409 refusal body as raw JSON prose. A write-time
+  refusal is now counted, and is documented as UNTESTED rather than covered by a test that would
+  prove nothing — I wrote such a test first and removed it. EIGHT mutations, each compiling, applied
+  alone, and killed by a named test. Focused deltas: `rolloverTargeting` 4 → 10, cron route 6 → 12,
+  cron receipts 10 → 17, manual route 15 → 20, `guardedTransitions` 11 → 15. Full suite 3374 → 3378.
+  `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
+  run as their own command with unmasked exit status.
+- Status: Implemented; in final pre-merge review. Not merged.
+
 ### PLATFORM-086F2H1R3-RANKINGS-YEAR-VALIDITY-v1
 
 - Purpose: Apply the R1/R2 registry-container and lifecycle-year truth to the rankings publication

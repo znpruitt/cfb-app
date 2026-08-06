@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { clearAllSuppressionRecords } from '@/lib/insights/suppression';
-import { completeSeasonRollover, getLeagues } from '@/lib/leagueRegistry';
+import { completeSeasonRollover, readLeagueRegistry } from '@/lib/leagueRegistry';
 import { saveSeasonArchive } from '@/lib/seasonArchive';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { buildSeasonArchive } from '@/lib/seasonRollover';
@@ -45,6 +45,15 @@ type CronResult = {
   leaguesRolledOver?: string[];
   suppressionClearedFor?: string[];
   errors?: RolloverError[];
+  /**
+   * PLATFORM-086F2H1R4 — declared, not merely emitted. `NextResponse<Body>`'s
+   * type parameter is phantom, so an excess field on a response literal escapes
+   * this contract with no compiler signal; declaring it is what makes the
+   * response/event/receipt agreement checkable. Present on every AUTHENTICATED
+   * response so a client never has to distinguish "none refused" from "field
+   * absent" (the season-transition sibling's stated rationale).
+   */
+  invalidLifecycleTargets?: number;
 };
 
 function verifyCronSecret(req: Request): 'ok' | 'not-configured' | 'invalid' {
@@ -91,23 +100,101 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     // (PLATFORM-086E1A §6). The rollover authority reads each year's canonical
     // schedule cache-only and requires a structured, confirmed-final championship.
     let groups: ReturnType<typeof groupRolloverTargets>;
+    // Set inside the try, consumed AFTER the catch. Returning the malformed
+    // refusal from inside the try would put it under a catch that relabels
+    // everything `registry-unavailable`, collapsing the two operator conditions
+    // this slice exists to separate (the R3 review's finding, applied up front).
+    let registryMalformed = false;
     try {
-      groups = groupRolloverTargets(await getLeagues());
+      // PLATFORM-086F2H1R4 — read the CONTAINER through the typed reader so a
+      // MALFORMED registry is distinguishable from an empty one. `getLeagues()`
+      // maps absent, malformed, and empty alike to `[]`, which made a corrupt
+      // registry report `no-season-leagues` — asserting no league is in season
+      // when the registry holding them is unreadable as a list.
+      const registry = await readLeagueRegistry();
+      registryMalformed = registry.kind === 'malformed';
+      // No grouping pass on a malformed container: it would be a no-op over
+      // `[]` whose result is discarded by the refusal below.
+      // `missing` preserves the pre-R4 empty-registry behavior exactly.
+      // `exec` IS the refusal sink: refusals are published as the grouping loop
+      // counts them, so a corrupt RECORD throwing mid-loop cannot discard one
+      // already observed (AGENTS.md — the count must survive a mid-loop throw).
+      groups = registryMalformed
+        ? []
+        : groupRolloverTargets(registry.kind === 'ok' ? registry.leagues : [], exec);
     } catch (err) {
-      // A registry read failure is the same 500 as before; the event/receipt
-      // record the typed `registry-unavailable` reason.
+      // A genuine store READ failure — `readLeagueRegistry` propagates it rather
+      // than laundering it into a classification, so unavailability stays
+      // distinct from corruption. This also catches a throw from a corrupt
+      // RECORD inside an otherwise `ok` container: the array is typed
+      // `League[]` but nothing validates each element, so a non-object member
+      // throws on property access. Element-level validation is F2H1R5's.
       exec.reason = 'registry-unavailable';
       return NextResponse.json(
-        { skipped: true, reason: err instanceof Error ? err.message : 'unknown error' },
+        {
+          skipped: true,
+          reason: err instanceof Error ? err.message : 'unknown error',
+          invalidLifecycleTargets: exec.invalidLifecycleTargets,
+        },
+        { status: 500 }
+      );
+    }
+
+    if (registryMalformed) {
+      // Refuse BEFORE any championship resolution, archive build/save, lifecycle
+      // write, standings invalidation, or suppression cleanup. HTTP 500 follows
+      // the settled delivery-boundary rule: this is a Vercel-native lifecycle
+      // cron with no at-least-once layer to confuse, so an integrity refusal
+      // must not read as "nothing to do".
+      exec.result = 'failure';
+      exec.reason = 'registry-malformed';
+      return NextResponse.json(
+        {
+          skipped: true,
+          reason: 'registry-malformed',
+          invalidLifecycleTargets: exec.invalidLifecycleTargets,
+        },
         { status: 500 }
       );
     }
 
     if (groups.length === 0) {
+      // A production DATA-INTEGRITY refusal outranks the benign zero-target
+      // reason: the single reason must name the condition an operator has to
+      // act on, and `no-season-leagues` would be false when records exist but
+      // carry unusable years.
+      if (exec.invalidLifecycleTargets > 0) {
+        exec.result = 'failure';
+        exec.reason = 'unusable-lifecycle-year';
+        return NextResponse.json({
+          skipped: true,
+          reason: 'unusable-lifecycle-year',
+          invalidLifecycleTargets: exec.invalidLifecycleTargets,
+        });
+      }
       exec.result = 'skipped';
       exec.reason = 'no-season-leagues';
-      return NextResponse.json({ skipped: true, reason: 'no leagues in season state' });
+      return NextResponse.json({
+        skipped: true,
+        reason: 'no leagues in season state',
+        invalidLifecycleTargets: exec.invalidLifecycleTargets,
+      });
     }
+
+    // ONE aggregation authority (the season-transition sibling's pattern). The
+    // per-year throw path and the post-loop path both finalize through this, so
+    // a later change to the degradation table can never apply to only one of
+    // them — and a throw can never erase a refusal counted before it.
+    const finalizeAggregate = (entries: SeasonRolloverCronYearExecution[]): void => {
+      const yearsResult = aggregateLifecycleCronResult(entries);
+      exec.reason = aggregateLifecycleCronReason(entries, 'year-results');
+      exec.result =
+        exec.invalidLifecycleTargets === 0
+          ? yearsResult
+          : yearsResult === 'success' || yearsResult === 'partial'
+            ? 'partial'
+            : 'failure';
+    };
 
     const now = Date.now();
     const years: YearRolloverResult[] = [];
@@ -136,8 +223,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         // event/receipt never omit it) and finalize the aggregate here, then
         // propagate the SAME 500 the outer catch already produces.
         entries.push({ ...yearEntry, result: 'failure', reason: 'unexpected-error' });
-        exec.result = aggregateLifecycleCronResult(entries);
-        exec.reason = aggregateLifecycleCronReason(entries, 'year-results');
+        finalizeAggregate(entries);
         throw err;
       }
 
@@ -203,10 +289,28 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           // a refusal is reported like any status-write failure.
           const transition = await completeSeasonRollover(league.slug, year);
           if (transition.outcome !== 'transitioned') {
+            if (transition.outcome === 'unusable-target-year') {
+              // A write-time refusal is a refusal: the field's documented
+              // meaning is "production records refused this run for an unusable
+              // year", and the selector is not the only place that can decide
+              // it. Without this a record corrupted BETWEEN selection and the
+              // write reports `invalidLifecycleTargets: 0` on System Health
+              // while an unusable-year refusal demonstrably happened. No
+              // double-count is possible: a league the selector already refused
+              // never reaches this write.
+              exec.invalidLifecycleTargets += 1;
+            }
+            // The two refusals are different operator conditions and must not
+            // share one message: `not-in-target-season` means another actor
+            // moved the league, while `unusable-target-year` means the target
+            // year is unusable and needs repair, not a retry.
             errors.push({
               leagueSlug: league.slug,
               year,
-              error: `status write failed: league is no longer in the ${year} season group`,
+              error:
+                transition.outcome === 'unusable-target-year'
+                  ? `status write refused: the target year is not a usable season year`
+                  : `status write failed: league is no longer in the ${year} season group`,
             });
             continue;
           }
@@ -261,8 +365,19 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       });
     }
 
-    exec.result = aggregateLifecycleCronResult(entries);
-    exec.reason = aggregateLifecycleCronReason(entries, 'year-results');
+    // PLATFORM-086F2H1R4 — the R1-approved policy, fourth and final application,
+    // expressed once in `finalizeAggregate` above.
+    //
+    // The REASON always names what the VALID years did, never the refusal: the
+    // receipt's year entries carry counts and no reason field, so overwriting
+    // the aggregate reason would erase the only durable record of those years'
+    // outcomes. The refusal rides independently on `invalidLifecycleTargets`.
+    //
+    // The RESULT is degraded, because a refused production target is an anomaly
+    // even when every valid year merely skipped. `partial` there does NOT prove
+    // a durable write landed — `aggregateLifecycleCronResult` already returns
+    // `partial` for mixed failure/no-op outcomes.
+    finalizeAggregate(entries);
 
     const rolledAny = leaguesRolledOver.length > 0;
     const hadFailure = errors.length > 0;
@@ -276,6 +391,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         skipped: true,
         reason: 'no year eligible for rollover',
         years,
+        invalidLifecycleTargets: exec.invalidLifecycleTargets,
       });
     }
 
@@ -285,6 +401,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       suppressionClearedFor,
       years,
       errors,
+      invalidLifecycleTargets: exec.invalidLifecycleTargets,
     });
   } catch (err) {
     // Any otherwise-unclassified fault stays the pessimistic
@@ -293,6 +410,12 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       {
         skipped: true,
         reason: err instanceof Error ? err.message : 'unknown error',
+        // Reachable with refusals already counted — e.g. championship
+        // resolution throwing on a malformed cached schedule after the selector
+        // refused a record. The event and receipt carry the count from `exec`
+        // via the `finally`; omitting it here alone would make the response the
+        // one surface that disagrees.
+        invalidLifecycleTargets: exec.invalidLifecycleTargets,
       },
       { status: 500 }
     );
@@ -306,7 +429,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         result: exec.result,
         reason: exec.reason,
         providerCallAttempted: false,
-        target: seasonRolloverYearsTarget(exec.years),
+        target: seasonRolloverYearsTarget(exec.years, exec.invalidLifecycleTargets),
       });
     }
   }
