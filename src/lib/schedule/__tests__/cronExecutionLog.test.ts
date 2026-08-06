@@ -116,7 +116,14 @@ test('the emitted event carries only allowlisted keys, including E1B1 values', (
   }
   assert.equal(lines.length, 1);
   const event = JSON.parse(lines[0]!) as Record<string, unknown>;
-  assert.deepEqual(Object.keys(event).sort(), ['durationMs', 'event', 'reason', 'result', 'years']);
+  assert.deepEqual(Object.keys(event).sort(), [
+    'durationMs',
+    'event',
+    'invalidLifecycleTargets',
+    'reason',
+    'result',
+    'years',
+  ]);
   assert.equal(event.reason, 'season-transition-owner');
   const years = event.years as Array<Record<string, unknown>>;
   assert.equal(years[1]!.operation, 'preseason-maintenance');

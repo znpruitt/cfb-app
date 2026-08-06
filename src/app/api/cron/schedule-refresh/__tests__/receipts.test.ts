@@ -21,6 +21,7 @@ import { resetScheduleRouteCacheForTests } from '../../../schedule/cache.ts';
 import { __resetSchedulePresentationMemoForTests } from '../../../../../lib/schedule/schedulePresentationJoin.ts';
 import {
   buildSchedulerExecutionReceipt,
+  parseSchedulerExecutionReceipt,
   recordSchedulerExecutionReceipt,
 } from '../../../../../lib/server/schedulerExecutionStatus.ts';
 import {
@@ -234,6 +235,7 @@ async function seedPriorReceipt() {
       kind: 'schedule-years',
       totalYears: 1,
       truncated: false,
+      invalidLifecycleTargets: 0,
       years: [{ year: 2031, operation: 'ordinary-maintenance' }],
     },
   });
@@ -278,6 +280,7 @@ test('a no-maintenance-target run writes a healthy provider-free skip receipt', 
     kind: 'schedule-years',
     totalYears: 0,
     truncated: false,
+    invalidLifecycleTargets: 0,
     years: [],
   });
 });
@@ -362,6 +365,7 @@ test('a demo-only active registry writes a zero-target provider-free receipt', a
     kind: 'schedule-years',
     totalYears: 0,
     truncated: false,
+    invalidLifecycleTargets: 0,
     years: [],
   });
 });
@@ -465,5 +469,162 @@ test('the route pins the receipt finally wiring and the exec.years early-alias c
   assert.ok(
     aliasIdx > 0 && loopIdx > 0 && aliasIdx < loopIdx,
     'exec.years is aliased before the loop'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1R2 — the refusal count on the durable receipt, and the legacy
+// compatibility path.
+// ---------------------------------------------------------------------------
+
+// REGRESSION TEST — the whole-receipt hazard. An `undefined` lifecycle year
+// previously became a per-year entry whose `year` key `JSON.stringify` DROPS,
+// failing `isFiniteNumber` so `parseSchedulerExecutionReceipt` rejected the
+// ENTIRE record — one corrupt league erased the whole job from System Health.
+test('R2 regression: an unusable year never poisons the stored receipt', async () => {
+  await setAppState('leagues', 'registry', [
+    {
+      slug: 'alpha',
+      displayName: 'League alpha',
+      year: 2031,
+      createdAt: '2022-01-01T00:00:00.000Z',
+      status: { state: 'season' },
+    } as unknown as League,
+  ]);
+
+  await runRoute();
+  await deferrer.flush();
+
+  const raw = await readSchedulerReceipt('schedule-refresh');
+  assert.ok(raw, 'a receipt was written');
+  // `readSchedulerReceipt` is a RAW read — it does not run the validator, so
+  // parseability has to be asserted through the real parser or the claim is
+  // vacuous. This is the exact hazard this test exists for.
+  const stored = {
+    value: parseSchedulerExecutionReceipt(raw.value, 'schedule-refresh', Date.now()),
+  };
+  assert.ok(stored.value, 'the receipt still PARSES — the job stays visible');
+  if (!stored.value) return;
+  assert.equal(stored.value.result, 'failure');
+  assert.equal(stored.value.reason, 'unusable-lifecycle-year');
+  assert.equal(stored.value.providerCallAttempted, false);
+  assert.equal(stored.value.target.kind, 'schedule-years');
+  if (stored.value.target.kind !== 'schedule-years') return;
+  assert.deepEqual(stored.value.target.years, [], 'the unusable year is not stored');
+  assert.equal(stored.value.target.totalYears, 0);
+  assert.equal(stored.value.target.invalidLifecycleTargets, 1);
+  assert.ok(
+    !JSON.stringify(stored.value).includes('alpha'),
+    'a refused candidate never contributes a slug'
+  );
+});
+
+// CONTRACT PIN — a LEGACY receipt written before R2 omits the count entirely and
+// must still parse, normalizing to 0. Rejecting it would degrade the System
+// Health row to `invalid` until the next cron run rewrote it.
+test('R2 contract pin: a legacy schedule receipt without the count parses as zero', async () => {
+  const legacy = {
+    version: 1,
+    job: 'schedule-refresh',
+    source: 'qstash',
+    invocationId: '66666666-6666-4666-8666-666666666666',
+    startedAt: new Date(Date.now() - 60_000).toISOString(),
+    completedAt: new Date(Date.now() - 59_000).toISOString(),
+    durationMs: 1000,
+    result: 'success',
+    reason: 'year-results',
+    providerCallAttempted: true,
+    target: {
+      kind: 'schedule-years',
+      totalYears: 1,
+      truncated: false,
+      // NOTE: `invalidLifecycleTargets` deliberately ABSENT.
+      years: [{ year: 2020, operation: 'ordinary-maintenance' }],
+    },
+  };
+  const parsed = parseSchedulerExecutionReceipt(legacy, 'schedule-refresh', Date.now());
+  assert.ok(parsed, 'a pre-R2 receipt still parses');
+  const stored = { value: parsed };
+  assert.equal(stored.value.target.kind, 'schedule-years');
+  if (stored.value.target.kind !== 'schedule-years') return;
+  assert.equal(stored.value.target.invalidLifecycleTargets, 0, 'normalized, not rejected');
+  assert.deepEqual(
+    stored.value.target.years.map((y) => y.year),
+    [2020],
+    'the rest of the legacy target is preserved'
+  );
+});
+
+// REGRESSION TEST — an invalid PRESENT value still rejects the whole record, so
+// the optional-for-legacy allowance cannot be used to smuggle a bad value in.
+test('R2 regression: a present but invalid count rejects the stored receipt', () => {
+  const bad = {
+    version: 1,
+    job: 'schedule-refresh',
+    source: 'qstash',
+    invocationId: '77777777-7777-4777-8777-777777777777',
+    startedAt: new Date(Date.now() - 60_000).toISOString(),
+    completedAt: new Date(Date.now() - 59_000).toISOString(),
+    durationMs: 1000,
+    result: 'success',
+    reason: 'year-results',
+    providerCallAttempted: true,
+    target: {
+      kind: 'schedule-years',
+      totalYears: 1,
+      truncated: false,
+      invalidLifecycleTargets: -1,
+      years: [{ year: 2020, operation: 'ordinary-maintenance' }],
+    },
+  };
+
+  assert.equal(parseSchedulerExecutionReceipt(bad, 'schedule-refresh', Date.now()), null);
+});
+
+// PLATFORM-086F2H1R2 — the count must reach an operator. Without these cases,
+// deleting either new branch of the `schedule-years` summary leaves the suite
+// green (AGENTS.md: "if deleting the new guard leaves the suite green, the guard
+// is not in the PR's acceptance contract").
+test('R2: the System Health schedule summary renders the refusal count', async () => {
+  const { summarizeReceiptTarget } = await import(
+    '../../../../../components/admin/systemHealth/systemHealthPresentation.ts'
+  );
+
+  // Clean run — and a legacy receipt, whose count normalizes to 0 — is unchanged.
+  assert.equal(
+    summarizeReceiptTarget({
+      kind: 'schedule-years',
+      totalYears: 1,
+      truncated: false,
+      invalidLifecycleTargets: 0,
+      years: [{ year: 2020, operation: 'ordinary-maintenance' }],
+    }),
+    '1 year(s): 2020 (ordinary-maintenance)'
+  );
+
+  // Mixed — the refusal is appended at run level.
+  assert.equal(
+    summarizeReceiptTarget({
+      kind: 'schedule-years',
+      totalYears: 1,
+      truncated: false,
+      invalidLifecycleTargets: 2,
+      years: [{ year: 2020, operation: 'ordinary-maintenance' }],
+    }),
+    '1 year(s): 2020 (ordinary-maintenance) · 2 unusable lifecycle target(s)'
+  );
+
+  // All-refused — no years, so no dangling separator. This also closes the
+  // `schedule-years` half of the recorded dangling-colon deferral; the rankings
+  // and rollover branches deliberately still carry it.
+  assert.equal(
+    summarizeReceiptTarget({
+      kind: 'schedule-years',
+      totalYears: 0,
+      truncated: false,
+      invalidLifecycleTargets: 1,
+      years: [],
+    }),
+    '0 year(s) · 1 unusable lifecycle target(s)'
   );
 });
