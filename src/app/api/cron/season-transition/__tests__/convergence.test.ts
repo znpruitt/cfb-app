@@ -1491,3 +1491,59 @@ test('R1 contract pin: a wholly valid run still reports zero refusals', async ()
   assert.equal(run.event.result, 'success');
   assert.equal((await readLeague('alpha'))!.status!.state, 'season');
 });
+
+// REGRESSION TEST — the per-year CATCH path must aggregate through the same
+// authority as the normal path. A throw arriving after a refusal was already
+// detected must not erase it: the run's reason has to stay `year-results`
+// (per-year outcomes and the refusal are independent facts) rather than
+// collapsing to the single throwing year's reason as if nothing was refused.
+test('R1 regression: a mid-run throw does not erase an already-detected refusal', async () => {
+  const { __setAppStateWriteFailureForTests } = await import(
+    '../../../../../lib/server/appStateStore.ts'
+  );
+  await seedRegistry([
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+    makeUnusableLeague('broken', 2023.5),
+  ]);
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const body =
+      url.searchParams.get('seasonType') === 'postseason'
+        ? '[]'
+        : JSON.stringify([
+            {
+              id: 'g1',
+              week: 1,
+              home_team: 'Texas',
+              away_team: 'Rice',
+              start_date: '2099-09-01T00:00:00Z',
+              completed: false,
+            },
+          ]);
+    return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  __setAppStateWriteFailureForTests(new Error('probe write boom'), 'schedule-probe');
+  let run: RunResult;
+  try {
+    run = await runRoute();
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+
+  // POSITIVE CONTROL: the throw really happened on the valid year's path.
+  assert.equal(run.res.status, 500);
+  assert.equal(run.event.years.length, 1);
+  assert.equal(run.event.years[0]!.reason, 'probe-write-failed');
+
+  // The refusal detected BEFORE the throw survives it, on every surface.
+  assert.equal(run.event.invalidLifecycleTargets, 1, 'the refusal is not erased by the throw');
+  assert.equal(run.event.reason, 'year-results', 'not collapsed to the throwing year’s reason');
+
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('season-transition');
+  assert.ok(receipt);
+  assert.equal(receipt.value.reason, 'year-results');
+  assert.equal(receipt.value.target.kind, 'season-transition-years');
+  if (receipt.value.target.kind !== 'season-transition-years') return;
+  assert.equal(receipt.value.target.invalidLifecycleTargets, 1);
+});
