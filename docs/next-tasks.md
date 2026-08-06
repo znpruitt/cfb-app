@@ -79,7 +79,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Platform            | Multi-tenant Commissioner Sign-up                                                       | Planned               |
 | Platform            | Server Action Auth Hardening                                                            | Planned               |
 | Platform            | Provider Refresh Observability (PLATFORM-086A)                                          | ✅ Complete (PR #391) |
-| Platform            | Provider Automation & Correctness (PLATFORM-086B–I)                                     | ✅ Complete except 086F2 (resumes after INSIGHTS-021) |
+| Platform            | Provider Automation & Correctness (PLATFORM-086B–I)                                     | ✅ Complete except 086F2 (NEXT) |
 | Polish              | Design Audit (remaining pages)                                                          | Planned               |
 | Polish              | Copy / UX Writing Audit                                                                 | Planned               |
 | Polish              | Back Button Audit                                                                       | Planned               |
@@ -89,26 +89,46 @@ All foundational phases are complete. Work is now organized into named workstrea
 
 ## Active priorities
 
-### 0. INSIGHTS-021 — current-year authority (preseason truth) — NEXT
+### 0. INSIGHTS-021 — current-year authority — DROPPED; repaired as data instead
 
-**A ONE-PR INTERRUPTION of PLATFORM-086F2**, and the only Insights work permitted to interrupt it,
-because it is a LIVE preseason truth defect rather than an improvement. Its closeout returns the
-sole `NEXT` marker to F2H2.
+**Not implemented. Decision 2026-08-06: repair the drifted registry row and drop the slice.**
+`NEXT` returns to F2H2 (§1 below).
 
-`buildLeagueInsightContext` derives `lifecycleState` from `league.status` (correct) but takes
-`currentYear` from the top-level `league.year` projection, so on the live `tsc` shape
-(`league.year=2025`, `preseason(2026)`) the page labels 2025 and scopes career stats, records, and
-suppression to 2025 — the season already archived. Owner intent: **preseason belongs to the UPCOMING
-year; it is the first state of the new season, not the final state of the previous one.**
+**The defect.** `buildLeagueInsightContext` derives `lifecycleState` from `league.status` (correct)
+but took `currentYear` from the top-level `league.year` projection, so on the live `tsc` shape
+(`league.year=2025`, `preseason(2026)`) the page labelled 2025 and scoped career stats, records, and
+suppression to the already-archived season. Owner intent stands and is recorded: **preseason belongs
+to the UPCOMING year — it is the first state of the new season, not the final state of the previous
+one.**
 
-Paired: `isRookie` always returns a boolean, so during preseason it answers a question it cannot
-know. It becomes a closed tri-state — `rookie` / `not-rookie` / `indeterminate` — with
-`setupComplete` as the finalization signal, and the generator emits only for `rookie`.
+**Why it was dropped rather than shipped.** An implementation exists (`44f0fab`, unmerged, branch
+deleted) and was fully reviewed. Three findings decided it:
 
-Full scope, rules, and verification contract are in the prompt; see also
-INSIGHTS-CURRENT-YEAR-AUTHORITY in the planned backlog for the underlying findings.
+1. **It fixes a DATA defect in CODE.** `tsc`'s drift is a single row predating
+   `applyLifecycleStatus` synchronizing the two fields. Changing how ONE of ~16 consumers reads it
+   leaves the other fifteen on the projection permanently — converting a wrong-but-consistent value
+   into a lasting disagreement, and reproducing on the next drifted row.
+2. **It made the Insights tab disagree with every sibling tab.** Home, schedule, standings,
+   matchups, members, and all nine history pages pass `league.year`; only Insights would pass the
+   resolved year, so the header flips 2025 → 2026 → 2025 as a user moves between tabs.
+3. **The rookie tri-state was INERT.** Mutation-proven: `indeterminate` requires
+   `firstSeason === currentYear`, while the generator also requires `finishHistory.length >= 1`,
+   which needs an archive FOR that year — impossible during its own preseason. Treating
+   `indeterminate` as `rookie` left all 53 insights tests green. The owner's stated case (an owner
+   who completed 2025 is not a rookie in the 2026 preseason) is fixed by the YEAR correction alone.
 
-### 1. PLATFORM-086F2 — admin control-plane information-architecture redesign
+**The repair instead.** Set the drifted row's top-level `year` to its `status.year`, restoring the
+`applyLifecycleStatus` invariant. It also self-heals at the next season transition
+(`completeSeasonTransition` has an explicit `healed` path for exactly this), so the manual repair is
+an acceleration, not a necessity.
+
+**What remains open.** The durable guarantee — all ~16 surfaces resolving the season the same way —
+is NOT delivered by either the slice or the repair. A future drifted row reproduces the defect on
+every consumer that reads the projection. Recorded as INSIGHTS-CURRENT-YEAR-AUTHORITY in the planned
+backlog, now scoped as a cross-surface convergence rather than a one-page fix. The rookie tri-state
+is NOT carried forward: it addressed an unreachable case.
+
+### 1. PLATFORM-086F2 — admin control-plane information-architecture redesign — NEXT
 
 Activated from backlog slug `PLATFORM-086F-ADMIN-DIAGNOSTICS-DASHBOARD-v1`. The read-only audit is
 complete and accepted; the canonical inventory, target information architecture, locked decisions,
@@ -653,9 +673,8 @@ Execution order within F2 (each slice is one independently deployable PR):
         shape — an exact season+year re-check producing a typed outcome). The consequence the false
         claim was hiding is fixed: rollover now has its own structural year check. Converging the
         two writers remains F2H2's.
-    - **F2H2 — rollover/archive/backfill consolidation** — **NEXT once
-      INSIGHTS-021-CURRENT-YEAR-AUTHORITY-v1 closes out.** Audit FIRST: this surface writes
-      permanent archives. Planned: converge the remaining rollover
+    - **F2H2 — rollover/archive/backfill consolidation** — **NEXT.** Audit FIRST: this surface
+      writes permanent archives. Planned: converge the remaining rollover
       projection/result contract, fix benign redelivery reporting without hiding genuine refusals,
       consolidate the duplicate strict rollover UI, and organize archive/backfill operations.
     - **F2H3 — Season Management presentation** — planned: render per-league lifecycle separately
@@ -882,7 +901,13 @@ Items surfaced during the Insights Panel Redesign + Polish campaign and queued f
   **Constraints.** (1) Decay needs an anchor; the only true one is the most recent archive's `archivedAt` (already loaded into the insight context) — a calendar date reintroduces the arbitrariness this replaces. (2) It SUPERSEDES `fresh_offseason` rather than complementing it: if weight is time-derived, that state exists only to approximate "recently", and collapsing it back to one `offseason` state is a breaking change to every generator's lifecycle list and to `deriveLifecycleState`. (3) Existing `priorityScore` values are per-generator constants on no shared scale; making them commensurable is the bulk of the work, not the decay mechanism.
   Precedent worth reusing: `framing.ts` already has `applyLastSeasonFraming` — the system can already reframe an insight for distance, it just cannot re-rank for it.
 - **INSIGHTS-OFFSEASON-ROSTER-CONTENT** — `ROOKIE` and `RETURNING_OWNER_TRENDING` are gated to `['fresh_offseason', 'preseason']`, so both go dark for the entire stretch between the fresh cutoff and preseason — exactly the window where "who is returning / who is new" is most relevant. Owner decision (2026-08-06): these categories are EVERGREEN even though the eligible owners change, so the gap looks like a side effect of grouping them with recap content rather than a decision. Adding `offseason` to both sets closes it without touching anything else, and does not require decay first (unlike `SEASON_WRAP`, which at flat priority would keep a stale recap competing all year — that one waits for INSIGHTS-PRIORITY-DECAY).
-- **INSIGHTS-CURRENT-YEAR-AUTHORITY** — LIVE minor defect. `buildLeagueInsightContext` derives `lifecycleState` from `league.status` (correct) but takes `currentYear` from the top-level `league.year` projection (`context.ts:378/387/393`, and `applySuppression` at `loadInsights.ts:299`). Owner intent (2026-08-06): **preseason belongs to the UPCOMING year — it is the first state of the new season, not the final state of the previous one.** So `currentYear` must read `status.year`. Live effect on `tsc` (preseason 2026, projection 2025): career/records/suppression are scoped to 2025 and the page labels 2025. NOT a data-integrity problem — archives remain the sole source of accumulated totals and there is no double-count (`buildOwnerCareerStats` iterates archives only; `currentYear` is a reference point). The projection self-heals when the season transition runs, but reading the authority fixes it immediately and permanently.
+- **INSIGHTS-CURRENT-YEAR-AUTHORITY** — RESCOPED 2026-08-06 to CROSS-SURFACE convergence. The
+  one-page fix was built (`44f0fab`), reviewed, and rejected: changing a single consumer makes the
+  Insights tab disagree with the ~15 sibling surfaces that still read the projection, and treats a
+  repairable data row as a code problem. The live `tsc` row is repaired directly instead. What is
+  still owed is the DURABLE guarantee — every surface resolving the season the same way — which is
+  the only thing that stops the next drifted row reproducing this. Original finding follows.
+  LIVE minor defect at the time of writing. `buildLeagueInsightContext` derives `lifecycleState` from `league.status` (correct) but takes `currentYear` from the top-level `league.year` projection (`context.ts:378/387/393`, and `applySuppression` at `loadInsights.ts:299`). Owner intent (2026-08-06): **preseason belongs to the UPCOMING year — it is the first state of the new season, not the final state of the previous one.** So `currentYear` must read `status.year`. Live effect on `tsc` (preseason 2026, projection 2025): career/records/suppression are scoped to 2025 and the page labels 2025. NOT a data-integrity problem — archives remain the sole source of accumulated totals and there is no double-count (`buildOwnerCareerStats` iterates archives only; `currentYear` is a reference point). The projection self-heals when the season transition runs, but reading the authority fixes it immediately and permanently.
   Paired change: `isRookie: firstSeason === currentYear` always returns a boolean, so during preseason it answers a question it cannot know. Owner intent: **rookie is INDETERMINATE until owners are finalized**, and an owner who completed 2025 is not a rookie in the 2026 preseason. The preseason status already carries `setupComplete` as that signal. Rookie becomes tri-state; this changes a generator's output shape and needs its own care.
   Checked and requiring NO action: the `STATS` lifecycle gate is redundant — those five generators read `context.ownerGameStats`, which the context sets to `null` for preseason and offseason anyway, so they return `[]` regardless of the gate. Turning `STATS` off disables nothing historical (`stats:team_identity` is evergreen and archive-backed).
 - **INSIGHTS-FRESH-WINDOW-ANCHOR** — `deriveLifecycleState` cuts `fresh_offseason` → `offseason` at a hardcoded **March 1** (`lifecycle.ts:19`), while rollover is derived from the real world (`ROLLOVER_DELAY_MS` = championship + 7 days). One boundary is an event, the other a calendar constant, so the window LENGTH is uncontrolled: it shrinks as the expanded playoff pushes the championship later, shrinks further if rollover is delayed (roll on Feb 20 → nine days of `fresh_offseason`), and would vanish entirely if rollover ever landed after March 1. Owner notes the date was arbitrary. If `fresh_offseason` survives INSIGHTS-PRIORITY-DECAY at all, anchor it to `archivedAt + N days`; if decay ships, this item is absorbed by it.
