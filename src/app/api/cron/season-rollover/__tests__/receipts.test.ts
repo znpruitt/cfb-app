@@ -571,6 +571,34 @@ function legacyRolloverReceipt(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// CONTRACT PIN — the TOP-LEVEL event key set, exactly.
+//
+// The per-year entry keys were already pinned, but nothing asserted the event's
+// own key set — so R4 added a top-level field with no allowlist covering it. A
+// future field carrying a slug or an unusable year value into the log line is
+// precisely the leak class these allowlists exist to prevent.
+test('R4 contract pin: the season-rollover event carries exactly the allowlisted top-level keys', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'season', year: 2025 }, 2025),
+  ]);
+  await seedTeams();
+
+  const { event } = await runRoute();
+
+  assert.deepEqual(Object.keys(event).sort(), [
+    'durationMs',
+    'event',
+    'invalidLifecycleTargets',
+    'reason',
+    'result',
+    'years',
+  ]);
+  const serialized = JSON.stringify(event);
+  for (const canary of [CRON_SECRET, 'Bearer ', 'authorization']) {
+    assert.ok(!serialized.includes(canary), `event must not contain ${canary}`);
+  }
+});
+
 // CONTRACT PIN — a LEGACY receipt written before R4 omits the field and must
 // still parse, normalizing to 0. Rejecting it would degrade the System Health
 // row to `invalid` until the next cron run rewrote it.

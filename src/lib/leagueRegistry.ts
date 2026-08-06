@@ -499,6 +499,14 @@ export type SeasonRolloverTransition =
   // a structurally valid season year. Nothing is written. Distinct from
   // `not-in-target-season`, which asserts the league moved on: here the league
   // may be exactly where the caller expects, carrying an unusable year.
+  //
+  // Deliberately NEUTRAL about WHICH side is unusable: a caller cannot tell,
+  // and both callers' operator messages must therefore not assert that the
+  // league record is the corrupt one. For the two real callers the year comes
+  // from target selection and is already validated, so in practice this means
+  // stored corruption — but a direct caller passing a bad year gets the same
+  // outcome, and telling that operator to repair a healthy record would be
+  // false.
   | { outcome: 'unusable-target-year'; league: League | null };
 
 /**
@@ -533,21 +541,26 @@ export async function completeSeasonRollover(
     const idx = leagues.findIndex((l) => l.slug === slug);
     if (idx === -1) return { result: { outcome: 'not-in-target-season', league: null } };
     const current = leagues[idx]!;
-    // Structural validity FIRST, on the requested year, so a direct caller that
-    // never went through target selection cannot mint an archive key or a
-    // top-level `league.year` from an unusable value.
-    if (!isStructurallyValidSeasonYear(year)) {
-      return { result: { outcome: 'unusable-target-year', league: current } };
-    }
-    if (current.status?.state !== 'season' || current.status.year !== year) {
+    if (current.status?.state !== 'season') {
       return { result: { outcome: 'not-in-target-season', league: current } };
     }
-    // The exact-match guard above proves the two years are EQUAL, not that the
-    // stored one is usable. Checking it separately is what makes this writer
-    // safe against a registry whose stored year is corrupt while the caller
-    // faithfully echoed it back.
-    if (!isStructurallyValidSeasonYear(current.status.year)) {
+    // Validity is decided BEFORE the exact-year comparison, on BOTH sides.
+    //
+    // Ordering it after the comparison makes the stored-year check dead: an
+    // equality match plus a valid requested year already implies a valid stored
+    // year. Worse, a corrupt stored record would then fall into the mismatch
+    // branch and report `not-in-target-season` — telling an operator another
+    // actor moved the league, when the truth is data corruption needing repair.
+    // Those are different remedies (retry vs. fix the record), which is exactly
+    // the conflation this slice exists to remove.
+    if (
+      !isStructurallyValidSeasonYear(current.status.year) ||
+      !isStructurallyValidSeasonYear(year)
+    ) {
       return { result: { outcome: 'unusable-target-year', league: current } };
+    }
+    if (current.status.year !== year) {
+      return { result: { outcome: 'not-in-target-season', league: current } };
     }
     const next: League = { ...current, status: { state: 'offseason' }, year };
     const updated = leagues.map((l, i) => (i === idx ? next : l));

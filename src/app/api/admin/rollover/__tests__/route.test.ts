@@ -738,3 +738,23 @@ test('R4 contract pin: an absent group with no refusals still reports rollover-y
   assert.equal(body.error, 'rollover-year-not-active');
   assert.equal(body.invalidLifecycleTargets, 0);
 });
+
+// REGRESSION TEST — the manual surface's sink durability is REAL, not merely
+// asserted in a comment. A corrupt record throwing mid-loop previously escaped
+// the handler and produced a framework 500 with no body, discarding the count
+// the loop had already published.
+test('R4 regression: a refusal counted before a mid-loop throw survives on the manual surface', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', 2024, { state: 'season', year: '2024' } as unknown as League['status']),
+    null as unknown as League,
+  ]);
+  await seedTeams();
+
+  const res = await GET(getRequest());
+  const body = (await res.json()) as { error?: string; invalidLifecycleTargets?: number };
+
+  // POSITIVE CONTROL — the throw really happened and really was caught here.
+  assert.equal(res.status, 500, 'the corrupt record threw into the registry catch');
+  assert.equal(body.error, 'rollover-registry-unavailable');
+  assert.equal(body.invalidLifecycleTargets, 1, 'the refusal already counted is not discarded');
+});

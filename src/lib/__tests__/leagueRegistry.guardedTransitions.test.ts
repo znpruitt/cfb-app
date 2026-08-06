@@ -264,11 +264,40 @@ test('R4 regression: completeSeasonRollover refuses an unusable requested year a
   }
 });
 
-// REGRESSION TEST — the STORED year is validated too, not just the requested
-// one. The exact-match guard proves the two are EQUAL, not that either is
-// usable, so a caller faithfully echoing a corrupt stored year must still be
-// refused — otherwise `league.year` would persist the corrupt value.
-test('R4 regression: a corrupt STORED season year is refused even when the caller echoes it', async () => {
+// REGRESSION TEST — the STORED year is validated INDEPENDENTLY, and validity is
+// decided BEFORE the exact-year comparison.
+//
+// The requested year here is perfectly VALID and DIFFERENT from the stored one,
+// so the requested-year check cannot fire. That is what makes this reach the
+// stored-year branch. Ordering validity after the comparison makes that branch
+// dead code, and a corrupt record then falls into the mismatch branch and
+// reports `not-in-target-season` — telling an operator another actor moved the
+// league, when the truth is data corruption needing repair. Two different
+// remedies (retry vs. fix the record), which is the conflation this slice
+// exists to remove.
+test('R4 regression: a corrupt STORED year refuses as unusable, not as a stale target', async () => {
+  const seeded = [
+    makeLeague('alpha', 2024, { state: 'season', year: 2024.5 } as unknown as League['status']),
+  ];
+  await setAppState('leagues', 'registry', seeded);
+
+  // A VALID requested year that does not equal the corrupt stored one.
+  const transition = await completeSeasonRollover('alpha', 2024);
+
+  assert.equal(
+    transition.outcome,
+    'unusable-target-year',
+    'the stored corruption decides, not the year mismatch'
+  );
+  const after = await getAppState<League[]>('leagues', 'registry');
+  assert.deepEqual(after?.value, seeded, 'nothing was written');
+});
+
+// REGRESSION TEST — the echoed-corrupt-year case still refuses too. Kept
+// separate from the case above because it is caught by the REQUESTED-year
+// check, not the stored one; conflating them is what made the original test
+// pass without ever entering the branch it claimed to cover.
+test('R4 regression: an echoed corrupt year refuses via the requested-year check', async () => {
   const seeded = [
     makeLeague('alpha', 2024, { state: 'season', year: 2024.5 } as unknown as League['status']),
   ];

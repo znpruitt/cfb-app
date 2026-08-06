@@ -57,6 +57,12 @@ export type ManualRolloverRefusalError =
   | 'rollover-eligibility-unavailable';
 
 export type ManualRolloverRefusal = {
+  /**
+   * PLATFORM-086F2H1R4 — present on refusals produced AFTER target selection.
+   * Declared here because both panels decode through this module; a client
+   * wanting to surface the count from a 409 otherwise has no typed field.
+   */
+  invalidLifecycleTargets?: number;
   error: ManualRolloverRefusalError;
   reason?: ManualRolloverReason;
   detail?: string;
@@ -177,7 +183,7 @@ export function describeManualRolloverRefusal(payload: unknown): string | null {
     case 'rollover-registry-malformed':
       return 'The league registry could not be read as a list of leagues. No rollover can run until the stored record is repaired.';
     case 'rollover-unusable-lifecycle-year':
-      return 'One or more leagues carry an unusable season year and were refused. Repair those league records before rolling this year over.';
+      return 'This year has no active season group, and one or more league records in season were refused for an unusable season year. Repair those records, then reload — the year you meant may be among them.';
     case 'rollover-not-eligible':
       return `Rollover refused: ${describeManualRolloverReason(reason)}`;
     case 'rollover-eligibility-unavailable':

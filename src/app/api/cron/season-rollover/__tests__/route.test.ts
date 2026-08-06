@@ -464,3 +464,35 @@ test('R4 regression: a refusal counted before a mid-loop throw survives the 500'
   assert.equal(res.status, 500, 'the corrupt record threw into the registry catch');
   assert.equal(body.invalidLifecycleTargets, 1, 'the refusal already counted is not discarded');
 });
+
+// NOT TESTED HERE, deliberately, and recorded rather than faked.
+//
+// The write-time `unusable-target-year` refusal also increments the count (see
+// the route). It is a genuine production race — `mutateRegistry` re-reads the
+// registry inside the transaction, so another actor corrupting the record
+// between target selection and the write makes the writer refuse where the
+// selector accepted. But it is not reachable in-process from this suite: both
+// routes derive the requested year from the same stored value the selector
+// already validated, and there is no hook to mutate the registry mid-run. A
+// test that seeded a healthy registry and asserted the count stayed 0 would
+// prove nothing about the branch it claimed to cover, so none is written.
+// `completeSeasonRollover`'s own refusal IS covered directly, in
+// `leagueRegistry.guardedTransitions.test.ts`.
+
+// REGRESSION TEST — the outer catch is an AUTHENTICATED response and must carry
+// the count. Reachable when championship resolution throws (a malformed cached
+// schedule) after the selector already refused a record.
+test('R4 regression: the unexpected-error 500 still reports refusals counted before the throw', async () => {
+  await seedUnusableLeague('2024', 'bad');
+  await setAppState('leagues', 'registry', [
+    ...((await getAppState<League[]>('leagues', 'registry'))?.value ?? []),
+    makeLeague('alpha', { state: 'season', year: YEAR }),
+  ]);
+  // A structurally malformed cached schedule makes resolution THROW.
+  await setAppState('schedule', `${YEAR}-all-all`, { items: 'not-an-array' });
+
+  const { result: res } = await runCapturingTags(() => GET(cronRequest()));
+  const body = (await res.json()) as { invalidLifecycleTargets?: number };
+
+  assert.equal(body.invalidLifecycleTargets, 1, 'the refusal reaches the error response too');
+});

@@ -76,10 +76,26 @@ export async function GET(req: Request): Promise<Response> {
 
   // PLATFORM-086F2H1R4 — a local sink: this handler has no run-scoped execution
   // state, and each request is its own scope. The grouping policy publishes
-  // refusals into it as it counts them, so a corrupt record throwing mid-loop
-  // cannot discard one already observed.
+  // refusals into it as it counts them; the try/catch below is what makes that
+  // durability real on this surface, since without it a corrupt record throwing
+  // mid-loop would escape the handler and the observed count would be lost to a
+  // framework-generated 500 with no body at all.
   const refusals = { invalidLifecycleTargets: 0 };
-  const registry = await readLeagueRegistry();
+  let registry: Awaited<ReturnType<typeof readLeagueRegistry>>;
+  try {
+    registry = await readLeagueRegistry();
+  } catch {
+    // Store-read failures keep their existing server-error behavior (500); only
+    // the body becomes typed, so the count survives.
+    return Response.json(
+      {
+        error: 'rollover-registry-unavailable',
+        detail: 'The league registry could not be read.',
+        invalidLifecycleTargets: refusals.invalidLifecycleTargets,
+      },
+      { status: 500 }
+    );
+  }
   if (registry.kind === 'malformed') {
     // 409, not 400 or 503: the request is well-formed and no dependency is
     // down — stored state prevents the operation. Sanitized: the corrupt value
@@ -92,7 +108,22 @@ export async function GET(req: Request): Promise<Response> {
       { status: 409 }
     );
   }
-  const groups = groupRolloverTargets(registry.kind === 'ok' ? registry.leagues : [], refusals);
+  let groups;
+  try {
+    groups = groupRolloverTargets(registry.kind === 'ok' ? registry.leagues : [], refusals);
+  } catch {
+    // A corrupt RECORD inside an otherwise valid container. The refusals the
+    // loop already published survive on `refusals` — that is the whole point of
+    // the sink — so report them rather than losing them to a bare 500.
+    return Response.json(
+      {
+        error: 'rollover-registry-unavailable',
+        detail: 'The league registry contains an unreadable record.',
+        invalidLifecycleTargets: refusals.invalidLifecycleTargets,
+      },
+      { status: 500 }
+    );
+  }
   const now = Date.now();
 
   const years: ManualRolloverYearStatus[] = [];
@@ -193,8 +224,28 @@ export async function POST(req: Request): Promise<Response> {
   // The requested year must be a CURRENT lifecycle-year group (non-test leagues
   // in `season` whose status.year matches exactly).
   const refusals = { invalidLifecycleTargets: 0 };
-  const registry = await readLeagueRegistry();
-  if (registry.kind === 'malformed') {
+  let registry: Awaited<ReturnType<typeof readLeagueRegistry>>;
+  let groups;
+  try {
+    registry = await readLeagueRegistry();
+    if (registry.kind === 'malformed') {
+      // Flagged, not returned from inside the try: returning here would put the
+      // refusal under a catch that relabels everything as unavailable.
+      groups = null;
+    } else {
+      groups = groupRolloverTargets(registry.kind === 'ok' ? registry.leagues : [], refusals);
+    }
+  } catch {
+    return Response.json(
+      {
+        error: 'rollover-registry-unavailable',
+        detail: 'The league registry could not be read.',
+        invalidLifecycleTargets: refusals.invalidLifecycleTargets,
+      },
+      { status: 500 }
+    );
+  }
+  if (groups === null) {
     return Response.json(
       {
         error: 'rollover-registry-malformed',
@@ -203,7 +254,6 @@ export async function POST(req: Request): Promise<Response> {
       { status: 409 }
     );
   }
-  const groups = groupRolloverTargets(registry.kind === 'ok' ? registry.leagues : [], refusals);
   const group = groups.find((g) => g.year === year);
   if (!group) {
     // A refused production record makes `rollover-year-not-active` FALSE: the
@@ -214,8 +264,14 @@ export async function POST(req: Request): Promise<Response> {
       return Response.json(
         {
           error: 'rollover-unusable-lifecycle-year',
+          // RUN-scoped, and worded to stay within what the route knows. A
+          // refused record has no usable year, so it cannot be attributed to
+          // the requested one; claiming this year is blocked on a repair would
+          // overstate the case when the requested year was never rollable.
           detail:
-            'One or more leagues in season carry a structurally invalid year and were refused.',
+            `No non-test league is currently in season for year ${year}, and ` +
+            `${refusals.invalidLifecycleTargets} league record(s) in season were refused for an ` +
+            `unusable season year — one of them may be the year you meant.`,
           invalidLifecycleTargets: refusals.invalidLifecycleTargets,
         },
         { status: 409 }
@@ -311,12 +367,18 @@ export async function POST(req: Request): Promise<Response> {
     try {
       const transition = await completeSeasonRollover(league.slug, year);
       if (transition.outcome !== 'transitioned') {
+        // A write-time refusal is a refusal — see the cron's note. Counted here
+        // too so the manual response's count means the same thing on both
+        // surfaces.
+        if (transition.outcome === 'unusable-target-year') {
+          refusals.invalidLifecycleTargets += 1;
+        }
         errors.push({
           leagueSlug: league.slug,
           stage: 'status',
           error:
             transition.outcome === 'unusable-target-year'
-              ? 'league carries a structurally invalid season year and was refused'
+              ? 'refused: the target year is not a usable season year'
               : `league is no longer in the requested ${year} season group`,
         });
         continue;
