@@ -148,6 +148,17 @@ export async function GET(req: Request): Promise<Response> {
   // no durable receipt is scheduled for this invocation.
   let receiptInvocationId: string | null = null;
 
+  // ONE shape for every zero-target/early-exit body. Hand-maintaining five
+  // copies is how a future field lands on four of them with no compiler signal,
+  // because each was an inline literal with no declared return type.
+  const zeroTargetResponse = (state: typeof exec): NextResponse =>
+    NextResponse.json({
+      result: state.result,
+      reason: state.reason,
+      years: [],
+      invalidLifecycleTargets: state.invalidLifecycleTargets,
+    });
+
   try {
     // CRON_SECRET first — fail closed. No registry/settings/cache/quota/status/
     // provider/control work happens on an auth failure; the header/secret is
@@ -179,22 +190,12 @@ export async function GET(req: Request): Promise<Response> {
         exec.reason = 'automation-paused-or-disabled';
         // The count is structurally 0 on both gate exits: the registry has not
         // been read yet, and it deliberately never will be on a paused run.
-        return NextResponse.json({
-          result: exec.result,
-          reason: exec.reason,
-          years: [],
-          invalidLifecycleTargets: exec.invalidLifecycleTargets,
-        });
+        return zeroTargetResponse(exec);
       }
     } catch {
       exec.result = 'failure';
       exec.reason = 'settings-unavailable';
-      return NextResponse.json({
-        result: exec.result,
-        reason: exec.reason,
-        years: [],
-        invalidLifecycleTargets: exec.invalidLifecycleTargets,
-      });
+      return zeroTargetResponse(exec);
     }
 
     // Target selection — cache-only registry read; `preseason` + `season` years
@@ -209,6 +210,13 @@ export async function GET(req: Request): Promise<Response> {
     // has no consequence in that state. Ordering it the other way would also let
     // a registry fault turn a deliberately paused run into a scheduler failure.
     let selection: RankingsTargetSelection;
+    // Set inside the try, consumed AFTER the catch. Returning the malformed
+    // refusal from inside the try would put it under a catch that relabels
+    // everything `registry-unavailable`, so a throw while building that response
+    // would silently collapse corruption into unavailability — the two operator
+    // conditions this slice exists to separate. R2's sibling route uses the same
+    // flag-then-return shape for the same reason.
+    let registryMalformed = false;
     try {
       // PLATFORM-086F2H1R3 — read the CONTAINER through the typed reader so a
       // MALFORMED registry is distinguishable from an empty one. `getLeagues()`
@@ -216,22 +224,12 @@ export async function GET(req: Request): Promise<Response> {
       // registry report `no-ranking-target` — asserting no eligible league
       // exists when the registry holding them is unreadable as a list.
       const registry = await readLeagueRegistry();
-      if (registry.kind === 'malformed') {
-        // Refuse BEFORE any publication-context read, window claim, `/info`
-        // quota probe, provider request, refresh lease/status write, or
-        // rankings commit. Controlled outcome, so HTTP stays 200 — see the
-        // delivery-boundary note on the aggregate below.
-        exec.result = 'failure';
-        exec.reason = 'registry-malformed';
-        return NextResponse.json({
-          result: exec.result,
-          reason: exec.reason,
-          years: [],
-          invalidLifecycleTargets: exec.invalidLifecycleTargets,
-        });
-      }
+      registryMalformed = registry.kind === 'malformed';
       // `missing` preserves the pre-R3 empty-registry behavior exactly.
-      selection = selectRankingsTargetYears(registry.kind === 'ok' ? registry.leagues : []);
+      // `exec` IS the refusal sink: refusals are published as the loop counts
+      // them, so a corrupt RECORD throwing mid-loop cannot discard one already
+      // observed (AGENTS.md — the count must survive a mid-loop throw).
+      selection = selectRankingsTargetYears(registry.kind === 'ok' ? registry.leagues : [], exec);
     } catch {
       // A genuine store READ failure — `readLeagueRegistry` propagates it rather
       // than laundering it into a classification, so unavailability stays
@@ -242,15 +240,18 @@ export async function GET(req: Request): Promise<Response> {
       // — this slice must not relabel it as anything more specific.
       exec.result = 'failure';
       exec.reason = 'registry-unavailable';
-      return NextResponse.json({
-        result: exec.result,
-        reason: exec.reason,
-        years: [],
-        invalidLifecycleTargets: exec.invalidLifecycleTargets,
-      });
+      return zeroTargetResponse(exec);
     }
-    // Published immediately, before anything downstream can throw or return.
-    exec.invalidLifecycleTargets = selection.invalidLifecycleTargets;
+    if (registryMalformed) {
+      // Refuse BEFORE any publication-context read, window claim, `/info` quota
+      // probe, provider request, refresh lease/status write, or rankings commit.
+      // Controlled outcome, so HTTP stays 200 — see the delivery-boundary note
+      // on the aggregate below.
+      exec.result = 'failure';
+      exec.reason = 'registry-malformed';
+      return zeroTargetResponse(exec);
+    }
+
     const targets = selection.years;
     if (targets.length === 0) {
       // Zero-target precedence. A production DATA-INTEGRITY refusal outranks the
@@ -262,12 +263,7 @@ export async function GET(req: Request): Promise<Response> {
       if (exec.invalidLifecycleTargets > 0) {
         exec.result = 'failure';
         exec.reason = 'unusable-lifecycle-year';
-        return NextResponse.json({
-          result: exec.result,
-          reason: exec.reason,
-          years: [],
-          invalidLifecycleTargets: exec.invalidLifecycleTargets,
-        });
+        return zeroTargetResponse(exec);
       }
       exec.result = 'skipped';
       // An active demo league that was filtered out is NOT "no eligible league".
@@ -279,12 +275,7 @@ export async function GET(req: Request): Promise<Response> {
       exec.reason = selection.excludedDemoCandidate
         ? 'no-automatic-ranking-target'
         : 'no-ranking-target';
-      return NextResponse.json({
-        result: exec.result,
-        reason: exec.reason,
-        years: [],
-        invalidLifecycleTargets: exec.invalidLifecycleTargets,
-      });
+      return zeroTargetResponse(exec);
     }
 
     // ONE route-entry UTC instant is the scheduled slot for EVERY year's window
@@ -425,8 +416,11 @@ export async function GET(req: Request): Promise<Response> {
     // the run; the body mirrors ONLY the allowlisted aggregate + per-year
     // operational fields — never rankings rows, provider payloads, or errors.
     // This is a DELIVERY-BOUNDARY policy, not a mapping from reason literal to
-    // status: the same `registry-malformed` condition is 500 on the Vercel-native
-    // lifecycle crons, which have no at-least-once delivery layer to confuse.
+    // status. Precisely: `registry-malformed` is 500 on `season-transition`, the
+    // one Vercel-native cron that implements it today, and 200 on the QStash
+    // routes (`schedule-refresh`, and this one). `season-rollover` has no such
+    // reason yet — that is F2H1R4's. So this is a two-route precedent, not the
+    // settled campaign rule; deciding it once is recorded follow-up (o).
     return NextResponse.json({
       result: exec.result,
       reason: exec.reason,

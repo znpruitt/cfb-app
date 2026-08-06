@@ -23,6 +23,22 @@ function league(slug: string, status: League['status']): League {
   } as League;
 }
 
+/**
+ * PLATFORM-086F2H1R3 — the selector publishes refusals into a SINK as it counts
+ * them (so a mid-loop throw cannot discard one), rather than returning them.
+ * These suites compare a single object, so fold the sink's published value back
+ * in. Tests that care about the throw path use the sink directly instead.
+ */
+function select(leagues: readonly League[]): {
+  years: ReturnType<typeof selectRankingsTargetYears>['years'];
+  excludedDemoCandidate: boolean;
+  invalidLifecycleTargets: number;
+} {
+  const sink = { invalidLifecycleTargets: 0 };
+  const selection = selectRankingsTargetYears(leagues, sink);
+  return { ...selection, invalidLifecycleTargets: sink.invalidLifecycleTargets };
+}
+
 function scheduleItem(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     id: '401',
@@ -82,7 +98,7 @@ test.after(() => {
 
 // 4 — preseason + season only, distinct ascending status years, season wins.
 test('target selection: preseason+season status years ascending; offseason excluded', () => {
-  const targets = selectRankingsTargetYears([
+  const targets = select([
     league('a', { state: 'season', year: 2032 }),
     league('b', { state: 'preseason', year: 2031 }),
     league('c', { state: 'offseason' }),
@@ -100,11 +116,11 @@ test('target selection: preseason+season status years ascending; offseason exclu
 });
 
 test('target selection: season precedence is order-independent', () => {
-  const seasonFirst = selectRankingsTargetYears([
+  const seasonFirst = select([
     league('a', { state: 'season', year: 2031 }),
     league('b', { state: 'preseason', year: 2031 }),
   ]);
-  const preseasonFirst = selectRankingsTargetYears([
+  const preseasonFirst = select([
     league('b', { state: 'preseason', year: 2031 }),
     league('a', { state: 'season', year: 2031 }),
   ]);
@@ -117,7 +133,7 @@ test('target selection: season precedence is order-independent', () => {
 });
 
 test('target selection: no eligible lifecycle states yields no targets', () => {
-  assert.deepEqual(selectRankingsTargetYears([league('c', { state: 'offseason' })]), {
+  assert.deepEqual(select([league('c', { state: 'offseason' })]), {
     years: [],
     excludedDemoCandidate: false,
     invalidLifecycleTargets: 0,
@@ -138,17 +154,14 @@ test('target selection: no eligible lifecycle states yields no targets', () => {
 // `offseason` or status-less demo record was never an eligible candidate.
 test('T4 contract pin: empty, status-less, and offseason-only inputs exclude no candidate', () => {
   const noCandidate = { years: [], excludedDemoCandidate: false, invalidLifecycleTargets: 0 };
-  assert.deepEqual(selectRankingsTargetYears([]), noCandidate, 'empty registry');
+  assert.deepEqual(select([]), noCandidate, 'empty registry');
   assert.deepEqual(
-    selectRankingsTargetYears([league(TEST_LEAGUE_SLUG, undefined as unknown as League['status'])]),
+    select([league(TEST_LEAGUE_SLUG, undefined as unknown as League['status'])]),
     noCandidate,
     'demo record with no status'
   );
   assert.deepEqual(
-    selectRankingsTargetYears([
-      league(TEST_LEAGUE_SLUG, { state: 'offseason' }),
-      league('a', { state: 'offseason' }),
-    ]),
+    select([league(TEST_LEAGUE_SLUG, { state: 'offseason' }), league('a', { state: 'offseason' })]),
     noCandidate,
     'offseason demo is not an excluded candidate'
   );
@@ -157,12 +170,12 @@ test('T4 contract pin: empty, status-less, and offseason-only inputs exclude no 
 // REGRESSION TEST — the demo alone produces no automatic target, and says so.
 test('T4 regression: an active demo-only registry yields no years and flags the exclusion', () => {
   assert.deepEqual(
-    selectRankingsTargetYears([league(TEST_LEAGUE_SLUG, { state: 'season', year: 2031 })]),
+    select([league(TEST_LEAGUE_SLUG, { state: 'season', year: 2031 })]),
     { years: [], excludedDemoCandidate: true, invalidLifecycleTargets: 0 },
     'demo season'
   );
   assert.deepEqual(
-    selectRankingsTargetYears([league(TEST_LEAGUE_SLUG, { state: 'preseason', year: 2032 })]),
+    select([league(TEST_LEAGUE_SLUG, { state: 'preseason', year: 2032 })]),
     { years: [], excludedDemoCandidate: true, invalidLifecycleTargets: 0 },
     'demo preseason'
   );
@@ -177,13 +190,13 @@ test('T4 regression: demo season(Y) does not outrank production preseason(Y)', (
     league(TEST_LEAGUE_SLUG, { state: 'season', year: 2031 }),
     league('alpha', { state: 'preseason', year: 2031 }),
   ];
-  assert.deepEqual(selectRankingsTargetYears(both), {
+  assert.deepEqual(select(both), {
     years: [{ year: 2031, lifecycle: 'preseason' }],
     excludedDemoCandidate: true,
     invalidLifecycleTargets: 0,
   });
   // Order-independent, exactly as production precedence is.
-  assert.deepEqual(selectRankingsTargetYears([...both].reverse()), {
+  assert.deepEqual(select([...both].reverse()), {
     years: [{ year: 2031, lifecycle: 'preseason' }],
     excludedDemoCandidate: true,
     invalidLifecycleTargets: 0,
@@ -195,7 +208,7 @@ test('T4 regression: demo season(Y) does not outrank production preseason(Y)', (
 // with the exclusion fully removed. It pins that T4 PRESERVED that direction.
 test('T4 contract pin: production season(Y) precedence survives a demo preseason(Y)', () => {
   assert.deepEqual(
-    selectRankingsTargetYears([
+    select([
       league(TEST_LEAGUE_SLUG, { state: 'preseason', year: 2031 }),
       league('alpha', { state: 'season', year: 2031 }),
     ]),
@@ -212,7 +225,7 @@ test('T4 contract pin: production season(Y) precedence survives a demo preseason
 // is why the shared-year cases above carry that mutation.
 test('T4 regression: a demo-only year is dropped while a distinct production year survives', () => {
   assert.deepEqual(
-    selectRankingsTargetYears([
+    select([
       league(TEST_LEAGUE_SLUG, { state: 'preseason', year: 2033 }),
       league('alpha', { state: 'season', year: 2031 }),
     ]),
@@ -254,9 +267,7 @@ test('R3 regression: an unusable production year is refused in both active state
   for (const state of ['season', 'preseason'] as const) {
     for (const [label, year] of UNUSABLE_YEARS) {
       assert.deepEqual(
-        selectRankingsTargetYears([
-          league('alpha', { state, year } as unknown as League['status']),
-        ]),
+        select([league('alpha', { state, year } as unknown as League['status'])]),
         { years: [], excludedDemoCandidate: false, invalidLifecycleTargets: 1 },
         `${state}/${label}`
       );
@@ -269,7 +280,7 @@ test('R3 regression: an unusable production year is refused in both active state
 // deduplicate them by, and the count exists to tell an operator how many
 // records need repair.
 test('R3 regression: refusals are counted per league record, not per distinct year', () => {
-  const selection = selectRankingsTargetYears([
+  const selection = select([
     league('alpha', { state: 'season', year: 2031.5 } as unknown as League['status']),
     league('bravo', { state: 'season', year: 2031.5 } as unknown as League['status']),
     league('charlie', { state: 'preseason', year: '2031' } as unknown as League['status']),
@@ -288,9 +299,7 @@ test('R3 regression: refusals are counted per league record, not per distinct ye
 test('R3 regression: an active demo league with an unusable year is a demo exclusion, not a refusal', () => {
   for (const [label, year] of UNUSABLE_YEARS) {
     assert.deepEqual(
-      selectRankingsTargetYears([
-        league(TEST_LEAGUE_SLUG, { state: 'season', year } as unknown as League['status']),
-      ]),
+      select([league(TEST_LEAGUE_SLUG, { state: 'season', year } as unknown as League['status'])]),
       { years: [], excludedDemoCandidate: true, invalidLifecycleTargets: 0 },
       label
     );
@@ -301,7 +310,7 @@ test('R3 regression: an active demo league with an unusable year is a demo exclu
 // not counted. Without this, `offseason` and status-less legacy records would
 // make every run report refusals it never actually declined.
 test('R3 contract pin: inactive production records are not refusals', () => {
-  const selection = selectRankingsTargetYears([
+  const selection = select([
     league('alpha', { state: 'offseason' }),
     league('bravo', undefined as unknown as League['status']),
     league('charlie', { state: 'offseason', year: 2031.5 } as unknown as League['status']),
@@ -326,8 +335,8 @@ test('R3 regression: a valid year executes alongside a refusal, in either regist
     excludedDemoCandidate: false,
     invalidLifecycleTargets: 1,
   };
-  assert.deepEqual(selectRankingsTargetYears([valid, invalid]), expected, 'valid first');
-  assert.deepEqual(selectRankingsTargetYears([invalid, valid]), expected, 'invalid first');
+  assert.deepEqual(select([valid, invalid]), expected, 'valid first');
+  assert.deepEqual(select([invalid, valid]), expected, 'invalid first');
 });
 
 // CONTRACT PIN — a demo exclusion and a production refusal can coexist, and the
@@ -336,12 +345,55 @@ test('R3 regression: a valid year executes alongside a refusal, in either regist
 // would destroy the exclusion fact before the route can decide.
 test('R3 contract pin: a demo exclusion and a production refusal are both reported', () => {
   assert.deepEqual(
-    selectRankingsTargetYears([
+    select([
       league(TEST_LEAGUE_SLUG, { state: 'season', year: 2031 }),
       league('alpha', { state: 'season', year: 2031.5 } as unknown as League['status']),
     ]),
     { years: [], excludedDemoCandidate: true, invalidLifecycleTargets: 1 }
   );
+});
+
+// REGRESSION TEST — refusal DURABILITY across a mid-loop throw.
+//
+// The ownership loop both counts refusals and can throw: `leagues` is typed
+// `League[]`, but nothing validates each element, so a non-object member throws
+// on property access. Counting into a local and returning it after the loop
+// therefore loses every refusal already found — the caller reports 0 on a run
+// that observed one, across the response, the runtime event, AND the receipt.
+// AGENTS.md makes surviving this mandatory.
+//
+// The fixture order is load-bearing: the refusable league must come FIRST, or
+// nothing has been counted when the throw happens and the assertion cannot
+// distinguish the two implementations.
+test('R3 regression: a refusal counted before a mid-loop throw survives on the sink', () => {
+  const sink = { invalidLifecycleTargets: 0 };
+  const leagues = [
+    league('alpha', { state: 'season', year: '2031' } as unknown as League['status']),
+    // A corrupt RECORD (not a corrupt container): reading `.status` throws.
+    null,
+  ] as unknown as League[];
+
+  // POSITIVE CONTROL — the throw really happens, so "the sink survived it" is a
+  // real observation rather than a vacuous one on a function that returned.
+  assert.throws(() => selectRankingsTargetYears(leagues, sink), TypeError);
+
+  assert.equal(
+    sink.invalidLifecycleTargets,
+    1,
+    'the refusal observed before the throw is not discarded'
+  );
+});
+
+// CONTRACT PIN — the sink is the SINGLE channel. If the count were also on the
+// return value, a caller reading both would double it, and the two could drift.
+test('R3 contract pin: the selection result carries no refusal count of its own', () => {
+  const sink = { invalidLifecycleTargets: 0 };
+  const selection = selectRankingsTargetYears(
+    [league('alpha', { state: 'season', year: 2031.5 } as unknown as League['status'])],
+    sink
+  );
+  assert.ok(!('invalidLifecycleTargets' in selection), 'one fact, one channel — the sink owns it');
+  assert.equal(sink.invalidLifecycleTargets, 1);
 });
 
 // ---------------------------------------------------------------------------

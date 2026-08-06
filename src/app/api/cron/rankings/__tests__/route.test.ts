@@ -206,6 +206,8 @@ type CronBody = {
   result: string;
   reason: string;
   years: Array<Record<string, unknown>>;
+  /** PLATFORM-086F2H1R3 — present on every AUTHENTICATED controlled response. */
+  invalidLifecycleTargets: number;
 };
 
 test.beforeEach(async () => {
@@ -1043,8 +1045,8 @@ test('R3 fixture: the CFP slot is a Wednesday 04:00 inside the publication windo
 /** Seed one league whose `status.year` is deliberately unusable. */
 async function seedUnusableLeague(
   year: unknown,
-  state: 'season' | 'preseason' = 'season',
-  slug = 'unusable'
+  slug = 'unusable',
+  state: 'season' | 'preseason' = 'season'
 ): Promise<void> {
   const existing = (await getAppState<League[]>('leagues', 'registry'))?.value ?? [];
   await setAppState('leagues', 'registry', [
@@ -1062,7 +1064,7 @@ test('R3 regression: a malformed registry container refuses with registry-malfor
   stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
 
   const res = await GET(request());
-  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+  const body = (await res.json()) as CronBody;
 
   assert.equal(res.status, 200, 'controlled outcome — the delivery boundary policy');
   assert.equal(body.result, 'failure');
@@ -1088,7 +1090,7 @@ test('R3 regression: a paused run reports the pause and never reads the registry
   stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
 
   const res = await GET(request());
-  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+  const body = (await res.json()) as CronBody;
 
   assert.equal(body.result, 'skipped');
   assert.equal(body.reason, 'automation-paused-or-disabled');
@@ -1101,7 +1103,7 @@ test('R3 regression: a paused run reports the pause and never reads the registry
 test('R3 contract pin: a missing registry still reports no-ranking-target', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
   const res = await GET(request());
-  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+  const body = (await res.json()) as CronBody;
 
   assert.equal(body.result, 'skipped');
   assert.equal(body.reason, 'no-ranking-target');
@@ -1112,12 +1114,12 @@ test('R3 contract pin: a missing registry still reports no-ranking-target', asyn
 // says which condition caused it.
 test('R3 regression: an all-invalid production registry refuses with unusable-lifecycle-year', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
-  await seedUnusableLeague(2031.5, 'season', 'alpha');
-  await seedUnusableLeague('2031', 'preseason', 'bravo');
+  await seedUnusableLeague(2031.5, 'alpha');
+  await seedUnusableLeague('2031', 'bravo', 'preseason');
   stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
 
   const res = await GET(request());
-  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+  const body = (await res.json()) as CronBody;
 
   assert.equal(res.status, 200);
   assert.equal(body.result, 'failure');
@@ -1152,13 +1154,17 @@ test('R3 regression: an unusable year never reaches the provider at a CFP slot',
     await __deleteAppStateFileForTests();
     __resetAppStateForTests();
     __resetSeasonRankingsCacheForTests();
+    // The mocked clock is FROZEN inside these loops, so `Date.now() - lastRequestAt`
+    // is always 0 and every iteration after the first would pay the full 150 ms
+    // CFBD pacing wait. `beforeEach` resets this for the same reason.
+    __resetUpstreamPacingForTests();
     providerUrlLog.length = 0;
     eventLines.length = 0;
     await seedUnusableLeague(year);
     stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
 
     const res = await GET(request());
-    const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+    const body = (await res.json()) as CronBody;
 
     assert.equal(body.result, 'failure', label);
     assert.equal(body.reason, 'unusable-lifecycle-year', label);
@@ -1192,10 +1198,10 @@ test('R3 positive control: a valid year at the same CFP slot does bill the provi
 // validate-before-demo at the route level.
 test('R3 regression: an active demo with an unusable year keeps the T4 reason', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
-  await seedUnusableLeague(2031.5, 'season', TEST_LEAGUE_SLUG);
+  await seedUnusableLeague(2031.5, TEST_LEAGUE_SLUG);
 
   const res = await GET(request());
-  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+  const body = (await res.json()) as CronBody;
 
   assert.equal(body.result, 'skipped');
   assert.equal(body.reason, 'no-automatic-ranking-target');
@@ -1213,20 +1219,24 @@ test('R3 regression: a valid year executes alongside a refusal, in either regist
     await __deleteAppStateFileForTests();
     __resetAppStateForTests();
     __resetSeasonRankingsCacheForTests();
+    // The mocked clock is FROZEN inside these loops, so `Date.now() - lastRequestAt`
+    // is always 0 and every iteration after the first would pay the full 150 ms
+    // CFBD pacing wait. `beforeEach` resets this for the same reason.
+    __resetUpstreamPacingForTests();
     providerUrlLog.length = 0;
     eventLines.length = 0;
     if (order === 'valid first') {
       await seedLeague(YEAR);
-      await seedUnusableLeague('2032', 'season', 'bad');
+      await seedUnusableLeague('2032', 'bad');
     } else {
-      await seedUnusableLeague('2032', 'season', 'bad');
+      await seedUnusableLeague('2032', 'bad');
       await seedLeague(YEAR);
     }
     await seedSchedule(YEAR, FIRST_KICKOFF);
     stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
 
     const res = await GET(request());
-    const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+    const body = (await res.json()) as CronBody;
 
     assert.equal(body.years.length, 1, `${order}: the valid year still executed`);
     assert.equal(body.years[0]?.year, YEAR, order);
@@ -1249,12 +1259,12 @@ test('R3 regression: a valid year executes alongside a refusal, in either regist
 test('R3 regression: refusal + valid success is partial with the valid reason preserved', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
   await seedLeague(YEAR);
-  await seedUnusableLeague('2032', 'season', 'bad');
+  await seedUnusableLeague('2032', 'bad');
   await seedSchedule(YEAR, FIRST_KICKOFF);
   stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
 
   const res = await GET(request());
-  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+  const body = (await res.json()) as CronBody;
 
   assert.equal(body.years[0]?.result, 'success', 'the valid year genuinely succeeded');
   assert.equal(body.result, 'partial', 'degraded by the refusal');
@@ -1274,12 +1284,12 @@ test('R3 regression: refusal + valid success is partial with the valid reason pr
 test('R3 regression: refusal + all-skipped valid years is failure with the skip reason kept', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: OFF_SLOT_MS });
   await seedLeague(YEAR);
-  await seedUnusableLeague('2032', 'season', 'bad');
+  await seedUnusableLeague('2032', 'bad');
   await seedSchedule(YEAR, FIRST_KICKOFF);
   stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
 
   const res = await GET(request());
-  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+  const body = (await res.json()) as CronBody;
 
   assert.equal(body.years[0]?.result, 'skipped', 'the valid year merely skipped');
   assert.equal(body.result, 'failure', 'the refusal, not the deferral, causes this');
@@ -1299,7 +1309,7 @@ test('R3 contract pin: with no refusals the valid-year aggregate is unchanged', 
   stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
 
   const res = await GET(request());
-  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+  const body = (await res.json()) as CronBody;
 
   assert.equal(body.result, 'skipped', 'no refusal ⇒ no degradation');
   assert.equal(body.invalidLifecycleTargets, 0);

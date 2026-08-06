@@ -468,15 +468,25 @@ async function seedUnusableLeague(year: unknown, slug = 'unusable'): Promise<voi
 }
 
 // REGRESSION TEST — an all-refused run still writes a VALID receipt with zero
-// year entries. Before R3 an unusable year produced an entry whose `year` key
-// `JSON.stringify` drops, so `isFiniteNumber` failed and the parser rejected
-// the ENTIRE receipt: one corrupt league erased the whole job from System
-// Health. Routed through the real parser, which is the only thing that proves
-// it.
+// year entries.
+//
+// The whole-receipt hazard is specific, and the fixture must actually exhibit
+// it. Only a MISSING year does: `JSON.stringify` DROPS an `undefined` value, so
+// the stored entry has no `year` key at all, `isFiniteNumber` fails, and the
+// parser rejects the ENTIRE receipt — one corrupt league erasing the whole job
+// from System Health. `'2031'` is rejected for a different reason (a string is
+// not a finite number, key present), and `2031.5` would have parsed CLEANLY
+// pre-R3 and poisoned nothing. All three are seeded so the claim above is the
+// one the fixture proves, not a stronger one nearby.
+//
+// Routed through the REAL parser: the harness's `readSchedulerReceipt` is a raw
+// read that validates nothing, so a "still parses" claim made against it proves
+// nothing at all.
 test('R3 regression: an all-refused run writes a receipt the real parser accepts', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
-  await seedUnusableLeague('2031', 'alpha');
-  await seedUnusableLeague(2031.5, 'bravo');
+  await seedUnusableLeague(undefined, 'alpha'); // the key-dropping shape
+  await seedUnusableLeague('2031', 'bravo');
+  await seedUnusableLeague(2031.5, 'charlie');
 
   await GET(request());
   await deferrer.flush();
@@ -489,7 +499,7 @@ test('R3 regression: an all-refused run writes a receipt the real parser accepts
   assert.equal(parsed.reason, 'unusable-lifecycle-year');
   assert.equal(parsed.target.kind, 'rankings-years');
   if (parsed.target.kind !== 'rankings-years') return;
-  assert.equal(parsed.target.invalidLifecycleTargets, 2);
+  assert.equal(parsed.target.invalidLifecycleTargets, 3);
   assert.deepEqual(parsed.target.years, [], 'no year entry to poison the receipt');
   assert.equal(parsed.target.totalYears, 0);
 });
