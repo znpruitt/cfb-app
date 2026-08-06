@@ -226,10 +226,29 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
           : '';
       return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}${yearDetail}${unusable}`;
     }
-    case 'rankings-years':
-      return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}: ${target.years
-        .map((y) => `${y.year}${y.publicationWindow ? ` (${y.publicationWindow})` : ''}`)
-        .join(', ')}`;
+    case 'rankings-years': {
+      // PLATFORM-086F2H1R3 — refused CANDIDATES (leagues, not distinct years:
+      // three records sharing one bad year count three) have no year to file
+      // them under, so they are appended at RUN level, and only when non-zero,
+      // so a clean run — and a legacy receipt, which normalizes to 0 — renders
+      // exactly as before. A count only: never a slug or the invalid value.
+      //
+      // The empty-`years` guard also closes the `rankings-years` half of the
+      // recorded dangling-colon deferral: an all-refused receipt would otherwise
+      // render `0 year(s): ` with nothing after the separator. The rollover
+      // branch still carries it and is deliberately untouched here (F2H1R4's).
+      const yearDetail =
+        target.years.length > 0
+          ? `: ${target.years
+              .map((y) => `${y.year}${y.publicationWindow ? ` (${y.publicationWindow})` : ''}`)
+              .join(', ')}`
+          : '';
+      const unusable =
+        target.invalidLifecycleTargets > 0
+          ? ` · ${target.invalidLifecycleTargets} unusable lifecycle target(s)`
+          : '';
+      return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}${yearDetail}${unusable}`;
+    }
     case 'season-transition-years': {
       // PLATFORM-086F2H1B — surface the dispositions, not just a ratio. Without
       // them `1/4 leagues` reads identically whether the other three were benign

@@ -18,8 +18,10 @@ import { __resetSeasonRankingsCacheForTests } from '../../../../../lib/server/ra
 import { __resetUpstreamPacingForTests } from '../../../../../lib/api/fetchUpstream.ts';
 import {
   buildSchedulerExecutionReceipt,
+  parseSchedulerExecutionReceipt,
   recordSchedulerExecutionReceipt,
 } from '../../../../../lib/server/schedulerExecutionStatus.ts';
+import { summarizeReceiptTarget } from '../../../../../components/admin/systemHealth/systemHealthPresentation.ts';
 import {
   installSchedulerReceiptDeferrer,
   readSchedulerReceipt,
@@ -204,6 +206,7 @@ async function seedPriorReceipt() {
       kind: 'rankings-years',
       totalYears: 1,
       truncated: false,
+      invalidLifecycleTargets: 0,
       years: [{ year: YEAR, publicationWindow: 'weekly-ap-coaches' }],
     },
   });
@@ -249,6 +252,7 @@ test('an authenticated paused invocation writes the exact provider-free skip rec
     kind: 'rankings-years',
     totalYears: 0,
     truncated: false,
+    invalidLifecycleTargets: 0,
     years: [],
   });
 });
@@ -272,6 +276,7 @@ test('a due window provider refresh records success with the bounded rankings-ye
     kind: 'rankings-years',
     totalYears: 1,
     truncated: false,
+    invalidLifecycleTargets: 0,
     years: [{ year: YEAR, publicationWindow: 'weekly-ap-coaches' }],
   });
   // The window durably completed (unchanged behavior) and the receipt exists.
@@ -383,6 +388,7 @@ test('T4 regression: a demo-only run records the new reason, zero target years, 
     kind: 'rankings-years',
     totalYears: 0,
     truncated: false,
+    invalidLifecycleTargets: 0,
     years: [],
   });
   // The observed truth, independent of the receipt's self-report.
@@ -414,6 +420,7 @@ test('T4 regression: a mixed run stores only the production year in the receipt 
     kind: 'rankings-years',
     totalYears: 1,
     truncated: false,
+    invalidLifecycleTargets: 0,
     years: [{ year: YEAR, publicationWindow: 'weekly-ap-coaches' }],
   });
   assert.deepEqual(fetchLog.rankings.sort(), [`${YEAR}:postseason`, `${YEAR}:regular`]);
@@ -436,5 +443,193 @@ test('the route pins the authenticated-only receipt finally wiring', () => {
     routeSrc,
     /providerCallAttempted: exec\.years\.some\(\(entry\) => entry\.providerCallAttempted\)/
   );
-  assert.match(routeSrc, /rankingsYearsTarget\(exec\.years\)/);
+  assert.match(routeSrc, /rankingsYearsTarget\(exec\.years, exec\.invalidLifecycleTargets\)/);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1R3 — the refusal count on the durable receipt.
+//
+// The count must survive a REAL parse, not merely a raw read: the harness's
+// `readSchedulerReceipt` returns the stored value without validating it, so a
+// "still parses" claim made against it proves nothing. Every assertion below
+// that concerns parser compatibility routes through the real parser.
+// ---------------------------------------------------------------------------
+
+/** A parse clock just after the hand-authored fixtures' `completedAt`. */
+const PARSE_NOW_MS = Date.parse('2031-10-05T22:00:05.000Z');
+
+/** Seed one league whose `status.year` is deliberately unusable. */
+async function seedUnusableLeague(year: unknown, slug = 'unusable'): Promise<void> {
+  const existing = (await getAppState<League[]>('leagues', 'registry'))?.value ?? [];
+  await setAppState('leagues', 'registry', [
+    ...existing,
+    makeLeague(slug, { state: 'season', year } as unknown as League['status']),
+  ]);
+}
+
+// REGRESSION TEST — an all-refused run still writes a VALID receipt with zero
+// year entries.
+//
+// The whole-receipt hazard is specific, and the fixture must actually exhibit
+// it. Only a MISSING year does: `JSON.stringify` DROPS an `undefined` value, so
+// the stored entry has no `year` key at all, `isFiniteNumber` fails, and the
+// parser rejects the ENTIRE receipt — one corrupt league erasing the whole job
+// from System Health. `'2031'` is rejected for a different reason (a string is
+// not a finite number, key present), and `2031.5` would have parsed CLEANLY
+// pre-R3 and poisoned nothing. All three are seeded so the claim above is the
+// one the fixture proves, not a stronger one nearby.
+//
+// Routed through the REAL parser: the harness's `readSchedulerReceipt` is a raw
+// read that validates nothing, so a "still parses" claim made against it proves
+// nothing at all.
+test('R3 regression: an all-refused run writes a receipt the real parser accepts', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  await seedUnusableLeague(undefined, 'alpha'); // the key-dropping shape
+  await seedUnusableLeague('2031', 'bravo');
+  await seedUnusableLeague(2031.5, 'charlie');
+
+  await GET(request());
+  await deferrer.flush();
+
+  const stored = await readSchedulerReceipt('rankings');
+  assert.ok(stored, 'a receipt was written at all');
+  const parsed = parseSchedulerExecutionReceipt(stored.value, 'rankings', Date.now());
+  assert.ok(parsed, 'and the REAL parser accepts it — not merely the raw read');
+  assert.equal(parsed.result, 'failure');
+  assert.equal(parsed.reason, 'unusable-lifecycle-year');
+  assert.equal(parsed.target.kind, 'rankings-years');
+  if (parsed.target.kind !== 'rankings-years') return;
+  assert.equal(parsed.target.invalidLifecycleTargets, 3);
+  assert.deepEqual(parsed.target.years, [], 'no year entry to poison the receipt');
+  assert.equal(parsed.target.totalYears, 0);
+});
+
+// REGRESSION TEST — a mixed run records the valid years AND the run-level count.
+test('R3 regression: a mixed run records the valid year alongside the refusal count', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  await seedLeague(YEAR);
+  await seedUnusableLeague('2032', 'bad');
+  await seedSchedule(YEAR, FIRST_KICKOFF);
+
+  await GET(request());
+  await deferrer.flush();
+
+  const stored = await readSchedulerReceipt('rankings');
+  assert.ok(stored);
+  const parsed = parseSchedulerExecutionReceipt(stored.value, 'rankings', Date.now());
+  assert.ok(parsed);
+  assert.equal(parsed.target.kind, 'rankings-years');
+  if (parsed.target.kind !== 'rankings-years') return;
+  assert.equal(parsed.target.invalidLifecycleTargets, 1);
+  assert.deepEqual(
+    parsed.target.years.map((y) => y.year),
+    [YEAR],
+    'only the valid year is filed'
+  );
+  assert.ok(
+    !JSON.stringify(parsed).includes('2032'),
+    'the unusable value never rides out on the receipt'
+  );
+});
+
+// CONTRACT PIN — a LEGACY receipt written before R3 omits the field entirely
+// and must still parse, normalizing to 0. Rejecting it would degrade the
+// System Health row to `invalid` until the next cron run rewrote it.
+test('R3 contract pin: a legacy receipt omitting the count parses and normalizes to 0', () => {
+  const legacy = {
+    version: 1,
+    job: 'rankings',
+    invocationId: '11111111-1111-4111-8111-111111111111',
+    source: 'qstash',
+    result: 'success',
+    reason: 'year-results',
+    providerCallAttempted: true,
+    startedAt: '2031-10-05T22:00:00.000Z',
+    completedAt: '2031-10-05T22:00:01.000Z',
+    durationMs: 1000,
+    target: {
+      kind: 'rankings-years',
+      totalYears: 1,
+      truncated: false,
+      // `invalidLifecycleTargets` DELIBERATELY absent — this is the pre-R3 shape.
+      years: [{ year: 2031, publicationWindow: 'weekly-ap-coaches' }],
+    },
+  };
+  const parsed = parseSchedulerExecutionReceipt(legacy, 'rankings', PARSE_NOW_MS);
+  assert.ok(parsed, 'a pre-R3 receipt still parses');
+  assert.equal(parsed.target.kind, 'rankings-years');
+  if (parsed.target.kind !== 'rankings-years') return;
+  assert.equal(parsed.target.invalidLifecycleTargets, 0, 'normalized, not rejected');
+});
+
+// REGRESSION TEST — an invalid PRESENT value still rejects the whole record.
+// Optional-on-read must not become "ignored on read": a corrupt count is
+// corruption, and normalizing it would launder bad data into a clean row.
+test('R3 regression: an invalid present count rejects the receipt', () => {
+  for (const bad of [-1, 1.5, '2', null, {}]) {
+    const receipt = {
+      version: 1,
+      job: 'rankings',
+      invocationId: '11111111-1111-4111-8111-111111111111',
+      source: 'qstash',
+      result: 'success',
+      reason: 'year-results',
+      providerCallAttempted: true,
+      startedAt: '2031-10-05T22:00:00.000Z',
+      completedAt: '2031-10-05T22:00:01.000Z',
+      durationMs: 1000,
+      target: {
+        kind: 'rankings-years',
+        totalYears: 1,
+        truncated: false,
+        invalidLifecycleTargets: bad,
+        years: [{ year: 2031, publicationWindow: 'weekly-ap-coaches' }],
+      },
+    };
+    assert.equal(
+      parseSchedulerExecutionReceipt(receipt, 'rankings', PARSE_NOW_MS),
+      null,
+      `a present ${JSON.stringify(bad)} is corruption, not absence`
+    );
+  }
+});
+
+// REGRESSION TEST — the System Health summary. Three shapes, exact strings.
+// The all-refused case is the one that closes the `rankings-years` half of the
+// dangling-colon item: without the empty-`years` guard it renders `0 year(s): `
+// with nothing after the separator.
+test('R3 regression: the rankings target summary handles clean, mixed, and all-refused', () => {
+  assert.equal(
+    summarizeReceiptTarget({
+      kind: 'rankings-years',
+      totalYears: 1,
+      truncated: false,
+      invalidLifecycleTargets: 0,
+      years: [{ year: 2031, publicationWindow: 'weekly-ap-coaches' }],
+    }),
+    '1 year(s): 2031 (weekly-ap-coaches)',
+    'a clean run renders exactly as it did pre-R3'
+  );
+  assert.equal(
+    summarizeReceiptTarget({
+      kind: 'rankings-years',
+      totalYears: 1,
+      truncated: false,
+      invalidLifecycleTargets: 2,
+      years: [{ year: 2031, publicationWindow: 'weekly-ap-coaches' }],
+    }),
+    '1 year(s): 2031 (weekly-ap-coaches) · 2 unusable lifecycle target(s)',
+    'mixed appends the count at RUN level'
+  );
+  assert.equal(
+    summarizeReceiptTarget({
+      kind: 'rankings-years',
+      totalYears: 0,
+      truncated: false,
+      invalidLifecycleTargets: 3,
+      years: [],
+    }),
+    '0 year(s) · 3 unusable lifecycle target(s)',
+    'all-refused: no dangling separator'
+  );
 });

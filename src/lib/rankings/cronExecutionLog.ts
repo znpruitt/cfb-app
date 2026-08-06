@@ -40,6 +40,18 @@ export type RankingsCronControlReason =
   | 'automation-paused-or-disabled'
   | 'settings-unavailable'
   | 'registry-unavailable'
+  // PLATFORM-086F2H1R3 — the registry record EXISTS but does not hold a league
+  // array. Distinct from `registry-unavailable`, where the store read itself
+  // failed: corruption and unavailability are different operator conditions and
+  // must never collapse. Also distinct from `no-ranking-target`, which asserts
+  // no eligible league exists — a claim a corrupt container cannot support.
+  | 'registry-malformed'
+  // PLATFORM-086F2H1R3 — every ACTIVE PRODUCTION candidate carried a
+  // structurally invalid `status.year`, so the run has no usable target. Note
+  // this is unreachable as an aggregate REASON whenever any valid year also
+  // executed: the mixed path preserves the valid years' reason and reports the
+  // refusal through `invalidLifecycleTargets` instead.
+  | 'unusable-lifecycle-year'
   | 'no-ranking-target'
   // PLATFORM-086F2H1T4 — active leagues exist, but every one of them is the demo
   // league, which is manual-only for automatic rankings publication. Distinct
@@ -89,6 +101,15 @@ export type RankingsCronExecutionEvent = {
   event: 'rankings-cron';
   result: RankingsCronExecutionResult;
   reason: RankingsCronExecutionReason;
+  /**
+   * PLATFORM-086F2H1R3 — how many ACTIVE PRODUCTION league records were refused
+   * this run for a structurally invalid `status.year`. A COUNT only: never a
+   * slug and never the unusable value. Run-level because a refused candidate has
+   * no usable year to file it under, and per LEAGUE RECORD, not per distinct raw
+   * year. A demo record is never counted (the demo exclusion runs first), and
+   * neither are offseason or status-less production records.
+   */
+  invalidLifecycleTargets: number;
   years: RankingsCronYearExecution[];
   durationMs: number;
 };
@@ -106,7 +127,7 @@ export type RankingsCronExecutionState = Omit<RankingsCronExecutionEvent, 'event
  * none is (an unhandled throw), the pessimistic default stands.
  */
 export function createRankingsCronExecutionState(): RankingsCronExecutionState {
-  return { result: 'failure', reason: 'unexpected-error', years: [] };
+  return { result: 'failure', reason: 'unexpected-error', invalidLifecycleTargets: 0, years: [] };
 }
 
 /**
@@ -168,6 +189,7 @@ export function emitRankingsCronExecutionEvent(
       event: 'rankings-cron',
       result: state.result,
       reason: state.reason,
+      invalidLifecycleTargets: state.invalidLifecycleTargets,
       years: state.years.map((entry) => ({
         year: entry.year,
         lifecycle: entry.lifecycle,
