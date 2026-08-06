@@ -67,9 +67,10 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
     case 'rankings':
       return rankingsYearsTarget([{ year: YEAR, publicationWindow: null }]);
     case 'season-transition':
-      return seasonTransitionYearsTarget([
-        { year: YEAR, targetLeagues: 1, probed: true, transitionedLeagues: 0 },
-      ]);
+      return seasonTransitionYearsTarget(
+        [{ year: YEAR, targetLeagues: 1, probed: true, transitionedLeagues: 0 }],
+        0
+      );
     case 'season-rollover':
       return seasonRolloverYearsTarget([{ year: YEAR, targetLeagues: 1, rolledOverLeagues: 0 }]);
   }

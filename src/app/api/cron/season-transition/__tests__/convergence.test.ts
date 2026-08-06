@@ -9,7 +9,7 @@ import '../../../draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStorage';
 import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
 
 import { GET } from '../route';
-import type { League } from '../../../../../lib/league.ts';
+import { TEST_LEAGUE_SLUG, type League } from '../../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -146,7 +146,7 @@ type CronYear = {
 
 type RunResult = {
   res: Response;
-  body: { years: CronYear[]; error?: string };
+  body: { years: CronYear[]; invalidLifecycleTargets: number; error?: string };
   event: SeasonTransitionCronExecutionEvent;
   tags: string[];
   providerCalls: number;
@@ -977,6 +977,7 @@ test('the System Health receipt summary distinguishes stale from benign targets'
     kind: 'season-transition-years',
     totalYears: 1,
     truncated: false,
+    invalidLifecycleTargets: 0,
     years: [
       {
         year: 2026,
@@ -1000,6 +1001,7 @@ test('the System Health receipt summary distinguishes stale from benign targets'
     kind: 'season-transition-years',
     totalYears: 1,
     truncated: false,
+    invalidLifecycleTargets: 0,
     years: [
       {
         year: 2026,
@@ -1013,6 +1015,40 @@ test('the System Health receipt summary distinguishes stale from benign targets'
     ],
   });
   assert.equal(clean, '1 year(s): 2026 (2/2 leagues)');
+
+  // PLATFORM-086F2H1R1 — the refusal count must reach the operator, and only
+  // when it is non-zero. Without these two cases, deleting the whole `unusable`
+  // suffix leaves the suite green (AGENTS.md: "if deleting the new guard leaves
+  // the suite green, the guard is not in the PR's acceptance contract").
+  const refused = summarizeReceiptTarget({
+    kind: 'season-transition-years',
+    totalYears: 1,
+    truncated: false,
+    invalidLifecycleTargets: 2,
+    years: [
+      {
+        year: 2026,
+        targetLeagues: 2,
+        probed: true,
+        transitionedLeagues: 2,
+        alreadyInTargetSeasonLeagues: 0,
+        removedLeagues: 0,
+        refusedLeagues: 0,
+      },
+    ],
+  });
+  assert.equal(refused, '1 year(s): 2026 (2/2 leagues) · 2 unusable lifecycle target(s)');
+
+  // The all-refused receipt has NO years, so the year list must not leave a
+  // dangling separator behind.
+  const allRefused = summarizeReceiptTarget({
+    kind: 'season-transition-years',
+    totalYears: 0,
+    truncated: false,
+    invalidLifecycleTargets: 1,
+    years: [],
+  });
+  assert.equal(allRefused, '0 year(s) · 1 unusable lifecycle target(s)');
 });
 
 // ---------------------------------------------------------------------------
@@ -1297,4 +1333,306 @@ test('a demo-only year is absent from every surface and from provider requests',
     receipt.value.target.years.map((y) => y.year),
     [YEAR]
   );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1R1 — registry-container truth and structural lifecycle-year
+// validity, applied BEFORE any probe, provider, lifecycle, or invalidation work.
+//
+// `status.year` reaches the grouping line straight from durable JSON with no
+// per-record validation, so an unusable year previously became a Map key,
+// survived the zero-target gate, drove a probe read and a billed E1A refresh,
+// and — when `undefined` — produced a per-year entry whose `year` key
+// `JSON.stringify` drops, failing receipt validation and discarding the WHOLE
+// job's latest receipt from System Health.
+// ---------------------------------------------------------------------------
+
+/** A preseason league whose stored `status.year` is deliberately unusable. */
+function makeUnusableLeague(slug: string, year: unknown): League {
+  return {
+    slug,
+    displayName: `League ${slug}`,
+    year: YEAR,
+    createdAt: '2022-01-01T00:00:00.000Z',
+    status: { state: 'preseason', year },
+  } as unknown as League;
+}
+
+// REGRESSION TEST — a malformed container is no longer reported as an empty one.
+test('R1 regression: a malformed registry refuses with registry-malformed, not a zero-target reason', async () => {
+  await setAppState('leagues', 'registry', { alpha: { state: 'preseason' } });
+  await seedPastProbe();
+
+  const run = await runRoute();
+
+  assert.equal(run.res.status, 500);
+  assert.equal(run.event.reason, 'registry-malformed');
+  assert.equal(run.event.result, 'failure');
+  assert.deepEqual(run.event.years, []);
+  assert.deepEqual(run.body.years, []);
+  assert.equal(run.providerCalls, 0, 'no provider work on a corrupt container');
+  assert.deepEqual(run.providerUrls, []);
+
+  // The receipt is still written and still parses — a corrupt registry must not
+  // also cost the operator visibility into the job.
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('season-transition');
+  assert.ok(receipt, 'an authenticated invocation still records a receipt');
+  assert.equal(receipt.value.reason, 'registry-malformed');
+  assert.equal(receipt.value.target.kind, 'season-transition-years');
+  if (receipt.value.target.kind !== 'season-transition-years') return;
+  assert.equal(receipt.value.target.totalYears, 0);
+  assert.equal(receipt.value.target.invalidLifecycleTargets, 0);
+});
+
+// CONTRACT PIN — an ABSENT registry keeps its pre-R1 behavior exactly.
+test('R1 contract pin: an absent registry still reports no-preseason-leagues', async () => {
+  const run = await runRoute();
+
+  assert.equal(run.res.status, 200);
+  assert.equal(run.event.result, 'skipped');
+  assert.equal(run.event.reason, 'no-preseason-leagues');
+  assert.equal(run.event.invalidLifecycleTargets, 0);
+  assert.equal(run.body.invalidLifecycleTargets, 0);
+  assert.equal(run.providerCalls, 0);
+});
+
+// REGRESSION TEST — every unusable-year shape is refused, and none of them
+// reaches a probe, the provider, or a year entry.
+test('R1 regression: unusable-only production targets refuse without any work', async () => {
+  for (const [label, year] of [
+    ['missing', undefined],
+    ['string', '2023'],
+    ['fractional', 2023.5],
+    ['unsafe integer', 2 ** 53],
+    ['pre-football', 1800],
+    ['null', null],
+  ] as const) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    deferrer.restore();
+    deferrer = installSchedulerReceiptDeferrer();
+    await seedRegistry([makeUnusableLeague('alpha', year)]);
+    await seedPastProbe();
+
+    const run = await runRoute();
+
+    assert.equal(run.res.status, 200, `${label}: a data-integrity refusal is not a store outage`);
+    assert.equal(run.event.result, 'failure', label);
+    assert.equal(run.event.reason, 'unusable-lifecycle-year', label);
+    assert.equal(run.event.invalidLifecycleTargets, 1, label);
+    assert.equal(run.body.invalidLifecycleTargets, 1, label);
+    assert.deepEqual(run.event.years, [], `${label}: no year entry`);
+    assert.deepEqual(run.body.years, [], label);
+    assert.equal(run.providerCalls, 0, `${label}: no billed provider work`);
+    assert.deepEqual(run.tags, [], `${label}: no standings invalidation`);
+  }
+});
+
+// REGRESSION TEST — the whole-receipt consequence. Before R1 an `undefined`
+// year produced an entry whose `year` key `JSON.stringify` dropped, so
+// `parseSchedulerExecutionReceipt` rejected the ENTIRE record and the job
+// vanished from System Health.
+test('R1 regression: an unusable target no longer poisons the stored receipt', async () => {
+  await seedRegistry([makeUnusableLeague('alpha', undefined)]);
+  await seedPastProbe();
+
+  await runRoute();
+  await deferrer.flush();
+
+  const receipt = await readSchedulerReceipt('season-transition');
+  assert.ok(receipt, 'the receipt still parses — the job stays visible');
+  assert.equal(receipt.value.reason, 'unusable-lifecycle-year');
+  assert.equal(receipt.value.target.kind, 'season-transition-years');
+  if (receipt.value.target.kind !== 'season-transition-years') return;
+  assert.deepEqual(receipt.value.target.years, [], 'the unusable year is not stored');
+  assert.equal(receipt.value.target.invalidLifecycleTargets, 1);
+  assert.ok(
+    !JSON.stringify(receipt.value).includes('alpha'),
+    'a refused candidate never contributes a slug'
+  );
+});
+
+// REGRESSION TEST — a mixed run does the valid work AND reports the refusal, on
+// all three surfaces, without the refusal erasing the executed year.
+test('R1 regression: a mixed run executes the valid year and reports the refusal everywhere', async () => {
+  await seedRegistry([
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+    makeUnusableLeague('broken', 2023.5),
+  ]);
+  await seedPastProbe();
+  stubFetchPopulated();
+
+  const run = await runRoute();
+
+  // The valid year still executed — POSITIVE CONTROL for the zero-work
+  // assertions above: this fixture proves the same path DOES reach the provider.
+  assert.ok(run.providerCalls > 0, 'the valid year still reached the provider');
+  assert.equal(run.event.years.length, 1);
+  assert.equal(run.event.years[0]!.year, YEAR);
+  assert.equal(run.event.years[0]!.targetLeagues, 1, 'the refused candidate is not counted here');
+  assert.equal((await readLeague('alpha'))!.status!.state, 'season', 'alpha transitioned');
+  assert.equal((await readLeague('broken'))!.status!.state, 'preseason', 'broken was untouched');
+
+  // A run that accomplished something alongside a refusal is `partial`. The
+  // REASON still names the executed year: the refusal rides on
+  // `invalidLifecycleTargets`, and the receipt's year entries carry no reason
+  // field, so overwriting it would erase the only durable record of what the
+  // valid year did.
+  assert.equal(run.event.result, 'partial');
+  assert.equal(run.event.reason, 'season-transitioned');
+
+  assert.equal(run.event.invalidLifecycleTargets, 1);
+  assert.equal(run.body.invalidLifecycleTargets, 1);
+
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('season-transition');
+  assert.ok(receipt);
+  assert.equal(receipt.value.target.kind, 'season-transition-years');
+  if (receipt.value.target.kind !== 'season-transition-years') return;
+  assert.equal(receipt.value.target.invalidLifecycleTargets, 1, 'all three surfaces agree');
+  assert.deepEqual(
+    receipt.value.target.years.map((y) => y.year),
+    [YEAR]
+  );
+});
+
+// REGRESSION TEST — ordering. Validity is applied AFTER the demo exclusion, so a
+// malformed DEMO record can never flip this run's zero-target reason and
+// silently undo F2H1T2.
+test('R1 regression: a demo-only registry with an unusable year keeps the F2H1T2 reason', async () => {
+  await seedRegistry([makeUnusableLeague(TEST_LEAGUE_SLUG, 2023.5)]);
+  await seedPastProbe();
+
+  const run = await runRoute();
+
+  assert.equal(run.res.status, 200);
+  assert.equal(run.event.result, 'skipped');
+  assert.equal(run.event.reason, 'no-automatic-preseason-leagues');
+  assert.equal(run.event.invalidLifecycleTargets, 0, 'a demo record is never an invalid TARGET');
+  assert.equal(run.body.invalidLifecycleTargets, 0);
+  assert.equal(run.providerCalls, 0);
+});
+
+// CONTRACT PIN — an ordinary clean run is untouched by R1.
+test('R1 contract pin: a wholly valid run still reports zero refusals', async () => {
+  await seedRegistry([makeLeague('alpha', { state: 'preseason', year: YEAR })]);
+  await seedPastProbe();
+  stubFetchPopulated();
+
+  const run = await runRoute();
+
+  assert.ok(run.providerCalls > 0);
+  assert.equal(run.event.invalidLifecycleTargets, 0);
+  assert.equal(run.body.invalidLifecycleTargets, 0);
+  assert.equal(run.event.result, 'success');
+  assert.equal((await readLeague('alpha'))!.status!.state, 'season');
+});
+
+// REGRESSION TEST — the per-year CATCH path must aggregate through the same
+// authority as the normal path. A throw arriving after a refusal was already
+// detected must not erase the refusal: `invalidLifecycleTargets` is assigned
+// ahead of the per-year loop for exactly that reason, and it must still reach
+// the event and the receipt. The reason meanwhile names the fault that actually
+// occurred — the refusal has its own carrier and does not rewrite it.
+test('R1 regression: a mid-run throw does not erase an already-detected refusal', async () => {
+  const { __setAppStateWriteFailureForTests } = await import(
+    '../../../../../lib/server/appStateStore.ts'
+  );
+  await seedRegistry([
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+    makeUnusableLeague('broken', 2023.5),
+  ]);
+  globalThis.fetch = (async (input: URL | string) => {
+    const url = new URL(typeof input === 'string' ? input : input.toString());
+    const body =
+      url.searchParams.get('seasonType') === 'postseason'
+        ? '[]'
+        : JSON.stringify([
+            {
+              id: 'g1',
+              week: 1,
+              home_team: 'Texas',
+              away_team: 'Rice',
+              start_date: '2099-09-01T00:00:00Z',
+              completed: false,
+            },
+          ]);
+    return new Response(body, { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+  __setAppStateWriteFailureForTests(new Error('probe write boom'), 'schedule-probe');
+  let run: RunResult;
+  try {
+    run = await runRoute();
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+
+  // POSITIVE CONTROL: the throw really happened on the valid year's path.
+  assert.equal(run.res.status, 500);
+  assert.equal(run.event.years.length, 1);
+  assert.equal(run.event.years[0]!.reason, 'probe-write-failed');
+
+  // The refusal detected BEFORE the throw survives it, on every surface — the
+  // count is assigned ahead of the per-year loop precisely so a throw cannot
+  // lose it. The reason still names the fault that actually occurred.
+  assert.equal(run.event.invalidLifecycleTargets, 1, 'the refusal is not erased by the throw');
+  assert.equal(run.event.reason, 'probe-write-failed', 'the real fault is still named');
+
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('season-transition');
+  assert.ok(receipt);
+  assert.equal(receipt.value.reason, 'probe-write-failed');
+  assert.equal(receipt.value.target.kind, 'season-transition-years');
+  if (receipt.value.target.kind !== 'season-transition-years') return;
+  assert.equal(receipt.value.target.invalidLifecycleTargets, 1);
+});
+
+// REGRESSION TEST — the `failure` arm of the mixed-case classification.
+//
+// Round 1 introduced the rule that a refusal must not UPGRADE a run whose valid
+// years did nothing, but every fixture reaching it had a valid year that
+// succeeded or was partial, so replacing the whole ternary with `'partial'`
+// compiled and left all 74 season-transition tests green. AGENTS.md: "if
+// deleting the new guard leaves the suite green, the guard is not in the PR's
+// acceptance contract."
+//
+// Here the only valid year is `skipped / refresh-not-due` — a future first-game
+// date with a probe already cached, so no refresh is due and nothing is
+// committed. Alongside a refusal that must classify `failure`, not `partial`.
+test('R1 regression: a refusal alongside a year that did nothing classifies failure', async () => {
+  await seedRegistry([
+    makeLeague('alpha', { state: 'preseason', year: YEAR }),
+    makeUnusableLeague('broken', 2023.5),
+  ]);
+  // A far-future first game with a fresh probe: `shouldFetch` is false, so the
+  // year is `skipped / refresh-not-due` and commits nothing.
+  await setAppState('schedule-probe', String(YEAR), {
+    year: YEAR,
+    baseCachedAt: '2023-01-01T00:00:00.000Z',
+    firstGameDate: '2099-09-01T00:00:00.000Z',
+  });
+
+  const run = await runRoute();
+
+  // POSITIVE CONTROL: the valid year really did nothing — no provider call, and
+  // its own outcome is the benign skip this arm is meant to refuse to upgrade.
+  assert.equal(run.providerCalls, 0, 'no refresh was due');
+  assert.equal(run.event.years.length, 1);
+  assert.equal(run.event.years[0]!.result, 'skipped');
+  assert.equal(run.event.years[0]!.reason, 'refresh-not-due');
+
+  // The refusal must not turn a run that committed nothing into `partial`.
+  assert.equal(run.event.result, 'failure');
+  assert.equal(run.event.invalidLifecycleTargets, 1);
+  // The reason still names the executed year, per the approved table.
+  assert.equal(run.event.reason, 'refresh-not-due');
+
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('season-transition');
+  assert.ok(receipt);
+  assert.equal(receipt.value.result, 'failure');
+  assert.equal(receipt.value.target.kind, 'season-transition-years');
+  if (receipt.value.target.kind !== 'season-transition-years') return;
+  assert.equal(receipt.value.target.invalidLifecycleTargets, 1);
 });

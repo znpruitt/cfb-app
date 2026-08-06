@@ -410,14 +410,64 @@ Execution order within F2 (each slice is one independently deployable PR):
         reconstruction" is FALSE. The binding record states the actual cause — the branch crossed two
         automation jobs and shipped the second surface untested. Do not cite the coupling story as an
         argument for or against consolidation.
-    - **F2H1R — missing-lifecycle recovery** — **NEXT** (F2H1T completed at PR #451): a separately
-      confirmed recovery operation for genuinely missing legacy status, with corrupt-registry vs
-      missing-league truth and an explicit consequence model for schedule/rankings targeting,
-      rollover eligibility, operational-season resolution, and cache invalidation. It now also owns
-      the year-VALIDITY items every F2H1T slice deliberately refused: (a) unvalidated `status.year`
-      in cron target selection, (e) a fractional year reaching the rankings cron's context-free CFP
-      window and billing provider requests, and (i) `resolveOperationalSeasonYear` laundering an
-      unusable year through the clamp into one `validateYear` accepts.
+    - **F2H1R — missing-lifecycle recovery + lifecycle-year validity** — SPLIT INTO FIVE SLICES.
+      One cohesive PR was ruled out: the work crosses FOUR separate automation jobs
+      (season-transition, weekly schedule, rankings, rollover), which AGENTS.md names as a mandatory
+      planning-split trigger, and `PLATFORM-086F2H1B` v1 was reconstructed for crossing _two_ with
+      the second untested. Each slice touches at most one automation job.
+      - **F2H1R1 — registry-read truth + season-transition validity** — **NEXT**, implemented and in
+        review. Adds `readLeagueRegistry()` (`ok` / `missing` / `malformed`) with `getLeagues()`
+        semantics UNCHANGED, and hardens `GET /api/cron/season-transition`. See the ledger entry for
+        the contract; the corrections it made to long-standing claims are recorded below.
+      - **F2H1R2 — weekly-schedule validity** · **F2H1R3 — rankings validity** ·
+        **F2H1R4 — rollover validity** (both the cron and the shared manual route, plus the missing
+        structural check in `completeSeasonRollover`) · **F2H1R5 — System Health validity + the
+        confirmed missing-status recovery**, which lands LAST because it is the only slice that ARMS
+        automation: a status-less record is inert to every target selector today, and repairing it to
+        `season(Y)` makes it a rollover target (archive-producing), a weekly-schedule `season` owner
+        (the pause-exempt branch), and a rankings target within 24h.
+      This sequence owns the year-VALIDITY items every F2H1T slice deliberately refused: (a)
+      unvalidated `status.year` in cron target selection, (e) a fractional year reaching the rankings
+      cron's context-free CFP window and billing provider requests — note the hazard is NOT
+      fractional-only, since `Date.UTC('2026', …)` is not NaN, so a string year is equally due — and
+      (i) `resolveOperationalSeasonYear` laundering an unusable year through the clamp.
+      - **Recorded by the F2H1R1 audit and review, deliberately NOT fixed in that slice.**
+        (l) **`isStructurallyValidSeasonYear` is structural, not a plausibility window.** An in-range
+        but absurd year (`999999`, or `1900`) passes it, becomes a `byYear` key, and still drives a
+        probe read, two billed CFBD partitions, a probe write, and a lifecycle write. R1 used the
+        shared predicate because the prompt forbade substituting the tighter creation horizon, and
+        because narrowing it changes production behavior. Same class as (i). Decide the bound once,
+        for all five consumers.
+        (m) **The malformed-vs-empty collapse is closed on ONE of four registry consumers.** Until
+        R2–R4 land, `season-rollover`, `rankings`, and `schedule-refresh` still report zero-target
+        reasons asserting no league exists on the very same corrupt registry — the falsehood class
+        T2/T3/T4 each refused. This is the intended intermediate state of the split, in the same
+        family as the recorded T2→T3 window, and it is LIVE while it lasts.
+        (n) **`readLeagueRegistry` classifies the CONTAINER only.** A `[null]` or `[{}, null]`
+        registry classifies `ok` and then throws downstream into the generic `unexpected-error` 500.
+        Pre-existing and unchanged — `getLeagues()` returned the same array before — and per-record
+        validation is R5's, which owns record-level truth. Narrowing the return to `unknown[]` would
+        ripple through every consumer and belongs with that slice.
+        (o) **An all-refused run returns HTTP 200 while its event and receipt say `failure`.** The
+        sibling integrity refusal `registry-malformed` returns 500 for the stated reason that an
+        operator must not read it as "nothing to do". The body does carry `invalidLifecycleTargets`,
+        but two data-integrity refusals in one handler have opposite HTTP semantics. Decide once.
+        (p) **The mixed case can pair `result: failure` with a benign per-year reason** (e.g.
+        `refresh-not-due`), and `unusable-lifecycle-year` is UNREACHABLE whenever any valid year
+        exists, because the early return requires zero entries — so an alert keyed on that code never
+        fires on a partially-corrupt registry. Inherent to the approved aggregation table (preserve
+        the executed years' reason; classify by their aggregate). A decision, not a defect.
+        (q) **The refusal count has no summary-level surface.** It renders at the end of the Target
+        string inside the scheduler row's collapsed `<details>`, beside a reason that may name
+        something benign, and `systemHealthIssues` derives from `result` only — so there is no issue
+        code and no repair link. Presentation work; F2H3's class.
+        (r) **Three sibling receipt kinds still render a dangling `": "`** for an empty year list
+        (`schedule-years`, `rankings-years`, `season-rollover-years`). R1 fixed only the branch it
+        touched; generalizing is opportunistic cleanup outside its contract.
+        (s) **`guardedLifecycleWrite` is not the single lifecycle write authority**, despite the
+        module comment saying so. `completeSeasonRollover` calls `mutateRegistry` directly, bypasses
+        `applyLifecycleStatus`, and is the only lifecycle writer with no structural year check. The
+        comment is corrected in `AGENTS.md`; the code is R4's.
     - **F2H2 — rollover/archive/backfill consolidation** — planned: converge the remaining rollover
       projection/result contract, fix benign redelivery reporting without hiding genuine refusals,
       consolidate the duplicate strict rollover UI, and organize archive/backfill operations.

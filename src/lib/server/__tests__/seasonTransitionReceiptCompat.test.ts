@@ -110,17 +110,20 @@ test('a new receipt emits every disposition counter explicitly', () => {
     result: 'partial',
     reason: 'lifecycle-transition-refused',
     providerCallAttempted: true,
-    target: seasonTransitionYearsTarget([
-      {
-        year: 2026,
-        targetLeagues: 4,
-        probed: true,
-        transitionedLeagues: 1,
-        alreadyInTargetSeasonLeagues: 1,
-        removedLeagues: 1,
-        refusedLeagues: 1,
-      },
-    ]),
+    target: seasonTransitionYearsTarget(
+      [
+        {
+          year: 2026,
+          targetLeagues: 4,
+          probed: true,
+          transitionedLeagues: 1,
+          alreadyInTargetSeasonLeagues: 1,
+          removedLeagues: 1,
+          refusedLeagues: 1,
+        },
+      ],
+      0
+    ),
   });
 
   assert.ok(receipt);
@@ -139,9 +142,10 @@ test('a new receipt emits every disposition counter explicitly', () => {
 
 test('the builder defaults omitted counters to zero rather than undefined', () => {
   // Pre-H1B call sites and fixtures pass only the original four fields.
-  const target = seasonTransitionYearsTarget([
-    { year: 2026, targetLeagues: 1, probed: false, transitionedLeagues: 0 },
-  ]);
+  const target = seasonTransitionYearsTarget(
+    [{ year: 2026, targetLeagues: 1, probed: false, transitionedLeagues: 0 }],
+    0
+  );
 
   assert.deepEqual(target.years[0], {
     year: 2026,
@@ -162,7 +166,17 @@ test('the receipt key sets stay exactly allowlisted', () => {
   assert.deepEqual(Object.keys(parsed).sort(), RECEIPT_KEYS, 'top-level keys unchanged');
   assert.equal(parsed.target.kind, 'season-transition-years');
   if (parsed.target.kind !== 'season-transition-years') return;
-  assert.deepEqual(Object.keys(parsed.target).sort(), ['kind', 'totalYears', 'truncated', 'years']);
+  // PLATFORM-086F2H1R1 — `invalidLifecycleTargets` is present after a parse even
+  // though this LEGACY stored receipt omits it: the rebuild normalizes it to 0,
+  // exactly as it does the H1B dispositions below.
+  assert.deepEqual(Object.keys(parsed.target).sort(), [
+    'invalidLifecycleTargets',
+    'kind',
+    'totalYears',
+    'truncated',
+    'years',
+  ]);
+  assert.equal(parsed.target.invalidLifecycleTargets, 0);
   assert.deepEqual(Object.keys(parsed.target.years[0]!).sort(), [
     'alreadyInTargetSeasonLeagues',
     'probed',

@@ -52,6 +52,45 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-086F2H1R1-SEASON-TRANSITION-YEAR-VALIDITY-v1
+
+- Purpose: Give the league-registry read a truthful container classification, and stop malformed
+  production lifecycle years entering the season-transition cron's grouping, provider, lifecycle,
+  event, or receipt paths. First of five F2H1R slices; touches exactly one automation job.
+- Scope: `readLeagueRegistry()` in `leagueRegistry.ts` (with `getLeagues()` semantics unchanged),
+  `GET /api/cron/season-transition` targeting and aggregation, the season-transition reason and
+  receipt contract, the receipt-target summary, focused tests, and owning documentation. No other
+  cron, no rollover, no recovery operation, no shared cross-job predicate, no global per-record
+  validation.
+- Outcome: `readLeagueRegistry()` classifies `ok` / `missing` / `malformed`; a store failure still
+  throws, so unavailability stays distinct from corruption, and a present non-array value —
+  including a stored JSON `null` — is malformed, deliberately unlike `readScheduleItems`. The route
+  refuses a malformed container with `failure / registry-malformed` (500) before any probe,
+  provider, lifecycle, or invalidation work, instead of a zero-target reason asserting no league
+  exists. Production candidates are then validated with the existing `isStructurallyValidSeasonYear`
+  AFTER the demo exclusion, so a malformed demo record cannot flip the reason and undo F2H1T2. One
+  run-level `invalidLifecycleTargets` count reaches the response, event, and receipt; the receipt
+  field is required on the type, optional in the stored validator, and normalizes to 0 for legacy
+  records, so no schema migration. This closes a whole-receipt hazard: an `undefined` year produced
+  an entry whose `year` key `JSON.stringify` drops, failing `isFiniteNumber` and causing the ENTIRE
+  latest receipt to be rejected — one corrupt league erased a whole job from System Health.
+- Review / verification: Codex found no actionable correctness issue on either pass. `/code-review`
+  returned 11 findings on the first pass (7 applied in one round, 4 recorded) and 9 on the
+  confirming pass, which produced a user-approved SECOND round scoped to one defect the first round
+  caused. Two of the first round's fixes deliberately DEVIATE from the prompt's specified
+  aggregation table, with the user's explicit confirmation: the reason no longer collapses to
+  `year-results` (the refusal already rides on the count across all three surfaces, while the
+  receipt's year entries carry no reason field, so collapsing erased the only durable record of what
+  the valid years did), and `no-op` / `in-progress` / `skipped` now classify `failure` rather than
+  being split across `partial` and `failure`. TWELVE compiling mutations verified one at a time; three
+  were added or redefined because the round-1 corrections changed what discriminated, and two arose
+  because deleting a new presentation branch left the suite green. The confirming pass then proved
+  the `: 'failure'` arm itself unpinned — verified surviving, then killed. Focused deltas:
+  `leagueRegistry.readRegistry` 0 → 6 (new), `convergence` 32 → 41. Full suite 3315 → 3316.
+  `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
+  run as their own command with unmasked exit status.
+- Status: Implemented — in review.
+
 ### PLATFORM-086F2H1T5-SYSTEM-HEALTH-YEAR-ISOLATION-v1
 
 - Purpose: Stop the demo league selecting the System Health operational season, resolving the year

@@ -269,9 +269,10 @@ test('all seven jobs derive the correct source and persist their target shape', 
       result: 'success',
       reason: 'season-transitioned',
       providerCallAttempted: true,
-      target: seasonTransitionYearsTarget([
-        { year: 2026, targetLeagues: 2, probed: true, transitionedLeagues: 2 },
-      ]),
+      target: seasonTransitionYearsTarget(
+        [{ year: 2026, targetLeagues: 2, probed: true, transitionedLeagues: 2 }],
+        0
+      ),
     }),
     liveScoresInput({
       job: 'season-rollover',
@@ -362,9 +363,10 @@ test('a stored prior with a mismatched source is replaceable', async () => {
       reason: 'season-transitioned',
       providerCallAttempted: true,
       startedAtMs: T0,
-      target: seasonTransitionYearsTarget([
-        { year: 2026, targetLeagues: 1, probed: true, transitionedLeagues: 1 },
-      ]),
+      target: seasonTransitionYearsTarget(
+        [{ year: 2026, targetLeagues: 1, probed: true, transitionedLeagues: 1 }],
+        0
+      ),
     })
   );
   // Seed a NEWER-started but wrong-source (qstash) record; it must be replaceable
@@ -398,7 +400,7 @@ test('lifecycle multi-year targets cap at eight entries with truthful totalYears
     probed: true,
     transitionedLeagues: 0,
   }));
-  const t = seasonTransitionYearsTarget(manyTransition);
+  const t = seasonTransitionYearsTarget(manyTransition, 0);
   assert.equal(t.totalYears, 11);
   assert.equal(t.truncated, true);
   assert.equal(t.years.length, 8);
@@ -747,9 +749,10 @@ test('parseSchedulerExecutionReceipt rejects wrong job, wrong source, and future
       reason: 'season-transitioned',
       providerCallAttempted: true,
       startedAtMs: now - 60_000,
-      target: seasonTransitionYearsTarget([
-        { year: 2026, targetLeagues: 1, probed: true, transitionedLeagues: 1 },
-      ]),
+      target: seasonTransitionYearsTarget(
+        [{ year: 2026, targetLeagues: 1, probed: true, transitionedLeagues: 1 }],
+        0
+      ),
     })
   );
   // Wrong expected job.

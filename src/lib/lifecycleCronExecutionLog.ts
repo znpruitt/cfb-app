@@ -50,6 +50,16 @@ export type SeasonTransitionCronControlReason =
   // operator no league is awaiting transition when one is.
   | 'no-automatic-preseason-leagues'
   | 'registry-unavailable'
+  // PLATFORM-086F2H1R1 — the registry record EXISTS but does not hold a league
+  // array. Distinct from `registry-unavailable` (the store read itself failed)
+  // and from the zero-target reasons above, each of which asserts something
+  // about leagues that a corrupt container cannot support.
+  | 'registry-malformed'
+  // PLATFORM-086F2H1R1 — production preseason candidates exist, but every one
+  // carries a `status.year` that is not a structurally valid season year, so
+  // none could be grouped or acted on. Never emitted for a demo record: the
+  // demo is excluded before validity is considered.
+  | 'unusable-lifecycle-year'
   | 'probe-state-unavailable'
   | 'probe-write-failed'
   | 'lifecycle-write-failed'
@@ -118,6 +128,16 @@ export type SeasonTransitionCronExecutionEvent = {
   result: LifecycleCronExecutionResult;
   reason: SeasonTransitionCronExecutionReason;
   years: SeasonTransitionCronYearExecution[];
+  /**
+   * PLATFORM-086F2H1R1 — how many PRODUCTION preseason candidates were refused
+   * this run for carrying a structurally invalid `status.year`. Run-level, not
+   * per-year, because a refused candidate has no usable year to file it under —
+   * that is precisely what disqualified it. A count only: no slug and no
+   * unusable year value ever enters the event or the receipt.
+   *
+   * Always an explicit non-negative integer, so a reader never infers absence.
+   */
+  invalidLifecycleTargets: number;
   durationMs: number;
 };
 
@@ -133,7 +153,7 @@ export type SeasonTransitionCronExecutionState = Omit<
 
 /** Initialize the tracker as pessimistic `failure / unexpected-error`, no years. */
 export function createSeasonTransitionCronExecutionState(): SeasonTransitionCronExecutionState {
-  return { result: 'failure', reason: 'unexpected-error', years: [] };
+  return { result: 'failure', reason: 'unexpected-error', years: [], invalidLifecycleTargets: 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +290,7 @@ export function emitSeasonTransitionCronExecutionEvent(
         refusedLeagues: entry.refusedLeagues,
         failedSeasonTypes: [...entry.failedSeasonTypes],
       })),
+      invalidLifecycleTargets: state.invalidLifecycleTargets,
       durationMs,
     };
     console.log(JSON.stringify(event));
