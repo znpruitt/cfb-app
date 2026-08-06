@@ -179,6 +179,13 @@ export type SchedulerExecutionTarget =
       kind: 'season-transition-years';
       totalYears: number;
       truncated: boolean;
+      /**
+       * PLATFORM-086F2H1R1 — production preseason candidates refused this run
+       * for a structurally invalid `status.year`. Run-level: a refused
+       * candidate has no usable year to file it under. ALWAYS present after a
+       * parse (a legacy receipt omits it and the rebuild normalizes to 0).
+       */
+      invalidLifecycleTargets: number;
       years: Array<{
         year: number;
         targetLeagues: number;
@@ -277,7 +284,10 @@ export function seasonTransitionYearsTarget(
     alreadyInTargetSeasonLeagues?: number;
     removedLeagues?: number;
     refusedLeagues?: number;
-  }>
+  }>,
+  // Optional in the PARAMETER so pre-R1 callers and fixtures remain valid; the
+  // built target always carries an explicit number.
+  invalidLifecycleTargets: number = 0
 ): Extract<SchedulerExecutionTarget, { kind: 'season-transition-years' }> {
   const years = entries.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
     year: entry.year,
@@ -292,6 +302,7 @@ export function seasonTransitionYearsTarget(
     kind: 'season-transition-years',
     totalYears: entries.length,
     truncated: entries.length > years.length,
+    invalidLifecycleTargets,
     years,
   };
 }
@@ -548,6 +559,9 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         kind: 'season-transition-years',
         totalYears: target.totalYears,
         truncated: target.truncated,
+        // A pre-R1 receipt omits this; normalize rather than reject, for the
+        // same reason the H1B dispositions below normalize.
+        invalidLifecycleTargets: target.invalidLifecycleTargets ?? 0,
         years: target.years.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
           year: entry.year,
           targetLeagues: entry.targetLeagues,
@@ -659,6 +673,11 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
       return (
         isNonNegativeInteger(target.totalYears) &&
         typeof target.truncated === 'boolean' &&
+        // PLATFORM-086F2H1R1 — OPTIONAL: a legacy pre-R1 receipt omits this and
+        // must still parse (the rebuild normalizes it to 0), but an invalid
+        // PRESENT value still rejects the whole record.
+        (target.invalidLifecycleTargets === undefined ||
+          isNonNegativeInteger(target.invalidLifecycleTargets)) &&
         isValidLifecycleYearEntries(
           target.years,
           [

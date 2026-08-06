@@ -188,6 +188,7 @@ async function seedPriorReceipt() {
       kind: 'season-transition-years',
       totalYears: 1,
       truncated: false,
+      invalidLifecycleTargets: 0,
       years: [
         {
           year: YEAR,
@@ -255,6 +256,7 @@ test('no preseason leagues: skipped/no-preseason-leagues event and receipt with 
     kind: 'season-transition-years',
     totalYears: 0,
     truncated: false,
+    invalidLifecycleTargets: 0,
     years: [],
   });
 });
@@ -280,6 +282,7 @@ test('a probe not due is a provider-free refresh-not-due year', async () => {
     kind: 'season-transition-years',
     totalYears: 1,
     truncated: false,
+    invalidLifecycleTargets: 0,
     years: [
       {
         year: YEAR,
@@ -345,6 +348,7 @@ test('a completed transition is success/season-transitioned with truthful counts
     kind: 'season-transition-years',
     totalYears: 1,
     truncated: false,
+    invalidLifecycleTargets: 0,
     years: [
       {
         year: YEAR,

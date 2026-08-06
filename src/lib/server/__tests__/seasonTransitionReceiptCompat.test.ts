@@ -162,7 +162,17 @@ test('the receipt key sets stay exactly allowlisted', () => {
   assert.deepEqual(Object.keys(parsed).sort(), RECEIPT_KEYS, 'top-level keys unchanged');
   assert.equal(parsed.target.kind, 'season-transition-years');
   if (parsed.target.kind !== 'season-transition-years') return;
-  assert.deepEqual(Object.keys(parsed.target).sort(), ['kind', 'totalYears', 'truncated', 'years']);
+  // PLATFORM-086F2H1R1 — `invalidLifecycleTargets` is present after a parse even
+  // though this LEGACY stored receipt omits it: the rebuild normalizes it to 0,
+  // exactly as it does the H1B dispositions below.
+  assert.deepEqual(Object.keys(parsed.target).sort(), [
+    'invalidLifecycleTargets',
+    'kind',
+    'totalYears',
+    'truncated',
+    'years',
+  ]);
+  assert.equal(parsed.target.invalidLifecycleTargets, 0);
   assert.deepEqual(Object.keys(parsed.target.years[0]!).sort(), [
     'alreadyInTargetSeasonLeagues',
     'probed',

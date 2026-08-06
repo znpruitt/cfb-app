@@ -18,10 +18,58 @@ export function isValidSlug(slug: string): boolean {
   return SLUG_PATTERN.test(slug);
 }
 
-export async function getLeagues(): Promise<League[]> {
+/**
+ * PLATFORM-086F2H1R1 — the closed outcome of reading the registry CONTAINER.
+ *
+ * `getLeagues()` maps every non-`ok` outcome to `[]`, which makes a MALFORMED
+ * registry indistinguishable from an empty one. That collapse is why a cron
+ * facing a corrupt registry reports a zero-target reason asserting no league
+ * exists — the exact falsehood class F2H1T2/T3/T4 each refused to ship. This
+ * reader keeps the distinction available to callers that can act on it.
+ *
+ * This is a CONTAINER-level classification only. It does not validate individual
+ * league records; per-record lifecycle validity is each consumer's own concern
+ * (and, for the remaining target selectors, the R2–R5 slices').
+ */
+export type LeagueRegistryReadResult =
+  | { kind: 'ok'; leagues: League[] }
+  | { kind: 'missing' }
+  | { kind: 'malformed' };
+
+/**
+ * Read the registry container and classify it. A store failure still THROWS —
+ * `getAppState` returns `null` only for a genuinely absent record, so a returned
+ * value always means the read itself succeeded, and unavailability stays
+ * distinct from corruption.
+ *
+ * A PRESENT record whose value is not an array is `malformed`, including a
+ * stored JSON `null`. This deliberately diverges from `readScheduleItems`
+ * (`rankings/automaticContext.ts`), which treats a null-valued record as known
+ * ABSENCE: for a schedule, "no data" is an ordinary state, whereas a registry
+ * record that exists but holds no league array is corruption. Classifying it
+ * `missing` would let a caller proceed as though the registry were empty, which
+ * is the collapse this reader exists to prevent.
+ *
+ * Read-only: no write, migration, or repair, and the malformed value is never
+ * returned or logged.
+ */
+export async function readLeagueRegistry(): Promise<LeagueRegistryReadResult> {
   const record = await getAppState<League[]>(REGISTRY_SCOPE, REGISTRY_KEY);
-  const value = record?.value;
-  return Array.isArray(value) ? value : [];
+  if (record === null) return { kind: 'missing' };
+  return Array.isArray(record.value)
+    ? { kind: 'ok', leagues: record.value }
+    : { kind: 'malformed' };
+}
+
+/**
+ * Every league, or `[]` when the registry is absent OR malformed. Behavior is
+ * unchanged from before the typed reader existed — 69 modules depend on it, so
+ * callers that need the distinction consume `readLeagueRegistry()` directly
+ * rather than having it forced on them here.
+ */
+export async function getLeagues(): Promise<League[]> {
+  const read = await readLeagueRegistry();
+  return read.kind === 'ok' ? read.leagues : [];
 }
 
 export const getLeague = cache(async (slug: string): Promise<League | null> => {

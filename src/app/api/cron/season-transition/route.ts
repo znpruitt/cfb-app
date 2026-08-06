@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server';
 
-import { completeSeasonTransition, getLeagues } from '@/lib/leagueRegistry';
-import { TEST_LEAGUE_SLUG } from '@/lib/league';
+import {
+  completeSeasonTransition,
+  readLeagueRegistry,
+  type LeagueRegistryReadResult,
+} from '@/lib/leagueRegistry';
+import { isStructurallyValidSeasonYear, TEST_LEAGUE_SLUG } from '@/lib/league';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
@@ -95,6 +99,13 @@ type YearResult = {
 
 type CronResult = {
   years: YearResult[];
+  /**
+   * PLATFORM-086F2H1R1 — production preseason candidates refused this run for a
+   * structurally invalid `status.year`. Always an explicit non-negative integer,
+   * including on the pre-target and authentication paths, so a client never has
+   * to distinguish "none refused" from "field absent".
+   */
+  invalidLifecycleTargets: number;
   error?: string;
 };
 
@@ -121,7 +132,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
   exec.years = entries;
   let receiptInvocationId: string | null = null;
 
-  const result: CronResult = { years: [] };
+  const result: CronResult = { years: [], invalidLifecycleTargets: 0 };
 
   try {
     // Secure: require CRON_SECRET (unchanged order).
@@ -135,21 +146,39 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         authResult === 'not-configured'
           ? 'CRON_SECRET is not configured on the server — set it in Vercel environment variables'
           : 'unauthorized: Bearer token did not match CRON_SECRET';
-      return NextResponse.json({ years: [], error }, { status: 401 });
+      return NextResponse.json({ years: [], invalidLifecycleTargets: 0, error }, { status: 401 });
     }
     receiptInvocationId = createSchedulerInvocationId();
 
     // A. Find preseason leagues and group by year
-    let leagues: Awaited<ReturnType<typeof getLeagues>>;
+    //
+    // PLATFORM-086F2H1R1 — read the registry through the typed reader so a
+    // MALFORMED container is distinguishable from an empty one. `getLeagues()`
+    // maps both to `[]`, which would make this run report a zero-target reason
+    // asserting no league is awaiting transition — false, and unverifiable,
+    // when the container holding them is corrupt.
+    let registry: LeagueRegistryReadResult;
     try {
-      leagues = await getLeagues();
+      registry = await readLeagueRegistry();
     } catch (err) {
       // A registry read failure is the same 500 as before; the event/receipt
-      // record the typed `registry-unavailable` reason.
+      // record the typed `registry-unavailable` reason. `exec.result` stays the
+      // pessimistic `failure` the tracker was created with.
       exec.reason = 'registry-unavailable';
       result.error = err instanceof Error ? err.message : 'unknown error';
       return NextResponse.json(result, { status: 500 });
     }
+    if (registry.kind === 'malformed') {
+      // A present-but-corrupt container. Refuse before any probe, provider,
+      // lifecycle, or invalidation work, and say so rather than claiming an
+      // empty registry. 500 mirrors the store-outage path: neither is a
+      // controlled operational outcome the operator can read as "nothing to do".
+      exec.reason = 'registry-malformed';
+      result.error = 'league registry is malformed';
+      return NextResponse.json(result, { status: 500 });
+    }
+    // `missing` keeps the pre-R1 empty-registry behavior exactly.
+    const leagues = registry.kind === 'ok' ? registry.leagues : [];
     const preseasonLeagues = leagues.filter((l) => l.status?.state === 'preseason');
     if (preseasonLeagues.length === 0) {
       exec.result = 'skipped';
@@ -180,14 +209,75 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
       return NextResponse.json(result);
     }
 
-    // Group leagues by their preseason year so each year is probed/transitioned independently
-    const byYear = new Map<number, typeof automaticTargets>();
+    // PLATFORM-086F2H1R1 — structural year validity, applied AFTER the demo
+    // exclusion above.
+    //
+    // The ordering is load-bearing in one direction: a demo record carrying an
+    // unusable year must keep reporting `no-automatic-preseason-leagues`, not
+    // the new unusable-year reason. Validating first would let a malformed DEMO
+    // record flip this run's zero-target reason and silently undo F2H1T2.
+    //
+    // `status.year` reaches this point straight from durable JSON —
+    // `getLeagues()` performs no per-record validation — and the cast on the
+    // grouping line below is the only thing standing between corrupt storage and
+    // a Map key. An unusable year previously became that key, survived the
+    // zero-target gate, drove a probe read and a billed E1A refresh, and (when
+    // `undefined`) produced a per-year entry whose `year` key `JSON.stringify`
+    // drops, which fails receipt validation and discards the WHOLE job's latest
+    // receipt from System Health.
+    //
+    // Refused candidates are counted, never grouped: they produce no year key,
+    // no per-year entry, no probe read or write, no provider request, no
+    // lifecycle write or invalidation, and no `targetLeagues` contribution to
+    // any valid year.
+    const validTargets: typeof automaticTargets = [];
+    let invalidLifecycleTargets = 0;
     for (const league of automaticTargets) {
+      const year = (league.status as { state: 'preseason'; year?: unknown }).year;
+      if (isStructurallyValidSeasonYear(year)) validTargets.push(league);
+      else invalidLifecycleTargets += 1;
+    }
+    exec.invalidLifecycleTargets = invalidLifecycleTargets;
+    result.invalidLifecycleTargets = invalidLifecycleTargets;
+
+    // Group leagues by their preseason year so each year is probed/transitioned independently
+    const byYear = new Map<number, typeof validTargets>();
+    for (const league of validTargets) {
       const year = (league.status as { state: 'preseason'; year: number }).year;
       const group = byYear.get(year) ?? [];
       group.push(league);
       byYear.set(year, group);
     }
+
+    /**
+     * PLATFORM-086F2H1R1 — the single aggregation authority, used by BOTH the
+     * normal post-loop path and the per-year catch path, so a later throw can
+     * never erase an invalid-target count detected before it.
+     *
+     * Refused candidates are an independent fact from the executed years'
+     * outcomes, so the mixed case keeps `year-results` rather than overwriting
+     * the per-year reasons with a single integrity reason.
+     */
+    const finalizeAggregate = (): void => {
+      const yearsResult = aggregateLifecycleCronResult(entries);
+      if (invalidLifecycleTargets === 0) {
+        exec.result = yearsResult;
+        exec.reason = aggregateLifecycleCronReason(entries, 'year-results');
+        return;
+      }
+      if (entries.length === 0) {
+        // Nothing valid was even attempted — the refusal IS the outcome.
+        exec.result = 'failure';
+        exec.reason = 'unusable-lifecycle-year';
+        return;
+      }
+      // Some valid work ran alongside the refusal. A run that accomplished
+      // something is `partial`; one whose valid years failed or did nothing is a
+      // plain `failure` — a refusal must never be the thing that upgrades a
+      // failed run's classification.
+      exec.result = yearsResult === 'failure' || yearsResult === 'skipped' ? 'failure' : 'partial';
+      exec.reason = 'year-results';
+    };
 
     const now = new Date();
     const nowMs = now.getTime();
@@ -571,14 +661,12 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           result.years.push(yearResult);
         }
         entries.push(yearEntry);
-        exec.result = aggregateLifecycleCronResult(entries);
-        exec.reason = aggregateLifecycleCronReason(entries, 'year-results');
+        finalizeAggregate();
         throw err;
       }
     }
 
-    exec.result = aggregateLifecycleCronResult(entries);
-    exec.reason = aggregateLifecycleCronReason(entries, 'year-results');
+    finalizeAggregate();
 
     if (fatalStoreError) {
       result.error = fatalStoreError;
@@ -604,7 +692,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         result: exec.result,
         reason: exec.reason,
         providerCallAttempted: exec.years.some((entry) => entry.providerCallAttempted),
-        target: seasonTransitionYearsTarget(exec.years),
+        target: seasonTransitionYearsTarget(exec.years, exec.invalidLifecycleTargets),
       });
     }
   }

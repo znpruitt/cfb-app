@@ -211,24 +211,39 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
       return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}: ${target.years
         .map((y) => `${y.year}${y.publicationWindow ? ` (${y.publicationWindow})` : ''}`)
         .join(', ')}`;
-    case 'season-transition-years':
+    case 'season-transition-years': {
       // PLATFORM-086F2H1B — surface the dispositions, not just a ratio. Without
       // them `1/4 leagues` reads identically whether the other three were benign
       // deletions or genuinely stale targets, which is the exact discrimination
       // the counters exist to provide. Only non-zero dispositions are appended,
       // so an ordinary clean run keeps its previous compact form (and a legacy
       // receipt, whose counters normalize to 0, renders unchanged).
-      return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}: ${target.years
-        .map((y) => {
-          const notes = [
-            y.refusedLeagues > 0 ? `${y.refusedLeagues} stale` : null,
-            y.alreadyInTargetSeasonLeagues > 0 ? `${y.alreadyInTargetSeasonLeagues} already` : null,
-            y.removedLeagues > 0 ? `${y.removedLeagues} removed` : null,
-          ].filter((n): n is string => n !== null);
-          const detail = notes.length > 0 ? `, ${notes.join(', ')}` : '';
-          return `${y.year} (${y.transitionedLeagues}/${y.targetLeagues} leagues${detail})`;
-        })
-        .join(', ')}`;
+      const yearDetail =
+        target.years.length > 0
+          ? `: ${target.years
+              .map((y) => {
+                const notes = [
+                  y.refusedLeagues > 0 ? `${y.refusedLeagues} stale` : null,
+                  y.alreadyInTargetSeasonLeagues > 0
+                    ? `${y.alreadyInTargetSeasonLeagues} already`
+                    : null,
+                  y.removedLeagues > 0 ? `${y.removedLeagues} removed` : null,
+                ].filter((n): n is string => n !== null);
+                const detail = notes.length > 0 ? `, ${notes.join(', ')}` : '';
+                return `${y.year} (${y.transitionedLeagues}/${y.targetLeagues} leagues${detail})`;
+              })
+              .join(', ')}`
+          : '';
+      // PLATFORM-086F2H1R1 — refused candidates have no year to file them under,
+      // so they are appended at RUN level. Appended only when non-zero, so a
+      // clean run (and a legacy receipt, which normalizes to 0) renders exactly
+      // as before. A count only: never a slug or the unusable value itself.
+      const unusable =
+        target.invalidLifecycleTargets > 0
+          ? ` · ${target.invalidLifecycleTargets} unusable lifecycle year(s)`
+          : '';
+      return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}${yearDetail}${unusable}`;
+    }
     case 'season-rollover-years':
       return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}: ${target.years
         .map((y) => `${y.year} (${y.rolledOverLeagues}/${y.targetLeagues} leagues)`)
