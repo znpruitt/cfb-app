@@ -965,7 +965,14 @@ test('exactly one event with the exact allowlisted keys and no credential canari
   await GET(request());
   assert.equal(eventLines.length, 1);
   const event = eventLines[0]!;
-  assert.deepEqual(Object.keys(event).sort(), ['durationMs', 'event', 'reason', 'result', 'years']);
+  assert.deepEqual(Object.keys(event).sort(), [
+    'durationMs',
+    'event',
+    'invalidLifecycleTargets',
+    'reason',
+    'result',
+    'years',
+  ]);
   assert.equal(event.event, 'rankings-cron');
   assert.ok(Number.isInteger(event.durationMs) && event.durationMs >= 0);
   assert.deepEqual(Object.keys(event.years[0]!).sort(), [
@@ -1012,4 +1019,288 @@ test('a throwing logger changes neither the response nor durable outcomes', asyn
   assert.equal(res.status, 200);
   assert.equal(body.result, 'success');
   assert.ok((await windowControl(WEEKLY_KEY)).completedAt, 'window completion unaffected');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1R3 — registry-container truth + lifecycle-year validity
+//
+// Two falsehoods close here. A corrupt registry reported `no-ranking-target`,
+// asserting no eligible league exists on a registry that is merely unreadable
+// as a list. And an unusable `status.year` became a target: it could claim a
+// publication window, spend quota, call CFBD, and commit rankings under a key
+// derived from the unusable value.
+// ---------------------------------------------------------------------------
+
+// A Wednesday 04:00 UTC inside the Nov 1 – Dec 11 CFP publication window.
+const SLOT_CFP_MS = Date.parse('2031-11-05T04:00:00.000Z');
+
+test('R3 fixture: the CFP slot is a Wednesday 04:00 inside the publication window', () => {
+  assert.equal(new Date(SLOT_CFP_MS).getUTCDay(), 3, 'Wednesday');
+  assert.equal(new Date(SLOT_CFP_MS).getUTCHours(), 4);
+  assert.ok(SLOT_CFP_MS >= Date.UTC(YEAR, 10, 1) && SLOT_CFP_MS < Date.UTC(YEAR, 11, 11));
+});
+
+/** Seed one league whose `status.year` is deliberately unusable. */
+async function seedUnusableLeague(
+  year: unknown,
+  state: 'season' | 'preseason' = 'season',
+  slug = 'unusable'
+): Promise<void> {
+  const existing = (await getAppState<League[]>('leagues', 'registry'))?.value ?? [];
+  await setAppState('leagues', 'registry', [
+    ...existing,
+    makeLeague(slug, { state, year } as unknown as League['status']),
+  ]);
+}
+
+// REGRESSION TEST — a corrupt CONTAINER is refused, and says so. Before R3 this
+// reported `skipped / no-ranking-target`.
+test('R3 regression: a malformed registry container refuses with registry-malformed', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  await setAppState('leagues', 'registry', { alpha: 1 });
+  await seedSchedule(YEAR, FIRST_KICKOFF);
+  stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
+
+  const res = await GET(request());
+  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+
+  assert.equal(res.status, 200, 'controlled outcome — the delivery boundary policy');
+  assert.equal(body.result, 'failure');
+  assert.equal(body.reason, 'registry-malformed');
+  assert.equal(body.invalidLifecycleTargets, 0, 'no candidate was reached to refuse');
+  assert.deepEqual(body.years, []);
+  assert.deepEqual(providerUrlLog, [], 'no quota probe and no rankings partition');
+  assert.equal(eventLines[0]?.reason, 'registry-malformed');
+  assert.equal(eventLines[0]?.invalidLifecycleTargets, 0);
+  const control = await windowControl(WEEKLY_KEY);
+  assert.equal(control.claim, null, 'no publication window was claimed');
+  assert.equal(control.completedAt, null, 'and none was completed');
+});
+
+// REGRESSION TEST — gate ordering. The registry is not read on a paused run, so
+// a malformed registry cannot turn a deliberate pause into a scheduler failure.
+// The malformed value here is the observer: if the read moved ahead of the gate,
+// the reason would flip to `registry-malformed`.
+test('R3 regression: a paused run reports the pause and never reads the registry', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  await setAppState('leagues', 'registry', { alpha: 1 });
+  await setGlobalPause(true);
+  stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
+
+  const res = await GET(request());
+  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'automation-paused-or-disabled');
+  assert.equal(body.invalidLifecycleTargets, 0);
+  assert.deepEqual(providerUrlLog, []);
+});
+
+// CONTRACT PIN — a MISSING registry keeps its pre-R3 behavior exactly. Only the
+// malformed case is new; absence still means "no eligible league".
+test('R3 contract pin: a missing registry still reports no-ranking-target', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  const res = await GET(request());
+  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'no-ranking-target');
+  assert.equal(body.invalidLifecycleTargets, 0);
+});
+
+// REGRESSION TEST — every candidate refused ⇒ the run has no usable target and
+// says which condition caused it.
+test('R3 regression: an all-invalid production registry refuses with unusable-lifecycle-year', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  await seedUnusableLeague(2031.5, 'season', 'alpha');
+  await seedUnusableLeague('2031', 'preseason', 'bravo');
+  stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
+
+  const res = await GET(request());
+  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+
+  assert.equal(res.status, 200);
+  assert.equal(body.result, 'failure');
+  assert.equal(body.reason, 'unusable-lifecycle-year');
+  assert.equal(body.invalidLifecycleTargets, 2, 'counted per league record');
+  assert.deepEqual(body.years, [], 'no per-year entry');
+  assert.deepEqual(providerUrlLog, [], 'no billed provider work');
+  assert.equal(eventLines[0]?.result, 'failure');
+  assert.equal(eventLines[0]?.invalidLifecycleTargets, 2);
+});
+
+// REGRESSION TEST — THE non-vacuity proof, and the reason this slice exists.
+//
+// At a CFP-publication slot the window is CONTEXT-FREE: it needs no cached
+// schedule and no championship, only `Date.UTC(context.year, 10, 1)`. Because
+// `Date.UTC` COERCES rather than returning NaN, a STRING year produces exactly
+// the same instant a numeric year does — so pre-R3 the window became due and
+// the run billed `/info` plus both rankings partitions under an unusable year.
+// The matrix covers the coercing shapes AND the ones that fail the comparison;
+// both must be refused, and the mutation "remove validation" is killed by the
+// provider assertion here, not merely by the reason.
+test('R3 regression: an unusable year never reaches the provider at a CFP slot', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_CFP_MS });
+  for (const [label, year] of [
+    ['string', '2031'],
+    ['fractional', 2031.5],
+    ['missing', undefined],
+    ['unsafe integer', 2 ** 53],
+    ['pre-football', 1800],
+    ['null', null],
+  ] as Array<[string, unknown]>) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    __resetSeasonRankingsCacheForTests();
+    providerUrlLog.length = 0;
+    eventLines.length = 0;
+    await seedUnusableLeague(year);
+    stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
+
+    const res = await GET(request());
+    const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+
+    assert.equal(body.result, 'failure', label);
+    assert.equal(body.reason, 'unusable-lifecycle-year', label);
+    assert.equal(body.invalidLifecycleTargets, 1, label);
+    assert.deepEqual(providerUrlLog, [], `${label}: no quota probe, no rankings partition`);
+  }
+});
+
+// POSITIVE CONTROL for the test above — a VALID year at the same CFP slot with
+// the same fixture DOES reach the provider. Without this, the zero-provider
+// assertions above could pass for any unrelated reason (a wrong weekday, a
+// missing key, a stub that never matched) and would prove nothing.
+test('R3 positive control: a valid year at the same CFP slot does bill the provider', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_CFP_MS });
+  await seedLeague(YEAR);
+  stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
+
+  await GET(request());
+  assert.ok(
+    providerUrlLog.length > 0,
+    'the CFP window is genuinely due for a valid year on this fixture'
+  );
+  assert.ok(
+    providerUrlLog.some((url) => url.includes(`year=${YEAR}`)),
+    'and it requests the target year'
+  );
+});
+
+// REGRESSION TEST — ordering. A demo record with an unusable year keeps the T4
+// reason and is NOT counted as an invalid production target. Kills
+// validate-before-demo at the route level.
+test('R3 regression: an active demo with an unusable year keeps the T4 reason', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  await seedUnusableLeague(2031.5, 'season', TEST_LEAGUE_SLUG);
+
+  const res = await GET(request());
+  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'no-automatic-ranking-target');
+  assert.equal(body.invalidLifecycleTargets, 0, 'a demo record is never an invalid TARGET');
+  assert.deepEqual(providerUrlLog, []);
+});
+
+// REGRESSION TEST — a valid year still executes alongside a refusal, and the
+// invalid year appears NOWHERE. Both registry orders, because a `break` on the
+// first invalid record drops the valid league only when the invalid one is
+// first.
+test('R3 regression: a valid year executes alongside a refusal, in either registry order', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  for (const order of ['valid first', 'invalid first'] as const) {
+    await __deleteAppStateFileForTests();
+    __resetAppStateForTests();
+    __resetSeasonRankingsCacheForTests();
+    providerUrlLog.length = 0;
+    eventLines.length = 0;
+    if (order === 'valid first') {
+      await seedLeague(YEAR);
+      await seedUnusableLeague('2032', 'season', 'bad');
+    } else {
+      await seedUnusableLeague('2032', 'season', 'bad');
+      await seedLeague(YEAR);
+    }
+    await seedSchedule(YEAR, FIRST_KICKOFF);
+    stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
+
+    const res = await GET(request());
+    const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+
+    assert.equal(body.years.length, 1, `${order}: the valid year still executed`);
+    assert.equal(body.years[0]?.year, YEAR, order);
+    assert.equal(body.invalidLifecycleTargets, 1, order);
+    assert.ok(
+      !providerUrlLog.some((url) => url.includes('year=2032')),
+      `${order}: the invalid year never reached the provider`
+    );
+    assert.equal(eventLines[0]?.invalidLifecycleTargets, 1, order);
+    assert.ok(
+      !JSON.stringify(eventLines[0]).includes('2032'),
+      `${order}: the unusable value never rides out on the event`
+    );
+  }
+});
+
+// REGRESSION TEST — the mixed-result table, valid-years-SUCCESS arm.
+// A refusal degrades a successful run to `partial` while the REASON keeps
+// naming what the valid year did.
+test('R3 regression: refusal + valid success is partial with the valid reason preserved', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: SLOT_WEEKLY_MS });
+  await seedLeague(YEAR);
+  await seedUnusableLeague('2032', 'season', 'bad');
+  await seedSchedule(YEAR, FIRST_KICKOFF);
+  stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
+
+  const res = await GET(request());
+  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+
+  assert.equal(body.years[0]?.result, 'success', 'the valid year genuinely succeeded');
+  assert.equal(body.result, 'partial', 'degraded by the refusal');
+  assert.notEqual(body.reason, 'unusable-lifecycle-year', 'the reason names the VALID years');
+  assert.equal(body.reason, body.years[0]?.reason, 'and it is exactly their uniform reason');
+  assert.equal(body.invalidLifecycleTargets, 1);
+});
+
+// REGRESSION TEST — the mixed-result table, valid-years-SKIPPED arm, and the
+// campaign decision it encodes: "a deferral alone never causes failure; the
+// unusable production target does."
+//
+// An off-slot run skips every valid year. Alone that is `skipped`. With a
+// refusal present it becomes `failure` — and the reason still names the skip,
+// because the receipt's year entries carry no reason field and overwriting it
+// would erase the only durable record of what the valid year did.
+test('R3 regression: refusal + all-skipped valid years is failure with the skip reason kept', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: OFF_SLOT_MS });
+  await seedLeague(YEAR);
+  await seedUnusableLeague('2032', 'season', 'bad');
+  await seedSchedule(YEAR, FIRST_KICKOFF);
+  stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
+
+  const res = await GET(request());
+  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+
+  assert.equal(body.years[0]?.result, 'skipped', 'the valid year merely skipped');
+  assert.equal(body.result, 'failure', 'the refusal, not the deferral, causes this');
+  assert.equal(body.reason, body.years[0]?.reason, 'the skip reason is preserved');
+  assert.notEqual(body.reason, 'unusable-lifecycle-year');
+  assert.equal(body.invalidLifecycleTargets, 1);
+  assert.deepEqual(providerUrlLog, [], 'an off-slot run still bills nothing');
+});
+
+// CONTRACT PIN — with NO refusals the aggregate is untouched. This is what
+// makes the mapping above a degradation rather than a rewrite: the same
+// off-slot fixture without the invalid record stays `skipped`.
+test('R3 contract pin: with no refusals the valid-year aggregate is unchanged', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: OFF_SLOT_MS });
+  await seedLeague(YEAR);
+  await seedSchedule(YEAR, FIRST_KICKOFF);
+  stubProvider({ rankings: { [YEAR]: { regular: usablePayload(YEAR), postseason: [] } } });
+
+  const res = await GET(request());
+  const body = (await res.json()) as CronBody & { invalidLifecycleTargets: number };
+
+  assert.equal(body.result, 'skipped', 'no refusal ⇒ no degradation');
+  assert.equal(body.invalidLifecycleTargets, 0);
 });

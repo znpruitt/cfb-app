@@ -55,7 +55,7 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
     case 'schedule-refresh':
       return scheduleYearsTarget([{ year: 2026, operation: null }], 0);
     case 'rankings':
-      return rankingsYearsTarget([{ year: 2026, publicationWindow: null }]);
+      return rankingsYearsTarget([{ year: 2026, publicationWindow: null }], 0);
     case 'season-transition':
       return seasonTransitionYearsTarget(
         [{ year: 2026, targetLeagues: 1, probed: true, transitionedLeagues: 0 }],

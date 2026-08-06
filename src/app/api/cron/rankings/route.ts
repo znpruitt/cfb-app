@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { fetchCfbdUsage } from '@/lib/api/cfbdUsage';
 import type { CfbdUsageSnapshot } from '@/lib/gameStats/quotaPolicy';
-import { getLeagues } from '@/lib/leagueRegistry';
+import { readLeagueRegistry } from '@/lib/leagueRegistry';
 import {
   loadRankingsPublicationContext,
   selectRankingsTargetYears,
@@ -177,12 +177,24 @@ export async function GET(req: Request): Promise<Response> {
       if (!(await isAutoRefreshAllowed('rankings'))) {
         exec.result = 'skipped';
         exec.reason = 'automation-paused-or-disabled';
-        return NextResponse.json({ result: exec.result, reason: exec.reason, years: [] });
+        // The count is structurally 0 on both gate exits: the registry has not
+        // been read yet, and it deliberately never will be on a paused run.
+        return NextResponse.json({
+          result: exec.result,
+          reason: exec.reason,
+          years: [],
+          invalidLifecycleTargets: exec.invalidLifecycleTargets,
+        });
       }
     } catch {
       exec.result = 'failure';
       exec.reason = 'settings-unavailable';
-      return NextResponse.json({ result: exec.result, reason: exec.reason, years: [] });
+      return NextResponse.json({
+        result: exec.result,
+        reason: exec.reason,
+        years: [],
+        invalidLifecycleTargets: exec.invalidLifecycleTargets,
+      });
     }
 
     // Target selection — cache-only registry read; `preseason` + `season` years
@@ -198,14 +210,65 @@ export async function GET(req: Request): Promise<Response> {
     // a registry fault turn a deliberately paused run into a scheduler failure.
     let selection: RankingsTargetSelection;
     try {
-      selection = selectRankingsTargetYears(await getLeagues());
+      // PLATFORM-086F2H1R3 — read the CONTAINER through the typed reader so a
+      // MALFORMED registry is distinguishable from an empty one. `getLeagues()`
+      // maps absent, malformed, and empty alike to `[]`, which made a corrupt
+      // registry report `no-ranking-target` — asserting no eligible league
+      // exists when the registry holding them is unreadable as a list.
+      const registry = await readLeagueRegistry();
+      if (registry.kind === 'malformed') {
+        // Refuse BEFORE any publication-context read, window claim, `/info`
+        // quota probe, provider request, refresh lease/status write, or
+        // rankings commit. Controlled outcome, so HTTP stays 200 — see the
+        // delivery-boundary note on the aggregate below.
+        exec.result = 'failure';
+        exec.reason = 'registry-malformed';
+        return NextResponse.json({
+          result: exec.result,
+          reason: exec.reason,
+          years: [],
+          invalidLifecycleTargets: exec.invalidLifecycleTargets,
+        });
+      }
+      // `missing` preserves the pre-R3 empty-registry behavior exactly.
+      selection = selectRankingsTargetYears(registry.kind === 'ok' ? registry.leagues : []);
     } catch {
+      // A genuine store READ failure — `readLeagueRegistry` propagates it rather
+      // than laundering it into a classification, so unavailability stays
+      // distinct from corruption. This also catches a throw from a corrupt
+      // RECORD inside an otherwise `ok` container: the array is typed
+      // `League[]` but nothing validates each element, so a non-object member
+      // throws on property access. Element-level registry validation is F2H1R5's
+      // — this slice must not relabel it as anything more specific.
       exec.result = 'failure';
       exec.reason = 'registry-unavailable';
-      return NextResponse.json({ result: exec.result, reason: exec.reason, years: [] });
+      return NextResponse.json({
+        result: exec.result,
+        reason: exec.reason,
+        years: [],
+        invalidLifecycleTargets: exec.invalidLifecycleTargets,
+      });
     }
+    // Published immediately, before anything downstream can throw or return.
+    exec.invalidLifecycleTargets = selection.invalidLifecycleTargets;
     const targets = selection.years;
     if (targets.length === 0) {
+      // Zero-target precedence. A production DATA-INTEGRITY refusal outranks the
+      // demo exclusion: the single reason must name the condition an operator
+      // has to act on, and a multi-reason schema is not warranted for a field
+      // whose consumers expect one closed literal. When both coexist the demo
+      // exclusion becomes invisible in the REASON, but the run still carries
+      // `invalidLifecycleTargets`, which is the actionable half.
+      if (exec.invalidLifecycleTargets > 0) {
+        exec.result = 'failure';
+        exec.reason = 'unusable-lifecycle-year';
+        return NextResponse.json({
+          result: exec.result,
+          reason: exec.reason,
+          years: [],
+          invalidLifecycleTargets: exec.invalidLifecycleTargets,
+        });
+      }
       exec.result = 'skipped';
       // An active demo league that was filtered out is NOT "no eligible league".
       // Saying `no-ranking-target` would be false on the operator's System Health
@@ -216,7 +279,12 @@ export async function GET(req: Request): Promise<Response> {
       exec.reason = selection.excludedDemoCandidate
         ? 'no-automatic-ranking-target'
         : 'no-ranking-target';
-      return NextResponse.json({ result: exec.result, reason: exec.reason, years: [] });
+      return NextResponse.json({
+        result: exec.result,
+        reason: exec.reason,
+        years: [],
+        invalidLifecycleTargets: exec.invalidLifecycleTargets,
+      });
     }
 
     // ONE route-entry UTC instant is the scheduled slot for EVERY year's window
@@ -324,13 +392,47 @@ export async function GET(req: Request): Promise<Response> {
       entries.push(yearEntryFromRefresh(target, window, quota.remaining, refresh, completion));
     }
 
-    exec.result = aggregateRankingsCronResult(entries);
+    // PLATFORM-086F2H1R3 — the R1-approved policy, third application.
+    //
+    // The REASON always names what the VALID years did, never the refusal. The
+    // receipt's year entries carry `publicationWindow` and no reason field, so
+    // overwriting the aggregate reason with `unusable-lifecycle-year` would
+    // erase the only durable record of those years' outcomes. The refusal is
+    // independently carried by `invalidLifecycleTargets` on all three surfaces.
+    //
+    // The RESULT is degraded, because a refused production target is an anomaly
+    // even when every valid year merely skipped. The rule is "a deferral alone
+    // never causes failure; the unusable production target does":
+    //   - no refusals                       → the valid years' aggregate, as-is
+    //   - refusals + aggregate success      → partial
+    //   - refusals + aggregate partial      → partial
+    //   - refusals + skipped/no-op/
+    //     in-progress/failure               → failure
+    //
+    // `partial` here does NOT prove a durable write landed:
+    // `aggregateRankingsCronResult` already returns `partial` for mixed
+    // failure/no-op/in-progress outcomes, and this mapping preserves that.
+    const yearsResult = aggregateRankingsCronResult(entries);
     exec.reason = aggregateRankingsCronReason(entries);
+    exec.result =
+      exec.invalidLifecycleTargets === 0
+        ? yearsResult
+        : yearsResult === 'success' || yearsResult === 'partial'
+          ? 'partial'
+          : 'failure';
 
     // Controlled outcomes are HTTP 200: QStash delivered and the app processed
     // the run; the body mirrors ONLY the allowlisted aggregate + per-year
     // operational fields — never rankings rows, provider payloads, or errors.
-    return NextResponse.json({ result: exec.result, reason: exec.reason, years: exec.years });
+    // This is a DELIVERY-BOUNDARY policy, not a mapping from reason literal to
+    // status: the same `registry-malformed` condition is 500 on the Vercel-native
+    // lifecycle crons, which have no at-least-once delivery layer to confuse.
+    return NextResponse.json({
+      result: exec.result,
+      reason: exec.reason,
+      years: exec.years,
+      invalidLifecycleTargets: exec.invalidLifecycleTargets,
+    });
   } finally {
     emitRankingsCronExecutionEvent(exec, startedAtMs);
     // PLATFORM-086F2E1 — one latest-only durable receipt per AUTHENTICATED
@@ -347,7 +449,7 @@ export async function GET(req: Request): Promise<Response> {
         result: exec.result,
         reason: exec.reason,
         providerCallAttempted: exec.years.some((entry) => entry.providerCallAttempted),
-        target: rankingsYearsTarget(exec.years),
+        target: rankingsYearsTarget(exec.years, exec.invalidLifecycleTargets),
       });
     }
   }

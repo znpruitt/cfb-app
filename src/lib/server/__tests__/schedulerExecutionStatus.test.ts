@@ -185,7 +185,7 @@ test('all five job target shapes persist with exact allowlisted target keys', as
       result: 'success',
       reason: 'year-results',
       providerCallAttempted: true,
-      target: rankingsYearsTarget([{ year: 2026, publicationWindow: 'weekly-ap-coaches' }]),
+      target: rankingsYearsTarget([{ year: 2026, publicationWindow: 'weekly-ap-coaches' }], 0),
     }),
   ];
   for (const input of inputs) {
@@ -214,7 +214,7 @@ test('all five job target shapes persist with exact allowlisted target keys', as
     {
       job: 'rankings',
       kind: 'rankings-years',
-      keys: ['kind', 'totalYears', 'truncated', 'years'].sort(),
+      keys: ['invalidLifecycleTargets', 'kind', 'totalYears', 'truncated', 'years'].sort(),
     },
   ];
   for (const expectation of expectations) {
@@ -267,7 +267,7 @@ test('all seven jobs derive the correct source and persist their target shape', 
     }),
     liveScoresInput({
       job: 'rankings',
-      target: rankingsYearsTarget([{ year: 2026, publicationWindow: null }]),
+      target: rankingsYearsTarget([{ year: 2026, publicationWindow: null }], 0),
     }),
     liveScoresInput({
       job: 'season-transition',
@@ -555,10 +555,13 @@ test('multi-year targets cap at eight entries with truthful totalYears and trunc
     'ascending order preserved, first eight kept'
   );
 
-  const few = rankingsYearsTarget([
-    { year: 2025, publicationWindow: null },
-    { year: 2026, publicationWindow: 'cfp-publication' },
-  ]);
+  const few = rankingsYearsTarget(
+    [
+      { year: 2025, publicationWindow: null },
+      { year: 2026, publicationWindow: 'cfp-publication' },
+    ],
+    0
+  );
   assert.equal(few.totalYears, 2);
   assert.equal(few.truncated, false);
   assert.equal(few.years.length, 2);

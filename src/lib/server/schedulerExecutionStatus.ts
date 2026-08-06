@@ -177,6 +177,13 @@ export type SchedulerExecutionTarget =
       kind: 'rankings-years';
       totalYears: number;
       truncated: boolean;
+      /**
+       * PLATFORM-086F2H1R3 — active PRODUCTION leagues refused this run for a
+       * structurally invalid `status.year`. Run-level: a refused candidate has
+       * no usable year to file it under. ALWAYS present after a parse (a legacy
+       * receipt omits it and the rebuild normalizes to 0).
+       */
+      invalidLifecycleTargets: number;
       years: Array<{
         year: number;
         publicationWindow: RankingsPublicationWindowKind | null;
@@ -270,7 +277,10 @@ export function scheduleYearsTarget(
 
 /** The bounded `rankings-years` summary from the route's per-year entries. */
 export function rankingsYearsTarget(
-  entries: ReadonlyArray<{ year: number; publicationWindow: RankingsPublicationWindowKind | null }>
+  entries: ReadonlyArray<{ year: number; publicationWindow: RankingsPublicationWindowKind | null }>,
+  // REQUIRED: a defaulted parameter would let a caller that reconstructs this
+  // target silently record zero refusals with no compiler signal.
+  invalidLifecycleTargets: number
 ): Extract<SchedulerExecutionTarget, { kind: 'rankings-years' }> {
   const years = entries
     .slice(0, MAX_SCHEDULER_TARGET_YEARS)
@@ -279,6 +289,7 @@ export function rankingsYearsTarget(
     kind: 'rankings-years',
     totalYears: entries.length,
     truncated: entries.length > years.length,
+    invalidLifecycleTargets,
     years,
   };
 }
@@ -565,6 +576,10 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         kind: 'rankings-years',
         totalYears: target.totalYears,
         truncated: target.truncated,
+        // A pre-R3 receipt omits this; normalize rather than reject, so an
+        // already-stored valid row keeps parsing instead of degrading the
+        // System Health row to `invalid` until the next cron run rewrites it.
+        invalidLifecycleTargets: target.invalidLifecycleTargets ?? 0,
         years: target.years
           .slice(0, MAX_SCHEDULER_TARGET_YEARS)
           .map((entry) => ({ year: entry.year, publicationWindow: entry.publicationWindow })),
@@ -687,6 +702,11 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
       return (
         isNonNegativeInteger(target.totalYears) &&
         typeof target.truncated === 'boolean' &&
+        // PLATFORM-086F2H1R3 — OPTIONAL: a legacy pre-R3 receipt omits this and
+        // must still parse (the rebuild normalizes it to 0), but an invalid
+        // PRESENT value still rejects the whole record.
+        (target.invalidLifecycleTargets === undefined ||
+          isNonNegativeInteger(target.invalidLifecycleTargets)) &&
         isValidYearEntries(target.years, 'publicationWindow', PUBLICATION_WINDOWS)
       );
     case 'season-transition-years':

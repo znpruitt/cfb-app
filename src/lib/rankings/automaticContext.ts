@@ -26,7 +26,7 @@
  *   - ABSENT rankings are valid absence — all three poll flags false.
  */
 
-import { TEST_LEAGUE_SLUG, type League } from '../league.ts';
+import { isStructurallyValidSeasonYear, TEST_LEAGUE_SLUG, type League } from '../league.ts';
 import type { ScheduleWireItem } from '../schedule.ts';
 import { resolveStructuredChampionshipItem } from '../schedule/nationalChampionshipRollover.ts';
 import { getAppState } from '../server/appStateStore.ts';
@@ -50,6 +50,13 @@ export type RankingsTargetSelection = {
   years: RankingsTargetYear[];
   /** True when an ACTIVE demo league was excluded from selection. */
   excludedDemoCandidate: boolean;
+  /**
+   * PLATFORM-086F2H1R3 — ACTIVE PRODUCTION leagues refused for a structurally
+   * invalid `status.year`. Counted per LEAGUE RECORD, not per distinct raw
+   * year: three records sharing one unusable year count three, because there is
+   * no usable year to deduplicate them by in the first place.
+   */
+  invalidLifecycleTargets: number;
 };
 
 /**
@@ -100,12 +107,28 @@ export type RankingsTargetSelection = {
  * writes none.
  *
  * The exclusion flag is derived from `slug` and `status.state` ONLY — never from
- * `status.year` — so an unvalidated legacy year (F2H1R) can never flip the
- * caller's zero-target reason.
+ * `status.year` — so an unvalidated year can never flip the caller's zero-target
+ * reason. That property is what makes the F2H1R3 ordering below safe.
+ *
+ * PLATFORM-086F2H1R3 — an active PRODUCTION candidate's `status.year` is then
+ * validated structurally, AFTER the demo exclusion. The order is load-bearing in
+ * one direction: an active DEMO record carrying an unusable year must stay a
+ * demo exclusion, so the caller keeps reporting
+ * `no-automatic-ranking-target`. Validating first would count it as an invalid
+ * production target and undo F2H1T4's reason.
+ *
+ * `status.year` arrives here straight from durable JSON — `getLeagues()` performs
+ * no per-record validation — and the rankings hazard is NOT fractional-only:
+ * `Date.UTC('2026', …)` coerces rather than returning NaN, so a STRING year
+ * makes the context-free CFP publication window become due and produces a
+ * provider URL that looks legitimate. Before this slice such a year became a
+ * `lifecycleByYear` key and could claim a publication window, spend quota, call
+ * CFBD, and commit rankings under an unusable key.
  */
 export function selectRankingsTargetYears(leagues: readonly League[]): RankingsTargetSelection {
   const lifecycleByYear = new Map<number, RankingsTargetLifecycle>();
   let excludedDemoCandidate = false;
+  let invalidLifecycleTargets = 0;
   for (const league of leagues) {
     const status = league.status;
     const isActive = status?.state === 'season' || status?.state === 'preseason';
@@ -116,6 +139,18 @@ export function selectRankingsTargetYears(leagues: readonly League[]): RankingsT
     // unreachable, which is exactly the falsehood this slice exists to avoid.
     if (isActive && league.slug === TEST_LEAGUE_SLUG) {
       excludedDemoCandidate = true;
+      continue;
+    }
+
+    // PLATFORM-086F2H1R3 — structural year validity, AFTER the demo exclusion
+    // above and BEFORE the year can own a lifecycle. A refused candidate
+    // contributes no map key and no lifecycle precedence, so it can neither
+    // become a target nor promote a shared year from `preseason` to `season`.
+    //
+    // Offseason and status-less PRODUCTION records are NOT counted: they were
+    // never candidates, exactly as they were never targets.
+    if (isActive && !isStructurallyValidSeasonYear(status.year)) {
+      invalidLifecycleTargets += 1;
       continue;
     }
 
@@ -130,6 +165,7 @@ export function selectRankingsTargetYears(leagues: readonly League[]): RankingsT
       .map(([year, lifecycle]) => ({ year, lifecycle }))
       .sort((a, b) => a.year - b.year),
     excludedDemoCandidate,
+    invalidLifecycleTargets,
   };
 }
 
