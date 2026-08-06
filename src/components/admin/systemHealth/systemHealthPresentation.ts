@@ -203,10 +203,29 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
       return `${target.year}${target.week != null ? ` · week ${target.week}` : ''}${target.seasonType ? ` · ${target.seasonType}` : ''}`;
     case 'odds':
       return `${target.year} · ${target.eligibleGames} eligible game(s)${target.cadence ? ` · ${target.cadence}` : ''}`;
-    case 'schedule-years':
-      return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}: ${target.years
-        .map((y) => `${y.year}${y.operation ? ` (${y.operation})` : ''}`)
-        .join(', ')}`;
+    case 'schedule-years': {
+      // PLATFORM-086F2H1R2 — refused CANDIDATES (leagues, not distinct years:
+      // three records sharing one bad year count three) have no year to file
+      // them under, so they are appended at RUN level, and only when non-zero,
+      // so a clean run — and a legacy receipt, which normalizes to 0 — renders
+      // exactly as before. A count only: never a slug or the invalid value.
+      //
+      // The empty-`years` guard also closes the `schedule-years` half of the
+      // recorded dangling-colon deferral: an all-refused receipt would otherwise
+      // render `0 year(s): ` with nothing after the separator. The rankings and
+      // rollover branches still carry it and are deliberately untouched here.
+      const yearDetail =
+        target.years.length > 0
+          ? `: ${target.years
+              .map((y) => `${y.year}${y.operation ? ` (${y.operation})` : ''}`)
+              .join(', ')}`
+          : '';
+      const unusable =
+        target.invalidLifecycleTargets > 0
+          ? ` · ${target.invalidLifecycleTargets} unusable lifecycle target(s)`
+          : '';
+      return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}${yearDetail}${unusable}`;
+    }
     case 'rankings-years':
       return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}: ${target.years
         .map((y) => `${y.year}${y.publicationWindow ? ` (${y.publicationWindow})` : ''}`)

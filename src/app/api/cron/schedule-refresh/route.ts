@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
-import { getLeagues } from '@/lib/leagueRegistry';
-import { TEST_LEAGUE_SLUG } from '@/lib/league';
+import { readLeagueRegistry } from '@/lib/leagueRegistry';
+import { isStructurallyValidSeasonYear, TEST_LEAGUE_SLUG } from '@/lib/league';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
@@ -157,8 +157,24 @@ export async function GET(req: Request): Promise<Response> {
     // Set when an ACTIVE demo league was filtered out — so a zero-target run can
     // report why truthfully rather than claiming no active league exists.
     let excludedDemoCandidate = false;
+    // PLATFORM-086F2H1R2 — active PRODUCTION leagues refused for a structurally
+    // invalid `status.year`. Run-level, because a refused candidate has no
+    // usable year to file it under.
+    let invalidLifecycleTargets = 0;
+    // Set when the container itself is corrupt — readable, but not a league
+    // array. Reported separately from every zero-target reason, each of which
+    // asserts something about leagues a corrupt container cannot support.
+    let registryMalformed = false;
     try {
-      const leagues = await getLeagues();
+      // Read through the typed reader (PLATFORM-086F2H1R1) so a MALFORMED
+      // container is distinguishable from an empty one. `getLeagues()` maps both
+      // to `[]`, which would make this run report `no-maintenance-target` —
+      // asserting no active league exists when the registry holding them is
+      // corrupt and unreadable as a list.
+      const registry = await readLeagueRegistry();
+      registryMalformed = registry.kind === 'malformed';
+      // `missing` keeps the pre-R2 empty-registry behavior exactly.
+      const leagues = registry.kind === 'ok' ? registry.leagues : [];
       const ownerByYear = new Map<number, 'season' | 'preseason'>();
       for (const league of leagues) {
         const status = league.status;
@@ -190,6 +206,29 @@ export async function GET(req: Request): Promise<Response> {
           continue;
         }
 
+        // PLATFORM-086F2H1R2 — structural year validity, applied AFTER the demo
+        // exclusion above and BEFORE the year can own anything.
+        //
+        // The ordering is load-bearing in one direction: an active DEMO record
+        // carrying an unusable year must stay a demo exclusion, so the run keeps
+        // reporting `no-automatic-maintenance-target`. Validating first would
+        // count it as an invalid production target and undo F2H1T3's reason.
+        //
+        // `status.year` reaches here straight from durable JSON — `getLeagues()`
+        // performs no per-record validation — so before this slice an unusable
+        // year became a Map key, owned a maintenance year, and drove a
+        // `schedule/<raw>-all-all` read, a boundary-latch or probe operation, a
+        // settings decision, a billed E1A refresh, and a presentation refresh.
+        // A refused candidate now contributes none of those, no owner
+        // precedence, and no per-year entry.
+        //
+        // Offseason and status-less production records are NOT counted: they
+        // were never candidates, exactly as they were never targets.
+        if (isActive && !isStructurallyValidSeasonYear(status.year)) {
+          invalidLifecycleTargets += 1;
+          continue;
+        }
+
         if (status?.state === 'season') {
           ownerByYear.set(status.year, 'season');
         } else if (status?.state === 'preseason' && ownerByYear.get(status.year) !== 'season') {
@@ -200,9 +239,32 @@ export async function GET(req: Request): Promise<Response> {
         .map(([year, owner]) => ({ year, owner }))
         .sort((a, b) => a.year - b.year);
     } catch {
+      // A genuine store READ failure — distinct from a corrupt container below.
       exec.result = 'failure';
       exec.reason = 'canonical-context-unavailable';
-      return NextResponse.json({ result: exec.result, reason: exec.reason, years: [] });
+      return NextResponse.json({
+        result: exec.result,
+        reason: exec.reason,
+        years: [],
+        invalidLifecycleTargets: exec.invalidLifecycleTargets,
+      });
+    }
+    exec.invalidLifecycleTargets = invalidLifecycleTargets;
+
+    if (registryMalformed) {
+      // A present-but-corrupt container. Refuse before any schedule, probe,
+      // latch, settings, provider, or presentation work, and say so rather than
+      // claiming no active league exists. Controlled outcome, so HTTP stays 200
+      // exactly as every other operational failure on this route does — only
+      // authentication returns 401.
+      exec.result = 'failure';
+      exec.reason = 'registry-malformed';
+      return NextResponse.json({
+        result: exec.result,
+        reason: exec.reason,
+        years: [],
+        invalidLifecycleTargets: 0,
+      });
     }
 
     if (targetYears.length === 0) {
@@ -212,10 +274,23 @@ export async function GET(req: Request): Promise<Response> {
       // Health row, exactly as F2H1T2 refused to reuse `no-preseason-leagues`.
       // Top-level only: no per-year entry, provider attempt, settings read,
       // probe/latch operation, or presentation refresh is produced either way.
-      exec.reason = excludedDemoCandidate
-        ? 'no-automatic-maintenance-target'
-        : 'no-maintenance-target';
-      return NextResponse.json({ result: exec.result, reason: exec.reason, years: [] });
+      if (invalidLifecycleTargets > 0) {
+        // Active PRODUCTION leagues existed; every one carried an unusable year.
+        // Neither reason below is true here — both assert something about
+        // eligible leagues, and these were eligible until their year was read.
+        exec.result = 'failure';
+        exec.reason = 'unusable-lifecycle-year';
+      } else {
+        exec.reason = excludedDemoCandidate
+          ? 'no-automatic-maintenance-target'
+          : 'no-maintenance-target';
+      }
+      return NextResponse.json({
+        result: exec.result,
+        reason: exec.reason,
+        years: [],
+        invalidLifecycleTargets,
+      });
     }
 
     // Classify EVERY candidate year (cache-only prior-good schedule read + the
@@ -427,14 +502,36 @@ export async function GET(req: Request): Promise<Response> {
       }
     }
 
-    exec.result = aggregateScheduleCronResult(entries);
+    // PLATFORM-086F2H1R2 — the R1-approved policy. The REASON always names the
+    // executed years: the refusal already rides on `invalidLifecycleTargets`
+    // across the response, event, and receipt, and the receipt's year entries
+    // carry no reason field, so overwriting would erase the only durable record
+    // of what those years did.
+    const yearsResult = aggregateScheduleCronResult(entries);
     exec.reason = aggregateScheduleCronReason(entries);
+    exec.result =
+      invalidLifecycleTargets === 0
+        ? yearsResult
+        : // A refusal alongside executed years. Classify `partial` when the
+          // valid years' own aggregate is `success` or `partial`, else
+          // `failure` — a refusal must not UPGRADE a run whose valid years did
+          // nothing. This is NOT a claim that `partial` proves durable work:
+          // `aggregateScheduleCronResult` also returns `partial` for
+          // `failure` + `no-op`.
+          yearsResult === 'success' || yearsResult === 'partial'
+          ? 'partial'
+          : 'failure';
 
     // Controlled outcomes are HTTP 200: QStash delivered and the app processed the
     // run; the body/event carries the truthful result. The body mirrors ONLY the
     // allowlisted aggregate + per-year operational fields — never cache entries,
     // schedule items, or provider error details.
-    return NextResponse.json({ result: exec.result, reason: exec.reason, years: exec.years });
+    return NextResponse.json({
+      result: exec.result,
+      reason: exec.reason,
+      years: exec.years,
+      invalidLifecycleTargets: exec.invalidLifecycleTargets,
+    });
   } finally {
     emitScheduleRefreshCronExecutionEvent(exec, startedAtMs);
     // PLATFORM-086F2E1 — one latest-only durable receipt per AUTHENTICATED
@@ -451,7 +548,7 @@ export async function GET(req: Request): Promise<Response> {
         result: exec.result,
         reason: exec.reason,
         providerCallAttempted: exec.years.some((entry) => entry.providerCallAttempted),
-        target: scheduleYearsTarget(exec.years),
+        target: scheduleYearsTarget(exec.years, exec.invalidLifecycleTargets),
       });
     }
   }

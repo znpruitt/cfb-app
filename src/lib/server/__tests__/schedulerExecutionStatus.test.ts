@@ -172,10 +172,13 @@ test('all five job target shapes persist with exact allowlisted target keys', as
       result: 'success',
       reason: 'year-results',
       providerCallAttempted: true,
-      target: scheduleYearsTarget([
-        { year: 2025, operation: 'postseason-boundary' },
-        { year: 2026, operation: 'preseason-maintenance' },
-      ]),
+      target: scheduleYearsTarget(
+        [
+          { year: 2025, operation: 'postseason-boundary' },
+          { year: 2026, operation: 'preseason-maintenance' },
+        ],
+        0
+      ),
     }),
     liveScoresInput({
       job: 'rankings',
@@ -204,7 +207,9 @@ test('all five job target shapes persist with exact allowlisted target keys', as
     {
       job: 'schedule-refresh',
       kind: 'schedule-years',
-      keys: ['kind', 'totalYears', 'truncated', 'years'].sort(),
+      // PLATFORM-086F2H1R2 — present after a parse even when a legacy receipt
+      // omits it, because the rebuild normalizes it to 0.
+      keys: ['invalidLifecycleTargets', 'kind', 'totalYears', 'truncated', 'years'].sort(),
     },
     {
       job: 'rankings',
@@ -258,7 +263,7 @@ test('all seven jobs derive the correct source and persist their target shape', 
     }),
     liveScoresInput({
       job: 'schedule-refresh',
-      target: scheduleYearsTarget([{ year: 2026, operation: null }]),
+      target: scheduleYearsTarget([{ year: 2026, operation: null }], 0),
     }),
     liveScoresInput({
       job: 'rankings',
@@ -540,7 +545,7 @@ test('multi-year targets cap at eight entries with truthful totalYears and trunc
     year: 2020 + i,
     operation: 'ordinary-maintenance' as const,
   }));
-  const capped = scheduleYearsTarget(many);
+  const capped = scheduleYearsTarget(many, 0);
   assert.equal(capped.totalYears, 10);
   assert.equal(capped.truncated, true);
   assert.equal(capped.years.length, 8);

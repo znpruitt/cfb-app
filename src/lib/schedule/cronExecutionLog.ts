@@ -40,6 +40,17 @@ export type ScheduleRefreshCronExecutionReason =
   // Distinct from `no-maintenance-target` on purpose: reusing that reason would
   // tell an operator no active league exists when one does.
   | 'no-automatic-maintenance-target'
+  // PLATFORM-086F2H1R2 — the registry record EXISTS but does not hold a league
+  // array. Distinct from `canonical-context-unavailable`, which this route also
+  // uses for a genuine store READ failure: a corrupt container is readable, and
+  // reporting either zero-target reason above would assert something about
+  // leagues the container cannot support.
+  | 'registry-malformed'
+  // PLATFORM-086F2H1R2 — active PRODUCTION leagues exist, but every one carries
+  // a `status.year` that is not a structurally valid season year, so none could
+  // own a maintenance year. Never emitted for a demo record: the demo exclusion
+  // runs first.
+  | 'unusable-lifecycle-year'
   | 'automation-paused-or-disabled'
   | 'season-transition-owner'
   | 'canonical-context-unavailable'
@@ -70,6 +81,16 @@ export type ScheduleRefreshCronExecutionEvent = {
   result: ScheduleRefreshCronExecutionResult;
   reason: ScheduleRefreshCronExecutionReason;
   years: ScheduleRefreshCronYearExecution[];
+  /**
+   * PLATFORM-086F2H1R2 — how many active PRODUCTION leagues were refused this
+   * run for carrying a structurally invalid `status.year`. Run-level, not
+   * per-year, because a refused candidate has no usable year to file it under —
+   * that is exactly what disqualified it. A count only: never a slug, and never
+   * the invalid value.
+   *
+   * Always an explicit nonnegative integer, so a reader never infers absence.
+   */
+  invalidLifecycleTargets: number;
   durationMs: number;
 };
 
@@ -89,7 +110,7 @@ export type ScheduleRefreshCronExecutionState = Omit<
  * none is (an unhandled throw), the pessimistic default stands.
  */
 export function createScheduleRefreshCronExecutionState(): ScheduleRefreshCronExecutionState {
-  return { result: 'failure', reason: 'unexpected-error', years: [] };
+  return { result: 'failure', reason: 'unexpected-error', years: [], invalidLifecycleTargets: 0 };
 }
 
 /**
@@ -174,6 +195,7 @@ export function emitScheduleRefreshCronExecutionEvent(
         rowsCommitted: entry.rowsCommitted,
         dataChanged: entry.dataChanged,
       })),
+      invalidLifecycleTargets: state.invalidLifecycleTargets,
       durationMs,
     };
     console.log(JSON.stringify(event));

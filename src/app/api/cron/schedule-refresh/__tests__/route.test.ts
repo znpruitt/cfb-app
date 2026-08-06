@@ -537,7 +537,7 @@ test('exactly one structured event per invocation with only approved keys', asyn
   const event = events[0]!;
   assert.deepEqual(
     Object.keys(event).sort(),
-    ['durationMs', 'event', 'reason', 'result', 'years'],
+    ['durationMs', 'event', 'invalidLifecycleTargets', 'reason', 'result', 'years'],
     'top-level schema is the exact allowlist'
   );
   assert.ok(Number.isInteger(event.durationMs) && event.durationMs >= 0);
@@ -1523,4 +1523,209 @@ test('a demo-only year is absent from every surface while a production year runs
     'production year WAS fetched'
   );
   assert.equal(await getAppState('schedule-weekly-control', '2030'), null);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1R2 — registry-container truth and structural lifecycle-year
+// validity, applied BEFORE ownership and before any schedule, probe, latch,
+// settings, provider, or presentation work.
+//
+// `status.year` reaches the ownership loop straight from durable JSON —
+// `getLeagues()` performs no per-record validation — so an unusable year
+// previously owned a maintenance year and drove a `schedule/<raw>-all-all` read,
+// a latch or probe operation, a settings decision, a billed E1A refresh, and a
+// presentation refresh.
+// ---------------------------------------------------------------------------
+
+/** An active league whose stored `status.year` is deliberately unusable. */
+function makeUnusableLeague(
+  slug: string,
+  year: unknown,
+  state: 'season' | 'preseason' = 'season'
+): League {
+  return {
+    slug,
+    displayName: `League ${slug}`,
+    year: 2031,
+    createdAt: '2022-01-01T00:00:00.000Z',
+    status: { state, year },
+  } as unknown as League;
+}
+
+// REGRESSION TEST — a corrupt container is no longer reported as an empty one.
+test('R2 regression: a malformed registry reports registry-malformed with no work', async () => {
+  await setAppState('leagues', 'registry', { 'league-2020': { state: 'season', year: 2020 } });
+  await seedSchedule(2020, CRITICAL_KICKOFF);
+
+  const { res, events } = await runRoute();
+  const body = (await res.json()) as {
+    result: string;
+    reason: string;
+    years: unknown[];
+    invalidLifecycleTargets: number;
+  };
+
+  // Controlled operational failure — 200, exactly like every other one on this
+  // route. Only authentication returns 401.
+  assert.equal(res.status, 200);
+  assert.equal(body.result, 'failure');
+  assert.equal(body.reason, 'registry-malformed');
+  assert.deepEqual(body.years, []);
+  assert.equal(body.invalidLifecycleTargets, 0);
+  assert.equal(events[0]?.reason, 'registry-malformed');
+  assert.equal(events[0]?.invalidLifecycleTargets, 0);
+  assert.deepEqual(events[0]?.years, []);
+
+  // Nothing downstream ran.
+  assert.deepEqual(providerUrlLog, [], 'no provider request of any shape');
+  assert.deepEqual(presentationFetchLog, [], 'no presentation refresh');
+});
+
+// CONTRACT PIN — a MISSING container keeps its pre-R2 behavior exactly, and a
+// store READ failure keeps its own distinct reason.
+test('R2 contract pin: missing and unreadable registries keep their existing reasons', async () => {
+  const missing = await runRoute();
+  const missingBody = (await missing.res.json()) as { reason: string };
+  assert.equal(missingBody.reason, 'no-maintenance-target');
+  assert.equal(missing.events[0]?.invalidLifecycleTargets, 0);
+
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  __setAppStateReadFailureForTests(new Error('registry down'), 'leagues');
+  try {
+    const unreadable = await runRoute();
+    const unreadableBody = (await unreadable.res.json()) as { result: string; reason: string };
+    assert.equal(unreadableBody.result, 'failure');
+    assert.equal(
+      unreadableBody.reason,
+      'canonical-context-unavailable',
+      'a store outage is not a corrupt container'
+    );
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
+});
+
+// REGRESSION TEST — every unusable-year shape is refused, for BOTH active
+// lifecycle states, before ownership or any downstream work.
+//
+// The fixture deliberately seeds `schedule/<raw-year>-all-all` with a parseable
+// kickoff, so on pre-R2 code the year classifies as ordinary maintenance and
+// reaches the provider. Without that the zero-provider assertion would pass
+// merely because `canonical-context-unavailable` short-circuited first.
+test('R2 regression: unusable-only production years refuse without reaching the provider', async () => {
+  const cases: Array<[string, unknown]> = [
+    ['missing', undefined],
+    ['string', '2020'],
+    ['fractional', 2020.5],
+    ['unsafe integer', 2 ** 53],
+    ['pre-football', 1800],
+    ['null', null],
+  ];
+  for (const state of ['season', 'preseason'] as const) {
+    for (const [label, year] of cases) {
+      await __deleteAppStateFileForTests();
+      __resetAppStateForTests();
+      resetScheduleRouteCacheForTests();
+      providerUrlLog.length = 0;
+      presentationFetchLog.length = 0;
+      await setAppState('leagues', 'registry', [makeUnusableLeague('alpha', year, state)]);
+      // The schedule the raw year WOULD have read, populated and classifiable.
+      await seedSchedule(String(year) as unknown as number, CRITICAL_KICKOFF);
+      stubProvider({ 2020: { regular: gameBody(2020), postseason: '[]' } });
+
+      const { res, events } = await runRoute();
+      const body = (await res.json()) as {
+        result: string;
+        reason: string;
+        years: unknown[];
+        invalidLifecycleTargets: number;
+      };
+      const where = `${state}/${label}`;
+
+      assert.equal(res.status, 200, where);
+      assert.equal(body.result, 'failure', where);
+      assert.equal(body.reason, 'unusable-lifecycle-year', where);
+      assert.equal(body.invalidLifecycleTargets, 1, where);
+      assert.deepEqual(body.years, [], `${where}: no per-year entry`);
+      assert.equal(events[0]?.invalidLifecycleTargets, 1, where);
+      assert.deepEqual(providerUrlLog, [], `${where}: no billed provider work`);
+      assert.deepEqual(presentationFetchLog, [], `${where}: no presentation refresh`);
+    }
+  }
+});
+
+// REGRESSION TEST — ordering. An active DEMO record with a malformed year stays
+// a demo exclusion; it must not be counted as an invalid production target.
+test('R2 regression: an active demo league with an unusable year keeps the F2H1T3 reason', async () => {
+  await setAppState('leagues', 'registry', [makeUnusableLeague(TEST_LEAGUE_SLUG, 2020.5)]);
+
+  const { res, events } = await runRoute();
+  const body = (await res.json()) as {
+    result: string;
+    reason: string;
+    invalidLifecycleTargets: number;
+  };
+
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'no-automatic-maintenance-target');
+  assert.equal(body.invalidLifecycleTargets, 0, 'a demo record is never an invalid TARGET');
+  assert.equal(events[0]?.invalidLifecycleTargets, 0);
+  assert.deepEqual(providerUrlLog, []);
+});
+
+// CONTRACT PIN — offseason and status-less PRODUCTION records were never
+// candidates, so they are not counted as invalid either.
+test('R2 contract pin: inactive production records are not invalid targets', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('off', { state: 'offseason' }),
+    makeLeague('nostatus', undefined),
+  ]);
+
+  const { res, events } = await runRoute();
+  const body = (await res.json()) as { reason: string; invalidLifecycleTargets: number };
+  assert.equal(body.reason, 'no-maintenance-target');
+  assert.equal(body.invalidLifecycleTargets, 0);
+  assert.equal(events[0]?.invalidLifecycleTargets, 0);
+});
+
+// REGRESSION TEST — a mixed registry: the valid year executes, the invalid one
+// is absent from every surface, and all three agree on the count. The executed
+// year is also the POSITIVE CONTROL for the zero-provider assertions above —
+// it proves this same path does reach the provider.
+test('R2 regression: a mixed registry executes the valid year and reports the refusal', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('league-2020', { state: 'season', year: 2020 }, 2020),
+    makeUnusableLeague('broken', 2020.5),
+  ]);
+  await seedSchedule(2020, CRITICAL_KICKOFF);
+  await seedSchedule('2020.5' as unknown as number, CRITICAL_KICKOFF);
+  stubProvider({ 2020: { regular: gameBody(2020), postseason: '[]' } });
+
+  const { res, events } = await runRoute();
+  const body = (await res.json()) as {
+    result: string;
+    years: Array<{ year: number }>;
+    invalidLifecycleTargets: number;
+  };
+
+  assert.ok(providerUrlLog.length > 0, 'the valid year still reached the provider');
+  assert.ok(
+    !providerUrlLog.some((url) => url.includes('2020.5')),
+    'no provider request names the refused year'
+  );
+  assert.deepEqual(
+    body.years.map((y) => y.year),
+    [2020],
+    'only the valid year produced an entry'
+  );
+  assert.deepEqual(
+    events[0]?.years.map((y) => y.year),
+    [2020]
+  );
+  assert.equal(body.invalidLifecycleTargets, 1);
+  assert.equal(events[0]?.invalidLifecycleTargets, 1);
+  // The valid year succeeded, so the refusal makes the run `partial`.
+  assert.equal(body.result, 'partial');
+  assert.equal(events[0]?.result, 'partial');
 });
