@@ -445,8 +445,35 @@ Execution order within F2 (each slice is one independently deployable PR):
         Refusal lands before any archive: rollover is the only consumer that WRITES durable data
         keyed on the year. Closed the LAST dangling-colon branch (r) and the
         `guardedLifecycleWrite` false claim (s).
-      - **F2H1R5 — System Health validity + the confirmed missing-status recovery** — **NEXT**, and
-        the FINAL slice of F2H1R. **AUDITED 2026-08-06 — read-only; the charter's central premise
+      - **F2H1R5 — RESOLVED BY DECISION, 2026-08-06.** The slice as chartered is closed out in
+        three parts rather than executed as one:
+        - **R5a — System Health year validity — NEXT.** Small, independent, read-only, no job. The
+          clamp silently SUBSTITUTES an out-of-range integer (`1800` → 2000, `999999` → 2027) and
+          then renders a full health picture for a year no league occupies. Note
+          `buildSystemHealthViewModel` has its own `validateYear` that THROWS outside [2000, 2100],
+          so the clamp is partly load-bearing — removing it naively turns a bad record into a 500 on
+          `/admin/diagnostics`.
+        - **R5b — RETIRED as a standalone slice; re-planned as PLATFORM-087.** Two attempts were
+          built and neither is shippable. v1 (`dd591ca`) DROPPED unusable elements and returned the
+          usable subset, which made an all-corrupt registry classify `ok` with zero leagues — every
+          cron reporting a benign zero-target reason at HTTP 200, System Health green: the campaign's
+          own falsehood class, reintroduced. v2 (`f5d9b65`, on
+          `platform/086f2h1r5-registry-integrity-v2`, never merged) classified correctly but its
+          consequences at the edges are not deferrable: `DELETE /api/admin/leagues/<slug>` answers
+          **404 "League not found"** over a corrupt registry (the prohibited falsehood, on the
+          surface an operator reaches for first), the public path empties with ZERO logging, the
+          typed `LeagueRegistryIntegrityError` is caught by no boundary so the framework 500 is
+          unchanged, and a malformed registry becomes unrepairable from inside the app because every
+          mutator refuses and nothing else writes the key. **Reader-level validation is not
+          independently shippable while it creates false 404s, silent empty pages, generic 500s, and
+          no recovery path.** See PLATFORM-087.
+        - **R5c — RETIRED.** The confirmed missing-status recovery has ZERO production targets and
+          no current write path can create one (see the audit below). It was also the highest-risk
+          item in the campaign, arming three jobs including an archive-producing one. NOT to be
+          confused with PLATFORM-087's salvage operation, which repairs a DIFFERENT condition
+          (registry corruption) and exists because the writer gating creates the state it repairs.
+        The audit that produced this decision follows.
+        **AUDITED 2026-08-06 — read-only; the charter's central premise
         does not hold, and the slice should be reduced.** The production registry was queried
         (read-only Neon role) and contains exactly two league records, both structurally sound:
         `tsc` preseason(2026) and `test` preseason(2027), both objects, both with valid integer
@@ -679,7 +706,48 @@ the freshness wiring. Estimated: 2–3 PROMPT_IDs end-to-end.
 Enable async drafts with configurable per-pick windows. Requires email notification infrastructure
 (new). See `docs/roadmap.md` for full scope.
 
-### 6. PLATFORM — Server Action Auth Hardening
+### 6. PLATFORM-087 — Registry integrity (dedicated campaign)
+
+Re-planned 2026-08-06 out of F2H1R5b, after two attempts proved reader-level validation is not
+independently shippable. **Not scheduled; sequence within it is binding when it is.**
+
+**The problem.** `readLeagueRegistry` classifies the CONTAINER (R1) but not the elements inside, so
+a non-object member flows through typed as `League`. Two harms are proven by probe: a `null`
+element THROWS inside `sanitizeLeagues` — that is `src/app/page.tsx`, the PUBLIC homepage — and a
+string element is spread into a character-indexed object and served to visitors. Nothing in the
+running code can write one; a restore from an old backup or a direct store edit can. Production is
+currently clean (verified read-only, 2026-08-06).
+
+**Why it is a campaign and not a slice.** Both shippable-looking designs fail at the edges rather
+than at the reader:
+
+- DROPPING unusable elements makes an all-corrupt registry classify `ok` with zero leagues, so every
+  cron reports a benign zero-target reason at HTTP 200 — the "no leagues exist over corrupt data"
+  falsehood this whole line of work exists to eliminate.
+- Classifying the container MALFORMED is correct at the reader and immediately creates four edge
+  falsehoods: `getLeague()` → `[]` makes `DELETE /api/admin/leagues/<slug>` answer 404 "League not
+  found" for a league that demonstrably exists; the public path empties with no log, event, or
+  status record; a typed integrity error reaches no HTTP or Server Action boundary, so the framework
+  500 is unchanged; and gating the writers makes a malformed registry unrepairable from inside the
+  app, since every mutator refuses and nothing else writes the key.
+
+**Phase 1 — truthful read edges.** Strict classification, plus EXPLICIT handling at every consumer
+class: public pages, the admin league list, CRUD preflight, diagnostics, and the crons. The binding
+rule is that malformed must never surface as empty or as 404 on any of them.
+
+**Phase 2 — write boundary and recovery.** Typed HTTP and Server Action refusals, plus an explicit,
+confirmed salvage operation. **Writer gating and recovery must land ATOMICALLY** — gating alone
+creates a state nothing can repair, which is precisely how the v2 attempt failed.
+
+Distinct from the retired F2H1R5c missing-status recovery: that had zero production targets and
+armed three automation jobs; this salvages registry corruption and exists because the gating creates
+the condition it repairs.
+
+Evidence, not to be merged or patched further: `dd591ca` (v1, branch deleted) and `f5d9b65`
+(v2, `platform/086f2h1r5-registry-integrity-v2`). Both carry full review records — Codex plus
+`/code-review` on the same commit — and the v2 review is the source of the edge inventory above.
+
+### 7. PLATFORM — Server Action Auth Hardening
 
 Enforce commissioner role on all mutating server actions. Remove `ADMIN_API_TOKEN` fallback from
 public routes.
