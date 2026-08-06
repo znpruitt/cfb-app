@@ -1015,6 +1015,40 @@ test('the System Health receipt summary distinguishes stale from benign targets'
     ],
   });
   assert.equal(clean, '1 year(s): 2026 (2/2 leagues)');
+
+  // PLATFORM-086F2H1R1 — the refusal count must reach the operator, and only
+  // when it is non-zero. Without these two cases, deleting the whole `unusable`
+  // suffix leaves the suite green (AGENTS.md: "if deleting the new guard leaves
+  // the suite green, the guard is not in the PR's acceptance contract").
+  const refused = summarizeReceiptTarget({
+    kind: 'season-transition-years',
+    totalYears: 1,
+    truncated: false,
+    invalidLifecycleTargets: 2,
+    years: [
+      {
+        year: 2026,
+        targetLeagues: 2,
+        probed: true,
+        transitionedLeagues: 2,
+        alreadyInTargetSeasonLeagues: 0,
+        removedLeagues: 0,
+        refusedLeagues: 0,
+      },
+    ],
+  });
+  assert.equal(refused, '1 year(s): 2026 (2/2 leagues) · 2 unusable lifecycle target(s)');
+
+  // The all-refused receipt has NO years, so the year list must not leave a
+  // dangling separator behind.
+  const allRefused = summarizeReceiptTarget({
+    kind: 'season-transition-years',
+    totalYears: 0,
+    truncated: false,
+    invalidLifecycleTargets: 1,
+    years: [],
+  });
+  assert.equal(allRefused, '0 year(s) · 1 unusable lifecycle target(s)');
 });
 
 // ---------------------------------------------------------------------------
@@ -1440,10 +1474,13 @@ test('R1 regression: a mixed run executes the valid year and reports the refusal
   assert.equal((await readLeague('alpha'))!.status!.state, 'season', 'alpha transitioned');
   assert.equal((await readLeague('broken'))!.status!.state, 'preseason', 'broken was untouched');
 
-  // A run that accomplished something alongside a refusal is `partial`, and the
-  // per-year reasons survive rather than being replaced by an integrity reason.
+  // A run that accomplished something alongside a refusal is `partial`. The
+  // REASON still names the executed year: the refusal rides on
+  // `invalidLifecycleTargets`, and the receipt's year entries carry no reason
+  // field, so overwriting it would erase the only durable record of what the
+  // valid year did.
   assert.equal(run.event.result, 'partial');
-  assert.equal(run.event.reason, 'year-results');
+  assert.equal(run.event.reason, 'season-transitioned');
 
   assert.equal(run.event.invalidLifecycleTargets, 1);
   assert.equal(run.body.invalidLifecycleTargets, 1);
@@ -1535,14 +1572,16 @@ test('R1 regression: a mid-run throw does not erase an already-detected refusal'
   assert.equal(run.event.years.length, 1);
   assert.equal(run.event.years[0]!.reason, 'probe-write-failed');
 
-  // The refusal detected BEFORE the throw survives it, on every surface.
+  // The refusal detected BEFORE the throw survives it, on every surface — the
+  // count is assigned ahead of the per-year loop precisely so a throw cannot
+  // lose it. The reason still names the fault that actually occurred.
   assert.equal(run.event.invalidLifecycleTargets, 1, 'the refusal is not erased by the throw');
-  assert.equal(run.event.reason, 'year-results', 'not collapsed to the throwing year’s reason');
+  assert.equal(run.event.reason, 'probe-write-failed', 'the real fault is still named');
 
   await deferrer.flush();
   const receipt = await readSchedulerReceipt('season-transition');
   assert.ok(receipt);
-  assert.equal(receipt.value.reason, 'year-results');
+  assert.equal(receipt.value.reason, 'probe-write-failed');
   assert.equal(receipt.value.target.kind, 'season-transition-years');
   if (receipt.value.target.kind !== 'season-transition-years') return;
   assert.equal(receipt.value.target.invalidLifecycleTargets, 1);

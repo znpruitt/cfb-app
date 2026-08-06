@@ -218,9 +218,9 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     // record flip this run's zero-target reason and silently undo F2H1T2.
     //
     // `status.year` reaches this point straight from durable JSON —
-    // `getLeagues()` performs no per-record validation — and the cast on the
-    // grouping line below is the only thing standing between corrupt storage and
-    // a Map key. An unusable year previously became that key, survived the
+    // `getLeagues()` performs no per-record validation — so before this slice
+    // the cast on the grouping line was the only thing between corrupt storage
+    // and a Map key. An unusable year became that key, survived the
     // zero-target gate, drove a probe read and a billed E1A refresh, and (when
     // `undefined`) produced a per-year entry whose `year` key `JSON.stringify`
     // drops, which fails receipt validation and discards the WHOLE job's latest
@@ -230,24 +230,24 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
     // no per-year entry, no probe read or write, no provider request, no
     // lifecycle write or invalidation, and no `targetLeagues` contribution to
     // any valid year.
-    const validTargets: typeof automaticTargets = [];
+    // Validity and grouping share ONE pass, so the narrowed year is the value
+    // that keys the map — there is no second unchecked cast whose safety depends
+    // on a loop somewhere above it.
+    const byYear = new Map<number, typeof automaticTargets>();
     let invalidLifecycleTargets = 0;
     for (const league of automaticTargets) {
       const year = (league.status as { state: 'preseason'; year?: unknown }).year;
-      if (isStructurallyValidSeasonYear(year)) validTargets.push(league);
-      else invalidLifecycleTargets += 1;
-    }
-    exec.invalidLifecycleTargets = invalidLifecycleTargets;
-    result.invalidLifecycleTargets = invalidLifecycleTargets;
-
-    // Group leagues by their preseason year so each year is probed/transitioned independently
-    const byYear = new Map<number, typeof validTargets>();
-    for (const league of validTargets) {
-      const year = (league.status as { state: 'preseason'; year: number }).year;
+      if (!isStructurallyValidSeasonYear(year)) {
+        invalidLifecycleTargets += 1;
+        continue;
+      }
       const group = byYear.get(year) ?? [];
       group.push(league);
       byYear.set(year, group);
     }
+    // Set BEFORE the per-year loop so a mid-loop throw cannot lose the refusal.
+    exec.invalidLifecycleTargets = invalidLifecycleTargets;
+    result.invalidLifecycleTargets = invalidLifecycleTargets;
 
     /**
      * PLATFORM-086F2H1R1 — the single aggregation authority, used by BOTH the
@@ -260,23 +260,35 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
      */
     const finalizeAggregate = (): void => {
       const yearsResult = aggregateLifecycleCronResult(entries);
-      if (invalidLifecycleTargets === 0) {
-        exec.result = yearsResult;
-        exec.reason = aggregateLifecycleCronReason(entries, 'year-results');
-        return;
-      }
-      if (entries.length === 0) {
-        // Nothing valid was even attempted — the refusal IS the outcome.
+
+      if (invalidLifecycleTargets > 0 && entries.length === 0) {
+        // Nothing valid was even attempted — the refusal IS the outcome, and it
+        // is the only thing there is to name.
         exec.result = 'failure';
         exec.reason = 'unusable-lifecycle-year';
         return;
       }
-      // Some valid work ran alongside the refusal. A run that accomplished
-      // something is `partial`; one whose valid years failed or did nothing is a
-      // plain `failure` — a refusal must never be the thing that upgrades a
-      // failed run's classification.
-      exec.result = yearsResult === 'failure' || yearsResult === 'skipped' ? 'failure' : 'partial';
-      exec.reason = 'year-results';
+
+      // The REASON always names the executed years, refusals or not. The
+      // refusal already rides on `invalidLifecycleTargets` across all three
+      // surfaces, so overwriting the reason would buy nothing and cost the only
+      // durable record of WHY those years failed: the receipt's year entries
+      // carry counts but no reason field. `year-results` also means "the
+      // per-year reasons disagree" — asserting it for a single year is false.
+      exec.reason = aggregateLifecycleCronReason(entries, 'year-results');
+
+      if (invalidLifecycleTargets === 0) {
+        exec.result = yearsResult;
+        return;
+      }
+
+      // A refusal alongside executed years. `partial` is reserved for a run that
+      // actually accomplished something — the same rule this route applies to a
+      // single year below, where a year that "wrote NOTHING" is a clean
+      // `failure` because `partial` would assert progress that did not happen.
+      // So `no-op`, `in-progress`, and `skipped` all classify `failure` here:
+      // the run refused a target and committed nothing.
+      exec.result = yearsResult === 'success' || yearsResult === 'partial' ? 'partial' : 'failure';
     };
 
     const now = new Date();

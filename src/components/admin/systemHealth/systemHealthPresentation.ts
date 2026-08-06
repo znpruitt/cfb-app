@@ -234,13 +234,14 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
               })
               .join(', ')}`
           : '';
-      // PLATFORM-086F2H1R1 — refused candidates have no year to file them under,
+      // PLATFORM-086F2H1R1 — refused CANDIDATES (leagues, not distinct years:
+      // three records sharing one bad year count three) have no year to file them under,
       // so they are appended at RUN level. Appended only when non-zero, so a
       // clean run (and a legacy receipt, which normalizes to 0) renders exactly
       // as before. A count only: never a slug or the unusable value itself.
       const unusable =
         target.invalidLifecycleTargets > 0
-          ? ` · ${target.invalidLifecycleTargets} unusable lifecycle year(s)`
+          ? ` · ${target.invalidLifecycleTargets} unusable lifecycle target(s)`
           : '';
       return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}${yearDetail}${unusable}`;
     }

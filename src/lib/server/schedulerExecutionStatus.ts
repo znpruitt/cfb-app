@@ -285,9 +285,9 @@ export function seasonTransitionYearsTarget(
     removedLeagues?: number;
     refusedLeagues?: number;
   }>,
-  // Optional in the PARAMETER so pre-R1 callers and fixtures remain valid; the
-  // built target always carries an explicit number.
-  invalidLifecycleTargets: number = 0
+  // REQUIRED: a defaulted parameter would let a caller that reconstructs this
+  // target silently record zero refusals with no compiler signal.
+  invalidLifecycleTargets: number
 ): Extract<SchedulerExecutionTarget, { kind: 'season-transition-years' }> {
   const years = entries.slice(0, MAX_SCHEDULER_TARGET_YEARS).map((entry) => ({
     year: entry.year,

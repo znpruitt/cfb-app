@@ -110,17 +110,20 @@ test('a new receipt emits every disposition counter explicitly', () => {
     result: 'partial',
     reason: 'lifecycle-transition-refused',
     providerCallAttempted: true,
-    target: seasonTransitionYearsTarget([
-      {
-        year: 2026,
-        targetLeagues: 4,
-        probed: true,
-        transitionedLeagues: 1,
-        alreadyInTargetSeasonLeagues: 1,
-        removedLeagues: 1,
-        refusedLeagues: 1,
-      },
-    ]),
+    target: seasonTransitionYearsTarget(
+      [
+        {
+          year: 2026,
+          targetLeagues: 4,
+          probed: true,
+          transitionedLeagues: 1,
+          alreadyInTargetSeasonLeagues: 1,
+          removedLeagues: 1,
+          refusedLeagues: 1,
+        },
+      ],
+      0
+    ),
   });
 
   assert.ok(receipt);
@@ -139,9 +142,10 @@ test('a new receipt emits every disposition counter explicitly', () => {
 
 test('the builder defaults omitted counters to zero rather than undefined', () => {
   // Pre-H1B call sites and fixtures pass only the original four fields.
-  const target = seasonTransitionYearsTarget([
-    { year: 2026, targetLeagues: 1, probed: false, transitionedLeagues: 0 },
-  ]);
+  const target = seasonTransitionYearsTarget(
+    [{ year: 2026, targetLeagues: 1, probed: false, transitionedLeagues: 0 }],
+    0
+  );
 
   assert.deepEqual(target.years[0], {
     year: 2026,
