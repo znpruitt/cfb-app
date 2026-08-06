@@ -436,7 +436,7 @@ Execution order within F2 (each slice is one independently deployable PR):
         fractional-AND-string CFP hazard: `Date.UTC` coerces, so a string year made the
         context-free publication window due and billed `/info` plus both partitions. Closed the
         `rankings-years` half of (r), and closed (o) and (p) as decisions below.
-      - **F2H1R4 — rollover validity** — **NEXT**, implemented and in review. Completes container
+      - **F2H1R4 — rollover validity** — ✅ MERGED (PR #455, `995c18e`, 2026-08-06). Completes container
         truth on ALL FOUR registry consumers. The cron refuses a malformed container with 500 and
         the shared manual route with 409 (admin API contract: the request is well-formed and no
         dependency is down). `completeSeasonRollover` validates independently inside its
@@ -444,12 +444,17 @@ Execution order within F2 (each slice is one independently deployable PR):
         it after makes the stored check dead code and misreports corruption as a stale target.
         Refusal lands before any archive: rollover is the only consumer that WRITES durable data
         keyed on the year. Closed the LAST dangling-colon branch (r) and the
-        `guardedLifecycleWrite` false claim (s). (both the cron and the shared manual route, plus the missing
-        structural check in `completeSeasonRollover`) · **F2H1R5 — System Health validity + the
-        confirmed missing-status recovery**, which lands LAST because it is the only slice that ARMS
-        automation: a status-less record is inert to every target selector today, and repairing it to
-        `season(Y)` makes it a rollover target (archive-producing), a weekly-schedule `season` owner
-        (the pause-exempt branch), and a rankings target within 24h.
+        `guardedLifecycleWrite` false claim (s).
+      - **F2H1R5 — System Health validity + the confirmed missing-status recovery** — **NEXT**, and
+        the FINAL slice of F2H1R. It lands last because it is the only slice that ARMS automation: a
+        status-less record is inert to every target selector today, and repairing it to `season(Y)`
+        makes it a rollover target (archive-producing, and now year-validated by R4), a
+        weekly-schedule `season` owner (the pause-exempt branch), and a rankings target within 24h.
+        Landing it after R1–R4 means every job it arms already refuses malformed containers and
+        unusable years — which was the whole reason the audit inverted the charter's implied order.
+        It also owns (i) `resolveOperationalSeasonYear` laundering an unusable year through the
+        clamp, and (n) per-RECORD validation inside an `ok` container, the one piece of container
+        truth R1–R4 deliberately left open.
       This sequence owns the year-VALIDITY items every F2H1T slice deliberately refused: (a)
       unvalidated `status.year` in cron target selection, (e) a fractional year reaching the rankings
       cron's context-free CFP window and billing provider requests — note the hazard is NOT

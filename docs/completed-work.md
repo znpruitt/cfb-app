@@ -2322,6 +2322,92 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H1R4 — Rollover Registry-Container Truth + Year Validity — Complete
+
+- **Status:** Complete — merged to `main` via PR #455 (merge commit `995c18e`), 2026-08-06.
+  **Fourth of five F2H1R slices**; R5 is next and is the FINAL slice.
+- **PROMPT_ID(s):** `PLATFORM-086F2H1R4-ROLLOVER-YEAR-VALIDITY-v1`.
+- **Outcome:** the season-rollover cron and its shared manual `/api/admin/rollover` consumer read
+  the registry CONTAINER through `readLeagueRegistry()`; a malformed one refuses with
+  `failure / registry-malformed` at HTTP 500 on the cron (Vercel-native delivery boundary) and 409
+  on the manual route (admin API contract — the request is well-formed and no dependency is down,
+  so it is stored state preventing the operation). `groupRolloverTargets` takes a REQUIRED refusal
+  sink and validates production `status.year` AFTER the demo exclusion, publishing refusals as it
+  counts them. `completeSeasonRollover` validates independently inside its serialized transaction
+  with a closed `unusable-target-year` outcome that writes nothing. Run-level
+  `invalidLifecycleTargets` on every authenticated response, the event, and the receipt; legacy
+  receipts normalize to 0 and an invalid present value rejects. **This completes container truth
+  across all four registry consumers.**
+- **Why this slice mattered most of the four.** Rollover is the only registry consumer that WRITES
+  durable data derived from the year. `saveSeasonArchive` keys on `String(archive.year)` with no
+  TTL, and the written `{ state: 'offseason' }` status carries NO year — so the top-level
+  `league.year` becomes the ONLY surviving record of the season, and that is the field
+  `resolveOperationalSeasonYear` reads for offseason leagues (F2H1T5). The other three jobs' worst
+  case was a billed provider call and a false report: observable and recoverable. This one would
+  have minted a permanent artifact under a corrupt key and poisoned the operational-year resolver
+  with nothing left to contradict it. The refusal therefore lands before championship resolution,
+  archive build/save, lifecycle write, standings invalidation, and suppression cleanup.
+- **The central review finding, and why it is uncomfortable.** `completeSeasonRollover`'s
+  stored-year check was UNREACHABLE: reaching it already proved `current.status.year === year`, and
+  the requested year had just been validated. A corrupt stored record therefore fell into the
+  mismatch branch and reported `not-in-target-season` — telling an operator another actor moved the
+  league, when the truth is data corruption needing repair. Two different remedies conflated, which
+  is exactly what this slice exists to remove. **My own test named "a corrupt STORED season year is
+  refused even when the caller echoes it" passed only via the REQUESTED-year check** and never
+  entered the branch it claimed to cover; `/code-review` mutation-proved this by replacing the
+  branch with a `throw` and watching all 41 relevant tests still pass. Validity is now decided on
+  BOTH sides BEFORE the equality comparison, and the test is split so each covers the branch it
+  names.
+- **R4 would have introduced this campaign's own falsehood class at the UI layer.** Both rollover
+  panels discarded `invalidLifecycleTargets`, so an all-refused registry rendered "No production
+  league is currently in season" — false, and precisely what F2H1T2/T3/T4 and R1–R3 each refused to
+  ship. The backend removed the falsehood from four jobs while the UI created it. `SeasonRolloverPanel`
+  now states the refusal count truthfully; `RolloverPanel` still hides when nothing is eligible,
+  which is its documented role. The issue code and repair link remain F2H3's (item (q)).
+- **Also corrected in the same round:** an authenticated 500 omitting the count while the event and
+  receipt carried it — with `CronResult` never declaring the field, so five emitting sites escaped
+  the declared contract via `NextResponse<Body>`'s phantom type parameter; a manual-surface sink
+  comment claiming throw-durability the handlers did not implement; two panels rendering a 409
+  refusal body as raw JSON prose instead of the operator-readable string written for it; a
+  `unusable-target-year` message asserting the LEAGUE record is corrupt when the outcome is neutral
+  about which side is; and a run-scoped refusal count worded as though it blocked the specific
+  requested year.
+- **A negative assertion I nearly shipped blind.** The "no durable archive was written" observer
+  used the wrong scope (`archive:<slug>` instead of `standings-archive:<slug>`). The paired POSITIVE
+  CONTROL failed immediately and exposed it — without that control the slice's central claim would
+  have been proven by an observer that could never see an archive at all.
+- **One thing deliberately NOT faked.** A write-time `unusable-target-year` refusal now increments
+  the count. It is a genuine production race (`mutateRegistry` re-reads inside the transaction, so
+  another actor corrupting the record between selection and the write makes the writer refuse where
+  the selector accepted) but is NOT reachable in-process from either suite, because both routes
+  derive the requested year from the same stored value the selector already validated. A test was
+  written, found to assert only a healthy control, and REMOVED in favor of a note explaining why no
+  test exists.
+- **Deferrals closed:** (m) malformed-vs-empty on all four consumers; (r) all four receipt summary
+  branches guard the empty year list — having to fix the same defect four times is itself the
+  argument for (t); (s) the `guardedLifecycleWrite` false claim corrected in place, and the
+  consequence it hid — rollover being the one lifecycle writer with no structural year check —
+  fixed. Converging the two writers remains F2H2's.
+- **Carried:** (t) promoted to READY (its window was "once across R3–R5, when all four consumers
+  exist" — they now do: four near-identical summary branches and three structurally identical
+  refusal-sink declarations). (w) NEW: `registry-malformed` is 500 while `unusable-lifecycle-year`
+  is 200 on the same Vercel-native route, both `result: 'failure'`; R1 has the same asymmetry, so
+  R4 inherited rather than introduced it and it must be decided across R1 and R4 together.
+- **Review:** both reviews gathered against the same commit (`2f19802`) before any patching. Codex
+  raised three P2s; `/code-review` raised fifteen findings and reached the same top three
+  independently. ONE cohesive round under DOCS-013 applied ten and recorded five.
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. EIGHT
+  mutations, each compiling, applied alone, and killed by a named test. Focused deltas, re-run and
+  verified against the suites rather than carried from memory: `rolloverTargeting` 4 → 10, cron
+  route 6 → 12, cron receipts 10 → 17, manual route 15 → 20, `guardedTransitions` 11 → 15. Full
+  suite 3374 → 3378.
+- **What R5 inherits.** Every job R5's recovery would ARM now refuses malformed containers and
+  unusable years, which was the entire reason the F2H1R audit inverted the charter's implied
+  ordering. R5 owns System Health validity, (i) `resolveOperationalSeasonYear` laundering an
+  unusable year through the clamp, (n) per-RECORD validation inside an `ok` container — the one
+  piece of container truth R1–R4 deliberately left open — and the confirmed missing-status recovery.
+
 ### PLATFORM-086F2H1R3 — Rankings Registry-Container Truth + Year Validity — Complete
 
 - **Status:** Complete — merged to `main` via PR #454 (merge commit `10186b2`), 2026-08-06.

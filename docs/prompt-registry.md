@@ -96,7 +96,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   cron receipts 10 → 17, manual route 15 → 20, `guardedTransitions` 11 → 15. Full suite 3374 → 3378.
   `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
   run as their own command with unmasked exit status.
-- Status: Implemented; in final pre-merge review. Not merged.
+- Status: MERGED via PR #455 (`995c18e`), 2026-08-06.
 
 ### PLATFORM-086F2H1R3-RANKINGS-YEAR-VALIDITY-v1
 
