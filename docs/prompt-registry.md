@@ -240,7 +240,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   by dedup, and the test now asserts the global subject directly).
   `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
   run as their own command with unmasked exit status.
-- Status: implemented and reviewed; not yet merged.
+- Status: MERGED via PR #460 (`5822a16`), 2026-08-07.
 
 ### PLATFORM-086F2H3B1-LIFECYCLE-PRESENTATION-AND-TEST-CONTROL-FEEDBACK-v1
 

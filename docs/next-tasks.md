@@ -92,7 +92,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 ### 0. INSIGHTS-021 — current-year authority — DROPPED; repaired as data instead
 
 **Not implemented. Decision 2026-08-06: repair the drifted registry row and drop the slice.**
-`NEXT` returns to F2H2 (§1 below) — since completed; `NEXT` is now F2H3.
+`NEXT` returned to F2H2 (§1 below); F2H2 and F2H3 have since completed, and `NEXT` is now F2I.
 
 **The defect.** `buildLeagueInsightContext` derives `lifecycleState` from `league.status` (correct)
 but took `currentYear` from the top-level `league.year` projection, so on the live `tsc` shape
@@ -719,8 +719,10 @@ Execution order within F2 (each slice is one independently deployable PR):
         equivalent.
         **Removal lands in F2H3**, not here — it is a panel-consolidation change, and doing it
         during the merge avoids building the merge twice. F2H2B stays focused on operator truth.
-    - **F2H3 — Season Management presentation** — **NEXT is F2H3B.** Split into F2H3A (merged) and
-      F2H3B (queued).
+    - **F2H3 — Season Management presentation** — ✅ **COMPLETE** (F2H3A PR #458, F2H3B1 PR #459,
+      F2H3B2 PR #460). Closed four deferrals carried from earlier slices: demo UI copy (F2H1T2–T5),
+      typed operator feedback in `TestLeagueControls.tsx` (F2H1T1), the lifecycle-integrity issue
+      (q) from F2H1R3, and the manual route's bare `catch {}` from F2H2B.
       - **F2H3A — rollover surface consolidation.** ✅ MERGED (PR #458, `6a8b86c`, 2026-08-07). Audited
         read-only first (2026-08-07); the owner settled every product decision before implementation.
         Manual rollover EXECUTION is retired — `POST /api/admin/rollover` is preview-only and
@@ -743,7 +745,7 @@ Execution order within F2 (each slice is one independently deployable PR):
           A second live falsehood surfaced during implementation: a legacy missing-status record
           reaches NO lifecycle job, so the inferred season label must not carry the season's
           automation claim.
-        - **F2H3B2 — System Health lifecycle-integrity warning.** Implemented; **not yet merged**. One combined issue derived
+        - **F2H3B2 — System Health lifecycle-integrity warning.** ✅ MERGED (PR #460, `5822a16`, 2026-08-07). One combined issue derived
           from `invalidLifecycleTargets > 0` on any scheduler receipt, INDEPENDENT of the aggregate
           job result (deferral (q), from F2H1R3). **Owner rulings: display NO number** — receipts
           carry per-job, per-run counts and never slugs, so four jobs counting the same corrupt
@@ -779,8 +781,8 @@ Execution order within F2 (each slice is one independently deployable PR):
         execution is ever restored, its standings-invalidation handling must be HARDENED AND TESTED,
         never reinstated from the retired bare catch. This is now also stated in AGENTS.md
         invariant 5.
-12. Then, in order: F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
-    navigation closeout.
+12. **NEXT — F2I Platform Configuration / Team Identity**, then F2J commissioner boundaries +
+    navigation closeout. These are the last two F2 slices.
 
 The legacy diagnostics tools remain available and unmoved until the corresponding slice ships.
 

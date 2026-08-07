@@ -2378,6 +2378,45 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H3B2 — System Health Lifecycle-Integrity Issue — Complete
+
+- **Status:** Complete — merged to `main` via PR #460 (merge commit `5822a16`), 2026-08-07. Second of
+  two F2H3B slices. **F2H3 is complete**; F2I is next.
+- **PROMPT_ID(s):** `PLATFORM-086F2H3B2-SYSTEM-HEALTH-LIFECYCLE-INTEGRITY-v1`.
+- **Outcome:** `lifecycle-data-unusable` — `warning`, axis `global`, subject `lifecycle-integrity`,
+  `repair: null`. Closes deferral (q), carried since PLATFORM-086F2H1R3. Derived entirely from facts
+  the issue model already received: the count rides on the receipt TARGET for the four
+  lifecycle-bearing jobs and the parser normalizes a legacy `undefined` to 0, so **no new read was
+  needed**. It had surfaced only as a suffix inside a collapsed scheduler row.
+- **Never derived from `result`.** R3's ruling is that a valid target can succeed while another
+  production record is refused, so a `success` / `partial` / `no-op` / `skipped` run can still carry
+  refusals. It is ADDITIVE to `scheduler-execution-failed`, never a replacement.
+- **No number, by data constraint.** Counts are per JOB and per RUN and count RECORDS, and the same
+  corrupt league is counted independently by up to four jobs. Summing multiplies one league; a
+  maximum compares runs from different times; a deduplicated league count is not derivable, because
+  a receipt carries counts and never a slug. The issue names the reporting JOBS.
+- **`repair: null`, verified end to end:** no supported operation writes a lifecycle status or year
+  onto a production record. Recovery is PLATFORM-087's, unscheduled; the runbook documents the
+  out-of-band response.
+- **Review — one defect, in the INTEGRATION rather than the derivation.** `providerDataPanel`'s
+  predicate is RESIDUAL, so a new code lands in Provider data by default: an otherwise-healthy
+  system rendered "Provider data · Attention needed · Production lifecycle data is unusable", and
+  because `governing` takes the first match in the globally-sorted list while `compareIssues` ranks
+  the `global` axis ahead of `dataset`, it also DISPLACED a genuine provider fault from that tile's
+  single detail line. **No existing test pinned the residual-bucket behaviour, so the suite stayed
+  green.** Remediated with an explicit `UNTILED_CODES` claim, excluded from the provider predicate
+  and folded into OVERALL — because `overallPanel` rolls up the five SECTION tiles, so excluding it
+  everywhere would have left the dashboard reporting "all systems are operating normally" above an
+  open warning. Five green section tiles under a yellow Overall is deliberate, pinned, and
+  documented.
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
+  3427 → 3438 (+11). Eight mutations, each compiling, applied alone, killed by a named test; one was
+  INERT and replaced — emitting one issue per job with the same global subject is invisible, because
+  the derivation's dedup collapses identical `code|axis|id` identities.
+
+---
+
 ### PLATFORM-086F2H3B1 — Lifecycle Presentation and Typed Test-Control Feedback — Complete
 
 - **Status:** Complete — merged to `main` via PR #459 (merge commit `b07f2d6`), 2026-08-07. First of
