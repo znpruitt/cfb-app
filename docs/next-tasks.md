@@ -703,15 +703,33 @@ Execution order within F2 (each slice is one independently deployable PR):
         which owners' outcomes flip by name, and per-owner standings movement; `SeasonRolloverPanel`
         is structurally broader (all years, all eligibility states, reasons, dates). Deleting either
         loses operator information. Merge capability instead, under F2H3.
-      - **Open question for F2H3:** manual rollover EXECUTION may not be needed at all. Nothing but
-        the two panels calls it, it sits behind the identical gate as the cron (`there is no
-        force/emergency bypass`), and the cron runs daily — so the button does at most 24 hours
-        early what happens anyway. The manual route predates the cron (2026-04-01 vs 2026-04-17).
-        The PREVIEW is the part with unique value. If execution goes, the panel-merge problem
-        largely dissolves.
+      - ✅ **DECIDED 2026-08-07 — manual rollover EXECUTION is retired; PREVIEW is kept.** Owner
+        ruling: the button has no unique authority and no unique recovery behavior. It sits behind
+        the identical gate as the daily cron (`there is no force/emergency bypass`), which runs
+        anyway, so it only advances an already-eligible rollover by less than 24 hours — and that
+        convenience does not justify another permanent lifecycle-write surface. Nothing but the two
+        panels calls it, and the manual route predates the cron (2026-04-01 vs 2026-04-17), which is
+        why it exists at all. The PREVIEW keeps its unique value: it is the only way to see which
+        owners' final standings would flip BEFORE anything is written, and the cron has no
+        equivalent.
+        **Removal lands in F2H3**, not here — it is a panel-consolidation change, and doing it
+        during the merge avoids building the merge twice. F2H2B stays focused on operator truth.
     - **F2H3 — Season Management presentation** — planned: render per-league lifecycle separately
       from automation ownership and surface guarded refusal/recovery outcomes with operator-readable
-      action state.
+      action state. **Also owns two decisions taken during the F2H2 audit:**
+      - **Retire manual rollover EXECUTION, keep PREVIEW** (decided 2026-08-07 — see the F2H2 entry
+        above for the reasoning). Removes `POST /api/admin/rollover`'s `confirmed: true` path and
+        the execute controls from both panels; the GET status/preview path stays. This must amend
+        **AGENTS.md Lifecycle Authority invariant 5**, which currently reads "Season rollover —
+        manual AND automatic — is per-year, strict, and shared" and describes the manual route's
+        group-atomic two-stage execution. Leaving that invariant stale would be the exact
+        false-canonical-claim class F2H2A had to sweep four documents for.
+      - **Merge the two rollover panels by CAPABILITY, never by deleting one.** Neither is a
+        superset of the other: `RolloverPanel` uniquely shows the overwrite warning, which owners'
+        outcomes flip by name, and per-owner standings movement; `SeasonRolloverPanel` is
+        structurally broader (all years, all eligibility states, reasons, dates). With execution
+        retired the merge gets substantially simpler — one status surface carrying the preview, and
+        no duplicate execute controls to reconcile.
 12. Then, in order: F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
     navigation closeout.
 
