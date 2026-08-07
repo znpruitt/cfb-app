@@ -98,6 +98,46 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   run as their own command with unmasked exit status.
 - Status: MERGED via PR #455 (`995c18e`), 2026-08-06.
 
+### PLATFORM-086F2H2A-RETIRE-SEASON-BACKFILL-v1
+
+- Purpose: Retire the admin season-backfill surface rather than harden it. Backfill was a one-time
+  historical import for TSC league data, not a product feature; the only remaining use case (a
+  missed historical year surfacing later) is a deliberate one-off, not a standing admin button.
+- Scope: delete `POST /api/admin/backfill`, `BackfillPanel`, the `/admin/season` mount, and the
+  dead registry read that fed only that panel; correct every comment and canonical doc asserting
+  the removed route as a live writer or as "the only repair". No change to either rollover path, to
+  `game-stats-full-backfill` (a different operation), or to historical ROSTER import via the owners
+  route.
+- Why retire rather than guard: the route performed a write that is DURABLE, PUBLICLY VISIBLE (a
+  season archive renders on the league history page), and IRREVERSIBLE — no code path anywhere
+  deletes an archive — and it shipped COMPLETELY UNTESTED. Review of the hardening attempt found
+  two ways to trigger it unintentionally. (1) The confirmation gate read
+  `existing !== null && !confirmed`, so a request with no existing archive skipped it entirely and
+  fell through to `saveSeasonArchive`: the button labelled "Preview Backfill" WAS the write, and
+  the client acknowledged this in a comment rather than treating it as a defect. (2) The only year
+  bound was `>= 2000`, so the CURRENT in-season year was accepted — and succeeded, because the live
+  season's schedule cache always exists. Deleting the surface removes the risk class; a wrong
+  keystroke can no longer mint a permanent public archive because there is nothing to click.
+- Capability preserved: `buildSeasonArchive` and `saveSeasonArchive` are used by BOTH rollover
+  paths, so they remain live, maintained, and continuously exercised. A future repair is a few lines
+  against tested code and is safer than an admin surface because it cannot be reached accidentally.
+- Discarded evidence: `d27fffb` (hardening) and `0bc7f4d` (its review remediation), both unmerged,
+  branch deleted. Their review record is what established the two defects above, so the sunk work
+  became the retirement's justification rather than its foundation. Reconstructed from `main`
+  rather than layering a deletion on the hardening.
+- Review / verification: Codex and `/code-review` gathered against the same commit (`48fcdea`).
+  Both confirmed the deletion itself is clean — no dangling callers, no broken types, no removed
+  guard another path depended on. Every finding was a truth/closeout gap: four canonical
+  `Status: Current` docs still carried the route in their inventories, writer sets, verified-wiring
+  lists, and repair instructions, and no ledger entry existed. One code comment I had already
+  REWORDED was still false — it claimed a bogus cached `null` could let a writer "overwrite without
+  confirmation", but no surviving consumer gates a write on archive existence; the real hazard is a
+  hidden overwrite warning. Corrected in a round whose stated purpose was comment truthfulness.
+  Test delta: 3386 → 3378 (−8, the hardening suites that never reached `main`; the retired route
+  itself never had tests). `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status.
+- Status: Implemented; in final pre-merge review. Not merged.
+
 ### PLATFORM-086F2H1R3-RANKINGS-YEAR-VALIDITY-v1
 
 - Purpose: Apply the R1/R2 registry-container and lifecycle-year truth to the rankings publication

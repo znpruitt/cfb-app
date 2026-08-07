@@ -30,8 +30,9 @@ import {
  *
  * Consumers are live since the PLATFORM-086H3E (E3) activation. Absent or
  * malformed snapshots FAIL CLOSED in the analytics provenance path (distinct
- * unavailable reason, no live rebuild); the only repair is the established
- * preview/confirm archive backfill.
+ * unavailable reason, no live rebuild). The only repair is re-archiving the
+ * year — a deliberate one-off since PLATFORM-086F2H2A retired the admin
+ * backfill surface; the archive builders remain live and rollover-exercised.
  */
 
 export const GAME_STAT_SLATE_SNAPSHOT_VERSION = 1 as const;

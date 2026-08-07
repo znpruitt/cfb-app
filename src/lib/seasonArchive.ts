@@ -32,8 +32,10 @@ export type SeasonArchive = {
    * derived from the EXACT build that produced `games` and paired ONLY with
    * this archive's own `scoresByKey`. OPTIONAL: archives written before E1
    * legitimately lack it; analytics consumers (E3) fail closed on absence or
-   * malformation rather than rebuilding a live slate, and the established
-   * preview/confirm backfill is the only repair.
+   * malformation rather than rebuilding a live slate. Re-archiving the year is
+   * the only repair; PLATFORM-086F2H2A retired the admin backfill surface that
+   * provided it, so that repair is now a deliberate one-off against the archive
+   * builders (still live, still exercised by both rollover paths).
    */
   gameStatSlate?: GameStatSlateSnapshot;
 };
@@ -57,14 +59,15 @@ function archiveScope(leagueSlug: string): string {
 // ---------------------------------------------------------------------------
 // Archive read cache (PLATFORM-082A)
 //
-// Season archives are persisted, effectively-immutable snapshots — written
-// once at rollover/backfill and only ever overwritten by another deliberate
-// backfill of the same year. That makes them a safe cross-request caching
-// target: the read output depends only on (slug, year), never on the current
-// alias/roster/owner-label state (those are baked into the snapshot at write
-// time). We mirror the canonical-standings cache pattern: `React.cache` for
-// per-request dedup layered over `unstable_cache` for cross-request caching,
-// with tag-only invalidation (no time expiry) fired from `saveSeasonArchive`.
+// Season archives are persisted, effectively-immutable snapshots — written once
+// at rollover and only ever overwritten by a deliberate re-archive of the same
+// year (PLATFORM-086F2H2A retired the admin backfill surface). That makes them a
+// safe cross-request caching target: the read output depends only on
+// (slug, year), never on the current alias/roster/owner-label state (those are
+// baked into the snapshot at write time). We mirror the canonical-standings
+// cache pattern: `React.cache` for per-request dedup layered over
+// `unstable_cache` for cross-request caching, with tag-only invalidation (no
+// time expiry) fired from `saveSeasonArchive`.
 // ---------------------------------------------------------------------------
 
 /** Tag carried by every cached read for a league — busts the year list and all per-year entries. */
@@ -114,9 +117,21 @@ export function isMissingRequestStore(err: unknown): boolean {
 // return `null`/`[]` ONLY when the row/scope is truly empty and THROW on a
 // real store/database failure. We deliberately do NOT catch here — a transient
 // failure must reject so `unstable_cache` never persists a bogus `null`/`[]`
-// under `revalidate: false` (which would make history vanish until the next
-// write, and let a backfill treat a cached `null` as "no existing archive" and
-// overwrite without confirmation). Only genuine emptiness is cacheable.
+// under `revalidate: false`. Only genuine emptiness is cacheable.
+//
+// The CONSEQUENCE of a bogus cached `null` changed with PLATFORM-086F2H2A and
+// the correction is worth stating precisely, because the previous wording
+// survived one rewrite while still being wrong. It said such a value would let
+// a writer "treat a cached `null` as 'no existing archive' and overwrite
+// without confirmation". No surviving consumer gates a write on archive
+// existence: the manual rollover route is the only write-side reader of
+// `getSeasonArchive`, confirmation there is an explicit operator `confirmed`
+// boolean, and `existing` feeds only DISPLAY fields (`hasExistingArchive` and
+// `diff`). A bogus `null` therefore cannot bypass a gate — it silently shows the
+// operator "new" for a year that already has an archive, hiding the overwrite
+// warning and the diff on an irreversible write. The conclusion (do not catch)
+// is unchanged; the hazard it guards against is a hidden warning, not a
+// bypassed confirmation.
 async function readSeasonArchiveFromStore(
   leagueSlug: string,
   year: number
@@ -188,7 +203,7 @@ export const listSeasonArchives = cache(async (leagueSlug: string): Promise<numb
 
 /**
  * Bust the cross-request archive cache for a league+year. Called from
- * `saveSeasonArchive` so every write path (admin backfill, admin rollover, cron
+ * `saveSeasonArchive` so every write path (admin rollover, cron
  * season-rollover, and any future writer) invalidates without per-call-site
  * wiring. The slug tag alone covers the year list and every per-year read; the
  * year tag is added for explicitness. Must run in a request context —
@@ -210,7 +225,7 @@ export async function saveSeasonArchive(archive: SeasonArchive): Promise<void> {
     // invalidation failure inside a request MUST propagate — the archive cache
     // has no TTL, so swallowing it would serve the previous archive/year list
     // indefinitely while reporting success. Propagating lets the admin/cron
-    // rollover/backfill surface the failure and be retried.
+    // rollover surface the failure and be retried.
     if (!isMissingRequestStore(err)) throw err;
   }
 }

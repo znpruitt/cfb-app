@@ -673,10 +673,42 @@ Execution order within F2 (each slice is one independently deployable PR):
         shape — an exact season+year re-check producing a typed outcome). The consequence the false
         claim was hiding is fixed: rollover now has its own structural year check. Converging the
         two writers remains F2H2's.
-    - **F2H2 — rollover/archive/backfill consolidation** — **NEXT.** Audit FIRST: this surface
-      writes permanent archives. Planned: converge the remaining rollover
-      projection/result contract, fix benign redelivery reporting without hiding genuine refusals,
-      consolidate the duplicate strict rollover UI, and organize archive/backfill operations.
+    - **F2H2 — rollover/archive consolidation** — **NEXT.** Audit FIRST: this surface writes
+      permanent archives. **Audited 2026-08-06** (6 dimensions, adversarially verified); the value
+      verdict retired two of the five chartered items and rescoped a third:
+      - **F2H2A — admin season backfill RETIRED.** ✅ Done (unmerged at time of writing). Owner
+        decision: backfill was a one-time historical TSC import, not a product feature. Review of a
+        hardening attempt (`d27fffb`, `0bc7f4d`, both unmerged and discarded) found two ways to
+        trigger an irreversible write unintentionally — the confirmation gate read
+        `existing !== null && !confirmed`, so "Preview Backfill" WAS the write whenever no archive
+        existed, and the only year bound was `>= 2000`, so the live in-season year was accepted and
+        SUCCEEDED because the current season's schedule cache always exists. The surface shipped
+        completely untested. Retiring removes the risk class rather than guarding it; the capability
+        survives in `buildSeasonArchive`/`saveSeasonArchive`, still exercised by both rollover paths,
+        so a future one-off is a few lines against tested code.
+      - **Retired as chartered items:** "converge the rollover projection/result contract" (the two
+        surfaces have genuinely different jobs; no misleading output found) and "benign duplicate
+        delivery reporting" (no path was produced where a redelivery reports as failure — the
+        premise appears false).
+      - **F2H2B — rollover operator truth.** The daily cron reports `no-season-leagues` when the
+        DEMO league is the only one in season. Live today, needs no corruption, and is the default
+        post-reset demo state; the three sibling jobs each have a demo-only reason and rollover is
+        the last without one. No test covers the shape — every existing assertion seeds an EMPTY
+        registry where the reason is true, which is why it survived four merged R-slices. Also:
+        `invalidateStandings` shares a `try/catch` with the lifecycle write, so a cache-invalidation
+        throw is reported as a status-write failure that did not happen. Archive-first retry
+        behavior is to be DOCUMENTED as intended, not changed here.
+      - **Rescoped: the "duplicate rollover UI" must NOT be consolidated by deletion.** Neither
+        panel is a superset of the other — `RolloverPanel` uniquely shows the overwrite warning,
+        which owners' outcomes flip by name, and per-owner standings movement; `SeasonRolloverPanel`
+        is structurally broader (all years, all eligibility states, reasons, dates). Deleting either
+        loses operator information. Merge capability instead, under F2H3.
+      - **Open question for F2H3:** manual rollover EXECUTION may not be needed at all. Nothing but
+        the two panels calls it, it sits behind the identical gate as the cron (`there is no
+        force/emergency bypass`), and the cron runs daily — so the button does at most 24 hours
+        early what happens anyway. The manual route predates the cron (2026-04-01 vs 2026-04-17).
+        The PREVIEW is the part with unique value. If execution goes, the panel-merge problem
+        largely dissolves.
     - **F2H3 — Season Management presentation** — planned: render per-league lifecycle separately
       from automation ownership and surface guarded refusal/recovery outcomes with operator-readable
       action state.
