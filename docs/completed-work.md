@@ -2378,6 +2378,61 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H3A — Rollover Surface Consolidation — Complete
+
+- **Status:** Complete — merged to `main` via PR #458 (merge commit `6a8b86c`), 2026-08-07. First
+  F2H3 slice; **F2H3B** carries the remaining Season Management presentation work.
+- **PROMPT_ID(s):** `PLATFORM-086F2H3A-ROLLOVER-SURFACE-CONSOLIDATION-v1`, preceded by
+  `PLATFORM-086F2H3-ROLLOVER-SURFACE-AUDIT-v1` (read-only; the owner settled every product decision
+  before implementation).
+- **Outcome:** manual rollover EXECUTION is retired. `GET /api/cron/season-rollover` is the sole
+  rollover executor; `POST /api/admin/rollover` returns status and the archive PREVIEW and performs
+  no durable write of any kind. Season Management ends with ONE rollover panel.
+- **Why retire rather than keep:** the manual path had no unique authority and no unique recovery
+  behavior — identical gate to the daily cron, no force bypass, so its only effect was advancing an
+  ALREADY-ELIGIBLE rollover by less than 24 hours. It predates the cron (2026-04-01 vs 2026-04-17),
+  which is why it existed at all. The PREVIEW was the capability worth keeping: it is the only way
+  to see which owners' final standings would flip before anything is written.
+- **The contract choice:** `confirmed: true` is REJECTED (`rollover-execution-retired`, 409) rather
+  than the field being removed. Removing it would make a stale client's body VALID — unknown
+  properties are ignored — so an execute request would silently receive a PREVIEW, which that client
+  decodes as an execute result, reads `success` as `undefined`, and reports "Rollover did not fully
+  complete": a false statement about an attempt that never happened. The refusal precedes any
+  registry, championship, or archive work, proven by a test that poisons every durable read.
+- **Merged by CAPABILITY, not by deletion.** Neither panel was a superset of the other, so the diff
+  detail unique to `RolloverPanel` — the owners whose outcomes flip BY NAME and the standings
+  positions that move — was ported into `SeasonRolloverPanel` before deletion. `RolloverPanel` could
+  not have been the survivor in any case: it returns `null` when no year is eligible, contradicting
+  the requirement that the empty state stay VISIBLE as proof the check ran.
+- **Production-only with NO new filter:** `groupRolloverTargets` already excluded the demo upstream,
+  so a demo-only season arrives as an empty `years` array. The two empty states stay EXCLUSIVE —
+  refused records keep the R4 repair message, since collapsing them would reintroduce the falsehood
+  R4 removed.
+- **Review:** Codex and `/code-review` against the same commit (`1881021`); 8 findings, all accepted
+  in one round, 7 of them TRUTH gaps rather than defects — which is what deleting a write path
+  produces. Three are worth remembering. (1) A pre-merge MERGE CLAIM written into
+  `admin-control-plane.md` while the two sibling ledgers updated in the same commit said otherwise.
+  (2) `seasonArchive.ts`'s do-not-catch rationale was wrong for the SECOND time — F2H2A had already
+  corrected it once, and that correction named a write-side reader this slice deletes; re-derived
+  rather than reworded, and the hazard turned out to be sharper than before. (3) A reviewer proved a
+  claim made in three places FALSE: the new operator string is unreachable by the stale pre-deploy
+  bundle the rationale cites, because that bundle ships the older `describeManualRolloverRefusal`
+  whose `default:` returns null. The 409 still does the work; the wording was narrowed rather than
+  defended. The one behavioral finding was inherited: `standingsOrderChanged` compares the joined
+  owner SEQUENCE while `standingsMovement` carries only owners in BOTH archives, so an owner added
+  at the tail rendered "changed — " with no evidence after the dash.
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
+  3387 → 3393 (+6); `RolloverPanel`'s suite went with the component (−3). Six mutations, each
+  compiling, applied alone, killed by a named test — including breaking the archive scope key and
+  making preview write, both caught by a positive control built specifically because the observer's
+  ONLY prior control was the confirmed-execution test this slice deleted. Diffstat crossed the
+  15-file stop-and-reassess signal (17 files) with explicit prior approval; net ≈ −1,100 lines.
+- **AGENTS.md invariants 4 AND 5 amended.** Invariant 5 was the known obligation; invariant 4's "a
+  refusal counted at WRITE time counts too" surfaced during the audit and is now cron-only.
+
+---
+
 ### PLATFORM-086F2H2B — Rollover Operator Truth — Complete
 
 - **Status:** Complete — merged to `main` via PR #457 (merge commit `876d87c`), 2026-08-07. Second

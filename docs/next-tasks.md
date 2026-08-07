@@ -719,8 +719,9 @@ Execution order within F2 (each slice is one independently deployable PR):
         equivalent.
         **Removal lands in F2H3**, not here — it is a panel-consolidation change, and doing it
         during the merge avoids building the merge twice. F2H2B stays focused on operator truth.
-    - **F2H3 — Season Management presentation** — **NEXT.** Split into F2H3A (shipped) and F2H3B.
-      - **F2H3A — rollover surface consolidation.** Implemented; **not yet merged**. Audited
+    - **F2H3 — Season Management presentation** — **NEXT is F2H3B.** Split into F2H3A (merged) and
+      F2H3B (queued).
+      - **F2H3A — rollover surface consolidation.** ✅ MERGED (PR #458, `6a8b86c`, 2026-08-07). Audited
         read-only first (2026-08-07); the owner settled every product decision before implementation.
         Manual rollover EXECUTION is retired — `POST /api/admin/rollover` is preview-only and
         answers `confirmed: true` with `rollover-execution-retired` (409) rather than ignoring it,
