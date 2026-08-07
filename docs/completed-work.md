@@ -2376,6 +2376,54 @@ Key architectural decisions across Phase 5:
   either loses operator information. Open question for F2H3: manual rollover EXECUTION may not be
   needed at all — it sits behind the identical gate as the daily cron, which runs anyway.
 
+---
+
+### PLATFORM-086F2H2B — Rollover Operator Truth — Complete
+
+- **Status:** Complete — merged to `main` via PR #457 (merge commit `876d87c`), 2026-08-07. Second
+  and final F2H2 slice; **F2H2 is complete**, having shipped two slices where five were chartered.
+- **PROMPT_ID(s):** `PLATFORM-086F2H2B-ROLLOVER-OPERATOR-TRUTH-v1`.
+- **Outcome:** the daily `GET /api/cron/season-rollover` no longer makes two false statements to the
+  operator. (1) It reported `no-season-leagues` — "no leagues in season state" — whenever the DEMO
+  league was the only in-season record, which needs no data corruption and is the DEFAULT
+  post-reset demo state, so the 00:00 UTC run asserted something false on most nights that
+  production sat in preseason or offseason. Rollover was the LAST of five demo-exclusion sites with
+  no exclusion-truth channel; `RolloverRefusalSink` now carries `excludedDemoCandidate` and the run
+  reports `no-automatic-season-leagues`, matching the three sibling jobs. The flag is GATED on
+  `season` (an offseason or status-less demo was never a candidate and must not displace the honest
+  reason) and is decided BEFORE year validation (a demo carrying an unusable year stays a demo
+  exclusion rather than becoming a refused production target — T3/T4's ordering, now
+  mutation-pinned). It rides on the run STATE and is deliberately not emitted on the event, since
+  the reason it decides is already the event's answer. (2) `invalidateStandings` shared a
+  `try/catch` with the guarded lifecycle write, so a `revalidateTag` throw was reported as
+  `status write failed` for a league whose status write had already SUCCEEDED and been counted in
+  `leaguesRolledOver` — a false statement about durable lifecycle state pointing at the wrong
+  subsystem. It is now separately caught with its own error text.
+- **Why nothing caught either:** every existing `no-season-leagues` assertion seeds an EMPTY
+  registry, where the reason is TRUE. No input could have failed. That is how the falsehood survived
+  four merged R-slices that each touched this exact branch.
+- **Review:** Codex and `/code-review` gathered against the same commit (`096db69`); Codex returned
+  no findings, `/code-review` returned three, all accepted in one round. The load-bearing one: the
+  `try/catch` split silently dropped a `continue`, so suppression clearing — previously SKIPPED when
+  invalidation threw — began running, changing a durable operator-facing counter with nothing
+  pinning it. Kept rather than reverted (the surrounding rule is "only after archive AND status
+  succeeded"; both succeeded, and the old coupling let a transient cache fault leave DURABLE
+  insights suppression in place), but made deliberate, commented, and pinned on the reported counter
+  rather than the code path. The owning operations runbook lacked the new reason while also
+  asserting invalidation and suppression clearing were "unchanged"; both corrected. The third —
+  the manual route still swallowing an `invalidateStandings` failure with a bare `catch {}` — was
+  deliberately CARRIED, because that code is on the `confirmed: true` execution path the recorded
+  F2H3 decision deletes outright; it is recorded with the condition that reverses the call.
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
+  3378 → 3387 (+9): `rolloverTargeting` 10 → 14, cron route 12 → 15, cron receipts 17 → 19. Five
+  mutations, each compiling, applied alone, killed by a named test — including one proving the
+  demo gate and one proving the ordering. The event/receipt reason needed its own pin: the response
+  body and the event carry the reason through SEPARATE expressions, so pinning only the body left
+  the event mutation alive.
+
+---
+
 ### PLATFORM-086F2H1R4 — Rollover Registry-Container Truth + Year Validity — Complete
 
 - **Status:** Complete — merged to `main` via PR #455 (merge commit `995c18e`), 2026-08-06.

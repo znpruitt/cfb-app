@@ -92,7 +92,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 ### 0. INSIGHTS-021 — current-year authority — DROPPED; repaired as data instead
 
 **Not implemented. Decision 2026-08-06: repair the drifted registry row and drop the slice.**
-`NEXT` returns to F2H2 (§1 below).
+`NEXT` returns to F2H2 (§1 below) — since completed; `NEXT` is now F2H3.
 
 **The defect.** `buildLeagueInsightContext` derives `lifecycleState` from `league.status` (correct)
 but took `currentYear` from the top-level `league.year` projection, so on the live `tsc` shape
@@ -673,9 +673,11 @@ Execution order within F2 (each slice is one independently deployable PR):
         shape — an exact season+year re-check producing a typed outcome). The consequence the false
         claim was hiding is fixed: rollover now has its own structural year check. Converging the
         two writers remains F2H2's.
-    - **F2H2 — rollover/archive consolidation** — **NEXT.** Audit FIRST: this surface writes
-      permanent archives. **Audited 2026-08-06** (6 dimensions, adversarially verified); the value
-      verdict retired two of the five chartered items and rescoped a third:
+    - **F2H2 — rollover/archive consolidation** — ✅ **COMPLETE** (F2H2A PR #456, F2H2B PR #457).
+      Audit FIRST was the right call: this surface writes permanent archives. **Audited 2026-08-06**
+      (6 dimensions, adversarially verified); the value verdict retired two of the five chartered
+      items, rescoped a third, and sent the UI consolidation to F2H3 — so the campaign shipped two
+      slices where five were chartered:
       - **F2H2A — admin season backfill RETIRED.** ✅ MERGED (PR #456, `cb40c03`, 2026-08-07). Owner
         decision: backfill was a one-time historical TSC import, not a product feature. Review of a
         hardening attempt (`d27fffb`, `0bc7f4d`, both unmerged and discarded) found two ways to
@@ -690,9 +692,9 @@ Execution order within F2 (each slice is one independently deployable PR):
         surfaces have genuinely different jobs; no misleading output found) and "benign duplicate
         delivery reporting" (no path was produced where a redelivery reports as failure — the
         premise appears false).
-      - **F2H2B — rollover operator truth.** Implemented and reviewed (Codex + `/code-review`
-        against `096db69`); **not yet merged**. Shipped `no-automatic-season-leagues` and separated
-        the standings-invalidation error from the lifecycle write. One review finding is carried
+      - **F2H2B — rollover operator truth.** ✅ MERGED (PR #457, `876d87c`, 2026-08-07). Shipped
+        `no-automatic-season-leagues` and separated the standings-invalidation error from the
+        lifecycle write. One review finding is carried
         rather than fixed — see the manual-route `catch {}` bullet under F2H3 below. The daily cron
         reported `no-season-leagues` whenever the DEMO league was the only one in season — needing
         no corruption, and the default post-reset demo state. Rollover was the last of five
@@ -717,7 +719,7 @@ Execution order within F2 (each slice is one independently deployable PR):
         equivalent.
         **Removal lands in F2H3**, not here — it is a panel-consolidation change, and doing it
         during the merge avoids building the merge twice. F2H2B stays focused on operator truth.
-    - **F2H3 — Season Management presentation** — planned: render per-league lifecycle separately
+    - **F2H3 — Season Management presentation** — **NEXT.** Render per-league lifecycle separately
       from automation ownership and surface guarded refusal/recovery outcomes with operator-readable
       action state. **Also owns two decisions taken during the F2H2 audit:**
       - **Retire manual rollover EXECUTION, keep PREVIEW** (decided 2026-08-07 — see the F2H2 entry

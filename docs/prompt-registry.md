@@ -186,7 +186,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   separate expressions. Focused deltas: `rolloverTargeting` 10 → 14, cron route 12 → 15, cron
   receipts 17 → 19. Full suite 3378 → 3387 (+9). `npx tsc --noEmit`, `npm run lint:all`, `npm test`,
   `npm run build`, and `git diff --check` each run as their own command with unmasked exit status.
-- Status: implemented and reviewed; not yet merged.
+- Status: MERGED via PR #457 (`876d87c`), 2026-08-07.
 
 ### PLATFORM-086F2H1R3-RANKINGS-YEAR-VALIDITY-v1
 
