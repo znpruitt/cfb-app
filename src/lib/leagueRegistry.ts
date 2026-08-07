@@ -166,8 +166,11 @@ type GuardedLifecycleDecision<T> =
  * before PLATFORM-086F2H1R4: `completeSeasonRollover` calls `mutateRegistry`
  * directly and does not route through here. That divergence is deliberate and
  * retained — rollover's guard is a different shape (an exact season+year
- * re-check producing a typed `SeasonRolloverTransition`) and converging the two
- * is F2H2's. What R4 fixed is the consequence the false claim was hiding:
+ * re-check producing a typed `SeasonRolloverTransition`). Converging the two was
+ * chartered to F2H2 and then RETIRED by its audit: the two guards answer
+ * different questions and no misleading output was produced by their difference,
+ * so the divergence is deliberate and permanent rather than pending work. What
+ * R4 fixed is the consequence the false claim was hiding:
  * rollover was the one lifecycle writer with no structural year check, so it
  * now validates independently below.
  */
@@ -202,7 +205,25 @@ export type TestLeagueLifecycleOutcome =
   // Committed. `status` is the CLOSED `LeagueStatus` union — scalars only, no
   // league record — and carries the year the authority resolved under the lock,
   // so a caller never re-derives it from a pre-transaction read.
-  | { outcome: 'applied'; status: LeagueStatus }
+  //
+  // PLATFORM-086F2H3B1 — `previousStatus` is the record's lifecycle status as
+  // read UNDER THE SAME LOCK, `null` for a legacy missing-status record. It
+  // exists so an operator surface can say "Already in Season 2025" instead of
+  // "Moved to Season 2025" for an idempotent request, which these controls make
+  // easy to issue: `season` re-requested from `season`, `preseason` re-requested
+  // from `preseason` (which deliberately does not double-increment), and
+  // `offseason` from `offseason` all resolve to the status already stored.
+  //
+  // Returned rather than compared by the caller because the caller has no safe
+  // way to learn it: `getLeague` is React-`cache`d, so a pre-call read can be a
+  // memoized snapshot taken outside the lock, and a read after the write cannot
+  // recover what was there before.
+  //
+  // PRECISION: an identical STATUS can still produce a write, because
+  // `applyLifecycleStatus` also projects `league.year` and may heal a
+  // desynchronized projection. This field therefore supports a claim about the
+  // LIFECYCLE ("already in that state"), never a claim that nothing was written.
+  | { outcome: 'applied'; status: LeagueStatus; previousStatus: LeagueStatus | null }
   // Absent from the registry. Same spelling as the sibling commissioner
   // authorities, so a consumer switching across them needs no alias table.
   | { outcome: 'league-not-found' }
@@ -219,7 +240,15 @@ export type TestLeagueLifecycleOutcome =
 /** The refusal shape shared by `setTestLeagueLifecycleState`'s decision. */
 type TestLeagueRefusal = Exclude<TestLeagueLifecycleOutcome, { outcome: 'applied' }>;
 
-/** Narrower outcome for the reset, which derives nothing and cannot refuse on a year. */
+/**
+ * Narrower outcome for the reset, which derives nothing and cannot refuse on a
+ * year.
+ *
+ * PLATFORM-086F2H3B1 deliberately did NOT give this a `previousStatus`. The
+ * reset always performs demo-state cleanup alongside the lifecycle write, so
+ * "nothing changed" is never a truthful thing to tell an operator about it —
+ * even when the status it installs matches the one already stored.
+ */
 export type TestLeagueResetOutcome =
   | { outcome: 'applied'; status: LeagueStatus }
   | { outcome: 'league-not-found' };
@@ -307,9 +336,13 @@ export async function setTestLeagueLifecycleState(
     (current) => {
       const decision = decideTestLeagueStatus(current, state);
       if ('refusal' in decision) return { status: null, result: decision.refusal };
+      // Captured from the record read under the lock, BEFORE the projection is
+      // applied — `project` receives the WRITTEN league, which no longer carries
+      // the prior status.
+      const previousStatus = current.status ?? null;
       return {
         status: decision.status,
-        project: () => ({ outcome: 'applied', status: decision.status }),
+        project: () => ({ outcome: 'applied', status: decision.status, previousStatus }),
       };
     }
   );

@@ -3,6 +3,8 @@ import { notFound, redirect } from 'next/navigation';
 
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import { getLeague } from '@/lib/leagueRegistry';
+import { describeLeagueLifecycle } from '@/lib/selectors/leagueLifecycle';
+import { TEST_LEAGUE_SLUG } from '@/lib/league';
 import { getAppState } from '@/lib/server/appStateStore';
 import { getPreseasonOwners } from '@/lib/preseasonOwnerStore';
 import { draftScope, type DraftPhase } from '@/lib/draft';
@@ -62,6 +64,16 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
       : league.assignmentMethod === 'manual'
         ? `/admin/${slug}/preseason`
         : `/admin/${slug}/preseason`;
+
+  // Who starts this league's season, decided by the one lifecycle-ownership
+  // authority. `league.status` is passed through as stored — the selector owns
+  // the missing-status case too.
+  const seasonStartIsAutomatic =
+    describeLeagueLifecycle({
+      storedStatus: league.status ?? null,
+      fallbackYear: league.year,
+      isDemo: slug === TEST_LEAGUE_SLUG,
+    }).ownership === 'automatic';
 
   const completeSetupAction = completeSetup.bind(null, slug, year);
 
@@ -189,8 +201,21 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
             <span className="px-4 py-2 rounded border border-green-600 bg-green-50 text-sm font-medium text-green-700 dark:border-green-700 dark:bg-green-950 dark:text-green-400">
               Setup Complete ✓
             </span>
+            {/* PLATFORM-086F2H3B1 — the same sentence the league page carried,
+                and false for the demo league on this surface too: F2H1T2
+                removed it from the season-transition cron, so nothing automatic
+                moves it. Closing the demo-copy deferral means closing it on
+                EVERY surface that makes the claim.
+
+                The decision comes from the SELECTOR, not from a second
+                `slug === TEST_LEAGUE_SLUG` test inlined here. Two surfaces
+                deciding the same policy independently is how they drift, and
+                AGENTS.md invariant 9 forbids deriving league data outside
+                `src/lib/selectors/`. */}
             <span className="text-xs text-gray-500 dark:text-zinc-400">
-              Season will go live automatically before the first game.
+              {seasonStartIsAutomatic
+                ? 'Season will go live automatically before the first game.'
+                : 'This demo league is manually controlled — use the Test Controls to start the season.'}
             </span>
           </div>
         ) : (

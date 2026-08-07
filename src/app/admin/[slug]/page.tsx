@@ -2,9 +2,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { getLeague } from '@/lib/leagueRegistry';
-import type { LeagueStatus } from '@/lib/league';
+import { TEST_LEAGUE_SLUG, type LeagueStatus } from '@/lib/league';
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import LeagueStatusPanel from '@/components/admin/LeagueStatusPanel';
+import LeagueLifecycleSummary from '@/components/admin/LeagueLifecycleSummary';
 import TestLeagueControls from './components/TestLeagueControls';
 import { beginPreseason } from './actions';
 
@@ -43,13 +44,7 @@ export default async function AdminLeaguePage({ params }: { params: Promise<{ sl
       ? leagueStatus.year
       : league.year;
 
-  const statusLabel =
-    leagueStatus.state === 'season'
-      ? `${leagueStatus.year} Season`
-      : leagueStatus.state === 'offseason'
-        ? 'Offseason'
-        : `${leagueStatus.year} Pre-Season`;
-
+  const isDemo = slug === TEST_LEAGUE_SLUG;
   const beginPreseasonAction = beginPreseason.bind(null, slug);
 
   return (
@@ -65,7 +60,6 @@ export default async function AdminLeaguePage({ params }: { params: Promise<{ sl
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <h1 className="text-2xl font-semibold">{league.displayName} — Commissioner Tools</h1>
-            <p className="text-sm text-gray-500 dark:text-zinc-400">{statusLabel}</p>
           </div>
           <Link
             href={`/league/${slug}`}
@@ -75,6 +69,17 @@ export default async function AdminLeaguePage({ params }: { params: Promise<{ sl
           </Link>
         </div>
       </div>
+
+      {/* PLATFORM-086F2H3B1 — lifecycle STATE and OWNERSHIP as two separate
+          facts. Ownership is derived from `league.status` DIRECTLY, never from
+          the inferred display status below: both lifecycle crons key on the
+          stored status, so a legacy missing-status record reaches neither and
+          must not inherit the inferred season's automation claim. */}
+      <LeagueLifecycleSummary
+        storedStatus={league.status ?? null}
+        fallbackYear={league.year}
+        isDemo={isDemo}
+      />
 
       {/* Status action card — offseason and preseason only */}
       {leagueStatus.state === 'offseason' && (
@@ -107,13 +112,15 @@ export default async function AdminLeaguePage({ params }: { params: Promise<{ sl
         </div>
       )}
       {leagueStatus.state === 'preseason' && leagueStatus.setupComplete === true && (
-        <div className="rounded-lg border border-green-200 bg-green-50 p-5 space-y-1 dark:border-green-900 dark:bg-green-950/30">
+        <div className="rounded-lg border border-green-200 bg-green-50 p-5 dark:border-green-900 dark:bg-green-950/30">
+          {/* The ownership sentence that used to live here — "Season will go
+              live automatically before the first game." — moved into
+              `LeagueLifecycleSummary`, which states it for EVERY state rather
+              than only this one and never states it for the demo league, whose
+              lifecycle no cron owns. */}
           <h2 className="text-base font-medium text-green-800 dark:text-green-300">
             {leagueStatus.year} Pre-Season Setup Complete ✓
           </h2>
-          <p className="text-sm text-green-700 dark:text-green-400">
-            Season will go live automatically before the first game.
-          </p>
         </div>
       )}
 
@@ -138,7 +145,7 @@ export default async function AdminLeaguePage({ params }: { params: Promise<{ sl
       </div>
 
       {/* Test league lifecycle controls — hardcoded to slug='test', never shown for production leagues */}
-      {slug === 'test' && <TestLeagueControls />}
+      {isDemo && <TestLeagueControls />}
     </main>
   );
 }

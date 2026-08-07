@@ -215,12 +215,22 @@ test('a value-returning action REJECTS rather than returning anything', async ()
   // any shape would be a security failure rather than a cosmetic one.
   await seedWorld();
 
+  // PLATFORM-086F2H3B1 added two more: `setTestLeagueStatus` and
+  // `resetTestLeague` now return typed results instead of `void`. The named
+  // security property — a resolved promise of any shape reads as success at the
+  // call site — applies to them exactly as it does to the original two, and the
+  // count was left claiming "both" while excluding them.
   const valueReturning = INVOCATIONS.filter((i) =>
-    ['migrateTestOwnersCsv', 'autoCompleteDraft'].includes(i.name)
+    [
+      'migrateTestOwnersCsv',
+      'autoCompleteDraft',
+      'setTestLeagueStatus',
+      'resetTestLeague',
+    ].includes(i.name)
   );
   // Without this the loop could silently iterate zero times — a rename would
   // leave the named security property untested and the test green.
-  assert.equal(valueReturning.length, 2, 'both value-returning actions are covered');
+  assert.equal(valueReturning.length, 4, 'every value-returning action is covered');
 
   for (const { name, call } of valueReturning) {
     const outcome = await __withAdminActionAuthorizerForTests(

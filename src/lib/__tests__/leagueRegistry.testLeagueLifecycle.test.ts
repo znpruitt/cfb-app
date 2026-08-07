@@ -9,6 +9,7 @@ import {
   setTestLeagueLifecycleState,
   TEST_LEAGUE_RESET_YEAR,
   type TestLeagueLifecycleOutcome,
+  type TestLeagueResetOutcome,
 } from '../leagueRegistry.ts';
 import { TEST_LEAGUE_SLUG, type League } from '../league.ts';
 import {
@@ -108,6 +109,10 @@ test('season(N) advances to preseason(N+1)', async () => {
   assert.deepEqual(await setTestLeagueLifecycleState('preseason'), {
     outcome: 'applied',
     status: { state: 'preseason', year: 2026 },
+    // PLATFORM-086F2H3B1 — the status read UNDER THE LOCK, so an operator
+    // surface can distinguish "Moved to" from "Already in" without a second,
+    // racy read.
+    previousStatus: { state: 'season', year: 2025 },
   });
   assert.equal((await readLeague(TEST_LEAGUE_SLUG)).year, 2026, 'projection synchronized');
 });
@@ -118,6 +123,8 @@ test('preseason(N) stays at N when preseason is requested again', async () => {
   assert.deepEqual(await setTestLeagueLifecycleState('preseason'), {
     outcome: 'applied',
     status: { state: 'preseason', year: 2026 },
+    // Identical to `status` — this is the idempotent case the field exists for.
+    previousStatus: { state: 'preseason', year: 2026 },
   });
 });
 
@@ -126,12 +133,15 @@ test('offseason and missing-status records derive the successor from the stored 
   assert.deepEqual(await setTestLeagueLifecycleState('preseason'), {
     outcome: 'applied',
     status: { state: 'preseason', year: 2025 },
+    previousStatus: { state: 'offseason' },
   });
 
   await seed(makeLeague(TEST_LEAGUE_SLUG, 2030));
   assert.deepEqual(await setTestLeagueLifecycleState('preseason'), {
     outcome: 'applied',
     status: { state: 'preseason', year: 2031 },
+    // A legacy record stores NO status, so there is no previous one to report.
+    previousStatus: null,
   });
 });
 
@@ -141,6 +151,7 @@ test('preseason(N) becomes season(N), preserving the increment', async () => {
   assert.deepEqual(await setTestLeagueLifecycleState('season'), {
     outcome: 'applied',
     status: { state: 'season', year: 2026 },
+    previousStatus: { state: 'preseason', year: 2026 },
   });
   const stored = await readLeague(TEST_LEAGUE_SLUG);
   assert.deepEqual(stored.status, { state: 'season', year: 2026 });
@@ -153,6 +164,7 @@ test('season(N) requested again stays at N', async () => {
   assert.deepEqual(await setTestLeagueLifecycleState('season'), {
     outcome: 'applied',
     status: { state: 'season', year: 2025 },
+    previousStatus: { state: 'season', year: 2025 },
   });
 });
 
@@ -164,6 +176,7 @@ test('offseason retains the last authoritative season year as the projection', a
   assert.deepEqual(await setTestLeagueLifecycleState('offseason'), {
     outcome: 'applied',
     status: { state: 'offseason' },
+    previousStatus: { state: 'season', year: 2023 },
   });
   const stored = await readLeague(TEST_LEAGUE_SLUG);
   assert.deepEqual(stored.status, { state: 'offseason' });
@@ -246,6 +259,7 @@ test('the largest valid predecessor advances, and the boundary beyond it refuses
   assert.deepEqual(await setTestLeagueLifecycleState('preseason'), {
     outcome: 'applied',
     status: { state: 'preseason', year: maxSafe },
+    previousStatus: { state: 'season', year: maxSafe - 1 },
   });
 
   // `maxSafe + 1` is not exactly representable, so the successor is refused
@@ -263,6 +277,7 @@ test('the largest valid predecessor advances, and the boundary beyond it refuses
   assert.deepEqual(await setTestLeagueLifecycleState('season'), {
     outcome: 'applied',
     status: { state: 'season', year: maxSafe },
+    previousStatus: { state: 'season', year: maxSafe },
   });
   assert.deepEqual(await resetTestLeagueLifecycle(), {
     outcome: 'applied',
@@ -278,7 +293,7 @@ test('no outcome carries a league record or credential material', async () => {
     passwordSalt: 'SALT-CANARY',
   });
 
-  const outcomes: TestLeagueLifecycleOutcome[] = [
+  const outcomes: Array<TestLeagueLifecycleOutcome | TestLeagueResetOutcome> = [
     await setTestLeagueLifecycleState('preseason'),
     await setTestLeagueLifecycleState('season'),
     await setTestLeagueLifecycleState('offseason'),
@@ -292,8 +307,15 @@ test('no outcome carries a league record or credential material', async () => {
     assert.ok(!serialized.includes('passwordHash'), 'no credential field names');
     assert.ok(!serialized.includes('displayName'), 'no league record fields');
     assert.ok(!serialized.includes('createdAt'));
+    // PLATFORM-086F2H3B1 added `previousStatus`, which makes this closed-shape
+    // check load-bearing rather than incidental: the prior status is read from
+    // the league record under the lock, so returning the RECORD instead of its
+    // `status` would leak credential fields straight into a Server Action
+    // response. The canary above proves the observer can see such a leak.
     assert.ok(
-      Object.keys(outcome).every((k) => k === 'outcome' || k === 'status'),
+      Object.keys(outcome).every(
+        (k) => k === 'outcome' || k === 'status' || k === 'previousStatus'
+      ),
       `closed shape, got ${serialized}`
     );
   }
@@ -311,7 +333,11 @@ test('concurrent lifecycle writes both persist — neither is dropped', async ()
     completeSeasonTransition('bravo', 2026),
   ]);
 
-  assert.deepEqual(demo, { outcome: 'applied', status: { state: 'preseason', year: 2026 } });
+  assert.deepEqual(demo, {
+    outcome: 'applied',
+    status: { state: 'preseason', year: 2026 },
+    previousStatus: { state: 'season', year: 2025 },
+  });
   assert.deepEqual((await readLeague(TEST_LEAGUE_SLUG)).status, {
     state: 'preseason',
     year: 2026,
@@ -337,8 +363,27 @@ test('two overlapping preseason requests are idempotent', async () => {
   ]);
 
   for (const outcome of outcomes) {
-    assert.deepEqual(outcome, { outcome: 'applied', status: { state: 'preseason', year: 2026 } });
+    assert.equal(outcome.outcome, 'applied');
+    assert.deepEqual(
+      (outcome as { status: unknown }).status,
+      { state: 'preseason', year: 2026 },
+      'both land on the same year'
+    );
   }
+
+  // PLATFORM-086F2H3B1 — and `previousStatus` now DOES discriminate here, which
+  // the caveat above could not. Under serialization exactly one transaction sees
+  // the seeded `season(2025)` and the other sees the winner's `preseason(2026)`.
+  // A read-then-write implementation, or one capturing the prior status outside
+  // the lock, would report the same predecessor twice.
+  assert.deepEqual(
+    outcomes.map((o) => JSON.stringify((o as { previousStatus?: unknown }).previousStatus)).sort(),
+    [
+      JSON.stringify({ state: 'preseason', year: 2026 }),
+      JSON.stringify({ state: 'season', year: 2025 }),
+    ].sort(),
+    'each transaction reported the record IT read under the lock'
+  );
   assert.equal((await readLeague(TEST_LEAGUE_SLUG)).year, 2026, 'no double increment');
 });
 
