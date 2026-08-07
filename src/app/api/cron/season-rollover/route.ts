@@ -172,11 +172,25 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           invalidLifecycleTargets: exec.invalidLifecycleTargets,
         });
       }
+      // PLATFORM-086F2H2B — an ACTIVE demo league that was filtered out is NOT
+      // "no league is in season". Saying so was false on the operator's System
+      // Health row, and it is the DEFAULT post-reset demo state, so it repeated
+      // daily while production sat in preseason or offseason. This is the same
+      // distinction F2H1T2/T3/T4 each shipped for their own jobs; rollover was
+      // the last of the five demo-exclusion sites without it.
+      //
+      // Precedence: the production integrity refusal above still outranks this,
+      // because a refused production record is a condition an operator must act
+      // on, while a demo exclusion is working as designed.
       exec.result = 'skipped';
-      exec.reason = 'no-season-leagues';
+      exec.reason = exec.excludedDemoCandidate
+        ? 'no-automatic-season-leagues'
+        : 'no-season-leagues';
       return NextResponse.json({
         skipped: true,
-        reason: 'no leagues in season state',
+        reason: exec.excludedDemoCandidate
+          ? 'the only leagues in season are excluded from automatic rollover'
+          : 'no leagues in season state',
         invalidLifecycleTargets: exec.invalidLifecycleTargets,
       });
     }
@@ -263,9 +277,14 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         suppressionClearedFor: [],
       };
       // Errors recorded before THIS year's league loop, so the classification can
-      // tell whether any league in this year failed — a league is pushed to
-      // `leaguesRolledOver` BEFORE its `invalidateStandings`, so an invalidation
-      // throw records an error while the league still counts as rolled.
+      // tell whether any league in this year failed.
+      //
+      // A league still counts as ROLLED even when its standings invalidation
+      // then fails, because the lifecycle write is already committed by that
+      // point — and since F2H2B that invalidation has its own `try/catch` and
+      // its own error text, so the year is classified `partial` for a reason the
+      // operator can act on rather than being told the status write failed when
+      // it did not.
       const errorsBeforeYear = errors.length;
 
       for (const league of yearLeagues) {
@@ -316,10 +335,6 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           }
           yearResult.leaguesRolledOver.push(league.slug);
           leaguesRolledOver.push(league.slug);
-          // Season→offseason changes this league's standings surface (live →
-          // prior-season final from the archive just written). Bust its cached
-          // snapshots. League-scoped: only leagues that actually rolled over.
-          invalidateStandings(league.slug);
         } catch (err) {
           errors.push({
             leagueSlug: league.slug,
@@ -327,6 +342,34 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
             error: `status write failed: ${err instanceof Error ? err.message : 'unknown error'}`,
           });
           continue;
+        }
+
+        // PLATFORM-086F2H2B — standings invalidation is reported SEPARATELY from
+        // the lifecycle write, and deliberately after it.
+        //
+        // These shared one `try/catch`, so a `revalidateTag` throw was reported
+        // as `status write failed` for a league whose status write had already
+        // SUCCEEDED and been counted in `leaguesRolledOver`. That is a false
+        // statement about durable lifecycle state on the operator's error list,
+        // and it points at the wrong subsystem: the remedy for a stale cache is
+        // not the remedy for a failed transition.
+        //
+        // Season→offseason changes this league's standings surface (live →
+        // prior-season final from the archive just written). League-scoped: only
+        // leagues that actually rolled over. The rollover itself is already
+        // committed at this point, so a failure here degrades freshness, never
+        // correctness — the cache refreshes on the next mutation or natural
+        // turnover.
+        try {
+          invalidateStandings(league.slug);
+        } catch (err) {
+          errors.push({
+            leagueSlug: league.slug,
+            year,
+            error: `standings invalidation failed after a successful rollover: ${
+              err instanceof Error ? err.message : 'unknown error'
+            }`,
+          });
         }
 
         // Only clear suppression after both archive and status update succeeded.

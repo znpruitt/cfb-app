@@ -496,3 +496,88 @@ test('R4 regression: the unexpected-error 500 still reports refusals counted bef
 
   assert.equal(body.invalidLifecycleTargets, 1, 'the refusal reaches the error response too');
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H2B — operator truth on the two zero-target/error surfaces.
+//
+// Both defects were LIVE and neither had a test. Every existing
+// `no-season-leagues` assertion seeds an EMPTY registry, where the reason is
+// TRUE — which is exactly why the falsehood survived four merged R-slices that
+// each touched this branch.
+// ---------------------------------------------------------------------------
+
+// REGRESSION TEST — the falsehood. A demo-only season registry reported "no
+// leagues in season state", which is false: one IS in season, it is merely
+// excluded. This is the DEFAULT post-reset demo state
+// (`resetTestLeagueLifecycle` installs `season(TEST_LEAGUE_RESET_YEAR)`), so it
+// repeated daily on the operator's status surface while production sat in
+// preseason or offseason.
+test('F2H2B regression: a demo-only season registry reports the exclusion, not absence', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('test', { state: 'season', year: 2025 }),
+    makeLeague('alpha', { state: 'preseason', year: 2026 }),
+  ]);
+
+  const { result: res } = await runCapturingTags(() => GET(cronRequest()));
+  const body = (await res.json()) as { skipped?: boolean; reason?: string };
+
+  assert.equal(res.status, 200);
+  assert.equal(body.skipped, true);
+  assert.notEqual(
+    body.reason,
+    'no leagues in season state',
+    'the demo IS in season — asserting otherwise is the falsehood this closes'
+  );
+  assert.match(body.reason ?? '', /excluded from automatic rollover/);
+});
+
+// CONTRACT PIN — a genuinely empty season registry keeps the honest reason.
+// Without this the new branch could swallow the true case and the distinction
+// would be worthless.
+test('F2H2B contract pin: a registry with no season league still reports absence', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }),
+    makeLeague('test', { state: 'offseason' }),
+  ]);
+
+  const { result: res } = await runCapturingTags(() => GET(cronRequest()));
+  const body = (await res.json()) as { reason?: string };
+
+  assert.equal(body.reason, 'no leagues in season state', 'nothing is in season — say so');
+});
+
+// REGRESSION TEST — a standings-invalidation failure is NOT reported as a status
+// write failure. The two shared one `try/catch`, so a `revalidateTag` throw
+// blamed the lifecycle write for a transition that had already succeeded and
+// been counted — pointing an operator at the wrong subsystem entirely.
+test('F2H2B regression: an invalidation failure is not blamed on the lifecycle write', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('alpha', { state: 'season', year: YEAR })]);
+  await seedScheduleWithChampionship('2023-01-09T00:00:00.000Z');
+
+  // Running WITHOUT a Next work store makes `revalidateTag` throw, while every
+  // durable write still succeeds — the exact split the old shared catch hid.
+  const res = await GET(cronRequest());
+  const body = (await res.json()) as {
+    leaguesRolledOver?: string[];
+    errors?: Array<{ leagueSlug: string; error: string }>;
+  };
+
+  // POSITIVE CONTROL — the rollover genuinely committed, so the error below is
+  // about invalidation and not about a transition that failed.
+  assert.deepEqual(body.leaguesRolledOver, ['alpha'], 'the league DID roll over');
+  const leagues = await getAppState<League[]>('leagues', 'registry');
+  assert.equal(
+    (leagues?.value?.[0]?.status as { state?: string } | undefined)?.state,
+    'offseason',
+    'and the lifecycle write is durably committed'
+  );
+
+  const err = body.errors?.find((e) => e.leagueSlug === 'alpha');
+  assert.ok(err, 'the invalidation failure is still reported');
+  assert.match(err.error, /standings invalidation failed/);
+  assert.doesNotMatch(
+    err.error,
+    /status write failed/,
+    'a succeeded status write must never be reported as failed'
+  );
+});

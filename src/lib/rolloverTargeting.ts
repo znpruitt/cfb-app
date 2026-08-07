@@ -34,6 +34,24 @@ export type RolloverYearGroup = {
  */
 export type RolloverRefusalSink = {
   invalidLifecycleTargets: number;
+  /**
+   * PLATFORM-086F2H2B — set when an ACTIVE demo league was excluded from
+   * targeting, so a zero-target run can say WHY instead of asserting something
+   * false.
+   *
+   * Without it the cron reported `no-season-leagues` — "no leagues in season
+   * state" — whenever the demo was the only league in season. That is live
+   * today, needs no data corruption, and is the DEFAULT post-reset demo state
+   * (`resetTestLeagueLifecycle` installs `season(TEST_LEAGUE_RESET_YEAR)`), so
+   * it repeated daily on the operator's status surface while production sat in
+   * preseason or offseason.
+   *
+   * Rollover was the last of the five demo-exclusion sites without an
+   * exclusion-truth channel; the three sibling jobs each publish the same fact
+   * (`no-automatic-preseason-leagues`, `no-automatic-ranking-target`,
+   * `no-automatic-maintenance-target`).
+   */
+  excludedDemoCandidate: boolean;
 };
 
 /**
@@ -70,7 +88,20 @@ export function groupRolloverTargets(
 ): RolloverYearGroup[] {
   const byYear = new Map<number, League[]>();
   for (const league of leagues) {
-    if (league.slug === TEST_LEAGUE_SLUG) continue;
+    if (league.slug === TEST_LEAGUE_SLUG) {
+      // Gated on `season`, exactly as the sibling selectors gate on their own
+      // active states: only a demo that WOULD have been a target sets the flag.
+      // An offseason or status-less demo was never a candidate and must not
+      // change the zero-target reason — otherwise every quiet run would blame
+      // the demo.
+      //
+      // The exclusion still runs FIRST, before the year validation below. That
+      // ordering is load-bearing and unchanged (T3/T4): a demo carrying an
+      // unusable year must stay a demo exclusion, never an invalid production
+      // target.
+      if (league.status?.state === 'season') refusals.excludedDemoCandidate = true;
+      continue;
+    }
     const status = league.status;
     if (!status || status.state !== 'season') continue;
     if (!isStructurallyValidSeasonYear(status.year)) {

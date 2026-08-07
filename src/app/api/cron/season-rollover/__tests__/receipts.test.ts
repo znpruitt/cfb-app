@@ -699,3 +699,45 @@ test('R4 regression: the rollover target summary handles clean, mixed, and all-r
     'all-refused: no dangling separator'
   );
 });
+
+// REGRESSION TEST (PLATFORM-086F2H2B) — the demo-only zero-target shape on the
+// EVENT and the RECEIPT, not just the response body.
+//
+// The existing `no-season-leagues` test above seeds an EMPTY registry, where the
+// reason is TRUE — which is precisely why this falsehood survived four merged
+// R-slices that each touched this branch. The response body and the event carry
+// the reason through separate expressions, so both must be pinned or a change to
+// one alone ships silently.
+test('F2H2B regression: a demo-only season registry reports the exclusion on the event and receipt', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('test', { state: 'season', year: 2025 }, 2025),
+    makeLeague('alpha', { state: 'preseason', year: 2026 }, 2026),
+  ]);
+
+  const { event } = await runRoute();
+  await deferrer.flush();
+
+  assert.equal(event.result, 'skipped');
+  assert.equal(event.reason, 'no-automatic-season-leagues');
+  assert.notEqual(
+    event.reason,
+    'no-season-leagues',
+    'the demo IS in season — the event must not assert otherwise'
+  );
+  assert.deepEqual(event.years, [], 'no per-year entry is produced');
+
+  const stored = await readSchedulerReceipt('season-rollover');
+  assert.ok(stored, 'the receipt is still written');
+  assert.equal(stored.value.reason, 'no-automatic-season-leagues', 'and carries the same truth');
+});
+
+// CONTRACT PIN — the honest reason survives on the event for a genuinely empty
+// season registry, so the new branch cannot swallow the true case.
+test('F2H2B contract pin: no season league at all still reports no-season-leagues on the event', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }, 2026),
+  ]);
+
+  const { event } = await runRoute();
+  assert.equal(event.reason, 'no-season-leagues');
+});

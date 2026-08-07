@@ -27,7 +27,10 @@ function makeLeague(slug: string, year: number, status: League['status']): Leagu
  * only, so supply a throwaway sink; the refusal cases below use it directly.
  */
 function group(leagues: League[]): RolloverYearGroup[] {
-  return groupRolloverTargets(leagues, { invalidLifecycleTargets: 0 });
+  return groupRolloverTargets(leagues, {
+    invalidLifecycleTargets: 0,
+    excludedDemoCandidate: false,
+  });
 }
 
 test('groups exclusively by status.year in ascending order regardless of registration order', () => {
@@ -93,14 +96,15 @@ const UNUSABLE_YEARS: Array<[string, unknown]> = [
   ['null', null],
 ];
 
-/** Group with a caller-visible sink, for the refusal-accounting cases. */
+/** Group with a caller-visible sink, exposing every channel it publishes. */
 function groupWithSink(leagues: League[]): {
   groups: RolloverYearGroup[];
   invalidLifecycleTargets: number;
+  excludedDemoCandidate: boolean;
 } {
-  const sink = { invalidLifecycleTargets: 0 };
+  const sink = { invalidLifecycleTargets: 0, excludedDemoCandidate: false };
   const groups = groupRolloverTargets(leagues, sink);
-  return { groups, invalidLifecycleTargets: sink.invalidLifecycleTargets };
+  return { groups, ...sink };
 }
 
 // REGRESSION TEST — every unusable shape is refused. Before R4 each became a
@@ -187,7 +191,7 @@ test('R4 regression: a valid year still groups alongside a refusal, in either or
 // forbids. The fixture order is load-bearing: the refusable record must come
 // FIRST, or nothing has been counted when the throw happens.
 test('R4 regression: a refusal counted before a mid-loop throw survives on the sink', () => {
-  const sink = { invalidLifecycleTargets: 0 };
+  const sink = { invalidLifecycleTargets: 0, excludedDemoCandidate: false };
   const leagues = [
     makeLeague('alpha', 2024, { state: 'season', year: '2024' } as unknown as League['status']),
     // A corrupt RECORD (not a corrupt container): reading `.slug` throws.
@@ -198,4 +202,66 @@ test('R4 regression: a refusal counted before a mid-loop throw survives on the s
   // real observation rather than a vacuous one on a function that returned.
   assert.throws(() => groupRolloverTargets(leagues, sink), TypeError);
   assert.equal(sink.invalidLifecycleTargets, 1, 'the refusal observed before the throw survives');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H2B — the demo exclusion publishes its own truth.
+//
+// Rollover was the last of five demo-exclusion sites with no exclusion channel,
+// so a demo-only season registry produced `groups: []` with nothing saying why —
+// and the cron reported "no leagues in season state", which is FALSE.
+// ---------------------------------------------------------------------------
+
+// REGRESSION TEST — an active demo league is reported as EXCLUDED, not as
+// absence. Before this the caller could not distinguish the two.
+test('F2H2B regression: an active demo league sets excludedDemoCandidate', () => {
+  const result = groupWithSink([makeLeague('test', 2025, { state: 'season', year: 2025 })]);
+
+  assert.deepEqual(result.groups, [], 'the demo never becomes a target');
+  assert.equal(result.excludedDemoCandidate, true, 'and the caller is told WHY');
+});
+
+// CONTRACT PIN — the flag is GATED on `season`, matching how the sibling
+// selectors gate on their own active states. An offseason or status-less demo
+// was never a candidate; flagging it would make every quiet run blame the demo
+// and leave the honest `no-season-leagues` reason unreachable.
+test('F2H2B contract pin: a non-season demo league does NOT set the flag', () => {
+  for (const [label, status] of [
+    ['offseason', { state: 'offseason' } as League['status']],
+    ['preseason', { state: 'preseason', year: 2026 } as League['status']],
+    ['status-less', undefined],
+  ] as Array<[string, League['status']]>) {
+    const result = groupWithSink([makeLeague('test', 2025, status)]);
+    assert.equal(result.excludedDemoCandidate, false, `${label}: never a candidate`);
+  }
+});
+
+// CONTRACT PIN — a production league in season means the run has real targets,
+// so the demo flag must not suppress them or change the outcome.
+test('F2H2B contract pin: a demo alongside a production season year still yields the group', () => {
+  const result = groupWithSink([
+    makeLeague('test', 2025, { state: 'season', year: 2025 }),
+    makeLeague('alpha', 2025, { state: 'season', year: 2025 }),
+  ]);
+
+  assert.deepEqual(
+    result.groups.map((g) => ({ year: g.year, slugs: g.leagues.map((l) => l.slug) })),
+    [{ year: 2025, slugs: ['alpha'] }],
+    'the demo contributes nothing but the production league still rolls'
+  );
+  assert.equal(result.excludedDemoCandidate, true, 'and the exclusion is still reported');
+});
+
+// REGRESSION TEST — ORDERING is preserved. The demo exclusion still runs BEFORE
+// year validation (T3/T4), so a demo carrying an unusable year stays a demo
+// exclusion and is never counted as an invalid production target. Reversing the
+// two would undo that and report the wrong condition.
+test('F2H2B regression: a demo with an unusable year is an exclusion, not a refusal', () => {
+  for (const [label, year] of UNUSABLE_YEARS) {
+    const result = groupWithSink([
+      makeLeague('test', 2025, { state: 'season', year } as unknown as League['status']),
+    ]);
+    assert.equal(result.excludedDemoCandidate, true, `${label}: still a demo exclusion`);
+    assert.equal(result.invalidLifecycleTargets, 0, `${label}: never an invalid TARGET`);
+  }
 });

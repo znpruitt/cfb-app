@@ -80,7 +80,7 @@ export async function GET(req: Request): Promise<Response> {
   // durability real on this surface, since without it a corrupt record throwing
   // mid-loop would escape the handler and the observed count would be lost to a
   // framework-generated 500 with no body at all.
-  const refusals = { invalidLifecycleTargets: 0 };
+  const refusals = { invalidLifecycleTargets: 0, excludedDemoCandidate: false };
   let registry: Awaited<ReturnType<typeof readLeagueRegistry>>;
   try {
     registry = await readLeagueRegistry();
@@ -223,7 +223,7 @@ export async function POST(req: Request): Promise<Response> {
 
   // The requested year must be a CURRENT lifecycle-year group (non-test leagues
   // in `season` whose status.year matches exactly).
-  const refusals = { invalidLifecycleTargets: 0 };
+  const refusals = { invalidLifecycleTargets: 0, excludedDemoCandidate: false };
   let registry: Awaited<ReturnType<typeof readLeagueRegistry>>;
   let groups;
   try {
