@@ -2378,6 +2378,56 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H4 — Season Management Retired — Complete
+
+- **Status:** Complete — merged to `main` via PR #461 (merge commit `8f56835`), 2026-08-07.
+  **F2H is complete**, having reopened once for this retirement. `NEXT` is F2I.
+- **PROMPT_ID(s):** `PLATFORM-086F2H4-RETIRE-SEASON-MANAGEMENT-v1`.
+- **Outcome:** `/admin/season` is gone, with both panels, `POST|GET /api/admin/rollover`,
+  `src/lib/manualRollover.ts`, and `diffSeasonArchives`. +271 / −2484. The guiding principle, stated
+  by the owner: an admin surface represents what a human can inspect, decide, diagnose, or operate;
+  a backend subsystem does not earn a page by existing.
+- **Why the rollover panel went:** since F2H3A the cron is the sole executor, and it has **no
+  automation-pause gate** — only cron-secret auth. The preview therefore showed an operator exactly
+  which owners' final standings would move before an irreversible write they had no supported way to
+  prevent: **unactionable by construction**. F2H3A's rationale for preserving that preview answered
+  "which of two panels survives", not "should this surface exist".
+- **Why the archive panel went:** it rendered year badges as `<span>` with no `href` — an inventory,
+  not navigation — over data `/league/<slug>/history` already navigates per league through the same
+  `listSeasonArchives` authority.
+- **The stop condition was discharged with EVIDENCE.** `SeasonRolloverPanel` was the only surface
+  that said WHY a rollover was waiting, so a new receipts test proves a waiting-period skip reaches
+  the runtime event AND survives onto the durable receipt System Health renders, with a positive
+  control showing the same league rolls once past the window. The type union alone would not have
+  proven the value survives the receipt writer's validation and rebuild.
+- **KNOWN GAP, recorded not hidden:** with production years that DISAGREE and skip for different
+  reasons, `aggregateLifecycleCronReason` records `year-results` and the receipt target carries no
+  per-year reason, so the dashboard cannot explain either year. The per-year reasons remain on the
+  runtime event, making it a dashboard limitation rather than lost information. Pinned by a test.
+  Compounding: F2H3A's year-disagreement WARNING lived on the deleted panel, so that abnormal state
+  is now neither flagged nor explained on any surface. Follow-up: persist per-year reasons onto the
+  receipt target — a schema change deliberately kept out of a retirement.
+- **Capability is not surface:** `rolloverTargeting`, `completeSeasonRollover`, `buildSeasonArchive`,
+  `saveSeasonArchive`, and `listSeasonArchives` (14 league-facing consumers) all stay live.
+- **Review — 7 findings, SIX on the claim surface.** Both reviewers confirmed the deletion itself was
+  correct; what was wrong was how it was described. The two that matter: a deletion the commit
+  message and ledger both ASSERTED was never performed (`diffSeasonArchives`, `SeasonArchiveDiff`,
+  and `weeklyStats` left with zero callers — ~100 dead lines in a file absent from the diff), and an
+  AGENTS.md claim BROADER THAN ITS TEST. The prompt scoped the stop condition to "the
+  single-production-league case specifically", so exactly that was tested and then the general rule
+  was asserted. Also: the canonical architecture doc contradicted itself (an amended sentence and an
+  untouched one two lines later gave opposite routing rules), two more stale doc claims, and a
+  permissive test allowlist still holding a surface that had left the type — green while silently
+  unable to catch the regression it exists for.
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
+  3438 → 3404: `manualRollover` (10), `SeasonRolloverPanel` (13), the admin rollover route (21), and
+  the season page (2) went with their subjects. **`npm run build` was the load-bearing gate** — the
+  manifest contains zero occurrences of the retired routes while every sibling admin route is listed.
+  Three mutations, each compiling, applied alone, killed by a named test.
+
+---
+
 ### PLATFORM-086F2H3B2 — System Health Lifecycle-Integrity Issue — Complete
 
 - **Status:** Complete — merged to `main` via PR #460 (merge commit `5822a16`), 2026-08-07. Second of

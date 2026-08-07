@@ -253,7 +253,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `admin/season` or `api/admin/rollover` while every sibling admin route is listed.
   `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
   run as their own command with unmasked exit status.
-- Status: implemented and reviewed; not yet merged.
+- Status: MERGED via PR #461 (`8f56835`), 2026-08-07.
 
 ### PLATFORM-086F2H3B2-SYSTEM-HEALTH-LIFECYCLE-INTEGRITY-v1
 
