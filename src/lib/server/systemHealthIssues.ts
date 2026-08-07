@@ -73,6 +73,14 @@ export type QuotaIssueCode =
 
 export type StorageIssueCode = 'storage-production-misconfigured';
 
+/**
+ * PLATFORM-086F2H3B2 — production league records an automation job REFUSED for a
+ * structurally unusable lifecycle year. Separate from the scheduler codes on
+ * purpose: those describe how a RUN went, this describes stored data that is
+ * wrong regardless of how any run went.
+ */
+export type LifecycleIntegrityIssueCode = 'lifecycle-data-unusable';
+
 /** Canonical-data subsystem-level codes (distinct from per-branch ProviderDiagnosticCode). */
 export type CanonicalDataIssueCode = 'data-diagnostics-unavailable';
 
@@ -83,6 +91,7 @@ export type SystemHealthIssueCode =
   | AutomationIssueCode
   | QuotaIssueCode
   | CanonicalDataIssueCode
+  | LifecycleIntegrityIssueCode
   | ProviderDiagnosticCode;
 
 export type SystemHealthIssue = {
@@ -351,6 +360,82 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
     // success / no-op / skipped / in-progress → no fault issue.
   }
   return issues;
+}
+
+/**
+ * PLATFORM-086F2H3B2 — ONE issue when any scheduler receipt reports production
+ * league records refused for an unusable lifecycle year. Closes deferral (q),
+ * carried since PLATFORM-086F2H1R3.
+ *
+ * NOT derived from `result`. The count lives on the receipt TARGET, and R3's
+ * ruling is that a valid target can succeed while another production record is
+ * refused — so a run whose aggregate is `success`, `no-op`, or `skipped` can
+ * still be carrying refusals. Gating on `result` would hide exactly the case
+ * this issue exists to surface.
+ *
+ * NO NUMBER reaches the operator, and that is a data constraint rather than a
+ * style choice. Each count is per JOB and per RUN, counts RECORDS, and the same
+ * corrupt league is counted independently by up to four jobs (season-transition
+ * while it is preseason; schedule-refresh, rankings, and season-rollover while
+ * it is in season). Summing multiplies one league into several; a maximum
+ * compares runs that happened at different times; and a deduplicated league
+ * count is not derivable at all, because a receipt carries counts and never a
+ * slug. Naming the reporting JOBS is the most specific true thing available.
+ *
+ * A receipt that is absent or unparsed contributes nothing. `receipt` is null
+ * for `missing` / `invalid` / `unavailable` delivery, and a run with no readable
+ * receipt cannot report a count — inferring one would be fabrication.
+ *
+ * CLEARING: when no parsed receipt reports a positive count. A STALE receipt
+ * therefore holds the warning up until its job runs again. That is correct — the
+ * stored record stays corrupt until it is repaired, and the last thing any job
+ * observed is still the best evidence available — but it is deliberate, not an
+ * oversight.
+ *
+ * `repair` is null. There is no supported operation that writes a lifecycle
+ * status or year onto a PRODUCTION record: `updateLeague` throws on `year`/
+ * `status`, `PATCH /api/admin/leagues/[slug]` answers 409 for both,
+ * the settings Season Year input is read-only, and `resetTestLeagueLifecycle`
+ * takes no slug and reaches only the demo league. Recovery is PLATFORM-087's and
+ * is unscheduled. Linking `/admin/season` would name a page that cannot perform
+ * the repair — the "never a fake link" case `SystemHealthRepair` documents.
+ */
+function lifecycleIntegrityIssues(snapshot: SchedulerDeliveryHealthSnapshot): SystemHealthIssue[] {
+  const reportingJobs = snapshot.jobs
+    .filter((row) => {
+      const target = row.receipt?.target;
+      // `SchedulerExecutionTarget` is a union and only the four lifecycle-bearing
+      // variants carry the count, so the field is narrowed rather than cast. The
+      // `in` test is deliberately structural, not a kind allowlist: the field
+      // means the same thing wherever it appears, so a job that starts reporting
+      // refusals is counted without this list having to be maintained in a
+      // second place.
+      return (
+        target !== undefined &&
+        'invalidLifecycleTargets' in target &&
+        target.invalidLifecycleTargets > 0
+      );
+    })
+    .map((row) => row.job);
+
+  if (reportingJobs.length === 0) return [];
+
+  return [
+    {
+      code: 'lifecycle-data-unusable',
+      severity: 'warning',
+      // Warning, not critical: valid targets keep processing, and a wholly
+      // refused run already raises `scheduler-execution-failed`. This is
+      // ADDITIVE to that — the two answer different questions and both may
+      // appear on one dashboard.
+      subject: { axis: 'global', id: 'lifecycle-integrity' },
+      title: 'Production lifecycle data is unusable',
+      explanation:
+        'Automatic processing refused production lifecycle data. Some processing may be ' +
+        `incomplete. Reported by: ${reportingJobs.join(', ')}.`,
+      repair: null,
+    },
+  ];
 }
 
 function failedAttemptIssue(
@@ -676,6 +761,7 @@ export function deriveSystemHealthIssues(inputs: SystemHealthIssueInputs): Syste
     ...schedulerExecutionIssues(inputs.schedulerDelivery),
     ...providerAttemptIssues(inputs.providerRefresh, inputs.cacheStates, inputs.nowMs),
     ...canonicalDataIssues(inputs.diagnostics),
+    ...lifecycleIntegrityIssues(inputs.schedulerDelivery),
     ...automationIssues(inputs.automation),
     ...quotaIssues(inputs.quota),
   ];
