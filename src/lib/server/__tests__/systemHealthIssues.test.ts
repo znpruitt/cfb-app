@@ -22,6 +22,7 @@ import {
   healthyDelivery,
   NOW,
   receiptFor,
+  receiptWithRefusals,
   refreshSnapshot,
   safeStatus,
   unavailableDelivery,
@@ -774,4 +775,189 @@ test('issues are ordered by severity → axis → canonical order and deduped by
   const withDupe = [...issues, issues[0]];
   const seen = new Set(withDupe.map((i) => `${i.code}|${i.subject.axis}|${i.subject.id}`));
   assert.equal(seen.size, issues.length);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H3B2 — the lifecycle-integrity issue. Closes deferral (q),
+// carried since PLATFORM-086F2H1R3.
+//
+// The count reaches System Health already: it rides on the receipt TARGET for
+// the four lifecycle-bearing jobs and the parser normalizes a legacy `undefined`
+// to 0. Until now it surfaced only as a suffix inside a collapsed scheduler row.
+// ---------------------------------------------------------------------------
+
+const LIFECYCLE_TARGET_JOBS = [
+  'schedule-refresh',
+  'rankings',
+  'season-transition',
+  'season-rollover',
+] as const;
+
+/** Delivery snapshot where `job` reports `refusals` and every other job is clean. */
+function refusalDelivery(job: (typeof LIFECYCLE_TARGET_JOBS)[number], refusals: number) {
+  return deliverySnapshot(
+    EXTERNAL_SCHEDULER_JOBS.map((j) =>
+      deliveryRow(
+        j,
+        'on-time',
+        j === job ? receiptWithRefusals(j, 'success', refusals) : receiptFor(j, 'success')
+      )
+    )
+  );
+}
+
+test('a single job reporting refused lifecycle records raises one issue', () => {
+  const issues = deriveSystemHealthIssues(
+    baseInputs({ schedulerDelivery: refusalDelivery('season-rollover', 1) })
+  );
+
+  const lifecycle = issues.filter((i) => i.code === 'lifecycle-data-unusable');
+  assert.equal(lifecycle.length, 1);
+  assert.equal(lifecycle[0]!.severity, 'warning');
+  assert.deepEqual(lifecycle[0]!.subject, { axis: 'global', id: 'lifecycle-integrity' });
+  assert.match(lifecycle[0]!.explanation, /refused production lifecycle data/);
+});
+
+// THE counting constraint. Each count is per JOB and per RUN and counts RECORDS,
+// and the same corrupt league is counted independently by up to four jobs — so
+// three jobs reporting 1 each is not "3 leagues", and no arithmetic over those
+// counts is defensible. Receipts carry no slug, so a deduplicated league count
+// is not derivable at all.
+test('three jobs reporting refusals produce ONE issue that states no count', () => {
+  const snapshot = deliverySnapshot(
+    EXTERNAL_SCHEDULER_JOBS.map((j) =>
+      deliveryRow(
+        j,
+        'on-time',
+        (LIFECYCLE_TARGET_JOBS as readonly string[]).includes(j) && j !== 'schedule-refresh'
+          ? receiptWithRefusals(j as (typeof LIFECYCLE_TARGET_JOBS)[number], 'success', 1)
+          : receiptFor(j, 'success')
+      )
+    )
+  );
+
+  const issues = deriveSystemHealthIssues(baseInputs({ schedulerDelivery: snapshot }));
+  const lifecycle = issues.filter((i) => i.code === 'lifecycle-data-unusable');
+
+  assert.equal(lifecycle.length, 1, 'one issue, not one per reporting job');
+  // The COUNT alone is partly guaranteed by the derivation's dedup, which
+  // collapses identical `code|axis|id` identities — a per-job implementation
+  // emitting the same global subject would still reduce to one. The GLOBAL
+  // subject is what actually makes this a single combined issue, so it is
+  // asserted directly: a per-job subject produces four identities and four rows.
+  assert.deepEqual(lifecycle[0]!.subject, { axis: 'global', id: 'lifecycle-integrity' });
+  const text = `${lifecycle[0]!.title} ${lifecycle[0]!.explanation}`;
+  assert.ok(!/\d/.test(text), `no digit may appear in operator copy; got: ${text}`);
+  assert.ok(!/\bleagues?\b/i.test(text), 'never expressed as a league count');
+
+  // It names the reporting jobs — the most specific TRUE thing available — and
+  // only those.
+  assert.match(lifecycle[0]!.explanation, /rankings/);
+  assert.match(lifecycle[0]!.explanation, /season-transition/);
+  assert.match(lifecycle[0]!.explanation, /season-rollover/);
+  assert.ok(
+    !lifecycle[0]!.explanation.includes('schedule-refresh'),
+    'a job that reported nothing is not named'
+  );
+});
+
+// REGRESSION TEST — the issue must NOT derive from `result`. R3's ruling: a valid
+// target can succeed while another production record is refused, so gating on the
+// aggregate would hide exactly the case this issue exists to surface.
+test('the issue appears regardless of the reporting run’s aggregate result', () => {
+  for (const result of ['success', 'partial', 'no-op', 'skipped'] as const) {
+    const snapshot = deliverySnapshot(
+      EXTERNAL_SCHEDULER_JOBS.map((j) =>
+        deliveryRow(
+          j,
+          'on-time',
+          j === 'rankings' ? receiptWithRefusals(j, result, 2) : receiptFor(j, 'success')
+        )
+      )
+    );
+    const issues = deriveSystemHealthIssues(baseInputs({ schedulerDelivery: snapshot }));
+    assert.ok(
+      find(issues, 'lifecycle-data-unusable'),
+      `a ${result} run carrying refusals must still raise the issue`
+    );
+  }
+});
+
+test('no issue when every parsed receipt reports zero', () => {
+  const issues = deriveSystemHealthIssues(baseInputs({ schedulerDelivery: healthyDelivery() }));
+  assert.equal(find(issues, 'lifecycle-data-unusable'), undefined);
+
+  // POSITIVE CONTROL — the same shape with one positive count DOES raise it, so
+  // the absence above is a real observation rather than a derivation that never
+  // fires.
+  const armed = deriveSystemHealthIssues(
+    baseInputs({ schedulerDelivery: refusalDelivery('rankings', 1) })
+  );
+  assert.ok(find(armed, 'lifecycle-data-unusable'));
+});
+
+// A receipt that is absent or unparsed cannot report a count. Inferring one would
+// be fabrication, so a `missing` delivery contributes nothing.
+test('a job with no readable receipt contributes nothing', () => {
+  const snapshot = deliverySnapshot(
+    EXTERNAL_SCHEDULER_JOBS.map((j) =>
+      deliveryRow(
+        j,
+        j === 'season-rollover' ? 'missing' : 'on-time',
+        j === 'season-rollover' ? null : receiptFor(j, 'success')
+      )
+    )
+  );
+  const issues = deriveSystemHealthIssues(baseInputs({ schedulerDelivery: snapshot }));
+  assert.equal(find(issues, 'lifecycle-data-unusable'), undefined);
+
+  // POSITIVE CONTROL — that same job WITH a readable refusal-bearing receipt
+  // raises the issue, so the absence is about the missing receipt and not about
+  // this job being unreachable by the derivation.
+  const armed = deriveSystemHealthIssues(
+    baseInputs({ schedulerDelivery: refusalDelivery('season-rollover', 1) })
+  );
+  assert.ok(find(armed, 'lifecycle-data-unusable'));
+});
+
+// There is NO supported operation that writes a lifecycle status or year onto a
+// production record, so the issue offers no destination. `/admin/season` would
+// name a page that cannot perform the repair.
+test('the issue offers no repair destination', () => {
+  const issues = deriveSystemHealthIssues(
+    baseInputs({ schedulerDelivery: refusalDelivery('season-transition', 1) })
+  );
+  assert.equal(find(issues, 'lifecycle-data-unusable')!.repair, null);
+});
+
+// It is ADDITIVE to the execution fault, never a replacement — the two answer
+// different questions and a wholly-refused run raises both.
+test('it co-exists with an execution fault on the same run', () => {
+  const snapshot = deliverySnapshot(
+    EXTERNAL_SCHEDULER_JOBS.map((j) =>
+      deliveryRow(
+        j,
+        'on-time',
+        j === 'season-rollover' ? receiptWithRefusals(j, 'failure', 1) : receiptFor(j, 'success')
+      )
+    )
+  );
+  const issues = deriveSystemHealthIssues(baseInputs({ schedulerDelivery: snapshot }));
+
+  assert.ok(find(issues, 'scheduler-execution-failed'), 'the run fault still raises');
+  assert.ok(find(issues, 'lifecycle-data-unusable'), 'and the data fault raises beside it');
+});
+
+// Ordering and dedup stay deterministic with the new global-axis issue present.
+test('the new issue does not disturb deterministic ordering or dedup', () => {
+  const inputs = baseInputs({ schedulerDelivery: refusalDelivery('rankings', 3) });
+  const first = codes(deriveSystemHealthIssues(inputs));
+  const second = codes(deriveSystemHealthIssues(inputs));
+
+  assert.deepEqual(first, second, 'stable across calls');
+  assert.equal(
+    first.filter((c) => c === 'lifecycle-data-unusable').length,
+    1,
+    'exactly one, never duplicated'
+  );
 });

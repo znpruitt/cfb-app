@@ -54,7 +54,7 @@ export const NOW = Date.parse('2026-10-15T12:00:00.000Z');
 
 // -- Scheduler receipts + delivery rows ---------------------------------------
 
-function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
+function targetFor(job: ExternalSchedulerJob, refusals = 0): SchedulerExecutionTarget {
   switch (job) {
     case 'live-scores':
       return { kind: 'live-scores', year: YEAR, mode: null, targetGames: 0, targetPartitions: 0 };
@@ -63,16 +63,19 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
     case 'odds':
       return { kind: 'odds', year: YEAR, cadence: null, eligibleGames: 0 };
     case 'schedule-refresh':
-      return scheduleYearsTarget([{ year: YEAR, operation: null }], 0);
+      return scheduleYearsTarget([{ year: YEAR, operation: null }], refusals);
     case 'rankings':
-      return rankingsYearsTarget([{ year: YEAR, publicationWindow: null }], 0);
+      return rankingsYearsTarget([{ year: YEAR, publicationWindow: null }], refusals);
     case 'season-transition':
       return seasonTransitionYearsTarget(
         [{ year: YEAR, targetLeagues: 1, probed: true, transitionedLeagues: 0 }],
-        0
+        refusals
       );
     case 'season-rollover':
-      return seasonRolloverYearsTarget([{ year: YEAR, targetLeagues: 1, rolledOverLeagues: 0 }], 0);
+      return seasonRolloverYearsTarget(
+        [{ year: YEAR, targetLeagues: 1, rolledOverLeagues: 0 }],
+        refusals
+      );
   }
 }
 
@@ -92,6 +95,35 @@ export function receiptFor(
   result: SchedulerExecutionResult,
   startedAtMs: number = NOW - 60_000
 ): SchedulerExecutionReceipt {
+  return buildReceipt(job, result, startedAtMs, 0);
+}
+
+/**
+ * PLATFORM-086F2H3B2 — a receipt whose TARGET reports refused production
+ * lifecycle records. Only the four lifecycle-bearing jobs carry the field;
+ * asking for refusals on any other job throws rather than silently producing a
+ * receipt that cannot express them, so a test cannot assert against a fixture
+ * that never carried the fact.
+ */
+export function receiptWithRefusals(
+  job: ExternalSchedulerJob,
+  result: SchedulerExecutionResult,
+  refusals: number,
+  startedAtMs: number = NOW - 60_000
+): SchedulerExecutionReceipt {
+  const receipt = buildReceipt(job, result, startedAtMs, refusals);
+  if (!('invalidLifecycleTargets' in receipt.target)) {
+    throw new Error(`${job} has no lifecycle-target count to report`);
+  }
+  return receipt;
+}
+
+function buildReceipt(
+  job: ExternalSchedulerJob,
+  result: SchedulerExecutionResult,
+  startedAtMs: number,
+  refusals: number
+): SchedulerExecutionReceipt {
   const receipt = buildSchedulerExecutionReceipt({
     job,
     invocationId: `id-${job}-${startedAtMs}`,
@@ -100,7 +132,7 @@ export function receiptFor(
     result,
     reason: REASON_FOR[job],
     providerCallAttempted: false,
-    target: targetFor(job),
+    target: targetFor(job, refusals),
   });
   if (!receipt) throw new Error(`fixture receipt failed to build for ${job}`);
   return receipt;

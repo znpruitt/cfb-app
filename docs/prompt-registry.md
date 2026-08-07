@@ -188,6 +188,60 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `npm run build`, and `git diff --check` each run as their own command with unmasked exit status.
 - Status: MERGED via PR #457 (`876d87c`), 2026-08-07.
 
+### PLATFORM-086F2H3B2-SYSTEM-HEALTH-LIFECYCLE-INTEGRITY-v1
+
+- Purpose: Surface a dedicated System Health issue when any scheduler receipt reports refused
+  production lifecycle records, independently of the aggregate job result. Second of two F2H3B
+  slices; closes deferral (q), carried since PLATFORM-086F2H1R3, and completes F2H3.
+- Scope: `src/lib/server/systemHealthIssues.ts` (new code + derivation), its test and fixtures, and
+  the owning operations documentation. No cron, receipt, reason, targeting, scheduler-row summary,
+  rollover-panel, or registry change; no new repair operation; no new read.
+- Outcome: `lifecycle-data-unusable` — `warning`, axis `global`, subject `lifecycle-integrity`,
+  `repair: null`. Derived purely from facts the issue model already receives: the count rides on the
+  receipt TARGET for the four lifecycle-bearing jobs and the parser normalizes a legacy `undefined`
+  to 0, so no new read was needed. Until now it surfaced only as a suffix inside a collapsed
+  scheduler row.
+- **Never derived from `result`.** R3's ruling is that a valid target can succeed while another
+  production record is refused, so a `success` / `partial` / `no-op` / `skipped` run can still carry
+  refusals. Gating on the aggregate would hide exactly the case the issue exists to surface. It is
+  ADDITIVE to `scheduler-execution-failed`, never a replacement — a wholly refused run raises both.
+- **No number, by data constraint rather than style.** Counts are per JOB and per RUN and count
+  RECORDS, and the same corrupt league is counted independently by up to four jobs. Summing
+  multiplies one league; a maximum compares runs from different times; a deduplicated league count
+  is not derivable at all, because a receipt carries counts and never a slug. Naming the reporting
+  JOBS is the most specific true statement available.
+- **`repair: null`, verified end to end:** `updateLeague` throws on `year`/`status`, the admin PATCH
+  answers 409 for both, the Settings Season Year input is `readOnly`, and `resetTestLeagueLifecycle`
+  takes no slug. Linking `/admin/season` would name a page that cannot perform the repair — the
+  "never a fake link" case `SystemHealthRepair` already documents. Recovery is PLATFORM-087's.
+- Implementation note: the target field is narrowed with an `in` test rather than a kind allowlist,
+  so a job that later begins reporting refusals is counted without a second list to maintain. A
+  receipt that is absent or unparsed contributes nothing — inferring a count would be fabrication.
+- Review / verification: Codex and `/code-review` gathered against the same commit (`e05b138`); both
+  found the SAME single defect, and `/code-review` found a second misbehaviour inside it. The
+  derivation was confirmed sound — null-safe narrowing, normalized legacy receipts, deterministic
+  job ordering, dedup and ordering unaffected — but its INTEGRATION was not: `providerDataPanel`'s
+  predicate is RESIDUAL (`!SCHEDULER && !AUTOMATION && !QUOTA && !STORAGE`), so a new code lands in
+  Provider data by default. That rendered an otherwise-healthy system as "Provider data · Attention
+  needed · Production lifecycle data is unusable" — a league-registry fault attributed to provider
+  data, breaking the axis separation F2G exists to keep. Worse, because `governing` takes the first
+  match in the globally-sorted list and `compareIssues` ranks the `global` axis ahead of `dataset`,
+  it also DISPLACED a genuine provider fault from that tile's single detail line. **No existing test
+  pinned the residual-bucket behaviour, which is why the suite stayed green.** This is the R4 lesson
+  again — check the CONSUMERS of a new field, not only its producer. Remediated by claiming the code
+  in an explicit `UNTILED_CODES` set, excluding it from the provider predicate, and folding untiled
+  issues into OVERALL so the dashboard cannot report "all systems are operating normally" above an
+  open warning. The consequence — five green section tiles under a yellow Overall — is deliberate and
+  pinned, rather than misfiling the issue or inventing a sixth tile.
+  Deltas: `systemHealthIssues` 35 → 43, `systemHealthPanels` 24 → 27. Full suite 3427 → 3438 (+11).
+  Eight mutations, each compiling, applied alone, killed by a named test; one was INERT and replaced
+  (emitting one issue per job with the same global subject is invisible, because the derivation's
+  dedup collapses identical `code|axis|id` identities — so the count assertion was partly guaranteed
+  by dedup, and the test now asserts the global subject directly).
+  `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
+  run as their own command with unmasked exit status.
+- Status: implemented and reviewed; not yet merged.
+
 ### PLATFORM-086F2H3B1-LIFECYCLE-PRESENTATION-AND-TEST-CONTROL-FEEDBACK-v1
 
 - Purpose: Render each league's lifecycle STATE separately from what ADVANCES it, correct the demo

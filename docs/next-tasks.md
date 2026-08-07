@@ -743,7 +743,7 @@ Execution order within F2 (each slice is one independently deployable PR):
           A second live falsehood surfaced during implementation: a legacy missing-status record
           reaches NO lifecycle job, so the inferred season label must not carry the season's
           automation claim.
-        - **F2H3B2 — System Health lifecycle-integrity warning.** **NEXT.** One combined issue derived
+        - **F2H3B2 — System Health lifecycle-integrity warning.** Implemented; **not yet merged**. One combined issue derived
           from `invalidLifecycleTargets > 0` on any scheduler receipt, INDEPENDENT of the aggregate
           job result (deferral (q), from F2H1R3). **Owner rulings: display NO number** — receipts
           carry per-job, per-run counts and never slugs, so four jobs counting the same corrupt
