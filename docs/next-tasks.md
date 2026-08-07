@@ -810,7 +810,36 @@ Execution order within F2 (each slice is one independently deployable PR):
 13. **NEXT — F2I Platform Configuration / Team Identity**, then F2J commissioner boundaries +
     navigation closeout. These are the last two F2 slices. F2I's surface count drops by one once
     F2H4 lands.
-14. **PARKED — cross-league league-setup superview** (owner idea, 2026-08-07). A table of leagues ×
+14. **PARKED — CFBD team IDs for provider matching** (question raised 2026-08-07; investigated
+    read-only, not scheduled). Framed on the way in as "aliases may be obsolete now that we use CFBD
+    IDs". **Both halves of that turned out not to hold**, so it is recorded as what it actually is: a
+    correctness improvement to PROVIDER matching, not a simplification.
+    - **We do not use CFBD IDs.** `src/data/teams.json` carries `school`, `mascot`, `conference`, and
+      an `alts` array — no IDs at all. Schedule items carry OPTIONAL `homeId`/`awayId`, but canonical
+      identity through the pipeline is the team NAME.
+    - **Aliases are not obsolete.** 20+ runtime consumers outside the admin surface, in the core data
+      path: `schedule.ts`, `scores.ts`, `odds.ts`, `seasonBuild.ts`, `scoreAttachment.ts`,
+      `reconcileNames.ts`, insights, and the game-stats slate builders. `scoreAttachment` classifies
+      every resolution as `alias | canonical | unresolved | ambiguous` — that is reconciling names
+      returned by CFBD and ESPN, which no internal ID fixes, because the mismatch arrives from
+      outside.
+    - **The roster-CSV argument for aliases is WEAKER than first stated** and the correction is worth
+      keeping: the draft tool is the primary roster path now and picks from the catalog, so it
+      produces canonical names by construction and the owners CSV is its OUTPUT rather than a typed
+      input. CSV upload is still mounted at `/admin/[slug]/roster` and `reconcileNames` still exists
+      for it (it can even persist learned aliases), but it is no longer the main flow.
+    - **What IDs would actually buy:** exact provider-to-provider joins where both providers supply
+      one, shrinking the `ambiguous`/`unresolved` outcomes. They would NOT retire the alias layer.
+    - **Prior decisions this must not silently reverse:** `docs/roadmap.md` marks the alias-model
+      sequence complete (PLATFORM-055 → 067) with the final precedence **stored global → year →
+      seed**, and explicitly SUPERSEDED the goal of removing year-scoped alias code — that tier is
+      retained on purpose. This queue also lists "new matching systems or changes to schedule-first
+      identity rules" as **out of scope**.
+    - **Cheap test before any retirement is ever contemplated:** empty the global alias map on
+      preview and observe what breaks. Expect roster reconciliation and score attachment to start
+      missing matches.
+
+15. **PARKED — cross-league league-setup superview** (owner idea, 2026-08-07). A table of leagues ×
     setup milestones for a chosen year, so an operator can audit **how many created leagues actually
     finish setup** — an activation/funnel measure ahead of going public. It passes the surface test
     deliberately: it represents something a human measures and decides on, not machinery that merely
