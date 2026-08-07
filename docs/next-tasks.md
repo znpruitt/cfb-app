@@ -781,8 +781,40 @@ Execution order within F2 (each slice is one independently deployable PR):
         execution is ever restored, its standings-invalidation handling must be HARDENED AND TESTED,
         never reinstated from the retired bare catch. This is now also stated in AGENTS.md
         invariant 5.
-12. **NEXT — F2I Platform Configuration / Team Identity**, then F2J commissioner boundaries +
-    navigation closeout. These are the last two F2 slices.
+12. **F2H4 — RETIRE `/admin/season`** (decided 2026-08-07, owner ruling). Season rollover is
+    automation-owned and, since F2H3A, has no operator-reachable execution and **no automation-pause
+    gate** — so the preview showed an irreversible write nobody could prevent: unactionable by
+    construction. `ArchiveListPanel` renders year badges with no `href` at all, and
+    `/league/[slug]/history` already navigates the same `listSeasonArchives` data per league.
+    Delete rather than relocate, both panels. Orphan set (the panel is the route's only caller):
+    the page, both panels, `/api/admin/rollover`, `src/lib/manualRollover.ts`, and
+    `diffSeasonArchives`. Capability survives — `rolloverTargeting`, `completeSeasonRollover`,
+    `buildSeasonArchive`, `saveSeasonArchive`, and `listSeasonArchives` all stay.
+    **Forces a recorded follow-up closed:** the `season-management` repair surface (emitted from
+    exactly one site, the lifecycle branch of `schedulerExecutionIssues`) is removed, so lifecycle
+    scheduler faults carry `repair: null` — matching what F2H3B2 established. **Verify before
+    deleting:** that a waiting-period skip reason is legible on the System Health scheduler row.
+    Filed under F2H rather than F2I because `/admin/season` IS Season Management.
+13. **NEXT — F2I Platform Configuration / Team Identity**, then F2J commissioner boundaries +
+    navigation closeout. These are the last two F2 slices. F2I's surface count drops by one once
+    F2H4 lands.
+14. **PARKED — cross-league league-setup superview** (owner idea, 2026-08-07). A table of leagues ×
+    setup milestones for a chosen year, so an operator can audit **how many created leagues actually
+    finish setup** — an activation/funnel measure ahead of going public. It passes the surface test
+    deliberately: it represents something a human measures and decides on, not machinery that merely
+    exists, and it is **not** a revival of `/admin/season`.
+    - **Mostly aggregation, not new derivation.** `LeagueStatusPanel` already reads the per-league
+      milestones — owners CSV (`owners:<slug>:<year>`), draft phase (`not started` / `configured` /
+      `scheduled` / `live` / `paused` / `complete`) — and `describeLeagueLifecycle` (F2H3B1) is
+      already the one lifecycle-ownership authority a row would use.
+    - **Two constraints found while scoping it.** (a) Schedule and scores are YEAR-scoped
+      (`schedule/<year>-all-all`), not league-scoped, so those columns would read identically for
+      every league in a year — they belong in a header, not a column, or the table implies
+      per-league progress that does not exist. (b) It is four `getAppState` reads per league per
+      year; fine at current scale, worth knowing before it is a public-launch dashboard.
+    - **The hard part is the definition, not the rendering:** what "finished setup" means, whether
+      it is per-year or all-time, and whether this is an admin page or closer to analytics. Audit and
+      settle that before any implementation. Not scheduled.
 
 The legacy diagnostics tools remain available and unmoved until the corresponding slice ships.
 
