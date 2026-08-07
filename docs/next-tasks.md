@@ -676,7 +676,7 @@ Execution order within F2 (each slice is one independently deployable PR):
     - **F2H2 — rollover/archive consolidation** — **NEXT.** Audit FIRST: this surface writes
       permanent archives. **Audited 2026-08-06** (6 dimensions, adversarially verified); the value
       verdict retired two of the five chartered items and rescoped a third:
-      - **F2H2A — admin season backfill RETIRED.** ✅ Done (unmerged at time of writing). Owner
+      - **F2H2A — admin season backfill RETIRED.** ✅ MERGED (PR #456, `cb40c03`, 2026-08-07). Owner
         decision: backfill was a one-time historical TSC import, not a product feature. Review of a
         hardening attempt (`d27fffb`, `0bc7f4d`, both unmerged and discarded) found two ways to
         trigger an irreversible write unintentionally — the confirmation gate read

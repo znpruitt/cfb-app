@@ -136,7 +136,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   Test delta: 3386 → 3378 (−8, the hardening suites that never reached `main`; the retired route
   itself never had tests). `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
   `git diff --check` each run as their own command with unmasked exit status.
-- Status: Implemented; in final pre-merge review. Not merged.
+- Status: MERGED via PR #456 (`cb40c03`), 2026-08-07.
 
 ### PLATFORM-086F2H1R3-RANKINGS-YEAR-VALIDITY-v1
 

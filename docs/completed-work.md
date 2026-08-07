@@ -2322,6 +2322,60 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H2A — Admin Season Backfill Retired — Complete
+
+- **Status:** Complete — merged to `main` via PR #456 (merge commit `cb40c03`), 2026-08-07. First
+  F2H2 slice, and a DELETION rather than a fix.
+- **PROMPT_ID(s):** `PLATFORM-086F2H2A-RETIRE-SEASON-BACKFILL-v1`.
+- **Outcome:** `POST /api/admin/backfill`, `BackfillPanel`, the `/admin/season` mount, and the dead
+  registry read that fed only that panel are removed. Backfill was a one-time import for historical
+  TSC league data, not a product feature; the only remaining use case — a missed historical year
+  surfacing later — is a deliberate one-off, not a standing admin button.
+- **Why retire rather than harden.** The route performed a write that is DURABLE, PUBLICLY VISIBLE
+  (a season archive renders on the league history page), and IRREVERSIBLE — no code path anywhere
+  deletes an archive — and it shipped COMPLETELY UNTESTED. Two ways to trigger it unintentionally
+  were found: the confirmation gate read `existing !== null && !confirmed`, so a request with no
+  existing archive skipped it entirely and fell through to `saveSeasonArchive` (**the button
+  labelled "Preview Backfill" WAS the write**, and the client acknowledged this in a comment rather
+  than treating it as a defect); and the only year bound was `>= 2000`, so the CURRENT in-season
+  year was accepted and SUCCEEDED, because the live season's schedule cache always exists.
+  Deleting removes the risk class — a wrong keystroke can no longer mint a permanent public archive
+  because there is nothing to click.
+- **Capability preserved:** `buildSeasonArchive` and `saveSeasonArchive` are used by BOTH rollover
+  paths, so they remain live, maintained, and continuously exercised. A future one-off repair is a
+  few lines against tested code, and safer than an admin surface because it cannot be reached
+  accidentally.
+- **The order this happened in is the lesson.** A full hardening slice was built and reviewed first
+  (`d27fffb`, `0bc7f4d`, unmerged, branch deleted) before anyone asked whether the feature should
+  exist. The F2H2 audit questioned rollover and the panels but never asked that of backfill, because
+  NOTHING IN THE CODE MARKS A FEATURE VESTIGIAL — only the owner knew. Its review record is what
+  established both defects, so the sunk work became the retirement's justification rather than its
+  foundation; the branch was reconstructed from `main` rather than layering a deletion on top.
+- **Comment and documentation truthfulness.** Three modules named "the established preview/confirm
+  backfill" as THE repair for a malformed game-stat slate or archive. Four canonical
+  `Status: Current` docs carried the route in their action inventory, admin API surface, page
+  contents, target-IA row, archive writer set, standings verified-wiring list, and E3 repair
+  instructions. All corrected. **One rationale that had ALREADY been reworded was still false** and
+  was fixed properly: it claimed a bogus cached `null` could let a writer "overwrite without
+  confirmation", but no surviving consumer gates a write on archive existence — the manual rollover
+  route is the only write-side reader of `getSeasonArchive`, confirmation is an explicit operator
+  boolean, and `existing` feeds only display fields. The real hazard is a HIDDEN overwrite warning.
+- **Review:** Codex and `/code-review` on the same commit (`48fcdea`). Both confirmed the deletion
+  itself clean — no dangling callers, broken types, or removed guard another path depended on. Every
+  finding was a truth or closeout gap, including a FALSE claim in the original commit message (it
+  said the removed artifacts' test suites went with them; `git ls-tree main` shows neither ever had
+  one). Amended — and that the surface shipped untested strengthens the retirement.
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
+  3386 → 3378 (−8): the hardening suites that never reached `main`. The route is absent from the
+  build manifest; `/admin/season` still renders its three remaining panels.
+- **What F2H2 carries forward.** The audit retired two more chartered items (rollover
+  projection/result convergence — the two surfaces have genuinely different jobs; benign
+  duplicate-delivery reporting — no path was produced where a redelivery reports as failure) and
+  RESCOPED the UI consolidation: neither rollover panel is a superset of the other, so deleting
+  either loses operator information. Open question for F2H3: manual rollover EXECUTION may not be
+  needed at all — it sits behind the identical gate as the daily cron, which runs anyway.
+
 ### PLATFORM-086F2H1R4 — Rollover Registry-Container Truth + Year Validity — Complete
 
 - **Status:** Complete — merged to `main` via PR #455 (merge commit `995c18e`), 2026-08-06.
