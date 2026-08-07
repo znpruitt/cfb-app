@@ -10,6 +10,16 @@ import type { PublicLeague } from '@/lib/league';
 
 const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
+/**
+ * PLATFORM-086F2I — the old copy said "Enter your token in the Auth panel
+ * above", but nothing on the page is labelled "Auth panel": `AdminAuthPanel`
+ * renders a `<details>` disclosure whose summary reads "Admin access token", so
+ * an operator was told to find something that is not there. Named for what
+ * actually renders, and defined once instead of three times.
+ */
+const NO_TOKEN_MESSAGE =
+  'No admin token set. Open "Admin access token" above and paste your token.';
+
 const inputClass =
   'w-full rounded border border-gray-300 bg-white px-2 py-1 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100';
 const controlButtonClass =
@@ -19,10 +29,21 @@ const secondaryButtonClass =
 const destructiveButtonClass =
   'px-3 py-2 rounded border border-red-300 bg-white text-sm text-red-700 transition-colors hover:bg-red-50 hover:border-red-400 dark:border-red-800 dark:bg-zinc-900 dark:text-red-400 dark:hover:bg-red-950/40';
 
-type EditState = {
-  displayName: string;
+/**
+ * PLATFORM-086F2I — display-name editing moved OUT of this page.
+ *
+ * League configuration (display name, founded year, password) belongs to
+ * `/admin/[slug]/settings`; this page is the REGISTRY surface — create, list,
+ * delete. The inline editor here was the only overlap between the two, and it
+ * duplicated a field settings already owns. `PATCH /api/admin/leagues/[slug]`
+ * is unchanged and still serves the settings page.
+ */
+
+type DeleteState = {
+  /** The slug the operator has typed to confirm. Empty until they start. */
+  confirmation: string;
   error: string | null;
-  saving: boolean;
+  deleting: boolean;
 };
 
 export default function AdminLeaguesPage() {
@@ -37,9 +58,7 @@ export default function AdminLeaguesPage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
-  const [editMap, setEditMap] = useState<Record<string, EditState>>({});
-  const [deleteErrors, setDeleteErrors] = useState<Record<string, string>>({});
-  const [deleting, setDeleting] = useState<Record<string, boolean>>({});
+  const [deleteMap, setDeleteMap] = useState<Record<string, DeleteState>>({});
 
   useEffect(() => {
     void fetchLeagues();
@@ -63,19 +82,15 @@ export default function AdminLeaguesPage() {
     }
   }
 
-  function startEdit(league: PublicLeague) {
-    setEditMap((prev) => ({
+  function armDelete(league: PublicLeague) {
+    setDeleteMap((prev) => ({
       ...prev,
-      [league.slug]: {
-        displayName: league.displayName,
-        error: null,
-        saving: false,
-      },
+      [league.slug]: { confirmation: '', error: null, deleting: false },
     }));
   }
 
-  function cancelEdit(slug: string) {
-    setEditMap((prev) => {
+  function cancelDelete(slug: string) {
+    setDeleteMap((prev) => {
       const next = { ...prev };
       delete next[slug];
       return next;
@@ -83,47 +98,69 @@ export default function AdminLeaguesPage() {
   }
 
   async function handleDelete(league: PublicLeague) {
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${league.displayName}"? This removes the league from the registry but does not delete its stored data (owners, aliases, overrides). This cannot be undone.`
-    );
-    if (!confirmed) return;
+    const state = deleteMap[league.slug];
+    if (!state) return;
+
+    // Guarded here for feedback, and AGAIN in the route — the route is the
+    // authority. A static `ADMIN_API_TOKEN` can call the endpoint directly and
+    // never see this form, so a browser-only check would protect nobody.
+    if (state.confirmation.trim() !== league.slug) {
+      setDeleteMap((prev) => ({
+        ...prev,
+        [league.slug]: {
+          ...prev[league.slug]!,
+          error: `Type ${league.slug} exactly to confirm.`,
+        },
+      }));
+      return;
+    }
 
     let authHeaders: Record<string, string>;
     try {
       authHeaders = requireAdminAuthHeaders() as Record<string, string>;
     } catch {
-      setDeleteErrors((prev) => ({
+      setDeleteMap((prev) => ({
         ...prev,
-        [league.slug]: 'No admin token set. Enter your token in the Auth panel above.',
+        [league.slug]: { ...prev[league.slug]!, error: NO_TOKEN_MESSAGE },
       }));
       return;
     }
 
-    setDeleting((prev) => ({ ...prev, [league.slug]: true }));
-    setDeleteErrors((prev) => {
-      const next = { ...prev };
-      delete next[league.slug];
-      return next;
-    });
+    setDeleteMap((prev) => ({
+      ...prev,
+      [league.slug]: { ...prev[league.slug]!, deleting: true, error: null },
+    }));
     try {
-      const res = await fetch(`/api/admin/leagues/${encodeURIComponent(league.slug)}`, {
-        method: 'DELETE',
-        headers: authHeaders,
-      });
+      const res = await fetch(
+        `/api/admin/leagues/${encodeURIComponent(league.slug)}?confirm=${encodeURIComponent(
+          league.slug
+        )}`,
+        { method: 'DELETE', headers: authHeaders }
+      );
       if (!res.ok) {
         const text = await res.text();
-        setDeleteErrors((prev) => ({
+        setDeleteMap((prev) => ({
           ...prev,
-          [league.slug]: text || `DELETE ${res.status}`,
+          [league.slug]: {
+            ...prev[league.slug]!,
+            deleting: false,
+            error: text || `DELETE ${res.status}`,
+          },
         }));
         return;
       }
       const data = (await res.json()) as { leagues: PublicLeague[] };
       setLeagues(data.leagues);
+      cancelDelete(league.slug);
     } catch (err) {
-      setDeleteErrors((prev) => ({ ...prev, [league.slug]: (err as Error).message }));
-    } finally {
-      setDeleting((prev) => ({ ...prev, [league.slug]: false }));
+      setDeleteMap((prev) => ({
+        ...prev,
+        [league.slug]: {
+          ...prev[league.slug]!,
+          deleting: false,
+          error: (err as Error).message,
+        },
+      }));
     }
   }
 
@@ -158,7 +195,7 @@ export default function AdminLeaguesPage() {
     try {
       authHeaders = requireAdminAuthHeaders() as Record<string, string>;
     } catch {
-      setCreateError('No admin token set. Enter your token in the Auth panel above.');
+      setCreateError(NO_TOKEN_MESSAGE);
       return;
     }
 
@@ -179,69 +216,6 @@ export default function AdminLeaguesPage() {
       setCreateError((err as Error).message);
     } finally {
       setCreating(false);
-    }
-  }
-
-  async function handleSaveEdit(leagueSlug: string) {
-    const state = editMap[leagueSlug];
-    if (!state) return;
-
-    const trimmedName = state.displayName.trim();
-
-    if (!trimmedName) {
-      setEditMap((prev) => ({
-        ...prev,
-        [leagueSlug]: { ...prev[leagueSlug], error: 'Display name is required.' },
-      }));
-      return;
-    }
-
-    let authHeaders: Record<string, string>;
-    try {
-      authHeaders = requireAdminAuthHeaders() as Record<string, string>;
-    } catch {
-      setEditMap((prev) => ({
-        ...prev,
-        [leagueSlug]: {
-          ...prev[leagueSlug],
-          error: 'No admin token set. Enter your token in the Auth panel above.',
-        },
-      }));
-      return;
-    }
-
-    setEditMap((prev) => ({
-      ...prev,
-      [leagueSlug]: { ...prev[leagueSlug], saving: true, error: null },
-    }));
-    try {
-      // Season year is lifecycle-managed (PLATFORM-086F2B) — the configuration
-      // PATCH sends only the display name and would be rejected if it sent year.
-      const res = await fetch(`/api/admin/leagues/${encodeURIComponent(leagueSlug)}`, {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ displayName: trimmedName }),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        setEditMap((prev) => ({
-          ...prev,
-          [leagueSlug]: {
-            ...prev[leagueSlug],
-            saving: false,
-            error: text || `PATCH ${res.status}`,
-          },
-        }));
-        return;
-      }
-      const data = (await res.json()) as { league: PublicLeague };
-      setLeagues((prev) => prev.map((l) => (l.slug === leagueSlug ? data.league : l)));
-      cancelEdit(leagueSlug);
-    } catch (err) {
-      setEditMap((prev) => ({
-        ...prev,
-        [leagueSlug]: { ...prev[leagueSlug], saving: false, error: (err as Error).message },
-      }));
     }
   }
 
@@ -292,104 +266,100 @@ export default function AdminLeaguesPage() {
         {leagues.length > 0 && (
           <div className="divide-y divide-gray-200 dark:divide-zinc-700">
             {leagues.map((league) => {
-              const editing = editMap[league.slug];
+              const pending = deleteMap[league.slug];
               return (
                 <div key={league.slug} className="py-3 first:pt-0 last:pb-0">
-                  {editing ? (
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center gap-2 text-sm">
-                        <span className="font-mono text-gray-500 dark:text-zinc-400">
-                          {league.slug}
-                        </span>
-                        <span className="text-xs text-gray-400 dark:text-zinc-500">
-                          (URL — permanent)
-                        </span>
-                        <span className="text-xs text-gray-400 dark:text-zinc-500">
-                          · Season year: {league.year} (managed by league lifecycle)
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                        <div className="space-y-1">
-                          <label className="text-xs text-gray-500 dark:text-zinc-400">
-                            Display name
-                          </label>
-                          <input
-                            className={inputClass}
-                            value={editing.displayName}
-                            onChange={(e) =>
-                              setEditMap((prev) => ({
-                                ...prev,
-                                [league.slug]: {
-                                  ...prev[league.slug],
-                                  displayName: e.target.value,
-                                },
-                              }))
-                            }
-                          />
-                        </div>
-                      </div>
-                      {editing.error && (
-                        <p className="text-xs text-red-700 dark:text-red-400">{editing.error}</p>
-                      )}
-                      <div className="flex gap-2">
-                        <button
-                          className={controlButtonClass}
-                          onClick={() => void handleSaveEdit(league.slug)}
-                          disabled={editing.saving}
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="space-y-0.5">
+                      <p className="text-sm font-medium text-gray-900 dark:text-zinc-100">
+                        {league.displayName}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-zinc-400">
+                        <span className="font-mono">{league.slug}</span>
+                        {' · '}
+                        {league.year}
+                        {' · '}
+                        <Link
+                          href={`/league/${league.slug}`}
+                          className="text-blue-600 hover:underline dark:text-blue-400"
                         >
-                          {editing.saving ? 'Saving…' : 'Save'}
+                          /league/{league.slug}
+                        </Link>
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Configuration lives on the league's own settings page —
+                          this surface creates, lists, and deletes. */}
+                      <Link
+                        href={`/admin/${league.slug}/settings`}
+                        className={secondaryButtonClass}
+                      >
+                        Settings
+                      </Link>
+                      {!pending && (
+                        <button
+                          className={destructiveButtonClass}
+                          onClick={() => armDelete(league)}
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {pending && (
+                    <div className="mt-3 space-y-2 rounded border border-red-300 bg-red-50/60 p-3 dark:border-red-800 dark:bg-red-950/20">
+                      <p className="text-xs text-red-800 dark:text-red-300">
+                        This removes <span className="font-mono">{league.slug}</span> from the
+                        registry. Its stored data — owners, drafts, archives, overrides — is{' '}
+                        <strong>not</strong> deleted, and this cannot be undone.
+                      </p>
+                      <label
+                        className="block text-xs text-gray-600 dark:text-zinc-400"
+                        htmlFor={`confirm-delete-${league.slug}`}
+                      >
+                        Type <span className="font-mono">{league.slug}</span> to confirm
+                      </label>
+                      <input
+                        id={`confirm-delete-${league.slug}`}
+                        aria-label={`Type ${league.slug} to confirm deletion`}
+                        className={inputClass}
+                        value={pending.confirmation}
+                        autoComplete="off"
+                        onChange={(e) =>
+                          setDeleteMap((prev) => ({
+                            ...prev,
+                            [league.slug]: {
+                              ...prev[league.slug]!,
+                              confirmation: e.target.value,
+                              error: null,
+                            },
+                          }))
+                        }
+                      />
+                      {pending.error && (
+                        <p className="text-xs text-red-700 dark:text-red-400">{pending.error}</p>
+                      )}
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          className={destructiveButtonClass}
+                          onClick={() => void handleDelete(league)}
+                          /* The typed slug — not a fixed word — because a fixed
+                             word is identical on every row and would not catch
+                             acting on the WRONG league. */
+                          disabled={pending.deleting || pending.confirmation.trim() !== league.slug}
+                        >
+                          {pending.deleting ? 'Deleting…' : `Delete ${league.slug}`}
                         </button>
                         <button
                           className={secondaryButtonClass}
-                          onClick={() => cancelEdit(league.slug)}
-                          disabled={editing.saving}
+                          onClick={() => cancelDelete(league.slug)}
+                          disabled={pending.deleting}
                         >
                           Cancel
                         </button>
                       </div>
                     </div>
-                  ) : (
-                    <>
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="space-y-0.5">
-                          <p className="text-sm font-medium text-gray-900 dark:text-zinc-100">
-                            {league.displayName}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-zinc-400">
-                            <span className="font-mono">{league.slug}</span>
-                            {' · '}
-                            {league.year}
-                            {' · '}
-                            <Link
-                              href={`/league/${league.slug}`}
-                              className="text-blue-600 hover:underline dark:text-blue-400"
-                            >
-                              /league/{league.slug}
-                            </Link>
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <button
-                            className={secondaryButtonClass}
-                            onClick={() => startEdit(league)}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            className={destructiveButtonClass}
-                            onClick={() => void handleDelete(league)}
-                            disabled={deleting[league.slug]}
-                          >
-                            {deleting[league.slug] ? 'Deleting…' : 'Delete'}
-                          </button>
-                        </div>
-                      </div>
-                      {deleteErrors[league.slug] && (
-                        <p className="mt-1 text-xs text-red-700 dark:text-red-400">
-                          {deleteErrors[league.slug]}
-                        </p>
-                      )}
-                    </>
                   )}
                 </div>
               );

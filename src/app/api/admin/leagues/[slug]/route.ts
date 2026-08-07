@@ -101,6 +101,39 @@ export async function DELETE(
     return new Response(`League "${slug}" not found`, { status: 404 });
   }
 
+  // PLATFORM-086F2I — the delete is IRREVERSIBLE and had no confirmation the
+  // server could see. `requireAdminRequest` accepts a static `ADMIN_API_TOKEN`
+  // alongside the Clerk session, so anyone holding that token can call this
+  // endpoint directly; a confirmation living only in the browser is decoration.
+  // Enforced here for the same reason F2H1SB moved authorization into the Server
+  // Actions: routing is never the authority, and neither is the UI.
+  //
+  // The confirmation is the SLUG, not a fixed word. A fixed word is identical on
+  // every row, so it defends against a stray click but not against acting on the
+  // WRONG LEAGUE — which is the accident this guard exists for.
+  const confirmation = new URL(req.url).searchParams.get('confirm');
+  if (confirmation === null) {
+    return Response.json(
+      {
+        error: 'league-delete-confirmation-required',
+        detail: `Deleting a league is irreversible. Re-send with ?confirm=${slug} to proceed.`,
+      },
+      { status: 400 }
+    );
+  }
+  if (confirmation !== slug) {
+    // Deliberately a DIFFERENT code from the absent case. "You did not confirm"
+    // and "you confirmed a different league" are different operator conditions,
+    // and the second is the dangerous one.
+    return Response.json(
+      {
+        error: 'league-delete-confirmation-mismatch',
+        detail: `The confirmation did not match "${slug}". Nothing was deleted.`,
+      },
+      { status: 400 }
+    );
+  }
+
   const { leagues } = await removeLeague(slug);
   return Response.json({
     leagues: sanitizeLeagues(leagues),

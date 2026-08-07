@@ -1,6 +1,7 @@
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getLeagues, addLeague, isValidSlug } from '@/lib/leagueRegistry';
 import { sanitizeLeague, sanitizeLeagues } from '@/lib/leagueSanitize';
+import { findResidualLeagueScopes } from '@/lib/server/leagueResidualData';
 import {
   isCreatableSeasonYear,
   maxCreatableSeasonYear,
@@ -73,6 +74,26 @@ export async function POST(req: Request): Promise<Response> {
   const existing = await getLeagues();
   if (existing.some((l) => l.slug === slug)) {
     return new Response(`League with slug "${slug}" already exists`, { status: 409 });
+  }
+
+  // PLATFORM-086F2I — a slug whose PREVIOUS occupant's data is still stored.
+  //
+  // Deleting a league removes one registry entry and nothing else, so rosters,
+  // drafts, archives, and suppression records all survive under the slug. A new
+  // league taking that slug would ADOPT them — showing one set of people's names
+  // to a commissioner with no relationship to them. Distinct from the 409 above
+  // on purpose: that one means a league exists, this one means a league's remains
+  // do, and they need different remedies.
+  //
+  // A stopgap. It refuses reuse and deletes nothing; erasure is deferred work.
+  const residual = await findResidualLeagueScopes(slug);
+  if (residual.length > 0) {
+    return new Response(
+      `Stored data still exists for slug "${slug}" from a previously deleted league ` +
+        `(${residual.length} record group(s)). Choose a different slug — reusing this one would ` +
+        `attach the previous league's rosters, drafts, and archives to the new league.`,
+      { status: 409 }
+    );
   }
 
   // PLATFORM-086F2B — new leagues are born with an explicit lifecycle status.

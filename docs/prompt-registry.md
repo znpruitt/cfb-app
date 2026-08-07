@@ -188,6 +188,46 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `npm run build`, and `git diff --check` each run as their own command with unmasked exit status.
 - Status: MERGED via PR #457 (`876d87c`), 2026-08-07.
 
+### PLATFORM-086F2I-PLATFORM-CONFIGURATION-AND-TEAM-IDENTITY-v1
+
+- Purpose: Make League Management a REGISTRY surface rather than a second configuration surface,
+  protect the irreversible league delete from being too easy, and finish Team Identity's naming.
+- Scope: `/admin/leagues` page, `POST /api/admin/leagues`, `DELETE /api/admin/leagues/[slug]`, a new
+  `leagueResidualData` helper, the admin hub card, one orphaned component, and three misleading
+  error strings — plus tests and owning docs. No alias behaviour change, no `/debug/teams` change,
+  no `/admin/[slug]/settings` change, and `PATCH` is untouched.
+- **What the audit corrected before any code was written.** The charter read "remove duplicated
+  league settings; establish Team Identity's global/cross-league scope; diagnostic deep links". Two
+  of three were already done or overstated: Team Identity's global scope was settled by
+  PLATFORM-064/067, and the only actual duplication was the DISPLAY NAME, editable both here and on
+  the settings page. What the audit found instead was the real work — an irreversible delete with
+  ZERO tests.
+- Delete guard: the confirmation is the league's SLUG, not a fixed word. A fixed word is identical
+  on every row, so it defends against a stray click but not against acting on the WRONG league,
+  which is the accident it exists for. **Enforced in the ROUTE**, because `requireAdminRequest`
+  accepts a static `ADMIN_API_TOKEN` alongside the Clerk session — a confirmation living only in the
+  browser would protect nobody. Absent and mismatched confirmations get DIFFERENT stable codes:
+  "you did not confirm" and "you confirmed a different league" are different operator conditions,
+  and the second is the dangerous one.
+- Slug-reuse rejection: `POST` now refuses a slug whose previous occupant's data survives. Deleting
+  a league removes ONE registry entry; `owners:<slug>:<year>`, `preseason-owners:<slug>`,
+  `draft:<slug>`, `standings-archive:<slug>`, `insights-suppression`, `postseason-overrides`, and
+  legacy league-scoped `aliases` all remain, and a new league at that slug would ADOPT them —
+  showing one set of people's names to a commissioner with no relationship to them. A distinct 409
+  from the live-slug conflict: one means a league exists, the other means a league's remains do.
+  Explicitly a stopgap — it refuses reuse and deletes nothing.
+- The prefix hazard is the sharp edge of that check and is pinned by its own test: `owners:tsc` is a
+  PREFIX of `owners:tsc-old:2025`, so a naive match would block `tsc` because an unrelated
+  `tsc-old` exists — a guard that rejects valid slugs looks identical to a guard that works.
+  Exact scopes are compared by equality; suffixed scopes use a colon-terminated prefix.
+- Also: display-name editing removed from the overview (settings owns configuration; each row now
+  links there instead), hub card "Aliases" → "Team Identity" with the page heading and breadcrumb
+  agreeing, the orphaned `src/components/RosterUploadPanel.tsx` deleted, and the "Enter your token
+  in the Auth panel above" copy corrected — nothing on the page is labelled "Auth panel";
+  `AdminAuthPanel` renders a `<details>` whose summary reads "Admin access token".
+- Review / verification: (to be completed against the review commit).
+- Status: implemented; review pending.
+
 ### PLATFORM-086F2H4-RETIRE-SEASON-MANAGEMENT-v1
 
 - Purpose: Retire `/admin/season` and everything that existed only to serve it. An admin surface
