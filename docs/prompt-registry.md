@@ -219,8 +219,41 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `schedulerExecutionIssues`; no provider diagnostic declared it. Removing it closes a recorded
   follow-up — the link named a page that could not perform the repair — and matches what F2H3B2
   established for `lifecycle-data-unusable`.
-- Review / verification: (to be completed against the review commit).
-- Status: implemented; review pending.
+- Review / verification: Codex and `/code-review` gathered against the same commit (`012ebf4`);
+  7 unique findings, all accepted in one round. **Six were CLAIM-SURFACE defects** — the deletion
+  itself was confirmed correct (real orphan set, authorities correctly retained, a genuine positive
+  control on `repair: null`, and a stop-condition test proving the skip reason survives durably) and
+  what was wrong was how it was described.
+  (1) **A deletion this entry ASSERTED was never performed:** `diffSeasonArchives`, `SeasonArchiveDiff`,
+  and the private `weeklyStats` helper stayed in `seasonArchive.ts` with zero callers — ~100 lines of
+  unreachable code, in a file that did not appear in the diff at all. Now actually deleted, along
+  with an import that became unused.
+  (2) **A self-contradicting bullet in the canonical architecture doc:** the amended sentence said
+  lifecycle faults join the `null` set while the untouched sentence two lines later still said they
+  route to Season Management — a reader following the canonical doc would get the rule this slice
+  inverted. (3) The target-IA table still listed the three-member repair union; the equivalent line
+  in `diagnostics.md` was updated and this one was missed, so the two owning docs disagreed about a
+  closed union. (4) The `/admin/data/cache` route row still named Season Management as rollover's
+  owner — a page deleted in the same table.
+  (5) **An over-broad invariant I wrote in this slice.** AGENTS.md claimed the receipt carries the
+  exact `ChampionshipRolloverSkipReason`, "so why has this not rolled over yet is still answerable".
+  True for a single production year; FALSE when production years disagree and skip for different
+  reasons, where `aggregateLifecycleCronReason` records `year-results` and the receipt target has no
+  per-year reason. My own prompt scoped the stop condition to "the single-production-league case
+  specifically", so I tested exactly what I specified and asserted more than I tested. Qualified,
+  pinned by a test, and recorded as a follow-up rather than fixed by widening the receipt schema
+  inside a retirement.
+  (6) A permissive test allowlist still contained `'season-management'` after it left the type — the
+  suite stayed green while the assertion silently stopped being able to catch the regression it
+  exists for.
+  Deltas: `manualRollover` (10), `SeasonRolloverPanel` (13), the admin rollover route (21), and the
+  season page (2) went with their subjects; `admin/__tests__/page` +2 and `season-rollover/receipts`
+  +3 added. Full suite 3438 → 3404. Three mutations, each compiling, applied alone, killed by a named
+  test. `npm run build` is the load-bearing gate: the manifest contains zero occurrences of
+  `admin/season` or `api/admin/rollover` while every sibling admin route is listed.
+  `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
+  run as their own command with unmasked exit status.
+- Status: implemented and reviewed; not yet merged.
 
 ### PLATFORM-086F2H3B2-SYSTEM-HEALTH-LIFECYCLE-INTEGRITY-v1
 

@@ -816,3 +816,47 @@ test('F2H4 stop control: the same league past the waiting period does roll over'
   assert.notEqual(event.reason, 'waiting-period');
   assert.equal(event.result, 'success');
 });
+
+// PLATFORM-086F2H4 — the LIMIT of the stop condition above, pinned so it is a
+// known gap rather than a rediscovery.
+//
+// The single-production-year case is the ordinary one, and there the run reason
+// IS that year's reason. When production years disagree AND their gates skip for
+// different reasons, `aggregateLifecycleCronReason` records `year-results` and
+// the receipt target carries no per-year reason — so System Health cannot say
+// why either year is waiting. The per-year reasons ARE still on the runtime
+// event, so the information exists; it is not on the dashboard.
+//
+// This test documents the boundary. It does not endorse it: persisting per-year
+// reasons onto the receipt is a recorded follow-up.
+test('F2H4 known gap: mixed multi-year skips collapse to year-results on the receipt', async () => {
+  await seedTeams();
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'season', year: 2023 }, 2023),
+    makeLeague('bravo', { state: 'season', year: 2024 }, 2024),
+  ]);
+  // 2023 skips for `not-final`; 2024 skips inside the waiting period.
+  await seedChampionship(2023, PAST_CHAMP, false);
+  await seedChampionship(2024, new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), true);
+
+  const { event } = await runRoute();
+  assert.equal(event.result, 'skipped');
+  assert.equal(event.reason, 'year-results', 'the run reason cannot name two different causes');
+
+  // The per-year reasons DO survive on the event — this is what keeps the gap a
+  // dashboard limitation rather than a loss of information.
+  assert.deepEqual(
+    event.years.map((y) => y.reason).sort(),
+    ['not-final', 'waiting-period'],
+    'the runtime event still explains each year'
+  );
+
+  await deferrer.flush();
+  const stored = await readSchedulerReceipt('season-rollover');
+  assert.equal(stored?.value.reason, 'year-results');
+  const target = stored!.value.target as { years: Array<Record<string, unknown>> };
+  assert.ok(
+    target.years.every((y) => !('reason' in y)),
+    'the receipt target carries no per-year reason — that is the gap'
+  );
+});

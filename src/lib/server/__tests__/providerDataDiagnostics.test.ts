@@ -800,7 +800,12 @@ const F2F_CODES = new Set([
   'odds-cache-stale',
   'odds-diagnostics-unavailable',
 ]);
-const F2F_REPAIR_SURFACES = new Set(['data-maintenance', 'season-management', 'team-identity']);
+const F2F_REPAIR_SURFACES = new Set(['data-maintenance', 'team-identity']);
+// PLATFORM-086F2H4 removed `season-management` from
+// `ProviderDiagnosticRepairSurface`. This allowlist is PERMISSIVE — leaving the
+// retired member in it kept the suite green while quietly disabling the one
+// thing this assertion exists for: catching a diagnostic that emits a surface
+// the union no longer has.
 
 function findByCode(
   diagnostics: Awaited<ReturnType<typeof getProviderDataDiagnostics>>['diagnostics'],
