@@ -56,7 +56,7 @@ Invalidation helpers:
 - **Team-database writes (PLATFORM-070)** → `invalidateAllLeaguesStandings()` (a team-DB change can affect any league); global-alias writes also bust it.
 - **Cron + preseason (PLATFORM-071)** → `season-transition` and `season-rollover` crons call `invalidateStandings(slug)`; `confirmPreseasonOwners` / `beginPreseason` call `invalidateStandings(slug[, year])`.
 - **Scores write path** → `invalidateStandingsForYear(year)` after each cache write.
-- Also: owners CSV `PUT`, postseason overrides, draft confirm + pick edit, schedule admin refresh, backfill, rollover, year-scoped alias writes.
+- Also: owners CSV `PUT`, postseason overrides, draft confirm + pick edit, schedule admin refresh, rollover, year-scoped alias writes.
 - Intentionally un-wired (documented): `completeSetup` (no standings-content change) and `slug='test'` dev tooling.
 
 **Cache valid absence, never cache uncertainty (PLATFORM-084A).** The tag-only (`revalidate: false`) cache never expires on its own, so a snapshot built from a *failed* read would persist until a mutation happens to bust its tag. Compute therefore separates genuine absence (a legitimate, cacheable snapshot) from a store-read failure (must reject, so nothing bogus is cached):

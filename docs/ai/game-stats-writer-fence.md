@@ -221,9 +221,11 @@ store.
   failing closed on empty catalog, duplicate/unassociated provider ids, or
   invalid field values. Archives written before E1 lack the field; E3 consumers
   fail closed on absent/malformed snapshots (distinct reasons, never a live
-  rebuild) and the preview/confirm backfill is the only repair — so the operator
-  sequence runs the §4-C full-year schedule refreshes and parity audit FIRST,
-  then archive backfills, all BEFORE E3 activation. The dormant-boundary guard
+  rebuild) and re-archiving the year is the only repair — a deliberate operator
+  action since PLATFORM-086F2H2A retired the admin backfill surface
+  (`buildSeasonArchive`/`saveSeasonArchive` remain live and rollover-exercised).
+  The operator sequence runs the §4-C full-year schedule refreshes and parity
+  audit FIRST, then any re-archiving, all BEFORE E3 activation. The dormant-boundary guard
   now carries ONE exact allowlisted production crossing (`slateSnapshot.ts` →
   `canonicalSlate`, derive entry only), positional and form-strict, with
   laundering self-tests and a documented honest static scope.

@@ -12,7 +12,7 @@ const platformCards = [
   {
     href: '/admin/season',
     title: 'Season Management',
-    desc: 'Rollover, backfill, archive tools',
+    desc: 'Rollover and archive tools',
   },
   {
     href: '/admin/diagnostics',

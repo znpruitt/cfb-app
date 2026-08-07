@@ -26,7 +26,8 @@ import { parseGameStatSlateSnapshot, snapshotToCanonicalSlate } from './slateSna
  * the archive's year as the pairing check) is paired ONLY with that archive's
  * own `scoresByKey`. An archive without a valid snapshot FAILS CLOSED with a
  * distinct reason — never a silent live rebuild, never cross-provenance
- * fallback; the established preview/confirm backfill is the only repair.
+ * fallback. Re-archiving the year is the only repair — a deliberate one-off
+ * since PLATFORM-086F2H2A retired the admin backfill surface.
  */
 
 export type AnalyticsProvenanceUnavailableReason =
@@ -123,7 +124,7 @@ export function assembleArchiveAnalyticsProvenance(
   // `status` is a string — the one field score classification dereferences, so
   // a numeric/absent status would throw inside analytics. One malformed entry
   // marks the whole map malformed (archives are immutable snapshots; a corrupt
-  // entry means the archive needs the established backfill, never a guess).
+  // entry means the archive must be rebuilt deliberately, never guessed at).
   // Exotic containers (Date, Map, …) fail the per-entry rule or enumerate
   // empty, so nothing here can throw downstream.
   const scores = (archive as { scoresByKey?: unknown }).scoresByKey;
