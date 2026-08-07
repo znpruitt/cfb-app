@@ -2378,6 +2378,54 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2H3B1 — Lifecycle Presentation and Typed Test-Control Feedback — Complete
+
+- **Status:** Complete — merged to `main` via PR #459 (merge commit `b07f2d6`), 2026-08-07. First of
+  two F2H3B slices; **F2H3B2** (System Health lifecycle-integrity warning) is next.
+- **PROMPT_ID(s):** `PLATFORM-086F2H3B1-LIFECYCLE-PRESENTATION-AND-TEST-CONTROL-FEEDBACK-v1`,
+  preceded by `PLATFORM-086F2H3B-SEASON-MANAGEMENT-PRESENTATION-AUDIT-v1` (read-only).
+- **Outcome:** each league's lifecycle STATE and the thing that ADVANCES it now render as two
+  separate facts, with ownership derived from the STORED status and the label keeping the read-only
+  inference. The demo league is described as manually controlled. The demo lifecycle controls return
+  typed results and render persistent inline feedback. Two long-standing deferrals CLOSE: **demo UI
+  copy** (deferred by F2H1T2–T5) and **typed operator feedback in `TestLeagueControls.tsx`**
+  (deferred by F2H1T1).
+- **Two live falsehoods removed.** (1) `/admin/test` promised "Season will go live automatically
+  before the first game" — false since F2H1T2 removed the demo from the season-transition cron.
+  (2) A legacy record with NO stored status reaches no lifecycle job (`groupRolloverTargets` skips
+  `!status`; season-transition filters `status?.state === 'preseason'`), yet the page infers
+  `season` for display — so the new ownership sentence would have claimed automatic rollover for it.
+  The second was NOT in the audit's truth table: that table was built from `status.state` and never
+  considered the inferred branch, and the defect only exists once ownership is stated at all. The
+  same claim also lived on `preseason/page.tsx`; closing a copy deferral means closing it on every
+  surface that makes the claim.
+- **`previousStatus`** is additive on `TestLeagueLifecycleOutcome`'s `applied` variant, captured
+  under the registry lock because the caller cannot learn it safely (`getLeague` is React-`cache`d).
+  Deliberately absent from the reset outcome, which always performs cleanup.
+- **Review:** Codex and `/code-review` against the same commit (`4ac9ee3`); 8 unique findings, all
+  accepted in one round. Three shared one shape — a claim correct in isolation and falsified by the
+  code immediately adjacent to it. `cacheStale` was effectively DEAD, because the unguarded
+  `revalidatePath` after the caught `invalidateStandings` shares one Next store and the real fault
+  takes both; the flag was reachable only under an injected tag-specific failure that production
+  does not produce. A repeated `preseason` request was reported as "no change" while deleting that
+  year's demo owners, roster CSV, and draft — the reasoning already written for `resetTestLeague`
+  one function away. And **AGENTS.md invariant 9 was violated**: the derivation module was created in
+  `src/lib/` rather than `src/lib/selectors/`, with the preseason page separately inlining the same
+  policy. Also corrected: a boolean that badged an UNOWNED record "Manual"; copy falsified by its own
+  page; a regression this slice introduced by replacing four `autoCompleteDraft` diagnostics with one
+  generic sentence; `resetTestLeague` claiming cache freshness it never established; and a stale
+  authorization-test count.
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
+  3393 → 3427 (+34). Fourteen mutations, each compiling, applied alone, killed by a named test.
+- **Known gap, recorded rather than papered over:** `TestLeagueControls`'s clear-then-replace message
+  behaviour has no automated test — mocking the imported Server Actions needs
+  `--experimental-test-module-mocks`, which this suite does not enable, and a JSDOM test executing
+  the real actions is the shape that hung the harness in F2H2A. Both result contracts and all copy
+  are covered; the shared funnel is not.
+
+---
+
 ### PLATFORM-086F2H3A — Rollover Surface Consolidation — Complete
 
 - **Status:** Complete — merged to `main` via PR #458 (merge commit `6a8b86c`), 2026-08-07. First

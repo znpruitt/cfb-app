@@ -272,7 +272,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `--experimental-test-module-mocks`, which this suite does not enable, and a JSDOM test executing
   the real actions is the shape that hung the harness in F2H2A. The copy and both result contracts
   are fully covered; the shared funnel is not.
-- Status: implemented and reviewed; not yet merged.
+- Status: MERGED via PR #459 (`b07f2d6`), 2026-08-07.
 
 ### PLATFORM-086F2H3A-ROLLOVER-SURFACE-CONSOLIDATION-v1
 

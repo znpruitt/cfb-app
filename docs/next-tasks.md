@@ -735,15 +735,15 @@ Execution order within F2 (each slice is one independently deployable PR):
         count is now cron-only).
       - **F2H3B — remaining Season Management presentation.** Audited read-only 2026-08-07 and split
         into two slices on the owner's ruling.
-        - **F2H3B1 — lifecycle presentation + typed test-control feedback.** Implemented; **not yet
-          merged**. Lifecycle STATE and OWNERSHIP now render as separate facts, derived from the
+        - **F2H3B1 — lifecycle presentation + typed test-control feedback.** ✅ MERGED (PR #459,
+          `b07f2d6`, 2026-08-07). Lifecycle STATE and OWNERSHIP now render as separate facts, derived from the
           STORED status; the demo league's automation copy is corrected (**demo UI copy**, deferred
           by F2H1T2–T5, is CLOSED); the lifecycle controls return typed results and render
           persistent inline feedback (**typed operator feedback**, deferred by F2H1T1, is CLOSED).
           A second live falsehood surfaced during implementation: a legacy missing-status record
           reaches NO lifecycle job, so the inferred season label must not carry the season's
           automation claim.
-        - **F2H3B2 — System Health lifecycle-integrity warning.** Queued. One combined issue derived
+        - **F2H3B2 — System Health lifecycle-integrity warning.** **NEXT.** One combined issue derived
           from `invalidLifecycleTargets > 0` on any scheduler receipt, INDEPENDENT of the aggregate
           job result (deferral (q), from F2H1R3). **Owner rulings: display NO number** — receipts
           carry per-job, per-run counts and never slugs, so four jobs counting the same corrupt
