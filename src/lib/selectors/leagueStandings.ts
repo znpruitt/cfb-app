@@ -337,8 +337,6 @@ export async function getCanonicalStandings(
  * - POST + DELETE /api/draft/[slug]/[year]/confirm
  * - GET /api/schedule (admin refresh, walks registry)
  * - GET /api/scores (cache miss + fallback paths, walks registry)
- * - POST /api/admin/rollover (per successful status transition, stage-2 loop,
- *   slug umbrella — PLATFORM-086F2B)
  * - `confirmPreseasonOwners` + `beginPreseason` server actions (PLATFORM-071,
  *   league-scoped: preseason owners / offseason→preseason lifecycle change)
  * - GET /api/cron/season-rollover (per rolled-over league) and

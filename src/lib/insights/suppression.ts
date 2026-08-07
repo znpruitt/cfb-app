@@ -10,10 +10,13 @@ import type { NewsHook } from './types';
 
 const SCOPE_PREFIX = 'insights-suppression';
 
-// Records older than this are treated as absent. Safety net for paths that
-// fail to clear records (e.g. orphaned offseason records from before the
-// admin-rollover clear path landed). Full CFB season + postseason spans
-// ~135 days at most; 180 days covers that window with comfortable buffer.
+// Records older than this are treated as absent. Safety net for a rollover that
+// never clears them — the clear is best-effort and deliberately never fails a
+// rollover, so a league can enter offseason with records still present. Since
+// PLATFORM-086F2H3A the only clear path is the season-rollover cron's; the
+// retired admin-rollover path also cleared, so pre-F2H3A orphans have the same
+// shape. Full CFB season + postseason spans ~135 days at most; 180 days covers
+// that window with comfortable buffer.
 export const SUPPRESSION_RECORD_TTL_DAYS = 180;
 const SUPPRESSION_RECORD_TTL_MS = SUPPRESSION_RECORD_TTL_DAYS * 24 * 60 * 60 * 1000;
 
@@ -157,7 +160,7 @@ export function isSuppressed(insight: Insight, records: Map<string, SuppressionR
   if (!prior) return false;
 
   // TTL safety net: records older than SUPPRESSION_RECORD_TTL_DAYS are treated
-  // as absent. Catches anything missed by the season-rollover clear paths.
+  // as absent. Catches anything missed by the season-rollover clear path.
   if (isSuppressionRecordExpired(prior)) return false;
 
   if (prior.owner !== primaryOwner(insight)) return false;

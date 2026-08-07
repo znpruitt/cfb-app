@@ -9,11 +9,15 @@ import {
 } from '../../../../lib/server/appStateStore.ts';
 
 // ---------------------------------------------------------------------------
-// PLATFORM-086F2C — Season Management owns lifecycle rollover: the per-year
-// rollover status/maintenance panel (SeasonRolloverPanel) renders HERE after
-// its removal from Data Maintenance & Recovery, alongside the eligible-year
-// execution panel (RolloverPanel). Without this, ineligible/unavailable
-// rollover status would render nowhere.
+// PLATFORM-086F2H3A — Season Management ends with exactly ONE rollover panel.
+// F2C moved the per-year status panel here; the eligible-year execution panel
+// (`RolloverPanel`) was deleted alongside manual rollover execution, after its
+// unique preview detail was ported into the survivor.
+//
+// The assertion counts occurrences rather than testing presence: "one panel" is
+// the requirement, and a presence check would still pass if a second rollover
+// surface were mounted beside it — which is the exact state this slice exists
+// to end.
 // ---------------------------------------------------------------------------
 
 test.beforeEach(async () => {
@@ -34,14 +38,18 @@ function collectComponents(node: unknown, out: string[] = []): string[] {
   return out;
 }
 
-test('Season Management renders BOTH rollover surfaces (execution + per-year status)', async () => {
+test('Season Management renders exactly one rollover panel', async () => {
   await setAppState('leagues', 'registry', []);
   const element = await AdminSeasonPage();
   const components = collectComponents(element);
 
-  assert.ok(components.includes('RolloverPanel'), 'eligible-year execution panel');
-  assert.ok(
-    components.includes('SeasonRolloverPanel'),
-    'per-year status/maintenance panel relocated from Data Maintenance & Recovery'
+  const rolloverPanels = components.filter((name) => name.includes('RolloverPanel'));
+  assert.deepEqual(
+    rolloverPanels,
+    ['SeasonRolloverPanel'],
+    'one rollover surface, and it is the consolidated one'
   );
+  // POSITIVE CONTROL — the collector can see sibling panels on this page, so
+  // the single-match result above is a real count and not a blind matcher.
+  assert.ok(components.includes('ArchiveListPanel'), 'the collector observes other panels');
 });

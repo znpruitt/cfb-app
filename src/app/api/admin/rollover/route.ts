@@ -1,9 +1,7 @@
 import { requireAdminAuth } from '@/lib/server/adminAuth';
-import { clearAllSuppressionRecords } from '@/lib/insights/suppression';
-import { completeSeasonRollover, readLeagueRegistry } from '@/lib/leagueRegistry';
+import { readLeagueRegistry } from '@/lib/leagueRegistry';
 import { sanitizeLeagues } from '@/lib/leagueSanitize';
-import { invalidateStandings } from '@/lib/selectors/leagueStandings';
-import { getSeasonArchive, saveSeasonArchive, diffSeasonArchives } from '@/lib/seasonArchive';
+import { getSeasonArchive, diffSeasonArchives } from '@/lib/seasonArchive';
 import { buildSeasonArchive } from '@/lib/seasonRollover';
 import { groupRolloverTargets, type RolloverYearGroup } from '@/lib/rolloverTargeting';
 import {
@@ -11,7 +9,6 @@ import {
   type ChampionshipRolloverDecision,
 } from '@/lib/schedule/nationalChampionshipRollover';
 import type {
-  ManualRolloverExecuteResponse,
   ManualRolloverLeaguePreview,
   ManualRolloverPreviewResponse,
   ManualRolloverStatusResponse,
@@ -20,15 +17,31 @@ import type {
 import type { League } from '@/lib/league';
 
 /**
- * PLATFORM-086F2B — manual season rollover, narrowed to explicit per-year
- * operation behind the SAME strict eligibility authority as the automatic cron
+ * PLATFORM-086F2B — per-year season-rollover STATUS and PREVIEW, behind the
+ * SAME strict eligibility authority as the automatic cron
  * (`resolveNationalChampionshipRollover`: structured CFP national championship
  * + confirmed complete final + seven-day delay; cache-only, no provider calls).
  *
  * Target selection is the shared `groupRolloverTargets` policy (non-test
- * leagues in `season`, grouped exclusively by `status.year`), so a manual
- * request can never roll an offseason/preseason/test/missing-status league or
- * contaminate a sibling year. There is no force/emergency bypass.
+ * leagues in `season`, grouped exclusively by `status.year`), so a preview can
+ * never describe an offseason/preseason/test/missing-status league or
+ * contaminate a sibling year.
+ *
+ * PLATFORM-086F2H3A — this route is PREVIEW-ONLY. It performs no durable write
+ * of any kind: no archive, no lifecycle status, no standings invalidation, no
+ * suppression clearing. `GET /api/cron/season-rollover` is the sole rollover
+ * executor.
+ *
+ * Manual execution was retired because it had no unique authority and no unique
+ * recovery behavior: it sat behind the identical gate as the daily cron with no
+ * force bypass, so its only effect was advancing an ALREADY-ELIGIBLE rollover by
+ * less than 24 hours. That convenience did not justify a second permanent
+ * lifecycle-write surface. The preview is the capability worth keeping — it is
+ * the only way to see which owners' final standings would flip before anything
+ * is written, and the cron has no equivalent.
+ *
+ * An exceptional forced recovery would still require a separately reviewed
+ * operation with explicit semantics — never a restored generic execute button.
  */
 
 function yearStatusFromDecision(
@@ -182,9 +195,9 @@ async function buildLeaguePreview(
   }
 }
 
-// POST — two-phase per-year operation: preview ({year, confirmed:false}) or
-// execute ({year, confirmed:true}). Eligibility is re-evaluated on EVERY POST —
-// a previously generated preview is never authorization to bypass a changed gate.
+// POST — per-year archive PREVIEW ({ year }). Read-only: no durable write of any
+// kind. Eligibility is re-evaluated on every POST, so a preview always describes
+// the gate's current answer rather than a cached one.
 export async function POST(req: Request): Promise<Response> {
   // Authenticate before any registry/cache work.
   const authFailure = await requireAdminAuth(req);
@@ -212,14 +225,38 @@ export async function POST(req: Request): Promise<Response> {
       { status: 400 }
     );
   }
-  if (typeof obj.confirmed !== 'boolean') {
+  // PLATFORM-086F2H3A — `confirmed` is retired but deliberately still VALIDATED
+  // and still REJECTED when true, rather than deleted from the contract.
+  //
+  // Deleting the field would make a stale client's `{ year, confirmed: true }`
+  // body VALID — unknown properties are ignored — so an execute request would
+  // silently receive a PREVIEW. That client decodes the response as an execute
+  // result, reads `success` as `undefined`, and tells the operator "Rollover did
+  // not fully complete." No write occurs, but the operator is told a rollover
+  // was attempted and failed when none was attempted. The realistic case is a
+  // browser still holding the pre-deploy bundle; a bookmarked `curl` is the
+  // same shape.
+  //
+  // Refused BEFORE any registry, championship, or archive work: a retired verb
+  // does no work.
+  if (obj.confirmed !== undefined && typeof obj.confirmed !== 'boolean') {
     return Response.json(
       { error: 'rollover-invalid-request', detail: 'confirmed must be a boolean.' },
       { status: 400 }
     );
   }
+  if (obj.confirmed === true) {
+    return Response.json(
+      {
+        error: 'rollover-execution-retired',
+        detail:
+          'Manual rollover execution has been retired. The daily rollover cron is the only ' +
+          'executor; this route previews the archive without writing.',
+      },
+      { status: 409 }
+    );
+  }
   const year = obj.year;
-  const confirmed = obj.confirmed;
 
   // The requested year must be a CURRENT lifecycle-year group (non-test leagues
   // in `season` whose status.year matches exactly).
@@ -307,118 +344,18 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
-  // Phase 1 — Preview: per-league archive status and diff, no durable mutation.
-  if (!confirmed) {
-    const previews = await Promise.all(group.leagues.map((l) => buildLeaguePreview(l, year)));
-    const body: ManualRolloverPreviewResponse = {
-      invalidLifecycleTargets: refusals.invalidLifecycleTargets,
-      preview: {
-        year,
-        championshipDate: decision.championshipDate,
-        rolloverDate: decision.rolloverDate,
-        leagues: previews,
-      },
-    };
-    return Response.json(body);
-  }
-
-  // Phase 2 — Confirmed execution, two-stage archive-first safety.
-  // Stage 1: build and save ALL archives; any failure prevents every status
-  // transition for this year group.
-  const archivedLeagues: string[] = [];
-  const errors: ManualRolloverExecuteResponse['errors'] = [];
-
-  for (const league of group.leagues) {
-    try {
-      const archive = await buildSeasonArchive(league.slug, year);
-      await saveSeasonArchive(archive);
-      archivedLeagues.push(league.slug);
-    } catch (err) {
-      errors.push({
-        leagueSlug: league.slug,
-        stage: 'archive',
-        error: err instanceof Error ? err.message : 'Unknown error',
-      });
-    }
-  }
-
-  if (errors.length > 0) {
-    const body: ManualRolloverExecuteResponse = {
-      invalidLifecycleTargets: refusals.invalidLifecycleTargets,
-      success: false,
-      year,
-      archivedLeagues,
-      rolledOverLeagues: [],
-      errors,
-      message:
-        'One or more leagues failed to archive. No status transitions were made. Resolve errors and retry.',
-    };
-    return Response.json(body);
-  }
-
-  // Stage 2: transition each archived league to offseason through the GUARDED
-  // conditional transition — the league must still be in `season` for the
-  // requested year at write time (this request's group snapshot predates the
-  // archive work, and another actor may have rolled/advanced the league since).
-  // Status-write failures and guard refusals are reported truthfully — a
-  // partial outcome is never a success.
-  const rolledOverLeagues: string[] = [];
-  for (const league of group.leagues) {
-    try {
-      const transition = await completeSeasonRollover(league.slug, year);
-      if (transition.outcome !== 'transitioned') {
-        // A write-time refusal is a refusal — see the cron's note. Counted here
-        // too so the manual response's count means the same thing on both
-        // surfaces.
-        if (transition.outcome === 'unusable-target-year') {
-          refusals.invalidLifecycleTargets += 1;
-        }
-        errors.push({
-          leagueSlug: league.slug,
-          stage: 'status',
-          error:
-            transition.outcome === 'unusable-target-year'
-              ? 'refused: the target year is not a usable season year'
-              : `league is no longer in the requested ${year} season group`,
-        });
-        continue;
-      }
-      rolledOverLeagues.push(league.slug);
-    } catch (err) {
-      errors.push({
-        leagueSlug: league.slug,
-        stage: 'status',
-        error: err instanceof Error ? err.message : 'Unknown error',
-      });
-      continue;
-    }
-
-    // Season→offseason changes this league's standings surface (live → archived
-    // final). Invalidate only leagues whose status transition succeeded.
-    try {
-      invalidateStandings(league.slug);
-    } catch {
-      // Non-fatal — archive and status are already durable.
-    }
-
-    // Suppression clearing is best-effort and only after archive + status success.
-    try {
-      await clearAllSuppressionRecords(league.slug, year);
-    } catch {
-      // Best-effort; rollover already succeeded for this league.
-    }
-  }
-
-  const body: ManualRolloverExecuteResponse = {
+  // The archive preview: per-league existing/proposed comparison. Every read is
+  // cache-only (`getSeasonArchive`, `buildSeasonArchive`), and nothing on this
+  // path writes — that is the route's whole contract since F2H3A.
+  const previews = await Promise.all(group.leagues.map((l) => buildLeaguePreview(l, year)));
+  const body: ManualRolloverPreviewResponse = {
     invalidLifecycleTargets: refusals.invalidLifecycleTargets,
-    success: errors.length === 0,
-    year,
-    archivedLeagues,
-    rolledOverLeagues,
-    errors,
-    ...(errors.length > 0
-      ? { message: 'One or more status transitions failed. See errors for detail.' }
-      : {}),
+    preview: {
+      year,
+      championshipDate: decision.championshipDate,
+      rolloverDate: decision.rolloverDate,
+      leagues: previews,
+    },
   };
   return Response.json(body);
 }

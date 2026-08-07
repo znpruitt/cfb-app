@@ -719,9 +719,26 @@ Execution order within F2 (each slice is one independently deployable PR):
         equivalent.
         **Removal lands in F2H3**, not here — it is a panel-consolidation change, and doing it
         during the merge avoids building the merge twice. F2H2B stays focused on operator truth.
-    - **F2H3 — Season Management presentation** — **NEXT.** Render per-league lifecycle separately
-      from automation ownership and surface guarded refusal/recovery outcomes with operator-readable
-      action state. **Also owns two decisions taken during the F2H2 audit:**
+    - **F2H3 — Season Management presentation** — **NEXT.** Split into F2H3A (shipped) and F2H3B.
+      - **F2H3A — rollover surface consolidation.** Implemented; **not yet merged**. Audited
+        read-only first (2026-08-07); the owner settled every product decision before implementation.
+        Manual rollover EXECUTION is retired — `POST /api/admin/rollover` is preview-only and
+        answers `confirmed: true` with `rollover-execution-retired` (409) rather than ignoring it,
+        because a silently-ignored execute request returns a PREVIEW that a stale client reports as
+        a failed rollover. `RolloverPanel` is deleted after its unique diff detail (owners whose
+        outcomes flip BY NAME, standings movement) was ported into `SeasonRolloverPanel`; it could
+        not have been the survivor in any case, since it returns `null` when no year is eligible and
+        the empty state must stay visible. Production-year disagreement now warns and stays
+        inspectable. No UI-side demo filtering was added — `groupRolloverTargets` already excludes
+        the demo upstream. AGENTS.md invariants 4 AND 5 amended (invariant 4's write-time refusal
+        count is now cron-only).
+      - **F2H3B — remaining Season Management presentation.** Render per-league lifecycle separately
+        from automation ownership and surface guarded refusal/recovery outcomes with
+        operator-readable action state. **Also owns three items deferred by earlier slices:**
+        **demo UI copy** (deferred by F2H1T2–T5), **typed operator feedback in
+        `TestLeagueControls.tsx`** (deferred by F2H1T1), and the lifecycle-integrity issue with a
+        repair link derived from `invalidLifecycleTargets > 0` (deferral (q), from F2H1R3).
+      **The two decisions taken during the F2H2 audit, both now discharged by F2H3A:**
       - **Retire manual rollover EXECUTION, keep PREVIEW** (decided 2026-08-07 — see the F2H2 entry
         above for the reasoning). Removes `POST /api/admin/rollover`'s `confirmed: true` path and
         the execute controls from both panels; the GET status/preview path stays. This must amend
@@ -735,16 +752,13 @@ Execution order within F2 (each slice is one independently deployable PR):
         structurally broader (all years, all eligibility states, reasons, dates). With execution
         retired the merge gets substantially simpler — one status surface carrying the preview, and
         no duplicate execute controls to reconcile.
-      - **Carried from F2H2B review (deliberately not fixed there):** the manual route still
-        swallows an `invalidateStandings` failure with a bare `catch {}`
-        (`src/app/api/admin/rollover/route.ts`), so after F2H2B the two surfaces that share
-        `groupRolloverTargets` and `completeSeasonRollover` now disagree about the same fault —
-        the cron reports it, the manual route returns `success: true` with the league listed while
-        its standings page keeps serving warm live-season snapshots. Not fixed in F2H2B because the
-        divergent code is on the `confirmed: true` EXECUTION path, which the decision above
-        deletes outright; hardening it would be work with a scheduled expiry. **If the retirement
-        is ever reversed, this fix becomes required** — it is the same false-success class F2H2B
-        removed from the cron.
+      - ✅ **CLOSED by F2H3A — the carried F2H2B finding.** The manual route's bare `catch {}` around
+        `invalidateStandings` is gone with the execution path that contained it, so the two surfaces
+        can no longer disagree about that fault: only the cron invalidates, and F2H2B made its
+        reporting truthful. **Reversal condition, recorded per the F2H2B closeout:** if manual
+        execution is ever restored, its standings-invalidation handling must be HARDENED AND TESTED,
+        never reinstated from the retired bare catch. This is now also stated in AGENTS.md
+        invariant 5.
 12. Then, in order: F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
     navigation closeout.
 

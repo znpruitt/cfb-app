@@ -188,6 +188,51 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `npm run build`, and `git diff --check` each run as their own command with unmasked exit status.
 - Status: MERGED via PR #457 (`876d87c`), 2026-08-07.
 
+### PLATFORM-086F2H3A-ROLLOVER-SURFACE-CONSOLIDATION-v1
+
+- Purpose: Retire manual rollover EXECUTION and consolidate the two rollover panels into one
+  production-only status surface that keeps the preview. The daily cron becomes the sole rollover
+  executor; `/api/admin/rollover` becomes preview-only.
+- Scope: `RolloverPanel` (deleted), `SeasonRolloverPanel`, the Season Management page,
+  `POST /api/admin/rollover`, `src/lib/manualRollover.ts`, three stranded-claim comments, their
+  tests, AGENTS.md invariants 4 and 5, and `docs/architecture/admin-control-plane.md`. No change to
+  the season-rollover cron, `buildSeasonArchive`, `saveSeasonArchive`, `completeSeasonRollover`,
+  the `groupRolloverTargets` policy, archive-first ordering, or the `no-automatic-season-leagues`
+  reason. Preceded by a read-only audit whose product decisions were settled by the owner before
+  implementation.
+- Why retire execution: it had no unique authority and no unique recovery behavior. It sat behind
+  the identical gate as the daily cron with no force bypass, so its only effect was advancing an
+  ALREADY-ELIGIBLE rollover by less than 24 hours — and the manual route predates the cron
+  (2026-04-01 vs 2026-04-17), which is the whole reason it existed. That convenience did not justify
+  a second permanent lifecycle-write surface. The PREVIEW is the capability worth keeping: it is the
+  only way to see which owners' final standings would flip before anything is written.
+- Contract: `confirmed` is REJECTED when `true` (`rollover-execution-retired`, 409) rather than
+  removed from the request. Removing it would make a stale client's `{ year, confirmed: true }` body
+  VALID — unknown properties are ignored — so an execute request would silently receive a PREVIEW,
+  which that client decodes as an execute result, reads `success` as `undefined`, and reports
+  "Rollover did not fully complete." No write, but a false statement to the operator. The realistic
+  caller is a browser still holding the pre-deploy bundle. `confirmed: false` stays accepted: the
+  retired value is `true`, not the field. The refusal is answered before any registry, championship,
+  or archive work, proven by a test that poisons every durable read.
+- Consolidation: merged by CAPABILITY, not by deletion. Neither panel was a superset of the other —
+  `RolloverPanel` uniquely rendered the owners whose outcomes flip BY NAME and the standings
+  positions that move; `SeasonRolloverPanel` uniquely rendered eligibility states, reasons, dates,
+  champion/top-3, the R4 refusal count, and the loading/empty states. The diff detail was ported
+  first, then `RolloverPanel` was deleted. `RolloverPanel` could not have been the survivor
+  regardless: it returns `null` when no year is eligible, which contradicts the binding requirement
+  that the empty state stay VISIBLE as proof the check ran.
+- Production-only: no UI filtering was added. `groupRolloverTargets` already excludes the demo
+  league upstream, so a demo-only season reaches the panel as an empty `years` array and renders
+  "No production leagues are waiting for rollover." The backend keeps `no-automatic-season-leagues`
+  for events, receipts, and diagnostics. The two empty states stay EXCLUSIVE: refused records keep
+  the R4 repair message, since collapsing them would reintroduce the falsehood R4 removed.
+- Year disagreement: more than one in-season production year group now warns and keeps both groups
+  inspectable. Derived in the component from the existing groups — no new response field, because a
+  second encoding of one truth drifts. Scoped to leagues in `season`; a production league in
+  preseason or offseason is not part of the claim.
+- Review / verification: (to be completed against the review commit).
+- Status: implemented; review pending.
+
 ### PLATFORM-086F2H1R3-RANKINGS-YEAR-VALIDITY-v1
 
 - Purpose: Apply the R1/R2 registry-container and lifecycle-year truth to the rankings publication

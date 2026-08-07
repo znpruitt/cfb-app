@@ -9,7 +9,6 @@ import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage
 import { GET, POST } from '../route';
 import type { League } from '../../../../../lib/league.ts';
 import type {
-  ManualRolloverExecuteResponse,
   ManualRolloverPreviewResponse,
   ManualRolloverStatusResponse,
 } from '../../../../../lib/manualRollover.ts';
@@ -25,14 +24,20 @@ import {
   __resetTeamDatabaseStoreForTests,
   setTeamDatabaseFile,
 } from '../../../../../lib/server/teamDatabaseStore.ts';
+import { saveSeasonArchive } from '../../../../../lib/seasonArchive.ts';
+import { buildSeasonArchive } from '../../../../../lib/seasonRollover.ts';
 
 // ---------------------------------------------------------------------------
-// PLATFORM-086F2B — the manual rollover route is narrowed to explicit per-year
+// PLATFORM-086F2B — the admin rollover route is narrowed to explicit per-year
 // operation behind the SAME strict eligibility authority as the automatic cron
 // (`resolveNationalChampionshipRollover`), with shared target grouping
-// (`groupRolloverTargets`): status.year-only targeting, mandatory gate
-// re-evaluation on every POST, archive-first two-stage execution, truthful
-// partial-failure reporting, and no force/emergency bypass.
+// (`groupRolloverTargets`): status.year-only targeting and mandatory gate
+// re-evaluation on every POST.
+//
+// PLATFORM-086F2H3A — the route is now PREVIEW-ONLY. Execution moved entirely to
+// `GET /api/cron/season-rollover`, so the archive-first two-stage execution and
+// partial-failure reporting this file used to cover live in that route's suite.
+// What remains here is status, preview, and the refusal of the retired verb.
 // ---------------------------------------------------------------------------
 
 const ADMIN_TOKEN = 'test-admin-token';
@@ -295,6 +300,45 @@ test('GET with no production league in season → 200 { years: [] }', async () =
   assert.deepEqual(body.years, []);
 });
 
+// PLATFORM-086F2H3A — PRODUCTION-ONLY, proven positively. The panel's empty
+// state ("No production leagues are waiting for rollover") is truthful only if
+// the demo league can never reach it. `groupRolloverTargets` excludes the demo
+// upstream, so no filtering was added for the UI — this pins that the exclusion
+// really is what makes the panel production-only.
+//
+// The negative half is paired with a positive control on the SAME fixture: a
+// production league in season DOES appear. Without it, an empty `years` array
+// would be indistinguishable from a broken fixture.
+test('F2H3A: an in-season DEMO league is absent from the status the panel renders', async () => {
+  await seedTeams();
+  await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z');
+
+  await setAppState('leagues', 'registry', [
+    makeLeague('test', 2023, { state: 'season', year: 2023 }),
+  ]);
+  const demoOnly = await GET(getRequest());
+  const demoBody = (await demoOnly.json()) as ManualRolloverStatusResponse;
+  assert.equal(demoOnly.status, 200);
+  assert.deepEqual(demoBody.years, [], 'the demo alone yields no rollover target');
+  assert.ok(
+    !JSON.stringify(demoBody).includes('"test"'),
+    'the demo slug never rides out to the panel'
+  );
+
+  // POSITIVE CONTROL — same fixture plus a production league in season.
+  await setAppState('leagues', 'registry', [
+    makeLeague('test', 2023, { state: 'season', year: 2023 }),
+    makeLeague('alpha', 2023, { state: 'season', year: 2023 }),
+  ]);
+  const withProd = await GET(getRequest());
+  const prodBody = (await withProd.json()) as ManualRolloverStatusResponse;
+  assert.deepEqual(
+    prodBody.years.flatMap((y) => y.leagues.map((l) => l.slug)),
+    ['alpha'],
+    'production is rendered; the demo beside it still is not'
+  );
+});
+
 // 7 — every gate refusal maps to its exact stable reason.
 test('GET maps each gate refusal to its exact stable reason', async () => {
   await seedTeams();
@@ -369,13 +413,11 @@ test('durable eligibility read failure → GET unavailable, POST 503, no work', 
     // Raw thrown-error text is never exposed.
     assert.ok(!JSON.stringify(body).includes('schedule store outage'));
 
-    for (const confirmed of [false, true]) {
-      const post = await POST(postRequest({ year: 2023, confirmed }));
-      assert.equal(post.status, 503);
-      const postBody = (await post.json()) as { error?: string; reason?: string };
-      assert.equal(postBody.error, 'rollover-eligibility-unavailable');
-      assert.equal(postBody.reason, 'read-failed');
-    }
+    const post = await POST(postRequest({ year: 2023 }));
+    assert.equal(post.status, 503);
+    const postBody = (await post.json()) as { error?: string; reason?: string };
+    assert.equal(postBody.error, 'rollover-eligibility-unavailable');
+    assert.equal(postBody.reason, 'read-failed');
   } finally {
     __setAppStateReadFailureForTests(null);
   }
@@ -390,14 +432,17 @@ test('POST validates body shape: malformed JSON, year, and confirmed → 400', a
     makeLeague('alpha', 2023, { state: 'season', year: 2023 }),
   ]);
 
+  // `{ year: 2023 }` is deliberately ABSENT: since F2H3A a bare year is the
+  // valid preview body. `confirmed` is optional, and only a non-boolean value
+  // is a shape error — `true` is a well-formed request for a retired
+  // capability, so it answers 409, not 400 (covered separately below).
   const cases: unknown[] = [
     'not-json{',
     {},
-    { confirmed: true },
-    { year: '2023', confirmed: true },
-    { year: 2023.5, confirmed: true },
-    { year: 1200, confirmed: true },
-    { year: 2023 },
+    { confirmed: false },
+    { year: '2023' },
+    { year: 2023.5 },
+    { year: 1200 },
     { year: 2023, confirmed: 'yes' },
   ];
   for (const body of cases) {
@@ -418,16 +463,17 @@ test('POST for an inactive year → 409 rollover-year-not-active', async () => {
   await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z');
 
   for (const year of [2022, 2024]) {
-    const res = await POST(postRequest({ year, confirmed: true }));
+    const res = await POST(postRequest({ year }));
     assert.equal(res.status, 409);
     const body = (await res.json()) as { error?: string };
     assert.equal(body.error, 'rollover-year-not-active');
   }
 });
 
-// 11 — an ineligible year refuses BOTH preview and execution with the exact
-// stable reason, and mutates nothing.
-test('ineligible preview and execution → 409 rollover-not-eligible, no mutation', async () => {
+// 11 — an ineligible year refuses preview with the exact stable reason, and
+// mutates nothing. The gate still guards preview after F2H3A: an operator must
+// not inspect a "final" archive for a season that is not final.
+test('an ineligible year refuses preview → 409 rollover-not-eligible, no mutation', async () => {
   await seedTeams();
   await setAppState('leagues', 'registry', [
     makeLeague('alpha', 2023, { state: 'season', year: 2023 }),
@@ -436,13 +482,11 @@ test('ineligible preview and execution → 409 rollover-not-eligible, no mutatio
   const registryBefore = await readRegistry();
 
   const { tags } = await runCapturingTags(async () => {
-    for (const confirmed of [false, true]) {
-      const res = await POST(postRequest({ year: 2023, confirmed }));
-      assert.equal(res.status, 409);
-      const body = (await res.json()) as { error?: string; reason?: string };
-      assert.equal(body.error, 'rollover-not-eligible');
-      assert.equal(body.reason, 'not-final');
-    }
+    const res = await POST(postRequest({ year: 2023 }));
+    assert.equal(res.status, 409);
+    const body = (await res.json()) as { error?: string; reason?: string };
+    assert.equal(body.error, 'rollover-not-eligible');
+    assert.equal(body.reason, 'not-final');
   });
 
   assert.deepEqual(await readRegistry(), registryBefore);
@@ -453,7 +497,22 @@ test('ineligible preview and execution → 409 rollover-not-eligible, no mutatio
   );
 });
 
-// 12 — preview builds only the requested lifecycle-year group and writes nothing.
+// 12 — preview builds only the requested lifecycle-year group and writes
+// nothing.
+//
+// THE OBSERVER MUST BE PROVEN. Before F2H3A the `standings-archive:<slug>`
+// observer below was kept honest by the confirmed-execution test, which was the
+// only thing in this file that ever wrote an archive. Retiring execution deleted
+// it, so a bare `=== null` assertion here would pass even against a misspelled
+// scope key — exactly the blind-observer defect R4 shipped and caught
+// (`archive:<slug>` vs `standings-archive:<slug>`).
+//
+// The control is now built in: an archive is written through the REAL writer
+// (`saveSeasonArchive`, so the scope key is derived by production code and not
+// by this test), asserted visible, and then asserted BYTE-IDENTICAL after the
+// preview. That also strengthens the claim from "no archive was created" to "no
+// archive was created OR modified" — the stronger property, since preview reads
+// an existing archive to build its diff.
 test('preview touches only the requested year group and performs no durable write', async () => {
   await seedTeams();
   await setAppState('leagues', 'registry', [
@@ -462,191 +521,151 @@ test('preview touches only the requested year group and performs no durable writ
   ]);
   await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z');
   await seedYearChampionship(2024, '2024-01-08T00:00:00.000Z');
+
+  // POSITIVE CONTROL — write a real archive and prove this observer sees it.
+  await runCapturingTags(async () => {
+    await saveSeasonArchive(await buildSeasonArchive('alpha', 2023));
+  });
+  const archiveBefore = await getAppState('standings-archive:alpha', '2023');
+  assert.notEqual(archiveBefore, null, 'the observer can see an archive that exists');
+
   const registryBefore = await readRegistry();
 
-  const res = await POST(postRequest({ year: 2023, confirmed: false }));
+  const res = await POST(postRequest({ year: 2023 }));
   assert.equal(res.status, 200);
   const body = (await res.json()) as ManualRolloverPreviewResponse;
   assert.equal(body.preview.year, 2023);
-  assert.equal(body.preview.championshipDate, '2023-01-09T00:00:00.000Z');
   assert.deepEqual(
     body.preview.leagues.map((l) => l.leagueSlug),
     ['alpha'],
     'only the requested year group is previewed'
   );
+  assert.equal(
+    body.preview.leagues[0]!.hasExistingArchive,
+    true,
+    'the preview READ the seeded archive — the write path below is the only one under test'
+  );
 
   assert.deepEqual(await readRegistry(), registryBefore, 'no durable mutation');
-  assert.equal(await getAppState('standings-archive:alpha', '2023'), null);
-  assert.equal(await getAppState('standings-archive:bravo', '2024'), null);
+  assert.deepEqual(
+    await getAppState('standings-archive:alpha', '2023'),
+    archiveBefore,
+    'the existing archive is byte-identical — preview neither rewrote nor refreshed it'
+  );
+  assert.equal(
+    await getAppState('standings-archive:bravo', '2024'),
+    null,
+    'and no archive was created for the untouched sibling year'
+  );
 });
 
-// 13 — confirmation re-evaluates the gate; an earlier eligible preview never
-// authorizes execution once the gate becomes unavailable.
-test('a stale eligible preview cannot authorize execution after the gate degrades', async () => {
+// 13 — the gate is re-evaluated on EVERY preview. An earlier successful preview
+// is never a cached authorization: a degraded gate refuses the next one.
+test('a previous successful preview does not survive the gate degrading', async () => {
   await seedTeams();
   await setAppState('leagues', 'registry', [
     makeLeague('alpha', 2023, { state: 'season', year: 2023 }),
   ]);
   await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z');
 
-  const preview = await POST(postRequest({ year: 2023, confirmed: false }));
-  assert.equal(preview.status, 200, 'preview was eligible');
-  const registryBefore = await readRegistry();
+  const first = await POST(postRequest({ year: 2023 }));
+  assert.equal(first.status, 200, 'the gate was open');
 
   __setAppStateReadFailureForTests(new Error('outage after preview'), 'schedule');
   try {
-    const res = await POST(postRequest({ year: 2023, confirmed: true }));
+    const res = await POST(postRequest({ year: 2023 }));
     assert.equal(res.status, 503);
     const body = (await res.json()) as { error?: string };
     assert.equal(body.error, 'rollover-eligibility-unavailable');
   } finally {
     __setAppStateReadFailureForTests(null);
   }
-
-  assert.deepEqual(await readRegistry(), registryBefore, 'no mutation off the stale preview');
-  assert.equal(await getAppState('standings-archive:alpha', '2023'), null);
 });
 
-// 14 + 15 + 18(positive) + 19(positive) — a confirmed eligible rollover
-// archives and transitions exactly the requested group; a sibling year is
-// untouched; suppression clears only after archive + status success; standings
-// invalidate for each rolled-over league.
-test('confirmed eligible rollover rolls only the requested group; sibling year untouched', async () => {
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H3A — manual rollover EXECUTION is retired. This route is
+// preview-only; `GET /api/cron/season-rollover` is the sole executor.
+// ---------------------------------------------------------------------------
+
+// REGRESSION TEST — the retired verb is refused with its own stable code, and
+// refused BEFORE any registry, championship, or archive work.
+//
+// The realistic caller is a browser still holding the pre-deploy bundle. Under
+// a contract that merely IGNORED `confirmed`, that client would receive a
+// PREVIEW body, decode it as an execute result, read `success` as `undefined`,
+// and tell the operator a rollover was attempted and failed — when none was
+// attempted. No write, but a false statement, which is the class this campaign
+// exists to remove.
+test('POST { confirmed: true } → 409 rollover-execution-retired, before any work', async () => {
   await seedTeams();
   await setAppState('leagues', 'registry', [
     makeLeague('alpha', 2023, { state: 'season', year: 2023 }),
-    makeLeague('bravo', 2023, { state: 'season', year: 2023 }),
-    makeLeague('charlie', 2024, { state: 'season', year: 2024 }),
   ]);
   await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z');
-  await seedYearChampionship(2024, '2024-01-08T00:00:00.000Z', { final: false });
-  await setAppState('insights-suppression:alpha:2023', 'insight-1', { insightId: 'insight-1' });
+  const registryBefore = await readRegistry();
 
-  const { result: res, tags } = await runCapturingTags(() =>
-    POST(postRequest({ year: 2023, confirmed: true }))
-  );
-  assert.equal(res.status, 200);
-  const body = (await res.json()) as ManualRolloverExecuteResponse;
-  assert.equal(body.success, true, JSON.stringify(body));
-  assert.equal(body.year, 2023);
-  assert.deepEqual(body.archivedLeagues, ['alpha', 'bravo']);
-  assert.deepEqual(body.rolledOverLeagues, ['alpha', 'bravo']);
-  assert.deepEqual(body.errors, []);
-
-  const bySlug = Object.fromEntries((await readRegistry()).map((l) => [l.slug, l]));
-  assert.equal(bySlug.alpha!.status?.state, 'offseason');
-  assert.equal(bySlug.bravo!.status?.state, 'offseason');
-  assert.equal(bySlug.alpha!.year, 2023, 'offseason retains the archived season year');
-  assert.equal(bySlug.charlie!.status?.state, 'season', 'sibling year untouched');
-  assert.notEqual(await getAppState('standings-archive:alpha', '2023'), null);
-  assert.notEqual(await getAppState('standings-archive:bravo', '2023'), null);
-  assert.equal(await getAppState('standings-archive:charlie', '2024'), null);
-
-  assert.ok(tags.includes('standings:alpha'));
-  assert.ok(tags.includes('standings:bravo'));
-  assert.ok(!tags.includes('standings:charlie'));
+  // Poison EVERY durable read: a request that reached the registry, the
+  // championship gate, or the archive builder would fail differently. Passing
+  // with the store dead is what proves the refusal precedes all of it.
+  __setAppStateReadFailureForTests(new Error('store must not be touched'));
+  let res: Response;
+  try {
+    const captured = await runCapturingTags(() =>
+      POST(postRequest({ year: 2023, confirmed: true }))
+    );
+    res = captured.result;
+    assert.deepEqual(
+      captured.tags.filter((t) => t.startsWith('standings:')),
+      [],
+      'no invalidation'
+    );
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
 
   assert.equal(
-    await getAppState('insights-suppression:alpha:2023', 'insight-1'),
-    null,
-    'suppression cleared after archive + status success'
+    res.status,
+    409,
+    'stored state does not prevent this — the server no longer offers it'
   );
+  const body = (await res.json()) as { error?: string; detail?: string };
+  assert.equal(body.error, 'rollover-execution-retired');
+  assert.match(body.detail ?? '', /cron/, 'the operator is told who does execute');
+
+  assert.deepEqual(await readRegistry(), registryBefore, 'no lifecycle write');
+  assert.equal(await getAppState('standings-archive:alpha', '2023'), null, 'no archive');
 });
 
-// 16 — ANY archive failure prevents EVERY status transition for the group.
-test('an archive failure prevents all status transitions for the requested group', async () => {
-  await seedTeams();
-  await setAppState('leagues', 'registry', [
-    makeLeague('alpha', 2023, { state: 'season', year: 2023 }),
-    makeLeague('bravo', 2023, { state: 'season', year: 2023 }),
-  ]);
-  await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z');
-
-  // Fail ONLY alpha's archive save; bravo's archive save succeeds.
-  __setAppStateWriteFailureForTests(new Error('archive store outage'), 'standings-archive:alpha');
-  let body: ManualRolloverExecuteResponse;
-  try {
-    const { result: res, tags } = await runCapturingTags(() =>
-      POST(postRequest({ year: 2023, confirmed: true }))
-    );
-    assert.equal(res.status, 200);
-    body = (await res.json()) as ManualRolloverExecuteResponse;
-    assert.deepEqual(
-      tags.filter((t) => t.startsWith('standings:')),
-      [],
-      'no standings invalidation without a status transition'
-    );
-  } finally {
-    __setAppStateWriteFailureForTests(null);
-  }
-
-  assert.equal(body.success, false);
-  assert.deepEqual(body.archivedLeagues, ['bravo'], 'truthful: bravo did archive');
-  assert.deepEqual(body.rolledOverLeagues, [], 'NO league transitioned');
-  assert.deepEqual(
-    body.errors.map((e) => ({ leagueSlug: e.leagueSlug, stage: e.stage })),
-    [{ leagueSlug: 'alpha', stage: 'archive' }]
-  );
-  assert.match(body.message ?? '', /No status transitions were made/);
-
-  const bySlug = Object.fromEntries((await readRegistry()).map((l) => [l.slug, l.status?.state]));
-  assert.equal(bySlug.alpha, 'season');
-  assert.equal(bySlug.bravo, 'season', 'sibling in group not transitioned either');
-});
-
-// 17 + 18(ordering) + 19(negative) — a status-write failure is reported
-// truthfully; suppression stays untouched; nothing is invalidated.
-test('a status-write failure is reported truthfully, never as full success', async () => {
+// POSITIVE CONTROL for the test above — with the store healthy and the SAME
+// fixture, an ordinary preview still returns 200. Without this, the 409 could
+// be produced by any unrelated refusal on this fixture and the test would still
+// pass.
+test('F2H3A positive control: the same fixture previews normally without confirmed', async () => {
   await seedTeams();
   await setAppState('leagues', 'registry', [
     makeLeague('alpha', 2023, { state: 'season', year: 2023 }),
   ]);
   await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z');
-  await setAppState('insights-suppression:alpha:2023', 'insight-1', { insightId: 'insight-1' });
 
-  // Archives write to `standings-archive:*`; ONLY the registry write fails.
-  __setAppStateWriteFailureForTests(new Error('registry outage'), 'leagues');
-  let body: ManualRolloverExecuteResponse;
-  try {
-    const { result: res, tags } = await runCapturingTags(() =>
-      POST(postRequest({ year: 2023, confirmed: true }))
-    );
-    assert.equal(res.status, 200);
-    body = (await res.json()) as ManualRolloverExecuteResponse;
-    assert.deepEqual(
-      tags.filter((t) => t.startsWith('standings:')),
-      [],
-      'standings invalidate only for successful status transitions'
-    );
-  } finally {
-    __setAppStateWriteFailureForTests(null);
-  }
-
-  assert.equal(body.success, false, 'never fabricates all-success');
-  assert.deepEqual(body.archivedLeagues, ['alpha']);
-  assert.deepEqual(body.rolledOverLeagues, []);
-  assert.deepEqual(
-    body.errors.map((e) => ({ leagueSlug: e.leagueSlug, stage: e.stage })),
-    [{ leagueSlug: 'alpha', stage: 'status' }]
-  );
-
-  assert.equal((await readRegistry())[0]!.status?.state, 'season', 'status unchanged');
-  assert.notEqual(
-    await getAppState('insights-suppression:alpha:2023', 'insight-1'),
-    null,
-    'suppression clearing happens only after a successful status transition'
-  );
+  const res = await POST(postRequest({ year: 2023 }));
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as ManualRolloverPreviewResponse;
+  assert.equal(body.preview.year, 2023);
 });
 
-// ---------------------------------------------------------------------------
-// PLATFORM-086F2H1R4 — registry-container truth + lifecycle-year validity on
-// the MANUAL surface. It shares `groupRolloverTargets` with the cron but keeps
-// its admin API contract: integrity refusals are 409 (stored state prevents the
-// operation), not 400 (the request is well-formed) and not 503 (nothing is
-// unavailable).
-// ---------------------------------------------------------------------------
+// CONTRACT PIN — `confirmed: false` stays ACCEPTED. Only `true` is retired, so
+// a client that still sends the old preview body is not broken by the change.
+test('F2H3A contract pin: confirmed:false is still a valid preview request', async () => {
+  await seedTeams();
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', 2023, { state: 'season', year: 2023 }),
+  ]);
+  await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z');
 
-// REGRESSION TEST — a malformed container is refused on BOTH verbs, sanitized,
+  const res = await POST(postRequest({ year: 2023, confirmed: false }));
+  assert.equal(res.status, 200, 'the retired value is `true`, not the field');
+});
+
 // before any championship/cache resolution.
 test('R4 regression: a malformed registry refuses both verbs with a sanitized 409', async () => {
   await setAppState('leagues', 'registry', { alpha: 1, secret: 'HASH-CANARY' });
@@ -658,16 +677,14 @@ test('R4 regression: a malformed registry refuses both verbs with a sanitized 40
   assert.equal(getBody.error, 'rollover-registry-malformed');
   assert.ok(!JSON.stringify(getBody).includes('HASH-CANARY'), 'the corrupt value never leaks');
 
-  const { result: postRes, tags } = await runCapturingTags(() =>
-    POST(postRequest({ year: 2023, confirmed: true }))
-  );
+  const { result: postRes, tags } = await runCapturingTags(() => POST(postRequest({ year: 2023 })));
   const postBody = (await postRes.json()) as { error?: string };
   assert.equal(postRes.status, 409);
   assert.equal(postBody.error, 'rollover-registry-malformed');
   assert.deepEqual(
     tags.filter((t) => t.startsWith('standings:')),
     [],
-    'no execution work ran'
+    'no work ran'
   );
 });
 
@@ -695,10 +712,10 @@ test('R4 regression: GET reports valid groups plus the refusal count', async () 
   assert.ok(!JSON.stringify(body).includes('2024'), 'the unusable value never rides out');
 });
 
-// REGRESSION TEST — a POST for a VALID group still executes with refusals
+// REGRESSION TEST — a POST for a VALID group still previews with refusals
 // present, and the absent-group case names the integrity condition instead of
 // the (false) `rollover-year-not-active`.
-test('R4 regression: POST executes a valid group and names the integrity refusal otherwise', async () => {
+test('R4 regression: POST previews a valid group and names the integrity refusal otherwise', async () => {
   await setAppState('leagues', 'registry', [
     makeLeague('alpha', 2023, { state: 'season', year: 2023 }),
     makeLeague('bad', 2024, { state: 'season', year: '2024' } as unknown as League['status']),
@@ -706,17 +723,15 @@ test('R4 regression: POST executes a valid group and names the integrity refusal
   await seedTeams();
   await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z');
 
-  // The requested year IS a valid group — execution proceeds normally.
-  const { result: okRes } = await runCapturingTags(() =>
-    POST(postRequest({ year: 2023, confirmed: false }))
-  );
+  // The requested year IS a valid group — preview proceeds normally.
+  const { result: okRes } = await runCapturingTags(() => POST(postRequest({ year: 2023 })));
   const okBody = (await okRes.json()) as ManualRolloverPreviewResponse;
   assert.equal(okRes.status, 200);
   assert.equal(okBody.preview.year, 2023, 'a valid group previews normally');
   assert.equal(okBody.invalidLifecycleTargets, 1, 'and still reports the refusal');
 
   // The requested year has no group AND refusals exist → the stable integrity code.
-  const badRes = await POST(postRequest({ year: 2024, confirmed: false }));
+  const badRes = await POST(postRequest({ year: 2024 }));
   const badBody = (await badRes.json()) as { error?: string; invalidLifecycleTargets?: number };
   assert.equal(badRes.status, 409);
   assert.equal(badBody.error, 'rollover-unusable-lifecycle-year');
@@ -732,7 +747,7 @@ test('R4 contract pin: an absent group with no refusals still reports rollover-y
   await seedTeams();
   await seedYearChampionship(2023, '2023-01-09T00:00:00.000Z');
 
-  const res = await POST(postRequest({ year: 2099, confirmed: false }));
+  const res = await POST(postRequest({ year: 2099 }));
   const body = (await res.json()) as { error?: string; invalidLifecycleTargets?: number };
   assert.equal(res.status, 409);
   assert.equal(body.error, 'rollover-year-not-active');

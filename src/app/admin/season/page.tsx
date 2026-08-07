@@ -1,5 +1,4 @@
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
-import RolloverPanel from '@/components/RolloverPanel';
 import ArchiveListPanel from '@/components/admin/ArchiveListPanel';
 import SeasonRolloverPanel from '@/components/admin/SeasonRolloverPanel';
 
@@ -20,13 +19,13 @@ export default async function AdminSeasonPage() {
           <h1 className="text-2xl font-semibold">Season Management</h1>
         </div>
 
-        <RolloverPanel />
-        {/* PLATFORM-086F2C — the per-year rollover status/maintenance panel
-            moved here from Data Maintenance & Recovery: Season Management owns
-            lifecycle rollover, and this panel is the only surface showing
-            ineligible/unavailable years with reasons and due dates. The
-            RolloverPanel above renders only when a year is eligible; final
-            consolidation of the two panels remains F2H. */}
+        {/* PLATFORM-086F2H3A — ONE rollover surface. The eligible-year execution
+            panel (`RolloverPanel`) was deleted with manual rollover execution;
+            its unique preview detail — the owners whose outcomes flip, by name,
+            and the standings positions that move — was ported into this panel
+            first, so consolidation preserved capability rather than discarding
+            it. F2C had moved the per-year status panel here from Data
+            Maintenance & Recovery; the two have now converged. */}
         <SeasonRolloverPanel />
         <ArchiveListPanel />
       </div>
