@@ -9,13 +9,20 @@ import {
 } from '../manualRollover.ts';
 
 // ---------------------------------------------------------------------------
-// PLATFORM-086F2B — the shared client-safe manual-rollover contract both
-// panels decode through, so request/response shapes cannot drift per panel.
+// PLATFORM-086F2B — the shared client-safe rollover contract the panel decodes
+// through, so request/response shapes cannot drift from the server's.
 // ---------------------------------------------------------------------------
 
-test('buildManualRolloverRequest always carries the explicit year', () => {
-  assert.deepEqual(buildManualRolloverRequest(2024, false), { year: 2024, confirmed: false });
-  assert.deepEqual(buildManualRolloverRequest(2024, true), { year: 2024, confirmed: true });
+// CONTRACT PIN (PLATFORM-086F2H3A) — the builder carries the explicit year and
+// NEVER emits `confirmed`. The route answers `confirmed: true` with
+// `rollover-execution-retired`, so a builder that reintroduced the field would
+// make every preview click a refused request.
+test('buildManualRolloverRequest carries the explicit year and never emits confirmed', () => {
+  assert.deepEqual(buildManualRolloverRequest(2024), { year: 2024 });
+  assert.ok(
+    !Object.prototype.hasOwnProperty.call(buildManualRolloverRequest(2024), 'confirmed'),
+    'the retired field is absent from the body, not merely false'
+  );
 });
 
 test('parseManualRolloverStatusResponse accepts the contract shape', () => {
@@ -80,6 +87,15 @@ test('refusal payloads map to operator-readable language', () => {
   assert.match(
     describeManualRolloverRefusal({ error: 'rollover-eligibility-unavailable' }) ?? '',
     /durable store read failed/
+  );
+  // PLATFORM-086F2H3A — an execute attempt must read as a RETIRED capability,
+  // not as a transient error worth retrying. Reachable only by clients built
+  // from F2H3A onward: a stale pre-F2H3A bundle ships the older `default:
+  // return null` and renders the generic HTTP message, and the 409 alone is
+  // what protects that caller.
+  assert.match(
+    describeManualRolloverRefusal({ error: 'rollover-execution-retired' }) ?? '',
+    /retired/
   );
   assert.equal(describeManualRolloverRefusal({ error: 'something-else' }), null);
   assert.equal(describeManualRolloverRefusal('nope'), null);

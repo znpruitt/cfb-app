@@ -2,9 +2,14 @@ import { isStructurallyValidSeasonYear, TEST_LEAGUE_SLUG, type League } from './
 
 /**
  * PLATFORM-086F2B — the ONE season-rollover target-selection policy, shared by
- * the automatic cron (`/api/cron/season-rollover`) and the manual admin route
- * (`/api/admin/rollover`) so the two can never diverge on which leagues a
- * rollover may touch.
+ * the automatic cron (`/api/cron/season-rollover`), which EXECUTES rollover, and
+ * the admin route (`/api/admin/rollover`), which reports status and builds the
+ * archive PREVIEW.
+ *
+ * PLATFORM-086F2H3A retired manual execution, which makes sharing this policy
+ * MORE load-bearing rather than less: the preview's whole value is that it
+ * describes what the cron would do, so a divergence here would make the panel
+ * describe a rollover that will never happen — or omit one that will.
  */
 
 // The demo league is excluded from global rollover. `TEST_LEAGUE_SLUG` lives in

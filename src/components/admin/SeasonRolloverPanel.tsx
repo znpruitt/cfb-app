@@ -1,7 +1,6 @@
 'use client';
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 
 import { getAdminAuthHeaders } from '@/lib/adminAuth';
 import type { LeagueStatus } from '@/lib/league';
@@ -10,7 +9,6 @@ import {
   describeManualRolloverReason,
   describeManualRolloverRefusal,
   parseManualRolloverStatusResponse,
-  type ManualRolloverExecuteResponse,
   type ManualRolloverPreviewResponse,
   type ManualRolloverYearStatus,
 } from '@/lib/manualRollover';
@@ -19,8 +17,6 @@ const sectionClass =
   'rounded-lg border border-gray-200 bg-white p-5 space-y-3 dark:border-zinc-700 dark:bg-zinc-900';
 const buttonClass =
   'rounded border border-gray-300 bg-gray-50 px-4 py-1.5 text-sm text-gray-900 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700';
-const destructiveButtonClass =
-  'rounded border border-red-400 bg-red-50 px-4 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-40 disabled:cursor-not-allowed dark:border-red-800 dark:bg-red-950 dark:text-red-300 dark:hover:bg-red-900';
 
 function formatStatus(status: LeagueStatus | undefined): string {
   if (!status) return 'unknown';
@@ -37,31 +33,30 @@ function formatDate(iso: string | null | undefined): string | null {
 }
 
 /**
- * PLATFORM-086F2B — one lifecycle year's row in the maintenance panel. Each
- * year renders its own instance (keyed by year) so preview/confirmation state
- * can never cross-wire between years; every request carries this row's
- * explicit year, and execute controls exist only while the year is eligible.
- * Execute RESULTS are reported up to the panel: a successful rollover removes
- * this year from the active list, unmounting this row on the status reload.
+ * PLATFORM-086F2B — one lifecycle year's row. Each year renders its own instance
+ * (keyed by year) so preview state can never cross-wire between years, and every
+ * request carries this row's explicit year.
+ *
+ * PLATFORM-086F2H3A — this row has no execute control. Manual rollover execution
+ * is retired; the daily cron is the only executor. The preview survives because
+ * it is the only place an operator can see which owners' final standings would
+ * flip BEFORE anything is written, and the cron has no equivalent. It is an
+ * INSPECTION REPORT, not a confirmation screen.
  */
 function YearRow({
   status,
   onRefused,
-  onExecuted,
 }: {
   status: ManualRolloverYearStatus;
   onRefused: () => Promise<void>;
-  onExecuted: (result: ManualRolloverExecuteResponse) => Promise<void>;
 }) {
   const { year } = status;
   const leagueCount = status.leagues.length;
 
   const [previewLoading, setPreviewLoading] = useState(false);
-  const [executeLoading, setExecuteLoading] = useState(false);
   const [preview, setPreview] = useState<ManualRolloverPreviewResponse['preview'] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const busy = previewLoading || executeLoading;
   const eligible = status.eligibility === 'eligible';
 
   async function refusalMessage(res: Response): Promise<string> {
@@ -76,7 +71,7 @@ function YearRow({
       const res = await fetch('/api/admin/rollover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAdminAuthHeaders() },
-        body: JSON.stringify(buildManualRolloverRequest(year, false)),
+        body: JSON.stringify(buildManualRolloverRequest(year)),
       });
       if (!res.ok) {
         setError(await refusalMessage(res));
@@ -89,40 +84,6 @@ function YearRow({
       setError(err instanceof Error ? err.message : 'Unexpected error');
     } finally {
       setPreviewLoading(false);
-    }
-  }
-
-  async function handleExecute() {
-    const ok = window.confirm(
-      `This will archive the ${year} season and transition ${leagueCount} league${leagueCount !== 1 ? 's' : ''} to offseason. This cannot be undone. Continue?`
-    );
-    if (!ok) return;
-
-    setExecuteLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/admin/rollover', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAdminAuthHeaders() },
-        body: JSON.stringify(buildManualRolloverRequest(year, true)),
-      });
-      if (!res.ok) {
-        setError(await refusalMessage(res));
-        // The gate refused after a previously eligible preview — drop the
-        // stale preview and resync the per-year status.
-        setPreview(null);
-        await onRefused();
-        return;
-      }
-      const data = (await res.json()) as ManualRolloverExecuteResponse;
-      setPreview(null);
-      // Report up: the panel renders the persistent result banner (this row
-      // may unmount on the reload) and refreshes status + the RSC tree.
-      await onExecuted(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unexpected error');
-    } finally {
-      setExecuteLoading(false);
     }
   }
 
@@ -161,20 +122,22 @@ function YearRow({
         </p>
       )}
 
+      {/* Preview is DELIBERATE — it never loads on render. Building it walks the
+          full scored season for every league in the group, and an inspection an
+          operator did not ask for is work nobody reads. */}
       {eligible && (
         <div className="mt-3 flex flex-wrap items-center gap-3">
-          <button onClick={() => void handlePreview()} disabled={busy} className={buttonClass}>
-            {previewLoading ? 'Loading preview…' : preview ? 'Refresh Preview' : 'Preview Rollover'}
+          <button
+            onClick={() => void handlePreview()}
+            disabled={previewLoading}
+            className={buttonClass}
+          >
+            {previewLoading
+              ? 'Loading preview…'
+              : preview
+                ? 'Refresh archive preview'
+                : 'Preview archive changes'}
           </button>
-          {preview && (
-            <button
-              onClick={() => void handleExecute()}
-              disabled={busy}
-              className={destructiveButtonClass}
-            >
-              {executeLoading ? 'Executing…' : `Execute Rollover (${year})`}
-            </button>
-          )}
         </div>
       )}
       {error && <p className="mt-2 text-xs text-red-600 dark:text-red-400">{error}</p>}
@@ -183,7 +146,8 @@ function YearRow({
         <div className="mt-3 space-y-3">
           <p className="text-xs text-gray-500 dark:text-zinc-400">
             Previewing rollover for season <span className="font-medium">{preview.year}</span>.{' '}
-            {preview.leagues.length} league{preview.leagues.length !== 1 ? 's' : ''} affected.
+            {preview.leagues.length} league{preview.leagues.length !== 1 ? 's' : ''} affected. This
+            is a read-only inspection — nothing is written.
           </p>
           <ul className="space-y-3">
             {preview.leagues.map((league) => (
@@ -223,17 +187,56 @@ function YearRow({
                         ))}
                       </ol>
                     )}
-                    <p className="pt-1">
-                      Archive:{' '}
-                      <span className="font-medium">
-                        {league.hasExistingArchive ? 'exists (will overwrite)' : 'new'}
-                      </span>
-                    </p>
-                    {league.diff && (
-                      <p className="text-gray-500 dark:text-zinc-400">
-                        Diff vs. existing: {league.diff.scoresChanged} score changes,{' '}
-                        {league.diff.outcomesFlipped} outcome flips
-                        {league.diff.standingsOrderChanged ? ', standings order changed' : ''}
+
+                    {/* PLATFORM-086F2H3A — ported from the retired RolloverPanel,
+                        which was the ONLY surface naming the owners whose outcomes
+                        flip and the standings positions that move. This panel
+                        previously showed bare counts, so consolidating by deletion
+                        would have destroyed the preview's most specific
+                        information — the audit's reason for merging by capability
+                        rather than picking a survivor. */}
+                    {league.hasExistingArchive && league.diff ? (
+                      <div className="space-y-1 pt-1">
+                        <p className="font-medium text-amber-700 dark:text-amber-400">
+                          Existing {preview.year} archive will be overwritten
+                        </p>
+                        <p>
+                          Score changes: {league.diff.scoresChanged} owner records affected
+                          {league.diff.scoresChanged === 0 ? ' (none)' : ''}
+                        </p>
+                        <p>
+                          Outcome flips: {league.diff.outcomesFlipped} owner records affected
+                          {league.diff.outcomesFlipped > 0 &&
+                            league.diff.ownersAffectedByFlip.length > 0 && (
+                              <> — {league.diff.ownersAffectedByFlip.join(', ')}</>
+                            )}
+                        </p>
+                        {/* Three states, not two. `standingsOrderChanged` compares
+                            the joined OWNER SEQUENCE, while `standingsMovement`
+                            only carries owners present in BOTH archives whose
+                            position changed — so an owner added to (or removed
+                            from) the tail flips the flag with an empty movement
+                            list. Rendering "changed — " with nothing after the
+                            dash tells the operator something changed and then
+                            shows no evidence. Inherited from the deleted
+                            RolloverPanel; this is now the only surface that
+                            renders it. */}
+                        <p>
+                          Final standings order:{' '}
+                          {!league.diff.standingsOrderChanged
+                            ? 'unchanged'
+                            : league.diff.standingsMovement.length > 0
+                              ? `changed — ${league.diff.standingsMovement
+                                  .map(
+                                    (m) => `${m.ownerName} ${m.previousPosition}→${m.newPosition}`
+                                  )
+                                  .join(', ')}`
+                              : 'changed — the ranked owners differ; no owner in both archives moved position.'}
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="pt-1 text-green-700 dark:text-green-400">
+                        New archive — the {preview.year} season would be written fresh.
                       </p>
                     )}
                   </div>
@@ -248,17 +251,14 @@ function YearRow({
 }
 
 export default function SeasonRolloverPanel(): React.ReactElement {
-  const router = useRouter();
   const [years, setYears] = useState<ManualRolloverYearStatus[] | null>(null);
   // PLATFORM-086F2H1R4 — production records the server refused for an unusable
   // lifecycle year. Without it an all-refused registry renders "No production
-  // league is currently in season", which is FALSE: leagues are in season, they
-  // are merely unusable. That is the exact falsehood class this campaign has
-  // refused to ship since F2H1T2. A count and a truthful sentence only — the
-  // issue code and repair link are F2H3's.
+  // leagues are waiting for rollover", which is FALSE: leagues are in season,
+  // they are merely unusable. That is the exact falsehood class this campaign
+  // has refused to ship since F2H1T2.
   const [invalidLifecycleTargets, setInvalidLifecycleTargets] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<ManualRolloverExecuteResponse | null>(null);
 
   const loadStatus = useCallback(async () => {
     setLoadError(null);
@@ -268,7 +268,7 @@ export default function SeasonRolloverPanel(): React.ReactElement {
         headers: getAdminAuthHeaders(),
       });
       if (!res.ok) {
-        // The GET can now answer with a typed refusal (409 registry-malformed).
+        // The GET can answer with a typed refusal (409 registry-malformed).
         // Rendering the raw JSON body as prose would show an operator a blob;
         // the operator-readable string already exists for exactly this case.
         const payload: unknown = await res.json().catch(() => null);
@@ -293,82 +293,63 @@ export default function SeasonRolloverPanel(): React.ReactElement {
     void loadStatus();
   }, [loadStatus]);
 
-  const handleExecuted = useCallback(
-    async (result: ManualRolloverExecuteResponse) => {
-      setLastResult(result);
-      // Refresh the RSC tree so admin/league surfaces reflect the archived
-      // season, then reload the per-year status (the executed year drops out).
-      router.refresh();
-      await loadStatus();
-    },
-    [router, loadStatus]
-  );
+  // PLATFORM-086F2H3A — production leagues normally follow the same college
+  // football season, so more than one in-season year group is a DISAGREEMENT,
+  // not a feature. It appears temporarily after a partial rollover, a lifecycle
+  // failure, stale stored data, or a league created while another is still
+  // finishing rollover. Derived here rather than added to the response: the
+  // groups already carry the fact, and a second encoding of one truth drifts.
+  //
+  // Scoped to leagues in `season` — a production league in preseason or
+  // offseason is not represented here and is not part of this claim.
+  const yearGroups = years ?? [];
+  const yearsDisagree = yearGroups.length > 1;
 
   return (
     <section className={sectionClass}>
       <div>
         <h2 className="text-base font-medium text-gray-900 dark:text-zinc-100">Season Rollover</h2>
         <p className="mt-1 text-sm text-gray-500 dark:text-zinc-400">
-          Archive a completed season and transition its non-test leagues to offseason. Each active
-          season year is evaluated independently against the same strict eligibility gate the
-          automatic rollover uses (structured CFP national championship, confirmed final, seven-day
-          waiting period) — manual rollover cannot bypass it.
+          Rollover readiness for production leagues. The daily rollover cron archives a completed
+          season and transitions its leagues to offseason; each active season year is evaluated
+          against the same strict eligibility gate (structured CFP national championship, confirmed
+          final, seven-day waiting period). Previewing below is read-only and writes nothing.
         </p>
       </div>
-
-      {lastResult && (
-        <div className="space-y-2">
-          {lastResult.success ? (
-            <p className="rounded border border-green-300 bg-green-50 px-3 py-2 text-sm text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-300">
-              Rollover complete — the {lastResult.year} season was archived and{' '}
-              {lastResult.rolledOverLeagues.length} league
-              {lastResult.rolledOverLeagues.length !== 1 ? 's' : ''} transitioned to offseason.
-            </p>
-          ) : (
-            <p className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-              {lastResult.message ?? 'Rollover failed.'}
-            </p>
-          )}
-          {lastResult.rolledOverLeagues.length > 0 && (
-            <ul className="space-y-0.5 text-xs text-gray-600 dark:text-zinc-300">
-              {lastResult.rolledOverLeagues.map((slug) => (
-                <li key={slug}>✓ {slug}</li>
-              ))}
-            </ul>
-          )}
-          {lastResult.errors.length > 0 && (
-            <ul className="space-y-0.5 text-xs text-red-600 dark:text-red-400">
-              {lastResult.errors.map((err) => (
-                <li key={`${err.stage}:${err.leagueSlug}`}>
-                  ✗ {err.leagueSlug} ({err.stage}): {err.error}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
 
       {loadError && <p className="text-xs text-red-600 dark:text-red-400">{loadError}</p>}
       {!loadError && years === null && (
         <p className="text-xs text-gray-500 dark:text-zinc-400">Loading rollover status…</p>
       )}
-      {years !== null && years.length === 0 && (
+
+      {/* The empty state stays VISIBLE rather than hiding the section — it is the
+          operator's confirmation that the check ran and succeeded. The demo
+          league is excluded upstream by `groupRolloverTargets` and is never
+          mentioned here; the backend keeps its own `no-automatic-season-leagues`
+          reason for cron events, receipts, and diagnostics. */}
+      {years !== null && yearGroups.length === 0 && (
         <p className="text-xs text-gray-500 dark:text-zinc-400">
           {invalidLifecycleTargets > 0
             ? `${invalidLifecycleTargets} league record(s) in season carry an unusable season year and were refused — repair those records before rolling over.`
-            : 'No production league is currently in season — nothing to roll over.'}
+            : 'No production leagues are waiting for rollover.'}
         </p>
       )}
 
-      {years !== null && years.length > 0 && (
+      {/* Composes with the refusal message above: a registry can hold both a
+          year disagreement and refused records, and each is separately
+          actionable. */}
+      {yearsDisagree && (
+        <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+          Production leagues disagree on their season year — {yearGroups.length} different years are
+          active at once ({yearGroups.map((y) => y.year).join(', ')}). This is not a normal state.
+          Each year is shown separately below so the inconsistency can be diagnosed.
+        </p>
+      )}
+
+      {years !== null && yearGroups.length > 0 && (
         <div className="space-y-3">
-          {years.map((yearStatus) => (
-            <YearRow
-              key={yearStatus.year}
-              status={yearStatus}
-              onRefused={loadStatus}
-              onExecuted={handleExecuted}
-            />
+          {yearGroups.map((yearStatus) => (
+            <YearRow key={yearStatus.year} status={yearStatus} onRefused={loadStatus} />
           ))}
         </div>
       )}
