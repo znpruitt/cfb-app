@@ -690,14 +690,17 @@ Execution order within F2 (each slice is one independently deployable PR):
         surfaces have genuinely different jobs; no misleading output found) and "benign duplicate
         delivery reporting" (no path was produced where a redelivery reports as failure — the
         premise appears false).
-      - **F2H2B — rollover operator truth.** The daily cron reports `no-season-leagues` when the
-        DEMO league is the only one in season. Live today, needs no corruption, and is the default
-        post-reset demo state; the three sibling jobs each have a demo-only reason and rollover is
-        the last without one. No test covers the shape — every existing assertion seeds an EMPTY
-        registry where the reason is true, which is why it survived four merged R-slices. Also:
-        `invalidateStandings` shares a `try/catch` with the lifecycle write, so a cache-invalidation
-        throw is reported as a status-write failure that did not happen. Archive-first retry
-        behavior is to be DOCUMENTED as intended, not changed here.
+      - **F2H2B — rollover operator truth.** Implemented and reviewed (Codex + `/code-review`
+        against `096db69`); **not yet merged**. Shipped `no-automatic-season-leagues` and separated
+        the standings-invalidation error from the lifecycle write. One review finding is carried
+        rather than fixed — see the manual-route `catch {}` bullet under F2H3 below. The daily cron
+        reported `no-season-leagues` whenever the DEMO league was the only one in season — needing
+        no corruption, and the default post-reset demo state. Rollover was the last of five
+        demo-exclusion sites without a demo-only reason. No test covered the shape: every existing
+        assertion seeds an EMPTY registry where the reason is true, which is why it survived four
+        merged R-slices. `invalidateStandings` also shared a `try/catch` with the lifecycle write,
+        so a cache-invalidation throw was reported as a status-write failure that did not happen.
+        Archive-first retry behavior was DOCUMENTED as intended, not changed.
       - **Rescoped: the "duplicate rollover UI" must NOT be consolidated by deletion.** Neither
         panel is a superset of the other — `RolloverPanel` uniquely shows the overwrite warning,
         which owners' outcomes flip by name, and per-owner standings movement; `SeasonRolloverPanel`
@@ -730,6 +733,16 @@ Execution order within F2 (each slice is one independently deployable PR):
         structurally broader (all years, all eligibility states, reasons, dates). With execution
         retired the merge gets substantially simpler — one status surface carrying the preview, and
         no duplicate execute controls to reconcile.
+      - **Carried from F2H2B review (deliberately not fixed there):** the manual route still
+        swallows an `invalidateStandings` failure with a bare `catch {}`
+        (`src/app/api/admin/rollover/route.ts`), so after F2H2B the two surfaces that share
+        `groupRolloverTargets` and `completeSeasonRollover` now disagree about the same fault —
+        the cron reports it, the manual route returns `success: true` with the league listed while
+        its standings page keeps serving warm live-season snapshots. Not fixed in F2H2B because the
+        divergent code is on the `confirmed: true` EXECUTION path, which the decision above
+        deletes outright; hardening it would be work with a scheduled expiry. **If the retirement
+        is ever reversed, this fix becomes required** — it is the same false-success class F2H2B
+        removed from the cron.
 12. Then, in order: F2I Platform Configuration/Team Identity → F2J commissioner boundaries +
     navigation closeout.
 

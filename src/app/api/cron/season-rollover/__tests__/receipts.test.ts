@@ -522,7 +522,11 @@ test('an invalidation failure on a rolled league is partial/rollover-partial, no
   // Running with no work store makes invalidateStandings (revalidateTag) throw
   // AFTER the league rolled (archive + status committed).
   const { res, event } = await runRouteNoStore();
-  const body = (await res!.json()) as { success?: boolean; leaguesRolledOver?: string[] };
+  const body = (await res!.json()) as {
+    success?: boolean;
+    leaguesRolledOver?: string[];
+    suppressionClearedFor?: string[];
+  };
   assert.equal(res!.status, 200);
   assert.equal(body.success, false, 'the response reports the invalidation failure');
   assert.deepEqual(body.leaguesRolledOver, ['alpha'], 'the league still rolled');
@@ -532,6 +536,20 @@ test('an invalidation failure on a rolled league is partial/rollover-partial, no
   assert.equal(year.result, 'partial');
   assert.equal(year.reason, 'rollover-partial');
   assert.equal(year.rolledOverLeagues, 1);
+
+  // CONTRACT PIN (PLATFORM-086F2H2B) — a cache-invalidation fault must not
+  // suppress the DURABLE suppression clear. Before the `try/catch` split these
+  // shared one catch ending in `continue`, so `suppressionCleared` was 0 here
+  // and the outgoing season's insights suppression outlived the rollover. The
+  // stated rule is "only after archive AND status succeeded"; both succeeded,
+  // so clearing must run. This asserts the reported counter, not just the code
+  // path — it is an operator-facing field on a durable receipt.
+  assert.deepEqual(
+    body.suppressionClearedFor,
+    ['alpha'],
+    'suppression clearing is not coupled to cache invalidation'
+  );
+  assert.equal(year.suppressionCleared, 1, 'the event reports the clear that happened');
 
   await deferrer.flush();
   assert.equal((await readSchedulerReceipt('season-rollover'))?.value.reason, 'rollover-partial');

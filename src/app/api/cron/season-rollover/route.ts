@@ -360,6 +360,15 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         // committed at this point, so a failure here degrades freshness, never
         // correctness — the cache refreshes on the next mutation or natural
         // turnover.
+        //
+        // DELIBERATE CONSEQUENCE of the split: this catch does NOT `continue`,
+        // so suppression clearing below now runs even when invalidation throws.
+        // Under the shared catch it was skipped, which coupled two unrelated
+        // subsystems — a `revalidateTag` fault left the outgoing season's
+        // insights suppression records in place, and that survives the cache
+        // blip because suppression is DURABLE. The rule the code below already
+        // states is "only after archive AND status succeeded"; both did. Pinned
+        // by the invalidation-failure receipt test.
         try {
           invalidateStandings(league.slug);
         } catch (err) {

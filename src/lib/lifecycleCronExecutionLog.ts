@@ -244,6 +244,11 @@ export type SeasonRolloverCronExecutionState = Omit<
    * `groupRolloverTargets`, and R4 made that deliberate so a refusal counted
    * before a mid-loop throw cannot be discarded. Splitting the sink across two
    * objects would reopen that.
+   *
+   * This is the first field on the state that must NEVER reach the event, so the
+   * emitter's field-by-field rebuild is now load-bearing rather than stylistic:
+   * a refactor to `{ event, ...state, durationMs }` would leak it with no
+   * compiler signal, because object spread bypasses excess-property checking.
    */
   excludedDemoCandidate: boolean;
 };
