@@ -188,6 +188,40 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `npm run build`, and `git diff --check` each run as their own command with unmasked exit status.
 - Status: MERGED via PR #457 (`876d87c`), 2026-08-07.
 
+### PLATFORM-086F2H4-RETIRE-SEASON-MANAGEMENT-v1
+
+- Purpose: Retire `/admin/season` and everything that existed only to serve it. An admin surface
+  represents what a human can inspect, decide, diagnose, or operate; a backend subsystem does not
+  earn a page by existing.
+- Scope: deleted the page, both panels, `/api/admin/rollover`, `src/lib/manualRollover.ts`, and
+  `diffSeasonArchives`; removed the `season-management` repair surface so lifecycle scheduler faults
+  carry `repair: null`; removed the admin hub card and repointed the Data Maintenance cross-link;
+  amended AGENTS.md invariants 4 and 5 and the owning docs. No change to the season-rollover cron,
+  `groupRolloverTargets`, `completeSeasonRollover`, `buildSeasonArchive`, `saveSeasonArchive`,
+  `listSeasonArchives`, or any league-facing surface.
+- Why: since F2H3A the cron is the sole executor, and it has **no automation-pause gate** — only
+  cron-secret auth. So the preview showed an operator exactly which owners' standings would move
+  before an irreversible write they had no supported way to prevent: **unactionable by
+  construction**. F2H3A's rationale for preserving that preview answered "which of two panels
+  survives", not "should this surface exist" — F2H2A's lesson one level up. The archive panel turned
+  out not to be navigation at all: year badges with no `href`, over data `/league/<slug>/history`
+  already navigates per league through the same `listSeasonArchives` authority.
+- **Stop condition, discharged with evidence rather than argument.** `SeasonRolloverPanel` was the
+  only surface that spelled out WHY a rollover was waiting. Before deleting it, a new receipts test
+  proves a waiting-period skip reaches `event.reason` AND survives onto the durable receipt System
+  Health renders — with a positive control showing the same league rolls once past the window. The
+  type union alone would not have been evidence that the value survives the receipt writer's
+  validation and rebuild.
+- Orphan set verified before deletion: the panel was the route's only caller, the route the only
+  consumer of `manualRollover.ts` and `diffSeasonArchives`. Capability is not surface — the archive
+  writers, the targeting policy, and `listSeasonArchives` (14 league-facing consumers) all stay.
+- Repair surface: `season-management` was emitted from EXACTLY ONE site, the lifecycle branch of
+  `schedulerExecutionIssues`; no provider diagnostic declared it. Removing it closes a recorded
+  follow-up — the link named a page that could not perform the repair — and matches what F2H3B2
+  established for `lifecycle-data-unusable`.
+- Review / verification: (to be completed against the review commit).
+- Status: implemented; review pending.
+
 ### PLATFORM-086F2H3B2-SYSTEM-HEALTH-LIFECYCLE-INTEGRITY-v1
 
 - Purpose: Surface a dedicated System Health issue when any scheduler receipt reports refused

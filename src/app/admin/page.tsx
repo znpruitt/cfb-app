@@ -8,12 +8,15 @@ import type { LeagueStatus } from '@/lib/league';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * PLATFORM-086F2H4 — Season Management was removed. Rollover is executed solely
+ * by the daily cron, with no operator-reachable controls since F2H3A and no
+ * automation-pause gate at all, so a card here advertised a destination
+ * representing machinery rather than a decision. Its remaining observable state
+ * is the `season-rollover` row on System Health, and archived seasons are
+ * navigable per league from `/league/<slug>/history`.
+ */
 const platformCards = [
-  {
-    href: '/admin/season',
-    title: 'Season Management',
-    desc: 'Rollover and archive tools',
-  },
   {
     href: '/admin/diagnostics',
     title: 'System Health',

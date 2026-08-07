@@ -18,8 +18,12 @@ const sectionHeadingClass = 'text-lg font-semibold text-gray-900 dark:text-zinc-
 /**
  * PLATFORM-086F2C — Data Maintenance & Recovery (the stable /admin/data/cache
  * route). Explicit maintenance, imports, repair, and recovery only; automatic
- * jobs own normal provider freshness. Lifecycle rollover lives on Season
- * Management (`/admin/season`), not here.
+ * jobs own normal provider freshness.
+ *
+ * PLATFORM-086F2H4 — rollover is not here, and it is no longer anywhere else
+ * either: `/admin/season` was retired because the season-rollover cron is the
+ * sole executor with no operator-reachable controls. What remains observable
+ * lives on System Health as that job's scheduler row.
  */
 export default async function AdminDataCachePage() {
   const leagues = await getLeagues();
@@ -46,11 +50,14 @@ export default async function AdminDataCachePage() {
           <p className="max-w-2xl text-sm text-gray-600 dark:text-zinc-300">
             Automatic jobs own normal provider freshness — this page is for explicit maintenance,
             imports, repair, and recovery. Each action states its provider cost, target, and durable
-            effects. {MAINTENANCE_COST_CAVEAT} Season lifecycle and rollover live in{' '}
-            <Link href="/admin/season" className="text-blue-600 hover:underline dark:text-blue-400">
-              Season Management
-            </Link>
-            .
+            effects. {MAINTENANCE_COST_CAVEAT} Season rollover is fully automatic — see{' '}
+            <Link
+              href="/admin/diagnostics"
+              className="text-blue-600 hover:underline dark:text-blue-400"
+            >
+              System Health
+            </Link>{' '}
+            for its status.
           </p>
         </div>
 

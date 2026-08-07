@@ -90,8 +90,10 @@ test('late successful receipt → delivery-late issue, no execution fault', () =
   assert.ok(!find(issues, 'scheduler-execution-failed'));
 });
 
-// Lifecycle execution failure routes to Season Management.
-test('lifecycle execution failure links to Season Management', () => {
+// PLATFORM-086F2H4 — a lifecycle execution failure routes NOWHERE. It used to
+// link Season Management, a page that could not repair a lifecycle fault and has
+// since been retired.
+test('a lifecycle execution failure offers no repair; a provider one still does', () => {
   const rows = healthyDelivery().jobs.map((row) =>
     row.job === 'season-rollover'
       ? deliveryRow('season-rollover', 'on-time', receiptFor('season-rollover', 'failure'))
@@ -101,8 +103,23 @@ test('lifecycle execution failure links to Season Management', () => {
     baseInputs({ schedulerDelivery: deliverySnapshot(rows) })
   );
   const failed = find(issues, 'scheduler-execution-failed');
-  assert.equal(failed!.repair?.surface, 'season-management');
-  assert.equal(failed!.repair?.href, '/admin/season');
+  // PLATFORM-086F2H4 — a LIFECYCLE job's execution fault offers NO repair. It
+  // used to link Season Management, a page that could not repair a lifecycle
+  // fault and has since been retired.
+  assert.equal(failed!.repair, null);
+
+  // POSITIVE CONTROL — a NON-lifecycle job on the same shape still receives the
+  // Data Maintenance repair, so the null above is routing and not repairs having
+  // stopped working.
+  const providerRows = healthyDelivery().jobs.map((row) =>
+    row.job === 'odds' ? deliveryRow('odds', 'on-time', receiptFor('odds', 'failure')) : row
+  );
+  const providerIssues = deriveSystemHealthIssues(
+    baseInputs({ schedulerDelivery: deliverySnapshot(providerRows) })
+  );
+  const providerFailed = find(providerIssues, 'scheduler-execution-failed');
+  assert.equal(providerFailed!.repair?.surface, 'data-maintenance');
+  assert.equal(providerFailed!.repair?.href, '/admin/data/cache');
 });
 
 // Case 6 — a closed provider gate never demotes a missing delivery.

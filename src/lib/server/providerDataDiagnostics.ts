@@ -65,10 +65,7 @@ export type ProviderDiagnosticCode =
  * only a SURFACE hint; the System Health model materializes the full repair
  * destination (href + label) so this module stays free of any UI/route detail.
  */
-export type ProviderDiagnosticRepairSurface =
-  | 'data-maintenance'
-  | 'season-management'
-  | 'team-identity';
+export type ProviderDiagnosticRepairSurface = 'data-maintenance' | 'team-identity';
 
 export type ProviderDiagnostic = {
   dataset: ProviderDataset;
