@@ -20,7 +20,8 @@ import {
   setAppState,
 } from '@/lib/server/appStateStore';
 import { draftScope, type DraftState, type DraftPick } from '@/lib/draft';
-import { TEST_LEAGUE_SLUG } from '@/lib/league';
+import { TEST_LEAGUE_SLUG, type LeagueStatus } from '@/lib/league';
+import type { AutoCompleteDraftResult, TestControlResult } from '@/lib/testLeagueControl';
 import { requireAdminAction } from '@/lib/auth/requireAdminAction';
 import teamsData from '@/data/teams.json';
 
@@ -45,6 +46,50 @@ async function clearTestLeagueYear(year: number): Promise<void> {
 }
 
 /**
+ * Post-commit cache work: standings (optionally) and the admin path.
+ *
+ * Returns whether it fully succeeded. Both calls go through the same Next
+ * revalidation store, so a store fault fails both — which is why they share one
+ * guard rather than the standings call having its own. Nothing here can undo the
+ * committed lifecycle write, so a failure degrades freshness only.
+ */
+function revalidateAfterCommit(invalidateStandingsToo: boolean): boolean {
+  try {
+    if (invalidateStandingsToo) invalidateStandings(TEST_LEAGUE_SLUG);
+    revalidatePath(TEST_LEAGUE_ADMIN_PATH);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Did the LIFECYCLE actually move?
+ *
+ * Compared field by field rather than by identity, and `setupComplete` is part
+ * of the comparison on purpose: `decideTestLeagueStatus` rebuilds a preseason
+ * status WITHOUT it, so re-requesting `preseason` on a league whose setup was
+ * complete genuinely clears that flag. Reporting "Already in Preseason 2026"
+ * there would be false.
+ *
+ * A `false` result does NOT mean nothing was written — `applyLifecycleStatus`
+ * may still heal a desynchronized `league.year`. It means the lifecycle is where
+ * it already was, which is the only thing the copy claims.
+ */
+function lifecycleUnchanged(previous: LeagueStatus | null, next: LeagueStatus): boolean {
+  if (previous === null || previous.state !== next.state) return false;
+  if (previous.state === 'offseason') return true;
+  if (previous.year !== (next as { year: number }).year) return false;
+  if (previous.state === 'preseason') {
+    return (
+      (previous.setupComplete === true) ===
+      ((next as { setupComplete?: boolean }).setupComplete === true)
+    );
+  }
+  return true;
+}
+
+/**
  * Set the lifecycle status of the demo league.
  *
  * "Structurally demo-only" here describes TARGET REACH, not authentication: the
@@ -62,12 +107,27 @@ async function clearTestLeagueYear(year: number): Promise<void> {
  * transaction. This action no longer reads the league first and submits a year
  * computed from that snapshot — `getLeague` is React-`cache`d, so the old
  * read-then-write could derive from a memoized record taken outside the lock.
+ *
+ * PLATFORM-086F2H3B1 returns a typed result instead of `void`. That changes
+ * nothing about authorization: `requireAdminAction` is still the first statement
+ * and still THROWS before any read or write. (It must also stay the literal
+ * first line of the body — an invariant test reads this file's source, and even
+ * a comment above the guard call reads as the first statement.)
  */
-export async function setTestLeagueStatus(state: TestLeagueLifecycleState): Promise<void> {
+export async function setTestLeagueStatus(
+  state: TestLeagueLifecycleState
+): Promise<TestControlResult> {
   await requireAdminAction('setTestLeagueStatus');
   const result = await setTestLeagueLifecycleState(state);
 
-  if (result.outcome === 'league-not-found') throw new Error('Test league not found');
+  // PLATFORM-086F2H3B1 — the registry's closed outcomes are translated into the
+  // smaller client contract instead of being thrown away. They used to become
+  // generic Server Action rejections, and in production the message is REDACTED,
+  // so the operator could not learn a corrupt stored year from an unsupported
+  // state from a missing league.
+  if (result.outcome === 'league-not-found') {
+    return { kind: 'refused', reason: 'league-not-found' };
+  }
   if (result.outcome !== 'applied') {
     // A structurally unusable stored/derived year is a data-integrity fault
     // requiring intervention; the reset control derives nothing and is the
@@ -81,7 +141,10 @@ export async function setTestLeagueStatus(state: TestLeagueLifecycleState): Prom
         reason: result.outcome,
       })
     );
-    throw new Error('Unable to set test league status');
+    return {
+      kind: 'refused',
+      reason: result.outcome === 'unsupported-state' ? 'unsupported-state' : 'unusable-lifecycle',
+    };
   }
 
   // Clear the demo-scoped state for the year the AUTHORITY resolved, never a
@@ -89,8 +152,10 @@ export async function setTestLeagueStatus(state: TestLeagueLifecycleState): Prom
   // registry write and these deletes are separate scopes and are NOT atomic
   // together, so racing them in one `Promise.all` could clear a year the
   // lifecycle write then refused to install.
+  let clearedYear = false;
   if (result.status.state === 'preseason') {
     await clearTestLeagueYear(result.status.year);
+    clearedYear = true;
   }
 
   // PLATFORM-086F2H1T2 — this control is now the demo league's ONLY
@@ -107,11 +172,30 @@ export async function setTestLeagueStatus(state: TestLeagueLifecycleState): Prom
   // invalidated — but that is opportunistic, not a lifecycle guarantee, and it
   // is not something a lifecycle transition may depend on. Slug-wide, matching
   // what the cron did; the year is not recomputed here.
-  if (result.status.state === 'season') {
-    invalidateStandings(TEST_LEAGUE_SLUG);
-  }
+  //
+  // PLATFORM-086F2H3B1 — a throw HERE is not a failed transition. The registry
+  // write is already committed, so the lifecycle moved and only cached views are
+  // stale. Reporting it as a refusal would tell the operator a change did not
+  // happen when it did — the same misattribution F2H2B removed from the rollover
+  // cron, one layer up.
+  //
+  // BOTH revalidation calls are inside the guard, and that is the whole point.
+  // They share one Next revalidation store, so the realistic fault — the store
+  // missing or invalid — fails both. Guarding only `invalidateStandings` left
+  // the unguarded `revalidatePath` to throw immediately afterwards, so
+  // `cacheStale` could never reach a real operator; it was reachable only under
+  // an injected tag-specific failure that does not occur in production.
+  const cacheStale = !revalidateAfterCommit(result.status.state === 'season');
 
-  revalidatePath(TEST_LEAGUE_ADMIN_PATH);
+  const year = result.status.state === 'offseason' ? null : result.status.year;
+  // `no-change` requires BOTH an unmoved lifecycle and no cleanup. A repeated
+  // preseason request deletes that year's demo owners, roster CSV, and draft
+  // above; telling the operator "Already in Preseason 2026" after destroying it
+  // is the same falsehood `resetTestLeague` is deliberately never allowed to
+  // tell.
+  return lifecycleUnchanged(result.previousStatus, result.status) && !clearedYear
+    ? { kind: 'no-change', state, year }
+    : { kind: 'applied', state, year, cacheStale };
 }
 
 /**
@@ -130,7 +214,7 @@ export async function resetTestDraft(): Promise<void> {
       await deleteAppState(`owners:test:${year}`, 'csv');
     })
   );
-  revalidatePath('/admin/test');
+  revalidatePath(TEST_LEAGUE_ADMIN_PATH);
 }
 
 /**
@@ -142,10 +226,12 @@ export async function resetTestDraft(): Promise<void> {
  * starts clean. Both years are derived, never written as literals here: the
  * cleanup year must follow the reset year, not a hardcoded pair.
  */
-export async function resetTestLeague(): Promise<void> {
+export async function resetTestLeague(): Promise<TestControlResult> {
   await requireAdminAction('resetTestLeague');
   const result = await resetTestLeagueLifecycle();
-  if (result.outcome === 'league-not-found') throw new Error('Test league not found');
+  if (result.outcome === 'league-not-found') {
+    return { kind: 'refused', reason: 'league-not-found' };
+  }
   // No further outcome check is needed OR possible: `TestLeagueResetOutcome` is
   // narrowed to `applied | league-not-found`, so TypeScript has proven the
   // commit landed. If a future change gives the reset a refusal path, this
@@ -169,7 +255,21 @@ export async function resetTestLeague(): Promise<void> {
     throw new Error('Unable to reset test league');
   }
   await clearTestLeagueYear(result.status.year + 1);
-  revalidatePath(TEST_LEAGUE_ADMIN_PATH);
+
+  // The reset installs `season(RESET_YEAR)` from ANY prior state, so it is the
+  // same class of transition `setTestLeagueStatus` invalidates for — and it has
+  // the same hazard: `resolveStandingsYear` returns `status.year` for preseason
+  // AND season, so a reset from `preseason(2025)` leaves the cache key unchanged
+  // and keeps serving the preseason snapshot. It previously invalidated nothing
+  // while this action reported `cacheStale: false`, which asserted a freshness
+  // it had not established.
+  const cacheStale = !revalidateAfterCommit(true);
+
+  // Always `applied`, never `no-change`: the reset ALSO clears demo-scoped
+  // preseason/owners/draft state, so telling an operator "already in Season
+  // 2025" when that cleanup just ran would be false. `TestLeagueResetOutcome`
+  // deliberately carries no `previousStatus` for the same reason.
+  return { kind: 'applied', state: 'season', year: result.status.year, cacheStale };
 }
 
 /** Transition a league from offseason to preseason and redirect to the setup page. */
@@ -257,7 +357,7 @@ export async function migrateTestOwnersCsv(fromYear: number, toYear: number): Pr
     return `No owners CSV found at owners:test:${fromYear}`;
   }
   await setAppState(`owners:test:${toYear}`, 'csv', record.value);
-  revalidatePath('/admin/test');
+  revalidatePath(TEST_LEAGUE_ADMIN_PATH);
   return `Migrated owners CSV from ${fromYear} → ${toYear} (${record.value.length} chars)`;
 }
 
@@ -267,10 +367,10 @@ export async function migrateTestOwnersCsv(fromYear: number, toYear: number): Pr
  *
  * Returns the number of picks that were auto-filled.
  */
-export async function autoCompleteDraft(): Promise<number> {
+export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   await requireAdminAction('autoCompleteDraft');
   const league = await getLeague('test');
-  if (!league) throw new Error('Test league not found');
+  if (!league) return { kind: 'refused', reason: 'league-not-found' };
 
   const year =
     league.status?.state === 'preseason' || league.status?.state === 'season'
@@ -278,11 +378,11 @@ export async function autoCompleteDraft(): Promise<number> {
       : league.year;
 
   const record = await getAppState<DraftState>(draftScope('test'), String(year));
-  if (!record?.value) throw new Error(`No draft found for test league year ${year}`);
+  if (!record?.value) return { kind: 'refused', reason: 'no-draft' };
 
   const draft = record.value;
-  if (draft.phase === 'complete') throw new Error('Draft is already complete');
-  if (!draft.settings.draftOrder.length) throw new Error('Draft has no draft order configured');
+  if (draft.phase === 'complete') return { kind: 'refused', reason: 'already-complete' };
+  if (!draft.settings.draftOrder.length) return { kind: 'refused', reason: 'no-draft-order' };
 
   // All FBS teams from the catalog (same filter as the main draft route)
   const allTeams = (teamsData as { items: { school: string }[] }).items
@@ -303,11 +403,13 @@ export async function autoCompleteDraft(): Promise<number> {
   const totalPicks = draft.settings.totalRounds * n;
   const remainingSlots = totalPicks - draft.picks.length;
 
-  if (remainingSlots <= 0) throw new Error('All pick slots are already filled');
+  if (remainingSlots <= 0) return { kind: 'refused', reason: 'slots-filled' };
   if (available.length < remainingSlots) {
-    throw new Error(
-      `Not enough available teams (${available.length}) to fill ${remainingSlots} remaining picks`
-    );
+    return {
+      kind: 'refused-not-enough-teams',
+      available: available.length,
+      needed: remainingSlots,
+    };
   }
 
   // Fill remaining picks using snake draft order
@@ -373,6 +475,6 @@ export async function autoCompleteDraft(): Promise<number> {
 
   await setAppState(`owners:test:${year}`, 'csv', csvLines.join('\n'));
 
-  revalidatePath('/admin/test');
-  return newPicks.length;
+  revalidatePath(TEST_LEAGUE_ADMIN_PATH);
+  return { kind: 'completed', picks: newPicks.length };
 }

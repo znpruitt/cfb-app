@@ -58,7 +58,11 @@ test('a season write synchronizes status and top-level year in one stored record
 
   const result = await setTestLeagueLifecycleState('season');
 
-  assert.deepEqual(result, { outcome: 'applied', status: { state: 'season', year: 2026 } });
+  assert.deepEqual(result, {
+    outcome: 'applied',
+    status: { state: 'season', year: 2026 },
+    previousStatus: { state: 'preseason', year: 2026 },
+  });
   const stored = (await readRegistry())[0]!;
   assert.deepEqual(stored.status, { state: 'season', year: 2026 });
   assert.equal(stored.year, 2026, 'top-level year synchronized in the same record');

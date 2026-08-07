@@ -188,6 +188,92 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `npm run build`, and `git diff --check` each run as their own command with unmasked exit status.
 - Status: MERGED via PR #457 (`876d87c`), 2026-08-07.
 
+### PLATFORM-086F2H3B1-LIFECYCLE-PRESENTATION-AND-TEST-CONTROL-FEEDBACK-v1
+
+- Purpose: Render each league's lifecycle STATE separately from what ADVANCES it, correct the demo
+  league's automation copy, and return typed operator feedback from the demo lifecycle controls.
+  First of two F2H3B slices; preceded by a read-only audit whose product decisions the owner settled
+  before implementation.
+- Scope: `[slug]/page.tsx`, new `LeagueLifecycleSummary` + `leagueLifecyclePresentation`,
+  `TestLeagueControls.tsx`, `[slug]/actions.ts`, new `testLeagueControl` contract, an additive
+  `previousStatus` on one registry outcome, their tests, and owning documentation. No cron,
+  targeting, gating, receipt, System Health, or rollover change.
+- Two LIVE falsehoods removed. (1) `/admin/test` rendered "Season will go live automatically before
+  the first game." whenever the demo was preseason with setup complete — false since F2H1T2 removed
+  the demo from the season-transition cron. (2) Found during implementation and NOT in the audit's
+  truth table: the page infers `{ state: 'season' }` for a legacy record with no stored status, but
+  both lifecycle crons key on the STORED status (`groupRolloverTargets` skips `!status`;
+  season-transition filters `status?.state === 'preseason'`), so such a record reaches NO lifecycle
+  job. The ownership sentence would have claimed automatic rollover for it. Ownership is therefore
+  derived from `league.status` DIRECTLY while the label keeps the read-only inference.
+- The four ownership cases, derived from the jobs rather than from docs: offseason → operator
+  (`beginPreseason`); preseason → season-transition cron, NOT gated on `setupComplete`; season →
+  season-rollover cron; missing status → nothing. The demo answer replaces the per-state claim
+  entirely, because it is excluded from both crons.
+- `previousStatus` is additive on `TestLeagueLifecycleOutcome`'s `applied` variant only — not a new
+  union member, so no exhaustive switch broke. It is captured from the record read UNDER THE LOCK,
+  because the caller cannot learn it safely: `getLeague` is React-`cache`d, so a pre-call read may be
+  a memoized snapshot, and a post-write read cannot recover it. Deliberately NOT added to
+  `TestLeagueResetOutcome`: the reset always performs demo-state cleanup, so "nothing changed" is
+  never truthful for it. PRECISION recorded in the type: an identical status can still write, since
+  `applyLifecycleStatus` may heal a desynchronized projection, so the field supports a claim about
+  the LIFECYCLE and never a claim that nothing was written. The `setupComplete` case is handled
+  explicitly — re-requesting `preseason` rebuilds the status without that flag, which IS a change.
+- Typed feedback: the actions return a translated `TestControlResult` instead of `Promise<void>` +
+  throw. The registry's closed outcomes existed already and were being discarded; a thrown Server
+  Action message is REDACTED in production, so the reason had to move onto the return value. A
+  post-commit `invalidateStandings` failure reports `cacheStale` ALONGSIDE the applied change rather
+  than as a refusal — the same misattribution class F2H2B removed from the rollover cron, one layer
+  up. `requireAdminAction` remains the literal first statement in every action.
+- Also in scope, same control path: `autoCompleteDraft` rendered `(err as Error).message`, an opaque
+  production digest presented as an explanation; two independent message states could show stale and
+  fresh copy together; `resetTestDraft` used a hardcoded `'/admin/test'`. All three corrected.
+  The stale `leagueRegistry.ts` comment claiming rollover/guard convergence "is F2H2's" is corrected
+  — F2H2's audit RETIRED that item.
+- Review / verification: Codex and `/code-review` gathered against the same commit (`4ac9ee3`);
+  8 unique findings, all accepted in one round. Three shared one shape — a claim correct in
+  isolation and falsified by the code immediately adjacent to it.
+  (1) **`cacheStale` was effectively dead.** `revalidatePath` ran unguarded right after the caught
+  `invalidateStandings`, and both use the same Next revalidation store, so the real fault — store
+  missing or invalid — threw out of the action. The flag was reachable only under an injected
+  tag-specific failure that does not occur. Both calls now share one post-commit guard and the test
+  runs with no store at all.
+  (2) **A destructive request was reported as "no change".** A repeated `preseason` request keeps the
+  year but deletes that year's demo owners, roster CSV, and draft — so "Already in Preseason 2026"
+  followed a wipe. This is the reasoning already applied to `resetTestLeague` one function away, and
+  the uncovered shape (`setupComplete` absent) is the common one, since `decideTestLeagueStatus`
+  never sets that flag. `no-change` now requires an unmoved lifecycle AND no cleanup.
+  (3) **A binding architecture rule was missed.** AGENTS.md invariant 9 requires derived league data
+  under `src/lib/selectors/`; the module was created in `src/lib/`, and the preseason page separately
+  inlined the same demo-versus-automatic policy. Moved to `src/lib/selectors/leagueLifecycle.ts` and
+  both surfaces now consume it.
+  (4) **A boolean conflated two conditions.** `automatic: false` badged an UNOWNED production record
+  as "Manual", claiming an operator path that does not exist. Replaced by a three-value ownership
+  enum (`automatic` | `operator` | `unowned`).
+  (5) **Copy falsified by the same page.** "These controls are the only way its state changes" is
+  wrong — a demo league in offseason also renders "Begin Pre-Season Setup".
+  (6) **A regression the slice introduced.** Routing `autoCompleteDraft` through a blanket catch
+  replaced four actionable diagnostics with one generic sentence. The production-digest problem was
+  real; the fix was a typed result, not a shorter message.
+  (7) `resetTestLeague` reported `cacheStale: false` while never invalidating standings, though it
+  installs `season(RESET_YEAR)` under an unchanged cache key. Now invalidates and reports truthfully.
+  (8) An authorization test asserted "both value-returning actions are covered" when there are now
+  four. Corrected to cover all four.
+  Deltas: `testControls` 9 → 20, `[slug]/page` 2 → 6, `actionAuthorization` 16 → 16,
+  `leagueRegistry.testLeagueLifecycle` 21 → 21 (expectations strengthened), plus new suites
+  `selectors/leagueLifecycle` (9), `testLeagueControl` (10), `LeagueLifecycleSummary` (4). Full suite
+  3393 → 3427 (+34). Fourteen mutations, each compiling, applied alone, killed by a named test; one
+  survived on the first attempt (collapsing refusal copy was invisible to a test that exercised the
+  helper directly rather than through the mapping) and one failed to compile and was reissued.
+  `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
+  run as their own command with unmasked exit status.
+- Known gap, recorded rather than papered over: `TestLeagueControls`'s clear-then-replace message
+  behaviour has no automated test. Mocking the imported Server Actions needs
+  `--experimental-test-module-mocks`, which this suite does not enable, and a JSDOM test executing
+  the real actions is the shape that hung the harness in F2H2A. The copy and both result contracts
+  are fully covered; the shared funnel is not.
+- Status: implemented and reviewed; not yet merged.
+
 ### PLATFORM-086F2H3A-ROLLOVER-SURFACE-CONSOLIDATION-v1
 
 - Purpose: Retire manual rollover EXECUTION and consolidate the two rollover panels into one

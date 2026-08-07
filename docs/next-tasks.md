@@ -733,12 +733,31 @@ Execution order within F2 (each slice is one independently deployable PR):
         inspectable. No UI-side demo filtering was added — `groupRolloverTargets` already excludes
         the demo upstream. AGENTS.md invariants 4 AND 5 amended (invariant 4's write-time refusal
         count is now cron-only).
-      - **F2H3B — remaining Season Management presentation.** Render per-league lifecycle separately
-        from automation ownership and surface guarded refusal/recovery outcomes with
-        operator-readable action state. **Also owns three items deferred by earlier slices:**
-        **demo UI copy** (deferred by F2H1T2–T5), **typed operator feedback in
-        `TestLeagueControls.tsx`** (deferred by F2H1T1), and the lifecycle-integrity issue with a
-        repair link derived from `invalidLifecycleTargets > 0` (deferral (q), from F2H1R3).
+      - **F2H3B — remaining Season Management presentation.** Audited read-only 2026-08-07 and split
+        into two slices on the owner's ruling.
+        - **F2H3B1 — lifecycle presentation + typed test-control feedback.** Implemented; **not yet
+          merged**. Lifecycle STATE and OWNERSHIP now render as separate facts, derived from the
+          STORED status; the demo league's automation copy is corrected (**demo UI copy**, deferred
+          by F2H1T2–T5, is CLOSED); the lifecycle controls return typed results and render
+          persistent inline feedback (**typed operator feedback**, deferred by F2H1T1, is CLOSED).
+          A second live falsehood surfaced during implementation: a legacy missing-status record
+          reaches NO lifecycle job, so the inferred season label must not carry the season's
+          automation claim.
+        - **F2H3B2 — System Health lifecycle-integrity warning.** Queued. One combined issue derived
+          from `invalidLifecycleTargets > 0` on any scheduler receipt, INDEPENDENT of the aggregate
+          job result (deferral (q), from F2H1R3). **Owner rulings: display NO number** — receipts
+          carry per-job, per-run counts and never slugs, so four jobs counting the same corrupt
+          league cannot be reduced to a league count; the details may name WHICH JOBS reported the
+          problem but must not convert those into a league count. Copy: "Automatic processing
+          refused production lifecycle data. Some processing may be incomplete." **`repair: null`** —
+          verified end to end that no production lifecycle repair exists (`updateLeague` throws on
+          `year`/`status`, the admin PATCH refuses both, the settings Season Year input is
+          `readOnly`, and `resetTestLeagueLifecycle` is structurally demo-only). Recovery is
+          PLATFORM-087's, unscheduled.
+      - **Follow-up recorded, outside both slices:** `systemHealthIssues.ts` already gives lifecycle
+        jobs a `season-management` repair link on `scheduler-execution-failed`/`-partial`, and
+        `/admin/season` has no lifecycle repair either. Same claim class as the decision above;
+        deliberately left alone rather than widened into these slices.
       **The two decisions taken during the F2H2 audit, both now discharged by F2H3A:**
       - **Retire manual rollover EXECUTION, keep PREVIEW** (decided 2026-08-07 — see the F2H2 entry
         above for the reasoning). Removes `POST /api/admin/rollover`'s `confirmed: true` path and
