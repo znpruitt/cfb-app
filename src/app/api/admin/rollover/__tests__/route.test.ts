@@ -666,6 +666,16 @@ test('F2H3A contract pin: confirmed:false is still a valid preview request', asy
   assert.equal(res.status, 200, 'the retired value is `true`, not the field');
 });
 
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H1R4 — registry-container truth + lifecycle-year validity on the
+// ADMIN surface. It shares `groupRolloverTargets` with the cron but keeps its
+// admin API contract: integrity refusals are 409 (stored state prevents the
+// operation), not 400 (the request is well-formed) and not 503 (nothing is
+// unavailable). `rollover-execution-retired` is 409 for the adjacent reason —
+// the server no longer offers the operation at all.
+// ---------------------------------------------------------------------------
+
+// REGRESSION TEST — a malformed container is refused on BOTH verbs, sanitized,
 // before any championship/cache resolution.
 test('R4 regression: a malformed registry refuses both verbs with a sanitized 409', async () => {
   await setAppState('leagues', 'registry', { alpha: 1, secret: 'HASH-CANARY' });

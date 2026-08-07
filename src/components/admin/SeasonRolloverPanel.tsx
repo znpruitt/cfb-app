@@ -211,18 +211,27 @@ function YearRow({
                               <> — {league.diff.ownersAffectedByFlip.join(', ')}</>
                             )}
                         </p>
+                        {/* Three states, not two. `standingsOrderChanged` compares
+                            the joined OWNER SEQUENCE, while `standingsMovement`
+                            only carries owners present in BOTH archives whose
+                            position changed — so an owner added to (or removed
+                            from) the tail flips the flag with an empty movement
+                            list. Rendering "changed — " with nothing after the
+                            dash tells the operator something changed and then
+                            shows no evidence. Inherited from the deleted
+                            RolloverPanel; this is now the only surface that
+                            renders it. */}
                         <p>
                           Final standings order:{' '}
-                          {league.diff.standingsOrderChanged ? (
-                            <>
-                              changed —{' '}
-                              {league.diff.standingsMovement
-                                .map((m) => `${m.ownerName} ${m.previousPosition}→${m.newPosition}`)
-                                .join(', ')}
-                            </>
-                          ) : (
-                            'unchanged'
-                          )}
+                          {!league.diff.standingsOrderChanged
+                            ? 'unchanged'
+                            : league.diff.standingsMovement.length > 0
+                              ? `changed — ${league.diff.standingsMovement
+                                  .map(
+                                    (m) => `${m.ownerName} ${m.previousPosition}→${m.newPosition}`
+                                  )
+                                  .join(', ')}`
+                              : 'changed — the ranked owners differ; no owner in both archives moved position.'}
                         </p>
                       </div>
                     ) : (

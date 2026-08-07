@@ -88,8 +88,11 @@ test('refusal payloads map to operator-readable language', () => {
     describeManualRolloverRefusal({ error: 'rollover-eligibility-unavailable' }) ?? '',
     /durable store read failed/
   );
-  // PLATFORM-086F2H3A — a stale client's execute attempt must read as a retired
-  // capability, not as a transient error it should retry.
+  // PLATFORM-086F2H3A — an execute attempt must read as a RETIRED capability,
+  // not as a transient error worth retrying. Reachable only by clients built
+  // from F2H3A onward: a stale pre-F2H3A bundle ships the older `default:
+  // return null` and renders the generic HTTP message, and the 409 alone is
+  // what protects that caller.
   assert.match(
     describeManualRolloverRefusal({ error: 'rollover-execution-retired' }) ?? '',
     /retired/

@@ -237,6 +237,14 @@ export async function POST(req: Request): Promise<Response> {
   // browser still holding the pre-deploy bundle; a bookmarked `curl` is the
   // same shape.
   //
+  // What that pre-F2H3A bundle actually renders is the GENERIC HTTP message: it
+  // ships the old `describeManualRolloverRefusal`, whose `default:` returns null
+  // for an unrecognized code. The typed string added alongside this refusal
+  // serves clients built from F2H3A onward. The non-200 is what does the work
+  // for the stale bundle — it replaces a false completion report with an honest
+  // error — and claiming it also delivers the friendly wording would overstate
+  // the fix.
+  //
   // Refused BEFORE any registry, championship, or archive work: a retired verb
   // does no work.
   if (obj.confirmed !== undefined && typeof obj.confirmed !== 'boolean') {

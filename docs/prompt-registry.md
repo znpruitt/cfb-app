@@ -230,8 +230,31 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   inspectable. Derived in the component from the existing groups — no new response field, because a
   second encoding of one truth drifts. Scoped to leagues in `season`; a production league in
   preseason or offseason is not part of the claim.
-- Review / verification: (to be completed against the review commit).
-- Status: implemented; review pending.
+- Review / verification: Codex and `/code-review` gathered against the same commit (`1881021`).
+  Both confirmed the runtime change is sound — the cron, `groupRolloverTargets`, `completeSeasonRollover`,
+  and archive-first ordering are untouched, and the preview writes nothing. Eight findings, all
+  accepted in one round, and all but one were TRUTH gaps rather than defects: a canonical
+  architecture paragraph still describing the admin route as an executor; a merge claim I wrote into
+  that file's slice table before the PR existed, contradicting the two sibling ledgers updated in
+  the same commit; and four stale code comments (`seasonArchive`'s do-not-catch rationale — wrong
+  for the SECOND time, having already been corrected once by F2H2A; `buildSeasonArchive`'s
+  docblock; the cron guard's "shared with the manual route"; and `manualRollover`'s "both panels").
+  The one behavioral finding is real and inherited: `standingsOrderChanged` compares the joined
+  owner SEQUENCE while `standingsMovement` carries only owners in BOTH archives, so an owner added
+  at the tail rendered "changed — " with no evidence after the dash. Fixed as a third state and
+  pinned. One reviewer also proved a claim I had made in three places false: the new operator string
+  is UNREACHABLE by the stale pre-deploy bundle the whole rationale cites, because that bundle ships
+  the old `describeManualRolloverRefusal` whose `default:` returns null; the 409 still does the
+  work, and the overstated wording was corrected rather than defended.
+  Deltas: rollover route 20 → 21, `SeasonRolloverPanel` 4 → 13, season page 1 → 1 (rewritten),
+  `manualRollover` 5 → 5, `RolloverPanel` suite removed (−3). Full suite 3387 → 3393 (+6). Six
+  mutations, each compiling, applied alone, killed by a named test — including one that breaks the
+  archive scope key and one that makes preview write, both of which the new positive control
+  catches. Diffstat crossed the 15-file stop-and-reassess signal (17 files) with explicit prior
+  approval; net −1,100 lines, three of the extra files being one-line comment corrections.
+  `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
+  run as their own command with unmasked exit status.
+- Status: implemented and reviewed; not yet merged.
 
 ### PLATFORM-086F2H1R3-RANKINGS-YEAR-VALIDITY-v1
 

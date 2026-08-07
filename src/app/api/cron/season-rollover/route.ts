@@ -301,11 +301,17 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         }
 
         try {
-          // Guarded conditional transition (shared with the manual route): the
-          // league must still be in `season` for THIS year at write time, so a
-          // racing rollover/preseason advance can never be clobbered back to
-          // offseason. Unreachable in an ordinary run (the snapshot is fresh);
-          // a refusal is reported like any status-write failure.
+          // Guarded conditional transition: the league must still be in
+          // `season` for THIS year at write time, so a racing rollover/preseason
+          // advance can never be clobbered back to offseason. Unreachable in an
+          // ordinary run (the snapshot is fresh); a refusal is reported like any
+          // status-write failure.
+          //
+          // PLATFORM-086F2H3A retired the manual executor, so this route is now
+          // the ONLY caller of `completeSeasonRollover`. The guard is unchanged
+          // and still required — a redelivered invocation, an overlapping run, or
+          // a direct caller can each present a stale snapshot — but the racing
+          // MANUAL writer it was originally written against no longer exists.
           const transition = await completeSeasonRollover(league.slug, year);
           if (transition.outcome !== 'transitioned') {
             if (transition.outcome === 'unusable-target-year') {

@@ -334,6 +334,52 @@ test('preview carries overwrite warning, affected owners by name, and standings 
   );
 });
 
+// REGRESSION TEST (PLATFORM-086F2H3A) — `standingsOrderChanged` compares the
+// joined owner SEQUENCE, but `standingsMovement` only carries owners present in
+// BOTH archives whose position changed. An owner added to (or removed from) the
+// tail therefore sets the flag with an EMPTY movement list, and the inherited
+// markup rendered "changed — " with nothing after the dash: an assertion of
+// change with no evidence. Reproduced with the exact shape `diffSeasonArchives`
+// produces for that case.
+test('a changed standings order with no shared-owner movement still explains itself', async () => {
+  statusPayload = {
+    generatedAt: '2026-01-01T00:00:00.000Z',
+    invalidLifecycleTargets: 0,
+    years: [makeYearStatus(2023, 'eligible')],
+  };
+  previewResponder = (body) => {
+    const base = overwritePreviewResponse(body.year!);
+    return Response.json({
+      ...base,
+      preview: {
+        ...base.preview,
+        leagues: [
+          {
+            ...base.preview.leagues[0]!,
+            diff: {
+              ...base.preview.leagues[0]!.diff!,
+              outcomesFlipped: 0,
+              ownersAffectedByFlip: [],
+              standingsOrderChanged: true,
+              standingsMovement: [],
+            },
+          },
+        ],
+      },
+    });
+  };
+
+  const { getByRole, getByText, queryByText } = render(<SeasonRolloverPanel />);
+  await waitFor(() => getByText('Season 2023'));
+  fireEvent.click(getByRole('button', { name: 'Preview archive changes' }));
+
+  await waitFor(() => getByText(/the ranked owners differ; no owner in both archives moved/));
+  assert.ok(
+    queryByText(/Final standings order: changed —\s*$/) === null,
+    'never a dangling dash with no evidence after it'
+  );
+});
+
 test('a preview of a league with no existing archive reports a fresh write', async () => {
   statusPayload = {
     generatedAt: '2026-01-01T00:00:00.000Z',

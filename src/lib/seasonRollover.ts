@@ -54,7 +54,8 @@ export async function findNationalChampionshipGameDate(year: number): Promise<st
 /**
  * Assembles a complete SeasonArchive for the given league and year from cached data.
  * Does NOT write anything — pure assembly function.
- * Called by the rollover route for both the preview diff and the confirmed write.
+ * Two callers since PLATFORM-086F2H3A: the admin route, which builds the preview
+ * diff and writes NOTHING, and the season-rollover cron, which archives.
  */
 export async function buildSeasonArchive(leagueSlug: string, year: number): Promise<SeasonArchive> {
   // The ONE league-scoped scored build (PLATFORM-086H3E3, extracted verbatim):

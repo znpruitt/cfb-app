@@ -119,19 +119,24 @@ export function isMissingRequestStore(err: unknown): boolean {
 // failure must reject so `unstable_cache` never persists a bogus `null`/`[]`
 // under `revalidate: false`. Only genuine emptiness is cacheable.
 //
-// The CONSEQUENCE of a bogus cached `null` changed with PLATFORM-086F2H2A and
-// the correction is worth stating precisely, because the previous wording
-// survived one rewrite while still being wrong. It said such a value would let
-// a writer "treat a cached `null` as 'no existing archive' and overwrite
-// without confirmation". No surviving consumer gates a write on archive
-// existence: the manual rollover route is the only write-side reader of
-// `getSeasonArchive`, confirmation there is an explicit operator `confirmed`
-// boolean, and `existing` feeds only DISPLAY fields (`hasExistingArchive` and
-// `diff`). A bogus `null` therefore cannot bypass a gate — it silently shows the
-// operator "new" for a year that already has an archive, hiding the overwrite
-// warning and the diff on an irreversible write. The conclusion (do not catch)
-// is unchanged; the hazard it guards against is a hidden warning, not a
-// bypassed confirmation.
+// The CONSEQUENCE of a bogus cached `null` is worth stating precisely, because
+// this passage has now been wrong twice: it originally claimed such a value
+// would let a writer "overwrite without confirmation", and the F2H2A rewrite
+// that corrected the noun still described a write-side reader that
+// PLATFORM-086F2H3A has since removed.
+//
+// As of F2H3A there is NO write-side reader of `getSeasonArchive` at all. The
+// admin route reads it for the PREVIEW only and writes nothing; the
+// season-rollover cron writes without consulting it. So a bogus `null` cannot
+// bypass any gate — there is no gate to bypass.
+//
+// The hazard is narrower and sharper than a bypassed confirmation: the preview
+// is the ONLY surface that shows an overwrite warning and a diff, and the cron
+// performs the irreversible overwrite later with no operator in the loop. A
+// cached `null` would show the operator "new" for a year that already has an
+// archive, so the one chance to notice an unintended overwrite is lost silently
+// and nothing downstream can recover it. The conclusion (do not catch) is
+// unchanged and now rests on a stronger reason, not a weaker one.
 async function readSeasonArchiveFromStore(
   leagueSlug: string,
   year: number

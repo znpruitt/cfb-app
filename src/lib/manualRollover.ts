@@ -74,7 +74,7 @@ export type ManualRolloverRefusalError =
 export type ManualRolloverRefusal = {
   /**
    * PLATFORM-086F2H1R4 — present on refusals produced AFTER target selection.
-   * Declared here because both panels decode through this module; a client
+   * Declared here because the panel decodes through this module; a client
    * wanting to surface the count from a 409 otherwise has no typed field.
    */
   invalidLifecycleTargets?: number;
@@ -186,7 +186,12 @@ export function describeManualRolloverRefusal(payload: unknown): string | null {
     case 'rollover-unusable-lifecycle-year':
       return 'This year has no active season group, and one or more league records in season were refused for an unusable season year. Repair those records, then reload — the year you meant may be among them.';
     case 'rollover-execution-retired':
-      return 'Manual rollover execution has been retired — the daily rollover cron is the only executor. Reload this page to get the current version.';
+      // No "reload the page" instruction: the only client that can reach this
+      // branch is one built from F2H3A onward, which is already current. A stale
+      // pre-F2H3A bundle ships the older `default: return null` and renders the
+      // generic HTTP message instead — the 409 is what protects that caller, not
+      // this string.
+      return 'Manual rollover execution has been retired — the daily rollover cron is the only executor.';
     case 'rollover-not-eligible':
       return `Rollover refused: ${describeManualRolloverReason(reason)}`;
     case 'rollover-eligibility-unavailable':
