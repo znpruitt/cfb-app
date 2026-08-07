@@ -138,6 +138,56 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `git diff --check` each run as their own command with unmasked exit status.
 - Status: MERGED via PR #456 (`cb40c03`), 2026-08-07.
 
+### PLATFORM-086F2H2B-ROLLOVER-OPERATOR-TRUTH-v1
+
+- Purpose: Stop the daily season-rollover cron from making two false statements to the operator —
+  reporting "no leagues in season state" when the demo league is the only one in season, and
+  reporting a failed status write for a league whose status write succeeded. Second F2H2 slice;
+  messaging and error attribution only, no change to rollover eligibility or ordering.
+- Scope: `GET /api/cron/season-rollover` zero-target reason and per-league error separation,
+  `RolloverRefusalSink`, `groupRolloverTargets`, the `season-rollover-cron` reason vocabulary, the
+  two local sinks in the shared manual route, focused targeting/route/receipt tests, and owning
+  documentation. Explicitly NOT in scope: archive-first retry behavior (documented as intended,
+  unchanged), rollover eligibility, the manual route's execute path, and both rollover panels.
+- Outcome (1) — the falsehood: `no-season-leagues` claimed nothing was in season whenever the DEMO
+  league was the only in-season record. Live today, needs no data corruption, and is the DEFAULT
+  post-reset demo state (`resetTestLeagueLifecycle` installs `season(TEST_LEAGUE_RESET_YEAR)`), so
+  while production sat in preseason or offseason the 00:00 UTC cron asserted something false every
+  day. Rollover was the LAST of five demo-exclusion sites with no exclusion-truth channel; the three
+  sibling jobs each publish the same fact, and this adds `no-automatic-season-leagues` in that
+  shape. `RolloverRefusalSink` gains `excludedDemoCandidate`, GATED on `season` exactly as the
+  siblings gate on their own active states — an offseason or status-less demo was never a candidate
+  and must not displace the honest reason. The exclusion still runs BEFORE year validation, so a
+  demo carrying an unusable year stays a demo exclusion rather than becoming a refused production
+  target (T3/T4's ordering, preserved and now mutation-pinned). The flag rides on the run STATE but
+  is deliberately NOT emitted on the event: the reason it decides is already the event's answer. It
+  lives on `exec` rather than a local because `exec` IS the sink R4 made durable against a mid-loop
+  throw.
+- Outcome (2) — the misattribution: `invalidateStandings` shared a `try/catch` with the guarded
+  lifecycle write, so a `revalidateTag` throw was reported as `status write failed` for a league
+  already counted in `leaguesRolledOver` — a false statement about durable lifecycle state that
+  points at the wrong subsystem. Now separately caught with its own error text. Splitting the catch
+  also dropped a `continue`, which review caught: suppression clearing had been skipped on that
+  path, coupling a cache fault to a DURABLE record. The new behavior is kept deliberately (the
+  stated rule is "only after archive AND status succeeded"; both succeeded), commented, and pinned
+  by an operator-facing counter assertion rather than left as a refactor side effect.
+- Why nothing caught either: every existing `no-season-leagues` assertion seeds an EMPTY registry,
+  where the reason is TRUE — no input could have failed. That is how the falsehood survived four
+  merged R-slices that each touched this exact branch.
+- Review / verification: Codex and `/code-review` gathered against the same commit (`096db69`).
+  Codex returned no findings. `/code-review` returned three, all accepted: the dropped `continue`
+  above; the ops runbook's reason vocabulary missing the new reason while also asserting standings
+  invalidation and suppression clearing were "unchanged"; and the manual route still swallowing an
+  `invalidateStandings` failure with a bare `catch {}`. The third is deliberately NOT fixed here —
+  the divergent code is on the `confirmed: true` EXECUTION path that the recorded F2H3 decision
+  deletes outright — and is carried in `docs/next-tasks.md` with the condition that reverses it.
+  Five mutations, each compiling, applied alone, and killed by a named test; the event/receipt
+  reason needed its own pin because the response body and the event carry the reason through
+  separate expressions. Focused deltas: `rolloverTargeting` 10 → 14, cron route 12 → 15, cron
+  receipts 17 → 19. Full suite 3378 → 3387 (+9). `npx tsc --noEmit`, `npm run lint:all`, `npm test`,
+  `npm run build`, and `git diff --check` each run as their own command with unmasked exit status.
+- Status: implemented and reviewed; not yet merged.
+
 ### PLATFORM-086F2H1R3-RANKINGS-YEAR-VALIDITY-v1
 
 - Purpose: Apply the R1/R2 registry-container and lifecycle-year truth to the rankings publication

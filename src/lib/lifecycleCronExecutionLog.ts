@@ -164,6 +164,12 @@ export type SeasonRolloverCronControlReason =
   | 'cron-secret-not-configured'
   | 'cron-authorization-invalid'
   | 'no-season-leagues'
+  // PLATFORM-086F2H2B — season leagues EXIST, but every one of them is the demo
+  // league, which is manual-only for rollover. Distinct from `no-season-leagues`
+  // on purpose: that reason asserts no league is in season at all, which is
+  // FALSE here and told an operator on the System Health row that nothing
+  // awaited rollover. Matches the shape the three sibling jobs already use.
+  | 'no-automatic-season-leagues'
   | 'registry-unavailable'
   // PLATFORM-086F2H1R4 — the registry record EXISTS but does not hold a league
   // array. Distinct from `registry-unavailable`, where the store read itself
@@ -224,11 +230,38 @@ export type SeasonRolloverCronExecutionEvent = {
 export type SeasonRolloverCronExecutionState = Omit<
   SeasonRolloverCronExecutionEvent,
   'event' | 'durationMs'
->;
+> & {
+  /**
+   * PLATFORM-086F2H2B — carried on the run STATE but deliberately NOT emitted on
+   * the event.
+   *
+   * It exists only to decide the zero-target reason, and that reason is what the
+   * event already reports (`no-automatic-season-leagues` vs `no-season-leagues`),
+   * so emitting the boolean too would be a second encoding of the same fact.
+   * The three sibling jobs keep their equivalent flag local for the same reason.
+   *
+   * It lives here rather than in a local because `exec` IS the sink passed to
+   * `groupRolloverTargets`, and R4 made that deliberate so a refusal counted
+   * before a mid-loop throw cannot be discarded. Splitting the sink across two
+   * objects would reopen that.
+   *
+   * This is the first field on the state that must NEVER reach the event, so the
+   * emitter's field-by-field rebuild is now load-bearing rather than stylistic:
+   * a refactor to `{ event, ...state, durationMs }` would leak it with no
+   * compiler signal, because object spread bypasses excess-property checking.
+   */
+  excludedDemoCandidate: boolean;
+};
 
 /** Initialize the tracker as pessimistic `failure / unexpected-error`, no years. */
 export function createSeasonRolloverCronExecutionState(): SeasonRolloverCronExecutionState {
-  return { result: 'failure', reason: 'unexpected-error', invalidLifecycleTargets: 0, years: [] };
+  return {
+    result: 'failure',
+    reason: 'unexpected-error',
+    invalidLifecycleTargets: 0,
+    excludedDemoCandidate: false,
+    years: [],
+  };
 }
 
 // ---------------------------------------------------------------------------

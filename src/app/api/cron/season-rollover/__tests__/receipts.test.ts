@@ -522,7 +522,11 @@ test('an invalidation failure on a rolled league is partial/rollover-partial, no
   // Running with no work store makes invalidateStandings (revalidateTag) throw
   // AFTER the league rolled (archive + status committed).
   const { res, event } = await runRouteNoStore();
-  const body = (await res!.json()) as { success?: boolean; leaguesRolledOver?: string[] };
+  const body = (await res!.json()) as {
+    success?: boolean;
+    leaguesRolledOver?: string[];
+    suppressionClearedFor?: string[];
+  };
   assert.equal(res!.status, 200);
   assert.equal(body.success, false, 'the response reports the invalidation failure');
   assert.deepEqual(body.leaguesRolledOver, ['alpha'], 'the league still rolled');
@@ -532,6 +536,20 @@ test('an invalidation failure on a rolled league is partial/rollover-partial, no
   assert.equal(year.result, 'partial');
   assert.equal(year.reason, 'rollover-partial');
   assert.equal(year.rolledOverLeagues, 1);
+
+  // CONTRACT PIN (PLATFORM-086F2H2B) — a cache-invalidation fault must not
+  // suppress the DURABLE suppression clear. Before the `try/catch` split these
+  // shared one catch ending in `continue`, so `suppressionCleared` was 0 here
+  // and the outgoing season's insights suppression outlived the rollover. The
+  // stated rule is "only after archive AND status succeeded"; both succeeded,
+  // so clearing must run. This asserts the reported counter, not just the code
+  // path — it is an operator-facing field on a durable receipt.
+  assert.deepEqual(
+    body.suppressionClearedFor,
+    ['alpha'],
+    'suppression clearing is not coupled to cache invalidation'
+  );
+  assert.equal(year.suppressionCleared, 1, 'the event reports the clear that happened');
 
   await deferrer.flush();
   assert.equal((await readSchedulerReceipt('season-rollover'))?.value.reason, 'rollover-partial');
@@ -698,4 +716,46 @@ test('R4 regression: the rollover target summary handles clean, mixed, and all-r
     '0 year(s) · 2 unusable lifecycle target(s)',
     'all-refused: no dangling separator'
   );
+});
+
+// REGRESSION TEST (PLATFORM-086F2H2B) — the demo-only zero-target shape on the
+// EVENT and the RECEIPT, not just the response body.
+//
+// The existing `no-season-leagues` test above seeds an EMPTY registry, where the
+// reason is TRUE — which is precisely why this falsehood survived four merged
+// R-slices that each touched this branch. The response body and the event carry
+// the reason through separate expressions, so both must be pinned or a change to
+// one alone ships silently.
+test('F2H2B regression: a demo-only season registry reports the exclusion on the event and receipt', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('test', { state: 'season', year: 2025 }, 2025),
+    makeLeague('alpha', { state: 'preseason', year: 2026 }, 2026),
+  ]);
+
+  const { event } = await runRoute();
+  await deferrer.flush();
+
+  assert.equal(event.result, 'skipped');
+  assert.equal(event.reason, 'no-automatic-season-leagues');
+  assert.notEqual(
+    event.reason,
+    'no-season-leagues',
+    'the demo IS in season — the event must not assert otherwise'
+  );
+  assert.deepEqual(event.years, [], 'no per-year entry is produced');
+
+  const stored = await readSchedulerReceipt('season-rollover');
+  assert.ok(stored, 'the receipt is still written');
+  assert.equal(stored.value.reason, 'no-automatic-season-leagues', 'and carries the same truth');
+});
+
+// CONTRACT PIN — the honest reason survives on the event for a genuinely empty
+// season registry, so the new branch cannot swallow the true case.
+test('F2H2B contract pin: no season league at all still reports no-season-leagues on the event', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }, 2026),
+  ]);
+
+  const { event } = await runRoute();
+  assert.equal(event.reason, 'no-season-leagues');
 });
