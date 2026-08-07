@@ -217,8 +217,30 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - Implementation note: the target field is narrowed with an `in` test rather than a kind allowlist,
   so a job that later begins reporting refusals is counted without a second list to maintain. A
   receipt that is absent or unparsed contributes nothing — inferring a count would be fabrication.
-- Review / verification: (to be completed against the review commit).
-- Status: implemented; review pending.
+- Review / verification: Codex and `/code-review` gathered against the same commit (`e05b138`); both
+  found the SAME single defect, and `/code-review` found a second misbehaviour inside it. The
+  derivation was confirmed sound — null-safe narrowing, normalized legacy receipts, deterministic
+  job ordering, dedup and ordering unaffected — but its INTEGRATION was not: `providerDataPanel`'s
+  predicate is RESIDUAL (`!SCHEDULER && !AUTOMATION && !QUOTA && !STORAGE`), so a new code lands in
+  Provider data by default. That rendered an otherwise-healthy system as "Provider data · Attention
+  needed · Production lifecycle data is unusable" — a league-registry fault attributed to provider
+  data, breaking the axis separation F2G exists to keep. Worse, because `governing` takes the first
+  match in the globally-sorted list and `compareIssues` ranks the `global` axis ahead of `dataset`,
+  it also DISPLACED a genuine provider fault from that tile's single detail line. **No existing test
+  pinned the residual-bucket behaviour, which is why the suite stayed green.** This is the R4 lesson
+  again — check the CONSUMERS of a new field, not only its producer. Remediated by claiming the code
+  in an explicit `UNTILED_CODES` set, excluding it from the provider predicate, and folding untiled
+  issues into OVERALL so the dashboard cannot report "all systems are operating normally" above an
+  open warning. The consequence — five green section tiles under a yellow Overall — is deliberate and
+  pinned, rather than misfiling the issue or inventing a sixth tile.
+  Deltas: `systemHealthIssues` 35 → 43, `systemHealthPanels` 24 → 27. Full suite 3427 → 3438 (+11).
+  Eight mutations, each compiling, applied alone, killed by a named test; one was INERT and replaced
+  (emitting one issue per job with the same global subject is invisible, because the derivation's
+  dedup collapses identical `code|axis|id` identities — so the count assertion was partly guaranteed
+  by dedup, and the test now asserts the global subject directly).
+  `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
+  run as their own command with unmasked exit status.
+- Status: implemented and reviewed; not yet merged.
 
 ### PLATFORM-086F2H3B1-LIFECYCLE-PRESENTATION-AND-TEST-CONTROL-FEEDBACK-v1
 

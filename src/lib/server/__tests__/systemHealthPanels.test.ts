@@ -391,3 +391,87 @@ test('freshness: unknown cache + no diagnostics → gray Unknown', () => {
   });
   assert.deepEqual(f, { status: 'gray', label: 'Unknown' });
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2H3B2 — panel routing for the lifecycle-integrity issue.
+//
+// `providerDataPanel`'s predicate is RESIDUAL: anything not claimed by the
+// scheduler, automation, quota, or storage sets falls into Provider data. A new
+// issue code therefore lands there by default, and nothing in this suite pinned
+// that behaviour — which is why the first version of F2H3B2 shipped a
+// league-registry fault rendered as a provider-data fault, and no test failed.
+// ---------------------------------------------------------------------------
+
+const LIFECYCLE_ISSUE: SystemHealthIssue = {
+  code: 'lifecycle-data-unusable',
+  severity: 'warning',
+  subject: { axis: 'global', id: 'lifecycle-integrity' },
+  title: 'Production lifecycle data is unusable',
+  explanation: 'Automatic processing refused production lifecycle data.',
+  repair: null,
+};
+
+test('a lifecycle-integrity issue never touches the Provider data tile', () => {
+  const input = baseInput({ issues: [LIFECYCLE_ISSUE] });
+
+  const providerData = panel(input, 'provider-data');
+  assert.equal(providerData.status, 'green', 'nothing about provider data is wrong');
+  assert.ok(
+    !providerData.detail.includes('lifecycle'),
+    `the provider tile must not carry the lifecycle sentence; got: ${providerData.detail}`
+  );
+
+  // POSITIVE CONTROL — a genuine provider warning on the same helper DOES turn
+  // the tile yellow, so the green above is a real routing observation and not a
+  // tile that can never degrade.
+  const withProvider = panel(
+    baseInput({
+      issues: [issue({ code: 'provider-refresh-failed', severity: 'warning' })],
+    }),
+    'provider-data'
+  );
+  assert.equal(withProvider.status, 'yellow');
+});
+
+// Overall is the verdict, not a tile. An issue owned by no tile must still reach
+// it, or the dashboard reports "all systems are operating normally" above an
+// open warning.
+test('a lifecycle-integrity issue still degrades Overall', () => {
+  const panels = deriveSystemHealthPanels(baseInput({ issues: [LIFECYCLE_ISSUE] }));
+  const overall = panels.find((p) => p.key === 'overall')!;
+
+  assert.equal(overall.status, 'yellow');
+  assert.equal(overall.stateLabel, 'Attention needed');
+
+  // The deliberate consequence, pinned so it is a decision rather than a
+  // surprise: every SECTION tile stays green, because the fault is not any
+  // subsystem's. The issue carries its own detail in the issues list.
+  for (const p of panels) {
+    if (p.key === 'overall') continue;
+    assert.equal(p.status, 'green', `${p.key} is not the subject of this fault`);
+  }
+});
+
+// REGRESSION TEST — `governing` takes the FIRST match in the globally-sorted
+// list, and `compareIssues` ranks the `global` axis ahead of `dataset` at equal
+// severity. While the lifecycle issue fell into the provider bucket it therefore
+// DISPLACED a real provider fault from that tile's single detail line, hiding it.
+test('a real provider fault keeps the Provider data detail line', () => {
+  const providerFault = issue({
+    code: 'provider-refresh-failed',
+    severity: 'warning',
+    subject: { axis: 'dataset', id: 'rankings' },
+    title: 'rankings refresh failed',
+  });
+  const providerData = panel(
+    baseInput({ issues: [LIFECYCLE_ISSUE, providerFault] }),
+    'provider-data'
+  );
+
+  assert.equal(providerData.status, 'yellow');
+  assert.equal(
+    providerData.detail,
+    'rankings refresh failed',
+    'the provider tile reports the provider fault, not the lifecycle one'
+  );
+});

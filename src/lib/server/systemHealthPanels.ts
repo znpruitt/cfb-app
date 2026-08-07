@@ -79,6 +79,30 @@ const QUOTA_CODES = new Set<string>([
 ]);
 const STORAGE_CODES = new Set<string>(['storage-production-misconfigured']);
 
+/**
+ * PLATFORM-086F2H3B2 — codes owned by NO stoplight tile.
+ *
+ * `providerDataPanel`'s predicate is RESIDUAL — anything not claimed by the
+ * scheduler, automation, quota, or storage sets falls into Provider data — so a
+ * new code silently lands there unless it is claimed here. That produced two
+ * false statements on the dashboard: an otherwise-healthy system rendered
+ * "Provider data · Attention needed · Production lifecycle data is unusable"
+ * (a league-registry fault attributed to provider data, breaking the axis
+ * separation F2G exists to keep), and, because `governing` takes the first match
+ * in the globally-sorted list and `compareIssues` ranks the `global` axis ahead
+ * of `dataset`, it also DISPLACED a genuine provider fault from that tile's one
+ * detail line.
+ *
+ * Lifecycle integrity is neither a delivery fact, a provider fact, a gate, a
+ * quota, nor storage — there is no tile whose subject it is. Rather than
+ * misfile it or invent a sixth tile, it is claimed here, kept out of every
+ * section, and folded into OVERALL so the dashboard cannot report "all systems
+ * operating normally" while it is open. The consequence is deliberate: the five
+ * section tiles stay green while Overall shows attention needed, and the issue
+ * itself carries the detail in the Actionable Issues list below.
+ */
+const UNTILED_CODES = new Set<string>(['lifecycle-data-unusable']);
+
 function isUnavailability(code: string): boolean {
   return code.endsWith('-unavailable');
 }
@@ -108,9 +132,18 @@ function overallPanel(
   // Holistic verdict: the WORST section status (so Overall can never say "all
   // normal" above a yellow/red tile — including provider-data yellow from
   // freshness alone). Intentional gray (paused/awaiting) does NOT degrade.
-  const status = sections.reduce<PanelStatus>(
+  const sectionStatus = sections.reduce<PanelStatus>(
     (worst, p) => worseStatus(worst, p.status === 'gray' ? 'green' : p.status),
     'green'
+  );
+  // PLATFORM-086F2H3B2 — issues owned by no section tile are rolled up HERE, or
+  // Overall would say "all systems are operating normally" above an open
+  // warning. The tiles are a map of subsystems; Overall is the verdict, and a
+  // fault with no subsystem still belongs in the verdict.
+  const untiled = severityStatus(input.issues.filter((i) => UNTILED_CODES.has(i.code)));
+  const status = worseStatus(
+    sectionStatus,
+    untiled === 'red' ? 'red' : untiled === 'yellow' ? 'yellow' : 'green'
   );
   const stateLabel =
     status === 'red' ? 'Action required' : status === 'yellow' ? 'Attention needed' : 'Healthy';
@@ -160,7 +193,8 @@ function providerDataPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
     !SCHEDULER_CODES.has(c) &&
     !AUTOMATION_CODES.has(c) &&
     !QUOTA_CODES.has(c) &&
-    !STORAGE_CODES.has(c);
+    !STORAGE_CODES.has(c) &&
+    !UNTILED_CODES.has(c);
   const scoped = input.issues.filter((i) => isProvider(i.code));
   const sev = severityStatus(scoped);
   const gov = governing(input.issues, isProvider);
