@@ -720,7 +720,8 @@ Execution order within F2 (each slice is one independently deployable PR):
         **Removal lands in F2H3**, not here — it is a panel-consolidation change, and doing it
         during the merge avoids building the merge twice. F2H2B stays focused on operator truth.
     - **F2H3 — Season Management presentation** — ✅ **COMPLETE** (F2H3A PR #458, F2H3B1 PR #459,
-      F2H3B2 PR #460). Closed four deferrals carried from earlier slices: demo UI copy (F2H1T2–T5),
+      F2H3B2 PR #460). **F2H reopens once for F2H4**, which retires the page these slices refined —
+      see item 12 below; F2H is complete again when F2H4 merges. Closed four deferrals carried from earlier slices: demo UI copy (F2H1T2–T5),
       typed operator feedback in `TestLeagueControls.tsx` (F2H1T1), the lifecycle-integrity issue
       (q) from F2H1R3, and the manual route's bare `catch {}` from F2H2B.
       - **F2H3A — rollover surface consolidation.** ✅ MERGED (PR #458, `6a8b86c`, 2026-08-07). Audited
@@ -781,7 +782,18 @@ Execution order within F2 (each slice is one independently deployable PR):
         execution is ever restored, its standings-invalidation handling must be HARDENED AND TESTED,
         never reinstated from the retired bare catch. This is now also stated in AGENTS.md
         invariant 5.
-12. **F2H4 — RETIRE `/admin/season`** (decided 2026-08-07, owner ruling). Season rollover is
+12. **F2H4 — RETIRE `/admin/season`** — implemented; **not yet merged** (decided 2026-08-07, owner ruling).
+    - **KNOWN GAP recorded at review, deliberately not closed here.** With a single production season
+      year — the ordinary shape — the receipt carries the exact `ChampionshipRolloverSkipReason`, so
+      System Health answers "why has this not rolled over yet". When production years DISAGREE and
+      their gates skip for different reasons, `aggregateLifecycleCronReason` records `year-results`
+      and the `season-rollover-years` receipt target has no per-year reason field, so the dashboard
+      cannot explain either year. The per-year reasons ARE still on the runtime event (Vercel Runtime
+      Logs), so this is a dashboard limitation, not a loss of information. Pinned by a test.
+      **Follow-up if it ever matters: persist per-year reasons onto the receipt target.** That is a
+      receipt schema change and was kept out of a retirement slice on purpose.
+      Note the compounding: F2H3A's year-disagreement WARNING lived on the deleted panel, so this
+      abnormal state is now neither flagged nor explained on any surface. Season rollover is
     automation-owned and, since F2H3A, has no operator-reachable execution and **no automation-pause
     gate** — so the preview showed an irreversible write nobody could prevent: unactionable by
     construction. `ArchiveListPanel` renders year badges with no `href` at all, and

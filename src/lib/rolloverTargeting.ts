@@ -1,15 +1,14 @@
 import { isStructurallyValidSeasonYear, TEST_LEAGUE_SLUG, type League } from './league.ts';
 
 /**
- * PLATFORM-086F2B — the ONE season-rollover target-selection policy, shared by
- * the automatic cron (`/api/cron/season-rollover`), which EXECUTES rollover, and
- * the admin route (`/api/admin/rollover`), which reports status and builds the
- * archive PREVIEW.
+ * PLATFORM-086F2B — the season-rollover target-selection policy.
  *
- * PLATFORM-086F2H3A retired manual execution, which makes sharing this policy
- * MORE load-bearing rather than less: the preview's whole value is that it
- * describes what the cron would do, so a divergence here would make the panel
- * describe a rollover that will never happen — or omit one that will.
+ * It was introduced as a SHARED policy so the automatic cron and the manual
+ * admin route could never diverge on which leagues a rollover may touch.
+ * PLATFORM-086F2H3A retired manual execution, and PLATFORM-086F2H4 retired the
+ * preview surface that remained — so `GET /api/cron/season-rollover` is now the
+ * ONLY caller. The module stays separate because it is a distinct, heavily
+ * tested policy, not because a second consumer exists.
  */
 
 // The demo league is excluded from global rollover. `TEST_LEAGUE_SLUG` lives in

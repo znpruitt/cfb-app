@@ -39,7 +39,6 @@ export type SystemHealthIssueAxis = 'global' | 'job' | 'dataset';
 /** A closed, nullable repair destination — never a fake link back to Diagnostics. */
 export type SystemHealthRepair =
   | { surface: 'data-maintenance'; href: '/admin/data/cache'; label: string }
-  | { surface: 'season-management'; href: '/admin/season'; label: string }
   | { surface: 'team-identity'; href: '/admin/aliases'; label: string }
   | null;
 
@@ -191,8 +190,6 @@ function repairFor(surface: ProviderDiagnosticRepairSurface | null): SystemHealt
   switch (surface) {
     case 'data-maintenance':
       return { surface, href: '/admin/data/cache', label: 'Open Data Maintenance & Recovery' };
-    case 'season-management':
-      return { surface, href: '/admin/season', label: 'Open Season Management' };
     case 'team-identity':
       return { surface, href: '/admin/aliases', label: 'Open Team Identity' };
     default:
@@ -336,8 +333,15 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
   for (const row of snapshot.jobs) {
     const receipt = row.receipt;
     if (!receipt) continue;
+    // PLATFORM-086F2H4 — a LIFECYCLE job's execution fault offers NO repair.
+    // It previously pointed at Season Management, which was already recorded as
+    // questionable (that page could not repair a lifecycle fault) and is now
+    // retired outright. `SystemHealthRepair` documents null as "never a fake
+    // link", and this matches what F2H3B2 established for
+    // `lifecycle-data-unusable`: there is no supported operation that repairs a
+    // production lifecycle record, so naming a destination would be a claim.
     const lifecycle = LIFECYCLE_JOBS.has(row.job);
-    const repair = lifecycle ? repairFor('season-management') : repairFor('data-maintenance');
+    const repair = lifecycle ? null : repairFor('data-maintenance');
     if (receipt.result === 'failure') {
       issues.push({
         code: 'scheduler-execution-failed',
@@ -397,8 +401,10 @@ function schedulerExecutionIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sy
  * `status`, `PATCH /api/admin/leagues/[slug]` answers 409 for both,
  * the settings Season Year input is read-only, and `resetTestLeagueLifecycle`
  * takes no slug and reaches only the demo league. Recovery is PLATFORM-087's and
- * is unscheduled. Linking `/admin/season` would name a page that cannot perform
- * the repair — the "never a fake link" case `SystemHealthRepair` documents.
+ * is unscheduled. There is also nowhere left to link even if a claim were
+ * wanted: PLATFORM-086F2H4 retired `/admin/season` outright, and the repair
+ * surface it backed went with it — the "never a fake link" case
+ * `SystemHealthRepair` documents.
  */
 function lifecycleIntegrityIssues(snapshot: SchedulerDeliveryHealthSnapshot): SystemHealthIssue[] {
   const reportingJobs = snapshot.jobs

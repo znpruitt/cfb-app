@@ -12,7 +12,9 @@ import {
 // ---------------------------------------------------------------------------
 // PLATFORM-086F2C — the stable /admin/data/cache route presents as Data
 // Maintenance & Recovery: renamed heading/breadcrumb/landing card, three
-// section groups in order, and NO rollover surface (Season Management owns it).
+// section groups in order, and NO rollover surface. PLATFORM-086F2H4 retired
+// `/admin/season` entirely, so the page's lifecycle pointer now names System
+// Health — the only surface that still observes rollover.
 // ---------------------------------------------------------------------------
 
 test.beforeEach(async () => {
@@ -52,7 +54,8 @@ test('page renders as Data Maintenance & Recovery with ordered sections, no roll
   assert.match(text, /Data Maintenance & Recovery/);
   assert.match(text, /Provider maintenance & recovery/);
   assert.match(text, /Historical recovery/);
-  assert.match(text, /Season Management/, 'lifecycle link copy present');
+  assert.match(text, /System Health/, 'the lifecycle pointer names a surface that exists');
+  assert.ok(!text.includes('/admin/season'), 'the retired Season Management route is never linked');
   assert.match(text, /nominal per successful attempt/, 'shared cost caveat stated');
 
   // Sections appear in the intended order (Reference data added by F2D1,
@@ -73,7 +76,7 @@ test('page renders as Data Maintenance & Recovery with ordered sections, no roll
   assert.ok(!out.components.includes('SpRatingsCachePanel'), 'SP+ panel removed');
   assert.ok(!out.components.includes('WinTotalsUploadPanel'), 'win-totals panel removed');
 
-  // Rollover is absent — Season Management owns it.
+  // Rollover is absent — the cron owns it and no admin page represents it.
   assert.ok(!out.components.includes('SeasonRolloverPanel'), 'SeasonRolloverPanel not rendered');
   assert.ok(!text.includes('Season Rollover'), 'no rollover copy');
 
