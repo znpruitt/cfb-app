@@ -807,7 +807,7 @@ Execution order within F2 (each slice is one independently deployable PR):
     scheduler faults carry `repair: null` — matching what F2H3B2 established. **Verify before
     deleting:** that a waiting-period skip reason is legible on the System Health scheduler row.
     Filed under F2H rather than F2I because `/admin/season` IS Season Management.
-13. **F2I Platform Configuration / Team Identity** — implemented; **not yet merged**. Audited
+13. **F2I Platform Configuration / Team Identity** — ✅ MERGED (PR #462, `cbd3ed5`, 2026-08-08). Audited
     read-only first: two of the three chartered items were already done or overstated (Team
     Identity's global scope was settled by PLATFORM-064/067; the only real duplication was the
     display name), and the actual finding was an IRREVERSIBLE league delete with ZERO tests.

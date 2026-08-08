@@ -251,7 +251,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   alone, killed by a named test — including a single-character typo in a scope literal.
   `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
   run as their own command with unmasked exit status.
-- Status: implemented and reviewed; not yet merged.
+- Status: MERGED via PR #462 (`cbd3ed5`), 2026-08-08.
 
 ### PLATFORM-086F2H4-RETIRE-SEASON-MANAGEMENT-v1
 

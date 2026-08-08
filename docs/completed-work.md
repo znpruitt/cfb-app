@@ -2378,6 +2378,47 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2I — Platform Configuration and Team Identity — Complete
+
+- **Status:** Complete — merged to `main` via PR #462 (merge commit `cbd3ed5`), 2026-08-08. **F2J is
+  the last remaining F2 slice.**
+- **PROMPT_ID(s):** `PLATFORM-086F2I-PLATFORM-CONFIGURATION-AND-TEAM-IDENTITY-v1`, preceded by a
+  read-only audit.
+- **The audit corrected the charter before any code was written.** Two of three chartered items were
+  already done or overstated — Team Identity's global scope was settled by PLATFORM-064/067, and the
+  only real duplication was the display name. The actual finding was an IRREVERSIBLE league delete
+  with ZERO tests.
+- **Outcome:** `/admin/leagues` is now a registry surface (create, list, delete); configuration moved
+  to `/admin/[slug]/settings`, which each row links to. Deleting a league requires typing its SLUG —
+  not a fixed word, which is identical on every row and would not catch acting on the WRONG league —
+  and the check is enforced IN THE ROUTE, because `requireAdminRequest` accepts a static
+  `ADMIN_API_TOKEN` and a browser-only guard would protect nobody. Creating a league at a slug whose
+  previous occupant's data survives is refused by default. "Aliases" became "Team Identity"
+  throughout; the season-scoped editor at `/debug/teams` is deliberately untouched.
+- **The reuse guard's design changed AT REVIEW, and the reason is worth keeping.** It was written as
+  a flat refusal; both reviewers caught that this was a DEAD END rather than a safeguard, since
+  nothing in the app deletes league-scoped records. Re-creating at the same slug is exactly how an
+  ACCIDENTAL delete was recovered — the same league, its own rosters and archives — so the guard
+  blocked the common correct case with the rule meant for the rare dangerous one. It also bricked
+  the DEMO league permanently: `TEST_LEAGUE_SLUG` is hardcoded, `resetTestLeagueLifecycle` answers
+  `league-not-found` for an absent league, and this POST is the only `addLeague` caller. Now
+  overridable with an explicit `adoptExistingData: true`.
+- **A guard shipped without a test file.** `leagueResidualData` had four unpinned scope literals, so
+  a typo in `preseason-owners` / `insights-suppression` / `postseason-overrides` / `aliases` would
+  have left the suite green while detection silently stopped. Its suite now seeds through the REAL
+  writers (`saveSeasonArchive`, `saveSuppressionRecord`) rather than second literals.
+- **The prefix hazard** is the way this check fails invisibly: `owners:tsc` is a PREFIX of
+  `owners:tsc-old:2025`, so a naive match blocks a valid slug and looks identical to a working
+  guard. Exact scopes compare by equality; suffixed families use a colon-terminated prefix.
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
+  3404 → 3425: DELETE 0 → 5 (first-ever coverage), creation 4 → 11, a new residual-data suite of 6,
+  a new page suite of 3. Eleven mutations, each compiling, applied alone, killed by a named test.
+- **Recorded as NOT done:** `PUT|DELETE /api/admin/leagues/[slug]/password` has no test file at all,
+  and true privacy erasure is deferred by owner decision with the reuse refusal as the stopgap.
+
+---
+
 ### PLATFORM-086F2H4 — Season Management Retired — Complete
 
 - **Status:** Complete — merged to `main` via PR #461 (merge commit `8f56835`), 2026-08-07.
