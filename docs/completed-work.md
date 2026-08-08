@@ -2378,6 +2378,55 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### INSIGHTS-022 — Offseason Roster Content — Complete
+
+- **Status:** Complete — merged to `main` via PR #464 (merge commit `0f48b87`), 2026-08-08.
+- **PROMPT_ID(s):** `INSIGHTS-022-OFFSEASON-ROSTER-CONTENT-v1`.
+- **Outcome, in reader-visible terms:** the "Rookie owner benchmark" card now appears through the
+  ordinary offseason rather than only the January–February window and preseason; and no card calls
+  anyone a "Returning owner" any more. Four career cards used to, whenever the displayed roster was
+  carried over from the prior season.
+- **The returning-owner copy was the real defect.** A carried-over roster proves an owner PLAYED; it
+  never proves they will play again — and the prefix fired hardest in exactly the window where the
+  upcoming roster is least known. Naming who is genuinely returning requires comparing a FINALIZED
+  upcoming roster against league history, which no generator has, so the slice deliberately does not
+  attempt it and the cards keep their neutral descriptions.
+- **The plan's premise was half wrong, and verifying it changed the work.** The backlog claimed two
+  card families went dark in ordinary offseason. Only one did: `TRENDING_LIFECYCLES` already
+  contained `offseason`, and the constant cited was a copy-framing gate rather than an eligibility
+  gate, so career trends were never hidden.
+- **A FALSE PREMISE PULLED AN ENGINE CHANGE INTO SCOPE THAT BROKE TWO BINDING INVARIANTS.** The first
+  implementation also deleted an engine-level suppression rule, reasoning that widening the lifecycle
+  list alone would be invisible because the roster is borrowed all offseason. It is not:
+  `completeSeasonRollover` keeps `league.year` on the COMPLETED season and nothing deletes
+  `owners:<slug>:<year>`, so `usingArchivedRoster` is false through `fresh_offseason` and
+  `offseason`. The widening alone delivered the whole outcome. The deletion broke AGENTS.md
+  invariants 4 and 5, and AGENTS.md was never consulted before modifying the engine — the same
+  failure as PLATFORM-086F2H3B1. Reverted in full on owner ruling; `engine.ts` ended byte-identical
+  to `main`.
+- **A binding invariant WAS amended, deliberately.** Removing the returning-owner framing genuinely
+  contradicted invariant 5, so the rule was rewritten in the same change rather than quietly broken.
+  It had also said every archived-roster generator "must reframe" while leaving career descriptions
+  neutral — a contradiction the owner caught at final read. It now states the two routes that satisfy
+  it: truthful time framing, or already-neutral historical copy that needs no prefix and must not be
+  given one.
+- **Two of the reviewers' findings were fabricated claims of mine, not code defects.** A deleted test
+  was justified as "covered by `insights-cache.test.ts`" when zero test references to
+  `bypassSuppression` remained anywhere; and a new fixture pinned a state production cannot produce
+  (`currentYear` left at 2026 beside a 2025 archive with `isRookie` forced true, when `isRookie` is
+  derived from exactly those two values). Both corrected.
+- **Cache identity bumped.** Copy and eligibility are POLICY with no runtime invalidation signal, so
+  no tag fires; `insightsCacheKeyParts` gained `copy:insights022-neutral-career-copy-v1` following
+  the precedent the same file sets for `ANALYTICS_PROJECTION_VERSION`.
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
+  3455 → 3456 (nine stale tests removed with the behaviour they pinned; ten added). Four mutations,
+  each compiling, applied alone, killed by a named test.
+- **Open follow-ups:** See `docs/next-tasks.md`. Identifying genuinely returning owners remains
+  unbuilt and needs a finalized upcoming roster to compare against league history.
+
+---
+
 ### PLATFORM-086F2 — Admin Control-Plane IA Redesign (Campaign) — Complete
 
 - **Status:** Complete 2026-08-08, closed by its final slice F2J (PR #463, `d9a8e93`). Spanned

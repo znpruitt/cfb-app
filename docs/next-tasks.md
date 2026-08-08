@@ -31,15 +31,20 @@ Supersedes: (none)
 1. ✅ **PLATFORM-086F2 — COMPLETE** (F2A–F2J, closed 2026-08-08 by F2J / PR #463). The last
    provider-campaign implementation item; the whole campaign is merged and, where applicable,
    active in production. Its exit condition is discharged item by item in Active priority 1 below.
-2. **NEXT — INSIGHTS-OFFSEASON-ROSTER-CONTENT.** The rookie benchmark is unavailable for the whole
-   stretch between the fresh cutoff and preseason, and four career cards call people "Returning
-   owner" on the strength of last year's roster alone. Full statement, including the correction to
-   the original claim, in the deferrals section below.
-3. Then: return to product-facing work — homepage/landing page (not yet scoped — no backlog slug),
-   INSIGHTS-018 (NEW tag + signatures),
-   INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights), History Records
-   continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup later.
-4. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
+2. ✅ **INSIGHTS-022 — COMPLETE** (PR #464, `0f48b87`, 2026-08-08). Closed
+   INSIGHTS-OFFSEASON-ROSTER-CONTENT: the rookie benchmark now runs through ordinary offseason, and
+   the four unsupportable "Returning owner" claims are gone. Amended binding AGENTS.md invariant 5
+   in the same change, since removing that framing contradicted it.
+3. **NEXT is an OWNER DECISION, deliberately not assigned here.** Product-facing work resumes, and
+   the two candidates are not comparable: the **homepage/landing page** is listed first and is the
+   higher-value item, but it is NOT SCOPED and has no backlog slug, so it needs an audit before it
+   can be a prompt. **INSIGHTS-018** (NEW tag + signatures) is the next item that is ready to start
+   as written. Pick scoping the homepage or starting INSIGHTS-018; this file will carry `NEXT` once
+   that is settled.
+4. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+   History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
+   later.
+5. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
    schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its first
    qualifying automatic presentation refresh from production evidence when it occurs.
 
@@ -97,7 +102,8 @@ All foundational phases are complete. Work is now organized into named workstrea
 
 **Not implemented. Decision 2026-08-06: repair the drifted registry row and drop the slice.**
 `NEXT` returned to F2H2 (§1 below); F2H2, F2H3, F2I, and F2J have all since completed, closing the
-F2 campaign on 2026-08-08. `NEXT` is now INSIGHTS-OFFSEASON-ROSTER-CONTENT.
+F2 campaign on 2026-08-08. INSIGHTS-OFFSEASON-ROSTER-CONTENT followed and is also complete
+(INSIGHTS-022, PR #464); `NEXT` is unassigned pending an owner decision — see the execution order.
 
 **The defect.** `buildLeagueInsightContext` derives `lifecycleState` from `league.status` (correct)
 but took `currentYear` from the top-level `league.year` projection, so on the live `tsc` shape
@@ -1159,7 +1165,7 @@ Items surfaced during the Insights Panel Redesign + Polish campaign and queued f
   **Shape.** A recap scores high at rollover, decays over weeks, and settles into rotation rather than vanishing. Roster content stays eligible year-round with a lift approaching preseason. Historical content holds a flat baseline and rises naturally as seasonal content decays — the desired rebalance achieved by NOT special-casing anything.
   **Constraints.** (1) Decay needs an anchor; the only true one is the most recent archive's `archivedAt` (already loaded into the insight context) — a calendar date reintroduces the arbitrariness this replaces. (2) It SUPERSEDES `fresh_offseason` rather than complementing it: if weight is time-derived, that state exists only to approximate "recently", and collapsing it back to one `offseason` state is a breaking change to every generator's lifecycle list and to `deriveLifecycleState`. (3) Existing `priorityScore` values are per-generator constants on no shared scale; making them commensurable is the bulk of the work, not the decay mechanism.
   Precedent worth reusing: `framing.ts` already has `applyLastSeasonFraming` — the system can already reframe an insight for distance, it just cannot re-rank for it.
-- **INSIGHTS-OFFSEASON-ROSTER-CONTENT — NEXT** — **The original statement of this item was WRONG on one of its two halves, and the correction changed the work.** It claimed `ROOKIE` and `RETURNING_OWNER_TRENDING` were both gated to `['fresh_offseason', 'preseason']` and both went dark in ordinary offseason. `RETURNING_OWNER_TRENDING_LIFECYCLES` was never an eligibility gate — `TRENDING_LIFECYCLES` already included `offseason`, and that constant only decided whether a copy PREFIX was applied. Career trends never went dark; they only gained or lost framing.
+- **INSIGHTS-OFFSEASON-ROSTER-CONTENT — ✅ CLOSED by INSIGHTS-022 (PR #464, `0f48b87`).** Kept for the correction it records. **The original statement of this item was WRONG on one of its two halves, and the correction changed the work.** It claimed `ROOKIE` and `RETURNING_OWNER_TRENDING` were both gated to `['fresh_offseason', 'preseason']` and both went dark in ordinary offseason. `RETURNING_OWNER_TRENDING_LIFECYCLES` was never an eligibility gate — `TRENDING_LIFECYCLES` already included `offseason`, and that constant only decided whether a copy PREFIX was applied. Career trends never went dark; they only gained or lost framing.
   - **The rookie benchmark WAS unavailable in ordinary offseason**, and widening its lifecycle list is the whole fix. An earlier draft of this entry claimed a second, engine-level block also had to be removed because the roster is "borrowed from an archive" for that whole stretch. **That was wrong.** `completeSeasonRollover` keeps `league.year` on the COMPLETED season and nothing ever deletes `owners:<slug>:<year>`, so the current roster is present and `usingArchivedRoster` is FALSE throughout `fresh_offseason` and `offseason` — it only becomes true in `preseason`, once `league.year` has advanced past the last archive. The engine guard never fired in the window this item is about, and both reviews caught the removal as unnecessary AND as a violation of binding AGENTS.md invariants 4 and 5. It was reverted.
   - **The real defect the audit surfaced was the "Returning owner" prefix**, applied by four career generators whenever the roster was borrowed. A borrowed roster proves someone PLAYED; it never proves they will play again, so the copy asserted a future fact from past data, and it fired hardest in exactly the window where the upcoming roster is least known. Identifying who is actually returning needs a FINALIZED upcoming roster compared against league history — a separate feature, deliberately not attempted here.
   - Owner decision (2026-08-06): these categories are EVERGREEN even though the eligible owners change. Owner decision (2026-08-08): treat the rookie benchmark as retrospective and remove BOTH blocks. Neither depends on INSIGHTS-PRIORITY-DECAY (unlike `SEASON_WRAP`, which at flat priority would keep a stale recap competing all year — that one waits).

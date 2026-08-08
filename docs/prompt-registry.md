@@ -121,7 +121,9 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   mutations, each compiling, applied alone, killed by a named test: revert the lifecycle widening;
   remove the generator's borrowed-roster guard; reinstate the returning-owner prefix on one
   generator; drop the copy-policy version from the cache identity.
-- Status: implemented; reviewed (`/code-review` + `/codex:review`, both against `9a23c10`); remediation complete; not yet merged.
+- Status: ✅ **MERGED** to `main` via PR #464 (merge commit `0f48b87`), 2026-08-08. Three commits:
+  the implementation, a remediation round covering both reviews, and two ledger-contradiction fixes
+  raised by the owner at final read.
 
 ### PLATFORM-086F2H1R4-ROLLOVER-YEAR-VALIDITY-v1
 
