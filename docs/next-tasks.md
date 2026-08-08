@@ -807,10 +807,32 @@ Execution order within F2 (each slice is one independently deployable PR):
     scheduler faults carry `repair: null` — matching what F2H3B2 established. **Verify before
     deleting:** that a waiting-period skip reason is legible on the System Health scheduler row.
     Filed under F2H rather than F2I because `/admin/season` IS Season Management.
-13. **NEXT — F2I Platform Configuration / Team Identity**, then F2J commissioner boundaries +
-    navigation closeout. These are the last two F2 slices. F2I's surface count drops by one once
-    F2H4 lands.
-14. **PARKED — CFBD team IDs for provider matching** (question raised 2026-08-07; investigated
+13. **F2I Platform Configuration / Team Identity** — implemented; **not yet merged**. Audited
+    read-only first: two of the three chartered items were already done or overstated (Team
+    Identity's global scope was settled by PLATFORM-064/067; the only real duplication was the
+    display name), and the actual finding was an IRREVERSIBLE league delete with ZERO tests.
+    Shipped: a slug-typed delete confirmation enforced in the ROUTE (a static `ADMIN_API_TOKEN`
+    reaches the endpoint without the UI), refusal of a slug whose previous league's data survives,
+    configuration editing moved to the settings page, and the Team Identity rename.
+    - **Review changed the reuse guard's design.** It was first written as a flat refusal, and both
+      reviewers caught that this created a DEAD END rather than a safeguard: nothing in the app
+      deletes league-scoped records, so a refused slug was refused forever. Two consequences made
+      that wrong rather than merely strict — re-creating at the same slug is exactly how an
+      ACCIDENTAL delete was recovered (restoring a league its OWN rosters), and the demo league's
+      slug is a hardcoded constant whose only creation path is this route, so deleting `test` would
+      have bricked it permanently. Now refused BY DEFAULT and overridable with an explicit
+      `adoptExistingData` acknowledgement — the same standard as the delete confirmation:
+      impossible by accident, available when it is what you mean.
+    - **NOT done, recorded so it is not a surprise:** `PUT|DELETE /api/admin/leagues/[slug]/password`
+      has **no test file at all**. It is auth-adjacent and persists a hash and salt. Out of this
+      slice's scope; it should be covered before that path is relied on.
+    - **Deferred, by owner decision:** true privacy ERASURE — actually removing the per-league data,
+      commissioner-facing, with re-authentication. Not needed before a broader public league, and it
+      is a feature with real design questions (immediate vs deferred purge; who may invoke it),
+      not a hardening task. The slug-reuse refusal is the stopgap until then. Making it
+      commissioner-facing is an AUTHORIZATION change and belongs with F2J's boundaries.
+14. **NEXT — F2J commissioner boundaries + navigation closeout.** The last F2 slice.
+15. **PARKED — CFBD team IDs for provider matching** (question raised 2026-08-07; investigated
     read-only, not scheduled). Framed on the way in as "aliases may be obsolete now that we use CFBD
     IDs". **Both halves of that turned out not to hold**, so it is recorded as what it actually is: a
     correctness improvement to PROVIDER matching, not a simplification.
@@ -839,7 +861,7 @@ Execution order within F2 (each slice is one independently deployable PR):
       preview and observe what breaks. Expect roster reconciliation and score attachment to start
       missing matches.
 
-15. **PARKED — cross-league league-setup superview** (owner idea, 2026-08-07). A table of leagues ×
+16. **PARKED — cross-league league-setup superview** (owner idea, 2026-08-07). A table of leagues ×
     setup milestones for a chosen year, so an operator can audit **how many created leagues actually
     finish setup** — an activation/funnel measure ahead of going public. It passes the surface test
     deliberately: it represents something a human measures and decides on, not machinery that merely

@@ -70,7 +70,7 @@ export default function IssuesPanel({
                               </div>
                             ) : null}
                           </td>
-                          <td className="p-2">Manage alias repairs on the Aliases page.</td>
+                          <td className="p-2">Manage alias repairs on the Team Identity page.</td>
                         </tr>
                       );
                     }
@@ -117,7 +117,7 @@ export default function IssuesPanel({
                               '—'
                             )}
                           </td>
-                          <td className="p-2">Manage alias repairs on the Aliases page.</td>
+                          <td className="p-2">Manage alias repairs on the Team Identity page.</td>
                         </tr>
                       );
                     }

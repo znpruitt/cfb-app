@@ -401,7 +401,7 @@ export default function ScoreAttachmentRecoveryPanel({
                       <td className="p-2">
                         {ALIAS_REPAIR_REASONS.has(item.reason) ? (
                           <span className="text-xs text-gray-600 dark:text-zinc-400">
-                            Stage alias repairs on the Aliases page (/admin/aliases).
+                            Stage alias repairs on the Team Identity page (/admin/aliases).
                           </span>
                         ) : (
                           '—'

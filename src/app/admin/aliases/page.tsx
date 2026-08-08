@@ -90,10 +90,10 @@ export default function AdminAliasesPage(): React.ReactElement {
             segments={[
               { label: 'Home', href: '/' },
               { label: 'Admin', href: '/admin' },
-              { label: 'Aliases' },
+              { label: 'Team Identity' },
             ]}
           />
-          <h1 className="text-2xl font-semibold">Aliases</h1>
+          <h1 className="text-2xl font-semibold">Team Identity</h1>
           <p className="text-sm text-gray-500 dark:text-zinc-400">
             Team name corrections applied across all leagues and seasons.
           </p>

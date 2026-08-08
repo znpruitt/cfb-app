@@ -34,8 +34,13 @@ const platformCards = [
   },
   {
     href: '/admin/aliases',
-    title: 'Aliases',
-    desc: 'Manage team name corrections across all leagues',
+    // PLATFORM-086F2I — "Team Identity" is the canonical name in the admin IA,
+    // and the card is the front door to the GLOBAL corrections. A season-scoped
+    // editor also exists at `/debug/teams` (a distinct resolver tier the alias
+    // model deliberately retains); naming this one plainly is what keeps the two
+    // from reading as alternatives.
+    title: 'Team Identity',
+    desc: 'Team name corrections applied across all leagues and seasons',
   },
 ];
 

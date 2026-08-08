@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { PATCH } from '../route';
+import { DELETE, PATCH } from '../route';
 import type { League } from '../../../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
@@ -10,6 +10,8 @@ import {
   setAppState,
 } from '../../../../../../lib/server/appStateStore.ts';
 
+// PLATFORM-086F2I adds the DELETE suite below — this endpoint had NO tests at
+// all, while being irreversible and one click away.
 // ---------------------------------------------------------------------------
 // PLATFORM-086F2B — the league-configuration PATCH is no longer a competing
 // year authority: a body containing `year` (or `status`) is rejected with a
@@ -41,6 +43,20 @@ function patchRequest(
       method: 'PATCH',
       headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN },
       body: JSON.stringify(body),
+    }),
+    { params: Promise.resolve({ slug }) },
+  ];
+}
+
+function deleteRequest(
+  slug: string,
+  confirm?: string
+): [Request, { params: Promise<{ slug: string }> }] {
+  const query = confirm === undefined ? '' : `?confirm=${encodeURIComponent(confirm)}`;
+  return [
+    new Request(`https://example.com/api/admin/leagues/${slug}${query}`, {
+      method: 'DELETE',
+      headers: { 'x-admin-token': ADMIN_TOKEN },
     }),
     { params: Promise.resolve({ slug }) },
   ];
@@ -126,4 +142,95 @@ test('PATCH with no updatable fields → 400 naming the allowed fields', async (
   const res = await PATCH(req, ctx);
   assert.equal(res.status, 400);
   assert.match(await res.text(), /displayName, foundedYear/);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2I — DELETE. This endpoint shipped with ZERO tests while being
+// irreversible, one click away, and reachable directly by anyone holding the
+// static `ADMIN_API_TOKEN`.
+//
+// The confirmation is the SLUG rather than a fixed word, because a fixed word is
+// identical on every row: it defends against a stray click but not against
+// acting on the WRONG league, which is the accident the guard exists for. Test 2
+// is that case and is the reason for the design.
+// ---------------------------------------------------------------------------
+
+test('DELETE without a confirmation refuses and the registry is byte-identical', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('alpha'), makeLeague('bravo')]);
+  const before = JSON.stringify(await readRegistry());
+
+  const res = await DELETE(...deleteRequest('alpha'));
+
+  assert.equal(res.status, 400);
+  // Plain text, matching the route's other errors — the only client renders
+  // `res.text()` verbatim, so a JSON body would show an operator a raw blob.
+  const text = await res.text();
+  assert.match(text, /^league-delete-confirmation-required/, 'stable code stays greppable');
+  assert.match(text, /alpha/, 'the operator is told what to type');
+  assert.equal(JSON.stringify(await readRegistry()), before, 'nothing was written');
+});
+
+// THE case the design exists for: right button, wrong row.
+test('DELETE confirming a DIFFERENT league removes nothing', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('alpha'), makeLeague('bravo')]);
+  const before = JSON.stringify(await readRegistry());
+
+  const res = await DELETE(...deleteRequest('alpha', 'bravo'));
+
+  assert.equal(res.status, 400);
+  const text = await res.text();
+  assert.match(
+    text,
+    /^league-delete-confirmation-mismatch/,
+    'a DISTINCT code from the absent case — "you did not confirm" and "you confirmed a ' +
+      'different league" are different operator conditions'
+  );
+  assert.equal(JSON.stringify(await readRegistry()), before, 'neither league was touched');
+});
+
+test('DELETE with the matching confirmation removes exactly that league', async () => {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha'),
+    makeLeague('bravo'),
+    makeLeague('charlie'),
+  ]);
+
+  const res = await DELETE(...deleteRequest('bravo', 'bravo'));
+
+  assert.equal(res.status, 200);
+  assert.deepEqual(
+    (await readRegistry()).map((l) => l.slug),
+    ['alpha', 'charlie'],
+    'siblings survive'
+  );
+});
+
+test('DELETE of an absent league still 404s, before any confirmation handling', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('alpha')]);
+  const before = JSON.stringify(await readRegistry());
+
+  // No confirmation supplied: if the 404 did NOT come first this would answer
+  // `confirmation-required` and imply the league exists.
+  const res = await DELETE(...deleteRequest('ghost'));
+
+  assert.equal(res.status, 404);
+  assert.equal(JSON.stringify(await readRegistry()), before);
+});
+
+// The response still tells the truth about what a delete does NOT do. The guard
+// makes the action deliberate; it does not make it complete.
+test('DELETE still reports that stored league data is not removed', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('alpha')]);
+  await setAppState(`owners:alpha:2024`, 'csv', 'Owner,Team\nDana,Alabama');
+
+  const res = await DELETE(...deleteRequest('alpha', 'alpha'));
+  const body = (await res.json()) as { note?: string };
+
+  assert.equal(res.status, 200);
+  assert.match(body.note ?? '', /not deleted/i);
+  assert.notEqual(
+    await getAppState('owners:alpha:2024', 'csv'),
+    null,
+    'and the claim is true — the roster survives the delete'
+  );
 });

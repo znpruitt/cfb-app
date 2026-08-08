@@ -274,7 +274,7 @@ test('a confirmed targeted run carries the exact week and seasonType params; res
   getByText('Indexed games: 39');
   getByText('unresolved_home_team: 1');
   getByText(/does not independently prove that every upstream refresh/);
-  getByText(/Stage alias repairs on the Aliases page/);
+  getByText(/Stage alias repairs on the Team Identity page/);
 });
 
 test('controls and the submit button are disabled while an attempt is pending', async () => {

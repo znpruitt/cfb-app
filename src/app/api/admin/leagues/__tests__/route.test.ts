@@ -7,6 +7,7 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   getAppState,
+  setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
 
 // ---------------------------------------------------------------------------
@@ -26,6 +27,11 @@ function createRequest(body: unknown): Request {
     headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN },
     body: JSON.stringify(body),
   });
+}
+
+async function readRegistry(): Promise<League[]> {
+  const record = await getAppState<League[]>('leagues', 'registry');
+  return record?.value ?? [];
 }
 
 test.beforeEach(async () => {
@@ -94,4 +100,135 @@ test('league creation rejects the aliases slug that collides with the static adm
   assert.equal(response.status, 400);
   assert.match(await response.text(), /Slug is reserved/);
   assert.equal(await getAppState<League[]>('leagues', 'registry'), null);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2I — a slug whose previous occupant's data is still stored.
+//
+// Deleting a league removes ONE registry entry; every scope keyed by the slug
+// survives. Creating a new league at that slug would attach the previous
+// league's rosters, drafts, and archives to it — one set of people's names shown
+// to a commissioner with no relationship to them.
+// ---------------------------------------------------------------------------
+
+test('creation refuses a slug whose previous league data survives', async () => {
+  await setAppState('leagues', 'registry', []);
+  // Two DIFFERENT scope families, so the check cannot pass on the strength of
+  // one remembered prefix.
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team\nDana,Alabama');
+  await setAppState('draft:ghost', '2024', { phase: 'complete' });
+
+  const res = await POST(createRequest({ slug: 'ghost', displayName: 'Ghost', year: 2025 }));
+
+  assert.equal(res.status, 409);
+  const text = await res.text();
+  assert.match(text, /Stored data still exists/i);
+  assert.deepEqual(await readRegistry(), [], 'no league was created');
+});
+
+// POSITIVE CONTROL — without this, "refused" could mean the check rejects
+// everything, and the test above would pass against a guard that is simply
+// broken.
+test('creation still succeeds for a slug with no surviving data', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team\nDana,Alabama');
+
+  const res = await POST(createRequest({ slug: 'fresh', displayName: 'Fresh', year: 2025 }));
+
+  assert.equal(res.status, 201);
+  assert.deepEqual(
+    (await readRegistry()).map((l) => l.slug),
+    ['fresh'],
+    'an unrelated slug is unaffected by another slug`s residue'
+  );
+});
+
+// REGRESSION TEST — the prefix hazard. `owners:tsc` is a PREFIX of
+// `owners:tsc-old:2025`, so a naive prefix match would report that `tsc` has
+// residual data because an unrelated league named `tsc-old` exists — blocking a
+// slug for no reason, which looks identical to the guard working.
+test('residue detection does not confuse a slug with a longer sibling slug', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:tsc-old:2024', 'csv', 'Owner,Team\nDana,Alabama');
+  await setAppState('draft:tsc-old', '2024', { phase: 'complete' });
+
+  const res = await POST(createRequest({ slug: 'tsc', displayName: 'TSC', year: 2025 }));
+
+  assert.equal(res.status, 201, 'tsc is clean; tsc-old`s data is not tsc`s');
+  assert.deepEqual(
+    (await readRegistry()).map((l) => l.slug),
+    ['tsc']
+  );
+});
+
+// The two 409s are different conditions — a league EXISTS vs a league's REMAINS
+// exist — and must stay distinguishable.
+test('a live-slug conflict reads differently from a residual-data conflict', async () => {
+  await setAppState('leagues', 'registry', []);
+  const created = await POST(createRequest({ slug: 'alpha', displayName: 'Alpha', year: 2025 }));
+  assert.equal(created.status, 201);
+
+  const live = await POST(createRequest({ slug: 'alpha', displayName: 'Alpha 2', year: 2025 }));
+  assert.equal(live.status, 409);
+  const liveText = await live.text();
+  assert.match(liveText, /already exists/i);
+  assert.ok(
+    !/Stored data still exists/i.test(liveText),
+    'the live conflict is not reported as residue'
+  );
+});
+
+// REGRESSION TEST — the refusal must not be a DEAD END.
+//
+// Nothing in the app deletes league-scoped records, so a blanket refusal would
+// burn the slug forever. Worse, re-creating at the same slug is how an
+// ACCIDENTAL delete was recovered, and the demo league's slug is a hardcoded
+// constant whose only creation path is this route — a permanent refusal would
+// have left no way back.
+test('an explicit adopt acknowledgement lets the same slug be restored', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team\nDana,Alabama');
+
+  const refused = await POST(createRequest({ slug: 'ghost', displayName: 'G', year: 2025 }));
+  assert.equal(refused.status, 409, 'not by accident');
+
+  const adopted = await POST(
+    createRequest({ slug: 'ghost', displayName: 'G', year: 2025, adoptExistingData: true })
+  );
+  assert.equal(adopted.status, 201, 'but possible on purpose');
+  assert.deepEqual(
+    (await readRegistry()).map((l) => l.slug),
+    ['ghost']
+  );
+});
+
+// The demo league is the concrete case: `TEST_LEAGUE_SLUG` is hardcoded, so no
+// alternate slug exists, and `resetTestLeagueLifecycle` answers
+// `league-not-found` for an absent league. If this POST could not restore it,
+// deleting the demo would brick it permanently.
+test('the demo slug can be restored after its data has been written', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('draft:test', '2025', { phase: 'complete' });
+  await setAppState('preseason-owners:test', '2025', { owners: [] });
+
+  const refused = await POST(createRequest({ slug: 'test', displayName: 'Demo', year: 2025 }));
+  assert.equal(refused.status, 409);
+
+  const restored = await POST(
+    createRequest({ slug: 'test', displayName: 'Demo', year: 2025, adoptExistingData: true })
+  );
+  assert.equal(restored.status, 201, 'the demo league is recoverable');
+});
+
+// The acknowledgement must be the EXPLICIT boolean — a truthy string arriving
+// from a form must not satisfy it.
+test('only a literal true adopts; a truthy value does not', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team');
+
+  const res = await POST(
+    createRequest({ slug: 'ghost', displayName: 'G', year: 2025, adoptExistingData: 'yes' })
+  );
+  assert.equal(res.status, 409, 'a truthy string is not an acknowledgement');
+  assert.deepEqual(await readRegistry(), []);
 });
