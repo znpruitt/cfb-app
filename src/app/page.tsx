@@ -1,45 +1,13 @@
-import { getAppState } from '@/lib/server/appStateStore';
-import { getLeagues } from '@/lib/leagueRegistry';
-import { sanitizeLeagues } from '@/lib/leagueSanitize';
-import { seasonYearForToday } from '@/lib/scores/normalizers';
+import { buildHomeView } from '@/components/home/homeView';
 import { isPlatformAdminSession } from '@/lib/server/adminAuth';
-import RootPageClient from '@/components/RootPageClient';
 
 export const dynamic = 'force-dynamic';
 
-export default async function Page() {
-  const [leagues, isPlatformAdmin] = await Promise.all([getLeagues(), isPlatformAdminSession()]);
-
-  const activeYear = seasonYearForToday();
-  const ownerCountBySlug: Record<string, number | null> = {};
-  await Promise.all(
-    leagues.map(async (league) => {
-      try {
-        const record = await getAppState<string>(`owners:${league.slug}:${activeYear}`, 'csv');
-        if (!record?.value) {
-          ownerCountBySlug[league.slug] = 0;
-          return;
-        }
-        const lines = record.value.split('\n');
-        const owners = new Set<string>();
-        for (const line of lines.slice(1)) {
-          const commaIdx = line.indexOf(',');
-          if (commaIdx === -1) continue;
-          const owner = line.slice(commaIdx + 1).trim();
-          if (owner && owner !== 'NoClaim') owners.add(owner);
-        }
-        ownerCountBySlug[league.slug] = owners.size;
-      } catch {
-        ownerCountBySlug[league.slug] = null;
-      }
-    })
-  );
-
-  return (
-    <RootPageClient
-      leagues={sanitizeLeagues(leagues)}
-      ownerCountBySlug={ownerCountBySlug}
-      isPlatformAdmin={isPlatformAdmin}
-    />
-  );
+/**
+ * PLATFORM-088 — a thin auth shell. The branch itself lives in `buildHomeView`
+ * so it can be tested directly with each authorization outcome; everything this
+ * file adds is the one call that produces that outcome.
+ */
+export default async function Page(): Promise<React.ReactElement> {
+  return buildHomeView({ isPlatformAdmin: await isPlatformAdminSession() });
 }

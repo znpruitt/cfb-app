@@ -35,13 +35,16 @@ Supersedes: (none)
    INSIGHTS-OFFSEASON-ROSTER-CONTENT: the rookie benchmark now runs through ordinary offseason, and
    the four unsupportable "Returning owner" claims are gone. Amended binding AGENTS.md invariant 5
    in the same change, since removing that framing contradicted it.
-3. **NEXT is an OWNER DECISION, deliberately not assigned here.** Product-facing work resumes, and
-   the two candidates are not comparable: the **homepage/landing page** is listed first and is the
-   higher-value item, but it is NOT SCOPED and has no backlog slug, so it needs an audit before it
-   can be a prompt. **INSIGHTS-018** (NEW tag + signatures) is the next item that is ready to start
-   as written. Pick scoping the homepage or starting INSIGHTS-018; this file will carry `NEXT` once
-   that is settled.
-4. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+3. **NEXT — PLATFORM-088 homepage entry truth.** Audited read-only twice (static and live) and now
+   scoped. The live pass found the public homepage renders **completely blank with JavaScript
+   disabled**, because the signed-out/signed-in branch ran client-side; the same branch handed the
+   full league directory to anonymous visitors and gave signed-in non-admins the admin dashboard.
+   One server-side ordering change closes all three. The **entry contract** it depends on (members
+   arrive by commissioner-shared link; no directory, slug input, or signup; platform admins only for
+   the dashboard) was settled by the owner on 2026-08-08 and is now recorded in `docs/vision.md`.
+   `/rankings` is orphaned and single-tenant but deliberately OUT of scope pending a separate call.
+4. Then, in order: INSIGHTS-018 (NEW tag + signatures), INSIGHTS-019 (diagnostic endpoint),
+   INSIGHTS-020 (record-change insights),
    History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
    later.
 5. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**

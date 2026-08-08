@@ -52,6 +52,61 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-088-HOMEPAGE-ENTRY-TRUTH-v1
+
+- Purpose: Make the homepage tell the truth to each visitor — a server-rendered public entry page
+  that works without JavaScript and leaks no registry data, and an admin-only league dashboard that
+  reads each league's own season.
+- Scope: `src/app/page.tsx`, new `src/components/home/*`, `src/app/layout.tsx` (metadata
+  description), `DESIGN.md` (new landing section), `docs/vision.md` (entry contract), new tests.
+  `src/components/RootPageClient.tsx` deleted. No API, storage, authorization-policy, signup, or
+  league-discovery changes.
+- Preceded by two independent read-only audits (mine, static; Codex's, including live desktop,
+  mobile, and JavaScript-disabled checks). The JS-disabled finding came from the live pass and was
+  the most severe item; the static pass missed it.
+- **ONE ordering change closed three findings.** Platform-admin is now resolved on the SERVER before
+  any registry read, and the public landing is returned directly when it is false. Previously the
+  RSC loaded every league and owner count unconditionally and handed them to a `'use client'`
+  component that branched with Clerk's `<Show>`, so: (a) anonymous visitors received the whole league
+  directory in the payload — `<Show>` hid it, it did not withhold it, the same shape the Phase 3
+  draft-auth fix closed; (b) no landing markup existed in server HTML at all, so the page was
+  **completely blank with JavaScript disabled**, and a slow or failed Clerk script did the same; and
+  (c) signed-in non-admins fell into the dashboard. The landing now reads nothing, so a storage fault
+  cannot break it.
+- **Owner counts resolve PER LEAGUE** through the existing `resolveLeagueSeason` (lifecycle
+  `status.year`, else the league's own year, calendar value only as a last-resort default). This page
+  was the app's ONLY league-scoped caller of `seasonYearForToday()` — which answers "which season's
+  data", not "which season is this league in" — while both history surfaces already read the league's
+  own year. With production holding one league on 2026 and the demo on 2025, it read a roster the
+  league does not have and reported "No owners" for a league with a full roster.
+- **The entry contract is now WRITTEN DOWN** (`docs/vision.md` → "Entry and access model"): members
+  arrive by commissioner-shared link; no directory, no slug input, no signup; platform admins only
+  for the dashboard. Settled in practice and in conversation but recorded nowhere, which is how it
+  drifted out of the homepage copy — the page read "Enter your league URL" above a static code sample
+  with nothing to type into. `DESIGN.md` gains a "Landing page" section; it had no homepage rules at
+  all, making this the one significant surface with no design authority.
+- Also: contrast (the sign-in link measured ~2.6:1; body copy below 4.5:1), horizontal overflow at
+  390px (the link was fixed to a viewport corner and clipped — now in normal flow), honest wording
+  ("Platform admin sign-in", since middleware admits only platform admins), the root metadata
+  description rewritten for members rather than "commissioner diagnostics", and the hand-rolled
+  positional CSV split replaced with the shared header-aware `parseOwnersCsv`.
+- Tests: first-ever coverage for this surface, 9 tests. A non-admin gets the landing with EMPTY props
+  (the no-data-crosses property, pinned directly); a poisoned registry (`[null]`) cannot break the
+  public branch, with a positive control proving the same poison does reach the admin branch, so the
+  assertion is about ordering and not a harmless fixture; per-league year resolution with both years
+  taken from the fixture rather than the clock; the shared parser and the `NoClaim` sentinel; the
+  landing's copy; and two source guards — that `PublicLanding` never becomes a client component, and
+  that the specific failing contrast tokens do not return.
+- **Stated limitation:** contrast is NOT automatically verified. The guard pins the tokens that
+  failed; the 4.5:1 ratio itself is a visual check on preview. Mobile overflow is likewise a visual
+  check.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
+  3456 → 3465. Five mutations, each compiling, applied alone, killed by a named test: read the
+  registry before the branch; apply one calendar year to every league; positional CSV split;
+  restore the copy promising an input; reintroduce a failing contrast token.
+- Status: implemented; not yet reviewed, not yet merged.
+
 ### INSIGHTS-022-OFFSEASON-ROSTER-CONTENT-v1
 
 - Purpose: Keep the retrospective rookie benchmark available through the whole offseason, and stop

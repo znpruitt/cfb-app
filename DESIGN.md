@@ -218,6 +218,30 @@ Supersedes: (none)
 - User preference override: deferred until user accounts are built
 - When adding user override: switch Tailwind to `class` strategy, add theme provider
 
+## Landing page (`/`)
+
+PLATFORM-088. Governs the signed-out root only; the platform-admin dashboard behind the same route is
+an operator surface and follows the admin conventions instead.
+
+- **It is an entry page, not a marketing site.** Say what Turf War is in a sentence or two, then get
+  an invited member into their league. No feature tour, no screenshots, no pricing, no testimonials.
+- **Members arrive by shared link.** There is no slug input, no public league directory, and no
+  signup on this page — the entry contract is recorded in `docs/vision.md`. Copy must not imply an
+  affordance the page does not have: the previous version read "Enter your league URL" above a static
+  code sample with nothing to type into.
+- **Server-rendered, always.** The landing must render without JavaScript and without Clerk. It
+  branched client-side until F2-era PLATFORM-088; the page was blank with JS disabled, and a slow or
+  failed auth script produced the same result. It must also read no league or registry data — a
+  visitor who has never heard of this league should not depend on its storage being available.
+- **Normal text meets 4.5:1 in both themes.** `text-gray-400` on white measures ~2.6:1 and
+  `dark:text-zinc-600` on `zinc-950` is worse; neither is acceptable for body copy or links. Use
+  `text-gray-600 dark:text-zinc-400` or stronger.
+- **No horizontal overflow at 390px.** Keep the single content column inside `max-w-lg` with real
+  horizontal padding, break long strings, and keep the sign-in affordance in normal flow — fixing it
+  to a viewport corner clipped it on small screens.
+- **Affordances are named for who can actually use them.** The sign-in link reads "Platform admin
+  sign-in" because middleware admits only platform admins; it previously said "Commissioner login".
+
 ## Scope discipline
 
 - Do not add features not explicitly requested

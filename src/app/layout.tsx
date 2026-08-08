@@ -18,8 +18,11 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: 'Turf War',
+  // PLATFORM-088 — describes the member-facing product. It previously advertised
+  // "commissioner diagnostics", which is an operator concern and not what a member
+  // arriving from a shared link is here for.
   description:
-    'College football league dashboard for schedules, matchups, standings, and commissioner diagnostics.',
+    'A college football pool for your league — weekly matchups, live scores, standings, and season history.',
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
