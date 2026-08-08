@@ -1,6 +1,6 @@
 import Link from 'next/link';
 
-import AppHeaderActions from '@/components/menu/AppHeaderActions';
+import SignOutControl from '@/components/home/SignOutControl';
 
 /**
  * PLATFORM-088 — the public entry page. A SERVER component, deliberately.
@@ -31,6 +31,12 @@ import AppHeaderActions from '@/components/menu/AppHeaderActions';
  * loop with no sign-out and no explanation. They previously reached the dashboard
  * and its account menu, so removing that was a regression this slice introduced.
  * They still see no league data; they gain an exit and a reason.
+ *
+ * The exit is server-DECIDED. A second attempt used the account dropdown, which
+ * re-derives auth in the browser and therefore offered "Sign in" until Clerk
+ * hydrated — pointing at `/login`, which returns an already-signed-in user to
+ * `/`. The loop reopened for anyone on a slow connection. Passing the fact down
+ * instead of letting a client component guess it is what closes that.
  */
 export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boolean }) {
   return (
@@ -80,12 +86,12 @@ export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boo
               <p className="text-sm text-gray-600 dark:text-zinc-400">
                 You&apos;re signed in, but this account doesn&apos;t have platform admin access.
               </p>
-              {/* The account menu already distinguishes signed-in from signed-out
-                  itself and offers Manage account / Sign out. Reused rather than
-                  rebuilt so there is one sign-out path in the app. */}
-              <div className="flex justify-center">
-                <AppHeaderActions isAdmin={false} />
-              </div>
+              {/* A control that decides nothing. Whether it appears is settled on
+                  the server, so it is correct from first paint. The previous
+                  version used the account dropdown, which re-derived auth in the
+                  browser and showed "Sign in" until Clerk hydrated — reopening
+                  the loop this exists to close. */}
+              <SignOutControl />
             </div>
           ) : (
             <Link

@@ -110,24 +110,48 @@ export async function resolvePlatformAdminDecision(req?: Request): Promise<Platf
 }
 
 /**
- * PLATFORM-088 — is there ANY Clerk session? Identity, not role.
+ * PLATFORM-088 — both session facts from ONE auth resolution.
  *
- * Auth invariant 6 forbids hardcoded ROLE checks outside the designated helpers;
- * this asks only whether someone is signed in, and it lives in that same
- * designated module rather than being inlined at a call site. It exists because
- * a signed-in NON-admin needs a way to end their session: they see the public
- * landing, and without this the page cannot tell them apart from a stranger and
- * offers them no exit.
+ * The homepage needs two things: is anyone signed in (identity), and are they a
+ * platform admin (role). Resolving them independently was a defect: the first
+ * attempt added a separate `isSignedInSession()` that called `auth()` without the
+ * blank-secret precondition `resolvePlatformAdminDecision` applies a few lines
+ * above. On a deployment with `CLERK_SECRET_KEY` unset those two disagree —
+ * Clerk's header-signature check degrades to an HMAC over the empty string, so
+ * the admin decision refuses while the identity check happily reports a session.
+ * The page would then tell a LEGITIMATE ADMIN that their account lacks the role.
  *
- * Fails CLOSED to "not signed in" — a Clerk outage should degrade to the plain
- * public landing, never to a broken page.
+ * One call, one precondition, both facts, and they cannot contradict each other.
+ * Both fail CLOSED: a missing secret or a Clerk outage yields the plain public
+ * landing, which is the safe page in every case.
+ *
+ * This is NOT a replacement for `resolvePlatformAdminDecision` — AGENTS.md
+ * invariant 8 requires Server Actions to use that closed decision, which supplies
+ * a refusal REASON this boolean pair deliberately does not. It also carries no
+ * `Request`, so it never reaches the `ADMIN_API_TOKEN` branch; a page render has
+ * no request to authenticate with, exactly as `isPlatformAdminSession()` behaves
+ * when called with no argument.
  */
-export async function isSignedInSession(): Promise<boolean> {
+export type SessionFacts = {
+  isSignedIn: boolean;
+  isPlatformAdmin: boolean;
+};
+
+export async function resolveSessionFacts(): Promise<SessionFacts> {
+  const secret = process.env.CLERK_SECRET_KEY;
+  if (!secret || secret.trim() === '') {
+    return { isSignedIn: false, isPlatformAdmin: false };
+  }
+
   try {
-    const { userId } = await auth();
-    return Boolean(userId);
+    const { userId, sessionClaims } = await auth();
+    const isSignedIn = Boolean(userId);
+    return {
+      isSignedIn,
+      isPlatformAdmin: isSignedIn && isPlatformAdminClaims(sessionClaims),
+    };
   } catch {
-    return false;
+    return { isSignedIn: false, isPlatformAdmin: false };
   }
 }
 

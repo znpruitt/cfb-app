@@ -220,8 +220,11 @@ Supersedes: (none)
 
 ## Landing page (`/`)
 
-PLATFORM-088. Governs the signed-out root only; the platform-admin dashboard behind the same route is
-an operator surface and follows the admin conventions instead.
+PLATFORM-088. Governs **both states of the public landing** — the signed-out visitor AND the
+signed-in non-admin, who receives the same page. Scoping this to "signed-out only" was itself a
+defect: it left the signed-in state with no design authority, which is how a JavaScript-dependent
+sign-out control slipped past the no-JavaScript rule three bullets below. The platform-admin
+dashboard behind the same route is an operator surface and follows the admin conventions instead.
 
 - **It is an entry page, not a marketing site.** Say what Turf War is in a sentence or two, then get
   an invited member into their league. No feature tour, no screenshots, no pricing, no testimonials.
@@ -229,10 +232,19 @@ an operator surface and follows the admin conventions instead.
   signup on this page — the entry contract is recorded in `docs/vision.md`. Copy must not imply an
   affordance the page does not have: the previous version read "Enter your league URL" above a static
   code sample with nothing to type into.
-- **Server-rendered, always.** The landing must render without JavaScript and without Clerk. It
-  branched client-side until F2-era PLATFORM-088; the page was blank with JS disabled, and a slow or
-  failed auth script produced the same result. It must also read no league or registry data — a
+- **Server-rendered, always.** The landing's CONTENT must render without JavaScript and without
+  Clerk. It branched client-side until PLATFORM-088; the page was blank with JS disabled, and a slow
+  or failed auth script produced the same result. It must also read no league or registry data — a
   visitor who has never heard of this league should not depend on its storage being available.
+- **Every auth-dependent affordance is decided on the SERVER, never re-derived in the browser.** A
+  control that inspects `isLoaded`/`isSignedIn` client-side shows the wrong thing until Clerk
+  hydrates — on this page that meant offering "Sign in" to someone already signed in, pointing at
+  `/login`, which returns them here: a loop on any slow connection. Pass the resolved fact down as a
+  prop and let the control own only its click.
+- **Content renders without JavaScript; a control may still need it to ACT.** Sign-out calls Clerk
+  from the browser, and no server-side teardown is reachable from a plain form post. That is not a
+  hole in the rule above: Clerk's sign-IN is equally client-side, so no session can exist without
+  JavaScript having run. State this distinction rather than claiming more than is true.
 - **Normal text meets 4.5:1 in both themes.** `text-gray-400` on white measures ~2.6:1 and
   `dark:text-zinc-600` on `zinc-950` is worse; neither is acceptable for body copy or links. Use
   `text-gray-600 dark:text-zinc-400` or stronger.

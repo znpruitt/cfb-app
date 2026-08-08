@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { buildHomeView } from '../homeView.tsx';
 import PublicLanding from '../../components/home/PublicLanding.tsx';
+import SignOutControl from '../../components/home/SignOutControl.tsx';
 import AdminLeagueDashboard from '../../components/home/AdminLeagueDashboard.tsx';
 import type { League } from '../../lib/league.ts';
 import {
@@ -39,6 +40,22 @@ function league(slug: string, year: number, status: League['status']): League {
     createdAt: '2022-01-01T00:00:00.000Z',
     status,
   };
+}
+
+/**
+ * Does the tree contain an element of this component type?
+ *
+ * `collectStrings` cannot answer this: a child element is an object whose `type`
+ * is the component function and whose props here are booleans, so it contributes
+ * no strings. That is exactly how the first version of the "way out" test passed
+ * while pinning nothing — deleting the control left every assertion green.
+ */
+function containsComponent(node: unknown, target: unknown): boolean {
+  if (Array.isArray(node)) return node.some((child) => containsComponent(child, target));
+  if (!node || typeof node !== 'object') return false;
+  const el = node as { type?: unknown; props?: { children?: unknown } };
+  if (el.type === target) return true;
+  return containsComponent(el.props?.children, target);
 }
 
 function collectStrings(node: unknown, out: string[] = []): string[] {
@@ -238,12 +255,21 @@ test('the landing avoids the text tokens that failed contrast', () => {
 // reached the dashboard and its account menu, so this was a regression the slice
 // introduced — it withheld the data correctly and removed the exit with it.
 test('a signed-in non-admin is given a way out and a reason', () => {
-  const strings = collectStrings(PublicLanding({ isSignedIn: true })).join(' ');
+  const tree = PublicLanding({ isSignedIn: true });
+  const strings = collectStrings(tree).join(' ');
 
   assert.match(strings, /doesn.t have platform admin access/i, 'it says why they are refused');
   assert.ok(
     !/Platform admin sign-in/i.test(strings),
     'and does not offer sign-in to someone already signed in'
+  );
+  // The WAY OUT, pinned by presence rather than by copy. An earlier version of
+  // this test asserted only the sentence above, so deleting the control entirely
+  // left the whole suite green — and a too-coarse mutation (removing the branch,
+  // which took the sentence with it) reported that gap as covered.
+  assert.ok(
+    containsComponent(tree, SignOutControl),
+    'the landing must actually render a sign-out control, not just explain the refusal'
   );
 });
 
@@ -251,10 +277,14 @@ test('a signed-in non-admin is given a way out and a reason', () => {
 // no session copy, so the assertions above discriminate rather than describing
 // the page in every state.
 test('a signed-out visitor is offered sign-in, not sign-out', () => {
-  const strings = collectStrings(PublicLanding({ isSignedIn: false })).join(' ');
+  const tree = PublicLanding({ isSignedIn: false });
+  const strings = collectStrings(tree).join(' ');
 
   assert.match(strings, /Platform admin sign-in/i);
   assert.ok(!/doesn.t have platform admin access/i.test(strings));
+  // POSITIVE CONTROL for `containsComponent` — it returns false when the control
+  // is genuinely absent, so the assertion above discriminates.
+  assert.ok(!containsComponent(tree, SignOutControl), 'no sign-out for a stranger');
 });
 
 // The landing still carries NO league data in either state — the exit is an
@@ -282,4 +312,37 @@ test('the login page returns to the root, not to /admin', () => {
     !/forceRedirectUrl="\/admin"/.test(source),
     'sending a non-admin to /admin is half of the sign-in loop'
   );
+});
+
+// REGRESSION TEST — the exit decides NOTHING in the browser.
+//
+// The second attempt used `AppHeaderActions`, which branches on
+// `isLoaded && isSignedIn` and therefore rendered "Sign in" until Clerk hydrated
+// — pointing at `/login`, which returns an already-signed-in user to `/`. The
+// loop reopened for anyone on a slow connection who clicked promptly. The
+// replacement takes no auth input at all; presence is settled on the server.
+test('the sign-out control does not re-derive auth in the browser', () => {
+  // Comments are stripped first. Both files DISCUSS the rejected approach by
+  // name in their header docs, so a naive scan matches the explanation rather
+  // than the code — the same false positive that inflated an earlier audit's
+  // label count.
+  const codeOf = (rel: string) =>
+    readFileSync(join(process.cwd(), rel), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '');
+
+  const control = codeOf('src/components/home/SignOutControl.tsx');
+  assert.ok(!/useUser|useAuth|isSignedIn|isLoaded/.test(control), 'it reads no auth state');
+  assert.ok(!/AppHeaderActions/.test(control), 'and is not the account dropdown');
+
+  const landing = codeOf('src/components/home/PublicLanding.tsx');
+  assert.ok(
+    !/AppHeaderActions/.test(landing),
+    'the landing must not use a control that guesses auth client-side'
+  );
+
+  // POSITIVE CONTROL — the stripper leaves real code intact, so the assertions
+  // above are not passing because everything was stripped away.
+  assert.match(control, /useClerk/, 'the sign-out call itself is still present');
+  assert.match(landing, /SignOutControl/, 'and the landing still renders it');
 });

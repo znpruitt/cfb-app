@@ -133,6 +133,36 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - Remediation verification: test delta 3465 → 3475. Four further mutations, each compiling, applied
   alone, killed by a named test: remove the signed-in exit; never pass the identity fact through;
   count the `NoClaim` sentinel as a person; reopen the login loop.
+- **CORRECTION — that first mutation claim was OVERSTATED, and a second review round proved it.**
+  "Remove the signed-in exit" flipped the whole `isSignedIn` branch off, which removed the
+  explanatory sentence along with the control — and the sentence is what the test asserted. Deleting
+  ONLY the control left the entire suite green, verified directly. The exit was never pinned. A
+  mutation that removes more than the property it claims to test yields a false green, and the false
+  conclusion was written into this ledger. The exit is now pinned by PRESENCE (`containsComponent`
+  walks for the component type, which `collectStrings` structurally cannot see) with a positive
+  control proving that helper returns false when the control is genuinely absent.
+- **Round 2, owner-approved. All four findings were caused by round 1's own remediation.**
+  - **The exit re-derived auth in the browser.** `AppHeaderActions` branches on
+    `isLoaded && isSignedIn`, so until Clerk hydrated it offered "Sign in" → `/login` → back to `/`:
+    the loop reopened for anyone on a slow connection. `/code-review` framed this as a
+    JavaScript-disabled defect; that population is nearly empty by construction, since Clerk's
+    sign-in is itself client-side, so the HYDRATION RACE is the reachable defect. Replaced with
+    `SignOutControl`, which takes no auth input — presence is settled on the server.
+  - **`isSignedInSession()` bypassed the blank-secret refusal** (flagged by BOTH reviewers).
+    Replaced with `resolveSessionFacts()`: one `auth()` call, one precondition, both facts, failing
+    closed together. With `CLERK_SECRET_KEY` unset the old pair could disagree and tell a LEGITIMATE
+    ADMIN their account lacked the role.
+  - **A limitation found BY the mutation pass and recorded rather than glossed:** the two
+    behavioural blank-secret tests cannot discriminate. Removing the precondition leaves them green,
+    because `auth()` throws in the test environment regardless and the catch returns the same
+    both-false result. The STRUCTURAL test (one `auth()` call, guarded by the same precondition) is
+    what actually kills that mutation. Stated in the test file so the next reader is not misled into
+    thinking three passing tests mean three tests' worth of coverage.
+  - **The DESIGN.md landing section was scoped "signed-out root only"** while the same page serves
+    signed-in non-admins — leaving that state with no design authority, which is precisely how the
+    JavaScript-dependent exit passed a no-JavaScript rule three bullets below it. Re-scoped, and the
+    rule now separates "content renders without JS" from "a control may need JS to act", which is
+    the honest form.
 - Status: implemented and reviewed (`/code-review` + `/codex:review`, both against `24aa693`);
   remediation complete; not yet merged.
 
