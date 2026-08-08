@@ -39,12 +39,24 @@ Supersedes: (none)
    server-rendered, reads no league data for anyone who is not a platform admin, and owner counts
    resolve per league. The **entry contract** is recorded in `docs/vision.md` and `DESIGN.md` gained
    a landing section it never had.
-4. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written; it was queued behind
-   the homepage only because the homepage had live defects.
-5. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+4. **NEXT — POLISH-004-PUBLIC-HOMEPAGE-STADIUM.** The approved landing-specific visual treatment for
+   the public homepage. **Scope boundary, owner-stated 2026-08-08: landing only — NOT a logo and NOT
+   an app-wide branding system.** The broader HOMEPAGE-BRAND-IDENTITY item below stays deferred and
+   is not absorbed by this.
+   - **The treatment itself is not yet recorded in this repo.** It appears nowhere in `docs/`,
+     `DESIGN.md`, or the registry, and must be captured here before implementation rather than
+     carried in a chat transcript — the same failure mode as the entry contract, which drifted out of
+     the homepage copy precisely because it was settled everywhere except in writing (PLATFORM-088).
+   - **Known conflict to resolve first:** `DESIGN.md` → "Landing page" states that a brand accent
+     "is a token defined once and applied app-wide, and it amends the colour rules above in the same
+     change. It is not a homepage patch." A landing-only visual treatment is that shape. If the
+     treatment introduces colour, that rule is amended in the same change; if it is purely
+     structural or typographic, the rule stands and the entry should say so.
+5. Then: **INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
+6. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
    History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
    later.
-6. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
+7. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
    schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its first
    qualifying automatic presentation refresh from production evidence when it occurs.
 
@@ -1165,7 +1177,10 @@ Items surfaced during the Insights Panel Redesign + Polish campaign and queued f
   **Shape.** A recap scores high at rollover, decays over weeks, and settles into rotation rather than vanishing. Roster content stays eligible year-round with a lift approaching preseason. Historical content holds a flat baseline and rises naturally as seasonal content decays — the desired rebalance achieved by NOT special-casing anything.
   **Constraints.** (1) Decay needs an anchor; the only true one is the most recent archive's `archivedAt` (already loaded into the insight context) — a calendar date reintroduces the arbitrariness this replaces. (2) It SUPERSEDES `fresh_offseason` rather than complementing it: if weight is time-derived, that state exists only to approximate "recently", and collapsing it back to one `offseason` state is a breaking change to every generator's lifecycle list and to `deriveLifecycleState`. (3) Existing `priorityScore` values are per-generator constants on no shared scale; making them commensurable is the bulk of the work, not the decay mechanism.
   Precedent worth reusing: `framing.ts` already has `applyLastSeasonFraming` — the system can already reframe an insight for distance, it just cannot re-rank for it.
-- **HOMEPAGE-BRAND-IDENTITY** — Turf War has no visual identity: no logo, no brand token in
+- **HOMEPAGE-BRAND-IDENTITY — STILL DEFERRED.** Owner-confirmed 2026-08-08 that
+  POLISH-004-PUBLIC-HOMEPAGE-STADIUM does NOT absorb this: that slice is the landing-specific
+  treatment only, not a logo and not an app-wide branding system. This item remains the app-wide
+  work. Turf War has no visual identity: no logo, no brand token in
   `globals.css`, and `public/` still holds the Next.js starter SVGs. PLATFORM-088 gave the landing
   typographic hierarchy and deliberately added NO colour — `DESIGN.md` reserves amber for champion
   signals and blue for interactivity and states that no colour is decorative, so an accent on a
