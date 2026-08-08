@@ -110,6 +110,28 @@ export async function resolvePlatformAdminDecision(req?: Request): Promise<Platf
 }
 
 /**
+ * PLATFORM-088 — is there ANY Clerk session? Identity, not role.
+ *
+ * Auth invariant 6 forbids hardcoded ROLE checks outside the designated helpers;
+ * this asks only whether someone is signed in, and it lives in that same
+ * designated module rather than being inlined at a call site. It exists because
+ * a signed-in NON-admin needs a way to end their session: they see the public
+ * landing, and without this the page cannot tell them apart from a stranger and
+ * offers them no exit.
+ *
+ * Fails CLOSED to "not signed in" — a Clerk outage should degrade to the plain
+ * public landing, never to a broken page.
+ */
+export async function isSignedInSession(): Promise<boolean> {
+  try {
+    const { userId } = await auth();
+    return Boolean(userId);
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Boolean compatibility wrapper over `resolvePlatformAdminDecision`. Existing
  * callers (`requireAdminAuth`, `isAuthorizedForLeague`) keep their shape; use
  * the decision directly when the REASON matters.

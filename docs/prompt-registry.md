@@ -105,7 +105,36 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   3456 → 3465. Five mutations, each compiling, applied alone, killed by a named test: read the
   registry before the branch; apply one calendar year to every league; positional CSV split;
   restore the copy promising an input; reintroduce a failing contrast token.
-- Status: implemented; not yet reviewed, not yet merged.
+- **Review remediation, one round, both reviews gathered against `24aa693` first.** Both reviewers
+  independently found the same Medium: a signed-in NON-ADMIN was TRAPPED. They get the public
+  landing, whose only control linked to `/login`, which redirected to `/admin`, which middleware
+  bounces back — a closed loop with no sign-out and no explanation. They previously reached the
+  dashboard and its account menu, so this slice REMOVED their only exit. It withheld the data
+  correctly and took the way out with it — the [[platform_086f2i]] lesson: ask what a change makes
+  IMPOSSIBLE, not only what it prevents. Fixed at both halves: `isSignedInSession()` (identity, not
+  role, in the designated auth module, failing closed) drives an account control and a plain
+  statement of why they are refused, and `/login` now returns to `/` rather than `/admin`. The
+  landing still carries no league data in either state, pinned directly.
+- **A VACUOUS ASSERTION inside the flagship regression test.** `collectStrings(view)` was passed the
+  UNRENDERED `<PublicLanding />`, whose children are undefined, so the walk always returned `[]` and
+  the `.some(...)` could never be true no matter what the component rendered. The property was
+  genuinely pinned by the neighbouring `deepEqual` on props, so coverage was not actually missing —
+  but the assertion read as an independent check and was not one. Replaced with an exact prop-SET
+  comparison, which fails the moment league data reappears. Third vacuous assertion caught in this
+  campaign; the tell each time is asserting over a structure that cannot contain the thing sought.
+- **AGENTS.md invariant 9, broken for the SECOND time** (PLATFORM-086F2H3B1 was the first): "all
+  derived league data must be computed in `src/lib/selectors/`". The owner counting was pre-existing
+  inline in `page.tsx`, and this slice's first pass relocated it into `src/components/` — the same
+  violation in a new place. Extracted to `src/lib/selectors/leagueOwnerCounts.ts` (pure, 6 tests) and
+  `homeView.tsx` moved to `src/app/`. That move closes a second hazard the reviewer named: the module
+  transitively imports `appStateStore`, which imports `pg`, so under `src/components/` a client
+  component could have pulled a database driver into the browser bundle with no `server-only` guard
+  to stop it. A test now asserts it does not live there.
+- Remediation verification: test delta 3465 → 3475. Four further mutations, each compiling, applied
+  alone, killed by a named test: remove the signed-in exit; never pass the identity fact through;
+  count the `NoClaim` sentinel as a person; reopen the login loop.
+- Status: implemented and reviewed (`/code-review` + `/codex:review`, both against `24aa693`);
+  remediation complete; not yet merged.
 
 ### INSIGHTS-022-OFFSEASON-ROSTER-CONTENT-v1
 

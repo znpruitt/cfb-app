@@ -1,5 +1,7 @@
 import Link from 'next/link';
 
+import AppHeaderActions from '@/components/menu/AppHeaderActions';
+
 /**
  * PLATFORM-088 — the public entry page. A SERVER component, deliberately.
  *
@@ -22,8 +24,15 @@ import Link from 'next/link';
  * members arrive through a link their commissioner sends them. No slug input, no
  * public directory, no signup. So this page explains what Turf War is and points
  * invited members at their link — it is NOT a marketing site.
+ *
+ * `isSignedIn` exists because a signed-in NON-admin lands here too, and the first
+ * version of this page TRAPPED them: its only control was a link to `/login`,
+ * which redirects to `/admin`, which middleware bounces back to here — a closed
+ * loop with no sign-out and no explanation. They previously reached the dashboard
+ * and its account menu, so removing that was a regression this slice introduced.
+ * They still see no league data; they gain an exit and a reason.
  */
-export default function PublicLanding() {
+export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boolean }) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-white px-6 py-16 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
       <div className="w-full max-w-lg space-y-6 text-center">
@@ -51,15 +60,29 @@ export default function PublicLanding() {
         </div>
 
         {/* In normal flow rather than fixed to the corner: at a 390px viewport the
-            fixed positioning clipped this link off the edge. */}
-        <p className="pt-2">
-          <Link
-            href="/login"
-            className="text-sm text-gray-600 underline-offset-2 transition-colors hover:text-gray-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
-          >
-            Platform admin sign-in
-          </Link>
-        </p>
+            fixed positioning clipped this off the edge. */}
+        {isSignedIn ? (
+          <div className="space-y-3 pt-2">
+            <p className="text-sm text-gray-600 dark:text-zinc-400">
+              You&apos;re signed in, but this account doesn&apos;t have platform admin access.
+            </p>
+            {/* The account menu already distinguishes signed-in from signed-out
+                itself and offers Manage account / Sign out. Reused rather than
+                rebuilt so there is one sign-out path in the app. */}
+            <div className="flex justify-center">
+              <AppHeaderActions isAdmin={false} />
+            </div>
+          </div>
+        ) : (
+          <p className="pt-2">
+            <Link
+              href="/login"
+              className="text-sm text-gray-600 underline-offset-2 transition-colors hover:text-gray-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
+            >
+              Platform admin sign-in
+            </Link>
+          </p>
+        )}
       </div>
     </main>
   );
