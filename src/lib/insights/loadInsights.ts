@@ -91,6 +91,16 @@ function emptyResponse(
  */
 const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
 
+/**
+ * Insight-copy policy version (INSIGHTS-022). Two changes with no runtime
+ * invalidation signal, the same shape as the projection version above: career
+ * generators no longer emit the "Returning owner" prefix, and the rookie
+ * benchmark is eligible through ordinary offseason. Neither touches standings,
+ * so no tag fires — without this, warm entries would keep serving the retracted
+ * copy and keep omitting the offseason card until the TTL lapsed.
+ */
+const INSIGHT_COPY_POLICY_VERSION = 'insights022-neutral-career-copy-v1';
+
 export function insightsCacheKeyParts(slug: string, resolvedYear: number): string[] {
   // `alias-overrides:` mirrors canonical standings: the curated catalog-alias
   // policy is applied at read time and feeds identity resolution here, so it is
@@ -102,6 +112,7 @@ export function insightsCacheKeyParts(slug: string, resolvedYear: number): strin
     `seeds:${SEED_ALIASES_HASH}`,
     `alias-overrides:${ALIAS_OVERRIDES_HASH}`,
     `analytics:${ANALYTICS_PROJECTION_VERSION}`,
+    `copy:${INSIGHT_COPY_POLICY_VERSION}`,
   ];
 }
 
@@ -212,7 +223,7 @@ async function computeRawInsights(
 ): Promise<RawInsightsPayload> {
   const context = await buildLeagueInsightContext(slug, resolvedYear, currentDate);
   return {
-    rawInsights: generateRawInsights(context),
+    rawInsights: generateRawInsights(context, { bypassSuppression: false }),
     lifecycleState: context.lifecycleState,
     generatedAt: currentDate.toISOString(),
   };

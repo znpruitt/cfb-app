@@ -23,27 +23,28 @@ export function getRegisteredGenerators(): readonly InsightGenerator[] {
   return generators;
 }
 
-/*
- * INSIGHTS-022 — the cross-cutting `shouldSuppressGenerator` filter was REMOVED.
+/**
+ * Cross-cutting suppression rules layered on top of `supportedLifecycles`.
  *
- * It carried exactly one rule: skip `career:rookie_benchmark` whenever the
- * roster was borrowed from an archive, on the grounds that borrowed "current"
- * owners are really returning members and rookie detection would mislabel them.
- * That case cannot occur. `isRookie` is `firstSeason === context.currentYear`,
- * and `currentYear` is `league.year`, which stays on the COMPLETED season
- * through offseason — the same season the borrowed roster comes from. So the
- * roster and the rookie test are keyed to the same year and agree, and the card
- * says which year out loud ("finished 4th as a rookie in 2025"). Once the league
- * advances to the next year, no prior-season debutant satisfies `isRookie` at
- * all, so the generator produces nothing on its own.
+ * `supportedLifecycles` is the static, generator-declared filter ("this generator
+ * runs in these lifecycle states"). `shouldSuppressGenerator` is the dynamic,
+ * context-aware filter ("but skip in *this* specific situation"). Use it for
+ * clean (id, lifecycle, flag)-based skips. Row-content checks (e.g. all rows
+ * 0-0) live inside the generator itself, where the data is already in scope.
  *
- * Removing the rule left the filter with no rules, and an always-false gate is
- * untestable machinery rather than a policy, so it went with it. Generator-level
- * skips that depend on context belong inside the generator, where the data is in
- * scope; `supportedLifecycles` remains the static declaration of when a
- * generator runs. `bypassSuppression` on `runInsightsEngine` is unaffected — it
- * still governs the durable suppression records, which is its substantive job.
+ * Add a new rule by appending another id-based branch — keep each rule narrow
+ * and well-commented so the suppression logic stays auditable.
  */
+function shouldSuppressGenerator(g: InsightGenerator, context: InsightContext): boolean {
+  // Rookie benchmark identifies first-archive owners as rookies. When the
+  // current roster is borrowed from a prior archive (rollover window), every
+  // owner read as "current" is actually a returning member, so the rookie
+  // detection would mislabel them. Skip until the current-year CSV exists.
+  if (g.id === 'career:rookie_benchmark' && context.usingArchivedRoster) {
+    return true;
+  }
+  return false;
+}
 
 export type RunInsightsEngineOptions = {
   bypassSuppression?: boolean;
@@ -51,14 +52,21 @@ export type RunInsightsEngineOptions = {
 
 /**
  * Pure, deterministic generation half of the engine: run every lifecycle-
- * matching generator and keep the positively-scored insights. NO suppression, NO sort/slice, NO I/O — the result is a function of
+ * matching generator (with the cross-cutting `shouldSuppressGenerator` gate,
+ * itself skipped under `bypassSuppression`) and keep the positively-scored
+ * insights. NO suppression, NO sort/slice, NO I/O — the result is a function of
  * `context` alone, which is what makes it safe to cache upstream
  * (`loadInsightsForLeague` caches this output; suppression is applied per
  * request against the cached set).
  */
-export function generateRawInsights(context: InsightContext): Insight[] {
+export function generateRawInsights(
+  context: InsightContext,
+  options: RunInsightsEngineOptions = {}
+): Insight[] {
+  const { bypassSuppression = false } = options;
   return generators
     .filter((g) => g.supportedLifecycles.includes(context.lifecycleState))
+    .filter((g) => bypassSuppression || !shouldSuppressGenerator(g, context))
     .flatMap((g) => {
       try {
         return g.generate(context);
@@ -106,7 +114,7 @@ export async function runInsightsEngine(
   options: RunInsightsEngineOptions = {}
 ): Promise<Insight[]> {
   const { bypassSuppression = false } = options;
-  const raw = generateRawInsights(context);
+  const raw = generateRawInsights(context, options);
 
   // bypassSuppression (admin/diagnostic): return the raw set sorted/sliced, with
   // no suppression filter and no records written.

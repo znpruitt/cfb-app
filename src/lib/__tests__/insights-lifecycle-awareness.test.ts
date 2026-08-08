@@ -19,6 +19,7 @@ import {
 import { ballSecurityGenerator } from '../insights/generators/stats';
 import type {
   InsightContext,
+  InsightGenerator,
   LifecycleState,
   OwnerCareerStats,
   OwnerSeasonStats,
@@ -470,10 +471,19 @@ async function runRookieOnly(lifecycleState: LifecycleState, usingArchivedRoster
     const ctx = makeContext({
       lifecycleState,
       usingArchivedRoster,
+      // `currentYear` MUST match the archive year. Production computes
+      // `isRookie` as `firstSeason === currentYear`, and `currentYear` is
+      // `league.year`, which through offseason is still the COMPLETED season —
+      // 2025 here, the same season the archive and the debut come from. Leaving
+      // the 2026 default while forcing `isRookie: true` would pin a combination
+      // the real system cannot produce, and the test would prove nothing about
+      // the state this slice actually makes visible.
+      currentYear: 2025,
       ownerCareerStats: [
         careerStats({
           owner: 'NewOwner',
           seasons: 1,
+          firstSeason: 2025,
           isRookie: true,
           finishHistory: [{ year: 2025, rank: 4 }],
         }),
@@ -504,30 +514,28 @@ test('the same fixture still produces the benchmark in fresh_offseason', async (
   assert.ok(insights.some((i) => i.type === 'rookie_benchmark'));
 });
 
-// REGRESSION TEST — the borrowed-roster block is GONE, and this is the change
-// that makes the card actually visible during offseason. The old rule assumed a
-// borrowed roster would mislabel someone; it cannot. `isRookie` compares against
-// `context.currentYear` (== `league.year`), which stays on the COMPLETED season
-// through offseason — the same season the borrowed roster comes from — so the
-// two agree, and the description names the year explicitly.
-test('the rookie benchmark survives a borrowed roster in ordinary offseason', async () => {
+// REGRESSION TEST — widening the lifecycle list must NOT reach the borrowed-roster
+// safeguard. AGENTS.md invariant 5 requires the rookie card to be suppressed
+// there outright, because there is no valid framing for a first-archive-owner
+// comparison drawn from someone else's roster.
+//
+// This does not cost the offseason visibility this slice is for: `league.year`
+// stays on the COMPLETED season through offseason and that season's owners CSV is
+// never deleted, so `usingArchivedRoster` is false for that whole stretch and the
+// guard never fires there.
+test('the rookie benchmark is still suppressed on a borrowed roster', async () => {
   const insights = await runRookieOnly('offseason', true);
-  const rookie = insights.find((i) => i.type === 'rookie_benchmark');
-  assert.ok(rookie, 'a borrowed roster no longer hides the card');
-  assert.match(
-    rookie.description,
-    /as a rookie in 2025\b/,
-    `the claim must name the season it is about; got: ${rookie.description}`
+  assert.ok(
+    !insights.some((i) => i.type === 'rookie_benchmark'),
+    'the borrowed-roster safeguard survives the lifecycle widening'
   );
 });
 
 // ---------------------------------------------------------------------------
-// INSIGHTS-022 — the generator's own borrowed-roster guard is gone too. It
-// duplicated the engine rule, so leaving it would have made the engine change
-// invisible.
+// rookieBenchmarkGenerator: skip when usingArchivedRoster
 // ---------------------------------------------------------------------------
 
-test('rookieBenchmarkGenerator still produces its insight when usingArchivedRoster=true', () => {
+test('rookieBenchmarkGenerator returns empty when usingArchivedRoster=true', () => {
   const owner = 'NewOwner';
   const stats = careerStats({
     owner,
@@ -554,8 +562,7 @@ test('rookieBenchmarkGenerator still produces its insight when usingArchivedRost
     ],
   });
   const insights = rookieBenchmarkGenerator.generate(context);
-  assert.equal(insights.length, 1, 'a borrowed roster is no longer a reason to hide it');
-  assert.equal(insights[0]!.type, 'rookie_benchmark');
+  assert.deepEqual(insights, []);
 });
 
 // ---------------------------------------------------------------------------
@@ -633,13 +640,64 @@ test('rookieBenchmarkGenerator runs across both offseason states and preseason',
 });
 
 // ---------------------------------------------------------------------------
-// INSIGHTS-022 — the generator-level `bypassSuppression` test was REMOVED with
-// the filter it covered. It worked by registering a fake generator under the id
-// `career:rookie_benchmark` to trip the one rule that existed; with no rules,
-// there is nothing for it to assert.
-//
-// `bypassSuppression` itself is NOT gone and is not weakened: on
-// `runInsightsEngine` it still decides whether the durable suppression records
-// are applied and written (`applySuppression`), which is its substantive job and
-// is covered by `insights-cache.test.ts`.
+// Engine: bypassSuppression must skip the new shouldSuppressGenerator filter
+// (Phase 3 Codex remediation: admin diagnostic runs need every generator's
+// output, including ones that are normally filtered for content reasons.)
 // ---------------------------------------------------------------------------
+
+test('runInsightsEngine respects bypassSuppression for the generator-level filter', async () => {
+  // The shouldSuppressGenerator rule keys on `id === 'career:rookie_benchmark'`,
+  // so the fake generator below must reuse that id to exercise the suppression
+  // path. Save and restore the global generator registry so other tests in this
+  // file (and in any other test file run in the same process) keep working.
+  const original = [...getRegisteredGenerators()];
+  clearGenerators();
+
+  let invocations = 0;
+  const fakeGenerator: InsightGenerator = {
+    id: 'career:rookie_benchmark',
+    category: 'historical',
+    supportedLifecycles: ['fresh_offseason'],
+    generate: () => {
+      invocations += 1;
+      return [
+        {
+          id: 'fake-suppress-target',
+          type: 'rookie_benchmark',
+          title: 'fake',
+          description: 'fake',
+          priorityScore: 100,
+          newsHook: 'snapshot',
+          statValue: 1,
+        },
+      ];
+    },
+  };
+  registerGenerator(fakeGenerator);
+
+  try {
+    const ctx = makeContext({
+      lifecycleState: 'fresh_offseason',
+      usingArchivedRoster: true,
+    });
+
+    invocations = 0;
+    const filtered = await runInsightsEngine(ctx, { bypassSuppression: false });
+    assert.equal(invocations, 0, 'generator should be filtered out without bypass');
+    assert.equal(
+      filtered.some((i) => i.id === 'fake-suppress-target'),
+      false
+    );
+
+    invocations = 0;
+    const bypassed = await runInsightsEngine(ctx, { bypassSuppression: true });
+    assert.equal(invocations, 1, 'generator should run when bypassSuppression=true');
+    assert.equal(
+      bypassed.some((i) => i.id === 'fake-suppress-target'),
+      true
+    );
+  } finally {
+    clearGenerators();
+    for (const g of original) registerGenerator(g);
+  }
+});

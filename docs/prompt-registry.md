@@ -57,33 +57,47 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - Purpose: Keep the retrospective rookie benchmark available through the whole offseason, and stop
   four career cards from calling people "Returning owner" on the strength of a borrowed prior-season
   roster.
-- Scope: `src/lib/insights/generators/career.ts`, `src/lib/insights/framing.ts`,
-  `src/lib/insights/engine.ts`, two call sites of `generateRawInsights`, the lifecycle-awareness
-  suite, and the owning ledger entries. No API, storage, UI layout, ranking, priority, or durable
-  suppression changes.
+- Scope: `src/lib/insights/generators/career.ts`, `src/lib/insights/framing.ts`, the insights cache
+  identity in `src/lib/insights/loadInsights.ts`, AGENTS.md invariant 5, the lifecycle-awareness and
+  cache suites, and the owning ledger entries. No API, storage, UI layout, ranking, priority,
+  engine, or durable suppression changes.
 - **The plan's own premise was half wrong, and verifying it changed the work.** The backlog claimed
   `ROOKIE` and `RETURNING_OWNER_TRENDING` were both gated to `['fresh_offseason', 'preseason']` and
   both went dark in ordinary offseason. `RETURNING_OWNER_TRENDING_LIFECYCLES` was never an
   eligibility gate — `TRENDING_LIFECYCLES` already contained `offseason`, and that constant only
   decided whether a copy prefix was applied. Career trends never went dark.
-- **The rookie card was blocked by TWO independent gates, and opening one would have changed
-  nothing.** Widening `ROOKIE_LIFECYCLES` was the stated fix, but an engine-level rule hid the card
-  whenever the current roster was borrowed from an archive — the normal state for that entire
-  stretch, since the current-year owners CSV does not exist until the preseason flow runs. The plan
-  preserved that rule while promising the card would appear, which it could not have.
-- **The preserved safeguard guarded a case that cannot occur, and the evidence is why it was
-  removed.** `isRookie` is `firstSeason === context.currentYear`, and `currentYear` is `league.year`,
-  which stays on the COMPLETED season through offseason — the same season a borrowed roster comes
-  from. Roster and rookie test are keyed to the same year and agree; the description names the year
-  in its own text ("finished 4th as a rookie in 2025"); and once the league advances, no prior-season
-  debutant satisfies `isRookie` at all. Owner ruling (2026-08-08): treat the card as retrospective
-  and remove both gates.
-- **Removing the rule emptied a framework, so the framework went too.** `shouldSuppressGenerator`
-  carried exactly one rule. An always-false cross-cutting gate is untestable machinery rather than a
-  policy, so it and its filter were deleted along with the now-unused `options` parameter on
-  `generateRawInsights`. `bypassSuppression` on `runInsightsEngine` is UNCHANGED and not weakened: it
-  still decides whether durable suppression records are applied and written, which is its
-  substantive job.
+- **A CENTRAL CLAIM IN THE FIRST IMPLEMENTATION WAS FALSE, and both reviews caught it.** The
+  original analysis held that widening `ROOKIE_LIFECYCLES` alone would change nothing, because an
+  engine-level rule hid the card whenever the roster was borrowed from an archive — asserted to be
+  the normal state for the whole offseason. It is not. `completeSeasonRollover` keeps `league.year`
+  on the COMPLETED season and nothing deletes `owners:<slug>:<year>`, so the current roster is
+  present and `usingArchivedRoster` is FALSE through `fresh_offseason` and `offseason`; it becomes
+  true only in `preseason`, once `league.year` has advanced past the last archive. **The lifecycle
+  widening alone delivers the entire user-visible outcome.**
+- **That false premise pulled an unnecessary engine change into scope, and it violated TWO binding
+  invariants.** Deleting `shouldSuppressGenerator` broke AGENTS.md invariant 4 (the generator-level
+  suppression layer must exist and be bypassable), and removing the rookie guard broke invariant 5,
+  which names `rookie_benchmark` as the case where suppressing outright is correct. AGENTS.md was
+  never consulted before changing the engine — the same failure as PLATFORM-086F2H3B1. **Reverted in
+  full** on owner ruling: `engine.ts`, `loadInsights.ts`'s call site, the cache-suite call site, the
+  generator's own guard, and the `bypassSuppression` test are all back to their `main` state, and
+  the guard now carries a comment explaining why it does NOT block the offseason card.
+- **Why the widening is safe on its own.** `isRookie` is `firstSeason === context.currentYear`, and
+  `currentYear` is `league.year` — through offseason still the COMPLETED season, the same season the
+  archive and the debut come from. The card names that year in its own text ("finished 4th as a
+  rookie in 2025"), and once the league advances no prior-season debutant satisfies `isRookie` at
+  all, so the generator falls silent by itself. The borrowed-roster guard remains for `preseason`,
+  the only state that reaches it.
+- **Invariant 5 IS amended, because the returning-owner removal genuinely conflicts with it.** The
+  rule required reframing archived-roster output with `applyReturningOwnerFraming`. It now states
+  that framing may only restate WHEN data is from and must never assert who will participate, and
+  records why. A product decision that contradicts a binding rule amends the rule in the same
+  change; it does not quietly break it.
+- **Cache identity bumped.** Both changes are copy/eligibility POLICY with no runtime invalidation
+  signal — they touch no standings input, so no tag fires. `insightsCacheKeyParts` gains
+  `copy:insights022-neutral-career-copy-v1`, following the precedent the same file sets for
+  `ANALYTICS_PROJECTION_VERSION`; without it, warm entries keep serving retracted copy until the TTL
+  lapses.
 - **The returning-owner prefix was the real defect.** Four generators prefixed descriptions with
   "Returning owner" whenever the roster was borrowed. A borrowed roster proves someone PLAYED; it
   never proves they will play again, so the copy asserted a future fact from past data — and it fired
@@ -94,16 +108,19 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   a separate feature and this slice deliberately does not attempt it.
 - Tests: rookie benchmark produced in ordinary offseason (driven through `runInsightsEngine`, because
   `generate()` never consults `supportedLifecycles` and a direct call would pass with the widening
-  reverted); a positive control that the same fixture still fires in `fresh_offseason`; the card
-  surviving a borrowed roster with its year named; a lifecycle contract pin; and a named regression
-  test asserting no career generator emits the prefix, which requires each of the four to produce
-  output first so a silent generator cannot pass it vacuously. Nine stale tests removed with the
-  behaviour they pinned. Test delta 3459 → 3455.
+  reverted); a positive control that the same fixture still fires in `fresh_offseason`; a regression
+  test that the borrowed-roster guard still suppresses it, so the widening cannot reach the
+  safeguard; a lifecycle contract pin; a named regression test asserting no career generator emits
+  the prefix, which requires each of the four to produce output first so a silent generator cannot
+  pass it vacuously; and the cache-key pin extended. **The fixture was corrected at review:** it had
+  left `currentYear` at the 2026 default while supplying a 2025 archive and forcing `isRookie: true`
+  — a combination production cannot produce, since `isRookie` is derived from those two values. It
+  now uses 2025 throughout, the state the argument actually rests on. Test delta 3459 → 3456.
 - Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
   `git diff --check` each run as their own command with unmasked exit status, all clean. Four
   mutations, each compiling, applied alone, killed by a named test: revert the lifecycle widening;
-  reinstate the generator's borrowed-roster guard; reinstate the engine-level rule; reinstate the
-  returning-owner prefix on one generator.
+  remove the generator's borrowed-roster guard; reinstate the returning-owner prefix on one
+  generator; drop the copy-policy version from the cache identity.
 - Status: implemented; not yet reviewed, not yet merged.
 
 ### PLATFORM-086F2H1R4-ROLLOVER-YEAR-VALIDITY-v1

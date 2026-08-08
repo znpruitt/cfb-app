@@ -835,10 +835,18 @@ export const rookieBenchmarkGenerator: InsightGenerator = {
   supportedLifecycles: ROOKIE_LIFECYCLES,
   tone: 'factual',
   generate(context) {
-    // INSIGHTS-022 — no borrowed-roster guard. It mirrored an engine-level rule
-    // that guarded an impossible case: `isRookie` is keyed to `currentYear`
-    // (== `league.year`), the same season a borrowed roster comes from, so the
-    // two always agree. See the note in `engine.ts`.
+    // Engine-level suppression already filters this out when usingArchivedRoster
+    // is set (rookie detection on a borrowed roster is wrong); the duplicate
+    // guard here keeps the generator safe if invoked directly.
+    //
+    // INSIGHTS-022 kept this. Widening the lifecycle list is what makes the card
+    // visible in ordinary offseason, and it needs no help from here: `league.year`
+    // stays on the COMPLETED season through offseason and that season's owners CSV
+    // is never deleted, so `usingArchivedRoster` is FALSE for that whole stretch
+    // and this guard does not fire. It fires in preseason, which is what
+    // AGENTS.md invariant 5 requires — there is no valid framing for a
+    // first-archive-owner comparison drawn from a borrowed roster.
+    if (context.usingArchivedRoster) return [];
     const insight = deriveRookieBenchmark(context);
     return insight ? [insight] : [];
   },
