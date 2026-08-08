@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { POST } from '../route';
+import { PATCH } from '../[slug]/route';
 import { maxCreatableSeasonYear, MIN_SEASON_YEAR, type League } from '../../../../../lib/league.ts';
 import {
   __deleteAppStateFileForTests,
@@ -27,6 +28,17 @@ function createRequest(body: unknown): Request {
     headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN },
     body: JSON.stringify(body),
   });
+}
+
+function PATCH_FOR_TEST(slug: string, body: unknown) {
+  return PATCH(
+    new Request(`https://example.com/api/admin/leagues/${slug}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN_TOKEN },
+      body: JSON.stringify(body),
+    }),
+    { params: Promise.resolve({ slug }) }
+  );
 }
 
 async function readRegistry(): Promise<League[]> {
@@ -193,9 +205,19 @@ test('an explicit adopt acknowledgement lets the same slug be restored', async (
   assert.equal(refused.status, 409, 'not by accident');
 
   const adopted = await POST(
-    createRequest({ slug: 'ghost', displayName: 'G', year: 2025, adoptExistingData: true })
+    createRequest({
+      slug: 'ghost',
+      displayName: 'G',
+      year: 2025,
+      adoptExistingData: true,
+      restoreFoundedYear: 2019,
+    })
   );
   assert.equal(adopted.status, 201, 'but possible on purpose');
+  // PLATFORM-086F2J — a restoration restores the FOUNDING YEAR too. Without
+  // this the adoption path brought back rosters and archives while silently
+  // stamping the league with the restoration date.
+  assert.equal((await readRegistry())[0]!.foundedYear, 2019);
   assert.deepEqual(
     (await readRegistry()).map((l) => l.slug),
     ['ghost']
@@ -215,9 +237,16 @@ test('the demo slug can be restored after its data has been written', async () =
   assert.equal(refused.status, 409);
 
   const restored = await POST(
-    createRequest({ slug: 'test', displayName: 'Demo', year: 2025, adoptExistingData: true })
+    createRequest({
+      slug: 'test',
+      displayName: 'Demo',
+      year: 2025,
+      adoptExistingData: true,
+      restoreFoundedYear: 2024,
+    })
   );
   assert.equal(restored.status, 201, 'the demo league is recoverable');
+  assert.equal((await readRegistry())[0]!.foundedYear, 2024);
 });
 
 // The acknowledgement must be the EXPLICIT boolean — a truthy string arriving
@@ -231,4 +260,92 @@ test('only a literal true adopts; a truthy value does not', async () => {
   );
   assert.equal(res.status, 409, 'a truthy string is not an acknowledgement');
   assert.deepEqual(await readRegistry(), []);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2J — the RECOVERY-ONLY founding year.
+//
+// Freezing `foundedYear` made restoration silently rewrite it to today. The
+// recovery value is narrow by construction: a SEPARATE field name, accepted only
+// alongside a deliberate adoption, and refused on ordinary creation — so general
+// editing and legacy imports stay closed.
+// ---------------------------------------------------------------------------
+
+test('restoreFoundedYear is refused on ordinary creation', async () => {
+  await setAppState('leagues', 'registry', []);
+
+  const res = await POST(
+    createRequest({ slug: 'fresh', displayName: 'Fresh', year: 2025, restoreFoundedYear: 1999 })
+  );
+
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /only accepted when adopting/i);
+  assert.deepEqual(await readRegistry(), [], 'nothing was created');
+});
+
+// REQUIRED rather than defaulted: a restoration that silently invented a
+// founding year is the exact defect this closes.
+test('adopting without a restore year is refused', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team');
+
+  const res = await POST(
+    createRequest({ slug: 'ghost', displayName: 'G', year: 2025, adoptExistingData: true })
+  );
+
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /required when adopting/i);
+  assert.deepEqual(await readRegistry(), [], 'nothing was created');
+});
+
+test('a restore year outside the accepted range is refused', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team');
+
+  for (const bad of [1899, 2.5, 'nineteen', 99999]) {
+    const res = await POST(
+      createRequest({
+        slug: 'ghost',
+        displayName: 'G',
+        year: 2025,
+        adoptExistingData: true,
+        restoreFoundedYear: bad,
+      })
+    );
+    assert.equal(res.status, 400, `expected refusal for ${JSON.stringify(bad)}`);
+    assert.deepEqual(await readRegistry(), []);
+  }
+});
+
+// POSITIVE CONTROL — ordinary creation still DERIVES the value and is
+// unaffected, so the refusals above are about the recovery field specifically.
+test('ordinary creation still derives the founding year', async () => {
+  await setAppState('leagues', 'registry', []);
+
+  const res = await POST(createRequest({ slug: 'fresh', displayName: 'Fresh', year: 2025 }));
+
+  assert.equal(res.status, 201);
+  const stored = (await readRegistry())[0]!;
+  assert.equal(stored.foundedYear, new Date().getUTCFullYear());
+});
+
+// The recovery window closes at creation: PATCH still refuses the field, so a
+// restored league cannot then be edited freely.
+test('a restored league still cannot have its founding year edited afterwards', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team');
+
+  await POST(
+    createRequest({
+      slug: 'ghost',
+      displayName: 'G',
+      year: 2025,
+      adoptExistingData: true,
+      restoreFoundedYear: 2019,
+    })
+  );
+
+  const res = await PATCH_FOR_TEST('ghost', { foundedYear: 2001 });
+  assert.equal(res.status, 409);
+  assert.equal((await readRegistry())[0]!.foundedYear, 2019, 'the restored value stands');
 });

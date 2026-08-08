@@ -20,7 +20,14 @@ export default function LeagueSettingsForm({
   const [displayName, setDisplayName] = useState(initialDisplayName);
   // PLATFORM-086F2J — display only; there is no setter because the value is
   // frozen at creation and this form no longer submits it.
-  const foundedYear = String(initialFoundedYear ?? new Date().getFullYear());
+  //
+  // NO fallback to the current year. While the field was editable, that fallback
+  // was a DEFAULT an operator could correct; making the field read-only turned
+  // the same expression into a fabricated immutable fact — a record predating the
+  // field would report "Founded Year 2026" with no way to fix it, while
+  // `/league/<slug>` correctly renders no `Est.` line at all for the same record.
+  // Absent is shown as absent.
+  const foundedYear = initialFoundedYear == null ? '' : String(initialFoundedYear);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | undefined>();
 
@@ -123,6 +130,7 @@ export default function LeagueSettingsForm({
             type="text"
             value={foundedYear}
             readOnly
+            placeholder="Not recorded"
             aria-label="Founded year"
             className={`${inputClass} cursor-default text-gray-400 dark:text-zinc-500`}
           />

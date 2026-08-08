@@ -2,6 +2,25 @@ import ViewMoreLink from '@/components/navigation/ViewMoreLink';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
 
+/**
+ * PLATFORM-086F2J — surfaced on `/admin` after existing with no inbound link.
+ *
+ * Two known limitations, both left as-is and both recorded, because linking a
+ * page is not licence to rewrite it:
+ *
+ * 1. `rolloverNeeded` compares `league.year` against the CALENDAR year, its own
+ *    rule rather than the lifecycle authority. Rollover is gated on the CFP
+ *    championship plus a seven-day delay, so between January 1 and roughly late
+ *    January every league reads "behind" while nothing is wrong. The copy now
+ *    says "calendar year" rather than implying the league is late.
+ * 2. The demo league is excluded from automatic rollover entirely, so its row
+ *    stays red indefinitely.
+ *
+ * What DID have to change is the instruction. It read "run rollover first",
+ * which has been impossible since F2H3A retired manual execution and F2H4
+ * deleted the page and route that offered it — surfacing this panel would have
+ * made a dead instruction discoverable, which is worse than leaving it hidden.
+ */
 export default async function DraftSequencingPanel() {
   const leagues = await getLeagues();
 
@@ -65,8 +84,8 @@ export default async function DraftSequencingPanel() {
               </span>
               <span className="text-gray-500 dark:text-zinc-400">
                 {rolloverNeeded
-                  ? `Active year ${league.year} is behind current year ${currentYear} — run rollover first`
-                  : `Active year ${league.year} matches current year`}
+                  ? `Active year ${league.year} is behind calendar year ${currentYear}. Rollover is automatic — see System Health for the season-rollover job.`
+                  : `Active year ${league.year} matches calendar year`}
               </span>
             </div>
 

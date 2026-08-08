@@ -417,8 +417,11 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
         </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500 dark:text-zinc-400">From owner</label>
+            <label className="text-xs text-gray-500 dark:text-zinc-400" htmlFor="bulk-from-owner">
+              From owner
+            </label>
             <input
+              id="bulk-from-owner"
               type="text"
               value={bulkFrom}
               onChange={(e) => setBulkFrom(e.target.value)}
@@ -427,8 +430,11 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
             />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-xs text-gray-500 dark:text-zinc-400">To owner</label>
+            <label className="text-xs text-gray-500 dark:text-zinc-400" htmlFor="bulk-to-owner">
+              To owner
+            </label>
             <input
+              id="bulk-to-owner"
               type="text"
               value={bulkTo}
               onChange={(e) => setBulkTo(e.target.value)}

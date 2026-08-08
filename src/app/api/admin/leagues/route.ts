@@ -98,6 +98,62 @@ export async function POST(req: Request): Promise<Response> {
   // `adoptExistingData: true`, which is the same standard as the delete
   // confirmation — impossible by accident, available when it is what you mean.
   const adoptExistingData = obj.adoptExistingData === true;
+
+  // PLATFORM-086F2J — the RECOVERY-ONLY founding year.
+  //
+  // F2J froze `foundedYear` after creation, which made restoring an accidentally
+  // deleted league silently rewrite its founding year to today: the F2I adoption
+  // path brings back rosters, drafts, and archives, but the `Est. N` header would
+  // read the restoration date with no correction path anywhere. That is a
+  // regression this slice introduced, not an inherited limitation.
+  //
+  // Narrow by construction. It is a SEPARATE field name — `restoreFoundedYear`,
+  // not `foundedYear` — so it cannot be reached by a caller who merely wants to
+  // set a founding year: it exists only alongside a deliberate adoption, and it
+  // is REFUSED on ordinary creation. That keeps general editing and legacy
+  // imports closed while making accidental-delete recovery whole.
+  //
+  // REQUIRED when adopting, rather than defaulting to the derived year: a
+  // restoration that silently invented a founding year is the exact defect this
+  // exists to close, so the caller must state the value they are restoring.
+  const hasRestoreYear = 'restoreFoundedYear' in obj;
+  if (hasRestoreYear && !adoptExistingData) {
+    return new Response(
+      'restoreFoundedYear is only accepted when adopting the surviving data of a previously ' +
+        'deleted league (adoptExistingData: true). Ordinary league creation derives the founding ' +
+        'year and accepts no value for it.',
+      { status: 400 }
+    );
+  }
+
+  let restoreFoundedYear: number | undefined;
+  if (adoptExistingData) {
+    if (!hasRestoreYear) {
+      return new Response(
+        'restoreFoundedYear is required when adopting surviving data: restoring a league must ' +
+          'restore its founding year rather than silently recording the restoration date.',
+        { status: 400 }
+      );
+    }
+    const candidate =
+      typeof obj.restoreFoundedYear === 'number'
+        ? obj.restoreFoundedYear
+        : typeof obj.restoreFoundedYear === 'string'
+          ? Number(obj.restoreFoundedYear)
+          : NaN;
+    if (
+      !Number.isInteger(candidate) ||
+      candidate < 1900 ||
+      candidate > maxCreatableSeasonYear(nowMs)
+    ) {
+      return new Response(
+        `restoreFoundedYear must be an integer year between 1900 and ${maxCreatableSeasonYear(nowMs)}`,
+        { status: 400 }
+      );
+    }
+    restoreFoundedYear = candidate;
+  }
+
   const residual = adoptExistingData ? [] : await findResidualLeagueScopes(slug);
   if (residual.length > 0) {
     return new Response(
@@ -132,7 +188,9 @@ export async function POST(req: Request): Promise<Response> {
     // never played. The calendar year matches the coming season for most of the
     // year; a December creation records N while the league first plays N+1, and
     // that is accepted rather than special-cased.
-    foundedYear: now.getUTCFullYear(),
+    // On a RESTORATION this is the value the operator supplied; on ordinary
+    // creation it is derived and there is no way to influence it.
+    foundedYear: restoreFoundedYear ?? now.getUTCFullYear(),
     status: { state: 'season', year },
   };
 

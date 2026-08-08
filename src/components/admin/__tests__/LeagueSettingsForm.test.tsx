@@ -73,6 +73,23 @@ test('the founding year is still displayed', () => {
   getByText('Founded Year');
 });
 
+// REGRESSION TEST — a record predating the field must not be shown an invented
+// one. While the input was editable a current-year fallback read as a DEFAULT an
+// operator could correct; read-only turns the same expression into a fabricated
+// immutable fact, and `/league/<slug>` shows no `Est.` line for that record — so
+// the two surfaces would disagree, with the frozen one inventing the data.
+test('a league with no recorded founding year shows no year', () => {
+  const { getByRole } = renderForm(undefined);
+  const input = getByRole('textbox', { name: /founded year/i }) as HTMLInputElement;
+
+  assert.equal(input.value, '', 'absent is shown as absent');
+  assert.equal(input.placeholder, 'Not recorded');
+  assert.ok(
+    !input.value.includes(String(new Date().getFullYear())),
+    'and specifically not the current year'
+  );
+});
+
 test('saving sends the display name and NEVER the founding year', async () => {
   const user = userEvent.setup({ document: dom.window.document });
   const { getByRole } = renderForm(2018);

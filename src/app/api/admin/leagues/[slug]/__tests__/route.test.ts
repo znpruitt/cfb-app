@@ -163,7 +163,7 @@ test('display-name editing remains green', async () => {
 });
 
 // REGRESSION TEST — an existing BACKDATED value survives. The fixture is 2018
-// (TSC's real value) rather than the current year on purpose: a fixture equal to
+// rather than the current year on purpose: a fixture equal to
 // today's year cannot distinguish "preserved" from "silently recomputed", and
 // this slice explicitly performs no migration.
 test('a backdated foundedYear survives both a refused and a successful PATCH', async () => {

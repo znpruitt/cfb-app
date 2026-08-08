@@ -145,14 +145,32 @@ test('generic updateLeague still supports configuration fields', async () => {
     makeLeague('alpha', 2024, { state: 'season', year: 2024 }),
   ]);
 
-  const updated = await updateLeague('alpha', { displayName: 'Renamed', foundedYear: 2001 });
+  const updated = await updateLeague('alpha', { displayName: 'Renamed' });
 
   assert.equal(updated?.displayName, 'Renamed');
   const stored = (await readRegistry())[0]!;
   assert.equal(stored.displayName, 'Renamed');
-  assert.equal(stored.foundedYear, 2001);
   assert.equal(stored.year, 2024, 'lifecycle fields untouched');
   assert.deepEqual(stored.status, { state: 'season', year: 2024 });
+});
+
+// PLATFORM-086F2J — this test previously pinned `foundedYear` as an updatable
+// configuration field. It is now frozen at creation, and the guard lives HERE
+// rather than only on the PATCH route: every server caller reaches the registry
+// through this function, so a route-level check alone would have left the
+// contract unenforced for Server Actions, scripts, and future routes.
+test('updateLeague refuses foundedYear and writes nothing', async () => {
+  await setAppState('leagues', 'registry', [
+    { ...makeLeague('alpha', 2024, { state: 'season', year: 2024 }), foundedYear: 2018 },
+  ]);
+  const before = await readRegistry();
+
+  await assert.rejects(
+    () => updateLeague('alpha', { foundedYear: 2001 } as Parameters<typeof updateLeague>[1]),
+    /cannot mutate foundedYear/
+  );
+
+  assert.deepEqual(await readRegistry(), before, 'the stored value is untouched');
 });
 
 test('getLeagues reflects the single-write synchronization', async () => {

@@ -92,7 +92,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 ### 0. INSIGHTS-021 — current-year authority — DROPPED; repaired as data instead
 
 **Not implemented. Decision 2026-08-06: repair the drifted registry row and drop the slice.**
-`NEXT` returned to F2H2 (§1 below); F2H2 and F2H3 have since completed, and `NEXT` is now F2I.
+`NEXT` returned to F2H2 (§1 below); F2H2, F2H3, and F2I have since completed, and `NEXT` is now F2J — the final F2 slice.
 
 **The defect.** `buildLeagueInsightContext` derives `lifecycleState` from `league.status` (correct)
 but took `currentYear` from the top-level `league.year` projection, so on the live `tsc` shape
@@ -846,12 +846,32 @@ Execution order within F2 (each slice is one independently deployable PR):
         F2C/F2D: roster upload is `/admin/[slug]/roster`; historical repair is `HistoricalCachePanel`
         on Data Maintenance. Verified, not assumed.
       - _Reconcile the orphaned draft page_ — ✅ **done here**, by surfacing it.
-      - _Rebuild `/admin` around the agreed hierarchy_ — **RETIRED by owner ruling** (2026-08-08).
+      - _Rebuild `/admin` around the agreed hierarchy_ — **RETIRED by owner ruling** during the F2J audit.
         Navigation stays; one card added. "Commissioner Tools" is kept deliberately as the name of
         the intended product.
-      - _Accessibility/browser verification_ — **NOT a code slice and NOT done.** Outstanding manual
-        QA against the `preview` deployment, owned by the operator. F2J did associate every label on
-        `LeagueSettingsForm` with its input, which is a fraction of it, not a discharge.
+      - _Accessibility/browser verification_ — **SPLIT, and both halves resolved.**
+        - **The mechanical half is DONE.** Every `<label>` across `src/app/admin` and
+          `src/components/admin` is now associated with its control — seven fixed here on top of
+          those in the two forms F2J already touched, verified by a repo-wide check that now
+          reports zero. Previously a screen reader announced those inputs with no name.
+        - **The manual half is RETIRED as a charter item, by owner ruling.** Cross-browser
+          rendering, keyboard navigation, contrast, and screen-reader flow across everything
+          F2A–F2J rebuilt is a real piece of work that deserves scheduling on its own, not a merge
+          gate on the final slice. It is not a code deliverable and F2 does not wait on it.
+          **Re-planned as a dedicated pass before public launch**, when the surfaces have stopped
+          moving and there are real users to serve. The operator performs a short check of what
+          F2J itself changed against `preview` before merge — see the PR for the exact list.
+    - **OPEN, raised at review and NOT resolved here — needs an owner decision.** Creation mints
+      `foundedYear` unconditionally and PATCH now refuses every update, so **restoring an
+      accidentally deleted league rewrites its founding year to the current year, permanently**. The
+      F2I adoption path (`adoptExistingData: true`) restores rosters, drafts, and archives, but the
+      `Est. N` header would read the restoration date with no correction path anywhere in the app.
+      The same gap means a legacy record with no value can never acquire one.
+      The obvious fix — an optional `foundedYear` on POST, valid only at creation — was
+      **explicitly ruled out** by the owner ("no planned support for legacy leagues; that was a TSC
+      only activity"), and that ruling was made before this consequence was known. It is recorded
+      rather than reversed unilaterally. **Trigger: the first time a league is deleted and restored,
+      or the first time a legacy record needs a founding year.**
     - **Follow-up recorded:** `DraftSequencingPanel` computes `rolloverNeeded` as
       `league.year < new Date().getUTCFullYear()` — its own calendar rule, independent of the
       lifecycle authority. Read-only display, left alone here.

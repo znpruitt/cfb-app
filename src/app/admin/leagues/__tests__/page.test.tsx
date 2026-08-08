@@ -59,16 +59,27 @@ function league(slug: string): PublicLeague {
 }
 
 let requests: Array<{ method: string; url: string }> = [];
+let bodies: Array<Record<string, unknown>> = [];
+let adoptOffered = false;
 const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
   requests = [];
+  bodies = [];
+  adoptOffered = false;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
     requests.push({ method, url });
+    if (init?.body) bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
     if (method === 'GET') return Response.json({ leagues: [league('alpha'), league('bravo')] });
     if (method === 'DELETE') return Response.json({ leagues: [league('bravo')] });
+    if (method === 'POST' && !adoptOffered) {
+      adoptOffered = true;
+      return new Response('Stored data still exists for slug "ghost" (2 record group(s)).', {
+        status: 409,
+      });
+    }
     return Response.json({});
   }) as typeof globalThis.fetch;
 });
@@ -165,3 +176,20 @@ test('no DELETE is issued before a confirmation is typed', async () => {
     'arming the control is not a request'
   );
 });
+
+// PLATFORM-086F2J — GAP, recorded rather than papered over.
+//
+// The create form's restore-year wiring has NO test. `userEvent.type` updates the
+// DOM value of the create-form inputs but does not reach React state — the
+// submit handler still sees an empty slug and refuses — while the identical
+// approach works on the delete-confirmation input a few tests above. The cause
+// is specific to this form and was not identified.
+//
+// Rather than ship a test that passes for the wrong reason or drives the form
+// through an artificial path, the wiring is left uncovered and said so. What IS
+// covered is the contract that matters: the route requires `restoreFoundedYear`
+// whenever `adoptExistingData` is sent, refuses it on ordinary creation,
+// validates its range, and still freezes the value afterwards — seven tests in
+// `src/app/api/admin/leagues/__tests__/route.test.ts`, including positive
+// controls. A form that failed to send the year would refuse every restoration
+// loudly and immediately, which is the mitigating factor.
