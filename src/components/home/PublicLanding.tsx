@@ -35,15 +35,26 @@ import AppHeaderActions from '@/components/menu/AppHeaderActions';
 export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boolean }) {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-white px-6 py-16 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
-      <div className="w-full max-w-lg space-y-6 text-center">
-        <div className="space-y-3">
-          <h1 className="text-4xl font-bold tracking-tight">Turf War</h1>
-          <p className="text-lg text-gray-600 dark:text-zinc-300">
-            A college football pool for your league.
-          </p>
-        </div>
+      {/* TYPOGRAPHY, NOT DECORATION.
 
-        <p className="text-base text-gray-600 dark:text-zinc-400">
+          The page read as flat because every block sat at a similar weight with
+          uniform spacing between them — not because it lacked colour. DESIGN.md
+          reserves amber for champion signals and blue for interactivity, and
+          states plainly that no colour is decorative, so an accent here would
+          encode nothing and would promise a livelier product than the austere,
+          data-dense app behind this page.
+
+          What creates hierarchy instead: a real scale jump to the wordmark, a
+          tracked micro-caps line as a second register, a constrained measure so
+          body copy holds ~55 characters, and deliberate rather than uniform
+          vertical rhythm — tight within a group, generous between groups. */}
+      <div className="w-full max-w-lg text-center">
+        <h1 className="text-5xl font-bold tracking-tight sm:text-6xl">Turf War</h1>
+        <p className="mt-3 text-xs font-semibold tracking-[0.18em] text-gray-600 uppercase dark:text-zinc-400">
+          College football pools
+        </p>
+
+        <p className="mx-auto mt-8 max-w-sm text-base leading-relaxed text-gray-600 dark:text-zinc-300">
           Draft college teams, then follow the season together — weekly matchups, live scores,
           standings, and season history in one place.
         </p>
@@ -52,37 +63,39 @@ export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boo
             the link they were sent. Previously this read "Enter your league URL"
             above a static code sample with no input to type into — an instruction
             the page could not fulfil. */}
-        <div className="rounded-lg border border-gray-300 bg-gray-50 px-5 py-4 dark:border-zinc-800 dark:bg-zinc-900">
-          <p className="text-sm text-gray-700 dark:text-zinc-300">
+        <div className="mt-10 rounded-lg border border-gray-300 bg-gray-50 px-5 py-4 text-left dark:border-zinc-800 dark:bg-zinc-900">
+          <p className="text-sm leading-relaxed text-gray-700 dark:text-zinc-300">
             <span className="font-semibold">Already in a league?</span> Open the link your
             commissioner shared with you to go straight to it.
           </p>
         </div>
 
         {/* In normal flow rather than fixed to the corner: at a 390px viewport the
-            fixed positioning clipped this off the edge. */}
-        {isSignedIn ? (
-          <div className="space-y-3 pt-2">
-            <p className="text-sm text-gray-600 dark:text-zinc-400">
-              You&apos;re signed in, but this account doesn&apos;t have platform admin access.
-            </p>
-            {/* The account menu already distinguishes signed-in from signed-out
-                itself and offers Manage account / Sign out. Reused rather than
-                rebuilt so there is one sign-out path in the app. */}
-            <div className="flex justify-center">
-              <AppHeaderActions isAdmin={false} />
+            fixed positioning clipped this off the edge. A hairline rule separates
+            the account affordance from the member-facing content above it — a
+            structural boundary rather than an ornament. */}
+        <div className="mt-10 border-t border-gray-200 pt-6 dark:border-zinc-800">
+          {isSignedIn ? (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600 dark:text-zinc-400">
+                You&apos;re signed in, but this account doesn&apos;t have platform admin access.
+              </p>
+              {/* The account menu already distinguishes signed-in from signed-out
+                  itself and offers Manage account / Sign out. Reused rather than
+                  rebuilt so there is one sign-out path in the app. */}
+              <div className="flex justify-center">
+                <AppHeaderActions isAdmin={false} />
+              </div>
             </div>
-          </div>
-        ) : (
-          <p className="pt-2">
+          ) : (
             <Link
               href="/login"
               className="text-sm text-gray-600 underline-offset-2 transition-colors hover:text-gray-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
             >
               Platform admin sign-in
             </Link>
-          </p>
-        )}
+          )}
+        </div>
       </div>
     </main>
   );

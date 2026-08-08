@@ -241,6 +241,16 @@ an operator surface and follows the admin conventions instead.
   to a viewport corner clipped it on small screens.
 - **Affordances are named for who can actually use them.** The sign-in link reads "Platform admin
   sign-in" because middleware admits only platform admins; it previously said "Commissioner login".
+- **Hierarchy comes from TYPE, not colour.** The page carries no data, so there is nothing for colour
+  to encode — and the app's colour rules above are semantic by design (amber for champions, blue for
+  interactivity, "no colour for decoration"). An accent here would mean nothing and would promise a
+  livelier product than the austere, data-dense app behind it. When this page reads flat, the fix is
+  scale contrast, a second type register, a constrained measure, and deliberate vertical rhythm —
+  tight within a group, generous between groups — not a palette.
+- **A brand accent, if one is ever introduced, is a token defined once and applied app-wide**, and it
+  amends the colour rules above in the same change. It is not a homepage patch. Introducing brand
+  identity is its own scoped piece of work, best done when public launch is close and the surfaces
+  have stopped moving.
 
 ## Scope discipline
 
