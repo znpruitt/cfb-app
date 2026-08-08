@@ -121,7 +121,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   mutations, each compiling, applied alone, killed by a named test: revert the lifecycle widening;
   remove the generator's borrowed-roster guard; reinstate the returning-owner prefix on one
   generator; drop the copy-policy version from the cache identity.
-- Status: implemented; not yet reviewed, not yet merged.
+- Status: implemented; reviewed (`/code-review` + `/codex:review`, both against `9a23c10`); remediation complete; not yet merged.
 
 ### PLATFORM-086F2H1R4-ROLLOVER-YEAR-VALIDITY-v1
 
