@@ -52,6 +52,60 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### INSIGHTS-022-OFFSEASON-ROSTER-CONTENT-v1
+
+- Purpose: Keep the retrospective rookie benchmark available through the whole offseason, and stop
+  four career cards from calling people "Returning owner" on the strength of a borrowed prior-season
+  roster.
+- Scope: `src/lib/insights/generators/career.ts`, `src/lib/insights/framing.ts`,
+  `src/lib/insights/engine.ts`, two call sites of `generateRawInsights`, the lifecycle-awareness
+  suite, and the owning ledger entries. No API, storage, UI layout, ranking, priority, or durable
+  suppression changes.
+- **The plan's own premise was half wrong, and verifying it changed the work.** The backlog claimed
+  `ROOKIE` and `RETURNING_OWNER_TRENDING` were both gated to `['fresh_offseason', 'preseason']` and
+  both went dark in ordinary offseason. `RETURNING_OWNER_TRENDING_LIFECYCLES` was never an
+  eligibility gate — `TRENDING_LIFECYCLES` already contained `offseason`, and that constant only
+  decided whether a copy prefix was applied. Career trends never went dark.
+- **The rookie card was blocked by TWO independent gates, and opening one would have changed
+  nothing.** Widening `ROOKIE_LIFECYCLES` was the stated fix, but an engine-level rule hid the card
+  whenever the current roster was borrowed from an archive — the normal state for that entire
+  stretch, since the current-year owners CSV does not exist until the preseason flow runs. The plan
+  preserved that rule while promising the card would appear, which it could not have.
+- **The preserved safeguard guarded a case that cannot occur, and the evidence is why it was
+  removed.** `isRookie` is `firstSeason === context.currentYear`, and `currentYear` is `league.year`,
+  which stays on the COMPLETED season through offseason — the same season a borrowed roster comes
+  from. Roster and rookie test are keyed to the same year and agree; the description names the year
+  in its own text ("finished 4th as a rookie in 2025"); and once the league advances, no prior-season
+  debutant satisfies `isRookie` at all. Owner ruling (2026-08-08): treat the card as retrospective
+  and remove both gates.
+- **Removing the rule emptied a framework, so the framework went too.** `shouldSuppressGenerator`
+  carried exactly one rule. An always-false cross-cutting gate is untestable machinery rather than a
+  policy, so it and its filter were deleted along with the now-unused `options` parameter on
+  `generateRawInsights`. `bypassSuppression` on `runInsightsEngine` is UNCHANGED and not weakened: it
+  still decides whether durable suppression records are applied and written, which is its
+  substantive job.
+- **The returning-owner prefix was the real defect.** Four generators prefixed descriptions with
+  "Returning owner" whenever the roster was borrowed. A borrowed roster proves someone PLAYED; it
+  never proves they will play again, so the copy asserted a future fact from past data — and it fired
+  hardest in exactly the window where the upcoming roster is least known. Removed wholesale, along
+  with `applyReturningOwnerFraming`, its now-dead lifecycle constant, and the module doc's "two
+  registers" rationale. The generators keep their existing neutral descriptions. Identifying who is
+  genuinely returning requires comparing a FINALIZED upcoming roster against league history; that is
+  a separate feature and this slice deliberately does not attempt it.
+- Tests: rookie benchmark produced in ordinary offseason (driven through `runInsightsEngine`, because
+  `generate()` never consults `supportedLifecycles` and a direct call would pass with the widening
+  reverted); a positive control that the same fixture still fires in `fresh_offseason`; the card
+  surviving a borrowed roster with its year named; a lifecycle contract pin; and a named regression
+  test asserting no career generator emits the prefix, which requires each of the four to produce
+  output first so a silent generator cannot pass it vacuously. Nine stale tests removed with the
+  behaviour they pinned. Test delta 3459 → 3455.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Four
+  mutations, each compiling, applied alone, killed by a named test: revert the lifecycle widening;
+  reinstate the generator's borrowed-roster guard; reinstate the engine-level rule; reinstate the
+  returning-owner prefix on one generator.
+- Status: implemented; not yet reviewed, not yet merged.
+
 ### PLATFORM-086F2H1R4-ROLLOVER-YEAR-VALIDITY-v1
 
 - Purpose: Prevent malformed registry containers and unusable lifecycle years from reaching

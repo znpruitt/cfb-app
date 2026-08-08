@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { applyLastSeasonFraming, applyReturningOwnerFraming } from '../insights/framing';
+import { applyLastSeasonFraming } from '../insights/framing';
 import {
   clearGenerators,
   getRegisteredGenerators,
@@ -10,6 +10,7 @@ import {
 } from '../insights/engine';
 import { championshipRaceGenerator, seasonWrapGenerator } from '../insights/generators/existing';
 import {
+  neverFinishedLastGenerator,
   rookieBenchmarkGenerator,
   titleChaserGenerator,
   trendingGenerator,
@@ -18,7 +19,6 @@ import {
 import { ballSecurityGenerator } from '../insights/generators/stats';
 import type {
   InsightContext,
-  InsightGenerator,
   LifecycleState,
   OwnerCareerStats,
   OwnerSeasonStats,
@@ -164,46 +164,6 @@ test('applyLastSeasonFraming preserves description and other fields', () => {
   assert.equal(framed.priorityScore, 100);
 });
 
-test('applyReturningOwnerFraming prepends "Returning owner" when description starts with the owner name', () => {
-  const framed = applyReturningOwnerFraming(
-    fakeInsight({
-      owner: 'Alex',
-      description: 'Alex has finished 4th, 7th, 2nd, 8th — pick a lane.',
-    })
-  );
-  assert.equal(
-    framed.description,
-    'Returning owner Alex has finished 4th, 7th, 2nd, 8th — pick a lane.'
-  );
-});
-
-test('applyReturningOwnerFraming is idempotent', () => {
-  const once = applyReturningOwnerFraming(
-    fakeInsight({ owner: 'Alex', description: 'Alex has finished 1st.' })
-  );
-  const twice = applyReturningOwnerFraming(once);
-  assert.equal(once.description, twice.description);
-});
-
-test('applyReturningOwnerFraming skips multi-owner insights (relatedOwners present)', () => {
-  const original = fakeInsight({
-    owner: 'Alex',
-    relatedOwners: ['Blake'],
-    description: 'Alex and Blake share the lead.',
-  });
-  const framed = applyReturningOwnerFraming(original);
-  assert.equal(framed.description, original.description);
-});
-
-test("applyReturningOwnerFraming skips when description doesn't start with the owner name", () => {
-  const original = fakeInsight({
-    owner: 'Alex',
-    description: 'The race for first place is tight.',
-  });
-  const framed = applyReturningOwnerFraming(original);
-  assert.equal(framed.description, original.description);
-});
-
 // ---------------------------------------------------------------------------
 // Legacy path: deriveLeagueInsights zero-game guard
 // ---------------------------------------------------------------------------
@@ -339,36 +299,58 @@ test('seasonWrapGenerator does NOT apply framing when usingArchivedRoster=false'
 });
 
 // ---------------------------------------------------------------------------
-// Career generators: "Returning owner" framing
+// INSIGHTS-022 — career generators keep NEUTRAL descriptions on a borrowed roster.
+//
+// These four used to be prefixed "Returning owner …" whenever the roster came
+// from an archive. A borrowed roster proves someone PLAYED; it never proves they
+// will play again, so the prefix asserted a future fact from past data — and it
+// fired hardest in exactly the window where the upcoming roster is least known.
+// Identifying who is actually returning needs a FINALIZED upcoming roster
+// compared against league history, which is a separate feature. Until then the
+// neutral description is the honest one.
 // ---------------------------------------------------------------------------
 
-test('volatilityGenerator applies "Returning owner" framing when usingArchivedRoster=true', () => {
-  const owner = 'Alex';
-  const stats = careerStats({
-    owner,
-    seasons: 4,
-    finishHistory: [
-      { year: 2022, rank: 1 },
-      { year: 2023, rank: 8 },
-      { year: 2024, rank: 2 },
-      { year: 2025, rank: 7 },
-    ],
-  });
-  const context = makeContext({
-    lifecycleState: 'fresh_offseason',
+const RETURNING_OWNER_PREFIX = /^Returning owner\b/;
+
+// An eight-owner field for each of the four seasons the fixtures reference.
+// `never_last` reads field SIZE per year from the archives to decide what
+// "bottom three" means, so without archives it can never qualify and the
+// no-prefix assertion below would pass on an empty list.
+const CAREER_FIELD = ['Alex', 'Blake', 'Casey', 'Devon', 'Erin', 'Frankie', 'Gray', 'Harper'];
+
+function careerArchives() {
+  return [2022, 2023, 2024, 2025].map((year) => ({
+    leagueSlug: 'test',
+    year,
+    archivedAt: new Date().toISOString(),
+    ownerRosterSnapshot: '',
+    standingsHistory: { weeks: [], byWeek: {}, byOwner: {} },
+    finalStandings: CAREER_FIELD.map((owner) => ({ ...row(owner, 5, 5, 0), ties: 0 })),
+    games: [],
+    scoresByKey: {},
+  }));
+}
+
+function archivedRosterContext(
+  owner: string,
+  stats: OwnerCareerStats,
+  lifecycleState: LifecycleState
+) {
+  return makeContext({
+    lifecycleState,
     ownerCareerStats: [stats],
     currentRoster: new Map([['team', owner]]),
     usingArchivedRoster: true,
+    archives: careerArchives(),
   });
-  const insights = volatilityGenerator.generate(context);
-  assert.equal(insights.length, 1);
-  assert.equal(insights[0]!.description.startsWith('Returning owner Alex'), true);
-});
+}
 
-test('volatilityGenerator does NOT apply framing when usingArchivedRoster=false', () => {
-  const owner = 'Alex';
-  const stats = careerStats({
-    owner,
+// REGRESSION TEST — reinstating the framing in ANY of the four fails here by
+// name. Each generator is asserted to produce output first, so a generator that
+// silently stops firing cannot pass this by emitting nothing.
+test('no career generator calls anyone a returning owner on a borrowed roster', () => {
+  const volatilityStats = careerStats({
+    owner: 'Alex',
     seasons: 4,
     finishHistory: [
       { year: 2022, rank: 1 },
@@ -377,21 +359,8 @@ test('volatilityGenerator does NOT apply framing when usingArchivedRoster=false'
       { year: 2025, rank: 7 },
     ],
   });
-  const context = makeContext({
-    lifecycleState: 'fresh_offseason',
-    ownerCareerStats: [stats],
-    currentRoster: new Map([['team', owner]]),
-    usingArchivedRoster: false,
-  });
-  const insights = volatilityGenerator.generate(context);
-  assert.equal(insights.length, 1);
-  assert.equal(insights[0]!.description.startsWith('Returning owner'), false);
-});
-
-test('titleChaserGenerator applies "Returning owner" framing when usingArchivedRoster=true', () => {
-  const owner = 'Blake';
-  const stats = careerStats({
-    owner,
+  const titleStats = careerStats({
+    owner: 'Blake',
     seasons: 4,
     titles: 0,
     finishHistory: [
@@ -401,25 +370,8 @@ test('titleChaserGenerator applies "Returning owner" framing when usingArchivedR
       { year: 2025, rank: 4 },
     ],
   });
-  const context = makeContext({
-    lifecycleState: 'preseason',
-    ownerCareerStats: [stats],
-    currentRoster: new Map([['team', owner]]),
-    usingArchivedRoster: true,
-  });
-  const insights = titleChaserGenerator.generate(context);
-  assert.equal(insights.length, 1);
-  assert.equal(
-    insights[0]!.description.startsWith('Returning owner Blake'),
-    true,
-    `Expected "Returning owner Blake" prefix, got: ${insights[0]!.description}`
-  );
-});
-
-test('trendingGenerator applies framing only in preseason / fresh_offseason with usingArchivedRoster', () => {
-  const owner = 'Casey';
-  const stats = careerStats({
-    owner,
+  const trendingStats = careerStats({
+    owner: 'Casey',
     seasons: 4,
     finishHistory: [
       { year: 2022, rank: 8 },
@@ -428,36 +380,154 @@ test('trendingGenerator applies framing only in preseason / fresh_offseason with
       { year: 2025, rank: 1 },
     ],
   });
-  const baseCtx: Partial<InsightContext> = {
-    ownerCareerStats: [stats],
-    currentRoster: new Map([['team', owner]]),
-    usingArchivedRoster: true,
-  };
+  const neverLastStats = careerStats({
+    owner: 'Devon',
+    seasons: 4,
+    finishHistory: [
+      { year: 2022, rank: 2 },
+      { year: 2023, rank: 3 },
+      { year: 2024, rank: 2 },
+      { year: 2025, rank: 3 },
+    ],
+  });
 
-  const preseasonInsights = trendingGenerator.generate(
-    makeContext({ ...baseCtx, lifecycleState: 'preseason' })
-  );
-  assert.equal(preseasonInsights.length > 0, true);
-  assert.equal(preseasonInsights[0]!.description.startsWith('Returning owner Casey'), true);
+  const cases = [
+    { name: 'volatility', gen: volatilityGenerator, owner: 'Alex', stats: volatilityStats },
+    { name: 'never_last', gen: neverFinishedLastGenerator, owner: 'Devon', stats: neverLastStats },
+    { name: 'title_chaser', gen: titleChaserGenerator, owner: 'Blake', stats: titleStats },
+    { name: 'trending', gen: trendingGenerator, owner: 'Casey', stats: trendingStats },
+  ];
 
-  // early_season: framing should NOT apply (current-year context exists)
-  const earlySeasonInsights = trendingGenerator.generate(
-    makeContext({ ...baseCtx, lifecycleState: 'early_season' })
-  );
-  if (earlySeasonInsights.length > 0) {
-    assert.equal(
-      earlySeasonInsights[0]!.description.startsWith('Returning owner'),
-      false,
-      'Trending in early_season should not get returning-owner framing'
-    );
+  for (const { name, gen, owner, stats } of cases) {
+    // `preseason` is where the framing used to be unconditional for all four.
+    const insights = gen.generate(archivedRosterContext(owner, stats, 'preseason'));
+    assert.ok(insights.length > 0, `${name} must produce an insight for this fixture`);
+    for (const insight of insights) {
+      assert.ok(
+        !RETURNING_OWNER_PREFIX.test(insight.description),
+        `${name} must not claim a returning owner; got: ${insight.description}`
+      );
+      assert.ok(
+        insight.description.startsWith(owner),
+        `${name} keeps its neutral description opening with the owner name; got: ${insight.description}`
+      );
+    }
   }
 });
 
+// CONTRACT PIN — trending was ALWAYS eligible in ordinary offseason; only its
+// framing was lifecycle-gated. The backlog claimed this content went dark, which
+// was wrong, and the correction is worth pinning so it is not "restored".
+test('trending still runs in ordinary offseason, framed or not', () => {
+  const stats = careerStats({
+    owner: 'Casey',
+    seasons: 4,
+    finishHistory: [
+      { year: 2022, rank: 8 },
+      { year: 2023, rank: 6 },
+      { year: 2024, rank: 4 },
+      { year: 2025, rank: 1 },
+    ],
+  });
+
+  const insights = trendingGenerator.generate(archivedRosterContext('Casey', stats, 'offseason'));
+  assert.ok(insights.length > 0, 'trending was never gated out of ordinary offseason');
+  assert.ok(!RETURNING_OWNER_PREFIX.test(insights[0]!.description));
+});
+
 // ---------------------------------------------------------------------------
-// rookieBenchmarkGenerator: skip when usingArchivedRoster
+// INSIGHTS-022 — the rookie benchmark stays available through ORDINARY offseason.
+//
+// It is retrospective: it reports how an owner's first ARCHIVED season went. That
+// is a fact about a completed season, and it does not stop being true when the
+// fresh-offseason window closes. Gating it to `fresh_offseason` + `preseason`
+// made it vanish for the whole stretch in between.
+//
+// Driven through `runInsightsEngine` rather than calling `generate()` directly,
+// because `generate()` does not consult `supportedLifecycles` — only the engine
+// does. A direct call would pass with `offseason` removed from the list and prove
+// nothing about the gate this slice changes.
 // ---------------------------------------------------------------------------
 
-test('rookieBenchmarkGenerator returns empty when usingArchivedRoster=true', () => {
+function rookieArchive(year: number, owners: string[]) {
+  return {
+    leagueSlug: 'test',
+    year,
+    archivedAt: new Date().toISOString(),
+    ownerRosterSnapshot: '',
+    standingsHistory: { weeks: [], byWeek: {}, byOwner: {} },
+    finalStandings: owners.map((owner) => ({ ...row(owner, 5, 5, 0), ties: 0 })),
+    games: [],
+    scoresByKey: {},
+  };
+}
+
+async function runRookieOnly(lifecycleState: LifecycleState, usingArchivedRoster = false) {
+  const original = [...getRegisteredGenerators()];
+  clearGenerators();
+  registerGenerator(rookieBenchmarkGenerator);
+  try {
+    const ctx = makeContext({
+      lifecycleState,
+      usingArchivedRoster,
+      ownerCareerStats: [
+        careerStats({
+          owner: 'NewOwner',
+          seasons: 1,
+          isRookie: true,
+          finishHistory: [{ year: 2025, rank: 4 }],
+        }),
+      ],
+      currentRoster: new Map([['team', 'NewOwner']]),
+      archives: [rookieArchive(2025, ['NewOwner', 'Alex', 'Blake', 'Casey'])],
+    });
+    return await runInsightsEngine(ctx);
+  } finally {
+    clearGenerators();
+    for (const g of original) registerGenerator(g);
+  }
+}
+
+test('the rookie benchmark is produced in ordinary offseason', async () => {
+  const insights = await runRookieOnly('offseason');
+  assert.ok(
+    insights.some((i) => i.type === 'rookie_benchmark'),
+    `expected a rookie benchmark in ordinary offseason; got ${JSON.stringify(insights.map((i) => i.type))}`
+  );
+});
+
+// POSITIVE CONTROL — the same fixture in `fresh_offseason`, which was always
+// supported. If this ever fails, the fixture stopped producing an insight and the
+// assertion above would be passing for the wrong reason.
+test('the same fixture still produces the benchmark in fresh_offseason', async () => {
+  const insights = await runRookieOnly('fresh_offseason');
+  assert.ok(insights.some((i) => i.type === 'rookie_benchmark'));
+});
+
+// REGRESSION TEST — the borrowed-roster block is GONE, and this is the change
+// that makes the card actually visible during offseason. The old rule assumed a
+// borrowed roster would mislabel someone; it cannot. `isRookie` compares against
+// `context.currentYear` (== `league.year`), which stays on the COMPLETED season
+// through offseason — the same season the borrowed roster comes from — so the
+// two agree, and the description names the year explicitly.
+test('the rookie benchmark survives a borrowed roster in ordinary offseason', async () => {
+  const insights = await runRookieOnly('offseason', true);
+  const rookie = insights.find((i) => i.type === 'rookie_benchmark');
+  assert.ok(rookie, 'a borrowed roster no longer hides the card');
+  assert.match(
+    rookie.description,
+    /as a rookie in 2025\b/,
+    `the claim must name the season it is about; got: ${rookie.description}`
+  );
+});
+
+// ---------------------------------------------------------------------------
+// INSIGHTS-022 — the generator's own borrowed-roster guard is gone too. It
+// duplicated the engine rule, so leaving it would have made the engine change
+// invisible.
+// ---------------------------------------------------------------------------
+
+test('rookieBenchmarkGenerator still produces its insight when usingArchivedRoster=true', () => {
   const owner = 'NewOwner';
   const stats = careerStats({
     owner,
@@ -484,7 +554,8 @@ test('rookieBenchmarkGenerator returns empty when usingArchivedRoster=true', () 
     ],
   });
   const insights = rookieBenchmarkGenerator.generate(context);
-  assert.deepEqual(insights, []);
+  assert.equal(insights.length, 1, 'a borrowed roster is no longer a reason to hide it');
+  assert.equal(insights[0]!.type, 'rookie_benchmark');
 });
 
 // ---------------------------------------------------------------------------
@@ -549,72 +620,26 @@ test('seasonWrapGenerator declares only post-current-season lifecycles', () => {
   }
 });
 
-test('rookieBenchmarkGenerator declares only preseason / fresh_offseason lifecycles', () => {
-  const allowed: LifecycleState[] = ['preseason', 'fresh_offseason'];
-  for (const lc of rookieBenchmarkGenerator.supportedLifecycles) {
-    assert.equal(allowed.includes(lc), true, `rookieBenchmarkGenerator should not run in ${lc}`);
-  }
+// CONTRACT PIN — INSIGHTS-022 added `offseason`. The card reports a COMPLETED
+// season and names the year in its own text, so it does not go stale when the
+// fresh-offseason window closes.
+test('rookieBenchmarkGenerator runs across both offseason states and preseason', () => {
+  const expected: LifecycleState[] = ['fresh_offseason', 'offseason', 'preseason'];
+  assert.deepEqual(
+    [...rookieBenchmarkGenerator.supportedLifecycles].sort(),
+    [...expected].sort(),
+    'the rookie benchmark must cover the whole offseason, and nothing in-season'
+  );
 });
 
 // ---------------------------------------------------------------------------
-// Engine: bypassSuppression must skip the new shouldSuppressGenerator filter
-// (Phase 3 Codex remediation: admin diagnostic runs need every generator's
-// output, including ones that are normally filtered for content reasons.)
+// INSIGHTS-022 — the generator-level `bypassSuppression` test was REMOVED with
+// the filter it covered. It worked by registering a fake generator under the id
+// `career:rookie_benchmark` to trip the one rule that existed; with no rules,
+// there is nothing for it to assert.
+//
+// `bypassSuppression` itself is NOT gone and is not weakened: on
+// `runInsightsEngine` it still decides whether the durable suppression records
+// are applied and written (`applySuppression`), which is its substantive job and
+// is covered by `insights-cache.test.ts`.
 // ---------------------------------------------------------------------------
-
-test('runInsightsEngine respects bypassSuppression for the generator-level filter', async () => {
-  // The shouldSuppressGenerator rule keys on `id === 'career:rookie_benchmark'`,
-  // so the fake generator below must reuse that id to exercise the suppression
-  // path. Save and restore the global generator registry so other tests in this
-  // file (and in any other test file run in the same process) keep working.
-  const original = [...getRegisteredGenerators()];
-  clearGenerators();
-
-  let invocations = 0;
-  const fakeGenerator: InsightGenerator = {
-    id: 'career:rookie_benchmark',
-    category: 'historical',
-    supportedLifecycles: ['fresh_offseason'],
-    generate: () => {
-      invocations += 1;
-      return [
-        {
-          id: 'fake-suppress-target',
-          type: 'rookie_benchmark',
-          title: 'fake',
-          description: 'fake',
-          priorityScore: 100,
-          newsHook: 'snapshot',
-          statValue: 1,
-        },
-      ];
-    },
-  };
-  registerGenerator(fakeGenerator);
-
-  try {
-    const ctx = makeContext({
-      lifecycleState: 'fresh_offseason',
-      usingArchivedRoster: true,
-    });
-
-    invocations = 0;
-    const filtered = await runInsightsEngine(ctx, { bypassSuppression: false });
-    assert.equal(invocations, 0, 'generator should be filtered out without bypass');
-    assert.equal(
-      filtered.some((i) => i.id === 'fake-suppress-target'),
-      false
-    );
-
-    invocations = 0;
-    const bypassed = await runInsightsEngine(ctx, { bypassSuppression: true });
-    assert.equal(invocations, 1, 'generator should run when bypassSuppression=true');
-    assert.equal(
-      bypassed.some((i) => i.id === 'fake-suppress-target'),
-      true
-    );
-  } finally {
-    clearGenerators();
-    for (const g of original) registerGenerator(g);
-  }
-});

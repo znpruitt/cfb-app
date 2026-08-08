@@ -99,7 +99,7 @@ test('generateRawInsights runs matching generators and drops non-positive scores
   };
   registerGenerator(gen);
 
-  const raw = generateRawInsights(makeContext(), { bypassSuppression: false });
+  const raw = generateRawInsights(makeContext());
   assert.deepEqual(
     raw.map((i) => i.id),
     ['keep']

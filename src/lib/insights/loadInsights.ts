@@ -212,7 +212,7 @@ async function computeRawInsights(
 ): Promise<RawInsightsPayload> {
   const context = await buildLeagueInsightContext(slug, resolvedYear, currentDate);
   return {
-    rawInsights: generateRawInsights(context, { bypassSuppression: false }),
+    rawInsights: generateRawInsights(context),
     lifecycleState: context.lifecycleState,
     generatedAt: currentDate.toISOString(),
   };

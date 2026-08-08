@@ -1,6 +1,5 @@
 import type { Insight } from '../../selectors/insights';
 import { registerGenerator } from '../engine';
-import { applyReturningOwnerFraming } from '../framing';
 import type {
   InsightContext,
   InsightGenerator,
@@ -8,8 +7,6 @@ import type {
   NewsHook,
   OwnerCareerStats,
 } from '../types';
-
-const RETURNING_OWNER_TRENDING_LIFECYCLES: LifecycleState[] = ['preseason', 'fresh_offseason'];
 
 const NO_CLAIM_OWNER = 'NoClaim';
 const TIE_SUPPRESSION_THRESHOLD = 4;
@@ -25,7 +22,14 @@ const TITLE_CHASER_LIFECYCLES: LifecycleState[] = [
   'postseason',
   'preseason',
 ];
-const ROOKIE_LIFECYCLES: LifecycleState[] = ['fresh_offseason', 'preseason'];
+// INSIGHTS-022 — `offseason` included deliberately. The rookie benchmark is
+// RETROSPECTIVE: it identifies owners whose first archived season is the most
+// recent one, which is a fact about a COMPLETED season and does not decay when
+// the fresh-offseason window closes. Omitting `offseason` made it disappear for
+// the entire stretch between the fresh cutoff and preseason for no reason the
+// data supports. The archived-roster suppression below is what actually keeps it
+// honest, and it is unchanged.
+const ROOKIE_LIFECYCLES: LifecycleState[] = ['fresh_offseason', 'offseason', 'preseason'];
 const GREATEST_SEASON_LIFECYCLES: LifecycleState[] = [
   'late_season',
   'postseason',
@@ -791,10 +795,11 @@ export const volatilityGenerator: InsightGenerator = {
   generate(context) {
     const insight = deriveVolatilityAward(context);
     if (!insight) return [];
-    // In the rollover window the active set is borrowed from a prior archive,
-    // so the owner referenced here is a returning member. Acknowledge that
-    // explicitly rather than implying they're a new participant.
-    return [context.usingArchivedRoster ? applyReturningOwnerFraming(insight) : insight];
+    // INSIGHTS-022 — no returning-owner framing. A borrowed prior-season roster
+    // proves someone PLAYED, never that they will play again, so calling them a
+    // "returning owner" asserted a future fact from past data. The neutral
+    // description already says what is true: this is their historical record.
+    return [insight];
   },
 };
 
@@ -806,7 +811,8 @@ export const neverFinishedLastGenerator: InsightGenerator = {
   generate(context) {
     const insight = deriveNeverFinishedLast(context);
     if (!insight) return [];
-    return [context.usingArchivedRoster ? applyReturningOwnerFraming(insight) : insight];
+    // INSIGHTS-022 — see `volatilityGenerator`: no returning-owner framing.
+    return [insight];
   },
 };
 
@@ -818,7 +824,8 @@ export const titleChaserGenerator: InsightGenerator = {
   generate(context) {
     const insight = deriveTitleChaser(context);
     if (!insight) return [];
-    return [context.usingArchivedRoster ? applyReturningOwnerFraming(insight) : insight];
+    // INSIGHTS-022 — see `volatilityGenerator`: no returning-owner framing.
+    return [insight];
   },
 };
 
@@ -828,10 +835,10 @@ export const rookieBenchmarkGenerator: InsightGenerator = {
   supportedLifecycles: ROOKIE_LIFECYCLES,
   tone: 'factual',
   generate(context) {
-    // Engine-level suppression already filters this out when usingArchivedRoster
-    // is set (rookie detection on a borrowed roster is wrong); the duplicate
-    // guard here keeps the generator safe if invoked directly.
-    if (context.usingArchivedRoster) return [];
+    // INSIGHTS-022 — no borrowed-roster guard. It mirrored an engine-level rule
+    // that guarded an impossible case: `isRookie` is keyed to `currentYear`
+    // (== `league.year`), the same season a borrowed roster comes from, so the
+    // two always agree. See the note in `engine.ts`.
     const insight = deriveRookieBenchmark(context);
     return insight ? [insight] : [];
   },
@@ -859,14 +866,9 @@ export const trendingGenerator: InsightGenerator = {
     if (up) insights.push(up);
     const down = deriveTrending(context, 'down');
     if (down) insights.push(down);
-    // Returning-owner framing only matters in pre-season-y states; mid/late
-    // season already has current-year trajectory grounding the narrative.
-    if (
-      context.usingArchivedRoster &&
-      RETURNING_OWNER_TRENDING_LIFECYCLES.includes(context.lifecycleState)
-    ) {
-      return insights.map(applyReturningOwnerFraming);
-    }
+    // INSIGHTS-022 — no returning-owner framing. Trending was ALWAYS eligible in
+    // ordinary offseason (`TRENDING_LIFECYCLES` includes it); only the framing was
+    // lifecycle-gated. The backlog claim that this content "went dark" was wrong.
     return insights;
   },
 };

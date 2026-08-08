@@ -31,12 +31,10 @@ Supersedes: (none)
 1. ✅ **PLATFORM-086F2 — COMPLETE** (F2A–F2J, closed 2026-08-08 by F2J / PR #463). The last
    provider-campaign implementation item; the whole campaign is merged and, where applicable,
    active in production. Its exit condition is discharged item by item in Active priority 1 below.
-2. **NEXT — INSIGHTS-OFFSEASON-ROSTER-CONTENT.** `ROOKIE` and `RETURNING_OWNER_TRENDING` are gated
-   to `['fresh_offseason', 'preseason']`, so both go dark for the whole stretch between the fresh
-   cutoff and preseason — the window where "who is returning / who is new" matters most. The owner
-   ruled (2026-08-06) that these categories are EVERGREEN, so adding `offseason` to both sets closes
-   it without touching anything else and without waiting on INSIGHTS-PRIORITY-DECAY. Full statement
-   in the deferrals section below.
+2. **NEXT — INSIGHTS-OFFSEASON-ROSTER-CONTENT.** The rookie benchmark is unavailable for the whole
+   stretch between the fresh cutoff and preseason, and four career cards call people "Returning
+   owner" on the strength of last year's roster alone. Full statement, including the correction to
+   the original claim, in the deferrals section below.
 3. Then: return to product-facing work — homepage/landing page (not yet scoped — no backlog slug),
    INSIGHTS-018 (NEW tag + signatures),
    INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights), History Records
@@ -1161,7 +1159,10 @@ Items surfaced during the Insights Panel Redesign + Polish campaign and queued f
   **Shape.** A recap scores high at rollover, decays over weeks, and settles into rotation rather than vanishing. Roster content stays eligible year-round with a lift approaching preseason. Historical content holds a flat baseline and rises naturally as seasonal content decays — the desired rebalance achieved by NOT special-casing anything.
   **Constraints.** (1) Decay needs an anchor; the only true one is the most recent archive's `archivedAt` (already loaded into the insight context) — a calendar date reintroduces the arbitrariness this replaces. (2) It SUPERSEDES `fresh_offseason` rather than complementing it: if weight is time-derived, that state exists only to approximate "recently", and collapsing it back to one `offseason` state is a breaking change to every generator's lifecycle list and to `deriveLifecycleState`. (3) Existing `priorityScore` values are per-generator constants on no shared scale; making them commensurable is the bulk of the work, not the decay mechanism.
   Precedent worth reusing: `framing.ts` already has `applyLastSeasonFraming` — the system can already reframe an insight for distance, it just cannot re-rank for it.
-- **INSIGHTS-OFFSEASON-ROSTER-CONTENT — NEXT** — `ROOKIE` and `RETURNING_OWNER_TRENDING` are gated to `['fresh_offseason', 'preseason']`, so both go dark for the entire stretch between the fresh cutoff and preseason — exactly the window where "who is returning / who is new" is most relevant. Owner decision (2026-08-06): these categories are EVERGREEN even though the eligible owners change, so the gap looks like a side effect of grouping them with recap content rather than a decision. Adding `offseason` to both sets closes it without touching anything else, and does not require decay first (unlike `SEASON_WRAP`, which at flat priority would keep a stale recap competing all year — that one waits for INSIGHTS-PRIORITY-DECAY).
+- **INSIGHTS-OFFSEASON-ROSTER-CONTENT — NEXT** — **The original statement of this item was WRONG on one of its two halves, and the correction changed the work.** It claimed `ROOKIE` and `RETURNING_OWNER_TRENDING` were both gated to `['fresh_offseason', 'preseason']` and both went dark in ordinary offseason. `RETURNING_OWNER_TRENDING_LIFECYCLES` was never an eligibility gate — `TRENDING_LIFECYCLES` already included `offseason`, and that constant only decided whether a copy PREFIX was applied. Career trends never went dark; they only gained or lost framing.
+  - **The rookie benchmark WAS unavailable in ordinary offseason**, and for a second reason the item did not mention: widening its lifecycle list alone would have changed nothing, because an engine-level rule hid it whenever the current roster was borrowed from an archive — which is the normal state for that entire stretch. Both blocks had to go for the card to appear at all.
+  - **The real defect the audit surfaced was the "Returning owner" prefix**, applied by four career generators whenever the roster was borrowed. A borrowed roster proves someone PLAYED; it never proves they will play again, so the copy asserted a future fact from past data, and it fired hardest in exactly the window where the upcoming roster is least known. Identifying who is actually returning needs a FINALIZED upcoming roster compared against league history — a separate feature, deliberately not attempted here.
+  - Owner decision (2026-08-06): these categories are EVERGREEN even though the eligible owners change. Owner decision (2026-08-08): treat the rookie benchmark as retrospective and remove BOTH blocks. Neither depends on INSIGHTS-PRIORITY-DECAY (unlike `SEASON_WRAP`, which at flat priority would keep a stale recap competing all year — that one waits).
 - **INSIGHTS-CURRENT-YEAR-AUTHORITY** — RESCOPED 2026-08-06 to CROSS-SURFACE convergence. The
   one-page fix was built (`44f0fab`), reviewed, and rejected: changing a single consumer makes the
   Insights tab disagree with the ~15 sibling surfaces that still read the projection, and treats a
