@@ -28,14 +28,20 @@ Supersedes: (none)
 
 ## Current execution order
 
-1. **NEXT — PLATFORM-086F2: admin control-plane information-architecture redesign (F2A–F2J)** (see
-   Active priority 1 below). The last provider-campaign implementation item; everything before it in
-   the campaign is merged and, where applicable, active in production.
-2. Then: return to product-facing work — homepage/landing page (not yet scoped — no backlog slug),
+1. ✅ **PLATFORM-086F2 — COMPLETE** (F2A–F2J, closed 2026-08-08 by F2J / PR #463). The last
+   provider-campaign implementation item; the whole campaign is merged and, where applicable,
+   active in production. Its exit condition is discharged item by item in Active priority 1 below.
+2. **NEXT — INSIGHTS-OFFSEASON-ROSTER-CONTENT.** `ROOKIE` and `RETURNING_OWNER_TRENDING` are gated
+   to `['fresh_offseason', 'preseason']`, so both go dark for the whole stretch between the fresh
+   cutoff and preseason — the window where "who is returning / who is new" matters most. The owner
+   ruled (2026-08-06) that these categories are EVERGREEN, so adding `offseason` to both sets closes
+   it without touching anything else and without waiting on INSIGHTS-PRIORITY-DECAY. Full statement
+   in the deferrals section below.
+3. Then: return to product-facing work — homepage/landing page (not yet scoped — no backlog slug),
    INSIGHTS-018 (NEW tag + signatures),
    INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights), History Records
    continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup later.
-3. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
+4. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
    schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its first
    qualifying automatic presentation refresh from production evidence when it occurs.
 
@@ -79,7 +85,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Platform            | Multi-tenant Commissioner Sign-up                                                       | Planned               |
 | Platform            | Server Action Auth Hardening                                                            | Planned               |
 | Platform            | Provider Refresh Observability (PLATFORM-086A)                                          | ✅ Complete (PR #391) |
-| Platform            | Provider Automation & Correctness (PLATFORM-086B–I)                                     | ✅ Complete except 086F2 (NEXT) |
+| Platform            | Provider Automation & Correctness (PLATFORM-086B–I)                                     | ✅ Complete           |
 | Polish              | Design Audit (remaining pages)                                                          | Planned               |
 | Polish              | Copy / UX Writing Audit                                                                 | Planned               |
 | Polish              | Back Button Audit                                                                       | Planned               |
@@ -92,7 +98,8 @@ All foundational phases are complete. Work is now organized into named workstrea
 ### 0. INSIGHTS-021 — current-year authority — DROPPED; repaired as data instead
 
 **Not implemented. Decision 2026-08-06: repair the drifted registry row and drop the slice.**
-`NEXT` returned to F2H2 (§1 below); F2H2, F2H3, and F2I have since completed, and `NEXT` is now F2J — the final F2 slice.
+`NEXT` returned to F2H2 (§1 below); F2H2, F2H3, F2I, and F2J have all since completed, closing the
+F2 campaign on 2026-08-08. `NEXT` is now INSIGHTS-OFFSEASON-ROSTER-CONTENT.
 
 **The defect.** `buildLeagueInsightContext` derives `lifecycleState` from `league.status` (correct)
 but took `currentYear` from the top-level `league.year` projection, so on the live `tsc` shape
@@ -128,7 +135,7 @@ every consumer that reads the projection. Recorded as INSIGHTS-CURRENT-YEAR-AUTH
 backlog, now scoped as a cross-surface convergence rather than a one-page fix. The rookie tri-state
 is NOT carried forward: it addressed an unreachable case.
 
-### 1. PLATFORM-086F2 — admin control-plane information-architecture redesign — NEXT
+### 1. PLATFORM-086F2 — admin control-plane information-architecture redesign — ✅ COMPLETE
 
 Activated from backlog slug `PLATFORM-086F-ADMIN-DIAGNOSTICS-DASHBOARD-v1`. The read-only audit is
 complete and accepted; the canonical inventory, target information architecture, locked decisions,
@@ -831,8 +838,8 @@ Execution order within F2 (each slice is one independently deployable PR):
       is a feature with real design questions (immediate vs deferred purge; who may invoke it),
       not a hardening task. The slug-reuse refusal is the stopgap until then. Making it
       commissioner-facing is an AUTHORIZATION change and belongs with F2J's boundaries.
-14. **F2J commissioner boundaries + navigation closeout** — implemented; **not yet merged**.
-    **F2 completes on merge.** Audited read-only first, and the audit reversed the framing twice:
+14. **F2J commissioner boundaries + navigation closeout** — ✅ **MERGED** (PR #463, `d9a8e93`,
+    2026-08-08). **This slice completed F2.** Audited read-only first, and the audit reversed the framing twice:
     there is NO commissioner identity in code (every league-scoped write requires platform admin;
     the league password gates reads only — verified route by route), so there was no boundary to
     build, only copy implying one; and `foundedYear` is a FOUNDING year, not a first competition
@@ -945,11 +952,22 @@ hold, and not before:
 5. Every deferral this campaign opened is either closed or recorded in the canonical deferrals
    section below with an owner slice.
 
-Until all five hold, F2 remains open regardless of how many slices have merged.
+**All five hold as of 2026-08-08 (F2J / PR #463), and F2 is CLOSED.**
+
+1. Every slice is merged or explicitly retired with a recorded reason — including the four retired
+   outright (F2H1R5, two of F2H2's five chartered items, the `/admin` rebuild, the manual
+   accessibility pass), each with an owner ruling recorded at the point of retirement.
+2. No admin surface bypasses a guarded authority: F2H1SA/SB closed the middleware and Server Action
+   gaps, F2H3A/F2H4 removed the manual rollover surfaces entirely, and F2J moved the founding-year
+   freeze off the route and into `updateLeague` itself.
+3. Targeting guards are route-tested across all seven jobs (F2H1T1–T5, F2H1R1–R4).
+4. `resolveOperationalSeasonYear` derives from production lifecycle state alone (F2G, F2H1T5).
+5. Deferrals are closed or recorded below with an owner slice; the founding-year restoration gap
+   was the last one opened and was closed inside F2J itself rather than carried forward.
 
 ### Provider campaign (PLATFORM-086) — completed record
 
-The provider correctness & automation campaign is **complete except 086F2**. Live-score polling
+The provider correctness & automation campaign is **complete**, 086F2 included (closed 2026-08-08). Live-score polling
 (3-minute), Odds polling (hourly), weekly schedule maintenance, and publication-aware rankings
 automation are all **active in production**; game-stats polling (15-minute) has been active since
 H3E; automatic schedule-presentation enrichment is wired into the active schedulers (its first
@@ -1143,7 +1161,7 @@ Items surfaced during the Insights Panel Redesign + Polish campaign and queued f
   **Shape.** A recap scores high at rollover, decays over weeks, and settles into rotation rather than vanishing. Roster content stays eligible year-round with a lift approaching preseason. Historical content holds a flat baseline and rises naturally as seasonal content decays — the desired rebalance achieved by NOT special-casing anything.
   **Constraints.** (1) Decay needs an anchor; the only true one is the most recent archive's `archivedAt` (already loaded into the insight context) — a calendar date reintroduces the arbitrariness this replaces. (2) It SUPERSEDES `fresh_offseason` rather than complementing it: if weight is time-derived, that state exists only to approximate "recently", and collapsing it back to one `offseason` state is a breaking change to every generator's lifecycle list and to `deriveLifecycleState`. (3) Existing `priorityScore` values are per-generator constants on no shared scale; making them commensurable is the bulk of the work, not the decay mechanism.
   Precedent worth reusing: `framing.ts` already has `applyLastSeasonFraming` — the system can already reframe an insight for distance, it just cannot re-rank for it.
-- **INSIGHTS-OFFSEASON-ROSTER-CONTENT** — `ROOKIE` and `RETURNING_OWNER_TRENDING` are gated to `['fresh_offseason', 'preseason']`, so both go dark for the entire stretch between the fresh cutoff and preseason — exactly the window where "who is returning / who is new" is most relevant. Owner decision (2026-08-06): these categories are EVERGREEN even though the eligible owners change, so the gap looks like a side effect of grouping them with recap content rather than a decision. Adding `offseason` to both sets closes it without touching anything else, and does not require decay first (unlike `SEASON_WRAP`, which at flat priority would keep a stale recap competing all year — that one waits for INSIGHTS-PRIORITY-DECAY).
+- **INSIGHTS-OFFSEASON-ROSTER-CONTENT — NEXT** — `ROOKIE` and `RETURNING_OWNER_TRENDING` are gated to `['fresh_offseason', 'preseason']`, so both go dark for the entire stretch between the fresh cutoff and preseason — exactly the window where "who is returning / who is new" is most relevant. Owner decision (2026-08-06): these categories are EVERGREEN even though the eligible owners change, so the gap looks like a side effect of grouping them with recap content rather than a decision. Adding `offseason` to both sets closes it without touching anything else, and does not require decay first (unlike `SEASON_WRAP`, which at flat priority would keep a stale recap competing all year — that one waits for INSIGHTS-PRIORITY-DECAY).
 - **INSIGHTS-CURRENT-YEAR-AUTHORITY** — RESCOPED 2026-08-06 to CROSS-SURFACE convergence. The
   one-page fix was built (`44f0fab`), reviewed, and rejected: changing a single consumer makes the
   Insights tab disagree with the ~15 sibling surfaces that still read the projection, and treats a

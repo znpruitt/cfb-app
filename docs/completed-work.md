@@ -2378,6 +2378,85 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-086F2 — Admin Control-Plane IA Redesign (Campaign) — Complete
+
+- **Status:** Complete 2026-08-08, closed by its final slice F2J (PR #463, `d9a8e93`). Spanned
+  F2A–F2J with sub-slices; the per-slice record lives in `docs/prompt-registry.md`.
+- **Outcome:** The admin surface became an information architecture rather than an accumulation of
+  panels. Observation and operation were separated (System Health observes; Data Maintenance &
+  Recovery acts, each action carrying a cost/scope disclosure); a server-side health read model
+  replaced three ad-hoc panels; all seven scheduler jobs gained durable receipts; and lifecycle
+  authority was consolidated so that automation, not an operator, executes rollover and season
+  transition.
+- **The campaign retired more than it built, and that was the point.** `/admin/season`, both rollover
+  panels, `/api/admin/rollover`, `manualRollover.ts`, SP+/win-total draft assistance, and two
+  chartered F2H2 items were deleted or retired outright — F2H4 alone was +271/−2484. The governing
+  question became _should this exist_ before _is this correct_: a backend subsystem does not earn a
+  page by existing, and an admin surface represents what a human can inspect, decide, diagnose, or
+  operate.
+- **Two live security defects were found and closed** mid-campaign: F2H1SA (a middleware matcher
+  whose static-file exclusion was a SUBSTRING rule, so `/admin/audit.css` bypassed `clerkMiddleware`
+  while reaching a worker with all nine Server Actions) and F2H1SB (routing treated as authorization,
+  fixed by putting `requireAdminAction` first in all nine actions).
+- **The recurring lesson, recorded across slices:** claims outrunning what the code or the test
+  supports — a rule authored but not covered, a guard enforced at the surface instead of the
+  authority, a deletion asserted but not performed, a mutation assumed rather than run. Nearly every
+  slice's most valuable finding was a claim, not a defect.
+- **Verification:** every slice ran `npx tsc --noEmit`, `npm run lint:all`, `npm test`,
+  `npm run build`, and `git diff --check` as separate commands with unmasked exit status, plus a
+  mutation pass in which each mutation compiled, was applied alone, and was killed by a named test.
+  Suite growth across the campaign: roughly 2,900 → 3,459 tests.
+- **Open follow-ups:** See `docs/next-tasks.md`. The manual cross-browser/keyboard/screen-reader
+  accessibility pass was explicitly RETIRED as a charter item by owner ruling and re-planned as a
+  dedicated pre-public-launch activity; migrating the remaining `.tsx` suites to
+  `src/test/domEnvironment.ts` is recorded as mechanical follow-up.
+
+---
+
+### PLATFORM-086F2J — Commissioner Boundaries and Navigation Closeout — Complete
+
+- **Status:** Complete — merged to `main` via PR #463 (merge commit `d9a8e93`), 2026-08-08.
+  **This slice completed PLATFORM-086F2.**
+- **PROMPT_ID(s):** `PLATFORM-086F2J-COMMISSIONER-BOUNDARIES-AND-NAVIGATION-v2`, preceded by a
+  read-only audit.
+- **The audit reversed the framing twice.** There is NO commissioner identity in code — every
+  league-scoped write requires platform admin, and the league password gates READS only, verified
+  route by route — so there was no boundary to build, only copy implying one. And `foundedYear` is a
+  FOUNDING year (the calendar year the record was created, shown as `Est. N`), not a first
+  competition season; the owner confirmed it had been edited exactly once, deliberately, to
+  backdate one league.
+- **Outcome:** `foundedYear` frozen after creation and enforced in `updateLeague` rather than on the
+  PATCH route, so every caller of the shared authority is bound by it; the orphaned `/admin/draft`
+  surfaced as a platform card; first-ever suites for `LeagueSettingsForm` and the league-password
+  route; every `<label>` across `src/app/admin` and `src/components/admin` associated with its
+  control.
+- **Freezing a field REGRESSED recovery, and the fix had to be reopened twice.** A league restored at
+  its old slug was stamped with the current year and could never be corrected. The owner ruled this
+  a regression F2J created rather than an inherited limitation, and therefore merge-blocking,
+  directing a narrow recovery-only value instead of the optional-`foundedYear`-at-creation design
+  previously ruled out. Round two then found that `adoptExistingData` was **self-justifying**: it
+  suppressed the very residue scan that establishes there is anything to adopt, so any caller could
+  send it on a clean slug and receive the recovery-only year. The source comment asserted this was
+  unreachable. **Asserting narrowness is not enforcing it.** The scan now runs unconditionally and
+  adopting a slug that holds nothing is itself an error.
+- **A RECORDED DIAGNOSIS WAS WRONG, and correcting it closed the gap.** An abandoned test was
+  documented as blocked by `userEvent` and "something specific to this form". The real cause was
+  import order: every `.tsx` suite installs its JSDOM globals in the module body, which runs after
+  the hoisted `react-dom` import has captured `canUseDOM === false`, so React falls back to its
+  legacy IE change path and throws on focus transitions — the field typed SECOND silently keeps its
+  DOM value while state never updates, under `fireEvent` as much as `userEvent`.
+  `src/test/domEnvironment.ts` fixes it and the flow is now covered. **A gap recorded with a
+  fabricated cause is worse than one recorded as unexplained.**
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
+  3425 → 3459. Round one: four mutations. Round two: seven mutations, each compiling, applied alone,
+  and killed by a named test.
+- **Recorded as NOT done:** the remaining `.tsx` suites still inline their JSDOM setup (they pass
+  only because each drives a single field); the manual accessibility pass is retired as a charter
+  item and re-planned before public launch.
+
+---
+
 ### PLATFORM-086F2I — Platform Configuration and Team Identity — Complete
 
 - **Status:** Complete — merged to `main` via PR #462 (merge commit `cbd3ed5`), 2026-08-08. **F2J is

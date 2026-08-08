@@ -294,7 +294,9 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - **Follow-up:** the other `.tsx` suites still inline their JSDOM setup. They pass because each
   drives a single field, so no focus transition occurs. Migrating them to `domEnvironment.ts` is
   mechanical and deliberately not folded into this slice.
-- Status: implemented and reviewed; not yet merged. **F2 completes on merge.**
+- Status: ✅ **MERGED** to `main` via PR #463 (merge commit `d9a8e93`), 2026-08-08. Three commits:
+  the implementation, a first remediation round, and an owner-approved second round covering ten
+  findings. **This slice completes PLATFORM-086F2.**
 
 ### PLATFORM-086F2I-PLATFORM-CONFIGURATION-AND-TEAM-IDENTITY-v1
 

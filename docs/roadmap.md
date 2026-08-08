@@ -245,8 +245,8 @@ The provider campaign: truthful refresh observability first, then narrow correct
 
 Provider limits (canonical): CFBD Tier 1 = 5,000 calls/month; The Odds API = 500 credits/month (current request cost 3 credits; Odds automation targets ~450 credits with a ~50-credit safety buffer).
 
-The campaign is **complete except PLATFORM-086F2** (the admin control-plane IA redesign — the
-current queue head; see `docs/next-tasks.md`; the audited plan is
+The campaign is **complete**, PLATFORM-086F2 included (the admin control-plane IA redesign, closed
+2026-08-08 by its final slice F2J; the audited plan and slice-by-slice outcome map remain at
 `docs/architecture/admin-control-plane.md`). All provider automation shipped and activated: game-stats polling
 (15-minute), live-score polling (3-minute), Odds polling (hourly), weekly schedule maintenance +
 automatic presentation enrichment, and publication-aware rankings automation. Per-slice execution
@@ -264,7 +264,7 @@ activation evidence in `docs/deployment-runbook.md` §8e–§8j.
 | 086C (C1/C2/C3) | Odds refresh authority, polling activation, cache UI hydration | ✅ Complete — active in production (§8g; PRs #419–#421) |
 | 086E1 (E1A/E1B/E1B1/E1C1/E1C2) | Schedule refresh authority, weekly automation, presentation enrichment | ✅ Complete — active in production (§8h; §8i observation pending, passive; PRs #422–#426) |
 | 086E2 (E2A/E2B) | Rankings refresh authority, publication-aware automation | ✅ Complete — active in production (§8j; PRs #427–#428) |
-| 086F2 | Admin control-plane IA redesign (F2A audit/IA doc + F2B–F2J implementation slices; plan: `docs/architecture/admin-control-plane.md`) | In progress — **F2A–F2I merged or explicitly retired; F2J implemented and in review, and F2 completes on merge.** The per-slice record lives in `docs/prompt-registry.md` and `docs/completed-work.md`; this row is deliberately no longer a running log of every slice. Notable outcomes: F2G1 retired draft assistance; F2H1R5 retired in full (re-planned as the unscheduled PLATFORM-087); F2H2 shipped two slices of five chartered, retiring two and rescoping one; F2H4 retired `/admin/season` outright; F2I found and covered an irreversible, untested league delete |
+| 086F2 | Admin control-plane IA redesign (F2A audit/IA doc + F2B–F2J implementation slices; plan: `docs/architecture/admin-control-plane.md`) | ✅ **Complete** — every slice F2A–F2J merged or explicitly retired; closed 2026-08-08 by F2J (PR #463, `d9a8e93`). The per-slice record lives in `docs/prompt-registry.md` and `docs/completed-work.md`; this row is deliberately no longer a running log of every slice. Notable outcomes: F2G1 retired draft assistance; F2H1R5 retired in full (re-planned as the unscheduled PLATFORM-087); F2H2 shipped two slices of five chartered, retiring two and rescoping one; F2H4 retired `/admin/season` outright; F2I found and covered an irreversible, untested league delete |
 | 086D | Absorbed into 086A; retired — do not reuse the ID | — |
 
 Conferences remain manual — no automation task exists or is planned.
@@ -439,7 +439,7 @@ All completed work is detailed in `docs/completed-work.md`. Key milestones:
 | Server Fetch Architecture                           | Parked (audit done; fixes unscheduled) |
 | Standings Ownership Model Redesign (Phases 0–5)     | ✅ Complete                 |
 | Provider Refresh Observability (PLATFORM-086A)      | ✅ Complete (PR #391)       |
-| Provider Automation & Correctness (PLATFORM-086B–I) | ✅ Complete except 086F2 (in progress — see `docs/next-tasks.md`) |
+| Provider Automation & Correctness (PLATFORM-086B–I) | ✅ Complete |
 
 ## Architecture rules
 
