@@ -118,21 +118,66 @@ test('PATCH with status → 409 league-status-lifecycle-managed and writes nothi
   assert.deepEqual(await readRegistry(), before);
 });
 
-test('display-name and founded-year editing remain green', async () => {
+// PLATFORM-086F2J — the founding year is set at creation and frozen. This test
+// asserted the OPPOSITE (that editing it was green); it is inverted rather than
+// deleted, so the change of rule stays visible in the suite's history.
+test('PATCH with foundedYear → 409 league-founded-year-immutable and writes nothing', async () => {
   await setAppState('leagues', 'registry', [makeLeague('alpha')]);
+  const before = await readRegistry();
+
+  const [req, ctx] = patchRequest('alpha', { foundedYear: 2005 });
+  const res = await PATCH(req, ctx);
+  assert.equal(res.status, 409);
+  const body = (await res.json()) as { error?: string };
+  assert.equal(body.error, 'league-founded-year-immutable');
+  assert.deepEqual(await readRegistry(), before);
+});
+
+// Refused WHOLESALE, matching the lifecycle fields: a partial apply would make
+// the rename land while the field the operator actually changed was refused.
+test('PATCH mixing foundedYear with a valid displayName is rejected wholesale', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('alpha')]);
+  const before = await readRegistry();
 
   const [req, ctx] = patchRequest('alpha', { displayName: 'Renamed', foundedYear: 2005 });
+  const res = await PATCH(req, ctx);
+  assert.equal(res.status, 409);
+  assert.deepEqual(await readRegistry(), before, 'displayName not applied alongside the rejection');
+});
+
+// POSITIVE CONTROL — without this, the two tests above pass against a PATCH that
+// rejects everything.
+test('display-name editing remains green', async () => {
+  await setAppState('leagues', 'registry', [makeLeague('alpha')]);
+
+  const [req, ctx] = patchRequest('alpha', { displayName: 'Renamed' });
   const res = await PATCH(req, ctx);
   assert.equal(res.status, 200);
   const body = (await res.json()) as { league: League };
   assert.equal(body.league.displayName, 'Renamed');
-  assert.equal(body.league.foundedYear, 2005);
 
   const stored = (await readRegistry())[0]!;
   assert.equal(stored.displayName, 'Renamed');
-  assert.equal(stored.foundedYear, 2005);
   assert.equal(stored.year, 2024, 'lifecycle year untouched');
   assert.deepEqual(stored.status, { state: 'season', year: 2024 });
+});
+
+// REGRESSION TEST — an existing BACKDATED value survives. The fixture is 2018
+// rather than the current year on purpose: a fixture equal to
+// today's year cannot distinguish "preserved" from "silently recomputed", and
+// this slice explicitly performs no migration.
+test('a backdated foundedYear survives both a refused and a successful PATCH', async () => {
+  await setAppState('leagues', 'registry', [{ ...makeLeague('alpha'), foundedYear: 2018 }]);
+
+  const [refusedReq, refusedCtx] = patchRequest('alpha', { foundedYear: 2005 });
+  assert.equal((await PATCH(refusedReq, refusedCtx)).status, 409);
+  assert.equal((await readRegistry())[0]!.foundedYear, 2018, 'unchanged by the refusal');
+
+  const [okReq, okCtx] = patchRequest('alpha', { displayName: 'Renamed' });
+  assert.equal((await PATCH(okReq, okCtx)).status, 200);
+  const stored = (await readRegistry())[0]!;
+  assert.equal(stored.displayName, 'Renamed');
+  assert.equal(stored.foundedYear, 2018, 'and unchanged by a successful edit of another field');
 });
 
 test('PATCH with no updatable fields → 400 naming the allowed fields', async () => {
@@ -141,7 +186,11 @@ test('PATCH with no updatable fields → 400 naming the allowed fields', async (
   const [req, ctx] = patchRequest('alpha', {});
   const res = await PATCH(req, ctx);
   assert.equal(res.status, 400);
-  assert.match(await res.text(), /displayName, foundedYear/);
+  assert.match(await res.text(), /displayName/);
+  assert.ok(
+    !(await (await PATCH(...patchRequest('alpha', {}))).text()).includes('foundedYear'),
+    'the message no longer advertises a field that can no longer be updated'
+  );
 });
 
 // ---------------------------------------------------------------------------

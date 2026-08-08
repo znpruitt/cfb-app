@@ -118,11 +118,24 @@ export async function addLeague(league: League): Promise<League[]> {
  */
 export async function updateLeague(
   slug: string,
-  updates: Partial<Omit<League, 'slug' | 'createdAt' | 'year' | 'status'>>
+  updates: Partial<Omit<League, 'slug' | 'createdAt' | 'year' | 'status' | 'foundedYear'>>
 ): Promise<League | null> {
   if ('year' in updates || 'status' in updates) {
     throw new Error(
       'updateLeague cannot mutate lifecycle fields (year/status) — use a guarded lifecycle operation in leagueRegistry.ts'
+    );
+  }
+  // PLATFORM-086F2J — the founding year is written ONCE, by `addLeague` at
+  // creation, and never again.
+  //
+  // Enforced HERE and not only on the PATCH route. The first version of this
+  // slice guarded the route alone, which is the mistake F2H1SB named: routing is
+  // never the authority. Every server caller reaches the registry through this
+  // function, so a Server Action, a script, or a future route would have written
+  // the field with nothing to stop it while the contract claimed it was frozen.
+  if ('foundedYear' in updates) {
+    throw new Error(
+      'updateLeague cannot mutate foundedYear — it is set once by addLeague at creation'
     );
   }
   return mutateRegistry((leagues) => {

@@ -52,7 +52,29 @@ export async function PATCH(
     );
   }
 
-  const updates: { displayName?: string; foundedYear?: number } = {};
+  // PLATFORM-086F2J — the founding year is set once, at creation, and never
+  // edited afterwards.
+  //
+  // Refused BEFORE any field is applied, exactly as the lifecycle fields above
+  // are: a body mixing `foundedYear` with a valid `displayName` writes NOTHING.
+  // A partial apply would leave the operator with a name change they did not ask
+  // for in isolation and a silent refusal of the field they did.
+  //
+  // A DISTINCT code from the lifecycle refusals, because it is a different rule:
+  // `year` and `status` are managed by lifecycle OPERATIONS and keep changing;
+  // this value is frozen from the moment the record exists.
+  if ('foundedYear' in obj) {
+    return Response.json(
+      {
+        error: 'league-founded-year-immutable',
+        detail:
+          'The founding year is set when the league is created and cannot be changed afterwards.',
+      },
+      { status: 409 }
+    );
+  }
+
+  const updates: { displayName?: string } = {};
 
   if ('displayName' in obj) {
     if (typeof obj.displayName !== 'string' || !obj.displayName.trim()) {
@@ -61,21 +83,8 @@ export async function PATCH(
     updates.displayName = obj.displayName.trim();
   }
 
-  if ('foundedYear' in obj) {
-    const fy =
-      typeof obj.foundedYear === 'number'
-        ? obj.foundedYear
-        : typeof obj.foundedYear === 'string'
-          ? Number(obj.foundedYear)
-          : NaN;
-    if (!Number.isFinite(fy) || fy < 1900 || fy > new Date().getFullYear()) {
-      return new Response('foundedYear must be between 1900 and the current year', { status: 400 });
-    }
-    updates.foundedYear = fy;
-  }
-
   if (Object.keys(updates).length === 0) {
-    return new Response('No updatable fields provided (displayName, foundedYear)', {
+    return new Response('No updatable fields provided (displayName)', {
       status: 400,
     });
   }

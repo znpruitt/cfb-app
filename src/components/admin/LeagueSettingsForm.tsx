@@ -18,9 +18,16 @@ export default function LeagueSettingsForm({
   initialFoundedYear?: number;
 }): React.ReactElement {
   const [displayName, setDisplayName] = useState(initialDisplayName);
-  const [foundedYear, setFoundedYear] = useState(
-    String(initialFoundedYear ?? new Date().getFullYear())
-  );
+  // PLATFORM-086F2J — display only; there is no setter because the value is
+  // frozen at creation and this form no longer submits it.
+  //
+  // NO fallback to the current year. While the field was editable, that fallback
+  // was a DEFAULT an operator could correct; making the field read-only turned
+  // the same expression into a fabricated immutable fact — a record predating the
+  // field would report "Founded Year 2026" with no way to fix it, while
+  // `/league/<slug>` correctly renders no `Est.` line at all for the same record.
+  // Absent is shown as absent.
+  const foundedYear = initialFoundedYear == null ? '' : String(initialFoundedYear);
   const [status, setStatus] = useState<Status>('idle');
   const [error, setError] = useState<string | undefined>();
 
@@ -34,17 +41,6 @@ export default function LeagueSettingsForm({
       setStatus('error');
       return;
     }
-    const foundedYearNum = Number(foundedYear);
-    if (
-      !Number.isFinite(foundedYearNum) ||
-      foundedYearNum < 1900 ||
-      foundedYearNum > new Date().getFullYear()
-    ) {
-      setError('Founded year must be between 1900 and the current year');
-      setStatus('error');
-      return;
-    }
-
     try {
       const res = await fetch(`/api/admin/leagues/${encodeURIComponent(slug)}`, {
         method: 'PATCH',
@@ -52,7 +48,10 @@ export default function LeagueSettingsForm({
           'content-type': 'application/json',
           ...(requireAdminAuthHeaders() as Record<string, string>),
         },
-        body: JSON.stringify({ displayName: displayName.trim(), foundedYear: foundedYearNum }),
+        // PLATFORM-086F2J — `foundedYear` is NOT sent. It is frozen at creation,
+        // and the route answers `league-founded-year-immutable` for a body that
+        // carries it, so including it would refuse every save.
+        body: JSON.stringify({ displayName: displayName.trim() }),
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
@@ -76,8 +75,15 @@ export default function LeagueSettingsForm({
       <h2 className="text-base font-medium text-gray-900 dark:text-zinc-100">League Settings</h2>
       <form onSubmit={(e) => void handleSave(e)} className="space-y-4">
         <div>
-          <label className={labelClass}>Slug (read-only)</label>
+          {/* PLATFORM-086F2J — every label on this form is now associated with
+              its input. They were plain `<label>` elements with no `htmlFor`, so
+              a screen reader announced four unlabelled text boxes and no test
+              could address a field by name. */}
+          <label className={labelClass} htmlFor="league-slug">
+            Slug (read-only)
+          </label>
           <input
+            id="league-slug"
             type="text"
             value={slug}
             readOnly
@@ -85,8 +91,11 @@ export default function LeagueSettingsForm({
           />
         </div>
         <div>
-          <label className={labelClass}>Display Name</label>
+          <label className={labelClass} htmlFor="league-display-name">
+            Display Name
+          </label>
           <input
+            id="league-display-name"
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
@@ -96,8 +105,11 @@ export default function LeagueSettingsForm({
           />
         </div>
         <div>
-          <label className={labelClass}>Season Year</label>
+          <label className={labelClass} htmlFor="league-season-year">
+            Season Year
+          </label>
           <input
+            id="league-season-year"
             type="text"
             value={initialYear}
             readOnly
@@ -105,17 +117,22 @@ export default function LeagueSettingsForm({
           />
         </div>
         <div>
-          <label className={labelClass}>Founded Year</label>
+          {/* PLATFORM-086F2J — read-only, matching how Season Year is already
+              presented one field above. The row is kept rather than deleted: the
+              value is meaningful to an operator, and showing it is what makes
+              "you cannot change this" legible instead of the field silently
+              disappearing. */}
+          <label className={labelClass} htmlFor="founded-year">
+            Founded Year
+          </label>
           <input
-            type="number"
+            id="founded-year"
+            type="text"
             value={foundedYear}
-            onChange={(e) => setFoundedYear(e.target.value)}
-            disabled={status === 'loading'}
-            className={inputClass}
-            min={1900}
-            max={new Date().getFullYear()}
-            step={1}
-            placeholder={String(new Date().getFullYear())}
+            readOnly
+            placeholder="Not recorded"
+            aria-label="Founded year"
+            className={`${inputClass} cursor-default text-gray-400 dark:text-zinc-500`}
           />
         </div>
         <div className="flex items-center gap-3">

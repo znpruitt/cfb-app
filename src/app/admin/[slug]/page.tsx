@@ -20,7 +20,10 @@ const tools = [
   {
     key: 'settings',
     title: 'Settings',
-    desc: 'League name, season year, and founded year',
+    // PLATFORM-086F2J — this promised two edits the page does not offer. Season
+    // year is lifecycle-managed and has always rendered read-only there, and the
+    // founding year is now frozen at creation too.
+    desc: 'League name and password',
   },
 ] as const;
 

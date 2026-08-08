@@ -116,10 +116,14 @@ export default function ProviderMaintenancePanel({
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-gray-500 dark:text-zinc-400">
+            <label
+              className="text-xs font-medium text-gray-500 dark:text-zinc-400"
+              htmlFor="provider-maintenance-year"
+            >
               Season year
             </label>
             <input
+              id="provider-maintenance-year"
               type="number"
               value={year}
               onChange={(e) => handleYearChange(Number(e.target.value))}

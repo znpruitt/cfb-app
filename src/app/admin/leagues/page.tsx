@@ -65,6 +65,12 @@ export default function AdminLeaguesPage() {
    */
   const [adoptOffered, setAdoptOffered] = useState(false);
   const [adoptExistingData, setAdoptExistingData] = useState(false);
+  /**
+   * PLATFORM-086F2J — the founding year being restored. Required by the route
+   * whenever data is adopted: a restoration that silently stamped the league
+   * with today's date is the defect the recovery field exists to close.
+   */
+  const [restoreFoundedYear, setRestoreFoundedYear] = useState('');
 
   const [deleteMap, setDeleteMap] = useState<Record<string, DeleteState>>({});
 
@@ -163,6 +169,21 @@ export default function AdminLeaguesPage() {
     }
   }
 
+  // PLATFORM-086F2J — editing the slug retracts the adoption acknowledgement.
+  //
+  // The acknowledgement is granted for ONE specific slug: it is offered only
+  // after that slug's residue refusal, and it means "the data under THIS slug is
+  // this league's". Carrying it to a slug the operator was never warned about
+  // reuses consent for a question that was never asked. The route now refuses
+  // adoption of a slug holding nothing, so this is not the security boundary —
+  // it is the form telling the truth about what has been agreed to.
+  function handleSlugChange(next: string) {
+    setSlug(next);
+    setAdoptOffered(false);
+    setAdoptExistingData(false);
+    setRestoreFoundedYear('');
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setCreateError(null);
@@ -207,7 +228,17 @@ export default function AdminLeaguesPage() {
           slug: trimmedSlug,
           displayName: trimmedName,
           year: yearNum,
-          ...(adoptExistingData ? { adoptExistingData: true } : {}),
+          // A blank field is an explicit "no recorded founding year" (null), not
+          // an omission — omitting it is what the route refuses. Leagues created
+          // before the field existed carry none, and restoring one must not
+          // force the operator to invent a year the freeze then makes permanent.
+          ...(adoptExistingData
+            ? {
+                adoptExistingData: true,
+                restoreFoundedYear:
+                  restoreFoundedYear.trim() === '' ? null : Number(restoreFoundedYear),
+              }
+            : {}),
         }),
       });
       if (!res.ok) {
@@ -381,11 +412,18 @@ export default function AdminLeaguesPage() {
         <form onSubmit={(e) => void handleCreate(e)} className="space-y-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div className="space-y-1">
-              <label className="text-xs text-gray-500 dark:text-zinc-400">League URL</label>
+              {/* PLATFORM-086F2J — every label on this form is associated with
+                   its input. They were bare `<label>` elements, so a screen
+                   reader announced three unlabelled boxes and no test could
+                   address a field by name. */}
+              <label className="text-xs text-gray-500 dark:text-zinc-400" htmlFor="create-slug">
+                League URL
+              </label>
               <input
+                id="create-slug"
                 className={inputClass}
                 value={slug}
-                onChange={(e) => setSlug(e.target.value)}
+                onChange={(e) => handleSlugChange(e.target.value)}
                 placeholder="my-league"
                 autoComplete="off"
                 spellCheck={false}
@@ -397,8 +435,11 @@ export default function AdminLeaguesPage() {
               </p>
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-gray-500 dark:text-zinc-400">Display name</label>
+              <label className="text-xs text-gray-500 dark:text-zinc-400" htmlFor="create-name">
+                Display name
+              </label>
               <input
+                id="create-name"
                 className={inputClass}
                 value={displayName}
                 onChange={(e) => setDisplayName(e.target.value)}
@@ -406,8 +447,11 @@ export default function AdminLeaguesPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-xs text-gray-500 dark:text-zinc-400">Year</label>
+              <label className="text-xs text-gray-500 dark:text-zinc-400" htmlFor="create-year">
+                Year
+              </label>
               <input
+                id="create-year"
                 className={inputClass}
                 type="number"
                 value={year}
@@ -430,6 +474,30 @@ export default function AdminLeaguesPage() {
                 another slug instead.
               </span>
             </label>
+          )}
+          {adoptOffered && adoptExistingData && (
+            <div className="space-y-1">
+              <label
+                className="text-xs text-gray-500 dark:text-zinc-400"
+                htmlFor="restore-founded-year"
+              >
+                Founding year to restore
+              </label>
+              <input
+                id="restore-founded-year"
+                aria-label="Founding year to restore"
+                className={inputClass}
+                type="number"
+                value={restoreFoundedYear}
+                onChange={(e) => setRestoreFoundedYear(e.target.value)}
+                placeholder="e.g. 2019"
+              />
+              <p className="text-xs text-gray-500 dark:text-zinc-400">
+                The league&apos;s original founding year. It is frozen again once restored, so it
+                cannot be corrected afterwards. Leave blank if this league never had one recorded —
+                its page will show no &ldquo;Est.&rdquo; line, which is what it showed before.
+              </p>
+            </div>
           )}
           <button type="submit" className={controlButtonClass} disabled={creating}>
             {creating ? 'Creating…' : 'Create league'}

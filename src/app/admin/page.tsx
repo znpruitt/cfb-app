@@ -28,6 +28,16 @@ const platformCards = [
     desc: 'Configure leagues and settings',
   },
   {
+    // PLATFORM-086F2J — surfaced, not retired. `/admin/draft` existed with NO
+    // inbound link from anywhere and was reachable only by typing the URL. It is
+    // cross-league (it walks every league and reports draft-initiation
+    // readiness), so it belongs here rather than under the per-league section,
+    // and it writes nothing — this is navigation only.
+    href: '/admin/draft',
+    title: 'Draft Sequencing',
+    desc: 'Draft-initiation readiness across every league',
+  },
+  {
     href: '/admin/data/cache',
     title: 'Data Maintenance & Recovery',
     desc: 'Provider refreshes, season inputs, and historical repair',

@@ -87,8 +87,14 @@ export default function GlobalRefreshPanel({
   return (
     <>
       <div className="flex items-center gap-3">
-        <label className="text-xs font-medium text-gray-500 dark:text-zinc-400">Season year</label>
+        <label
+          className="text-xs font-medium text-gray-500 dark:text-zinc-400"
+          htmlFor="global-refresh-year"
+        >
+          Season year
+        </label>
         <input
+          id="global-refresh-year"
           type="number"
           value={year}
           onChange={(e) => setYear(Number(e.target.value))}

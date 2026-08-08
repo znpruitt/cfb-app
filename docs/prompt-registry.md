@@ -188,6 +188,114 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `npm run build`, and `git diff --check` each run as their own command with unmasked exit status.
 - Status: MERGED via PR #457 (`876d87c`), 2026-08-07.
 
+### PLATFORM-086F2J-COMMISSIONER-BOUNDARIES-AND-NAVIGATION-v2
+
+- Purpose: Freeze the league's founding year after creation, surface the orphaned Draft Sequencing
+  page, correct copy describing authority the app does not have, and put the league-password route
+  under test. Final F2 slice.
+- Scope: `PATCH /api/admin/leagues/[slug]`, `LeagueSettingsForm`, the `/admin` hub, two stale
+  comments, new suites for the password route and the settings form, owning docs. No password
+  behaviour change, no navigation restructure beyond one card, no authorization change.
+- **The audit reversed the original framing, twice.** (a) There is NO commissioner identity in code —
+  no role, claim, type, or helper — and every league-scoped WRITE requires PLATFORM ADMIN while the
+  league password gates READS only, verified route by route. No authorization defect exists and none
+  was introduced; the slice removes copy that implied a boundary rather than building one.
+  (b) `foundedYear` is a FOUNDING year — the calendar year the record was created, shown as
+  `Est. N` — **not** a "first competition season". A December creation records N while the league
+  first plays N+1, so the stronger claim is false, and documenting the exception does not rescue it.
+  The v1 prompt made that claim; v2 corrected it after review.
+- **`seasonYearForToday()` was considered and rejected.** It answers "which season's data are we
+  looking at" and returns the PREVIOUS year between January and June, so a league created in March
+  2026 would record 2025 — a season it never played. Creation behaviour is unchanged.
+- Immutability: `PATCH` refuses `foundedYear` with `league-founded-year-immutable` (409), refused
+  WHOLESALE before any field is applied, matching the lifecycle refusals. Distinct code on purpose:
+  `year`/`status` are managed by lifecycle operations and keep changing; this is frozen at creation.
+  Existing values are preserved — no migration. The regression fixture is a BACKDATED year, because a fixture equal to the current year cannot distinguish "preserved" from "silently recomputed".
+- `/admin/draft` had NO inbound link from anywhere and was reachable only by URL. It is cross-league
+  and read-only, so it is SURFACED as a platform card rather than retired.
+- Both new suites are first-ever coverage. `LeagueSettingsForm` had none; the password route had
+  none, and it defines the only non-admin credential in the application.
+- Review / verification: Codex and `/code-review` gathered against the same commit (`20477fa`);
+  8 unique findings, all accepted in one round.
+  (1) **The freeze was enforced on the ROUTE ONLY.** `updateLeague` — the shared write authority
+  every server caller reaches the registry through — still accepted `foundedYear`, and an existing
+  test PINNED that it did. This is F2H1SB's rule verbatim ("routing is never the authority"), applied
+  to the delete confirmation two slices earlier and then not applied to this slice's own
+  immutability rule. Now excluded from the type AND refused at runtime, with the pinning test
+  inverted.
+  (2) **The read-only field fabricated data.** A `?? new Date().getFullYear()` fallback that read as
+  an editable DEFAULT became, once frozen, an uncorrectable invented fact — while
+  `/league/<slug>` correctly renders no `Est.` line for the same record. Absent is now shown as
+  absent ("Not recorded").
+  (3) **Surfacing `/admin/draft` made a DEAD INSTRUCTION discoverable:** "run rollover first",
+  impossible since F2H3A retired manual execution and F2H4 deleted the page and route offering it.
+  Corrected — linking a page is not licence to rewrite it, but it is responsibility for what it
+  then tells an operator. Its calendar-year rule and the permanently-red demo row are recorded as
+  known limitations rather than fixed.
+  (4) Three route-inventory rows in the canonical architecture doc were invalidated by this change
+  and left untouched while sibling rows in the same table were maintained.
+  (5) The `NEXT` pointer still read F2I. Under DOCS-012 `next-tasks.md` is the ONLY file permitted
+  to designate `NEXT`, so a wrong pointer there is load-bearing.
+  (6) A ledger entry was dated one day in the future; the specific date was dropped rather than
+  guessed.
+  (7) **A claim of mine contradicted the repo.** The test comment and this entry both said the 2018
+  fixture was "TSC's real value"; `completed-work.md` records TSC's production value as 2021. The
+  test is sound (any backdated year proves preservation) — the unverified claim was removed from
+  both places rather than restated.
+  (8) **Recorded, NOT fixed — needs an owner decision.** Restoring an accidentally deleted league
+  rewrites its founding year permanently, because creation mints unconditionally and PATCH refuses
+  every update. The obvious fix (an optional `foundedYear` at creation) was explicitly ruled out by
+  the owner BEFORE this consequence was known, so it is recorded with its trigger rather than
+  reversed unilaterally.
+  Deltas: password 0 → 8 and `LeagueSettingsForm` 0 → 4 (both first-ever), PATCH 10 → 13,
+  registry lifecycle 12 → 13, admin hub 2 → 2. Full suite 3425 → 3441. Ten mutations, each
+  compiling, applied alone, killed by a named test; one survived first attempt (a "partial apply"
+  that still refused) and was reissued as a silent ignore.
+  `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
+  run as their own command with unmasked exit status.
+- **v2 scope correction, owner-directed after review.** The adoption consequence was ruled a
+  REGRESSION created by F2J rather than an inherited limitation, and blocking. A recovery-only
+  founding year was added: `restoreFoundedYear` is a SEPARATE field accepted only alongside
+  `adoptExistingData: true`, REQUIRED when adopting (a restoration that silently invented a year is
+  the defect it closes), validated `1900..currentYear+1`, and refused on ordinary creation. PATCH
+  still freezes it afterwards, so the recovery window closes at creation and general editing and
+  legacy imports stay shut. Seven route tests, including a positive control that ordinary creation
+  still derives the value and one proving a restored league cannot then be edited.
+- **Accessibility charter item, split and both halves resolved.** The mechanical half is DONE —
+  every `<label>` across `src/app/admin` and `src/components/admin` is associated with its control,
+  verified by a repo-wide check reporting zero. The manual half (cross-browser rendering, keyboard
+  navigation, contrast, screen-reader flow) is RETIRED as a charter item by owner ruling and
+  re-planned as a dedicated pre-public-launch pass; it is not a code deliverable and F2 does not
+  wait on it.
+- **Round 2, owner-approved after both reviews.** Ten findings, all verified before acting. The
+  load-bearing one: `adoptExistingData` was **self-justifying** — it suppressed the residue scan, so
+  nothing established there was anything to adopt. Any caller could send it on a clean slug and be
+  handed the recovery-only founding year (the arbitrary founding-year-at-creation the design exists
+  to keep shut), and the create form did not clear the acknowledgement on a slug edit, so consent
+  earned for one slug skipped the guard for another. Fix: scan unconditionally, then decide —
+  adopting a slug holding nothing is now an error, so a stale flag can only ever produce a refusal.
+  Also: `null` accepted as an explicit "no recorded founding year" (requiring an integer forced a
+  legacy record to invent one, the exact fabrication the field prevents); the ceiling corrected from
+  `maxCreatableSeasonYear` (`currentYear + 1`, a SEASON horizon) to the current calendar year;
+  `DraftSequencingPanel` no longer promises automatic rollover for leagues the job does not target
+  (the demo league, and any league not in `season`); `/admin/draft` given a light-mode variant now
+  that F2J made it reachable; the stale `rollover (GET/POST)` entry removed from the admin API
+  inventory that F2H4's retirement had left behind.
+- **A recorded diagnosis was WRONG, and the correction is the point.** The first attempt at the
+  adopt-flow test was abandoned with a note blaming `userEvent` and "something specific to this
+  form". Neither was true. The cause is **import order**: every `.tsx` suite installs its JSDOM
+  globals in the module body, which runs AFTER the hoisted `react-dom` import has already captured
+  `canUseDOM === false`. React then falls back to its legacy IE change-detection path and throws
+  `attachEvent is not a function` on focus transitions, so whichever field is typed SECOND silently
+  keeps its DOM value while React state never updates — under `fireEvent` exactly as under
+  `userEvent`. `src/test/domEnvironment.ts` installs the globals first; the flow is now fully
+  covered by three tests. **A gap recorded with a fabricated cause is worse than one recorded as
+  unexplained** — it sends the next reader somewhere the defect is not.
+- **Follow-up:** the other `.tsx` suites still inline their JSDOM setup. They pass because each
+  drives a single field, so no focus transition occurs. Migrating them to `domEnvironment.ts` is
+  mechanical and deliberately not folded into this slice.
+- Status: implemented and reviewed; not yet merged. **F2 completes on merge.**
+
 ### PLATFORM-086F2I-PLATFORM-CONFIGURATION-AND-TEAM-IDENTITY-v1
 
 - Purpose: Make League Management a REGISTRY surface rather than a second configuration surface,

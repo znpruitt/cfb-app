@@ -386,8 +386,14 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
         <div className="space-y-4">
           <div className="flex flex-wrap gap-3">
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500 dark:text-zinc-400">League</label>
+              <label
+                className="text-xs text-gray-500 dark:text-zinc-400"
+                htmlFor="roster-upload-league"
+              >
+                League
+              </label>
               <select
+                id="roster-upload-league"
                 value={slug}
                 onChange={(e) => handleLeagueChange(e.target.value)}
                 className="rounded border border-gray-300 bg-gray-50 px-3 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
@@ -401,8 +407,14 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500 dark:text-zinc-400">Year</label>
+              <label
+                className="text-xs text-gray-500 dark:text-zinc-400"
+                htmlFor="roster-upload-year"
+              >
+                Year
+              </label>
               <input
+                id="roster-upload-year"
                 type="number"
                 value={year}
                 onChange={(e) => setYear(Number(e.target.value))}
@@ -411,10 +423,14 @@ export default function RosterUploadPanel({ leagues }: Props): React.ReactElemen
             </div>
 
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500 dark:text-zinc-400">
+              <label
+                className="text-xs text-gray-500 dark:text-zinc-400"
+                htmlFor="roster-upload-file"
+              >
                 CSV File — columns: Team, Owner
               </label>
               <input
+                id="roster-upload-file"
                 type="file"
                 accept=".csv,text/csv"
                 onChange={handleFileChange}

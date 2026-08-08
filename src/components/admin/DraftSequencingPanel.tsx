@@ -1,7 +1,27 @@
 import ViewMoreLink from '@/components/navigation/ViewMoreLink';
+import { TEST_LEAGUE_SLUG } from '@/lib/league';
 import { getLeagues } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
 
+/**
+ * PLATFORM-086F2J — surfaced on `/admin` after existing with no inbound link.
+ *
+ * Two known limitations, both left as-is and both recorded, because linking a
+ * page is not licence to rewrite it:
+ *
+ * 1. `rolloverNeeded` compares `league.year` against the CALENDAR year, its own
+ *    rule rather than the lifecycle authority. Rollover is gated on the CFP
+ *    championship plus a seven-day delay, so between January 1 and roughly late
+ *    January every league reads "behind" while nothing is wrong. The copy now
+ *    says "calendar year" rather than implying the league is late.
+ * 2. The demo league is excluded from automatic rollover entirely, so its row
+ *    stays red indefinitely. The row still reports this honestly — see below.
+ *
+ * What DID have to change is the instruction. It read "run rollover first",
+ * which has been impossible since F2H3A retired manual execution and F2H4
+ * deleted the page and route that offered it — surfacing this panel would have
+ * made a dead instruction discoverable, which is worse than leaving it hidden.
+ */
 export default async function DraftSequencingPanel() {
   const leagues = await getLeagues();
 
@@ -24,6 +44,14 @@ export default async function DraftSequencingPanel() {
       return {
         league,
         rolloverNeeded: league.year < currentYear,
+        // Whether the season-rollover job will ACTUALLY advance this league.
+        // `groupRolloverTargets` selects non-test leagues whose lifecycle status
+        // is `season` (AGENTS.md, "Season rollover is per-year and strict"), so
+        // a behind-year row is not by itself a promise that automation fixes it:
+        // the demo league is excluded outright, and a league already in offseason
+        // holding its outgoing year is not a target either. Those are precisely
+        // the two cases where `rolloverNeeded` fires and nothing will happen.
+        rolloverAutomatic: league.slug !== TEST_LEAGUE_SLUG && league.status?.state === 'season',
         hasExistingRoster: rosterRecord !== null,
       };
     })
@@ -35,7 +63,7 @@ export default async function DraftSequencingPanel() {
         Draft Initiation Sequencing
       </h2>
       <div className="space-y-4">
-        {statuses.map(({ league, rolloverNeeded, hasExistingRoster }) => (
+        {statuses.map(({ league, rolloverNeeded, rolloverAutomatic, hasExistingRoster }) => (
           <div
             key={league.slug}
             className="rounded border border-gray-200 bg-gray-50 p-4 space-y-2 dark:border-zinc-800 dark:bg-zinc-950"
@@ -64,9 +92,13 @@ export default async function DraftSequencingPanel() {
                 {rolloverNeeded ? '✗' : '✓'} Rollover guard
               </span>
               <span className="text-gray-500 dark:text-zinc-400">
-                {rolloverNeeded
-                  ? `Active year ${league.year} is behind current year ${currentYear} — run rollover first`
-                  : `Active year ${league.year} matches current year`}
+                {!rolloverNeeded
+                  ? `Active year ${league.year} matches calendar year`
+                  : rolloverAutomatic
+                    ? `Active year ${league.year} is behind calendar year ${currentYear}. Rollover is automatic — see System Health for the season-rollover job.`
+                    : league.slug === TEST_LEAGUE_SLUG
+                      ? `Active year ${league.year} is behind calendar year ${currentYear}. The demo league is excluded from automatic rollover, so this will not advance on its own — reset it from System Health when you want a fresh year.`
+                      : `Active year ${league.year} is behind calendar year ${currentYear}, and this league is not in a season, so the rollover job does not target it. Nothing will advance it automatically.`}
               </span>
             </div>
 

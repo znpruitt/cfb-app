@@ -52,7 +52,16 @@ export type League = {
   displayName: string; // Human-readable name shown in UI
   year: number; // Active season year
   createdAt: string; // ISO timestamp
-  foundedYear?: number; // Year the league was founded — auto-set on creation, commissioner-editable
+  /**
+   * The calendar year this league record was created, rendered as `Est. N`.
+   *
+   * PLATFORM-086F2J — server-derived at creation and IMMUTABLE afterwards
+   * (`PATCH` answers `league-founded-year-immutable`). The previous comment
+   * called it "commissioner-editable": there is no commissioner identity in this
+   * codebase, and the field is no longer editable by anyone. Optional because
+   * records created before it existed do not carry one.
+   */
+  foundedYear?: number;
   status?: LeagueStatus;
   assignmentMethod?: 'draft' | 'manual' | null; // How teams are assigned each preseason
   manualAssignmentComplete?: boolean; // Set to true when commissioner finishes manual team assignment
