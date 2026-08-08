@@ -101,7 +101,7 @@ The campaign was structured as three implementation phases plus a discovery and 
 **Framing helpers (`src/lib/insights/framing.ts`)**:
 
 - `applyLastSeasonFraming(insight)`: prepends "Last season's " to insight title (idempotent — checks if already present).
-- `applyReturningOwnerFraming(insight)`: prepends "Returning owner " to description when description starts with the owner name (idempotent — checks if already present; no-op for multi-owner insights).
+- `applyReturningOwnerFraming(insight)`: prepends "Returning owner " to description when description starts with the owner name (idempotent — checks if already present; no-op for multi-owner insights). **Removed by INSIGHTS-022** — a borrowed prior-season roster proves someone played, never that they will play again, so the prefix asserted a future fact the data could not support. This retrospective records the original design; the helper no longer exists.
 
 **Per-generator changes**:
 

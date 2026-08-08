@@ -38,6 +38,11 @@ test('insights cache key includes slug, year, the seed-alias hash, and the overr
     `seeds:${SEED_ALIASES_HASH}`,
     `alias-overrides:${ALIAS_OVERRIDES_HASH}`,
     'analytics:h3e3-final-complete-v1',
+    // INSIGHTS-022 — copy policy is part of cache IDENTITY. Dropping the
+    // "Returning owner" prefix and widening the rookie card's lifecycle are
+    // policy changes that touch no standings input, so no tag fires and warm
+    // entries would otherwise keep serving retracted copy until the TTL lapsed.
+    'copy:insights022-neutral-career-copy-v1',
   ]);
 });
 
