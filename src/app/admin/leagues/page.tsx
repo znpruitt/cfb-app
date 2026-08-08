@@ -57,6 +57,14 @@ export default function AdminLeaguesPage() {
   const [year, setYear] = useState(String(new Date().getFullYear()));
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  /**
+   * PLATFORM-086F2I — offered only AFTER the server refuses for surviving data,
+   * so it cannot be ticked pre-emptively. Restoring a league its own rosters is
+   * legitimate; adopting a different league's is not, and the operator has to
+   * say which this is.
+   */
+  const [adoptOffered, setAdoptOffered] = useState(false);
+  const [adoptExistingData, setAdoptExistingData] = useState(false);
 
   const [deleteMap, setDeleteMap] = useState<Record<string, DeleteState>>({});
 
@@ -101,19 +109,10 @@ export default function AdminLeaguesPage() {
     const state = deleteMap[league.slug];
     if (!state) return;
 
-    // Guarded here for feedback, and AGAIN in the route — the route is the
-    // authority. A static `ADMIN_API_TOKEN` can call the endpoint directly and
-    // never see this form, so a browser-only check would protect nobody.
-    if (state.confirmation.trim() !== league.slug) {
-      setDeleteMap((prev) => ({
-        ...prev,
-        [league.slug]: {
-          ...prev[league.slug]!,
-          error: `Type ${league.slug} exactly to confirm.`,
-        },
-      }));
-      return;
-    }
+    // No confirmation re-check here: the submit control is `disabled` on the
+    // identical predicate, so this branch was unreachable — and an unreachable
+    // guard reads as defence while testing as nothing. The REAL enforcement is
+    // in the route, which a static `ADMIN_API_TOKEN` cannot bypass.
 
     let authHeaders: Record<string, string>;
     try {
@@ -204,11 +203,18 @@ export default function AdminLeaguesPage() {
       const res = await fetch('/api/admin/leagues', {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ slug: trimmedSlug, displayName: trimmedName, year: yearNum }),
+        body: JSON.stringify({
+          slug: trimmedSlug,
+          displayName: trimmedName,
+          year: yearNum,
+          ...(adoptExistingData ? { adoptExistingData: true } : {}),
+        }),
       });
       if (!res.ok) {
         const text = await res.text();
         setCreateError(text || `POST /api/admin/leagues ${res.status}`);
+        // Surface the acknowledgement only for the residue refusal.
+        if (res.status === 409 && /Stored data still exists/i.test(text)) setAdoptOffered(true);
         return;
       }
       router.push(`/admin/${trimmedSlug}`);
@@ -312,7 +318,9 @@ export default function AdminLeaguesPage() {
                       <p className="text-xs text-red-800 dark:text-red-300">
                         This removes <span className="font-mono">{league.slug}</span> from the
                         registry. Its stored data — owners, drafts, archives, overrides — is{' '}
-                        <strong>not</strong> deleted, and this cannot be undone.
+                        <strong>not</strong> deleted, and this cannot be undone. Re-creating this
+                        slug later will require explicitly acknowledging that the new league adopts
+                        that data.
                       </p>
                       <label
                         className="block text-xs text-gray-600 dark:text-zinc-400"
@@ -409,6 +417,20 @@ export default function AdminLeaguesPage() {
             </div>
           </div>
           {createError && <p className="text-xs text-red-700 dark:text-red-400">{createError}</p>}
+          {adoptOffered && (
+            <label className="flex items-start gap-2 text-xs text-gray-700 dark:text-zinc-300">
+              <input
+                type="checkbox"
+                checked={adoptExistingData}
+                onChange={(e) => setAdoptExistingData(e.target.checked)}
+              />
+              <span>
+                This is the same league being restored — attach the existing stored data to it.
+                Nothing in the app deletes those records, so if this is a different league, choose
+                another slug instead.
+              </span>
+            </label>
+          )}
           <button type="submit" className={controlButtonClass} disabled={creating}>
             {creating ? 'Creating…' : 'Create league'}
           </button>

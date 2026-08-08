@@ -112,24 +112,25 @@ export async function DELETE(
   // every row, so it defends against a stray click but not against acting on the
   // WRONG LEAGUE — which is the accident this guard exists for.
   const confirmation = new URL(req.url).searchParams.get('confirm');
+  //
+  // PLAIN TEXT, matching every other error on this route. The only client does
+  // `await res.text()` and renders it verbatim, so a JSON body would put a raw
+  // `{"error":...}` blob in front of an operator. The stable code stays as the
+  // first token so it is still greppable and assertable.
   if (confirmation === null) {
-    return Response.json(
-      {
-        error: 'league-delete-confirmation-required',
-        detail: `Deleting a league is irreversible. Re-send with ?confirm=${slug} to proceed.`,
-      },
+    return new Response(
+      `league-delete-confirmation-required: deleting a league is irreversible. ` +
+        `Re-send with ?confirm=${slug} to proceed.`,
       { status: 400 }
     );
   }
   if (confirmation !== slug) {
-    // Deliberately a DIFFERENT code from the absent case. "You did not confirm"
-    // and "you confirmed a different league" are different operator conditions,
-    // and the second is the dangerous one.
-    return Response.json(
-      {
-        error: 'league-delete-confirmation-mismatch',
-        detail: `The confirmation did not match "${slug}". Nothing was deleted.`,
-      },
+    // Deliberately DISTINCT from the absent case. "You did not confirm" and
+    // "you confirmed a different league" are different operator conditions, and
+    // the second is the dangerous one.
+    return new Response(
+      `league-delete-confirmation-mismatch: the confirmation did not match "${slug}". ` +
+        `Nothing was deleted.`,
       { status: 400 }
     );
   }

@@ -162,9 +162,11 @@ test('DELETE without a confirmation refuses and the registry is byte-identical',
   const res = await DELETE(...deleteRequest('alpha'));
 
   assert.equal(res.status, 400);
-  const body = (await res.json()) as { error?: string; detail?: string };
-  assert.equal(body.error, 'league-delete-confirmation-required');
-  assert.match(body.detail ?? '', /alpha/, 'the operator is told what to type');
+  // Plain text, matching the route's other errors — the only client renders
+  // `res.text()` verbatim, so a JSON body would show an operator a raw blob.
+  const text = await res.text();
+  assert.match(text, /^league-delete-confirmation-required/, 'stable code stays greppable');
+  assert.match(text, /alpha/, 'the operator is told what to type');
   assert.equal(JSON.stringify(await readRegistry()), before, 'nothing was written');
 });
 
@@ -176,10 +178,10 @@ test('DELETE confirming a DIFFERENT league removes nothing', async () => {
   const res = await DELETE(...deleteRequest('alpha', 'bravo'));
 
   assert.equal(res.status, 400);
-  const body = (await res.json()) as { error?: string };
-  assert.equal(
-    body.error,
-    'league-delete-confirmation-mismatch',
+  const text = await res.text();
+  assert.match(
+    text,
+    /^league-delete-confirmation-mismatch/,
     'a DISTINCT code from the absent case — "you did not confirm" and "you confirmed a ' +
       'different league" are different operator conditions'
   );

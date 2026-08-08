@@ -81,17 +81,31 @@ export async function POST(req: Request): Promise<Response> {
   // Deleting a league removes one registry entry and nothing else, so rosters,
   // drafts, archives, and suppression records all survive under the slug. A new
   // league taking that slug would ADOPT them — showing one set of people's names
-  // to a commissioner with no relationship to them. Distinct from the 409 above
-  // on purpose: that one means a league exists, this one means a league's remains
-  // do, and they need different remedies.
+  // to a commissioner with no relationship to them.
   //
-  // A stopgap. It refuses reuse and deletes nothing; erasure is deferred work.
-  const residual = await findResidualLeagueScopes(slug);
+  // REFUSED BY DEFAULT, OVERRIDABLE ON PURPOSE. The first version of this guard
+  // refused outright, and review caught that it created a dead end rather than a
+  // safeguard: nothing in the app deletes those records, so a refused slug was
+  // refused FOREVER. Worse, re-creating at the same slug is exactly how an
+  // ACCIDENTAL delete was recovered — restoring a league its own rosters and
+  // archives — so a blanket refusal blocked the common correct case with the
+  // same rule as the rare dangerous one. It also bricked the demo league
+  // permanently: `TEST_LEAGUE_SLUG` is hardcoded, `resetTestLeagueLifecycle`
+  // answers `league-not-found` for an absent league, and this POST is the only
+  // `addLeague` caller — so deleting `test` would have left no way back.
+  //
+  // The override is deliberate, not incidental: the caller must send
+  // `adoptExistingData: true`, which is the same standard as the delete
+  // confirmation — impossible by accident, available when it is what you mean.
+  const adoptExistingData = obj.adoptExistingData === true;
+  const residual = adoptExistingData ? [] : await findResidualLeagueScopes(slug);
   if (residual.length > 0) {
     return new Response(
       `Stored data still exists for slug "${slug}" from a previously deleted league ` +
-        `(${residual.length} record group(s)). Choose a different slug — reusing this one would ` +
-        `attach the previous league's rosters, drafts, and archives to the new league.`,
+        `(${residual.length} record group(s)). Creating it now would attach that data — rosters, ` +
+        `drafts, and archives — to the new league. If this is the SAME league being restored, ` +
+        `re-submit with "adopt existing data" to proceed. If it is a different league, choose ` +
+        `another slug: nothing in the app deletes the old records.`,
       { status: 409 }
     );
   }

@@ -177,3 +177,58 @@ test('a live-slug conflict reads differently from a residual-data conflict', asy
     'the live conflict is not reported as residue'
   );
 });
+
+// REGRESSION TEST — the refusal must not be a DEAD END.
+//
+// Nothing in the app deletes league-scoped records, so a blanket refusal would
+// burn the slug forever. Worse, re-creating at the same slug is how an
+// ACCIDENTAL delete was recovered, and the demo league's slug is a hardcoded
+// constant whose only creation path is this route — a permanent refusal would
+// have left no way back.
+test('an explicit adopt acknowledgement lets the same slug be restored', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team\nDana,Alabama');
+
+  const refused = await POST(createRequest({ slug: 'ghost', displayName: 'G', year: 2025 }));
+  assert.equal(refused.status, 409, 'not by accident');
+
+  const adopted = await POST(
+    createRequest({ slug: 'ghost', displayName: 'G', year: 2025, adoptExistingData: true })
+  );
+  assert.equal(adopted.status, 201, 'but possible on purpose');
+  assert.deepEqual(
+    (await readRegistry()).map((l) => l.slug),
+    ['ghost']
+  );
+});
+
+// The demo league is the concrete case: `TEST_LEAGUE_SLUG` is hardcoded, so no
+// alternate slug exists, and `resetTestLeagueLifecycle` answers
+// `league-not-found` for an absent league. If this POST could not restore it,
+// deleting the demo would brick it permanently.
+test('the demo slug can be restored after its data has been written', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('draft:test', '2025', { phase: 'complete' });
+  await setAppState('preseason-owners:test', '2025', { owners: [] });
+
+  const refused = await POST(createRequest({ slug: 'test', displayName: 'Demo', year: 2025 }));
+  assert.equal(refused.status, 409);
+
+  const restored = await POST(
+    createRequest({ slug: 'test', displayName: 'Demo', year: 2025, adoptExistingData: true })
+  );
+  assert.equal(restored.status, 201, 'the demo league is recoverable');
+});
+
+// The acknowledgement must be the EXPLICIT boolean — a truthy string arriving
+// from a form must not satisfy it.
+test('only a literal true adopts; a truthy value does not', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team');
+
+  const res = await POST(
+    createRequest({ slug: 'ghost', displayName: 'G', year: 2025, adoptExistingData: 'yes' })
+  );
+  assert.equal(res.status, 409, 'a truthy string is not an acknowledgement');
+  assert.deepEqual(await readRegistry(), []);
+});
