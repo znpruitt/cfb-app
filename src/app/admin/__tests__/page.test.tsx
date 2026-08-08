@@ -60,9 +60,14 @@ test('the admin hub offers no Season Management destination', async () => {
     '/admin/leagues',
     '/admin/data/cache',
     '/admin/aliases',
+    // PLATFORM-086F2J — `/admin/draft` existed with NO inbound link from
+    // anywhere and was reachable only by typing the URL. It is cross-league and
+    // read-only, so it is surfaced here rather than retired.
+    '/admin/draft',
   ]) {
     assert.ok(strings.includes(href), `${href} still offered`);
   }
+  assert.ok(strings.includes('Draft Sequencing'), 'and it is named');
 });
 
 // A behavioural test can only observe the pages it renders. This is the one

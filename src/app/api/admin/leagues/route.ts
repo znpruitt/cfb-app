@@ -120,6 +120,18 @@ export async function POST(req: Request): Promise<Response> {
     displayName,
     year,
     createdAt: now.toISOString(),
+    // PLATFORM-086F2J — the FOUNDING year: the calendar year this league record
+    // was created, rendered as `Est. N` on league pages. It is decorative
+    // flavour for long-running leagues, and it is FROZEN here — `PATCH` refuses
+    // it with `league-founded-year-immutable`.
+    //
+    // Deliberately NOT called a "first competition season", and deliberately NOT
+    // derived from `seasonYearForToday()`. That helper answers "which season's
+    // data are we looking at" and returns the PREVIOUS year between January and
+    // June, so a league created in March 2026 would record 2025 — a season it
+    // never played. The calendar year matches the coming season for most of the
+    // year; a December creation records N while the league first plays N+1, and
+    // that is accepted rather than special-cased.
     foundedYear: now.getUTCFullYear(),
     status: { state: 'season', year },
   };

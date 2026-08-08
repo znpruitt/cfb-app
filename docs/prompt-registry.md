@@ -188,6 +188,36 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `npm run build`, and `git diff --check` each run as their own command with unmasked exit status.
 - Status: MERGED via PR #457 (`876d87c`), 2026-08-07.
 
+### PLATFORM-086F2J-COMMISSIONER-BOUNDARIES-AND-NAVIGATION-v2
+
+- Purpose: Freeze the league's founding year after creation, surface the orphaned Draft Sequencing
+  page, correct copy describing authority the app does not have, and put the league-password route
+  under test. Final F2 slice.
+- Scope: `PATCH /api/admin/leagues/[slug]`, `LeagueSettingsForm`, the `/admin` hub, two stale
+  comments, new suites for the password route and the settings form, owning docs. No password
+  behaviour change, no navigation restructure beyond one card, no authorization change.
+- **The audit reversed the original framing, twice.** (a) There is NO commissioner identity in code —
+  no role, claim, type, or helper — and every league-scoped WRITE requires PLATFORM ADMIN while the
+  league password gates READS only, verified route by route. No authorization defect exists and none
+  was introduced; the slice removes copy that implied a boundary rather than building one.
+  (b) `foundedYear` is a FOUNDING year — the calendar year the record was created, shown as
+  `Est. N` — **not** a "first competition season". A December creation records N while the league
+  first plays N+1, so the stronger claim is false, and documenting the exception does not rescue it.
+  The v1 prompt made that claim; v2 corrected it after review.
+- **`seasonYearForToday()` was considered and rejected.** It answers "which season's data are we
+  looking at" and returns the PREVIOUS year between January and June, so a league created in March
+  2026 would record 2025 — a season it never played. Creation behaviour is unchanged.
+- Immutability: `PATCH` refuses `foundedYear` with `league-founded-year-immutable` (409), refused
+  WHOLESALE before any field is applied, matching the lifecycle refusals. Distinct code on purpose:
+  `year`/`status` are managed by lifecycle operations and keep changing; this is frozen at creation.
+  Existing values are preserved — no migration; TSC's backdated 2018 survives.
+- `/admin/draft` had NO inbound link from anywhere and was reachable only by URL. It is cross-league
+  and read-only, so it is SURFACED as a platform card rather than retired.
+- Both new suites are first-ever coverage. `LeagueSettingsForm` had none; the password route had
+  none, and it defines the only non-admin credential in the application.
+- Review / verification: (to be completed against the review commit).
+- Status: implemented; review pending. **F2 completes on merge.**
+
 ### PLATFORM-086F2I-PLATFORM-CONFIGURATION-AND-TEAM-IDENTITY-v1
 
 - Purpose: Make League Management a REGISTRY surface rather than a second configuration surface,
