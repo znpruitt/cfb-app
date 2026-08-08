@@ -52,6 +52,120 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-088-HOMEPAGE-ENTRY-TRUTH-v1
+
+- Purpose: Make the homepage tell the truth to each visitor — a server-rendered public entry page
+  that works without JavaScript and leaks no registry data, and an admin-only league dashboard that
+  reads each league's own season.
+- Scope: `src/app/page.tsx`, new `src/components/home/*`, `src/app/layout.tsx` (metadata
+  description), `DESIGN.md` (new landing section), `docs/vision.md` (entry contract), new tests.
+  `src/components/RootPageClient.tsx` deleted. No API, storage, authorization-policy, signup, or
+  league-discovery changes.
+- Preceded by two independent read-only audits (mine, static; Codex's, including live desktop,
+  mobile, and JavaScript-disabled checks). The JS-disabled finding came from the live pass and was
+  the most severe item; the static pass missed it.
+- **ONE ordering change closed three findings.** Platform-admin is now resolved on the SERVER before
+  any registry read, and the public landing is returned directly when it is false. Previously the
+  RSC loaded every league and owner count unconditionally and handed them to a `'use client'`
+  component that branched with Clerk's `<Show>`, so: (a) anonymous visitors received the whole league
+  directory in the payload — `<Show>` hid it, it did not withhold it, the same shape the Phase 3
+  draft-auth fix closed; (b) no landing markup existed in server HTML at all, so the page was
+  **completely blank with JavaScript disabled**, and a slow or failed Clerk script did the same; and
+  (c) signed-in non-admins fell into the dashboard. The landing now reads nothing, so a storage fault
+  cannot break it.
+- **Owner counts resolve PER LEAGUE** through the existing `resolveLeagueSeason` (lifecycle
+  `status.year`, else the league's own year, calendar value only as a last-resort default). This page
+  was the app's ONLY league-scoped caller of `seasonYearForToday()` — which answers "which season's
+  data", not "which season is this league in" — while both history surfaces already read the league's
+  own year. With production holding one league on 2026 and the demo on 2025, it read a roster the
+  league does not have and reported "No owners" for a league with a full roster.
+- **The entry contract is now WRITTEN DOWN** (`docs/vision.md` → "Entry and access model"): members
+  arrive by commissioner-shared link; no directory, no slug input, no signup; platform admins only
+  for the dashboard. Settled in practice and in conversation but recorded nowhere, which is how it
+  drifted out of the homepage copy — the page read "Enter your league URL" above a static code sample
+  with nothing to type into. `DESIGN.md` gains a "Landing page" section; it had no homepage rules at
+  all, making this the one significant surface with no design authority.
+- Also: contrast (the sign-in link measured ~2.6:1; body copy below 4.5:1), horizontal overflow at
+  390px (the link was fixed to a viewport corner and clipped — now in normal flow), honest wording
+  ("Platform admin sign-in", since middleware admits only platform admins), the root metadata
+  description rewritten for members rather than "commissioner diagnostics", and the hand-rolled
+  positional CSV split replaced with the shared header-aware `parseOwnersCsv`.
+- Tests: first-ever coverage for this surface, 9 tests. A non-admin gets the landing with EMPTY props
+  (the no-data-crosses property, pinned directly); a poisoned registry (`[null]`) cannot break the
+  public branch, with a positive control proving the same poison does reach the admin branch, so the
+  assertion is about ordering and not a harmless fixture; per-league year resolution with both years
+  taken from the fixture rather than the clock; the shared parser and the `NoClaim` sentinel; the
+  landing's copy; and two source guards — that `PublicLanding` never becomes a client component, and
+  that the specific failing contrast tokens do not return.
+- **Stated limitation:** contrast is NOT automatically verified. The guard pins the tokens that
+  failed; the 4.5:1 ratio itself is a visual check on preview. Mobile overflow is likewise a visual
+  check.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
+  3456 → 3465. Five mutations, each compiling, applied alone, killed by a named test: read the
+  registry before the branch; apply one calendar year to every league; positional CSV split;
+  restore the copy promising an input; reintroduce a failing contrast token.
+- **Review remediation, one round, both reviews gathered against `24aa693` first.** Both reviewers
+  independently found the same Medium: a signed-in NON-ADMIN was TRAPPED. They get the public
+  landing, whose only control linked to `/login`, which redirected to `/admin`, which middleware
+  bounces back — a closed loop with no sign-out and no explanation. They previously reached the
+  dashboard and its account menu, so this slice REMOVED their only exit. It withheld the data
+  correctly and took the way out with it — the [[platform_086f2i]] lesson: ask what a change makes
+  IMPOSSIBLE, not only what it prevents. Fixed at both halves: `isSignedInSession()` (identity, not
+  role, in the designated auth module, failing closed) drives an account control and a plain
+  statement of why they are refused, and `/login` now returns to `/` rather than `/admin`. The
+  landing still carries no league data in either state, pinned directly.
+- **A VACUOUS ASSERTION inside the flagship regression test.** `collectStrings(view)` was passed the
+  UNRENDERED `<PublicLanding />`, whose children are undefined, so the walk always returned `[]` and
+  the `.some(...)` could never be true no matter what the component rendered. The property was
+  genuinely pinned by the neighbouring `deepEqual` on props, so coverage was not actually missing —
+  but the assertion read as an independent check and was not one. Replaced with an exact prop-SET
+  comparison, which fails the moment league data reappears. Third vacuous assertion caught in this
+  campaign; the tell each time is asserting over a structure that cannot contain the thing sought.
+- **AGENTS.md invariant 9, broken for the SECOND time** (PLATFORM-086F2H3B1 was the first): "all
+  derived league data must be computed in `src/lib/selectors/`". The owner counting was pre-existing
+  inline in `page.tsx`, and this slice's first pass relocated it into `src/components/` — the same
+  violation in a new place. Extracted to `src/lib/selectors/leagueOwnerCounts.ts` (pure, 6 tests) and
+  `homeView.tsx` moved to `src/app/`. That move closes a second hazard the reviewer named: the module
+  transitively imports `appStateStore`, which imports `pg`, so under `src/components/` a client
+  component could have pulled a database driver into the browser bundle with no `server-only` guard
+  to stop it. A test now asserts it does not live there.
+- Remediation verification: test delta 3465 → 3475. Four further mutations, each compiling, applied
+  alone, killed by a named test: remove the signed-in exit; never pass the identity fact through;
+  count the `NoClaim` sentinel as a person; reopen the login loop.
+- **CORRECTION — that first mutation claim was OVERSTATED, and a second review round proved it.**
+  "Remove the signed-in exit" flipped the whole `isSignedIn` branch off, which removed the
+  explanatory sentence along with the control — and the sentence is what the test asserted. Deleting
+  ONLY the control left the entire suite green, verified directly. The exit was never pinned. A
+  mutation that removes more than the property it claims to test yields a false green, and the false
+  conclusion was written into this ledger. The exit is now pinned by PRESENCE (`containsComponent`
+  walks for the component type, which `collectStrings` structurally cannot see) with a positive
+  control proving that helper returns false when the control is genuinely absent.
+- **Round 2, owner-approved. All four findings were caused by round 1's own remediation.**
+  - **The exit re-derived auth in the browser.** `AppHeaderActions` branches on
+    `isLoaded && isSignedIn`, so until Clerk hydrated it offered "Sign in" → `/login` → back to `/`:
+    the loop reopened for anyone on a slow connection. `/code-review` framed this as a
+    JavaScript-disabled defect; that population is nearly empty by construction, since Clerk's
+    sign-in is itself client-side, so the HYDRATION RACE is the reachable defect. Replaced with
+    `SignOutControl`, which takes no auth input — presence is settled on the server.
+  - **`isSignedInSession()` bypassed the blank-secret refusal** (flagged by BOTH reviewers).
+    Replaced with `resolveSessionFacts()`: one `auth()` call, one precondition, both facts, failing
+    closed together. With `CLERK_SECRET_KEY` unset the old pair could disagree and tell a LEGITIMATE
+    ADMIN their account lacked the role.
+  - **A limitation found BY the mutation pass and recorded rather than glossed:** the two
+    behavioural blank-secret tests cannot discriminate. Removing the precondition leaves them green,
+    because `auth()` throws in the test environment regardless and the catch returns the same
+    both-false result. The STRUCTURAL test (one `auth()` call, guarded by the same precondition) is
+    what actually kills that mutation. Stated in the test file so the next reader is not misled into
+    thinking three passing tests mean three tests' worth of coverage.
+  - **The DESIGN.md landing section was scoped "signed-out root only"** while the same page serves
+    signed-in non-admins — leaving that state with no design authority, which is precisely how the
+    JavaScript-dependent exit passed a no-JavaScript rule three bullets below it. Re-scoped, and the
+    rule now separates "content renders without JS" from "a control may need JS to act", which is
+    the honest form.
+- Status: implemented and reviewed (`/code-review` + `/codex:review`, both against `24aa693`);
+  remediation complete; not yet merged.
+
 ### INSIGHTS-022-OFFSEASON-ROSTER-CONTENT-v1
 
 - Purpose: Keep the retrospective rookie benchmark available through the whole offseason, and stop

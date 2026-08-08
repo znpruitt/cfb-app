@@ -16,6 +16,28 @@ The product remains **API-first**:
 - **The Odds API** is the source of truth for betting odds.
 - The **schedule remains the canonical game universe** that all downstream score and odds attachment must respect.
 
+## Entry and access model (settled)
+
+Owner decision, 2026-08-08, recorded during the PLATFORM-088 homepage audit. This had been settled in
+practice and in conversation but was written down nowhere, which is how it drifted out of the
+homepage copy in the first place.
+
+- **Members reach their league through a link their commissioner shares with them.** That link is the
+  entry path.
+- **No public league directory and no slug-entry tool.** Leagues are not discoverable from the root;
+  knowing the URL is what grants you the page (subject to the per-league password gate where one is
+  set).
+- **No signup flow on the homepage.** Multi-tenant commissioner sign-up remains a planned roadmap
+  item (`docs/roadmap.md`); until it ships, league creation is a platform-admin operation.
+- **The signed-out root explains what Turf War is and points invited members at their link.** It is
+  an entry page, not a marketing site — see `DESIGN.md` → "Landing page" for the UI rules.
+- **Only platform admins see the league dashboard.** A signed-in non-admin sees the same public
+  landing a signed-out visitor sees. This matches middleware, which already refuses non-admins every
+  `/admin` route; the homepage used to hand them the full league list anyway.
+
+When multi-tenant sign-up ships, this section is the thing to revisit first — several of these points
+exist only because commissioner self-service does not yet exist.
+
 ## Prompt governance (execution hygiene)
 
 - Current prompt and documentation-governance rules live in `AGENTS.md` (binding) and `CLAUDE.md` (Claude-specific workflow) — including the standardized `PROMPT_ID`/`PURPOSE`/`SCOPE` header and the current ID format. `docs/prompt-registry.md` is the historical ledger of executed prompts.

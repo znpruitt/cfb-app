@@ -218,6 +218,52 @@ Supersedes: (none)
 - User preference override: deferred until user accounts are built
 - When adding user override: switch Tailwind to `class` strategy, add theme provider
 
+## Landing page (`/`)
+
+PLATFORM-088. Governs **both states of the public landing** — the signed-out visitor AND the
+signed-in non-admin, who receives the same page. Scoping this to "signed-out only" was itself a
+defect: it left the signed-in state with no design authority, which is how a JavaScript-dependent
+sign-out control slipped past the no-JavaScript rule three bullets below. The platform-admin
+dashboard behind the same route is an operator surface and follows the admin conventions instead.
+
+- **It is an entry page, not a marketing site.** Say what Turf War is in a sentence or two, then get
+  an invited member into their league. No feature tour, no screenshots, no pricing, no testimonials.
+- **Members arrive by shared link.** There is no slug input, no public league directory, and no
+  signup on this page — the entry contract is recorded in `docs/vision.md`. Copy must not imply an
+  affordance the page does not have: the previous version read "Enter your league URL" above a static
+  code sample with nothing to type into.
+- **Server-rendered, always.** The landing's CONTENT must render without JavaScript and without
+  Clerk. It branched client-side until PLATFORM-088; the page was blank with JS disabled, and a slow
+  or failed auth script produced the same result. It must also read no league or registry data — a
+  visitor who has never heard of this league should not depend on its storage being available.
+- **Every auth-dependent affordance is decided on the SERVER, never re-derived in the browser.** A
+  control that inspects `isLoaded`/`isSignedIn` client-side shows the wrong thing until Clerk
+  hydrates — on this page that meant offering "Sign in" to someone already signed in, pointing at
+  `/login`, which returns them here: a loop on any slow connection. Pass the resolved fact down as a
+  prop and let the control own only its click.
+- **Content renders without JavaScript; a control may still need it to ACT.** Sign-out calls Clerk
+  from the browser, and no server-side teardown is reachable from a plain form post. That is not a
+  hole in the rule above: Clerk's sign-IN is equally client-side, so no session can exist without
+  JavaScript having run. State this distinction rather than claiming more than is true.
+- **Normal text meets 4.5:1 in both themes.** `text-gray-400` on white measures ~2.6:1 and
+  `dark:text-zinc-600` on `zinc-950` is worse; neither is acceptable for body copy or links. Use
+  `text-gray-600 dark:text-zinc-400` or stronger.
+- **No horizontal overflow at 390px.** Keep the single content column inside `max-w-lg` with real
+  horizontal padding, break long strings, and keep the sign-in affordance in normal flow — fixing it
+  to a viewport corner clipped it on small screens.
+- **Affordances are named for who can actually use them.** The sign-in link reads "Platform admin
+  sign-in" because middleware admits only platform admins; it previously said "Commissioner login".
+- **Hierarchy comes from TYPE, not colour.** The page carries no data, so there is nothing for colour
+  to encode — and the app's colour rules above are semantic by design (amber for champions, blue for
+  interactivity, "no colour for decoration"). An accent here would mean nothing and would promise a
+  livelier product than the austere, data-dense app behind it. When this page reads flat, the fix is
+  scale contrast, a second type register, a constrained measure, and deliberate vertical rhythm —
+  tight within a group, generous between groups — not a palette.
+- **A brand accent, if one is ever introduced, is a token defined once and applied app-wide**, and it
+  amends the colour rules above in the same change. It is not a homepage patch. Introducing brand
+  identity is its own scoped piece of work, best done when public launch is close and the surfaces
+  have stopped moving.
+
 ## Scope discipline
 
 - Do not add features not explicitly requested
