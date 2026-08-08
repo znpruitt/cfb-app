@@ -225,8 +225,33 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   agreeing, the orphaned `src/components/RosterUploadPanel.tsx` deleted, and the "Enter your token
   in the Auth panel above" copy corrected — nothing on the page is labelled "Auth panel";
   `AdminAuthPanel` renders a `<details>` whose summary reads "Admin access token".
-- Review / verification: (to be completed against the review commit).
-- Status: implemented; review pending.
+- Review / verification: Codex and `/code-review` gathered against the same commit (`4b19fe5`).
+  Codex returned no findings; `/code-review` returned six, all accepted in one round.
+  (1) **HIGH, and a design error rather than an omission:** the reuse refusal was flat, and nothing
+  in the app deletes league-scoped records — so a refused slug was refused FOREVER. Re-creating at
+  the same slug is how an ACCIDENTAL delete was recovered, so the guard blocked the common correct
+  case (restoring a league its own data) with the same rule as the rare dangerous one. It also
+  bricked the DEMO league permanently: `TEST_LEAGUE_SLUG` is hardcoded, `resetTestLeagueLifecycle`
+  answers `league-not-found` for an absent league, and this POST is the only `addLeague` caller.
+  Now refused by default and overridable with an explicit `adoptExistingData: true` — impossible by
+  accident, available on purpose — with the delete panel's copy stating the new consequence.
+  (2) `leagueResidualData` had NO test file: four of seven scope families were unpinned literals, so
+  a typo in `preseason-owners` / `insights-suppression` / `postseason-overrides` / `aliases` would
+  leave the suite green while detection silently stopped. Now a per-family suite that seeds through
+  the REAL writers (`saveSeasonArchive`, `saveSuppressionRecord`) rather than second literals.
+  (3) Stale "Aliases page" copy survived the rename in `ScoreAttachmentRecoveryPanel` — and a sweep
+  found two more in `IssuesPanel` the reviewer had not reached. (4) The client-side confirmation
+  branch was unreachable (the submit control is disabled on the identical predicate), so it read as
+  defence while testing as nothing — removed, with the route named as the authority. (5) The two new
+  errors returned JSON on a route whose only client renders `res.text()` verbatim — converted to
+  plain text with the stable code as the first token. (6) A corrected doc bullet asserted both that
+  the defect was fixed and that it still existed.
+  Deltas: DELETE 0 → 5 (first-ever coverage), creation 4 → 11, a new `leagueResidualData` suite of
+  6, and a new page suite of 3. Full suite 3404 → 3425. Eleven mutations, each compiling, applied
+  alone, killed by a named test — including a single-character typo in a scope literal.
+  `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check` each
+  run as their own command with unmasked exit status.
+- Status: implemented and reviewed; not yet merged.
 
 ### PLATFORM-086F2H4-RETIRE-SEASON-MANAGEMENT-v1
 

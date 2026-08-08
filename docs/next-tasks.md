@@ -814,6 +814,15 @@ Execution order within F2 (each slice is one independently deployable PR):
     Shipped: a slug-typed delete confirmation enforced in the ROUTE (a static `ADMIN_API_TOKEN`
     reaches the endpoint without the UI), refusal of a slug whose previous league's data survives,
     configuration editing moved to the settings page, and the Team Identity rename.
+    - **Review changed the reuse guard's design.** It was first written as a flat refusal, and both
+      reviewers caught that this created a DEAD END rather than a safeguard: nothing in the app
+      deletes league-scoped records, so a refused slug was refused forever. Two consequences made
+      that wrong rather than merely strict — re-creating at the same slug is exactly how an
+      ACCIDENTAL delete was recovered (restoring a league its OWN rosters), and the demo league's
+      slug is a hardcoded constant whose only creation path is this route, so deleting `test` would
+      have bricked it permanently. Now refused BY DEFAULT and overridable with an explicit
+      `adoptExistingData` acknowledgement — the same standard as the delete confirmation:
+      impossible by accident, available when it is what you mean.
     - **NOT done, recorded so it is not a surprise:** `PUT|DELETE /api/admin/leagues/[slug]/password`
       has **no test file at all**. It is auth-adjacent and persists a hash and salt. Out of this
       slice's scope; it should be covered before that path is relied on.
