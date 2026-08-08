@@ -169,6 +169,21 @@ export default function AdminLeaguesPage() {
     }
   }
 
+  // PLATFORM-086F2J — editing the slug retracts the adoption acknowledgement.
+  //
+  // The acknowledgement is granted for ONE specific slug: it is offered only
+  // after that slug's residue refusal, and it means "the data under THIS slug is
+  // this league's". Carrying it to a slug the operator was never warned about
+  // reuses consent for a question that was never asked. The route now refuses
+  // adoption of a slug holding nothing, so this is not the security boundary —
+  // it is the form telling the truth about what has been agreed to.
+  function handleSlugChange(next: string) {
+    setSlug(next);
+    setAdoptOffered(false);
+    setAdoptExistingData(false);
+    setRestoreFoundedYear('');
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     setCreateError(null);
@@ -213,8 +228,16 @@ export default function AdminLeaguesPage() {
           slug: trimmedSlug,
           displayName: trimmedName,
           year: yearNum,
+          // A blank field is an explicit "no recorded founding year" (null), not
+          // an omission — omitting it is what the route refuses. Leagues created
+          // before the field existed carry none, and restoring one must not
+          // force the operator to invent a year the freeze then makes permanent.
           ...(adoptExistingData
-            ? { adoptExistingData: true, restoreFoundedYear: Number(restoreFoundedYear) }
+            ? {
+                adoptExistingData: true,
+                restoreFoundedYear:
+                  restoreFoundedYear.trim() === '' ? null : Number(restoreFoundedYear),
+              }
             : {}),
         }),
       });
@@ -400,7 +423,7 @@ export default function AdminLeaguesPage() {
                 id="create-slug"
                 className={inputClass}
                 value={slug}
-                onChange={(e) => setSlug(e.target.value)}
+                onChange={(e) => handleSlugChange(e.target.value)}
                 placeholder="my-league"
                 autoComplete="off"
                 spellCheck={false}
@@ -471,7 +494,8 @@ export default function AdminLeaguesPage() {
               />
               <p className="text-xs text-gray-500 dark:text-zinc-400">
                 The league&apos;s original founding year. It is frozen again once restored, so it
-                cannot be corrected afterwards.
+                cannot be corrected afterwards. Leave blank if this league never had one recorded —
+                its page will show no &ldquo;Est.&rdquo; line, which is what it showed before.
               </p>
             </div>
           )}

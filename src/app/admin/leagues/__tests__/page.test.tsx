@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 import test, { afterEach, beforeEach } from 'node:test';
 
+// MUST precede `@testing-library/react`: it installs the JSDOM globals before
+// `react-dom` is evaluated. See the module for why a late setup silently breaks
+// multi-field forms.
+import { dom } from '../../../../test/domEnvironment.ts';
+
 import React from 'react';
-import { JSDOM } from 'jsdom';
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
@@ -24,17 +28,6 @@ import type { PublicLeague } from '@/lib/league';
 // because a static ADMIN_API_TOKEN reaches the endpoint without this form.
 // ---------------------------------------------------------------------------
 
-const dom = new JSDOM('<!doctype html><html><body></body></html>', {
-  url: 'https://example.test/',
-});
-(globalThis as { window: Window }).window = dom.window as unknown as Window;
-(globalThis as { document: Document }).document = dom.window.document;
-(globalThis as { self: Window }).self = dom.window as unknown as Window;
-Object.defineProperty(globalThis, 'navigator', {
-  value: dom.window.navigator,
-  writable: true,
-  configurable: true,
-});
 dom.window.sessionStorage.setItem('adminToken', 'test-token');
 
 function router(): AppRouterInstance {
@@ -193,3 +186,150 @@ test('no DELETE is issued before a confirmation is typed', async () => {
 // `src/app/api/admin/leagues/__tests__/route.test.ts`, including positive
 // controls. A form that failed to send the year would refuse every restoration
 // loudly and immediately, which is the mitigating factor.
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2J round 2 — the adopt/restore flow, finally covered.
+//
+// The first attempt at these tests was abandoned with a note claiming
+// `userEvent` could not drive this form. That diagnosis was WRONG. The cause was
+// import order: the suite installed its JSDOM globals in the module body, after
+// the hoisted `react-dom` import had already captured `canUseDOM === false`, so
+// React fell back to its legacy IE change-detection path and threw on every
+// focus transition. Whichever field was typed SECOND lost its state. Importing
+// `domEnvironment.ts` first fixes it, and the flow is testable after all.
+// ---------------------------------------------------------------------------
+
+async function fillCreateForm(
+  container: HTMLElement,
+  user: ReturnType<typeof userEvent.setup>,
+  values: { slug: string; name: string }
+) {
+  await waitFor(() => assert.ok(container.querySelector('#create-slug')));
+  await user.clear(container.querySelector('#create-slug') as HTMLInputElement);
+  await user.type(container.querySelector('#create-slug') as HTMLInputElement, values.slug);
+  await user.clear(container.querySelector('#create-name') as HTMLInputElement);
+  await user.type(container.querySelector('#create-name') as HTMLInputElement, values.name);
+}
+
+function submitCreate(container: HTMLElement) {
+  const button = [...container.querySelectorAll('button')].find((b) =>
+    /Create league/i.test(b.textContent ?? '')
+  );
+  assert.ok(button, 'the create button is present');
+  fireEvent.click(button);
+}
+
+function renderPage() {
+  return render(
+    React.createElement(
+      AppRouterContext.Provider,
+      { value: router() },
+      React.createElement(AdminLeaguesPage, {})
+    )
+  );
+}
+
+test('the residue refusal offers adoption, and adopting sends the restored year', async () => {
+  const user = userEvent.setup({ document: dom.window.document });
+  const { container } = renderPage();
+
+  await fillCreateForm(container, user, { slug: 'ghost', name: 'Ghost' });
+  submitCreate(container);
+
+  // The acknowledgement appears only after the refusal — it is never offered up
+  // front, so it cannot be ticked by an operator who was warned about nothing.
+  const checkbox = await waitFor(() => {
+    const box = container.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+    assert.ok(box, 'the adoption acknowledgement appears after the 409');
+    return box;
+  });
+
+  await user.click(checkbox);
+  const yearField = await waitFor(() => {
+    const field = container.querySelector('#restore-founded-year') as HTMLInputElement | null;
+    assert.ok(field, 'ticking it reveals the founding-year field');
+    return field;
+  });
+  await user.type(yearField, '2019');
+
+  submitCreate(container);
+  await waitFor(() => assert.ok(bodies.length >= 2, 'a second POST was issued'));
+
+  assert.deepEqual(bodies[1], {
+    slug: 'ghost',
+    displayName: 'Ghost',
+    year: 2026,
+    adoptExistingData: true,
+    restoreFoundedYear: 2019,
+  });
+});
+
+// REGRESSION TEST — the acknowledgement is granted for ONE slug.
+//
+// It used to survive a slug edit, so an operator who hit the refusal on `ghost`,
+// ticked adopt, then changed their mind and typed a different slug carried the
+// flag with them. The route skipped the residue guard for a slug nobody had been
+// warned about and stamped it with a founding year that PATCH then froze.
+test('editing the slug retracts the adoption acknowledgement', async () => {
+  const user = userEvent.setup({ document: dom.window.document });
+  const { container } = renderPage();
+
+  await fillCreateForm(container, user, { slug: 'ghost', name: 'Ghost' });
+  submitCreate(container);
+
+  const checkbox = await waitFor(() => {
+    const box = container.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+    assert.ok(box);
+    return box;
+  });
+  await user.click(checkbox);
+  await waitFor(() => assert.ok(container.querySelector('#restore-founded-year')));
+
+  // The operator realises it is a different league and changes the slug.
+  await user.clear(container.querySelector('#create-slug') as HTMLInputElement);
+  await user.type(container.querySelector('#create-slug') as HTMLInputElement, 'other');
+
+  await waitFor(() => {
+    assert.ok(
+      container.querySelector('input[type="checkbox"]') === null,
+      'the acknowledgement is withdrawn with the slug it was granted for'
+    );
+    assert.ok(
+      container.querySelector('#restore-founded-year') === null,
+      'and the founding-year field goes with it'
+    );
+  });
+
+  submitCreate(container);
+  await waitFor(() => assert.ok(bodies.length >= 2));
+  assert.equal(bodies[1]!.slug, 'other');
+  assert.ok(
+    !('adoptExistingData' in bodies[1]!),
+    'the new slug is created ordinarily, so the route surveys it'
+  );
+  assert.ok(!('restoreFoundedYear' in bodies[1]!));
+});
+
+// A blank founding year is an explicit "none recorded", sent as null. Omission is
+// what the route refuses, so the form must distinguish the two: leagues predating
+// the field have no founding year, and restoring one must not invent one.
+test('a blank founding year is sent as an explicit null', async () => {
+  const user = userEvent.setup({ document: dom.window.document });
+  const { container } = renderPage();
+
+  await fillCreateForm(container, user, { slug: 'ghost', name: 'Ghost' });
+  submitCreate(container);
+
+  const checkbox = await waitFor(() => {
+    const box = container.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+    assert.ok(box);
+    return box;
+  });
+  await user.click(checkbox);
+  await waitFor(() => assert.ok(container.querySelector('#restore-founded-year')));
+
+  submitCreate(container);
+  await waitFor(() => assert.ok(bodies.length >= 2));
+  assert.equal(bodies[1]!.adoptExistingData, true);
+  assert.equal(bodies[1]!.restoreFoundedYear, null, 'null, not 0 and not omitted');
+});

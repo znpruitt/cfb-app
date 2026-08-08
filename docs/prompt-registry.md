@@ -267,12 +267,33 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   navigation, contrast, screen-reader flow) is RETIRED as a charter item by owner ruling and
   re-planned as a dedicated pre-public-launch pass; it is not a code deliverable and F2 does not
   wait on it.
-- **Known gap, recorded rather than papered over:** the create form's restore-year wiring has no
-  test. `userEvent.type` updates the DOM value of that form's inputs without reaching React state —
-  while the identical approach works on the delete-confirmation input in the same file — and the
-  cause was not identified. Rather than ship a test passing for the wrong reason, it is left
-  uncovered and said so. The route contract is fully covered, and a form failing to send the year
-  would refuse every restoration loudly and immediately.
+- **Round 2, owner-approved after both reviews.** Ten findings, all verified before acting. The
+  load-bearing one: `adoptExistingData` was **self-justifying** — it suppressed the residue scan, so
+  nothing established there was anything to adopt. Any caller could send it on a clean slug and be
+  handed the recovery-only founding year (the arbitrary founding-year-at-creation the design exists
+  to keep shut), and the create form did not clear the acknowledgement on a slug edit, so consent
+  earned for one slug skipped the guard for another. Fix: scan unconditionally, then decide —
+  adopting a slug holding nothing is now an error, so a stale flag can only ever produce a refusal.
+  Also: `null` accepted as an explicit "no recorded founding year" (requiring an integer forced a
+  legacy record to invent one, the exact fabrication the field prevents); the ceiling corrected from
+  `maxCreatableSeasonYear` (`currentYear + 1`, a SEASON horizon) to the current calendar year;
+  `DraftSequencingPanel` no longer promises automatic rollover for leagues the job does not target
+  (the demo league, and any league not in `season`); `/admin/draft` given a light-mode variant now
+  that F2J made it reachable; the stale `rollover (GET/POST)` entry removed from the admin API
+  inventory that F2H4's retirement had left behind.
+- **A recorded diagnosis was WRONG, and the correction is the point.** The first attempt at the
+  adopt-flow test was abandoned with a note blaming `userEvent` and "something specific to this
+  form". Neither was true. The cause is **import order**: every `.tsx` suite installs its JSDOM
+  globals in the module body, which runs AFTER the hoisted `react-dom` import has already captured
+  `canUseDOM === false`. React then falls back to its legacy IE change-detection path and throws
+  `attachEvent is not a function` on focus transitions, so whichever field is typed SECOND silently
+  keeps its DOM value while React state never updates — under `fireEvent` exactly as under
+  `userEvent`. `src/test/domEnvironment.ts` installs the globals first; the flow is now fully
+  covered by three tests. **A gap recorded with a fabricated cause is worse than one recorded as
+  unexplained** — it sends the next reader somewhere the defect is not.
+- **Follow-up:** the other `.tsx` suites still inline their JSDOM setup. They pass because each
+  drives a single field, so no focus transition occurs. Migrating them to `domEnvironment.ts` is
+  mechanical and deliberately not folded into this slice.
 - Status: implemented and reviewed; not yet merged. **F2 completes on merge.**
 
 ### PLATFORM-086F2I-PLATFORM-CONFIGURATION-AND-TEAM-IDENTITY-v1

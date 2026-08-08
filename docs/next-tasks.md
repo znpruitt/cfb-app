@@ -861,17 +861,18 @@ Execution order within F2 (each slice is one independently deployable PR):
           **Re-planned as a dedicated pass before public launch**, when the surfaces have stopped
           moving and there are real users to serve. The operator performs a short check of what
           F2J itself changed against `preview` before merge — see the PR for the exact list.
-    - **OPEN, raised at review and NOT resolved here — needs an owner decision.** Creation mints
-      `foundedYear` unconditionally and PATCH now refuses every update, so **restoring an
-      accidentally deleted league rewrites its founding year to the current year, permanently**. The
-      F2I adoption path (`adoptExistingData: true`) restores rosters, drafts, and archives, but the
-      `Est. N` header would read the restoration date with no correction path anywhere in the app.
-      The same gap means a legacy record with no value can never acquire one.
-      The obvious fix — an optional `foundedYear` on POST, valid only at creation — was
-      **explicitly ruled out** by the owner ("no planned support for legacy leagues; that was a TSC
-      only activity"), and that ruling was made before this consequence was known. It is recorded
-      rather than reversed unilaterally. **Trigger: the first time a league is deleted and restored,
-      or the first time a legacy record needs a founding year.**
+    - **RESOLVED in F2J round 2** (was: creation mints `foundedYear` unconditionally and PATCH
+      refuses every update, so restoring an accidentally deleted league rewrote its founding year to
+      the current year, permanently). The owner ruled this a regression F2J created rather than an
+      inherited limitation, and therefore merge-blocking, and directed a **narrow recovery-only**
+      value rather than the optional-`foundedYear`-at-creation design previously ruled out ("no
+      planned support for legacy leagues; that was a TSC only activity"). Shipped as
+      `restoreFoundedYear`: a separate field, accepted only alongside `adoptExistingData: true`,
+      REQUIRED when adopting, bounded at the current calendar year, and refused on ordinary
+      creation. Review then found the flag was **self-justifying** — it suppressed the very residue
+      scan that establishes there is anything to adopt — so the scan now runs unconditionally and
+      adopting a slug that holds nothing is itself an error. `null` is accepted as an explicit "no
+      recorded founding year", which is what keeps a legacy record from being forced to invent one.
     - **Follow-up recorded:** `DraftSequencingPanel` computes `rolloverNeeded` as
       `league.year < new Date().getUTCFullYear()` — its own calendar rule, independent of the
       lifecycle authority. Read-only display, left alone here.

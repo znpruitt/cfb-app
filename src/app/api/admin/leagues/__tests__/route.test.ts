@@ -349,3 +349,143 @@ test('a restored league still cannot have its founding year edited afterwards', 
   assert.equal(res.status, 409);
   assert.equal((await readRegistry())[0]!.foundedYear, 2019, 'the restored value stands');
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-086F2J round 2 — `adoptExistingData` was SELF-JUSTIFYING.
+//
+// The flag suppressed the residue scan, so nothing ever established that there
+// was anything to adopt. That made the recovery-only founding year reachable on
+// any clean slug — the arbitrary founding-year-at-creation this field exists to
+// keep shut — and it meant a stale flag carried over from a slug the operator
+// HAD been warned about skipped the guard for one they had not.
+// ---------------------------------------------------------------------------
+
+test('adopting a slug that holds nothing is refused', async () => {
+  await setAppState('leagues', 'registry', []);
+
+  const res = await POST(
+    createRequest({
+      slug: 'brand-new',
+      displayName: 'Brand New',
+      year: 2025,
+      adoptExistingData: true,
+      restoreFoundedYear: 1998,
+    })
+  );
+
+  assert.equal(res.status, 400, 'there is nothing to adopt');
+  assert.match(await res.text(), /nothing to adopt/i);
+  assert.deepEqual(await readRegistry(), [], 'and no league was created');
+});
+
+// POSITIVE CONTROL — the identical request succeeds once residue exists, so the
+// refusal above is about the absent data and not about the payload shape.
+test('the same adoption succeeds when data actually survives', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:brand-new:2024', 'csv', 'Owner,Team\nDana,Alabama');
+
+  const res = await POST(
+    createRequest({
+      slug: 'brand-new',
+      displayName: 'Brand New',
+      year: 2025,
+      adoptExistingData: true,
+      restoreFoundedYear: 1998,
+    })
+  );
+
+  assert.equal(res.status, 201);
+  assert.equal((await readRegistry())[0]!.foundedYear, 1998);
+});
+
+// REGRESSION TEST — the stale-acknowledgement path, end to end at the route.
+// Residue exists for `ghost`; the operator ticks adopt for it, then changes the
+// slug to `other` and submits. `other` was never surveyed and never refused, so
+// adopting it must fail rather than silently attach a founding year to a league
+// nobody was warned about.
+test('an acknowledgement earned on one slug does not carry to another', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team\nDana,Alabama');
+
+  assert.equal(
+    (await POST(createRequest({ slug: 'ghost', displayName: 'G', year: 2025 }))).status,
+    409,
+    'ghost is the slug that earned the acknowledgement'
+  );
+
+  const res = await POST(
+    createRequest({
+      slug: 'other',
+      displayName: 'Other',
+      year: 2025,
+      adoptExistingData: true,
+      restoreFoundedYear: 1998,
+    })
+  );
+
+  assert.equal(res.status, 400, 'a different slug does not inherit it');
+  assert.deepEqual(await readRegistry(), []);
+});
+
+// PLATFORM-086F2J round 2 — "no recorded founding year" must stay expressible.
+// `foundedYear` is optional and leagues predating the field carry none. Since
+// adoption REQUIRES the value and the freeze then makes it permanent, a required
+// integer would force the operator to invent one — the exact fabrication this
+// field exists to prevent. `null` says "none recorded"; omission still fails.
+test('a restored league may explicitly have no founding year', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team');
+
+  const res = await POST(
+    createRequest({
+      slug: 'ghost',
+      displayName: 'G',
+      year: 2025,
+      adoptExistingData: true,
+      restoreFoundedYear: null,
+    })
+  );
+
+  assert.equal(res.status, 201);
+  const restored = (await readRegistry())[0]!;
+  assert.equal(restored.foundedYear, undefined, 'absent, not invented');
+  assert.ok(!('foundedYear' in restored) || restored.foundedYear === undefined);
+});
+
+// CONTRACT PIN — omitting the field is still an error, so `null` is a deliberate
+// statement rather than a synonym for "I did not say".
+test('null is distinct from omitting the restore year', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team');
+
+  const res = await POST(
+    createRequest({ slug: 'ghost', displayName: 'G', year: 2025, adoptExistingData: true })
+  );
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /required when adopting/i);
+});
+
+// PLATFORM-086F2J round 2 — the ceiling is the CURRENT year, not the season
+// horizon. `maxCreatableSeasonYear` is `currentYear + 1` because it bounds which
+// SEASON may be created; a founding year is when the league came into existence,
+// so a future one restores nothing — and PATCH would then freeze it forever.
+test('a founding year in the future is refused even though that season is creatable', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:ghost:2024', 'csv', 'Owner,Team');
+
+  const nextYear = new Date().getUTCFullYear() + 1;
+  assert.equal(nextYear, maxCreatableSeasonYear(Date.now()), 'the season horizon does allow it');
+
+  const res = await POST(
+    createRequest({
+      slug: 'ghost',
+      displayName: 'G',
+      year: 2025,
+      adoptExistingData: true,
+      restoreFoundedYear: nextYear,
+    })
+  );
+
+  assert.equal(res.status, 400, 'but a founding year may not be in the future');
+  assert.deepEqual(await readRegistry(), []);
+});
