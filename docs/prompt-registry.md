@@ -163,8 +163,10 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
     JavaScript-dependent exit passed a no-JavaScript rule three bullets below it. Re-scoped, and the
     rule now separates "content renders without JS" from "a control may need JS to act", which is
     the honest form.
-- Status: implemented and reviewed (`/code-review` + `/codex:review`, both against `24aa693`);
-  remediation complete; not yet merged.
+- Status: ✅ **MERGED** to `main` via PR #465 (merge commit `f578f22`), 2026-08-08. Four commits:
+  the implementation, and three rounds of correction. **TWO review rounds**, the second
+  owner-approved because all four of its findings were caused by the first round's own
+  remediation — the permitted category.
 
 ### INSIGHTS-022-OFFSEASON-ROSTER-CONTENT-v1
 

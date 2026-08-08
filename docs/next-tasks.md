@@ -35,19 +35,16 @@ Supersedes: (none)
    INSIGHTS-OFFSEASON-ROSTER-CONTENT: the rookie benchmark now runs through ordinary offseason, and
    the four unsupportable "Returning owner" claims are gone. Amended binding AGENTS.md invariant 5
    in the same change, since removing that framing contradicted it.
-3. **NEXT — PLATFORM-088 homepage entry truth.** Audited read-only twice (static and live) and now
-   scoped. The live pass found the public homepage renders **completely blank with JavaScript
-   disabled**, because the signed-out/signed-in branch ran client-side; the same branch handed the
-   full league directory to anonymous visitors and gave signed-in non-admins the admin dashboard.
-   One server-side ordering change closes all three. The **entry contract** it depends on (members
-   arrive by commissioner-shared link; no directory, slug input, or signup; platform admins only for
-   the dashboard) was settled by the owner on 2026-08-08 and is now recorded in `docs/vision.md`.
-   `/rankings` is orphaned and single-tenant but deliberately OUT of scope pending a separate call.
-4. Then, in order: INSIGHTS-018 (NEW tag + signatures), INSIGHTS-019 (diagnostic endpoint),
-   INSIGHTS-020 (record-change insights),
+3. ✅ **PLATFORM-088 — COMPLETE** (PR #465, `f578f22`, 2026-08-08). The public homepage is
+   server-rendered, reads no league data for anyone who is not a platform admin, and owner counts
+   resolve per league. The **entry contract** is recorded in `docs/vision.md` and `DESIGN.md` gained
+   a landing section it never had.
+4. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written; it was queued behind
+   the homepage only because the homepage had live defects.
+5. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
    History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
    later.
-5. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
+6. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
    schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its first
    qualifying automatic presentation refresh from production evidence when it occurs.
 
@@ -1168,6 +1165,18 @@ Items surfaced during the Insights Panel Redesign + Polish campaign and queued f
   **Shape.** A recap scores high at rollover, decays over weeks, and settles into rotation rather than vanishing. Roster content stays eligible year-round with a lift approaching preseason. Historical content holds a flat baseline and rises naturally as seasonal content decays — the desired rebalance achieved by NOT special-casing anything.
   **Constraints.** (1) Decay needs an anchor; the only true one is the most recent archive's `archivedAt` (already loaded into the insight context) — a calendar date reintroduces the arbitrariness this replaces. (2) It SUPERSEDES `fresh_offseason` rather than complementing it: if weight is time-derived, that state exists only to approximate "recently", and collapsing it back to one `offseason` state is a breaking change to every generator's lifecycle list and to `deriveLifecycleState`. (3) Existing `priorityScore` values are per-generator constants on no shared scale; making them commensurable is the bulk of the work, not the decay mechanism.
   Precedent worth reusing: `framing.ts` already has `applyLastSeasonFraming` — the system can already reframe an insight for distance, it just cannot re-rank for it.
+- **HOMEPAGE-BRAND-IDENTITY** — Turf War has no visual identity: no logo, no brand token in
+  `globals.css`, and `public/` still holds the Next.js starter SVGs. PLATFORM-088 gave the landing
+  typographic hierarchy and deliberately added NO colour — `DESIGN.md` reserves amber for champion
+  signals and blue for interactivity and states that no colour is decorative, so an accent on a
+  data-free page would encode nothing and would promise a livelier product than the austere app
+  behind it. Recorded as its own work because a brand accent must be a token defined once and
+  applied app-wide, amending the colour rules in the same change — not a homepage patch. **Trigger:
+  when public launch is close and the surfaces have stopped moving.**
+- **ORPHANED `/rankings` ROUTE** — zero inbound links anywhere in `src/`, and it redirects to
+  `leagues[0].slug`, i.e. whichever league happens to be first in the registry. A single-tenant
+  relic. Deliberately left OUT of PLATFORM-088's scope: deleting a route the owner may have
+  bookmarked is not a call to make from a grep. **Trigger: an owner decision on whether it is used.**
 - **INSIGHTS-OFFSEASON-ROSTER-CONTENT — ✅ CLOSED by INSIGHTS-022 (PR #464, `0f48b87`).** Kept for the correction it records. **The original statement of this item was WRONG on one of its two halves, and the correction changed the work.** It claimed `ROOKIE` and `RETURNING_OWNER_TRENDING` were both gated to `['fresh_offseason', 'preseason']` and both went dark in ordinary offseason. `RETURNING_OWNER_TRENDING_LIFECYCLES` was never an eligibility gate — `TRENDING_LIFECYCLES` already included `offseason`, and that constant only decided whether a copy PREFIX was applied. Career trends never went dark; they only gained or lost framing.
   - **The rookie benchmark WAS unavailable in ordinary offseason**, and widening its lifecycle list is the whole fix. An earlier draft of this entry claimed a second, engine-level block also had to be removed because the roster is "borrowed from an archive" for that whole stretch. **That was wrong.** `completeSeasonRollover` keeps `league.year` on the COMPLETED season and nothing ever deletes `owners:<slug>:<year>`, so the current roster is present and `usingArchivedRoster` is FALSE throughout `fresh_offseason` and `offseason` — it only becomes true in `preseason`, once `league.year` has advanced past the last archive. The engine guard never fired in the window this item is about, and both reviews caught the removal as unnecessary AND as a violation of binding AGENTS.md invariants 4 and 5. It was reverted.
   - **The real defect the audit surfaced was the "Returning owner" prefix**, applied by four career generators whenever the roster was borrowed. A borrowed roster proves someone PLAYED; it never proves they will play again, so the copy asserted a future fact from past data, and it fired hardest in exactly the window where the upcoming roster is least known. Identifying who is actually returning needs a FINALIZED upcoming roster compared against league history — a separate feature, deliberately not attempted here.

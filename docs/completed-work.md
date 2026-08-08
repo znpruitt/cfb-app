@@ -2378,6 +2378,60 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-088 — Homepage Entry Truth — Complete
+
+- **Status:** Complete — merged to `main` via PR #465 (merge commit `f578f22`), 2026-08-08.
+- **PROMPT_ID(s):** `PLATFORM-088-HOMEPAGE-ENTRY-TRUTH-v1`, preceded by two independent read-only
+  audits — one static, one including live desktop, mobile, and JavaScript-disabled checks.
+- **Outcome:** the public homepage is server-rendered and reads no league data for anyone who is not
+  a platform admin; admin owner counts resolve each league's own season; the landing explains what
+  Turf War is and points invited members at their commissioner's link.
+- **ONE ORDERING CHANGE CLOSED THREE DEFECTS.** Resolving platform-admin on the SERVER before any
+  registry read fixed all of: the entire league directory being serialized into the payload for
+  anonymous visitors (Clerk's `<Show>` HID it, it did not withhold it — the same shape the Phase 3
+  draft-auth fix closed); the public page rendering **completely blank with JavaScript disabled**,
+  because no landing markup existed in server HTML at all; and signed-in non-admins falling into the
+  admin dashboard.
+- **The most severe finding came from the LIVE audit pass, not the static one.** A page that renders
+  nothing without JavaScript cannot be seen by reading code or by any test in this suite. Worth
+  remembering when scoping an audit: static reading found the leak, live checking found the blank
+  page, and the blank page was worse.
+- **Owner counts were reading the wrong season.** This page was the app's only league-scoped caller
+  of `seasonYearForToday()`, which answers "which season's data are we looking at" rather than "which
+  season is this league in"; both history surfaces already used the league's own year. With
+  production holding one league on 2026 and the demo on 2025, it reported "No owners" for a league
+  with a full roster. Now `resolveLeagueSeason`, per league.
+- **The entry contract was settled but written down NOWHERE**, which is how it drifted out of the
+  copy — the page read "Enter your league URL" above a static code sample with nothing to type into.
+  Now in `docs/vision.md`; `DESIGN.md` gained a landing section, having previously had no homepage
+  rules at all.
+- **TWO review rounds, and every finding in the second was caused by the first.** Round 1 fixed a
+  regression the slice itself introduced: withholding the league data from signed-in non-admins also
+  removed their only sign-out, trapping them in a `/` → `/login` → `/admin` → `/` loop. Round 2 found
+  that fix used a control which re-derives auth in the browser, so the loop reopened during
+  hydration; that the test for it pinned nothing (deleting the control left the suite green); that a
+  new identity helper bypassed the blank-secret refusal its neighbour applies, able to tell a
+  legitimate admin they were not one; and that the new `DESIGN.md` section was scoped to exclude the
+  very state whose defect it would have caught.
+- **THE recurring lesson, sharpest here: a mutation that removes more than the property it claims to
+  test yields a FALSE GREEN.** The round-1 mutation "remove the signed-in exit" flipped the whole
+  branch off, taking the explanatory sentence with it — and the sentence was what the test asserted.
+  The claim "killed by a named test" went into a ledger and was false. Round 2 pinned the exit by
+  PRESENCE and corrected the ledger in place.
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Test delta
+  3456 → 3479 — first-ever coverage for this surface. Twelve mutations across three passes, each
+  compiling, applied alone, killed by a named test.
+- **Stated limitations, recorded rather than implied:** contrast is not automatically verified (a
+  guard pins the tokens that failed; the 4.5:1 ratio and the 390px layout are visual checks), and the
+  two behavioural blank-secret tests cannot discriminate because `auth()` throws in the test
+  environment regardless — only the structural test kills that mutation.
+- **Open follow-ups:** See `docs/next-tasks.md` — brand identity (deliberately no colour added here;
+  an accent must be a token applied app-wide, amending the colour rules in the same change) and the
+  orphaned single-tenant `/rankings` route.
+
+---
+
 ### INSIGHTS-022 — Offseason Roster Content — Complete
 
 - **Status:** Complete — merged to `main` via PR #464 (merge commit `0f48b87`), 2026-08-08.
