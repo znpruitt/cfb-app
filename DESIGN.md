@@ -252,10 +252,12 @@ dashboard behind the same route is an operator surface and follows the admin con
   (~8.4:1) and `zinc-300` (~11.6:1) are the working tokens. Do NOT carry light-theme pairs like
   `text-gray-600 dark:text-zinc-400` onto this page — the light half renders near-black on black for
   a visitor whose system is set to light.
-- **No horizontal overflow at 390px.** Keep the single content column inside `max-w-lg` with real
+- **No horizontal overflow at 390px.** Keep the single content column inside `max-w-xl` with real
   horizontal padding, break long strings, and keep the sign-in affordance in normal flow — fixing it
-  to a viewport corner clipped it on small screens. Decoration that overflows the viewport is
-  contained by the landing root, never by a viewport scrollbar.
+  to a viewport corner clipped it on small screens. Decorative layers are viewport-bounded by
+  `inset`, and an outermost inline `<svg>` clips its own overflow, so geometry drawn outside the
+  viewBox never reaches the page — the landing root's `overflow: hidden` is defensive rather than
+  load-bearing.
 - **Affordances are named for who can actually use them.** The sign-in link reads "Platform admin
   sign-in" because middleware admits only platform admins; it previously said "Commissioner login".
 - **Typography is still the primary hierarchy.** Scale contrast, a second type register, a
@@ -263,12 +265,17 @@ dashboard behind the same route is an operator surface and follows the admin con
   groups — carry the page. Colour supports the composition; it does not create the hierarchy. When
   this page reads flat, reach for type before pigment.
 - **The landing is an ALWAYS-DARK stadium composition.** Fixed dark regardless of the visitor's OS
-  preference: no `prefers-color-scheme` block, no `dark:` variants. A stadium rendered on white is
+  preference: no `prefers-color-scheme` block, no `dark:` variants, and no light-theme text token
+  anywhere in the files that render it — a `text-gray-600 dark:text-zinc-400` pair renders
+  near-black on black for a light-OS visitor. The page must also declare `color-scheme: dark` and
+  paint the document canvas, or UA chrome and rubber-band overscroll stay light behind it. A stadium rendered on white is
   not a lighter version of this page, it is a broken one. Every other app and admin surface remains
   theme-aware — this exception stops at `/`.
 - **One landing-scoped turf token is permitted, for the two field treatments only.**
-  `--landing-turf` is declared on `.landing-root` in `src/styles/publicLanding.css` and used by the
-  wordmark underline and the lower perspective field. Nothing else on the page takes green — not the
+  `--landing-turf` is declared on `.landing-root` in `src/styles/publicLanding.css` and reaches the
+  wordmark underline and the lower perspective field through the `landing-turf-stroke` /
+  `landing-turf-fill` rules. The SVGs carry no colour of their own, so editing the token is what
+  changes the page — a duplicated literal in the art module made this claim false once already. Nothing else on the page takes green — not the
   guidance panel, not the admin link, not the account controls — and alpha variants of that one value
   are used rather than additional green tokens.
 - **This is an explicit EXCEPTION to the semantic colour rules above, not a repeal of them.** Those

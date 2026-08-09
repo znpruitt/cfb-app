@@ -20,14 +20,37 @@
  * once from `globals.css`.
  */
 
+/*
+ * The document canvas is theme-dependent (`body { background-color:
+ * var(--background) }` in globals.css — white for a light-OS visitor) while this
+ * page is black. Two consequences `background-color` alone does not fix: rubber-band
+ * overscroll on iOS/macOS flashes white against the composition, and UA chrome —
+ * scrollbars especially — renders light over the stadium.
+ *
+ * `color-scheme` fixes the chrome; the `:has()` rule paints the canvas for this
+ * route only, leaving every other surface's theme handling untouched. A browser
+ * without `:has()` simply keeps today's behaviour.
+ */
+body:has(.landing-root) {
+  background-color: #000000;
+}
+
 .landing-root {
   --landing-turf: #2f8f4e;
+  color-scheme: dark;
 
   position: relative;
   isolation: isolate;
   min-height: 100vh;
-  /* Contains the decoration, which deliberately overflows the trapezoid's
-     foreground edge. Without this the field would create a horizontal scrollbar. */
+  /*
+   * Defensive containment, and the honest reason: the field's geometry DOES
+   * exceed its viewBox (`edgesAt(1)` spans -200…1400 in a 0…1200 box), but an
+   * outermost inline `<svg>` already carries UA `overflow: hidden`, and
+   * `.landing-field` / `.landing-glow` are both viewport-bounded by `inset`.
+   * Removing this produces no scrollbar today. It is kept so a future absolutely
+   * positioned decoration cannot introduce one — not because it is load-bearing
+   * now. An earlier comment claimed it was, which was wrong.
+   */
   overflow: hidden;
   background-color: #000000;
   color: #fafafa;
@@ -46,6 +69,19 @@
   background:
     radial-gradient(52% 40% at 10% -6%, rgba(255, 255, 255, 0.18), transparent 68%),
     radial-gradient(52% 40% at 90% -6%, rgba(255, 255, 255, 0.18), transparent 68%);
+}
+
+/*
+ * The ONLY consumers of `--landing-turf`. Declared once above, applied here, and
+ * reachable from nowhere else — the SVGs carry no colour of their own, so editing
+ * the token is what changes the page.
+ */
+.landing-turf-stroke {
+  stroke: var(--landing-turf);
+}
+
+.landing-turf-fill {
+  fill: var(--landing-turf);
 }
 
 .landing-field {

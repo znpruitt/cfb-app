@@ -17,8 +17,16 @@
  * illustration framework, and nothing here is reusable beyond this page.
  */
 
-/** The single landing-scoped turf colour. Mirrors `--landing-turf` in the CSS module. */
-const TURF = '#2f8f4e';
+/**
+ * The turf colour is NOT defined here. It lives once, as `--landing-turf` on
+ * `.landing-root` in `src/styles/publicLanding.css`, and reaches these shapes
+ * through the `landing-turf-stroke` / `landing-turf-fill` classes.
+ *
+ * A duplicated constant lived here first, which made the CSS token inert: editing
+ * the documented source of truth changed nothing on screen, and DESIGN.md claimed
+ * a wiring that did not exist. Paint is applied by rule rather than by `var()` in
+ * a presentation attribute, because support for the latter is not uniform.
+ */
 
 // ---------------------------------------------------------------------------
 // Lower perspective field
@@ -63,7 +71,13 @@ export function PerspectiveField({ className }: { className?: string }) {
         </linearGradient>
       </defs>
 
-      <g stroke={TURF} strokeOpacity="0.55" strokeWidth="2" fill="none" strokeLinecap="round">
+      <g
+        className="landing-turf-stroke"
+        strokeOpacity="0.55"
+        strokeWidth="2"
+        fill="none"
+        strokeLinecap="round"
+      >
         {/* Sidelines converging toward the horizon. */}
         <line x1={edgesAt(1).left} y1={FIELD_H} x2={edgesAt(0).left} y2={0} />
         <line x1={edgesAt(1).right} y1={FIELD_H} x2={edgesAt(0).right} y2={0} />
@@ -127,8 +141,8 @@ export function WordmarkFieldUnderline({ className }: { className?: string }) {
       focusable="false"
     >
       <polygon
+        className="landing-turf-fill"
         points={`${inset},0 ${MARK_W - inset},0 ${MARK_W},${MARK_H} 0,${MARK_H}`}
-        fill={TURF}
       />
       <g stroke="#ffffff" strokeOpacity="0.5" strokeWidth="1.5" fill="none">
         {[0.2, 0.4, 0.6, 0.8].map((f) => {

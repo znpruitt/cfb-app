@@ -104,7 +104,43 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
   `git diff --check` each run as their own command with unmasked exit status, all clean. Focused
   suites 23/23; full suite 3479 → 3488.
-- Status: implemented; not yet reviewed, not yet merged.
+- **Review remediation, one round, both reviews gathered against `8c7017b` first.** Seven findings,
+  two with independent agreement.
+  - **THE TOKEN WAS INERT** (both reviewers). `--landing-turf` was declared, documented in DESIGN.md
+    as the source of the field colour, and consumed by NOTHING — both SVGs carried a duplicated
+    literal. Editing the documented source of truth changed nothing on screen, and the test passed on
+    the declaration alone. Paint now flows through `landing-turf-stroke` / `landing-turf-fill` rules,
+    the literal is gone from the art module, and a test pins the wiring rather than the declaration.
+    Applied by CSS rule rather than `var()` in a presentation attribute, whose support is not
+    uniform.
+  - **A NEGATIVE ASSERTION WITHOUT A PROVEN OBSERVER** (both reviewers), which AGENTS.md makes
+    binding: the "no text in the decorative SVGs" test only ever fed text-free trees to its two
+    observers, so either could regress to ignore children and stay green forever. A positive control
+    now proves both detect a nested `<text>` first. Galling because the same file already had two
+    positive controls I had added after being burned — the pattern was known and skipped on the new
+    assertion.
+  - **The always-dark scan could not see the file whose regression prompted it.** It read only
+    `PublicLanding.tsx`, while `SignOutControl.tsx` — changed in this very slice because its
+    `text-gray-600 dark:text-zinc-400` pair rendered near-black on black — went unscanned, as did the
+    art module. All three are now scanned, including for light-theme text tokens.
+  - **The raster/canvas/video guard could not see the decoration module**, which owns every graphic
+    on the page: `walk` stops at an unrendered component element, and the scan read one file. Both
+    SVG trees and all three sources are now checked.
+  - **A load-bearing comment was FALSE.** `overflow: hidden` was justified as preventing a horizontal
+    scrollbar. It does not: an outermost inline `<svg>` already carries UA `overflow: hidden`, and
+    the decorative layers are viewport-bounded by `inset`. Removing it produces no scrollbar. The
+    declaration is kept as defensive, and both the comment and DESIGN.md now say so honestly.
+  - **The always-dark decision left the document CANVAS behind.** `body` keeps
+    `background-color: var(--background)` — white for a light-OS visitor — so rubber-band overscroll
+    flashed white against the composition and UA chrome rendered light over it. Fixed with
+    `color-scheme: dark` and a `body:has(.landing-root)` rule scoped to this route.
+  - **A binding rule edited in this diff was left contradicting its own code:** DESIGN.md still said
+    `max-w-lg` while the landing uses `max-w-xl`.
+- Remediation verification: four further mutations, each compiling, applied alone, killed by a named
+  test: hard-code the colour again; bypass the token in the stylesheet; restore the light/dark pair
+  on the sign-out control; blind the text observer so it stops descending.
+- Status: implemented and reviewed (`/code-review` + `/codex:review`, both against `8c7017b`);
+  remediation complete; not yet merged.
 
 ### PLATFORM-088-HOMEPAGE-ENTRY-TRUTH-v1
 

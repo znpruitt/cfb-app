@@ -81,6 +81,30 @@ function firstOfType(node: unknown, type: string): El | null {
 
 const landingText = (isSignedIn = false) => collectStrings(PublicLanding({ isSignedIn })).join(' ');
 
+/**
+ * Source with comments stripped. Every scan here reads CODE, not prose about the
+ * code: these files DISCUSS the things being scanned for by name in their header
+ * docs, and a naive match hits the explanation. That false positive has already
+ * bitten this campaign three times.
+ */
+function codeOf(rel: string): string {
+  return readFileSync(join(process.cwd(), rel), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/^\s*\/\/.*$/gm, '');
+}
+
+/**
+ * EVERY file that renders part of the landing. Scanning only `PublicLanding.tsx`
+ * left the two files that actually own the decoration and the sign-out control
+ * unguarded — and `SignOutControl.tsx` was changed in this very slice precisely
+ * because it carried a light/dark pair that rendered near-black on black.
+ */
+const LANDING_SOURCES = [
+  'src/components/home/PublicLanding.tsx',
+  'src/components/home/SignOutControl.tsx',
+  'src/components/home/LandingFieldArt.tsx',
+] as const;
+
 // ---------------------------------------------------------------------------
 // Copy
 // ---------------------------------------------------------------------------
@@ -171,6 +195,24 @@ test('every decorative SVG is hidden and unfocusable', () => {
 // unselectable, unsearchable, and announced out of context if it is announced at
 // all.
 test('no text is rendered inside the decorative SVGs', () => {
+  // POSITIVE CONTROL FIRST — AGENTS.md: "a negative assertion requires a proven
+  // observer". Both observers are shown detecting the forbidden thing on a
+  // synthetic tree of the same shape. Without this, an observer that stopped
+  // descending into children would return empty for ANY input and this test
+  // would pass forever while the accessibility contract silently rotted.
+  const withText = {
+    type: 'svg',
+    props: {
+      children: [{ type: 'g', props: { children: { type: 'text', props: { children: '40' } } } }],
+    },
+  };
+  assert.equal(
+    hostElements(withText).filter((el) => el.type === 'text').length,
+    1,
+    'the element observer finds a nested <text>'
+  );
+  assert.deepEqual(textContent(withText), ['40'], 'and the text observer finds its content');
+
   for (const art of [PerspectiveField({}), WordmarkFieldUnderline({})]) {
     const textNodes = hostElements(art).filter((el) => el.type === 'text' || el.type === 'tspan');
     assert.equal(textNodes.length, 0, 'decoration carries no SVG text');
@@ -186,9 +228,24 @@ test('the landing introduces no raster, canvas, or video element', () => {
     assert.ok(!types.includes(banned), `no <${banned}> on the landing`);
   }
 
-  const source = readFileSync(join(process.cwd(), 'src/components/home/PublicLanding.tsx'), 'utf8');
-  assert.ok(!/next\/image/.test(source), 'and no next/image');
-  assert.ok(!/url\(["']?https?:/.test(source), 'and no external asset reference');
+  // The decoration module owns every graphic on this page, so a scan that reads
+  // only `PublicLanding.tsx` cannot see an `<img>` or a remote url added where
+  // they would actually go.
+  for (const rel of LANDING_SOURCES) {
+    const code = codeOf(rel);
+    assert.ok(!/next\/image/.test(code), `no next/image in ${rel}`);
+    assert.ok(!/url\(["']?https?:/.test(code), `no external asset reference in ${rel}`);
+    assert.ok(!/<(img|canvas|video|picture|iframe)\b/.test(code), `no raster element in ${rel}`);
+  }
+
+  // Both SVG trees too — `walk` stops at an unrendered component element, so the
+  // tree assertion above never descends into them.
+  for (const art of [PerspectiveField({}), WordmarkFieldUnderline({})]) {
+    const artTypes = hostElements(art).map((el) => el.type);
+    for (const banned of ['img', 'canvas', 'video', 'image']) {
+      assert.ok(!artTypes.includes(banned), `no <${banned}> inside the decoration`);
+    }
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -199,12 +256,15 @@ test('the landing introduces no raster, canvas, or video element', () => {
 // It previously split white/dark on the OS preference; a stadium rendered on
 // white is not a lighter version of this page, it is a broken one.
 test('the landing does not follow the OS colour scheme', () => {
-  const code = readFileSync(join(process.cwd(), 'src/components/home/PublicLanding.tsx'), 'utf8')
-    .replace(/\/\*[\s\S]*?\*\//g, '')
-    .replace(/^\s*\/\/.*$/gm, '');
-
-  assert.ok(!/\bdark:/.test(code), 'no dark: variants — there is only one theme here');
-  assert.ok(!/\bbg-white\b/.test(code), 'and no light background');
+  for (const rel of LANDING_SOURCES) {
+    const code = codeOf(rel);
+    assert.ok(!/\bdark:/.test(code), `no dark: variants in ${rel} — there is only one theme here`);
+    assert.ok(!/\bbg-white\b/.test(code), `and no light background in ${rel}`);
+    assert.ok(
+      !/\btext-gray-[0-9]/.test(code),
+      `and no light-theme text token in ${rel} — those render near-black on black`
+    );
+  }
 
   // Comments stripped: the stylesheet's own header explains that it contains no
   // `prefers-color-scheme` block, so a naive scan matches the explanation rather
@@ -233,4 +293,19 @@ test('the turf colour stays scoped to the landing', () => {
 
   const globals = readFileSync(join(process.cwd(), 'src/app/globals.css'), 'utf8');
   assert.ok(!/--landing-turf/.test(globals), 'and never promoted into the global token block');
+
+  // REGRESSION TEST — the token must actually PAINT. It was declared, documented
+  // as the source of the field colour, and consumed by nothing: both SVGs carried
+  // a duplicated literal, so editing the documented token changed nothing on
+  // screen while this test still passed on the declaration alone.
+  assert.match(css, /\.landing-turf-stroke\s*\{[^}]*stroke:\s*var\(--landing-turf\)/);
+  assert.match(css, /\.landing-turf-fill\s*\{[^}]*fill:\s*var\(--landing-turf\)/);
+
+  const art = codeOf('src/components/home/LandingFieldArt.tsx');
+  assert.ok(
+    !/#2f8f4e/i.test(art),
+    'the art module must not hard-code the colour — one source of truth'
+  );
+  assert.match(art, /landing-turf-stroke/, 'it takes the stroke class');
+  assert.match(art, /landing-turf-fill/, 'and the fill class');
 });
