@@ -57,71 +57,12 @@ body:has(.landing-root) {
 }
 
 /*
- * Upper-corner light atmosphere. Two radial gradients — NOT drawn lamp fixtures.
- * The reference's floodlight arrays are the kind of detail that reads as
- * clip-art at this scale; the glow they cast is the part worth keeping.
- */
-.landing-glow {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  /*
-   * Two tight hotspots (the light SOURCE) over two wide soft washes (the spill).
-   * The first pass had only the wash, which read as ambient corner vignetting
-   * rather than stadium lighting — there was no bright point for the beams below
-   * to come from.
-   */
-  background:
-    radial-gradient(9% 7% at 11% 2%, rgba(255, 255, 255, 0.5), transparent 70%),
-    radial-gradient(9% 7% at 89% 2%, rgba(255, 255, 255, 0.5), transparent 70%),
-    radial-gradient(46% 34% at 11% 0%, rgba(255, 255, 255, 0.14), transparent 72%),
-    radial-gradient(46% 34% at 89% 0%, rgba(255, 255, 255, 0.14), transparent 72%);
-}
-
-/*
- * The BEAMS. Skewed wedges fading downward, masked at the edges so they soften
- * without a blur filter — a full-viewport blur is expensive and buys nothing a
- * mask cannot do here. These are the light the fixtures cast; the fixtures
- * themselves are deliberately not drawn.
- */
-.landing-glow::before,
-.landing-glow::after {
-  content: '';
-  position: absolute;
-  top: -6%;
-  width: 34%;
-  height: 86%;
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0) 78%);
-  -webkit-mask-image: radial-gradient(ellipse 58% 96% at 50% 0%, #000 28%, transparent 76%);
-  mask-image: radial-gradient(ellipse 58% 96% at 50% 0%, #000 28%, transparent 76%);
-}
-
-.landing-glow::before {
-  left: -3%;
-  transform: skewX(13deg);
-  transform-origin: top center;
-}
-
-.landing-glow::after {
-  right: -3%;
-  transform: skewX(-13deg);
-  transform-origin: top center;
-}
-
-/*
  * The ONLY consumers of `--landing-turf`. Declared once above, applied here, and
  * reachable from nowhere else — the SVGs carry no colour of their own, so editing
  * the token is what changes the page.
  */
 .landing-turf-fill {
   fill: var(--landing-turf);
-}
-
-/* The field surface gradient. `stop-color` by rule rather than attribute, for the
-   same reason as the fill above. */
-.landing-turf-stop {
-  stop-color: var(--landing-turf);
 }
 
 /*
@@ -133,30 +74,56 @@ body:has(.landing-root) {
   stroke: #ffffff;
 }
 
-.landing-field {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  z-index: 0;
-  height: 58vh;
-  pointer-events: none;
-}
-
 /*
- * Vignette. Darkens the edges so the composition holds together instead of
- * dissolving into flat black — the first pass had none, which left a large
- * undifferentiated band between the lights and the field. As `::after` it is the
- * last child, so it paints over the field without needing a DOM node of its own,
- * and stays below the content, which is the only positioned `z-index: 1`.
+ * THE STADIUM PLATE.
+ *
+ * A decorative raster: no text, no logo, no UI, no semantic content — see
+ * DESIGN.md, "Decorative raster backgrounds". It replaced a native SVG/CSS scene
+ * that two tuning passes could not make read as atmosphere rather than geometry.
+ *
+ * AVIF first, WebP fallback, both local. `image-set()` lets the browser choose and
+ * keeps this a background rather than a DOM node, so the gradients below composite
+ * in the same stack.
+ *
+ * `center bottom` is load-bearing. The plate's vanishing point is dead-centre, and
+ * centring horizontally is what keeps the field aligned with the centred hero —
+ * an earlier native version appeared to originate from the left. Anchoring to the
+ * BOTTOM means a viewport wider than 16:9 crops the empty black top rather than
+ * the field, which is the half that carries the image.
  */
-.landing-root::after {
-  content: '';
+.landing-scene {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  background: radial-gradient(125% 88% at 50% 36%, transparent 40%, rgba(0, 0, 0, 0.82) 100%);
+  background-image:
+    /*
+     * Legibility scrim, and the reason it exists rather than taste: the guidance
+     * card and the sign-in link sit over the lit foreground turf, where white text
+     * would not clear 4.5:1 against bare grass. The reference composite darkens
+     * the field for the same reason. Strongest where content sits, lighter over
+     * the mid-field so the plate is not flattened.
+     */
+    linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.62) 0%,
+      rgba(0, 0, 0, 0.34) 38%,
+      rgba(0, 0, 0, 0.55) 66%,
+      rgba(0, 0, 0, 0.76) 100%
+    ),
+    /* Edge blend: the plate's own corners fall to black, and this guarantees the
+       seam stays invisible when `cover` crops at an unexpected aspect ratio. */
+      radial-gradient(130% 100% at 50% 62%, transparent 45%, rgba(0, 0, 0, 0.9) 100%),
+    image-set(
+      url('/landing/stadium-1672.avif') type('image/avif'),
+      url('/landing/stadium-1672.webp') type('image/webp')
+    );
+  background-repeat: no-repeat;
+  background-position:
+    center top,
+    center center,
+    center bottom;
+  background-size: cover, cover, cover;
 }
 
 .landing-content {
@@ -184,7 +151,14 @@ body:has(.landing-root) {
    */
   width: clamp(13rem, 50vw, 29rem);
   height: clamp(0.95rem, 2.7vw, 1.6rem);
-  margin: 0.25rem auto 0;
+  /*
+   * NEGATIVE top margin: the strip overlaps the wordmark's descender space rather
+   * than starting below its box. With a positive margin it read as a separate
+   * trapezoid parked under the word; overlapping, and with its far edge masked to
+   * a fade, it reads as ground the mark is standing on. The far-edge softening
+   * lives in the SVG mask — see `WordmarkFieldUnderline`.
+   */
+  margin: -0.35rem auto 0;
 }
 
 .landing-descriptor {
@@ -215,10 +189,18 @@ body:has(.landing-root) {
  * no call-to-action styling. The reference gave this a green glow and an icon,
  * which made the quietest thing on the page the loudest.
  */
+/*
+ * The guidance panel sits over the LIT foreground turf now, not over black. Its
+ * old `rgba(255,255,255,0.04)` wash darkened nothing — it was designed against a
+ * black page, and over grass it would have left white text on bright green. A
+ * genuinely dark translucent panel is also what the reference uses, and it keeps
+ * the card subordinate rather than turning it into a call to action.
+ */
 .landing-guidance {
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 0.75rem;
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(6px);
 }
 
 /* Quieter through size and spacing, never through unreadable contrast. */
@@ -226,24 +208,9 @@ body:has(.landing-root) {
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-@media (max-width: 768px) {
-  .landing-field {
-    height: 42vh;
-  }
-
-  .landing-glow {
-    background:
-      radial-gradient(58% 30% at 8% -8%, rgba(255, 255, 255, 0.13), transparent 70%),
-      radial-gradient(58% 30% at 92% -8%, rgba(255, 255, 255, 0.13), transparent 70%);
-  }
-}
-
-@media (max-width: 430px) {
-  /* Only a faint field remains: at this width the hash marks and outer yard
-     lines are noise, and the copy needs the vertical room more than the art
-     does. The wordmark underline is kept — it is the identity, not decoration. */
-  .landing-field {
-    height: 30vh;
-    opacity: 0.6;
-  }
-}
+/*
+ * No responsive plate variants in this pass, by owner decision: prove the desktop
+ * composition first. `cover` on a narrow viewport crops hard to the centre of a
+ * 16:9 plate, which keeps the vanishing point but shows little field. A portrait
+ * crop is the follow-up if mobile review asks for one.
+ */

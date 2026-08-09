@@ -220,6 +220,32 @@ Supersedes: (none)
 - User preference override: deferred until user accounts are built
 - When adding user override: switch Tailwind to `class` strategy, add theme provider
 
+## Decorative raster backgrounds
+
+Applies app-wide, not to one page. Introduced by POLISH-004, and it SUPERSEDES the earlier blanket
+prohibition on raster assets, which was written before any surface needed atmosphere.
+
+- **A raster is permitted for DECORATION only.** It must carry no semantic content: no text, no
+  logo, no UI, no data, nothing a reader would need to select, search, translate, or hear announced.
+- **Meaningful content stays in the DOM.** If a person needs it, it is real text — never baked into
+  an image. This is the line the rule exists to hold.
+- **Brand marks stay vector/native.** They scale with their surroundings, need no asset, and must
+  stay crisp at any size.
+- **Assets are LOCAL.** No remote images, no third-party CDN, no runtime image service. The app ships
+  what it renders.
+- **Reference for a decorative background rather than an `<img>`.** It is not content, so it does not
+  belong in the DOM: a background costs no hydration and no layout, and gradients composite in the
+  same stack, which is what blends a plate into the page.
+- **Performance-conscious and purposeful.** Serve AVIF with a WebP fallback via `image-set()`, size
+  to the composition rather than to a round number, and keep the weight proportionate — a dark,
+  low-frequency scene should be tens of kilobytes, not hundreds. A raster that could have been a
+  gradient should be a gradient.
+- **Legibility is the author's problem, not the plate's.** Text over an image needs a scrim sized to
+  clear 4.5:1 against the brightest region it actually crosses, not against the average.
+
+When native CSS/SVG can carry the idea, prefer it. Reach for a raster when the thing being drawn is
+atmosphere — depth, haze, light falloff, texture — which vector primitives approximate badly.
+
 ## Landing page (`/`)
 
 PLATFORM-088, amended by POLISH-004. Governs **both states of the public landing** — the signed-out visitor AND the
@@ -271,11 +297,11 @@ dashboard behind the same route is an operator surface and follows the admin con
   paint the document canvas, or UA chrome and rubber-band overscroll stay light behind it. A stadium rendered on white is
   not a lighter version of this page, it is a broken one. Every other app and admin surface remains
   theme-aware — this exception stops at `/`.
-- **One landing-scoped turf token is permitted, for the two field treatments only.**
-  `--landing-turf` is declared on `.landing-root` in `src/styles/publicLanding.css` and reaches the
-  wordmark underline and the lower perspective field through the `landing-turf-stroke` /
-  `landing-turf-fill` rules. The SVGs carry no colour of their own, so editing the token is what
-  changes the page — a duplicated literal in the art module made this claim false once already. Nothing else on the page takes green — not the
+- **One landing-scoped turf token, `--landing-turf`.** Declared on `.landing-root` in
+  `src/styles/publicLanding.css` and reaching the wordmark's field strip through `landing-turf-fill`.
+  The strip is currently its ONLY consumer, and it is kept anyway: it is the TurfWar accent value,
+  not a convenience for two call sites. The SVG carries no colour of its own, so editing the token is
+  what changes the mark — a duplicated literal in the art module made that claim false once already. Nothing else on the page takes green — not the
   guidance panel, not the admin link, not the account controls — and alpha variants of that one value
   are used rather than additional green tokens.
 - **This is an explicit EXCEPTION to the semantic colour rules above, not a repeal of them.** Those
@@ -290,8 +316,12 @@ dashboard behind the same route is an operator surface and follows the admin con
   rules above in its own change.
 - **Decoration is inert.** Background SVG is `aria-hidden`, `focusable="false"`, `pointer-events:
   none`, and carries no text — meaningful copy is real DOM text so it can be selected, searched, and
-  announced in order. No raster assets, `next/image`, canvas, video, animation framework, or
-  decorative client-side JavaScript: the page's atmosphere costs no hydration and no request.
+  announced in order. No `next/image`, canvas, video, animation framework, or decorative client-side
+  JavaScript.
+- **The stadium scene is a decorative raster; the wordmark's field strip is vector.** That split
+  follows "Decorative raster backgrounds" above: atmosphere is the thing vector primitives approximate
+  badly, and a brand mark is the thing they do best. A native scene was attempted first and could not
+  be made to read as a field rather than as geometry — recorded so it is not attempted a third time.
 
 ## Scope discipline
 

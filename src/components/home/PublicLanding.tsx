@@ -1,7 +1,7 @@
 import Link from 'next/link';
 
 import SignOutControl from '@/components/home/SignOutControl';
-import { PerspectiveField, WordmarkFieldUnderline } from '@/components/home/LandingFieldArt';
+import { WordmarkFieldUnderline } from '@/components/home/LandingFieldArt';
 
 /**
  * The public entry page. A SERVER component, deliberately.
@@ -33,16 +33,26 @@ import { PerspectiveField, WordmarkFieldUnderline } from '@/components/home/Land
  * connection. Passing the fact down is what closes it.
  *
  * POLISH-004 changed the PRESENTATION only: an always-dark stadium composition,
- * the wordmark treatment, and two decorative field SVGs. No auth, routing,
+ * the wordmark treatment, and a decorative background plate. No auth, routing,
  * registry, or entry behaviour moved.
+ *
+ * The scene was first built natively from SVG geometry and CSS gradients. Two
+ * passes could not make it read as an atmospheric field rather than a green
+ * wireframe, and preview confirmed the gap was material rather than parametric —
+ * so it is now a raster plate, while the brand mark stays vector.
  */
 export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boolean } = {}) {
   return (
     <main className="landing-root flex flex-col items-center justify-center px-6 py-16">
-      {/* Decoration. Behind the content, inert, and carrying no meaning: every
-          string on this page is real DOM text below. */}
-      <div className="landing-glow" aria-hidden="true" />
-      <PerspectiveField className="landing-field" />
+      {/* The stadium plate. Decoration: behind the content, inert, and carrying no
+          meaning — every string on this page is real DOM text below, and the
+          image contains no text, logo, or UI of its own.
+
+          A CSS background rather than an `<img>`, deliberately. It is not content,
+          so it should not be in the DOM at all; gradients composite in the same
+          `background` stack, which is what blends the plate's edges into the page;
+          and it costs no hydration and no layout. */}
+      <div className="landing-scene" aria-hidden="true" />
 
       <div className="landing-content w-full max-w-2xl text-center">
         {/*

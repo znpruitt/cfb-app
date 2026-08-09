@@ -52,6 +52,59 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-HOME-LANDING-RASTER-SCENE-v1
+
+- Purpose: Replace the unsuccessful native CSS/SVG stadium scene with the approved decorative raster
+  plate, preserving homepage structure, behaviour, and the improved hero composition.
+- Scope: `PublicLanding`, `LandingFieldArt`, the landing stylesheet, landing tests, `DESIGN.md`, and
+  two production image derivatives. No routing, auth, registry, or application-shell change.
+- **THE NATIVE SCENE WAS ABANDONED ON EVIDENCE, NOT PREFERENCE.** Two passes of CSS/SVG tuning could
+  not make vector primitives read as an atmospheric field; preview confirmed the gap was material
+  rather than parametric — the turf read as a flat polygon, the markings as grid geometry, and the
+  corner lighting as grey blobs. Removed: `PerspectiveField` and all its geometry, the turf-surface
+  and marking-depth gradients, the CSS glow/hotspot stack, the beam wedges, the vignette, the
+  `landing-field` sizing and its media queries, and `landing-turf-stop`. The stylesheet went 249 → 203
+  lines and the art module 196 → 88, despite both gaining a raster contract and a mask.
+- **The plate is 1672 × 941, its NATIVE size.** The plan had proposed 2560 × 1440; the supplied
+  source is smaller, and upscaling to satisfy a filename would have invented detail while inflating
+  bytes. Production derivatives are named for what they are: `stadium-1672.avif` (68 KB) and
+  `stadium-1672.webp` (96 KB), from a 1.8 MB PNG. 10-bit AVIF was attempted first — near-black
+  gradients band at 8-bit — but the prebuilt encoder refuses it, so 8-bit shipped and banding is a
+  named visual-review risk.
+- **`center bottom` is load-bearing, not incidental.** The plate's vanishing point is dead-centre, so
+  horizontal centring is what keeps the field aligned with the centred hero; anchoring to the bottom
+  makes a wider-than-16:9 viewport crop the empty black top rather than the field.
+- **A legibility scrim was REQUIRED, not stylistic.** The guidance card and sign-in link sit over lit
+  foreground turf, where white text does not clear 4.5:1 against bare grass. The card's old
+  `rgba(255,255,255,0.04)` wash was designed against a black page and darkened nothing over an image;
+  it is now a genuinely dark translucent panel, which is also what the reference composite uses.
+- **DESIGN.md gained a DURABLE, app-wide rule** — "Decorative raster backgrounds" — superseding the
+  blanket prohibition written one slice earlier, before any surface needed atmosphere. It permits a
+  raster for decoration only, requires meaningful content to stay in the DOM and brand marks to stay
+  vector, requires local assets, prefers a background over an `<img>`, and makes legibility the
+  author's problem rather than the plate's. The Landing section now references it instead of
+  restating a special case.
+- **The wordmark strip got its ONE approved pass:** a negative top margin so it overlaps the
+  wordmark's descender space rather than clearing it, and an SVG mask fading the FAR edge so it
+  recedes instead of ending on a hard line. `--landing-turf` is deliberately KEPT despite the strip
+  becoming its only consumer — it is the TurfWar accent value, not a convenience for two call sites.
+- Tests: the raster assertion was INVERTED rather than deleted — a local CSS-background reference is
+  now required and a DOM `<img>`/`<canvas>`/`<video>` for the scene is still forbidden, plus an
+  `existsSync` check so a referenced-but-missing file cannot pass. Coverage added for the scene
+  layer's presence and inertness, and for both halves of the strip pass.
+- **A PRE-EXISTING FLAKE was observed and deliberately NOT fixed** (out of scope): `insights-suppression`
+  "record at exactly TTL boundary is not expired" computes `Date.now()` at fixture time and compares
+  against `Date.now()` at assertion time, so a millisecond tick fails it. Failed once in a full run,
+  passed 3/3 in isolation and on re-run. Recorded here rather than silently absorbed.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Full suite
+  3488/3488. Six mutations, each applied alone and killed by a named test: point the asset at a
+  remote CDN; remove the asset file; render the scene as a DOM `<img>`; remove the vector mark;
+  unmask the strip's far edge; untuck the strip's margin.
+- **NOT visually verified.** The renderer is not observable from here; values flagged for manual
+  review are listed on the PR and in the handover.
+- Status: implemented; not yet reviewed, not yet merged.
+
 ### POLISH-004-PUBLIC-HOMEPAGE-STADIUM-v1
 
 - Purpose: Redesign the public landing with a restrained, always-dark stadium atmosphere while
