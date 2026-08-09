@@ -1,0 +1,142 @@
+/*
+ * POLISH-004 — public landing atmosphere.
+ *
+ * ALWAYS DARK, deliberately. There is no `prefers-color-scheme` block and no
+ * `dark:` variant anywhere in this file or in `PublicLanding.tsx`: the landing is
+ * a fixed dark stadium composition regardless of the visitor's OS theme. Every
+ * other app and admin surface stays theme-aware and is untouched by this slice.
+ *
+ * `--landing-turf` is scoped to `.landing-root`. It is NOT an app-wide brand token:
+ * it exists on this element and nowhere else, and only the two field treatments
+ * use it. DESIGN.md records this as an explicit landing-only exception to the
+ * semantic colour rules.
+ *
+ * A plain prefixed stylesheet rather than a CSS module, and the reason is
+ * infrastructural: this repo's test runner is `node --test` under `tsx`, which
+ * parses a `*.module.css` import as JavaScript and dies on the first selector.
+ * Next's build handles CSS modules fine — only the suite breaks — and stubbing
+ * CSS in the loader would change shared test infrastructure for all ~3.5k tests
+ * to style one page. The component imports no CSS at all; this file is pulled in
+ * once from `globals.css`.
+ */
+
+.landing-root {
+  --landing-turf: #2f8f4e;
+
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  /* Contains the decoration, which deliberately overflows the trapezoid's
+     foreground edge. Without this the field would create a horizontal scrollbar. */
+  overflow: hidden;
+  background-color: #000000;
+  color: #fafafa;
+}
+
+/*
+ * Upper-corner light atmosphere. Two radial gradients — NOT drawn lamp fixtures.
+ * The reference's floodlight arrays are the kind of detail that reads as
+ * clip-art at this scale; the glow they cast is the part worth keeping.
+ */
+.landing-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(52% 40% at 10% -6%, rgba(255, 255, 255, 0.18), transparent 68%),
+    radial-gradient(52% 40% at 90% -6%, rgba(255, 255, 255, 0.18), transparent 68%);
+}
+
+.landing-field {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 0;
+  height: 58vh;
+  pointer-events: none;
+}
+
+.landing-content {
+  position: relative;
+  z-index: 1;
+}
+
+.landing-wordmark {
+  font-size: clamp(3rem, 11vw, 6rem);
+  font-weight: 800;
+  line-height: 1;
+  /* Tight tracking and a slight slant echo the reference's condensed italic
+     wordmark without shipping a typeface for one word. */
+  letter-spacing: -0.03em;
+  font-style: italic;
+}
+
+.landing-wordmark-field {
+  display: block;
+  width: clamp(11rem, 42vw, 22rem);
+  height: clamp(0.7rem, 2.2vw, 1.15rem);
+  margin: 0.5rem auto 0;
+}
+
+.landing-descriptor {
+  font-size: clamp(0.7rem, 1.6vw, 0.82rem);
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  /* zinc-400 on black ≈ 8.4:1. */
+  color: #a1a1aa;
+}
+
+.landing-headline {
+  font-size: clamp(1.75rem, 5.2vw, 3.25rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+.landing-lede {
+  font-size: clamp(0.95rem, 2.1vw, 1.075rem);
+  line-height: 1.6;
+  /* zinc-300 on black ≈ 11.6:1. */
+  color: #d4d4d8;
+}
+
+/*
+ * The member guidance stays SUBORDINATE — a neutral translucent panel, no green,
+ * no call-to-action styling. The reference gave this a green glow and an icon,
+ * which made the quietest thing on the page the loudest.
+ */
+.landing-guidance {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.75rem;
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+/* Quieter through size and spacing, never through unreadable contrast. */
+.landing-account {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+@media (max-width: 768px) {
+  .landing-field {
+    height: 42vh;
+  }
+
+  .landing-glow {
+    background:
+      radial-gradient(58% 30% at 8% -8%, rgba(255, 255, 255, 0.13), transparent 70%),
+      radial-gradient(58% 30% at 92% -8%, rgba(255, 255, 255, 0.13), transparent 70%);
+  }
+}
+
+@media (max-width: 430px) {
+  /* Only a faint field remains: at this width the hash marks and outer yard
+     lines are noise, and the copy needs the vertical room more than the art
+     does. The wordmark underline is kept — it is the identity, not decoration. */
+  .landing-field {
+    height: 30vh;
+    opacity: 0.6;
+  }
+}

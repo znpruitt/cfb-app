@@ -79,7 +79,9 @@ Supersedes: (none)
 - Amber/gold is reserved exclusively for champion/podium signals — not a general accent color
 - Blue signals interactivity or active state only — never use blue to mean "featured" or "important"
 - Chart line colors are fixed per owner for the full season — never change with standings position
-- No color for decoration — every color must encode meaning
+- No color for decoration — every color must encode meaning. **Scope: data surfaces.** The public
+  landing (`/`) carries no data and holds a documented, landing-scoped exception — see "Landing
+  page" below. That exception does not relax this rule anywhere else.
 - CFP round badges use neutral slate/gray — distinct from status colors
 
 ## Interaction model
@@ -220,7 +222,7 @@ Supersedes: (none)
 
 ## Landing page (`/`)
 
-PLATFORM-088. Governs **both states of the public landing** — the signed-out visitor AND the
+PLATFORM-088, amended by POLISH-004. Governs **both states of the public landing** — the signed-out visitor AND the
 signed-in non-admin, who receives the same page. Scoping this to "signed-out only" was itself a
 defect: it left the signed-in state with no design authority, which is how a JavaScript-dependent
 sign-out control slipped past the no-JavaScript rule three bullets below. The platform-admin
@@ -245,24 +247,44 @@ dashboard behind the same route is an operator surface and follows the admin con
   from the browser, and no server-side teardown is reachable from a plain form post. That is not a
   hole in the rule above: Clerk's sign-IN is equally client-side, so no session can exist without
   JavaScript having run. State this distinction rather than claiming more than is true.
-- **Normal text meets 4.5:1 in both themes.** `text-gray-400` on white measures ~2.6:1 and
-  `dark:text-zinc-600` on `zinc-950` is worse; neither is acceptable for body copy or links. Use
-  `text-gray-600 dark:text-zinc-400` or stronger.
+- **Normal text meets 4.5:1 against the dark composition.** Since POLISH-004 there is only one
+  theme here, so the ratio is measured against black rather than "in both themes": `zinc-400`
+  (~8.4:1) and `zinc-300` (~11.6:1) are the working tokens. Do NOT carry light-theme pairs like
+  `text-gray-600 dark:text-zinc-400` onto this page — the light half renders near-black on black for
+  a visitor whose system is set to light.
 - **No horizontal overflow at 390px.** Keep the single content column inside `max-w-lg` with real
   horizontal padding, break long strings, and keep the sign-in affordance in normal flow — fixing it
-  to a viewport corner clipped it on small screens.
+  to a viewport corner clipped it on small screens. Decoration that overflows the viewport is
+  contained by the landing root, never by a viewport scrollbar.
 - **Affordances are named for who can actually use them.** The sign-in link reads "Platform admin
   sign-in" because middleware admits only platform admins; it previously said "Commissioner login".
-- **Hierarchy comes from TYPE, not colour.** The page carries no data, so there is nothing for colour
-  to encode — and the app's colour rules above are semantic by design (amber for champions, blue for
-  interactivity, "no colour for decoration"). An accent here would mean nothing and would promise a
-  livelier product than the austere, data-dense app behind it. When this page reads flat, the fix is
-  scale contrast, a second type register, a constrained measure, and deliberate vertical rhythm —
-  tight within a group, generous between groups — not a palette.
-- **A brand accent, if one is ever introduced, is a token defined once and applied app-wide**, and it
-  amends the colour rules above in the same change. It is not a homepage patch. Introducing brand
-  identity is its own scoped piece of work, best done when public launch is close and the surfaces
-  have stopped moving.
+- **Typography is still the primary hierarchy.** Scale contrast, a second type register, a
+  constrained measure, and deliberate vertical rhythm — tight within a group, generous between
+  groups — carry the page. Colour supports the composition; it does not create the hierarchy. When
+  this page reads flat, reach for type before pigment.
+- **The landing is an ALWAYS-DARK stadium composition.** Fixed dark regardless of the visitor's OS
+  preference: no `prefers-color-scheme` block, no `dark:` variants. A stadium rendered on white is
+  not a lighter version of this page, it is a broken one. Every other app and admin surface remains
+  theme-aware — this exception stops at `/`.
+- **One landing-scoped turf token is permitted, for the two field treatments only.**
+  `--landing-turf` is declared on `.landing-root` in `src/styles/publicLanding.css` and used by the
+  wordmark underline and the lower perspective field. Nothing else on the page takes green — not the
+  guidance panel, not the admin link, not the account controls — and alpha variants of that one value
+  are used rather than additional green tokens.
+- **This is an explicit EXCEPTION to the semantic colour rules above, not a repeal of them.** Those
+  rules — amber for champion signals, blue for interactivity, no colour for decoration — govern
+  DATA surfaces, where colour must encode meaning because there is meaning available to encode. This
+  page carries no data. Owner decision (POLISH-004): a restrained turf accent here is art direction
+  for the product's front door, and it is scoped so it cannot leak into any surface where the
+  semantic rules apply.
+- **It does NOT create an app-wide brand token.** `--landing-turf` lives on one element on one page.
+  Promoting it to a global token, adding a logo, or applying it across the app is separate, still
+  unscheduled work (`HOMEPAGE-BRAND-IDENTITY` in `docs/next-tasks.md`) and would amend the colour
+  rules above in its own change.
+- **Decoration is inert.** Background SVG is `aria-hidden`, `focusable="false"`, `pointer-events:
+  none`, and carries no text — meaningful copy is real DOM text so it can be selected, searched, and
+  announced in order. No raster assets, `next/image`, canvas, video, animation framework, or
+  decorative client-side JavaScript: the page's atmosphere costs no hydration and no request.
 
 ## Scope discipline
 

@@ -52,6 +52,60 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### POLISH-004-PUBLIC-HOMEPAGE-STADIUM-v1
+
+- Purpose: Redesign the public landing with a restrained, always-dark stadium atmosphere while
+  preserving PLATFORM-088's server-rendered authentication, privacy, and entry behaviour exactly.
+- Scope: `PublicLanding`, a new `LandingFieldArt` module, a landing stylesheet, `SignOutControl`
+  colour tokens, focused tests, `DESIGN.md`, and the queue/registry entries. No change to the
+  platform-admin dashboard, authentication, registry access, routing, league lookup, or signup.
+- **Owner-supplied reference art is NOT committed.** `/references/` and a root-level duplicate are
+  gitignored, added before any staging — a 1.4 MB raster the app never loads had been sitting
+  untracked where the next `git add -A` would have swept it in. The page ships no image asset of any
+  kind; the atmosphere is CSS gradients and inline SVG.
+- **Taken from the reference:** centred hero, dark stadium atmosphere, restrained upper-corner glow,
+  a perspective field emerging from below, the field strip beneath the wordmark, white type with one
+  turf accent. **Deliberately rejected:** photoreal turf, detailed floodlight arrays, smoke texture,
+  large yard numerals (they would be SVG text), the green-glowing guidance card, and the generic
+  people/lock icons. The rejected list is the substance of the art direction — the reference's
+  most eye-catching elements are the ones that would have aged worst.
+- **Always dark, by owner decision.** No `prefers-color-scheme` block and no `dark:` variants on this
+  page; a stadium rendered on white is not a lighter version of it. Every other surface stays
+  theme-aware. `SignOutControl` needed its tokens changed too — its `text-gray-600 dark:text-zinc-400`
+  pair rendered near-black on black for a visitor whose system was set to light.
+- **THE DESIGN.md CONFLICT WAS AMENDED, NOT WORKED AROUND.** That file had stated a brand accent "is
+  a token defined once and applied app-wide… not a homepage patch" — written one slice earlier, and
+  directly contradicted by this treatment. The bullet is REPLACED rather than left standing beside
+  its own exception: the semantic colour rules are now scoped to DATA surfaces, and the landing holds
+  a documented exception of one `--landing-turf` value on `.landing-root`, used only by the two field
+  treatments and reachable from nowhere else.
+- **A CSS module was specified and could not be used.** `*.module.css` is parsed as JavaScript by
+  this repo's `node --test` + `tsx` runner and dies on the first selector; Next's build handles it
+  fine, so only the suite breaks. Stubbing CSS in the loader would change shared test infrastructure
+  for ~3.5k tests to style one page. Delivered as a prefixed stylesheet imported once from
+  `globals.css`, which achieves the same separation with no infrastructure change. Deviation from the
+  prompt, stated rather than silently taken.
+- Semantics: the PRODUCT STATEMENT is the `<h1>`, not the wordmark — a wordmark is branding and does
+  not describe the page. The visible mark is the stylised `TurfWar` with `aria-hidden`; a `sr-only`
+  `Turf War` supplies the accessible name. All decoration is `aria-hidden`, `focusable="false"`,
+  pointer-inert, and text-free.
+- Tests: 9 new, asserting semantic and structural properties rather than appearance — exact hero
+  copy, the `<h1>` identity and that exactly one heading exists, the split between visible and
+  accessible wordmark, both field treatments present, decoration hidden/unfocusable/text-free, no
+  raster or canvas or video, no theme split in component or stylesheet, and the turf token never
+  promoted to `globals.css`. Every PLATFORM-088 test preserved unchanged.
+- **Two self-inflicted test bugs caught before review**, both worth recording because they recur:
+  calling `PublicLanding()` with no argument threw on destructuring (the props param now defaults to
+  `{}`), and a "no text in the SVG" assertion used a helper that also collects string-valued
+  ATTRIBUTES, so `viewBox` counted as text. Separately, a source scan matched the stylesheet's own
+  comment explaining that it contains no `prefers-color-scheme` block — the third time this campaign
+  that a scan has matched prose about the code rather than the code. Comments are stripped first, with
+  a positive control proving the strip leaves real declarations behind.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Focused
+  suites 23/23; full suite 3479 → 3488.
+- Status: implemented; not yet reviewed, not yet merged.
+
 ### PLATFORM-088-HOMEPAGE-ENTRY-TRUTH-v1
 
 - Purpose: Make the homepage tell the truth to each visitor — a server-rendered public entry page
