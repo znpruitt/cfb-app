@@ -52,6 +52,49 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### TURFWAR-APP-WORDMARK-REUSE-v1
+
+- Purpose: Extract the homepage wordmark into a shared treatment and adopt it on the two interior
+  surfaces that render product identity, at their existing compact scale.
+- Scope: new `src/components/brand/Wordmark.tsx` and `src/styles/wordmark.css`, `PublicLanding`,
+  `/login`, `AdminLeagueDashboard`, a new `src/test/renderTree.ts` helper, and tests. Two commits:
+  extraction with no rendered change, then adoption.
+- **The inspection mattered more than the change.** Only TWO surfaces rendered a plain `Turf War`
+  header — `/login` and the `/` admin dashboard — and every other `<h1>` in the app is already a
+  functional title ("Platform Admin", "System Health", "{league} — Commissioner Tools"). A global
+  find-and-replace would also have corrupted several TEST FIXTURES where `displayName: 'Turf War'` is
+  a LEAGUE name, not the brand: a coincidence, not an occurrence. The metadata title keeps the spaced
+  form deliberately.
+- **Extraction was justified by four non-obvious properties, each of which was a bug at some point:**
+  `Turf`/`War` as separate nodes with NO whitespace between them (a space silently rebrands the
+  product); the visible mark `aria-hidden` with an `sr-only` accessible name; a join margin sized to
+  CLEAR the negative tracking (at `-0.03em`, a naive `0.04em` nets +0.01em and is invisible); and both
+  values in `em`, which is what makes one set of declarations serve a 96px landing mark and a 24px
+  header. Copy-pasting that twice more would have invited all four back.
+- **The homepage became a CONSUMER while staying the visual source of truth.** `.landing-wordmark`
+  keeps only `font-size` and `line-height`; the shipped declarations union to exactly the rule they
+  replaced, verified in the built bundle rather than assumed from source. `line-height` stayed a
+  surface concern — a 96px mark hugs its glyphs, a `text-2xl` header wants its own leading.
+- **EXTRACTION BROKE THE SURFACE TESTS, and the cause is worth recording.** The element walkers
+  descend `props.children`, which stops dead at a function-component element: `<Wordmark />` has no
+  children, so the brand text became invisible to every page-level assertion — not because the page
+  changed, but because the assertion could no longer see it. `src/test/renderTree.ts` invokes function
+  components so those tests read RENDERED output; hook-bearing client components throw outside
+  React's dispatcher and are left intact, which is the shape presence assertions already expect.
+- **Testing approach corrected by owner instruction.** The plan proposed asserting that all three call
+  sites import the shared component. That pins an implementation detail and breaks on any refactor
+  while proving nothing a user would notice. The tests assert the RENDERED contract at each surface
+  instead — brand spelling with no whitespace, accessible name, no marketing descriptor — plus the
+  scale-invariance of the shared treatment. The shared implementation is enforced by structure.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Full suite
+  3487 → 3494. Five mutations, each applied alone and killed by a named test: a literal space in the
+  mark; the accessible name dropped; the join no longer clearing the tracking; size leaking into the
+  shared treatment; the descriptor following the mark onto an interior header. The first two fail at
+  BOTH adopting surfaces and the landing simultaneously, which is the point of sharing.
+- **NOT visually verified.** Left for manual review.
+- Status: implemented; not yet reviewed, not yet merged.
+
 ### TURFWAR-HOMEPAGE-WORDMARK-SIMPLIFY-v1
 
 - Purpose: Remove the vector perspective-field strip beneath the wordmark, now redundant against the
