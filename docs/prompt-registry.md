@@ -98,7 +98,8 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   assets, `center bottom` positioning, and the retained `--landing-turf` token were all replaced by
   `TURFWAR-HOMEPAGE-ADOBE-STADIUM-PLATE-v1` and `TURFWAR-HOMEPAGE-WORDMARK-SIMPLIFY-v1`. Kept because
   the REASONING — why a native CSS/SVG scene could not carry the atmosphere — is the durable part.
-- Status: implemented; superseded before merge by the entries above.
+- Status: superseded on the branch before merge; merged as history via PR #466 (`38f5719`),
+  2026-08-09. The revision it describes never reached `main` as live code.
 
 ### TURFWAR-HOMEPAGE-WORDMARK-SIMPLIFY-v1
 
@@ -131,7 +132,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   regress the `f`/`W` kerning, which this pass had to preserve.
 - **NOT visually verified.** The point of this pass is to see the wordmark without the strip; the
   rendered result is left for manual review.
-- Status: implemented; not yet reviewed, not yet merged.
+- Status: ✅ **MERGED** to `main` via PR #466 (merge commit `38f5719`), 2026-08-09, together with every other entry on the `polish/004-public-homepage-stadium` branch.
 
 ### TURFWAR-HOMEPAGE-ADOBE-STADIUM-PLATE-v1
 
@@ -238,7 +239,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   unmask the strip's far edge; untuck the strip's margin.
 - **NOT visually verified.** The renderer is not observable from here; values flagged for manual
   review are listed on the PR and in the handover.
-- Status: implemented; not yet reviewed, not yet merged.
+- Status: ✅ **MERGED** to `main` via PR #466 (merge commit `38f5719`), 2026-08-09, together with every other entry on the `polish/004-public-homepage-stadium` branch.
 
 ### POLISH-004-PUBLIC-HOMEPAGE-STADIUM-v1
 
@@ -327,8 +328,9 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - Remediation verification: four further mutations, each compiling, applied alone, killed by a named
   test: hard-code the colour again; bypass the token in the stylesheet; restore the light/dark pair
   on the sign-out control; blind the text observer so it stops descending.
-- Status: implemented and reviewed (`/code-review` + `/codex:review`, both against `8c7017b`);
-  remediation complete; not yet merged.
+- Status: ✅ **MERGED** to `main` via PR #466 (merge commit `38f5719`), 2026-08-09, together with every other entry on the `polish/004-public-homepage-stadium` branch.
+  Two review rounds ran on this branch: the first against `8c7017b`, the second against
+  `30ef2e8` after twelve further commits.
 
 ### PLATFORM-088-HOMEPAGE-ENTRY-TRUTH-v1
 

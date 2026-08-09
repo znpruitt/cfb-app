@@ -2378,6 +2378,54 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### POLISH-004 — Public Homepage Stadium — Complete
+
+- **Status:** Complete — merged to `main` via PR #466 (merge commit `38f5719`), 2026-08-09. 17
+  commits; every prompt on the branch is recorded in `docs/prompt-registry.md`.
+- **Outcome:** the public landing is an always-dark stadium composition built on a licensed Adobe
+  Stock photograph, with the `TurfWar` wordmark standing alone over it. The mark became a shared
+  component, adopted at compact scale on `/login` and the `/` admin dashboard; every other surface
+  kept its plain functional page title.
+- **TWO APPROACHES WERE BUILT AND DELETED, and that is the substance of the slice.** The scene was
+  first built natively — SVG geometry plus CSS gradients for turf, yard lines, floodlight beams, a
+  vignette. Two passes of value-tuning could not make vector primitives read as atmosphere: the turf
+  was a flat polygon, the markings a grid, the lighting grey blobs. A vector field strip under the
+  wordmark was then removed as redundant once the photograph carried the football identity, taking
+  `--landing-turf` with it — with no consumer it was not a scoped accent, it was a leftover.
+  **Recorded so a third native attempt is not made.**
+- **THE lesson: three rounds fixed the wrong thing because the LEVER was wrong, not the value.**
+  Attempts to move the guidance card off the goalpost by raising its top margin (1.75 → 2.5 →
+  4.5rem) produced 16px of movement. Content was vertically CENTRED while the background is anchored
+  to the VIEWPORT, so adding margin M grew the block by M and centring lifted its top by M/2 — content
+  moved relative to the photograph at half the requested rate, and everything above drifted up by the
+  rest. The fix replaced the mechanism: the hero anchors and the lower stack claims the slack, which
+  is deterministic rather than a function of content height.
+- **DESIGN.md gained a durable, app-wide rule** — "Decorative raster backgrounds" — superseding the
+  blanket raster prohibition written one slice earlier, before any surface needed atmosphere. A
+  landing-scoped colour exception added mid-branch was later RETIRED, so the semantic colour rules
+  stand unamended everywhere.
+- **Two review rounds, and the second found that the first round's own fixes were untested.** Three
+  of four code fixes survived their own mutations. Also caught: `color-scheme` declared on an element
+  with no scrollbar to govern; `margin-top: auto` with no floor after its markup fallback was deleted
+  in the same commit; `100vh` hiding the sign-out control under iOS Safari's toolbar; and a test
+  helper that swallowed every error while its docstring claimed it never hid a failure — which made
+  three negative assertions vacuous.
+- **Two reviewer findings were WRONG and deliberately not acted on**, verified against the built
+  bundle rather than the source: `-webkit-backdrop-filter` does ship, and Lightning CSS already emits
+  a legacy `image-set` fallback. Acting on either would have added dead CSS.
+- **Verification:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Full suite
+  3496 → 3503. Mutation passes throughout; the final one is what exposed the untested fixes.
+  **HTTP-surface verification** confirmed end-to-end what had only been argued: the landing renders
+  its full hero in server HTML with no JavaScript, a seeded league leaks nothing to an anonymous
+  visitor, the production assets serve at their exact byte sizes, the retired ones 404, and a
+  corrupted durable store cannot break the public page.
+- **Open follow-ups:** See `docs/next-tasks.md`. HOMEPAGE-BRAND-IDENTITY remains deferred and is NOT
+  absorbed by this slice; the signed-in and admin branches were not reachable in the verification
+  environment and rest on unit tests plus owner device review.
+
+---
+
 ### PLATFORM-088 — Homepage Entry Truth — Complete
 
 - **Status:** Complete — merged to `main` via PR #465 (merge commit `f578f22`), 2026-08-08.

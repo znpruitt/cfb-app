@@ -39,27 +39,13 @@ Supersedes: (none)
    server-rendered, reads no league data for anyone who is not a platform admin, and owner counts
    resolve per league. The **entry contract** is recorded in `docs/vision.md` and `DESIGN.md` gained
    a landing section it never had.
-4. **NEXT — POLISH-004-PUBLIC-HOMEPAGE-STADIUM** — implemented, in review, **not yet merged.** The
-   public landing is an always-dark stadium composition built on a **licensed Adobe Stock
-   photograph** (`public/landing/stadium-2048.{avif,webp}`, 2048×1365, derived from a 6144×4096
-   master that stays in the gitignored `references/`). **Scope boundary, owner-stated 2026-08-08:
-   landing only — NOT a logo and NOT an app-wide branding system.** The deferred
-   HOMEPAGE-BRAND-IDENTITY item below is not absorbed by this.
-   - **This entry previously described an intermediate revision and was wrong in every load-bearing
-     claim.** It said the page carried a vector field strip under the wordmark, a `--landing-turf`
-     token, CSS-gradient stadium lighting, and "loads no image". All four are false at HEAD: two
-     attempts to build the scene natively could not make vector primitives read as atmosphere, so it
-     is a raster plate; the strip was then removed as redundant against it; and `--landing-turf` was
-     deleted with the strip that was its only consumer.
-   - **The DESIGN.md conflict was resolved by amendment, not silence** — but by a DIFFERENT amendment
-     than first recorded. The durable, app-wide rule that landed is "Decorative raster backgrounds"
-     (decoration only, no semantic content, brand marks stay vector, assets local), which supersedes
-     the blanket raster prohibition. The landing-scoped colour exception that a first pass added was
-     later RETIRED, so the semantic colour rules stand unamended everywhere.
-   - Also on this branch: the `TurfWar` wordmark extracted to a shared component and adopted on
-     `/login` and the `/` admin dashboard at compact scale, and an anchored (rather than vertically
-     centred) hero so content position is deterministic against a viewport-fixed photograph.
-5. Then: **INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
+4. ✅ **POLISH-004 — COMPLETE** (PR #466, `38f5719`, 2026-08-09). The public landing is an
+   always-dark stadium composition on a licensed Adobe Stock photograph, with the `TurfWar` wordmark
+   extracted to a shared component and adopted on `/login` and the `/` admin dashboard. `DESIGN.md`
+   gained a durable, app-wide "Decorative raster backgrounds" rule superseding the earlier blanket
+   raster prohibition. The deferred HOMEPAGE-BRAND-IDENTITY item below is NOT absorbed by it —
+   POLISH-004 was landing art direction, not a logo or an app-wide branding system.
+5. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
 6. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
    History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
    later.
