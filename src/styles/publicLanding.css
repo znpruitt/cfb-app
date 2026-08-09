@@ -237,7 +237,23 @@ body:has(.landing-root) {
    * translucent treatment stays, because the field behind it is brightly lit and
    * that panel is what makes the text readable at all.
    */
+  /*
+   * The guidance card is pushed WELL down — this is the goalpost's clearance, not
+   * a spacing preference.
+   *
+   * The card sat over the crossbar, which is the feature that makes the structure
+   * legible: without it the uprights read as two unexplained yellow lines rather
+   * than as a goalpost. Two earlier attempts at 1.75rem and 2.5rem were too small
+   * to matter on a real device — 12px of movement against a feature that needs
+   * tens of pixels of clearance.
+   *
+   * ONLY this margin changes. The sign-in block is a flow sibling, so it travels
+   * with the card automatically and its own `mt-10` is left alone — which is what
+   * keeps the gap BETWEEN them identical. Raising both would have moved the
+   * sign-in twice as far and opened a hole in the middle of the stack.
+   */
   .landing-guidance {
+    margin-top: 4.5rem;
     padding: 0.75rem 0.9rem;
   }
 
@@ -245,22 +261,6 @@ body:has(.landing-root) {
     font-size: 0.8125rem;
     line-height: 1.45;
   }
-
-  /*
-   * NO mobile margin override on the lower stack — deliberately, and this absence
-   * is the change.
-   *
-   * An earlier pass tightened both to 1.75rem to recover vertical space. That
-   * pulled the guidance card up over the lower half of the goalpost, which is
-   * useful photographic context: read too high and the goalpost is an unexplained
-   * yellow line behind the copy rather than part of a stadium. Letting the stack
-   * fall back to the markup's `mt-10` (2.5rem) drops it clear.
-   *
-   * Restored by REMOVING the rule rather than restating `2.5rem`, because the
-   * utility already says it: a mobile declaration duplicating the desktop value
-   * would silently pin the old number the moment the markup class changed. Both
-   * elements move together, so their relative spacing is unchanged.
-   */
 
   .landing-account {
     padding-top: 1.15rem;
