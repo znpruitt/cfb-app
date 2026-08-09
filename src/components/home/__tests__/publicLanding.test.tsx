@@ -371,5 +371,21 @@ test('the visible wordmark contains no whitespace', () => {
   // The separation is CSS, not a character — and in `em` so it tracks the
   // wordmark's clamp rather than drifting at size.
   const css = codeOf('src/styles/publicLanding.css');
-  assert.match(css, /\.landing-wordmark-join\s*\{[^}]*margin-left:\s*0?\.\d+em/);
+  const margin = css.match(/\.landing-wordmark-join\s*\{[^}]*margin-left:\s*(-?[\d.]+)em/);
+  assert.ok(margin, 'the join carries an em margin');
+
+  // REGRESSION TEST — the margin must CLEAR the wordmark's negative tracking.
+  //
+  // `letter-spacing` applies after every character, including the `f`, so the
+  // margin pays that back before it adds anything visible. At `-0.03em` tracking
+  // a `0.04em` margin nets +0.01em — roughly 1px, and invisible. This asserts the
+  // NET, so retightening the tracking cannot silently swallow the gap again.
+  const tracking = css.match(/\.landing-wordmark\s*\{[^}]*letter-spacing:\s*(-?[\d.]+)em/);
+  assert.ok(tracking, 'the wordmark declares its tracking in em');
+  const net = Number(margin[1]) + Number(tracking[1]);
+  assert.ok(
+    net >= 0.05,
+    `net f/W gap must stay perceptible; got ${net.toFixed(3)}em ` +
+      `(margin ${margin[1]}em + tracking ${tracking[1]}em)`
+  );
 });
