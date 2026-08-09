@@ -246,13 +246,21 @@ body:has(.landing-root) {
     line-height: 1.45;
   }
 
-  /* Spacing recovered from the two blocks above, so the page tightens without
-     anything feeling cramped. The sign-in link itself is unchanged — it was
-     already correctly subordinate. */
-  .landing-guidance,
-  .landing-account {
-    margin-top: 1.75rem;
-  }
+  /*
+   * NO mobile margin override on the lower stack — deliberately, and this absence
+   * is the change.
+   *
+   * An earlier pass tightened both to 1.75rem to recover vertical space. That
+   * pulled the guidance card up over the lower half of the goalpost, which is
+   * useful photographic context: read too high and the goalpost is an unexplained
+   * yellow line behind the copy rather than part of a stadium. Letting the stack
+   * fall back to the markup's `mt-10` (2.5rem) drops it clear.
+   *
+   * Restored by REMOVING the rule rather than restating `2.5rem`, because the
+   * utility already says it: a mobile declaration duplicating the desktop value
+   * would silently pin the old number the moment the markup class changed. Both
+   * elements move together, so their relative spacing is unchanged.
+   */
 
   .landing-account {
     padding-top: 1.15rem;
