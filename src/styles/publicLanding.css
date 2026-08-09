@@ -177,3 +177,81 @@ body:has(.landing-root) {
  * 16:9 plate, which keeps the vanishing point but shows little field. A portrait
  * crop is the follow-up if mobile review asks for one.
  */
+
+/* ==========================================================================
+ * MOBILE COMPOSITION
+ *
+ * Everything below is inside the query, so desktop is untouched by construction
+ * rather than by review. 640px is Tailwind's `sm` boundary, so these overrides
+ * and the utility classes in the markup change over at the same width.
+ *
+ * ON BACKGROUND POSITION/SIZE — evaluated and deliberately NOT changed. At every
+ * portrait aspect, `cover` scales this 3:2 plate by HEIGHT and crops the sides
+ * only; vertical cropping does not begin until a viewport is wider than 3:2. Two
+ * consequences: the vertical component of `background-position` is INERT on
+ * mobile, and the field is already anchored to the bottom because the image's
+ * bottom edge is the viewport's. Forcing a vertical crop with `background-size`
+ * would buy nothing and would trade away the light banks at the top, so the
+ * goalpost is handled with light instead — below.
+ * ========================================================================== */
+
+@media (max-width: 640px) {
+  /*
+   * THE GOALPOST SCRIM.
+   *
+   * Narrow viewports show only the centre slice of a landscape plate, and the
+   * goalpost is dead centre — so it reads far heavier here than on desktop and
+   * runs straight through the supporting copy.
+   *
+   * A soft radial centred on the copy, on a pseudo-element rather than another
+   * `background-image` layer: redeclaring the stack would mean repeating the
+   * `image-set()` and its asset paths in two places, which is a drift risk for
+   * no benefit. No hard edge anywhere in the gradient, so it reads as depth
+   * rather than as a panel behind the text.
+   */
+  .landing-scene::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(
+      115% 52% at 50% 55%,
+      rgba(0, 0, 0, 0.58),
+      rgba(0, 0, 0, 0.28) 45%,
+      transparent 78%
+    );
+  }
+
+  /* Supporting copy: tighter, not smaller-feeling. The desktop clamp already
+     bottoms out at 0.95rem here, so the line-height is doing most of the work. */
+  .landing-lede {
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  /*
+   * The guidance card is secondary information and was carrying primary weight —
+   * near-full width with desktop padding. Padding and type come down; the dark
+   * translucent treatment stays, because the field behind it is brightly lit and
+   * that panel is what makes the text readable at all.
+   */
+  .landing-guidance {
+    padding: 0.75rem 0.9rem;
+  }
+
+  .landing-guidance p {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+  }
+
+  /* Spacing recovered from the two blocks above, so the page tightens without
+     anything feeling cramped. The sign-in link itself is unchanged — it was
+     already correctly subordinate. */
+  .landing-guidance,
+  .landing-account {
+    margin-top: 1.75rem;
+  }
+
+  .landing-account {
+    padding-top: 1.15rem;
+  }
+}

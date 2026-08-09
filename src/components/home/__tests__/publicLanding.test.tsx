@@ -310,3 +310,33 @@ test('the visible wordmark contains no whitespace', () => {
       `(margin ${margin[1]}em + tracking ${tracking[1]}em)`
   );
 });
+
+// REGRESSION TEST — the mobile composition pass must not reach desktop.
+//
+// "Desktop appearance remains unchanged" was the binding constraint of that pass,
+// and the only structural way to guarantee it is scope: every override lives
+// inside the media query. This asserts that rather than any particular value, so
+// the numbers stay tunable while the isolation stays enforced. The goalpost scrim
+// is the one that would be most obviously wrong if it leaked — it exists only
+// because a narrow viewport shows the centre slice of a landscape plate.
+test('the mobile composition overrides are scoped to the media query', () => {
+  const css = codeOf('src/styles/publicLanding.css');
+  const at = css.indexOf('@media (max-width: 640px)');
+  assert.ok(at !== -1, 'the mobile block exists');
+
+  const desktop = css.slice(0, at);
+  const mobile = css.slice(at);
+
+  assert.ok(
+    !/\.landing-scene::after/.test(desktop),
+    'the goalpost scrim must never render on desktop'
+  );
+  assert.match(mobile, /\.landing-scene::after/, 'and it does exist on mobile');
+
+  // POSITIVE CONTROL — the desktop half is not simply empty, so the absence above
+  // is discrimination rather than a mis-sliced string. It deliberately does NOT
+  // pin the positioning VALUE: that is a tunable, and pinning it would fail on
+  // every legitimate adjustment while catching nothing a reader would notice.
+  assert.match(desktop, /\.landing-scene\s*\{/, 'desktop still declares the scene');
+  assert.match(desktop, /background-position:/, 'with positioning of its own');
+});
