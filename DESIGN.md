@@ -297,31 +297,22 @@ dashboard behind the same route is an operator surface and follows the admin con
   paint the document canvas, or UA chrome and rubber-band overscroll stay light behind it. A stadium rendered on white is
   not a lighter version of this page, it is a broken one. Every other app and admin surface remains
   theme-aware — this exception stops at `/`.
-- **One landing-scoped turf token, `--landing-turf`.** Declared on `.landing-root` in
-  `src/styles/publicLanding.css` and reaching the wordmark's field strip through `landing-turf-fill`.
-  The strip is currently its ONLY consumer, and it is kept anyway: it is the TurfWar accent value,
-  not a convenience for two call sites. The SVG carries no colour of its own, so editing the token is
-  what changes the mark — a duplicated literal in the art module made that claim false once already. Nothing else on the page takes green — not the
-  guidance panel, not the admin link, not the account controls — and alpha variants of that one value
-  are used rather than additional green tokens.
-- **This is an explicit EXCEPTION to the semantic colour rules above, not a repeal of them.** Those
-  rules — amber for champion signals, blue for interactivity, no colour for decoration — govern
-  DATA surfaces, where colour must encode meaning because there is meaning available to encode. This
-  page carries no data. Owner decision (POLISH-004): a restrained turf accent here is art direction
-  for the product's front door, and it is scoped so it cannot leak into any surface where the
-  semantic rules apply.
-- **It does NOT create an app-wide brand token.** `--landing-turf` lives on one element on one page.
-  Promoting it to a global token, adding a logo, or applying it across the app is separate, still
-  unscheduled work (`HOMEPAGE-BRAND-IDENTITY` in `docs/next-tasks.md`) and would amend the colour
-  rules above in its own change.
-- **Decoration is inert.** Background SVG is `aria-hidden`, `focusable="false"`, `pointer-events:
-  none`, and carries no text — meaningful copy is real DOM text so it can be selected, searched, and
-  announced in order. No `next/image`, canvas, video, animation framework, or decorative client-side
-  JavaScript.
-- **The stadium scene is a decorative raster; the wordmark's field strip is vector.** That split
-  follows "Decorative raster backgrounds" above: atmosphere is the thing vector primitives approximate
-  badly, and a brand mark is the thing they do best. A native scene was attempted first and could not
-  be made to read as a field rather than as geometry — recorded so it is not attempted a third time.
+- **No colour accent on this page.** A landing-scoped `--landing-turf` token once painted a
+  perspective-field strip beneath the wordmark. Both are GONE: once the stadium plate carried the
+  football identity, a miniature field competed with the real one behind it and, at that scale, read
+  as a green platform rather than a mark. The token was removed with its only consumer rather than
+  kept for its own sake. **The page's colour now comes entirely from the photographic plate**, and
+  the semantic colour rules above stand unamended for every surface — the exception this section once
+  carried no longer exists.
+- **Decoration is inert.** The scene layer is `aria-hidden`, `pointer-events: none`, and carries no
+  text — meaningful copy is real DOM text so it can be selected, searched, and announced in order. Any
+  inline decorative SVG that returns here must also be `focusable="false"`. No `next/image`, canvas,
+  video, animation framework, or decorative client-side JavaScript.
+- **The stadium scene is a decorative raster, and the wordmark is type alone.** Two attempts to build
+  the scene natively could not make vector primitives read as a field rather than as geometry —
+  recorded so it is not attempted a third time. The vector strip that once accompanied the wordmark
+  was then removed as redundant: the durable rule above says atmosphere is what rasters are for, and
+  a second miniature field was not a brand mark, it was a repeat of the background.
 
 ## Scope discipline
 

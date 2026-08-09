@@ -52,6 +52,39 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### TURFWAR-HOMEPAGE-WORDMARK-SIMPLIFY-v1
+
+- Purpose: Remove the vector perspective-field strip beneath the wordmark, now redundant against the
+  stadium plate, and let the wordmark stand on its own.
+- Scope: `PublicLanding`, the landing stylesheet, landing tests, `DESIGN.md`. `LandingFieldArt.tsx`
+  DELETED — the strip was its only remaining export. No replacement decoration added, by instruction.
+- **The removal cascaded further than the element.** `--landing-turf` had exactly one consumer
+  (`landing-turf-fill`, painting the strip's polygon), and `landing-field-markings` had one too. All
+  three went, plus `landing-wordmark-field` and the SVG module. The token was NOT kept for having
+  previously existed — with no legitimate consumer it is not a scoped accent, it is a leftover. Its
+  removal also retires the landing's colour EXCEPTION in `DESIGN.md`: the semantic colour rules now
+  stand unamended for every surface, and the page's colour comes entirely from the photographic plate.
+- **Spacing: one step, `mt-5` → `mt-6`.** The strip had been supplying most of the gap between the
+  wordmark and `COLLEGE FOOTBALL POOLS` (its own height plus a negative top margin, ~2.5rem in total);
+  removing it would have left ~1.25rem and a crowded lockup. Deliberately the minimum adjustment
+  rather than an excuse for retuning the hero.
+- **Coverage moved rather than shrank.** Four tests pinned the deleted element and went with it — but
+  the observer POSITIVE CONTROL that lived inside the SVG-text test was relocated into the scene test
+  rather than dropped, since `hostElements` and `textContent` still do negative work. A new regression
+  test asserts the hero contains no inline SVG at all and that neither the token nor its literal
+  survives, so decoration cannot quietly drift back under the wordmark.
+- **A test's positive control had to be repointed.** The always-dark scan proved its comment-stripper
+  had not emptied the string by matching `--landing-turf`; with the token deleted that control would
+  have failed for the right reason but the wrong cause. It now matches `.landing-scene`.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Full suite
+  3490 → 3487, the delta being the four retired tests against one added. Three mutations, each applied
+  alone and killed by a named test: reintroduce artwork under the wordmark; resurrect the turf token;
+  regress the `f`/`W` kerning, which this pass had to preserve.
+- **NOT visually verified.** The point of this pass is to see the wordmark without the strip; the
+  rendered result is left for manual review.
+- Status: implemented; not yet reviewed, not yet merged.
+
 ### PLATFORM-HOME-LANDING-RASTER-SCENE-v1
 
 - Purpose: Replace the unsuccessful native CSS/SVG stadium scene with the approved decorative raster

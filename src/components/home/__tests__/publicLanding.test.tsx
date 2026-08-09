@@ -4,7 +4,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import PublicLanding from '../PublicLanding.tsx';
-import { WordmarkFieldUnderline } from '../LandingFieldArt.tsx';
 
 // ---------------------------------------------------------------------------
 // POLISH-004 — the landing's stadium presentation.
@@ -96,7 +95,6 @@ function codeOf(rel: string): string {
 const LANDING_SOURCES = [
   'src/components/home/PublicLanding.tsx',
   'src/components/home/SignOutControl.tsx',
-  'src/components/home/LandingFieldArt.tsx',
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -163,65 +161,41 @@ test('the accessible wordmark is the spaced product name', () => {
 // Decoration
 // ---------------------------------------------------------------------------
 
-test('the scene layer and the vector wordmark mark both render', () => {
+test('the decorative scene layer renders, and is inert', () => {
   const tree = PublicLanding();
-  const types: unknown[] = [];
-  walk(tree, (el) => types.push(el.type));
 
-  // The brand mark stays VECTOR — it scales with the wordmark and must stay crisp.
-  assert.ok(types.includes(WordmarkFieldUnderline), 'the wordmark field underline');
+  // POSITIVE CONTROL FIRST — AGENTS.md: "a negative assertion requires a proven
+  // observer". Inherited from the SVG-text test that the strip removal deleted;
+  // the observers still do negative work below, so their proof moves rather than
+  // vanishing with the element it used to describe.
+  const withText = {
+    type: 'div',
+    props: { children: [{ type: 'span', props: { children: 'leak' } }] },
+  };
+  assert.equal(hostElements(withText).length, 2, 'the element observer descends');
+  assert.deepEqual(textContent(withText), ['leak'], 'and the text observer finds content');
 
-  // The atmosphere is a raster plate carried by a decorative background layer.
   const scene = hostElements(tree).filter(
     (el) => typeof el.props?.className === 'string' && el.props.className.includes('landing-scene')
   );
   assert.equal(scene.length, 1, 'exactly one scene layer');
-  assert.equal(scene[0]!.props?.['aria-hidden'], 'true', 'and it is hidden from assistive tech');
-  assert.deepEqual(textContent(scene[0]), [], 'and carries no text');
+  assert.equal(scene[0]!.props?.['aria-hidden'], 'true', 'hidden from assistive tech');
+  assert.deepEqual(textContent(scene[0]), [], 'and carrying no text');
 });
 
-// REGRESSION TEST — decoration must be invisible to assistive technology and to
-// the keyboard. `focusable="false"` matters because IE-era SVG defaults still
-// surface in some engines, and a focus stop on a background graphic is a trap.
-test('every decorative SVG is hidden and unfocusable', () => {
-  for (const [name, art] of [['WordmarkFieldUnderline', WordmarkFieldUnderline({})]] as const) {
-    const svg = art as El;
-    assert.equal(svg.type, 'svg', `${name} renders an svg root`);
-    assert.equal(svg.props?.['aria-hidden'], 'true', `${name} is aria-hidden`);
-    assert.equal(svg.props?.focusable, 'false', `${name} is not focusable`);
-  }
-});
+// REGRESSION TEST — the wordmark stands ALONE.
+//
+// A miniature perspective-field strip sat under it until the stadium plate took
+// over the football identity: two fields competed, and at this scale the small one
+// read as a green platform rather than a mark. Nothing decorative replaced it, and
+// nothing should drift back in.
+test('no decorative artwork sits under the wordmark', () => {
+  const svgs = hostElements(PublicLanding()).filter((el) => el.type === 'svg');
+  assert.equal(svgs.length, 0, 'the hero carries no inline SVG at all');
 
-// REGRESSION TEST — no meaningful copy inside the decoration. The reference's
-// giant yard numerals were deliberately rejected: text in a background graphic is
-// unselectable, unsearchable, and announced out of context if it is announced at
-// all.
-test('no text is rendered inside the decorative SVGs', () => {
-  // POSITIVE CONTROL FIRST — AGENTS.md: "a negative assertion requires a proven
-  // observer". Both observers are shown detecting the forbidden thing on a
-  // synthetic tree of the same shape. Without this, an observer that stopped
-  // descending into children would return empty for ANY input and this test
-  // would pass forever while the accessibility contract silently rotted.
-  const withText = {
-    type: 'svg',
-    props: {
-      children: [{ type: 'g', props: { children: { type: 'text', props: { children: '40' } } } }],
-    },
-  };
-  assert.equal(
-    hostElements(withText).filter((el) => el.type === 'text').length,
-    1,
-    'the element observer finds a nested <text>'
-  );
-  assert.deepEqual(textContent(withText), ['40'], 'and the text observer finds its content');
-
-  for (const art of [WordmarkFieldUnderline({})]) {
-    const textNodes = hostElements(art).filter((el) => el.type === 'text' || el.type === 'tspan');
-    assert.equal(textNodes.length, 0, 'decoration carries no SVG text');
-    // CHILDREN only — attribute values are not text, and treating them as text
-    // is what made an earlier version of this assertion meaningless.
-    assert.deepEqual(textContent(art), [], 'and no string content at all');
-  }
+  const css = codeOf('src/styles/publicLanding.css');
+  assert.ok(!/--landing-turf/.test(css), 'the turf token went with its only consumer');
+  assert.ok(!/#2f8f4e/i.test(css), 'and no stray literal of it survives');
 });
 
 test('the scene is a LOCAL CSS background, never a DOM element', () => {
@@ -255,15 +229,6 @@ test('the scene is a LOCAL CSS background, never a DOM element', () => {
     const [, name] = css.match(new RegExp(`url\\('(/landing/stadium-\\d+\\.${ext})'\\)`)) ?? [];
     assert.ok(name, `a ${ext} reference exists`);
     assert.ok(existsSync(join(process.cwd(), 'public', name)), `${name} is present in public/`);
-  }
-
-  // The vector mark's tree too — `walk` stops at an unrendered component element,
-  // so the tree assertion above never descends into it.
-  for (const art of [WordmarkFieldUnderline({})]) {
-    const artTypes = hostElements(art).map((el) => el.type);
-    for (const banned of ['img', 'canvas', 'video', 'image']) {
-      assert.ok(!artTypes.includes(banned), `no <${banned}> inside the decoration`);
-    }
   }
 });
 
@@ -300,62 +265,12 @@ test('the landing does not follow the OS colour scheme', () => {
   assert.match(css, /background-color:\s*#000000/, 'the root is black');
   // POSITIVE CONTROL — the stripper leaves rules intact, so the absence above is
   // discrimination rather than an emptied string.
-  assert.match(css, /--landing-turf/, 'real declarations survive the strip');
+  assert.match(css, /\.landing-scene\s*\{/, 'real declarations survive the strip');
 });
 
 // The turf green is LANDING-SCOPED. It lives on this page's root element and is
 // not promoted to a global token — DESIGN.md records the exception, and this
 // keeps the exception honest.
-test('the turf colour stays scoped to the landing', () => {
-  const css = readFileSync(join(process.cwd(), 'src/styles/publicLanding.css'), 'utf8');
-  assert.match(css, /\.landing-root\s*\{[^}]*--landing-turf:/, 'declared on the landing root');
-
-  const globals = readFileSync(join(process.cwd(), 'src/app/globals.css'), 'utf8');
-  assert.ok(!/--landing-turf/.test(globals), 'and never promoted into the global token block');
-
-  // REGRESSION TEST — the token must actually PAINT. It was declared, documented
-  // as the source of the field colour, and consumed by nothing: both SVGs carried
-  // a duplicated literal, so editing the documented token changed nothing on
-  // screen while this test still passed on the declaration alone.
-  assert.match(css, /\.landing-turf-fill\s*\{[^}]*fill:\s*var\(--landing-turf\)/);
-
-  const art = codeOf('src/components/home/LandingFieldArt.tsx');
-  assert.ok(
-    !/#2f8f4e/i.test(art),
-    'the art module must not hard-code the colour — one source of truth'
-  );
-  assert.match(art, /landing-turf-fill/, 'it takes the fill class');
-
-  // Markings are WHITE; the token paints the mark's surface. `--landing-turf` is
-  // kept as the scoped TurfWar accent token even though the strip is now its only
-  // consumer — it is a brand value, not a convenience for two call sites.
-  assert.match(css, /\.landing-field-markings\s*\{[^}]*stroke:\s*#ffffff/);
-  assert.match(css, /--landing-turf:/, 'the accent token survives the scene removal');
-});
-
-// REGRESSION TEST — the strip's single integration pass.
-//
-// It read as a separate green trapezoid parked below the wordmark. Two things
-// changed that, and both are structural rather than taste: it overlaps the
-// wordmark's descender space instead of starting below its box, and its FAR edge
-// is masked to a fade so it recedes rather than ending on a hard line.
-test('the wordmark strip is tucked under the mark and its far edge is softened', () => {
-  const css = codeOf('src/styles/publicLanding.css');
-  assert.match(
-    css,
-    /\.landing-wordmark-field\s*\{[^}]*margin:\s*-[\d.]+rem/,
-    'a negative top margin overlaps the wordmark rather than clearing it'
-  );
-
-  const art = WordmarkFieldUnderline({});
-  const masked = hostElements(art).filter((el) => typeof el.props?.mask === 'string');
-  assert.ok(masked.length > 0, 'the mark is drawn through a mask');
-  assert.ok(
-    hostElements(art).some((el) => el.type === 'mask'),
-    'and the mask is defined in the SVG, so the far edge fades'
-  );
-});
-
 // REGRESSION TEST — the brand is ONE WORD, and the optical fix must not become an
 // orthographic one.
 //

@@ -1,7 +1,6 @@
 import Link from 'next/link';
 
 import SignOutControl from '@/components/home/SignOutControl';
-import { WordmarkFieldUnderline } from '@/components/home/LandingFieldArt';
 
 /**
  * The public entry page. A SERVER component, deliberately.
@@ -79,9 +78,13 @@ export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boo
           </span>
           <span className="sr-only">Turf War</span>
         </p>
-        <WordmarkFieldUnderline className="landing-wordmark-field" />
-
-        <p className="landing-descriptor mt-5 uppercase">College football pools</p>
+        {/* The perspective-field strip that sat here was removed once the stadium
+            plate carried the football identity: a miniature field under the
+            wordmark competed with the real one behind it, and at this scale read
+            as a green platform rather than a mark. The wordmark now stands on its
+            own. Spacing bumped one step to keep the lockup intentional — the strip
+            had been supplying most of the gap. */}
+        <p className="landing-descriptor mt-6 uppercase">College football pools</p>
 
         {/* The PRODUCT STATEMENT is the page heading — not the wordmark, which is
             branding rather than a description of the page. */}

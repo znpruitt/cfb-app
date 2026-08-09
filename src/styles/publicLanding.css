@@ -6,11 +6,6 @@
  * a fixed dark stadium composition regardless of the visitor's OS theme. Every
  * other app and admin surface stays theme-aware and is untouched by this slice.
  *
- * `--landing-turf` is scoped to `.landing-root`. It is NOT an app-wide brand token:
- * it exists on this element and nowhere else, and only the two field treatments
- * use it. DESIGN.md records this as an explicit landing-only exception to the
- * semantic colour rules.
- *
  * A plain prefixed stylesheet rather than a CSS module, and the reason is
  * infrastructural: this repo's test runner is `node --test` under `tsx`, which
  * parses a `*.module.css` import as JavaScript and dies on the first selector.
@@ -36,7 +31,6 @@ body:has(.landing-root) {
 }
 
 .landing-root {
-  --landing-turf: #2f8f4e;
   color-scheme: dark;
 
   position: relative;
@@ -54,24 +48,6 @@ body:has(.landing-root) {
   overflow: hidden;
   background-color: #000000;
   color: #fafafa;
-}
-
-/*
- * The ONLY consumers of `--landing-turf`. Declared once above, applied here, and
- * reachable from nowhere else — the SVGs carry no colour of their own, so editing
- * the token is what changes the page.
- */
-.landing-turf-fill {
-  fill: var(--landing-turf);
-}
-
-/*
- * Field markings are WHITE, not green. A real field is a green surface with white
- * lines; the first pass inverted that and drew green lines on black, which reads
- * as a wireframe grid rather than turf.
- */
-.landing-field-markings {
-  stroke: #ffffff;
 }
 
 /*
@@ -162,26 +138,6 @@ body:has(.landing-root) {
  */
 .landing-wordmark-join {
   margin-left: 0.09em;
-}
-
-.landing-wordmark-field {
-  display: block;
-  /*
-   * Wider than the wordmark on purpose. At the reference's proportions the strip
-   * overhangs the word by roughly 10% on each side, which is what makes it read
-   * as ground the mark stands on rather than a flat shape parked beneath it.
-   * Sized to ~29rem against a ~24rem wordmark at the top of the clamp.
-   */
-  width: clamp(13rem, 50vw, 29rem);
-  height: clamp(0.95rem, 2.7vw, 1.6rem);
-  /*
-   * NEGATIVE top margin: the strip overlaps the wordmark's descender space rather
-   * than starting below its box. With a positive margin it read as a separate
-   * trapezoid parked under the word; overlapping, and with its far edge masked to
-   * a fade, it reads as ground the mark is standing on. The far-edge softening
-   * lives in the SVG mask — see `WordmarkFieldUnderline`.
-   */
-  margin: -0.35rem auto 0;
 }
 
 .landing-descriptor {
