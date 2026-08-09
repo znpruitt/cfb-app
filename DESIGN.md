@@ -79,7 +79,9 @@ Supersedes: (none)
 - Amber/gold is reserved exclusively for champion/podium signals — not a general accent color
 - Blue signals interactivity or active state only — never use blue to mean "featured" or "important"
 - Chart line colors are fixed per owner for the full season — never change with standings position
-- No color for decoration — every color must encode meaning
+- No color for decoration — every color must encode meaning. This stands unamended for every
+  surface. The public landing briefly carried a scoped turf-accent exception; it was removed with the
+  vector element that consumed it, and the landing's colour now comes entirely from a photograph.
 - CFP round badges use neutral slate/gray — distinct from status colors
 
 ## Interaction model
@@ -218,9 +220,35 @@ Supersedes: (none)
 - User preference override: deferred until user accounts are built
 - When adding user override: switch Tailwind to `class` strategy, add theme provider
 
+## Decorative raster backgrounds
+
+Applies app-wide, not to one page. Introduced by POLISH-004, and it SUPERSEDES the earlier blanket
+prohibition on raster assets, which was written before any surface needed atmosphere.
+
+- **A raster is permitted for DECORATION only.** It must carry no semantic content: no text, no
+  logo, no UI, no data, nothing a reader would need to select, search, translate, or hear announced.
+- **Meaningful content stays in the DOM.** If a person needs it, it is real text — never baked into
+  an image. This is the line the rule exists to hold.
+- **Brand marks stay vector/native.** They scale with their surroundings, need no asset, and must
+  stay crisp at any size.
+- **Assets are LOCAL.** No remote images, no third-party CDN, no runtime image service. The app ships
+  what it renders.
+- **Reference for a decorative background rather than an `<img>`.** It is not content, so it does not
+  belong in the DOM: a background costs no hydration and no layout, and gradients composite in the
+  same stack, which is what blends a plate into the page.
+- **Performance-conscious and purposeful.** Serve AVIF with a WebP fallback via `image-set()`, size
+  to the composition rather than to a round number, and keep the weight proportionate — a dark,
+  low-frequency scene should be tens of kilobytes, not hundreds. A raster that could have been a
+  gradient should be a gradient.
+- **Legibility is the author's problem, not the plate's.** Text over an image needs a scrim sized to
+  clear 4.5:1 against the brightest region it actually crosses, not against the average.
+
+When native CSS/SVG can carry the idea, prefer it. Reach for a raster when the thing being drawn is
+atmosphere — depth, haze, light falloff, texture — which vector primitives approximate badly.
+
 ## Landing page (`/`)
 
-PLATFORM-088. Governs **both states of the public landing** — the signed-out visitor AND the
+PLATFORM-088, amended by POLISH-004. Governs **both states of the public landing** — the signed-out visitor AND the
 signed-in non-admin, who receives the same page. Scoping this to "signed-out only" was itself a
 defect: it left the signed-in state with no design authority, which is how a JavaScript-dependent
 sign-out control slipped past the no-JavaScript rule three bullets below. The platform-admin
@@ -245,24 +273,48 @@ dashboard behind the same route is an operator surface and follows the admin con
   from the browser, and no server-side teardown is reachable from a plain form post. That is not a
   hole in the rule above: Clerk's sign-IN is equally client-side, so no session can exist without
   JavaScript having run. State this distinction rather than claiming more than is true.
-- **Normal text meets 4.5:1 in both themes.** `text-gray-400` on white measures ~2.6:1 and
-  `dark:text-zinc-600` on `zinc-950` is worse; neither is acceptable for body copy or links. Use
-  `text-gray-600 dark:text-zinc-400` or stronger.
-- **No horizontal overflow at 390px.** Keep the single content column inside `max-w-lg` with real
+- **Normal text meets 4.5:1 against the dark composition.** Since POLISH-004 there is only one
+  theme here, so the ratio is measured against black rather than "in both themes": `zinc-400`
+  (~8.4:1) and `zinc-300` (~11.6:1) are the working tokens. Do NOT carry light-theme pairs like
+  `text-gray-600 dark:text-zinc-400` onto this page — the light half renders near-black on black for
+  a visitor whose system is set to light.
+- **No horizontal overflow at 390px.** Keep the single content column inside `max-w-2xl` with real
   horizontal padding, break long strings, and keep the sign-in affordance in normal flow — fixing it
-  to a viewport corner clipped it on small screens.
+  to a viewport corner clipped it on small screens. The decorative layer is bounded by `inset`, so
+  the landing root's `overflow: hidden` is defensive rather than load-bearing — an earlier version of
+  this rule explained it with inline-SVG clipping, on a page that now contains no SVG at all.
 - **Affordances are named for who can actually use them.** The sign-in link reads "Platform admin
   sign-in" because middleware admits only platform admins; it previously said "Commissioner login".
-- **Hierarchy comes from TYPE, not colour.** The page carries no data, so there is nothing for colour
-  to encode — and the app's colour rules above are semantic by design (amber for champions, blue for
-  interactivity, "no colour for decoration"). An accent here would mean nothing and would promise a
-  livelier product than the austere, data-dense app behind it. When this page reads flat, the fix is
-  scale contrast, a second type register, a constrained measure, and deliberate vertical rhythm —
-  tight within a group, generous between groups — not a palette.
-- **A brand accent, if one is ever introduced, is a token defined once and applied app-wide**, and it
-  amends the colour rules above in the same change. It is not a homepage patch. Introducing brand
-  identity is its own scoped piece of work, best done when public launch is close and the surfaces
-  have stopped moving.
+- **Typography is still the primary hierarchy.** Scale contrast, a second type register, a
+  constrained measure, and deliberate vertical rhythm — tight within a group, generous between
+  groups — carry the page. Colour supports the composition; it does not create the hierarchy. When
+  this page reads flat, reach for type before pigment.
+- **The landing is an ALWAYS-DARK stadium composition.** Fixed dark regardless of the visitor's OS
+  preference: no `prefers-color-scheme` block, no `dark:` variants, and no light-theme text token
+  anywhere in the files that render it — a `text-gray-600 dark:text-zinc-400` pair renders
+  near-black on black for a light-OS visitor. The page must also paint the document canvas and
+  declare `color-scheme: dark` **on the ROOT scroller** (`html:has(.landing-root)`), or UA chrome and
+  rubber-band overscroll stay light behind it. On a non-root element `color-scheme` governs only that
+  element's own widgets — and the landing root has `overflow: hidden`, so it has no scrollbar to
+  govern; declared there, the rule looks right and does nothing. A stadium rendered on white is
+  not a lighter version of this page, it is a broken one. Every other app and admin surface remains
+  theme-aware — this exception stops at `/`.
+- **No colour accent on this page.** A landing-scoped `--landing-turf` token once painted a
+  perspective-field strip beneath the wordmark. Both are GONE: once the stadium plate carried the
+  football identity, a miniature field competed with the real one behind it and, at that scale, read
+  as a green platform rather than a mark. The token was removed with its only consumer rather than
+  kept for its own sake. **The page's colour now comes entirely from the photographic plate**, and
+  the semantic colour rules above stand unamended for every surface — the exception this section once
+  carried no longer exists.
+- **Decoration is inert.** The scene layer is `aria-hidden`, `pointer-events: none`, and carries no
+  text — meaningful copy is real DOM text so it can be selected, searched, and announced in order. Any
+  inline decorative SVG that returns here must also be `focusable="false"`. No `next/image`, canvas,
+  video, animation framework, or decorative client-side JavaScript.
+- **The stadium scene is a decorative raster, and the wordmark is type alone.** Two attempts to build
+  the scene natively could not make vector primitives read as a field rather than as geometry —
+  recorded so it is not attempted a third time. The vector strip that once accompanied the wordmark
+  was then removed as redundant: the durable rule above says atmosphere is what rasters are for, and
+  a second miniature field was not a brand mark, it was a repeat of the background.
 
 ## Scope discipline
 

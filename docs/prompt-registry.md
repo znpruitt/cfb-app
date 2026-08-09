@@ -52,6 +52,284 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### TURFWAR-APP-WORDMARK-REUSE-v1
+
+- Purpose: Extract the homepage wordmark into a shared treatment and adopt it on the two interior
+  surfaces that render product identity, at their existing compact scale.
+- Scope: new `src/components/brand/Wordmark.tsx` and `src/styles/wordmark.css`, `PublicLanding`,
+  `/login`, `AdminLeagueDashboard`, a new `src/test/renderTree.ts` helper, and tests. Two commits:
+  extraction with no rendered change, then adoption.
+- **The inspection mattered more than the change.** Only TWO surfaces rendered a plain `Turf War`
+  header — `/login` and the `/` admin dashboard — and every other `<h1>` in the app is already a
+  functional title ("Platform Admin", "System Health", "{league} — Commissioner Tools"). A global
+  find-and-replace would also have corrupted several TEST FIXTURES where `displayName: 'Turf War'` is
+  a LEAGUE name, not the brand: a coincidence, not an occurrence. The metadata title keeps the spaced
+  form deliberately.
+- **Extraction was justified by four non-obvious properties, each of which was a bug at some point:**
+  `Turf`/`War` as separate nodes with NO whitespace between them (a space silently rebrands the
+  product); the visible mark `aria-hidden` with an `sr-only` accessible name; a join margin sized to
+  CLEAR the negative tracking (at `-0.03em`, a naive `0.04em` nets +0.01em and is invisible); and both
+  values in `em`, which is what makes one set of declarations serve a 96px landing mark and a 24px
+  header. Copy-pasting that twice more would have invited all four back.
+- **The homepage became a CONSUMER while staying the visual source of truth.** `.landing-wordmark`
+  keeps only `font-size` and `line-height`; the shipped declarations union to exactly the rule they
+  replaced, verified in the built bundle rather than assumed from source. `line-height` stayed a
+  surface concern — a 96px mark hugs its glyphs, a `text-2xl` header wants its own leading.
+- **EXTRACTION BROKE THE SURFACE TESTS, and the cause is worth recording.** The element walkers
+  descend `props.children`, which stops dead at a function-component element: `<Wordmark />` has no
+  children, so the brand text became invisible to every page-level assertion — not because the page
+  changed, but because the assertion could no longer see it. `src/test/renderTree.ts` invokes function
+  components so those tests read RENDERED output; hook-bearing client components throw outside
+  React's dispatcher and are left intact, which is the shape presence assertions already expect.
+- **Testing approach corrected by owner instruction.** The plan proposed asserting that all three call
+  sites import the shared component. That pins an implementation detail and breaks on any refactor
+  while proving nothing a user would notice. The tests assert the RENDERED contract at each surface
+  instead — brand spelling with no whitespace, accessible name, no marketing descriptor — plus the
+  scale-invariance of the shared treatment. The shared implementation is enforced by structure.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Full suite
+  3487 → 3494. Five mutations, each applied alone and killed by a named test: a literal space in the
+  mark; the accessible name dropped; the join no longer clearing the tracking; size leaking into the
+  shared treatment; the descriptor following the mark onto an interior header. The first two fail at
+  BOTH adopting surfaces and the landing simultaneously, which is the point of sharing.
+- **NOT visually verified.** Left for manual review.
+- **SUPERSEDED ON THE SAME BRANCH — read as history, not as current state.** Everything below the
+  strategy note is accurate for the revision it describes and false at HEAD: the `stadium-1672`
+  assets, `center bottom` positioning, and the retained `--landing-turf` token were all replaced by
+  `TURFWAR-HOMEPAGE-ADOBE-STADIUM-PLATE-v1` and `TURFWAR-HOMEPAGE-WORDMARK-SIMPLIFY-v1`. Kept because
+  the REASONING — why a native CSS/SVG scene could not carry the atmosphere — is the durable part.
+- Status: implemented; superseded before merge by the entries above.
+
+### TURFWAR-HOMEPAGE-WORDMARK-SIMPLIFY-v1
+
+- Purpose: Remove the vector perspective-field strip beneath the wordmark, now redundant against the
+  stadium plate, and let the wordmark stand on its own.
+- Scope: `PublicLanding`, the landing stylesheet, landing tests, `DESIGN.md`. `LandingFieldArt.tsx`
+  DELETED — the strip was its only remaining export. No replacement decoration added, by instruction.
+- **The removal cascaded further than the element.** `--landing-turf` had exactly one consumer
+  (`landing-turf-fill`, painting the strip's polygon), and `landing-field-markings` had one too. All
+  three went, plus `landing-wordmark-field` and the SVG module. The token was NOT kept for having
+  previously existed — with no legitimate consumer it is not a scoped accent, it is a leftover. Its
+  removal also retires the landing's colour EXCEPTION in `DESIGN.md`: the semantic colour rules now
+  stand unamended for every surface, and the page's colour comes entirely from the photographic plate.
+- **Spacing: one step, `mt-5` → `mt-6`.** The strip had been supplying most of the gap between the
+  wordmark and `COLLEGE FOOTBALL POOLS` (its own height plus a negative top margin, ~2.5rem in total);
+  removing it would have left ~1.25rem and a crowded lockup. Deliberately the minimum adjustment
+  rather than an excuse for retuning the hero.
+- **Coverage moved rather than shrank.** Four tests pinned the deleted element and went with it — but
+  the observer POSITIVE CONTROL that lived inside the SVG-text test was relocated into the scene test
+  rather than dropped, since `hostElements` and `textContent` still do negative work. A new regression
+  test asserts the hero contains no inline SVG at all and that neither the token nor its literal
+  survives, so decoration cannot quietly drift back under the wordmark.
+- **A test's positive control had to be repointed.** The always-dark scan proved its comment-stripper
+  had not emptied the string by matching `--landing-turf`; with the token deleted that control would
+  have failed for the right reason but the wrong cause. It now matches `.landing-scene`.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Full suite
+  3490 → 3487, the delta being the four retired tests against one added. Three mutations, each applied
+  alone and killed by a named test: reintroduce artwork under the wordmark; resurrect the turf token;
+  regress the `f`/`W` kerning, which this pass had to preserve.
+- **NOT visually verified.** The point of this pass is to see the wordmark without the strip; the
+  rendered result is left for manual review.
+- Status: implemented; not yet reviewed, not yet merged.
+
+### TURFWAR-HOMEPAGE-ADOBE-STADIUM-PLATE-v1
+
+- Purpose: Replace the generated plate with the licensed Adobe Stock stadium photograph.
+- Scope: production derivatives, the scene rule, and the landing asset contract. No behaviour change.
+- **The prompt stated a 2048×1365 source; the supplied file was 6144×4096** — the same 3:2
+  composition at 3×. Producing the named `stadium-2048` asset therefore required a DOWNSCALE, which
+  is the permitted direction, and the derivatives were attributed to the v3 source by CONTENT
+  FINGERPRINT rather than by filename (mean pixel distance 0.86 vs v3, 32.4 vs the superseded v2).
+  `stadium-2048.avif` 91 KB / `stadium-2048.webp` 143 KB; `stadium-1672.*` retired. The 9.5 MB
+  licensed original stays in the gitignored `references/`, so the repository does not redistribute it.
+- **`center bottom` became `center`, and the aspect ratio is the reason.** A 3:2 source under `cover`
+  crops vertically on any desktop viewport, and `bottom` takes that entire crop off the TOP where the
+  light banks are: 15.6% at 1920×1080, 36.7% at 2560×1080 — which removes them completely.
+- **A legibility scrim was REQUIRED, not stylistic:** this field is vividly lit where the generated
+  one was dim, and the guidance card and sign-in link cross it. Legibility is measured against the
+  brightest region text actually crosses, not the average.
+
+### TURFWAR-HOMEPAGE-STADIUM-PLATE-V2-v1
+
+- **Executed and then SUPERSEDED before it reached a commit.** A corrected v2 generated plate was
+  converted and the derivatives written, then reverted when the licensed Adobe Stock image arrived.
+  Recorded so the branch history is legible: the v2 work is not in the diff, and its absence is
+  deliberate rather than an oversight.
+
+### TURFWAR-HOMEPAGE-MOBILE-COMPOSITION-v1 / -FRAMING-v2 / -LOWER-STACK-SPACING-v1 / -GOALPOST-REVEAL-v2
+
+- Four mobile passes over the same problem, grouped because the LAST one invalidates the approach of
+  the first three and that is the useful record.
+- **Passes 1–3 tried to move the guidance card off the goalpost by raising its top margin**
+  (1.75 → 2.5 → 4.5rem). Each barely moved it. The cause was `justify-center` on `.landing-root`:
+  content was CENTRED while the background is anchored to the VIEWPORT, so adding margin M inside the
+  centred block grew it by M and centring lifted its top edge by M/2 — content moved relative to the
+  photograph at HALF the requested rate, and everything above drifted up by the rest. A 2rem increase
+  bought 16px.
+- **Pass 4 replaced the lever rather than the value.** The hero anchors to the top and the lower stack
+  claims the remaining space via `margin-top: auto`, which is deterministic — it no longer depends on
+  content height, which is exactly what made the earlier attempts impossible to predict without
+  rendering. Later promoted to all widths by owner request after visual review.
+- Also mobile-only: the plate reframed to `auto 88%` / `center bottom` after a radial scrim proved to
+  be treating the symptom of a too-tight crop, plus tightened lede and card typography. **Background
+  position was evaluated and deliberately NOT changed vertically:** at every portrait aspect `cover`
+  scales a 3:2 plate by HEIGHT and crops the sides only, so the vertical component is inert there.
+
+### TURFWAR-HOMEPAGE-WORDMARK-KERNING-v1
+
+- Purpose: optical separation at the wordmark's `f` → `W` boundary without changing the spelling.
+- **The first attempt was correct CSS that shipped, won the cascade, and was invisible.** A `0.04em`
+  margin had to pay back the wordmark's `-0.03em` tracking before adding anything, leaving a NET gap
+  of +0.01em — about 1px — and, since the mark is centred, moving each word half a pixel. Diagnosis
+  required ruling out a deployment lag, a duplicate implementation, and a cascade loss first.
+- Shipped at `0.09em` for a net `0.06em`. **A test pins the NET rather than the margin**, so
+  retightening the tracking cannot silently swallow the gap again — the exact failure that produced
+  the round.
+
+### PLATFORM-HOME-LANDING-RASTER-SCENE-v1
+
+- Purpose: Replace the unsuccessful native CSS/SVG stadium scene with the approved decorative raster
+  plate, preserving homepage structure, behaviour, and the improved hero composition.
+- Scope: `PublicLanding`, `LandingFieldArt`, the landing stylesheet, landing tests, `DESIGN.md`, and
+  two production image derivatives. No routing, auth, registry, or application-shell change.
+- **THE NATIVE SCENE WAS ABANDONED ON EVIDENCE, NOT PREFERENCE.** Two passes of CSS/SVG tuning could
+  not make vector primitives read as an atmospheric field; preview confirmed the gap was material
+  rather than parametric — the turf read as a flat polygon, the markings as grid geometry, and the
+  corner lighting as grey blobs. Removed: `PerspectiveField` and all its geometry, the turf-surface
+  and marking-depth gradients, the CSS glow/hotspot stack, the beam wedges, the vignette, the
+  `landing-field` sizing and its media queries, and `landing-turf-stop`. The stylesheet went 249 → 203
+  lines and the art module 196 → 88, despite both gaining a raster contract and a mask.
+- **The plate is 1672 × 941, its NATIVE size.** The plan had proposed 2560 × 1440; the supplied
+  source is smaller, and upscaling to satisfy a filename would have invented detail while inflating
+  bytes. Production derivatives are named for what they are: `stadium-1672.avif` (68 KB) and
+  `stadium-1672.webp` (96 KB), from a 1.8 MB PNG. 10-bit AVIF was attempted first — near-black
+  gradients band at 8-bit — but the prebuilt encoder refuses it, so 8-bit shipped and banding is a
+  named visual-review risk.
+- **`center bottom` is load-bearing, not incidental.** The plate's vanishing point is dead-centre, so
+  horizontal centring is what keeps the field aligned with the centred hero; anchoring to the bottom
+  makes a wider-than-16:9 viewport crop the empty black top rather than the field.
+- **A legibility scrim was REQUIRED, not stylistic.** The guidance card and sign-in link sit over lit
+  foreground turf, where white text does not clear 4.5:1 against bare grass. The card's old
+  `rgba(255,255,255,0.04)` wash was designed against a black page and darkened nothing over an image;
+  it is now a genuinely dark translucent panel, which is also what the reference composite uses.
+- **DESIGN.md gained a DURABLE, app-wide rule** — "Decorative raster backgrounds" — superseding the
+  blanket prohibition written one slice earlier, before any surface needed atmosphere. It permits a
+  raster for decoration only, requires meaningful content to stay in the DOM and brand marks to stay
+  vector, requires local assets, prefers a background over an `<img>`, and makes legibility the
+  author's problem rather than the plate's. The Landing section now references it instead of
+  restating a special case.
+- **The wordmark strip got its ONE approved pass:** a negative top margin so it overlaps the
+  wordmark's descender space rather than clearing it, and an SVG mask fading the FAR edge so it
+  recedes instead of ending on a hard line. `--landing-turf` is deliberately KEPT despite the strip
+  becoming its only consumer — it is the TurfWar accent value, not a convenience for two call sites.
+- Tests: the raster assertion was INVERTED rather than deleted — a local CSS-background reference is
+  now required and a DOM `<img>`/`<canvas>`/`<video>` for the scene is still forbidden, plus an
+  `existsSync` check so a referenced-but-missing file cannot pass. Coverage added for the scene
+  layer's presence and inertness, and for both halves of the strip pass.
+- **A PRE-EXISTING FLAKE was observed and deliberately NOT fixed** (out of scope): `insights-suppression`
+  "record at exactly TTL boundary is not expired" computes `Date.now()` at fixture time and compares
+  against `Date.now()` at assertion time, so a millisecond tick fails it. Failed once in a full run,
+  passed 3/3 in isolation and on re-run. Recorded here rather than silently absorbed.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Full suite
+  3488/3488. Six mutations, each applied alone and killed by a named test: point the asset at a
+  remote CDN; remove the asset file; render the scene as a DOM `<img>`; remove the vector mark;
+  unmask the strip's far edge; untuck the strip's margin.
+- **NOT visually verified.** The renderer is not observable from here; values flagged for manual
+  review are listed on the PR and in the handover.
+- Status: implemented; not yet reviewed, not yet merged.
+
+### POLISH-004-PUBLIC-HOMEPAGE-STADIUM-v1
+
+- Purpose: Redesign the public landing with a restrained, always-dark stadium atmosphere while
+  preserving PLATFORM-088's server-rendered authentication, privacy, and entry behaviour exactly.
+- Scope: `PublicLanding`, a new `LandingFieldArt` module, a landing stylesheet, `SignOutControl`
+  colour tokens, focused tests, `DESIGN.md`, and the queue/registry entries. No change to the
+  platform-admin dashboard, authentication, registry access, routing, league lookup, or signup.
+- **Owner-supplied reference art is NOT committed.** `/references/` and a root-level duplicate are
+  gitignored, added before any staging — a 1.4 MB raster the app never loads had been sitting
+  untracked where the next `git add -A` would have swept it in. The page ships no image asset of any
+  kind; the atmosphere is CSS gradients and inline SVG.
+- **Taken from the reference:** centred hero, dark stadium atmosphere, restrained upper-corner glow,
+  a perspective field emerging from below, the field strip beneath the wordmark, white type with one
+  turf accent. **Deliberately rejected:** photoreal turf, detailed floodlight arrays, smoke texture,
+  large yard numerals (they would be SVG text), the green-glowing guidance card, and the generic
+  people/lock icons. The rejected list is the substance of the art direction — the reference's
+  most eye-catching elements are the ones that would have aged worst.
+- **Always dark, by owner decision.** No `prefers-color-scheme` block and no `dark:` variants on this
+  page; a stadium rendered on white is not a lighter version of it. Every other surface stays
+  theme-aware. `SignOutControl` needed its tokens changed too — its `text-gray-600 dark:text-zinc-400`
+  pair rendered near-black on black for a visitor whose system was set to light.
+- **THE DESIGN.md CONFLICT WAS AMENDED, NOT WORKED AROUND.** That file had stated a brand accent "is
+  a token defined once and applied app-wide… not a homepage patch" — written one slice earlier, and
+  directly contradicted by this treatment. The bullet is REPLACED rather than left standing beside
+  its own exception: the semantic colour rules are now scoped to DATA surfaces, and the landing holds
+  a documented exception of one `--landing-turf` value on `.landing-root`, used only by the two field
+  treatments and reachable from nowhere else.
+- **A CSS module was specified and could not be used.** `*.module.css` is parsed as JavaScript by
+  this repo's `node --test` + `tsx` runner and dies on the first selector; Next's build handles it
+  fine, so only the suite breaks. Stubbing CSS in the loader would change shared test infrastructure
+  for ~3.5k tests to style one page. Delivered as a prefixed stylesheet imported once from
+  `globals.css`, which achieves the same separation with no infrastructure change. Deviation from the
+  prompt, stated rather than silently taken.
+- Semantics: the PRODUCT STATEMENT is the `<h1>`, not the wordmark — a wordmark is branding and does
+  not describe the page. The visible mark is the stylised `TurfWar` with `aria-hidden`; a `sr-only`
+  `Turf War` supplies the accessible name. All decoration is `aria-hidden`, `focusable="false"`,
+  pointer-inert, and text-free.
+- Tests: 9 new, asserting semantic and structural properties rather than appearance — exact hero
+  copy, the `<h1>` identity and that exactly one heading exists, the split between visible and
+  accessible wordmark, both field treatments present, decoration hidden/unfocusable/text-free, no
+  raster or canvas or video, no theme split in component or stylesheet, and the turf token never
+  promoted to `globals.css`. Every PLATFORM-088 test preserved unchanged.
+- **Two self-inflicted test bugs caught before review**, both worth recording because they recur:
+  calling `PublicLanding()` with no argument threw on destructuring (the props param now defaults to
+  `{}`), and a "no text in the SVG" assertion used a helper that also collects string-valued
+  ATTRIBUTES, so `viewBox` counted as text. Separately, a source scan matched the stylesheet's own
+  comment explaining that it contains no `prefers-color-scheme` block — the third time this campaign
+  that a scan has matched prose about the code rather than the code. Comments are stripped first, with
+  a positive control proving the strip leaves real declarations behind.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and
+  `git diff --check` each run as their own command with unmasked exit status, all clean. Focused
+  suites 23/23; full suite 3479 → 3488.
+- **Review remediation, one round, both reviews gathered against `8c7017b` first.** Seven findings,
+  two with independent agreement.
+  - **THE TOKEN WAS INERT** (both reviewers). `--landing-turf` was declared, documented in DESIGN.md
+    as the source of the field colour, and consumed by NOTHING — both SVGs carried a duplicated
+    literal. Editing the documented source of truth changed nothing on screen, and the test passed on
+    the declaration alone. Paint now flows through `landing-turf-stroke` / `landing-turf-fill` rules,
+    the literal is gone from the art module, and a test pins the wiring rather than the declaration.
+    Applied by CSS rule rather than `var()` in a presentation attribute, whose support is not
+    uniform.
+  - **A NEGATIVE ASSERTION WITHOUT A PROVEN OBSERVER** (both reviewers), which AGENTS.md makes
+    binding: the "no text in the decorative SVGs" test only ever fed text-free trees to its two
+    observers, so either could regress to ignore children and stay green forever. A positive control
+    now proves both detect a nested `<text>` first. Galling because the same file already had two
+    positive controls I had added after being burned — the pattern was known and skipped on the new
+    assertion.
+  - **The always-dark scan could not see the file whose regression prompted it.** It read only
+    `PublicLanding.tsx`, while `SignOutControl.tsx` — changed in this very slice because its
+    `text-gray-600 dark:text-zinc-400` pair rendered near-black on black — went unscanned, as did the
+    art module. All three are now scanned, including for light-theme text tokens.
+  - **The raster/canvas/video guard could not see the decoration module**, which owns every graphic
+    on the page: `walk` stops at an unrendered component element, and the scan read one file. Both
+    SVG trees and all three sources are now checked.
+  - **A load-bearing comment was FALSE.** `overflow: hidden` was justified as preventing a horizontal
+    scrollbar. It does not: an outermost inline `<svg>` already carries UA `overflow: hidden`, and
+    the decorative layers are viewport-bounded by `inset`. Removing it produces no scrollbar. The
+    declaration is kept as defensive, and both the comment and DESIGN.md now say so honestly.
+  - **The always-dark decision left the document CANVAS behind.** `body` keeps
+    `background-color: var(--background)` — white for a light-OS visitor — so rubber-band overscroll
+    flashed white against the composition and UA chrome rendered light over it. Fixed with
+    `color-scheme: dark` and a `body:has(.landing-root)` rule scoped to this route.
+  - **A binding rule edited in this diff was left contradicting its own code:** DESIGN.md still said
+    `max-w-lg` while the landing uses `max-w-xl`.
+- Remediation verification: four further mutations, each compiling, applied alone, killed by a named
+  test: hard-code the colour again; bypass the token in the stylesheet; restore the light/dark pair
+  on the sign-out control; blind the text observer so it stops descending.
+- Status: implemented and reviewed (`/code-review` + `/codex:review`, both against `8c7017b`);
+  remediation complete; not yet merged.
+
 ### PLATFORM-088-HOMEPAGE-ENTRY-TRUTH-v1
 
 - Purpose: Make the homepage tell the truth to each visitor — a server-rendered public entry page

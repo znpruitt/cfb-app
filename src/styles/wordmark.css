@@ -1,0 +1,39 @@
+/*
+ * The TurfWar wordmark treatment. Shared, app-wide, SCALE-INVARIANT.
+ *
+ * Everything here is size-independent on purpose: `em` units mean the homepage's
+ * 96px mark and a 24px interior header get the identical optical relationship
+ * from one set of declarations. Callers supply the font-size; nothing here does.
+ *
+ * `line-height` is deliberately absent — it belongs to the surface, not the mark.
+ * The landing pins it to 1 so a 96px mark hugs its glyphs; an interior `text-2xl`
+ * header wants its own.
+ */
+
+.wordmark {
+  font-style: italic;
+  font-weight: 800;
+  /* Tight tracking, echoing a condensed display face without shipping a typeface
+     for one word. The join margin below is sized against THIS value. */
+  letter-spacing: -0.03em;
+}
+
+/*
+ * Optical separation at the `f` → `W` boundary only.
+ *
+ * Not a space: the brand is one word, and `letter-spacing` cannot do this because
+ * it applies after EVERY letter in its element rather than to a single pair.
+ *
+ * THE VALUE PAYS BACK THE TRACKING ABOVE FIRST. A first attempt at `0.04em`
+ * produced a NET gap of +0.01em — about 1px at the landing's size — and, since
+ * the mark is centred there, moved each word barely half a pixel. It was correct
+ * CSS that shipped and won the cascade, and it was invisible.
+ *
+ *   net visible gap = margin-left + letter-spacing = 0.09 - 0.03 = 0.06em
+ *
+ * A test pins that relationship, so retightening the tracking cannot silently
+ * swallow the gap again.
+ */
+.wordmark-join {
+  margin-left: 0.09em;
+}

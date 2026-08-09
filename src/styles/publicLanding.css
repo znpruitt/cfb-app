@@ -1,0 +1,298 @@
+/*
+ * POLISH-004 — public landing atmosphere.
+ *
+ * ALWAYS DARK, deliberately. There is no `prefers-color-scheme` block and no
+ * `dark:` variant anywhere in this file or in `PublicLanding.tsx`: the landing is
+ * a fixed dark stadium composition regardless of the visitor's OS theme. Every
+ * other app and admin surface stays theme-aware and is untouched by this slice.
+ *
+ * A plain prefixed stylesheet rather than a CSS module, and the reason is
+ * infrastructural: this repo's test runner is `node --test` under `tsx`, which
+ * parses a `*.module.css` import as JavaScript and dies on the first selector.
+ * Next's build handles CSS modules fine — only the suite breaks — and stubbing
+ * CSS in the loader would change shared test infrastructure for all ~3.5k tests
+ * to style one page. The component imports no CSS at all; this file is pulled in
+ * once from `globals.css`.
+ */
+
+/*
+ * The document canvas is theme-dependent (`body { background-color:
+ * var(--background) }` in globals.css — white for a light-OS visitor) while this
+ * page is black. Two consequences `background-color` alone does not fix: rubber-band
+ * overscroll on iOS/macOS flashes white against the composition, and UA chrome —
+ * scrollbars especially — renders light over the stadium.
+ *
+ * `color-scheme` fixes the chrome; the `:has()` rule paints the canvas for this
+ * route only, leaving every other surface's theme handling untouched. A browser
+ * without `:has()` simply keeps today's behaviour.
+ */
+html:has(.landing-root),
+body:has(.landing-root) {
+  background-color: #000000;
+  /*
+   * `color-scheme` MUST sit on the root scroller. It was on `.landing-root` — the
+   * `<main>` — where it governs only that element's own UA widgets, and that
+   * element has `overflow: hidden` so it has no scrollbar to govern. A light-OS
+   * visitor on a scrollable landing kept light scrollbars and UA chrome over the
+   * stadium, which is exactly what this was added to prevent.
+   */
+  color-scheme: dark;
+}
+
+.landing-root {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  /*
+   * Contains the decorative layer, which is absolutely positioned to `inset: 0`.
+   * Defensive rather than load-bearing today — nothing currently overflows — and
+   * kept so a future decoration cannot introduce a scrollbar.
+   *
+   * An earlier version of this comment justified it with SVG geometry
+   * (`edgesAt()`, `.landing-field`, `.landing-glow`) that no longer exists; the
+   * hero now contains no inline SVG at all, and a test asserts that.
+   */
+  overflow: hidden;
+  background-color: #000000;
+  color: #fafafa;
+}
+
+/*
+ * THE STADIUM PLATE.
+ *
+ * A licensed photographic background: no text, no logo, no UI, no semantic
+ * content — see DESIGN.md, "Decorative raster backgrounds". AVIF first, WebP
+ * fallback, both local. `image-set()` lets the browser choose and keeps this a
+ * background rather than a DOM node, so the scrim composites in the same stack.
+ *
+ * POSITIONING IS `center`, NOT `center bottom`, and the aspect ratio is why. This
+ * source is 3:2 where the previous plate was 16:9, so `cover` crops it vertically
+ * on any normal desktop viewport — and `bottom` takes that entire crop off the
+ * TOP, which is where the light banks live (roughly 6–34% of image height):
+ *
+ *   1920x1080  vertical crop 15.6%  -> bottom loses 15.6% of the top; center 7.8%
+ *   2560x1080  vertical crop 36.7%  -> bottom loses the light banks entirely
+ *
+ * `center` splits the crop and keeps both the lights and the goalpost, which sits
+ * at the vanishing point and must stay aligned with the centred hero. Horizontal
+ * stays centred for exactly that reason. **The single tuning knob is the vertical
+ * value**: `center 40%` biases toward keeping more sky if the lights clip at very
+ * wide viewports.
+ */
+.landing-scene {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image:
+    /*
+     * Legibility only. The previous synthetic plate needed a heavy scrim plus a
+     * radial edge-blend to fake falloff and to darken a flat field; this image
+     * supplies its own atmosphere, dark sky, and edge falloff, so the radial is
+     * GONE and the top and middle are much lighter.
+     *
+     * The lower band is NOT reduced, and that is deliberate rather than an
+     * oversight: this field is vividly lit where the old one was dim, and the
+     * supporting copy and sign-in link cross it. Legibility over the brightest
+     * region it actually crosses is the rule, not the average.
+     */
+    linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.42) 0%,
+      rgba(0, 0, 0, 0.2) 42%,
+      rgba(0, 0, 0, 0.52) 76%,
+      rgba(0, 0, 0, 0.72) 100%
+    ),
+    image-set(
+      url('/landing/stadium-2048.avif') type('image/avif'),
+      url('/landing/stadium-2048.webp') type('image/webp')
+    );
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+}
+
+/*
+ * ANCHORED, NOT CENTRED — and the distinction is load-bearing against a
+ * viewport-fixed photograph.
+ *
+ * The hero used to be vertically centred (`justify-center` over `min-height:
+ * 100vh`). The background is anchored to the VIEWPORT while centred content is
+ * anchored to its own box, so adding margin M inside that box grows it by M and
+ * centring then lifts its top edge by M/2: content moves relative to the image at
+ * HALF the rate you asked for, and whatever sits above drifts up by the rest.
+ * Three attempts to push the guidance card clear of the goalpost that way
+ * (1.75 -> 2.5 -> 4.5rem) produced 16px of movement between them.
+ *
+ * The hero now anchors to the top and the lower stack claims the remaining space
+ * via `margin-top: auto` on the card. Two consequences worth knowing:
+ *   - positioning is DETERMINISTIC — it no longer depends on content height, which
+ *     is what made those attempts impossible to predict without rendering;
+ *   - the free space lands between the copy and the card, which is exactly where
+ *     the goalpost and the lit field are.
+ *
+ * `min-height` reserves that space, accounting for the root's `py-16` (4rem top +
+ * 4rem bottom). If content ever outgrows the viewport, `auto` collapses to zero
+ * and this degrades to ordinary flow rather than breaking.
+ *
+ * TALL WINDOWS ARE THE KNOWN RISK: the gap grows with the window, so a very tall
+ * desktop viewport opens a large space mid-page. That space is filled by the
+ * photograph rather than by nothing, which is the bet — if it reads as the content
+ * falling apart instead, scope this block to a `max-height` range.
+ */
+.landing-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  /*
+   * `dvh`, not `vh`. On iOS Safari `100vh` is the LARGE viewport — the height with
+   * the toolbar retracted — so bottom-anchoring against it pushed the account row
+   * below the visible area on first paint. That row carries "Sign out", the one
+   * control a signed-in non-admin needs to escape the `/` -> `/login` -> `/admin`
+   * loop, so it must not require a scroll to reach.
+   */
+  min-height: calc(100dvh - 8rem);
+  flex-direction: column;
+}
+
+/*
+ * SIZE ONLY. The treatment — italic, weight, tracking, and the `f`/`W` join —
+ * lives in `src/styles/wordmark.css` and is shared with the interior headers.
+ * It is `em`-based, so it follows whatever size is set here without a second set
+ * of values.
+ *
+ * `line-height: 1` stays a landing concern: a 96px mark should hug its glyphs,
+ * while a `text-2xl` header wants its own leading.
+ */
+.landing-wordmark {
+  font-size: clamp(3rem, 11vw, 6rem);
+  line-height: 1;
+}
+
+.landing-descriptor {
+  font-size: clamp(0.7rem, 1.6vw, 0.82rem);
+  font-weight: 600;
+  letter-spacing: 0.28em;
+  /* zinc-400 on black ≈ 8.4:1. */
+  color: #a1a1aa;
+}
+
+.landing-headline {
+  font-size: clamp(1.75rem, 5.2vw, 3.25rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+.landing-lede {
+  font-size: clamp(0.95rem, 2.1vw, 1.075rem);
+  line-height: 1.6;
+  /* zinc-300 on black ≈ 11.6:1. */
+  color: #d4d4d8;
+  /*
+   * THE FLOOR under the guidance card's `margin-top: auto`.
+   *
+   * Auto margins resolve to ZERO once content exceeds its container — a landscape
+   * phone, or text zoom — and the markup's `mt-10` was removed when that margin
+   * moved into CSS, so the card's border would have sat flush against this
+   * paragraph. Put on the PREVIOUS sibling deliberately: `max(2.5rem, auto)` is
+   * invalid CSS (`auto` is not a `max()` argument) and would drop the declaration
+   * entirely, leaving no margin at all.
+   *
+   * Costs nothing when there IS slack: the card is bottom-anchored either way, so
+   * `auto` simply absorbs 2.5rem less free space.
+   */
+  margin-bottom: 2.5rem;
+}
+
+/*
+ * The member guidance stays SUBORDINATE — a neutral translucent panel, no green,
+ * no call-to-action styling. The reference gave this a green glow and an icon,
+ * which made the quietest thing on the page the loudest.
+ */
+/*
+ * The guidance panel sits over the LIT foreground turf, not over black, so it
+ * needs a genuinely dark fill: an earlier `rgba(255,255,255,0.04)` wash was
+ * designed against a black page and darkened nothing over a photograph.
+ *
+ * `margin-top: auto` claims the slack left by the anchored layout, pushing the
+ * card and the sign-in below it clear of the goalpost. The FLOOR that guarantees
+ * separation when there is no slack lives on `.landing-lede` — see there.
+ */
+.landing-guidance {
+  margin-top: auto;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0.75rem;
+  background-color: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(6px);
+}
+
+/* Quieter through size and spacing, never through unreadable contrast. */
+.landing-account {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/*
+ * Mobile reframes this plate inside the query below — `auto 88%` anchored bottom
+ * — because `cover` on a 3:2 source crops a portrait viewport to its centre slice.
+ * There is no separate mobile ASSET, which is the thing that was deferred; an
+ * earlier comment here said "no responsive plate variants" while the block
+ * beneath it added exactly that, and called this 3:2 image 16:9.
+ */
+
+@media (max-width: 640px) {
+  /*
+   * MOBILE FRAMING — zoom out instead of darkening.
+   *
+   * `cover` scales this 3:2 plate by HEIGHT on any portrait viewport, which
+   * discards most of its width: at 390x844 only ~31% of the photograph is
+   * visible, so the centred goalpost fills the frame and the stadium bowl and
+   * light banks are cropped away entirely. The previous pass answered that with a
+   * radial scrim over the copy — which treated the symptom. That scrim is GONE.
+   *
+   * Sizing to 88% of viewport HEIGHT and anchoring to the bottom shows ~35% of the
+   * width instead of ~31%, scales the goalpost down by 12%, and leaves the top 12%
+   * as page black — which the wordmark can use as breathing room. The photograph
+   * is never stretched: `auto` keeps its aspect.
+   *
+   * PER-LAYER values are load-bearing. `background-image` is
+   * `linear-gradient(...), image-set(...)`, so a single `background-size` would
+   * shrink the legibility gradient too and leave the top 12% ungradiented. The
+   * gradient stays full-bleed; only the photograph is resized.
+   */
+  .landing-scene {
+    background-size:
+      100% 100%,
+      auto 88%;
+    background-position:
+      center,
+      center bottom;
+  }
+
+  /* Supporting copy: tighter, not smaller-feeling. The desktop clamp already
+     bottoms out at 0.95rem here, so the line-height is doing most of the work. */
+  .landing-lede {
+    font-size: 0.9rem;
+    line-height: 1.5;
+  }
+
+  /*
+   * The guidance card is secondary information and was carrying primary weight —
+   * near-full width with desktop padding. Padding and type come down; the dark
+   * translucent treatment stays, because the field behind it is brightly lit and
+   * that panel is what makes the text readable at all.
+   */
+  .landing-guidance {
+    padding: 0.75rem 0.9rem;
+  }
+
+  .landing-guidance p {
+    font-size: 0.8125rem;
+    line-height: 1.45;
+  }
+
+  .landing-account {
+    padding-top: 1.15rem;
+  }
+}

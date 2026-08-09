@@ -30,7 +30,11 @@ export default function SignOutControl() {
     <button
       type="button"
       onClick={() => void clerk.signOut({ redirectUrl: '/' })}
-      className="text-sm text-gray-600 underline-offset-2 transition-colors hover:text-gray-900 hover:underline dark:text-zinc-400 dark:hover:text-zinc-100"
+      // POLISH-004 — always-dark tokens. The landing no longer follows the OS
+      // theme, so the previous `text-gray-600 dark:text-zinc-400` pair rendered
+      // near-black on black for a visitor whose system was set to light.
+      // zinc-400 on black ≈ 8.4:1.
+      className="text-sm text-zinc-400 underline-offset-2 transition-colors hover:text-zinc-100 hover:underline"
     >
       Sign out
     </button>

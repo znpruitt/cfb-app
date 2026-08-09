@@ -1,4 +1,5 @@
 import AppHeaderActions from '@/components/menu/AppHeaderActions';
+import Wordmark from '@/components/brand/Wordmark';
 import ViewMoreLink from '@/components/navigation/ViewMoreLink';
 import type { PublicLeague } from '@/lib/league';
 
@@ -32,7 +33,12 @@ export default function AdminLeagueDashboard({
     <main className="min-h-screen bg-white px-6 py-10 text-gray-900 dark:bg-zinc-950 dark:text-zinc-100">
       <div className="mx-auto max-w-4xl">
         <div className="mb-8 flex items-center justify-between">
-          <h1 className="text-2xl font-bold">Turf War</h1>
+          {/* Product identity, not a page title — it sits opposite the account
+              menu as the app-level header. `font-bold` dropped: the shared
+              treatment sets weight 800. */}
+          <h1 className="text-2xl">
+            <Wordmark />
+          </h1>
           <AppHeaderActions isAdmin={isPlatformAdmin} />
         </div>
 
