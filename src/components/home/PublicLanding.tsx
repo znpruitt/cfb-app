@@ -44,7 +44,7 @@ import SignOutControl from '@/components/home/SignOutControl';
  */
 export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boolean } = {}) {
   return (
-    <main className="landing-root flex flex-col items-center justify-center px-6 py-16">
+    <main className="landing-root flex flex-col items-center px-6 py-16">
       {/* The stadium plate. Decoration: behind the content, inert, and carrying no
           meaning — every string on this page is real DOM text below, and the
           image contains no text, logo, or UI of its own.
@@ -89,7 +89,7 @@ export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boo
             the link they were sent. This once read "Enter your league URL" above a
             static code sample with no input to type into — an instruction the page
             could not fulfil. */}
-        <div className="landing-guidance mx-auto mt-10 max-w-lg px-5 py-4 text-left">
+        <div className="landing-guidance mx-auto max-w-lg px-5 py-4 text-left">
           <p className="text-sm leading-relaxed text-zinc-300">
             <span className="font-semibold text-zinc-100">Already in a league?</span> Open the link
             your commissioner shared with you to go straight to it.

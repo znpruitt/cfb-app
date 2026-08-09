@@ -105,9 +105,46 @@ body:has(.landing-root) {
   background-size: cover;
 }
 
+/*
+ * ANCHORED, NOT CENTRED — and the distinction is load-bearing against a
+ * viewport-fixed photograph.
+ *
+ * The hero used to be vertically centred (`justify-center` over `min-height:
+ * 100vh`). The background is anchored to the VIEWPORT while centred content is
+ * anchored to its own box, so adding margin M inside that box grows it by M and
+ * centring then lifts its top edge by M/2: content moves relative to the image at
+ * HALF the rate you asked for, and whatever sits above drifts up by the rest.
+ * Three attempts to push the guidance card clear of the goalpost that way
+ * (1.75 -> 2.5 -> 4.5rem) produced 16px of movement between them.
+ *
+ * The hero now anchors to the top and the lower stack claims the remaining space
+ * via `margin-top: auto` on the card. Two consequences worth knowing:
+ *   - positioning is DETERMINISTIC — it no longer depends on content height, which
+ *     is what made those attempts impossible to predict without rendering;
+ *   - the free space lands between the copy and the card, which is exactly where
+ *     the goalpost and the lit field are.
+ *
+ * `min-height` reserves that space, accounting for the root's `py-16` (4rem top +
+ * 4rem bottom). If content ever outgrows the viewport, `auto` collapses to zero
+ * and this degrades to ordinary flow rather than breaking.
+ *
+ * TALL WINDOWS ARE THE KNOWN RISK: the gap grows with the window, so a very tall
+ * desktop viewport opens a large space mid-page. That space is filled by the
+ * photograph rather than by nothing, which is the bet — if it reads as the content
+ * falling apart instead, scope this block to a `max-height` range.
+ */
 .landing-content {
   position: relative;
   z-index: 1;
+  display: flex;
+  min-height: calc(100vh - 8rem);
+  flex-direction: column;
+}
+
+/* The card claims the slack; the sign-in is a flow sibling and travels with it,
+   so the gap between the two never changes. */
+.landing-guidance {
+  margin-top: auto;
 }
 
 /*
@@ -237,38 +274,7 @@ body:has(.landing-root) {
    * translucent treatment stays, because the field behind it is brightly lit and
    * that panel is what makes the text readable at all.
    */
-  /*
-   * ANCHOR THE STACK INSTEAD OF NUDGING ITS MARGIN.
-   *
-   * Three attempts to push the guidance card down by raising its top margin
-   * (1.75 -> 2.5 -> 4.5rem) barely moved it, and the reason is `justify-center` on
-   * `.landing-root`: the hero is VERTICALLY CENTRED in a `100vh` container. Adding
-   * margin M inside a centred block grows the block by M, so centring lifts its
-   * top edge by M/2 — the card gains M/2 and the hero above LOSES M/2, leaving the
-   * gap between them almost unchanged. A 2rem increase bought 16px.
-   *
-   * Margin was never the wrong value; it was the wrong lever. On mobile the hero
-   * now anchors to the top and the lower stack takes the remaining space with
-   * `margin-top: auto`, so the goalpost gets every pixel between them — and the
-   * result is deterministic rather than a function of content height, which is
-   * what made the previous attempts impossible to predict without rendering.
-   *
-   * `min-height` accounts for the root's `py-16` (4rem top + 4rem bottom) so there
-   * is free space for `auto` to consume. If the content ever outgrows the
-   * viewport, `auto` collapses to zero and this degrades to normal flow.
-   */
-  .landing-root {
-    justify-content: flex-start;
-  }
-
-  .landing-content {
-    display: flex;
-    min-height: calc(100vh - 8rem);
-    flex-direction: column;
-  }
-
   .landing-guidance {
-    margin-top: auto;
     padding: 0.75rem 0.9rem;
   }
 
