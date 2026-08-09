@@ -311,14 +311,13 @@ test('the visible wordmark contains no whitespace', () => {
   );
 });
 
-// REGRESSION TEST — the mobile composition pass must not reach desktop.
+// REGRESSION TEST — the mobile composition must not reach desktop.
 //
-// "Desktop appearance remains unchanged" was the binding constraint of that pass,
-// and the only structural way to guarantee it is scope: every override lives
-// inside the media query. This asserts that rather than any particular value, so
-// the numbers stay tunable while the isolation stays enforced. The goalpost scrim
-// is the one that would be most obviously wrong if it leaked — it exists only
-// because a narrow viewport shows the centre slice of a landscape plate.
+// "Desktop appearance remains unchanged" has been the binding constraint of every
+// mobile pass, and scope is the only structural way to guarantee it: every
+// override lives inside the media query. This asserts the SCOPING, not any
+// particular value, so the framing stays tunable while the isolation stays
+// enforced.
 test('the mobile composition overrides are scoped to the media query', () => {
   const css = codeOf('src/styles/publicLanding.css');
   const at = css.indexOf('@media (max-width: 640px)');
@@ -327,16 +326,30 @@ test('the mobile composition overrides are scoped to the media query', () => {
   const desktop = css.slice(0, at);
   const mobile = css.slice(at);
 
-  assert.ok(
-    !/\.landing-scene::after/.test(desktop),
-    'the goalpost scrim must never render on desktop'
-  );
-  assert.match(mobile, /\.landing-scene::after/, 'and it does exist on mobile');
+  assert.match(mobile, /\.landing-scene\s*\{[^}]*background-size:/, 'mobile reframes the plate');
 
-  // POSITIVE CONTROL — the desktop half is not simply empty, so the absence above
-  // is discrimination rather than a mis-sliced string. It deliberately does NOT
-  // pin the positioning VALUE: that is a tunable, and pinning it would fail on
-  // every legitimate adjustment while catching nothing a reader would notice.
+  // POSITIVE CONTROL — the desktop half is not simply empty, so assertions about
+  // it discriminate rather than passing on a mis-sliced string. It deliberately
+  // does NOT pin the framing VALUES: those are tunables, and pinning them would
+  // fail on every legitimate adjustment while catching nothing a reader notices.
   assert.match(desktop, /\.landing-scene\s*\{/, 'desktop still declares the scene');
   assert.match(desktop, /background-position:/, 'with positioning of its own');
+});
+
+// REGRESSION TEST — no spotlight behind the copy.
+//
+// A radial scrim was added over the hero to stop the goalpost cutting through it,
+// then removed: it treated the symptom of a too-tight crop, and a dark oval behind
+// the text is exactly what this page must not have. Reframing the photograph is
+// the fix. If legibility needs help again, it belongs in the full-bleed gradient,
+// not in a shape centred on the words.
+test('no radial scrim is painted behind the hero', () => {
+  const css = codeOf('src/styles/publicLanding.css');
+
+  assert.ok(!/\.landing-scene::after/.test(css), 'no pseudo-element scrim on the scene');
+  assert.ok(!/\.landing-root::after/.test(css), 'nor on the landing root');
+
+  // POSITIVE CONTROL — the full-bleed legibility gradient is still present, so the
+  // absence above is about the SPOTLIGHT rather than about all darkening.
+  assert.match(css, /linear-gradient\(\s*to bottom/, 'the full-bleed scrim remains');
 });

@@ -197,28 +197,31 @@ body:has(.landing-root) {
 
 @media (max-width: 640px) {
   /*
-   * THE GOALPOST SCRIM.
+   * MOBILE FRAMING — zoom out instead of darkening.
    *
-   * Narrow viewports show only the centre slice of a landscape plate, and the
-   * goalpost is dead centre — so it reads far heavier here than on desktop and
-   * runs straight through the supporting copy.
+   * `cover` scales this 3:2 plate by HEIGHT on any portrait viewport, which
+   * discards most of its width: at 390x844 only ~31% of the photograph is
+   * visible, so the centred goalpost fills the frame and the stadium bowl and
+   * light banks are cropped away entirely. The previous pass answered that with a
+   * radial scrim over the copy — which treated the symptom. That scrim is GONE.
    *
-   * A soft radial centred on the copy, on a pseudo-element rather than another
-   * `background-image` layer: redeclaring the stack would mean repeating the
-   * `image-set()` and its asset paths in two places, which is a drift risk for
-   * no benefit. No hard edge anywhere in the gradient, so it reads as depth
-   * rather than as a panel behind the text.
+   * Sizing to 88% of viewport HEIGHT and anchoring to the bottom shows ~35% of the
+   * width instead of ~31%, scales the goalpost down by 12%, and leaves the top 12%
+   * as page black — which the wordmark can use as breathing room. The photograph
+   * is never stretched: `auto` keeps its aspect.
+   *
+   * PER-LAYER values are load-bearing. `background-image` is
+   * `linear-gradient(...), image-set(...)`, so a single `background-size` would
+   * shrink the legibility gradient too and leave the top 12% ungradiented. The
+   * gradient stays full-bleed; only the photograph is resized.
    */
-  .landing-scene::after {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(
-      115% 52% at 50% 55%,
-      rgba(0, 0, 0, 0.58),
-      rgba(0, 0, 0, 0.28) 45%,
-      transparent 78%
-    );
+  .landing-scene {
+    background-size:
+      100% 100%,
+      auto 88%;
+    background-position:
+      center,
+      center bottom;
   }
 
   /* Supporting copy: tighter, not smaller-feeling. The desktop clamp already
