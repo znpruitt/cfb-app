@@ -32,27 +32,6 @@ function walk(node: unknown, visit: (el: El) => void): void {
   walk(el.props?.children, visit);
 }
 
-function collectStrings(node: unknown, out: string[] = []): string[] {
-  if (typeof node === 'string') {
-    out.push(node);
-    return out;
-  }
-  if (Array.isArray(node)) {
-    for (const child of node) collectStrings(child, out);
-    return out;
-  }
-  if (node && typeof node === 'object') {
-    const props = (node as El).props;
-    if (props) {
-      collectStrings(props.children, out);
-      for (const [key, value] of Object.entries(props)) {
-        if (key !== 'children' && typeof value === 'string') out.push(value);
-      }
-    }
-  }
-  return out;
-}
-
 /** String CHILDREN only — no attribute values. */
 function textContent(node: unknown, out: string[] = []): string[] {
   if (typeof node === 'string') {
@@ -79,7 +58,10 @@ function firstOfType(node: unknown, type: string): El | null {
   return hostElements(node).find((el) => el.type === type) ?? null;
 }
 
-const landingText = (isSignedIn = false) => collectStrings(PublicLanding({ isSignedIn })).join(' ');
+// Text CHILDREN only. An earlier helper here also gathered string-valued PROPS,
+// which is why `viewBox` once counted as SVG text — and it would now splice class
+// names between the headline's two sentences, since they are separate spans.
+const landingText = (isSignedIn = false) => textContent(PublicLanding({ isSignedIn })).join(' ');
 
 /**
  * Source with comments stripped. Every scan here reads CODE, not prose about the
@@ -130,7 +112,7 @@ test('the product statement is the h1', () => {
   const h1 = firstOfType(PublicLanding(), 'h1');
   assert.ok(h1, 'the landing has a level-one heading');
   assert.match(
-    collectStrings(h1.props?.children).join(' '),
+    textContent(h1.props?.children).join(' '),
     /Draft college football teams\. Compete all season\./
   );
 
@@ -151,14 +133,14 @@ test('the accessible wordmark is the spaced product name', () => {
   assert.match(text, /Turf War/, 'the accessible form is present in the DOM');
 
   const hidden = hostElements(tree).filter((el) => el.props?.['aria-hidden'] === 'true');
-  const hiddenText = hidden.flatMap((el) => collectStrings(el.props?.children));
+  const hiddenText = hidden.flatMap((el) => textContent(el.props?.children));
   assert.ok(hiddenText.includes('TurfWar'), 'the stylised form is hidden from assistive tech');
 
   const srOnly = hostElements(tree).filter(
     (el) => typeof el.props?.className === 'string' && el.props.className.includes('sr-only')
   );
   assert.ok(
-    srOnly.some((el) => collectStrings(el.props?.children).includes('Turf War')),
+    srOnly.some((el) => textContent(el.props?.children).includes('Turf War')),
     'and the spaced form is what gets announced'
   );
 });
@@ -216,8 +198,8 @@ test('no text is rendered inside the decorative SVGs', () => {
   for (const art of [PerspectiveField({}), WordmarkFieldUnderline({})]) {
     const textNodes = hostElements(art).filter((el) => el.type === 'text' || el.type === 'tspan');
     assert.equal(textNodes.length, 0, 'decoration carries no SVG text');
-    // CHILDREN only. `collectStrings` also gathers attribute values, so asserting
-    // on it here would fail on `viewBox` and prove nothing about text.
+    // CHILDREN only — attribute values are not text, and treating them as text
+    // is what made an earlier version of this assertion meaningless.
     assert.deepEqual(textContent(art), [], 'and no string content at all');
   }
 });
@@ -298,14 +280,23 @@ test('the turf colour stays scoped to the landing', () => {
   // as the source of the field colour, and consumed by nothing: both SVGs carried
   // a duplicated literal, so editing the documented token changed nothing on
   // screen while this test still passed on the declaration alone.
-  assert.match(css, /\.landing-turf-stroke\s*\{[^}]*stroke:\s*var\(--landing-turf\)/);
   assert.match(css, /\.landing-turf-fill\s*\{[^}]*fill:\s*var\(--landing-turf\)/);
+  assert.match(css, /\.landing-turf-stop\s*\{[^}]*stop-color:\s*var\(--landing-turf\)/);
 
   const art = codeOf('src/components/home/LandingFieldArt.tsx');
   assert.ok(
     !/#2f8f4e/i.test(art),
     'the art module must not hard-code the colour — one source of truth'
   );
-  assert.match(art, /landing-turf-stroke/, 'it takes the stroke class');
-  assert.match(art, /landing-turf-fill/, 'and the fill class');
+  assert.match(art, /landing-turf-fill/, 'it takes the fill class');
+  assert.match(art, /landing-turf-stop/, 'and the surface-gradient stop class');
+
+  // REGRESSION TEST — markings are WHITE, the surface is green. Inverting these
+  // is what made the first pass read as a wireframe grid instead of turf, and it
+  // is the single change that most affects fidelity to the reference.
+  assert.match(css, /\.landing-field-markings\s*\{[^}]*stroke:\s*#ffffff/);
+  assert.ok(
+    !/landing-turf-stroke/.test(css) && !/landing-turf-stroke/.test(art),
+    'no green-stroked markings — the turf token paints the surface, not the lines'
+  );
 });

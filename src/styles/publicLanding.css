@@ -66,9 +66,47 @@ body:has(.landing-root) {
   inset: 0;
   z-index: 0;
   pointer-events: none;
+  /*
+   * Two tight hotspots (the light SOURCE) over two wide soft washes (the spill).
+   * The first pass had only the wash, which read as ambient corner vignetting
+   * rather than stadium lighting — there was no bright point for the beams below
+   * to come from.
+   */
   background:
-    radial-gradient(52% 40% at 10% -6%, rgba(255, 255, 255, 0.18), transparent 68%),
-    radial-gradient(52% 40% at 90% -6%, rgba(255, 255, 255, 0.18), transparent 68%);
+    radial-gradient(9% 7% at 11% 2%, rgba(255, 255, 255, 0.5), transparent 70%),
+    radial-gradient(9% 7% at 89% 2%, rgba(255, 255, 255, 0.5), transparent 70%),
+    radial-gradient(46% 34% at 11% 0%, rgba(255, 255, 255, 0.14), transparent 72%),
+    radial-gradient(46% 34% at 89% 0%, rgba(255, 255, 255, 0.14), transparent 72%);
+}
+
+/*
+ * The BEAMS. Skewed wedges fading downward, masked at the edges so they soften
+ * without a blur filter — a full-viewport blur is expensive and buys nothing a
+ * mask cannot do here. These are the light the fixtures cast; the fixtures
+ * themselves are deliberately not drawn.
+ */
+.landing-glow::before,
+.landing-glow::after {
+  content: '';
+  position: absolute;
+  top: -6%;
+  width: 34%;
+  height: 86%;
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0) 78%);
+  -webkit-mask-image: radial-gradient(ellipse 58% 96% at 50% 0%, #000 28%, transparent 76%);
+  mask-image: radial-gradient(ellipse 58% 96% at 50% 0%, #000 28%, transparent 76%);
+}
+
+.landing-glow::before {
+  left: -3%;
+  transform: skewX(13deg);
+  transform-origin: top center;
+}
+
+.landing-glow::after {
+  right: -3%;
+  transform: skewX(-13deg);
+  transform-origin: top center;
 }
 
 /*
@@ -76,12 +114,23 @@ body:has(.landing-root) {
  * reachable from nowhere else — the SVGs carry no colour of their own, so editing
  * the token is what changes the page.
  */
-.landing-turf-stroke {
-  stroke: var(--landing-turf);
-}
-
 .landing-turf-fill {
   fill: var(--landing-turf);
+}
+
+/* The field surface gradient. `stop-color` by rule rather than attribute, for the
+   same reason as the fill above. */
+.landing-turf-stop {
+  stop-color: var(--landing-turf);
+}
+
+/*
+ * Field markings are WHITE, not green. A real field is a green surface with white
+ * lines; the first pass inverted that and drew green lines on black, which reads
+ * as a wireframe grid rather than turf.
+ */
+.landing-field-markings {
+  stroke: #ffffff;
 }
 
 .landing-field {
@@ -92,6 +141,22 @@ body:has(.landing-root) {
   z-index: 0;
   height: 58vh;
   pointer-events: none;
+}
+
+/*
+ * Vignette. Darkens the edges so the composition holds together instead of
+ * dissolving into flat black — the first pass had none, which left a large
+ * undifferentiated band between the lights and the field. As `::after` it is the
+ * last child, so it paints over the field without needing a DOM node of its own,
+ * and stays below the content, which is the only positioned `z-index: 1`.
+ */
+.landing-root::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(125% 88% at 50% 36%, transparent 40%, rgba(0, 0, 0, 0.82) 100%);
 }
 
 .landing-content {
@@ -111,9 +176,15 @@ body:has(.landing-root) {
 
 .landing-wordmark-field {
   display: block;
-  width: clamp(11rem, 42vw, 22rem);
-  height: clamp(0.7rem, 2.2vw, 1.15rem);
-  margin: 0.5rem auto 0;
+  /*
+   * Wider than the wordmark on purpose. At the reference's proportions the strip
+   * overhangs the word by roughly 10% on each side, which is what makes it read
+   * as ground the mark stands on rather than a flat shape parked beneath it.
+   * Sized to ~29rem against a ~24rem wordmark at the top of the clamp.
+   */
+  width: clamp(13rem, 50vw, 29rem);
+  height: clamp(0.95rem, 2.7vw, 1.6rem);
+  margin: 0.25rem auto 0;
 }
 
 .landing-descriptor {

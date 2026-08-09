@@ -44,7 +44,7 @@ export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boo
       <div className="landing-glow" aria-hidden="true" />
       <PerspectiveField className="landing-field" />
 
-      <div className="landing-content w-full max-w-xl text-center">
+      <div className="landing-content w-full max-w-2xl text-center">
         {/*
           The visible wordmark is the stylised one-word `TurfWar`, matching the
           reference. The accessible name is the real product name, so a screen
@@ -62,9 +62,12 @@ export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boo
 
         {/* The PRODUCT STATEMENT is the page heading — not the wordmark, which is
             branding rather than a description of the page. */}
-        <h1 className="landing-headline mt-8">Draft college football teams. Compete all season.</h1>
+        <h1 className="landing-headline mt-8">
+          <span className="block">Draft college football teams.</span>
+          <span className="block">Compete all season.</span>
+        </h1>
 
-        <p className="landing-lede mx-auto mt-5 max-w-md">
+        <p className="landing-lede mx-auto mt-5 max-w-lg">
           Draft your teams, go head-to-head each week, and follow live scores, standings, and league
           history in one place.
         </p>
@@ -73,7 +76,7 @@ export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boo
             the link they were sent. This once read "Enter your league URL" above a
             static code sample with no input to type into — an instruction the page
             could not fulfil. */}
-        <div className="landing-guidance mt-10 px-5 py-4 text-left">
+        <div className="landing-guidance mx-auto mt-10 max-w-lg px-5 py-4 text-left">
           <p className="text-sm leading-relaxed text-zinc-300">
             <span className="font-semibold text-zinc-100">Already in a league?</span> Open the link
             your commissioner shared with you to go straight to it.

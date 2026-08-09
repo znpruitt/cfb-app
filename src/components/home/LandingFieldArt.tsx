@@ -7,25 +7,27 @@
  * real DOM text in `PublicLanding`.
  *
  * The owner's reference image is art direction only and is not committed. Taken
- * from it: the perspective field emerging from below, and the small field strip
- * under the wordmark. Deliberately NOT taken: photoreal turf, detailed floodlight
- * arrays, smoke texture, and the large yard-number graphics — the numerals in
- * particular would be SVG text, which this page does not use.
+ * from it: the perspective field emerging from below, and the field strip under
+ * the wordmark. Deliberately NOT taken: photoreal turf, detailed floodlight
+ * arrays, smoke texture, and the large yard numerals — the numerals in particular
+ * would be SVG text, which this page does not use.
  *
  * Geometry is computed rather than hand-listed so the perspective stays
  * consistent, but it is plain arithmetic over a fixed viewBox — not an
  * illustration framework, and nothing here is reusable beyond this page.
- */
-
-/**
+ *
  * The turf colour is NOT defined here. It lives once, as `--landing-turf` on
  * `.landing-root` in `src/styles/publicLanding.css`, and reaches these shapes
- * through the `landing-turf-stroke` / `landing-turf-fill` classes.
+ * through the `landing-turf-fill` / `landing-turf-stop` classes. A duplicated
+ * constant lived here first, which made the CSS token inert. Paint is applied by
+ * rule rather than by `var()` in a presentation attribute, because support for
+ * the latter is not uniform.
  *
- * A duplicated constant lived here first, which made the CSS token inert: editing
- * the documented source of truth changed nothing on screen, and DESIGN.md claimed
- * a wiring that did not exist. Paint is applied by rule rather than by `var()` in
- * a presentation attribute, because support for the latter is not uniform.
+ * VISUAL REVISION against the reference. The field was a green WIREFRAME — green
+ * strokes on black, no fill — which reads as a grid rather than turf. A field is
+ * a green SURFACE with WHITE markings, so those are now inverted: a filled
+ * gradient carries the colour and the markings are white at low alpha.
+ * Convergence was also far too shallow, and the far edge is what buys distance.
  */
 
 // ---------------------------------------------------------------------------
@@ -34,9 +36,16 @@
 
 const FIELD_W = 1200;
 const FIELD_H = 600;
-/** Half-width of the field at the horizon (top) and at the foreground (bottom). */
-const TOP_HALF = 150;
-const BOTTOM_HALF = 800;
+/**
+ * Half-width at the horizon and in the foreground.
+ *
+ * The horizon value is the depth control. It was 150 of a 1200-wide box — a 25%
+ * far edge, which reads as a shallow trapezoid seen from a few feet up. Pulling
+ * it to 45 (7.5%) converges much closer to a point, and pushing the foreground
+ * past the frame puts the viewer ON the field rather than above it.
+ */
+const TOP_HALF = 45;
+const BOTTOM_HALF = 1150;
 const CENTER = FIELD_W / 2;
 
 function edgesAt(t: number): { left: number; right: number } {
@@ -45,13 +54,17 @@ function edgesAt(t: number): { left: number; right: number } {
 }
 
 /**
- * Yard-line depths. Spaced by `t²` so lines bunch toward the horizon and open up
- * in the foreground, which is what reads as perspective — evenly spaced lines
- * read as a flat grid.
+ * Yard-line depths, spaced by `t²` so lines bunch toward the horizon and open up
+ * in the foreground — evenly spaced lines read as a flat grid. More lines than
+ * before: with tighter convergence the far ones compress into the haze, and the
+ * near ones are what carry the surface.
  */
-const YARD_LINE_DEPTHS = [0.18, 0.3, 0.44, 0.6, 0.78, 0.98].map((t) => t * t);
+const YARD_LINE_DEPTHS = [0.16, 0.26, 0.37, 0.49, 0.62, 0.76, 0.9, 1].map((t) => t * t);
 
 export function PerspectiveField({ className }: { className?: string }) {
+  const far = edgesAt(0);
+  const near = edgesAt(1);
+
   return (
     <svg
       className={className}
@@ -61,59 +74,74 @@ export function PerspectiveField({ className }: { className?: string }) {
       focusable="false"
     >
       <defs>
-        {/* Fades the horizon into the black page rather than ending on a hard
-            edge. A gradient-filled overlay rect, not an SVG filter — filters over
-            a full-viewport element are expensive and buy nothing here. */}
-        <linearGradient id="landing-field-fade" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#000000" stopOpacity="1" />
-          <stop offset="45%" stopColor="#000000" stopOpacity="0.55" />
-          <stop offset="100%" stopColor="#000000" stopOpacity="0" />
+        {/*
+          The turf SURFACE: invisible at the horizon, strongest underfoot, so the
+          field emerges from black rather than ending on an edge. This replaced a
+          fade-to-black overlay, which dimmed the marks without ever suggesting
+          ground.
+        */}
+        <linearGradient id="landing-turf-surface" x1="0" y1="0" x2="0" y2="1">
+          <stop className="landing-turf-stop" offset="0%" stopOpacity="0" />
+          <stop className="landing-turf-stop" offset="28%" stopOpacity="0.14" />
+          <stop className="landing-turf-stop" offset="65%" stopOpacity="0.34" />
+          <stop className="landing-turf-stop" offset="100%" stopOpacity="0.5" />
         </linearGradient>
+
+        {/* Markings share the surface's depth falloff, so they never float above a
+            horizon that has already faded out. */}
+        <linearGradient id="landing-marking-depth" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#ffffff" stopOpacity="0" />
+          <stop offset="30%" stopColor="#ffffff" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="#ffffff" stopOpacity="1" />
+        </linearGradient>
+        <mask id="landing-marking-mask">
+          <rect x="0" y="0" width={FIELD_W} height={FIELD_H} fill="url(#landing-marking-depth)" />
+        </mask>
       </defs>
 
+      <polygon
+        points={`${far.left},0 ${far.right},0 ${near.right},${FIELD_H} ${near.left},${FIELD_H}`}
+        fill="url(#landing-turf-surface)"
+      />
+
       <g
-        className="landing-turf-stroke"
-        strokeOpacity="0.55"
-        strokeWidth="2"
+        className="landing-field-markings"
+        mask="url(#landing-marking-mask)"
         fill="none"
         strokeLinecap="round"
       >
-        {/* Sidelines converging toward the horizon. */}
-        <line x1={edgesAt(1).left} y1={FIELD_H} x2={edgesAt(0).left} y2={0} />
-        <line x1={edgesAt(1).right} y1={FIELD_H} x2={edgesAt(0).right} y2={0} />
-        {/* Centre line. */}
-        <line x1={CENTER} y1={FIELD_H} x2={CENTER} y2={0} strokeOpacity="0.4" />
+        <line
+          x1={near.left}
+          y1={FIELD_H}
+          x2={far.left}
+          y2={0}
+          strokeWidth="2.5"
+          strokeOpacity="0.5"
+        />
+        <line
+          x1={near.right}
+          y1={FIELD_H}
+          x2={far.right}
+          y2={0}
+          strokeWidth="2.5"
+          strokeOpacity="0.5"
+        />
+        <line x1={CENTER} y1={FIELD_H} x2={CENTER} y2={0} strokeWidth="2" strokeOpacity="0.3" />
 
         {YARD_LINE_DEPTHS.map((t) => {
           const y = t * FIELD_H;
           const { left, right } = edgesAt(t);
-          // Hash marks sit a fixed fraction in from each sideline, so they carry
-          // the same perspective as the line they belong to.
-          const inset = (right - left) * 0.22;
-          const tick = 6 + 10 * t;
+          const inset = (right - left) * 0.24;
+          const tick = 4 + 12 * t;
           return (
-            <g key={t}>
-              <line x1={left} y1={y} x2={right} y2={y} strokeOpacity={0.2 + 0.35 * t} />
-              <line
-                x1={left + inset}
-                y1={y - tick}
-                x2={left + inset}
-                y2={y + tick}
-                strokeOpacity={0.15 + 0.3 * t}
-              />
-              <line
-                x1={right - inset}
-                y1={y - tick}
-                x2={right - inset}
-                y2={y + tick}
-                strokeOpacity={0.15 + 0.3 * t}
-              />
+            <g key={t} strokeWidth={1 + 2 * t} strokeOpacity={0.22 + 0.28 * t}>
+              <line x1={left} y1={y} x2={right} y2={y} />
+              <line x1={left + inset} y1={y - tick} x2={left + inset} y2={y + tick} />
+              <line x1={right - inset} y1={y - tick} x2={right - inset} y2={y + tick} />
             </g>
           );
         })}
       </g>
-
-      <rect x="0" y="0" width={FIELD_W} height={FIELD_H} fill="url(#landing-field-fade)" />
     </svg>
   );
 }
@@ -123,15 +151,19 @@ export function PerspectiveField({ className }: { className?: string }) {
 // ---------------------------------------------------------------------------
 
 const MARK_W = 600;
-const MARK_H = 44;
+const MARK_H = 60;
 
 /**
- * The small field strip beneath the wordmark. The one place on this page where
- * turf green is a filled shape rather than a line — it is what ties the wordmark
- * to the field below without putting colour anywhere else.
+ * The field strip beneath the wordmark — the one place turf green is a filled
+ * shape at full strength, which ties the word to the ground below it.
+ *
+ * Deliberately sized to OVERHANG the wordmark slightly (see
+ * `.landing-wordmark-field`). Narrower than the word it sits under, it read as a
+ * separate flat trapezoid parked below the mark; wider, it reads as the surface
+ * the word is standing on.
  */
 export function WordmarkFieldUnderline({ className }: { className?: string }) {
-  const inset = 52;
+  const inset = 76;
   return (
     <svg
       className={className}
@@ -144,13 +176,20 @@ export function WordmarkFieldUnderline({ className }: { className?: string }) {
         className="landing-turf-fill"
         points={`${inset},0 ${MARK_W - inset},0 ${MARK_W},${MARK_H} 0,${MARK_H}`}
       />
-      <g stroke="#ffffff" strokeOpacity="0.5" strokeWidth="1.5" fill="none">
-        {[0.2, 0.4, 0.6, 0.8].map((f) => {
+      <g className="landing-field-markings" fill="none" strokeOpacity="0.45" strokeWidth="1.5">
+        {[0.16, 0.32, 0.48, 0.64, 0.8].map((f) => {
           const topX = inset + (MARK_W - 2 * inset) * f;
           const bottomX = MARK_W * f;
           return <line key={f} x1={topX} y1={0} x2={bottomX} y2={MARK_H} />;
         })}
-        <line x1={MARK_W / 2} y1={0} x2={MARK_W / 2} y2={MARK_H} strokeOpacity="0.85" />
+        <line
+          x1={MARK_W / 2}
+          y1={0}
+          x2={MARK_W / 2}
+          y2={MARK_H}
+          strokeOpacity="0.8"
+          strokeWidth="2"
+        />
       </g>
     </svg>
   );
