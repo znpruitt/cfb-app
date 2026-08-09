@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { buildHomeView } from '../homeView.tsx';
 import PublicLanding from '../../components/home/PublicLanding.tsx';
+import { renderDeep } from '../../test/renderTree.ts';
 import SignOutControl from '../../components/home/SignOutControl.tsx';
 import AdminLeagueDashboard from '../../components/home/AdminLeagueDashboard.tsx';
 import type { League } from '../../lib/league.ts';
@@ -193,7 +194,7 @@ test('a league with no stored roster reports zero rather than failing', async ()
 // ---------------------------------------------------------------------------
 
 test('the landing explains the product and points members at their shared link', () => {
-  const strings = collectStrings(PublicLanding({ isSignedIn: false })).join(' ');
+  const strings = collectStrings(renderDeep(PublicLanding({ isSignedIn: false }))).join(' ');
 
   assert.match(strings, /Turf War/);
   assert.match(strings, /college football pool/i, 'it says what this is');
@@ -255,7 +256,7 @@ test('the landing avoids the text tokens that failed contrast', () => {
 // reached the dashboard and its account menu, so this was a regression the slice
 // introduced — it withheld the data correctly and removed the exit with it.
 test('a signed-in non-admin is given a way out and a reason', () => {
-  const tree = PublicLanding({ isSignedIn: true });
+  const tree = renderDeep(PublicLanding({ isSignedIn: true }));
   const strings = collectStrings(tree).join(' ');
 
   assert.match(strings, /doesn.t have platform admin access/i, 'it says why they are refused');
@@ -277,7 +278,7 @@ test('a signed-in non-admin is given a way out and a reason', () => {
 // no session copy, so the assertions above discriminate rather than describing
 // the page in every state.
 test('a signed-out visitor is offered sign-in, not sign-out', () => {
-  const tree = PublicLanding({ isSignedIn: false });
+  const tree = renderDeep(PublicLanding({ isSignedIn: false }));
   const strings = collectStrings(tree).join(' ');
 
   assert.match(strings, /Platform admin sign-in/i);

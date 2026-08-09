@@ -1,6 +1,7 @@
 /* src/app/globals.css */
 @import 'tailwindcss'; /* v4: includes preflight + utilities */
 /* POLISH-004 — public landing (always dark). Scoped by `landing-` prefix. */
+@import '../styles/wordmark.css';
 @import '../styles/publicLanding.css';
 
 :root {

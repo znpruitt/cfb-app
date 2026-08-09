@@ -107,37 +107,18 @@ body:has(.landing-root) {
   z-index: 1;
 }
 
+/*
+ * SIZE ONLY. The treatment — italic, weight, tracking, and the `f`/`W` join —
+ * lives in `src/styles/wordmark.css` and is shared with the interior headers.
+ * It is `em`-based, so it follows whatever size is set here without a second set
+ * of values.
+ *
+ * `line-height: 1` stays a landing concern: a 96px mark should hug its glyphs,
+ * while a `text-2xl` header wants its own leading.
+ */
 .landing-wordmark {
   font-size: clamp(3rem, 11vw, 6rem);
-  font-weight: 800;
   line-height: 1;
-  /* Tight tracking and a slight slant echo the reference's condensed italic
-     wordmark without shipping a typeface for one word. */
-  letter-spacing: -0.03em;
-  font-style: italic;
-}
-
-/*
- * Optical separation at the `f` → `W` boundary ONLY.
- *
- * Not a space: the brand is one word. `letter-spacing` cannot do this — it applies
- * after EVERY letter in its element, so it cannot target a single pair.
- *
- * THE VALUE MUST PAY BACK THE WORDMARK'S NEGATIVE TRACKING FIRST. `.landing-wordmark`
- * sets `letter-spacing: -0.03em`, which applies after every character including the
- * `f`. A first attempt at `0.04em` therefore produced a NET gap of only +0.01em —
- * about 1px at the 96px wordmark — and, since the mark is centred, moved each word
- * barely half a pixel. It was correct CSS that shipped and won the cascade, and it
- * was invisible.
- *
- *   net visible gap = margin-left + letter-spacing = 0.09 - 0.03 = 0.06em
- *
- * A test pins that relationship, so changing the tracking cannot silently swallow
- * the gap again. `em` throughout so the separation tracks the wordmark's clamp
- * rather than drifting at size.
- */
-.landing-wordmark-join {
-  margin-left: 0.09em;
 }
 
 .landing-descriptor {

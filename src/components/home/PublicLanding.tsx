@@ -1,5 +1,7 @@
 import Link from 'next/link';
 
+import Wordmark from '@/components/brand/Wordmark';
+
 import SignOutControl from '@/components/home/SignOutControl';
 
 /**
@@ -55,28 +57,13 @@ export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boo
 
       <div className="landing-content w-full max-w-2xl text-center">
         {/*
-          The visible wordmark is the stylised one-word `TurfWar`, matching the
-          reference. The accessible name is the real product name, so a screen
-          reader announces "Turf War" rather than an unfamiliar compound. This is
-          a landing treatment only — metadata and every other surface keep the
-          spaced form.
+          `.landing-wordmark` supplies SIZE ONLY; the mark's treatment is shared
+          with the interior headers (`src/components/brand/Wordmark.tsx`). The
+          visible form is the stylised one-word `TurfWar`; the accessible name is
+          the real product name. Metadata keeps the spaced form.
         */}
         <p className="landing-wordmark">
-          {/*
-            The brand is `TurfWar`, one word — the split here is OPTICAL, not
-            orthographic. In an italic grotesque the `f`'s rightward terminal
-            crowds the `W`'s left diagonal, so `War` takes a hair of left margin
-            to let the word boundary read. There is no space character and no
-            whitespace between these nodes; a test pins that the visible mark
-            concatenates to exactly `TurfWar`.
-
-            `letter-spacing` would have been wrong: it applies after EVERY letter
-            in whatever it is set on, so it cannot address a single pair.
-          */}
-          <span aria-hidden="true">
-            Turf<span className="landing-wordmark-join">War</span>
-          </span>
-          <span className="sr-only">Turf War</span>
+          <Wordmark />
         </p>
         {/* The perspective-field strip that sat here was removed once the stadium
             plate carried the football identity: a miniature field under the

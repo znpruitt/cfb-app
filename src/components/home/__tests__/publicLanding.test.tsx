@@ -4,6 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import PublicLanding from '../PublicLanding.tsx';
+import { renderDeep } from '../../../test/renderTree.ts';
 
 // ---------------------------------------------------------------------------
 // POLISH-004 — the landing's stadium presentation.
@@ -68,11 +69,14 @@ function firstOfType(node: unknown, type: string): El | null {
  * worth checking — that the brand is still spelled as one word.
  */
 function visibleWordmark(tree: unknown): string {
-  const hidden = hostElements(tree).filter((el) => el.props?.['aria-hidden'] === 'true');
+  const hidden = hostElements(renderDeep(tree)).filter(
+    (el) => el.props?.['aria-hidden'] === 'true'
+  );
   return hidden.map((el) => textContent(el.props?.children).join('')).join('');
 }
 
-const landingText = (isSignedIn = false) => textContent(PublicLanding({ isSignedIn })).join(' ');
+const landingText = (isSignedIn = false) =>
+  textContent(renderDeep(PublicLanding({ isSignedIn }))).join(' ');
 
 /**
  * Source with comments stripped. Every scan here reads CODE, not prose about the
@@ -123,7 +127,7 @@ test('the hero copy is exactly what was approved', () => {
 // A wordmark is branding; it does not describe what the page is, and making it
 // the `<h1>` leaves the page's actual subject unannounced.
 test('the product statement is the h1', () => {
-  const h1 = firstOfType(PublicLanding(), 'h1');
+  const h1 = firstOfType(renderDeep(PublicLanding()), 'h1');
   assert.ok(h1, 'the landing has a level-one heading');
   assert.match(
     textContent(h1.props?.children).join(' '),
@@ -131,7 +135,7 @@ test('the product statement is the h1', () => {
   );
 
   // And the wordmark is NOT a heading — it must not compete for that role.
-  const headings = hostElements(PublicLanding()).filter(
+  const headings = hostElements(renderDeep(PublicLanding())).filter(
     (el) => typeof el.type === 'string' && /^h[1-6]$/.test(el.type)
   );
   assert.equal(headings.length, 1, 'exactly one heading on the page');
@@ -141,7 +145,7 @@ test('the product statement is the h1', () => {
 // A screen reader announcing "TurfWar" as one token is worse than the product
 // name, and the fix is a hidden label rather than renaming anything.
 test('the accessible wordmark is the spaced product name', () => {
-  const tree = PublicLanding();
+  const tree = renderDeep(PublicLanding());
   // Deliberately NOT asserted against the whole page's text: the visible mark is
   // two nodes now, so a page-wide `/Turf War/` match would be satisfied by the
   // VISIBLE split and would pass even with the `sr-only` label deleted. The
@@ -190,7 +194,7 @@ test('the decorative scene layer renders, and is inert', () => {
 // read as a green platform rather than a mark. Nothing decorative replaced it, and
 // nothing should drift back in.
 test('no decorative artwork sits under the wordmark', () => {
-  const svgs = hostElements(PublicLanding()).filter((el) => el.type === 'svg');
+  const svgs = hostElements(renderDeep(PublicLanding())).filter((el) => el.type === 'svg');
   assert.equal(svgs.length, 0, 'the hero carries no inline SVG at all');
 
   const css = codeOf('src/styles/publicLanding.css');
@@ -199,7 +203,7 @@ test('no decorative artwork sits under the wordmark', () => {
 });
 
 test('the scene is a LOCAL CSS background, never a DOM element', () => {
-  const types = hostElements(PublicLanding()).map((el) => el.type);
+  const types = hostElements(renderDeep(PublicLanding())).map((el) => el.type);
   for (const banned of ['img', 'canvas', 'video', 'picture', 'iframe']) {
     assert.ok(!types.includes(banned), `no <${banned}> on the landing`);
   }
@@ -285,8 +289,10 @@ test('the visible wordmark contains no whitespace', () => {
 
   // The separation is CSS, not a character — and in `em` so it tracks the
   // wordmark's clamp rather than drifting at size.
-  const css = codeOf('src/styles/publicLanding.css');
-  const margin = css.match(/\.landing-wordmark-join\s*\{[^}]*margin-left:\s*(-?[\d.]+)em/);
+  // The treatment lives in the SHARED stylesheet now — it is no longer a landing
+  // concern, and the interior headers depend on the same relationship.
+  const css = codeOf('src/styles/wordmark.css');
+  const margin = css.match(/\.wordmark-join\s*\{[^}]*margin-left:\s*(-?[\d.]+)em/);
   assert.ok(margin, 'the join carries an em margin');
 
   // REGRESSION TEST — the margin must CLEAR the wordmark's negative tracking.
@@ -295,7 +301,7 @@ test('the visible wordmark contains no whitespace', () => {
   // margin pays that back before it adds anything visible. At `-0.03em` tracking
   // a `0.04em` margin nets +0.01em — roughly 1px, and invisible. This asserts the
   // NET, so retightening the tracking cannot silently swallow the gap again.
-  const tracking = css.match(/\.landing-wordmark\s*\{[^}]*letter-spacing:\s*(-?[\d.]+)em/);
+  const tracking = css.match(/\.wordmark\s*\{[^}]*letter-spacing:\s*(-?[\d.]+)em/);
   assert.ok(tracking, 'the wordmark declares its tracking in em');
   const net = Number(margin[1]) + Number(tracking[1]);
   assert.ok(
