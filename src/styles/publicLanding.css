@@ -53,19 +53,24 @@ body:has(.landing-root) {
 /*
  * THE STADIUM PLATE.
  *
- * A decorative raster: no text, no logo, no UI, no semantic content — see
- * DESIGN.md, "Decorative raster backgrounds". It replaced a native SVG/CSS scene
- * that two tuning passes could not make read as atmosphere rather than geometry.
+ * A licensed photographic background: no text, no logo, no UI, no semantic
+ * content — see DESIGN.md, "Decorative raster backgrounds". AVIF first, WebP
+ * fallback, both local. `image-set()` lets the browser choose and keeps this a
+ * background rather than a DOM node, so the scrim composites in the same stack.
  *
- * AVIF first, WebP fallback, both local. `image-set()` lets the browser choose and
- * keeps this a background rather than a DOM node, so the gradients below composite
- * in the same stack.
+ * POSITIONING IS `center`, NOT `center bottom`, and the aspect ratio is why. This
+ * source is 3:2 where the previous plate was 16:9, so `cover` crops it vertically
+ * on any normal desktop viewport — and `bottom` takes that entire crop off the
+ * TOP, which is where the light banks live (roughly 6–34% of image height):
  *
- * `center bottom` is load-bearing. The plate's vanishing point is dead-centre, and
- * centring horizontally is what keeps the field aligned with the centred hero —
- * an earlier native version appeared to originate from the left. Anchoring to the
- * BOTTOM means a viewport wider than 16:9 crops the empty black top rather than
- * the field, which is the half that carries the image.
+ *   1920x1080  vertical crop 15.6%  -> bottom loses 15.6% of the top; center 7.8%
+ *   2560x1080  vertical crop 36.7%  -> bottom loses the light banks entirely
+ *
+ * `center` splits the crop and keeps both the lights and the goalpost, which sits
+ * at the vanishing point and must stay aligned with the centred hero. Horizontal
+ * stays centred for exactly that reason. **The single tuning knob is the vertical
+ * value**: `center 40%` biases toward keeping more sky if the lights clip at very
+ * wide viewports.
  */
 .landing-scene {
   position: absolute;
@@ -74,32 +79,30 @@ body:has(.landing-root) {
   pointer-events: none;
   background-image:
     /*
-     * Legibility scrim, and the reason it exists rather than taste: the guidance
-     * card and the sign-in link sit over the lit foreground turf, where white text
-     * would not clear 4.5:1 against bare grass. The reference composite darkens
-     * the field for the same reason. Strongest where content sits, lighter over
-     * the mid-field so the plate is not flattened.
+     * Legibility only. The previous synthetic plate needed a heavy scrim plus a
+     * radial edge-blend to fake falloff and to darken a flat field; this image
+     * supplies its own atmosphere, dark sky, and edge falloff, so the radial is
+     * GONE and the top and middle are much lighter.
+     *
+     * The lower band is NOT reduced, and that is deliberate rather than an
+     * oversight: this field is vividly lit where the old one was dim, and the
+     * supporting copy and sign-in link cross it. Legibility over the brightest
+     * region it actually crosses is the rule, not the average.
      */
     linear-gradient(
       to bottom,
-      rgba(0, 0, 0, 0.62) 0%,
-      rgba(0, 0, 0, 0.34) 38%,
-      rgba(0, 0, 0, 0.55) 66%,
-      rgba(0, 0, 0, 0.76) 100%
+      rgba(0, 0, 0, 0.42) 0%,
+      rgba(0, 0, 0, 0.2) 42%,
+      rgba(0, 0, 0, 0.52) 76%,
+      rgba(0, 0, 0, 0.72) 100%
     ),
-    /* Edge blend: the plate's own corners fall to black, and this guarantees the
-       seam stays invisible when `cover` crops at an unexpected aspect ratio. */
-      radial-gradient(130% 100% at 50% 62%, transparent 45%, rgba(0, 0, 0, 0.9) 100%),
     image-set(
-      url('/landing/stadium-1672.avif') type('image/avif'),
-      url('/landing/stadium-1672.webp') type('image/webp')
+      url('/landing/stadium-2048.avif') type('image/avif'),
+      url('/landing/stadium-2048.webp') type('image/webp')
     );
   background-repeat: no-repeat;
-  background-position:
-    center top,
-    center center,
-    center bottom;
-  background-size: cover, cover, cover;
+  background-position: center;
+  background-size: cover;
 }
 
 .landing-content {
