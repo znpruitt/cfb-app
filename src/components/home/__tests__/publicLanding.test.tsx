@@ -61,6 +61,18 @@ function firstOfType(node: unknown, type: string): El | null {
 // Text CHILDREN only. An earlier helper here also gathered string-valued PROPS,
 // which is why `viewBox` once counted as SVG text — and it would now splice class
 // names between the headline's two sentences, since they are separate spans.
+/**
+ * The VISIBLE wordmark, concatenated with no separator.
+ *
+ * It is split into two nodes so the `f` → `W` pair can take a hair of optical
+ * margin. Joining with a space would report `Turf War` and hide the very thing
+ * worth checking — that the brand is still spelled as one word.
+ */
+function visibleWordmark(tree: unknown): string {
+  const hidden = hostElements(tree).filter((el) => el.props?.['aria-hidden'] === 'true');
+  return hidden.map((el) => textContent(el.props?.children).join('')).join('');
+}
+
 const landingText = (isSignedIn = false) => textContent(PublicLanding({ isSignedIn })).join(' ');
 
 /**
@@ -94,7 +106,11 @@ const LANDING_SOURCES = [
 test('the hero copy is exactly what was approved', () => {
   const text = landingText();
 
-  assert.match(text, /TurfWar/, 'the visible wordmark is the one-word treatment');
+  assert.equal(
+    visibleWordmark(PublicLanding()),
+    'TurfWar',
+    'the visible wordmark is the one-word treatment'
+  );
   assert.match(text, /College football pools/i);
   assert.match(text, /Draft college football teams\. Compete all season\./);
   assert.match(
@@ -128,13 +144,11 @@ test('the product statement is the h1', () => {
 // name, and the fix is a hidden label rather than renaming anything.
 test('the accessible wordmark is the spaced product name', () => {
   const tree = PublicLanding();
-  const text = landingText();
-
-  assert.match(text, /Turf War/, 'the accessible form is present in the DOM');
-
-  const hidden = hostElements(tree).filter((el) => el.props?.['aria-hidden'] === 'true');
-  const hiddenText = hidden.flatMap((el) => textContent(el.props?.children));
-  assert.ok(hiddenText.includes('TurfWar'), 'the stylised form is hidden from assistive tech');
+  // Deliberately NOT asserted against the whole page's text: the visible mark is
+  // two nodes now, so a page-wide `/Turf War/` match would be satisfied by the
+  // VISIBLE split and would pass even with the `sr-only` label deleted. The
+  // discriminating assertion is the one on the `sr-only` element below.
+  assert.equal(visibleWordmark(tree), 'TurfWar', 'the stylised form is hidden from assistive tech');
 
   const srOnly = hostElements(tree).filter(
     (el) => typeof el.props?.className === 'string' && el.props.className.includes('sr-only')
@@ -340,4 +354,22 @@ test('the wordmark strip is tucked under the mark and its far edge is softened',
     hostElements(art).some((el) => el.type === 'mask'),
     'and the mask is defined in the SVG, so the far edge fades'
   );
+});
+
+// REGRESSION TEST — the brand is ONE WORD, and the optical fix must not become an
+// orthographic one.
+//
+// `War` is a separate node purely so the `f` → `W` pair can take a small left
+// margin. A space character, or JSX whitespace between the nodes, would silently
+// rebrand the page to "Turf War" while every other assertion still passed.
+test('the visible wordmark contains no whitespace', () => {
+  const mark = visibleWordmark(PublicLanding());
+
+  assert.equal(mark, 'TurfWar');
+  assert.ok(!/\s/.test(mark), `no whitespace inside the mark; got ${JSON.stringify(mark)}`);
+
+  // The separation is CSS, not a character — and in `em` so it tracks the
+  // wordmark's clamp rather than drifting at size.
+  const css = codeOf('src/styles/publicLanding.css');
+  assert.match(css, /\.landing-wordmark-join\s*\{[^}]*margin-left:\s*0?\.\d+em/);
 });

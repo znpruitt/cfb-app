@@ -141,6 +141,18 @@ body:has(.landing-root) {
   font-style: italic;
 }
 
+/*
+ * Optical separation at the `f` → `W` boundary ONLY.
+ *
+ * Not a space: the brand is one word. This is the smallest adjustment that
+ * addresses a single letter pair — `letter-spacing` applies after every letter in
+ * its element and so cannot target a pair, and a real space would change the
+ * spelling. `em` so it tracks the wordmark's clamp instead of drifting at size.
+ */
+.landing-wordmark-join {
+  margin-left: 0.04em;
+}
+
 .landing-wordmark-field {
   display: block;
   /*

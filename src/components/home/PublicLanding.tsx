@@ -63,7 +63,20 @@ export default function PublicLanding({ isSignedIn = false }: { isSignedIn?: boo
           spaced form.
         */}
         <p className="landing-wordmark">
-          <span aria-hidden="true">TurfWar</span>
+          {/*
+            The brand is `TurfWar`, one word — the split here is OPTICAL, not
+            orthographic. In an italic grotesque the `f`'s rightward terminal
+            crowds the `W`'s left diagonal, so `War` takes a hair of left margin
+            to let the word boundary read. There is no space character and no
+            whitespace between these nodes; a test pins that the visible mark
+            concatenates to exactly `TurfWar`.
+
+            `letter-spacing` would have been wrong: it applies after EVERY letter
+            in whatever it is set on, so it cannot address a single pair.
+          */}
+          <span aria-hidden="true">
+            Turf<span className="landing-wordmark-join">War</span>
+          </span>
           <span className="sr-only">Turf War</span>
         </p>
         <WordmarkFieldUnderline className="landing-wordmark-field" />
