@@ -26,24 +26,31 @@
  * route only, leaving every other surface's theme handling untouched. A browser
  * without `:has()` simply keeps today's behaviour.
  */
+html:has(.landing-root),
 body:has(.landing-root) {
   background-color: #000000;
+  /*
+   * `color-scheme` MUST sit on the root scroller. It was on `.landing-root` — the
+   * `<main>` — where it governs only that element's own UA widgets, and that
+   * element has `overflow: hidden` so it has no scrollbar to govern. A light-OS
+   * visitor on a scrollable landing kept light scrollbars and UA chrome over the
+   * stadium, which is exactly what this was added to prevent.
+   */
+  color-scheme: dark;
 }
 
 .landing-root {
-  color-scheme: dark;
-
   position: relative;
   isolation: isolate;
   min-height: 100vh;
   /*
-   * Defensive containment, and the honest reason: the field's geometry DOES
-   * exceed its viewBox (`edgesAt(1)` spans -200…1400 in a 0…1200 box), but an
-   * outermost inline `<svg>` already carries UA `overflow: hidden`, and
-   * `.landing-field` / `.landing-glow` are both viewport-bounded by `inset`.
-   * Removing this produces no scrollbar today. It is kept so a future absolutely
-   * positioned decoration cannot introduce one — not because it is load-bearing
-   * now. An earlier comment claimed it was, which was wrong.
+   * Contains the decorative layer, which is absolutely positioned to `inset: 0`.
+   * Defensive rather than load-bearing today — nothing currently overflows — and
+   * kept so a future decoration cannot introduce a scrollbar.
+   *
+   * An earlier version of this comment justified it with SVG geometry
+   * (`edgesAt()`, `.landing-field`, `.landing-glow`) that no longer exists; the
+   * hero now contains no inline SVG at all, and a test asserts that.
    */
   overflow: hidden;
   background-color: #000000;
@@ -137,14 +144,15 @@ body:has(.landing-root) {
   position: relative;
   z-index: 1;
   display: flex;
-  min-height: calc(100vh - 8rem);
+  /*
+   * `dvh`, not `vh`. On iOS Safari `100vh` is the LARGE viewport — the height with
+   * the toolbar retracted — so bottom-anchoring against it pushed the account row
+   * below the visible area on first paint. That row carries "Sign out", the one
+   * control a signed-in non-admin needs to escape the `/` -> `/login` -> `/admin`
+   * loop, so it must not require a scroll to reach.
+   */
+  min-height: calc(100dvh - 8rem);
   flex-direction: column;
-}
-
-/* The card claims the slack; the sign-in is a flow sibling and travels with it,
-   so the gap between the two never changes. */
-.landing-guidance {
-  margin-top: auto;
 }
 
 /*
@@ -182,6 +190,20 @@ body:has(.landing-root) {
   line-height: 1.6;
   /* zinc-300 on black ≈ 11.6:1. */
   color: #d4d4d8;
+  /*
+   * THE FLOOR under the guidance card's `margin-top: auto`.
+   *
+   * Auto margins resolve to ZERO once content exceeds its container — a landscape
+   * phone, or text zoom — and the markup's `mt-10` was removed when that margin
+   * moved into CSS, so the card's border would have sat flush against this
+   * paragraph. Put on the PREVIOUS sibling deliberately: `max(2.5rem, auto)` is
+   * invalid CSS (`auto` is not a `max()` argument) and would drop the declaration
+   * entirely, leaving no margin at all.
+   *
+   * Costs nothing when there IS slack: the card is bottom-anchored either way, so
+   * `auto` simply absorbs 2.5rem less free space.
+   */
+  margin-bottom: 2.5rem;
 }
 
 /*
@@ -190,13 +212,16 @@ body:has(.landing-root) {
  * which made the quietest thing on the page the loudest.
  */
 /*
- * The guidance panel sits over the LIT foreground turf now, not over black. Its
- * old `rgba(255,255,255,0.04)` wash darkened nothing — it was designed against a
- * black page, and over grass it would have left white text on bright green. A
- * genuinely dark translucent panel is also what the reference uses, and it keeps
- * the card subordinate rather than turning it into a call to action.
+ * The guidance panel sits over the LIT foreground turf, not over black, so it
+ * needs a genuinely dark fill: an earlier `rgba(255,255,255,0.04)` wash was
+ * designed against a black page and darkened nothing over a photograph.
+ *
+ * `margin-top: auto` claims the slack left by the anchored layout, pushing the
+ * card and the sign-in below it clear of the goalpost. The FLOOR that guarantees
+ * separation when there is no slack lives on `.landing-lede` — see there.
  */
 .landing-guidance {
+  margin-top: auto;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 0.75rem;
   background-color: rgba(0, 0, 0, 0.62);
@@ -209,28 +234,12 @@ body:has(.landing-root) {
 }
 
 /*
- * No responsive plate variants in this pass, by owner decision: prove the desktop
- * composition first. `cover` on a narrow viewport crops hard to the centre of a
- * 16:9 plate, which keeps the vanishing point but shows little field. A portrait
- * crop is the follow-up if mobile review asks for one.
+ * Mobile reframes this plate inside the query below — `auto 88%` anchored bottom
+ * — because `cover` on a 3:2 source crops a portrait viewport to its centre slice.
+ * There is no separate mobile ASSET, which is the thing that was deferred; an
+ * earlier comment here said "no responsive plate variants" while the block
+ * beneath it added exactly that, and called this 3:2 image 16:9.
  */
-
-/* ==========================================================================
- * MOBILE COMPOSITION
- *
- * Everything below is inside the query, so desktop is untouched by construction
- * rather than by review. 640px is Tailwind's `sm` boundary, so these overrides
- * and the utility classes in the markup change over at the same width.
- *
- * ON BACKGROUND POSITION/SIZE — evaluated and deliberately NOT changed. At every
- * portrait aspect, `cover` scales this 3:2 plate by HEIGHT and crops the sides
- * only; vertical cropping does not begin until a viewport is wider than 3:2. Two
- * consequences: the vertical component of `background-position` is INERT on
- * mobile, and the field is already anchored to the bottom because the image's
- * bottom edge is the viewport's. Forcing a vertical crop with `background-size`
- * would buy nothing and would trade away the light banks at the top, so the
- * goalpost is handled with light instead — below.
- * ========================================================================== */
 
 @media (max-width: 640px) {
   /*

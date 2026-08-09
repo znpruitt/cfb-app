@@ -93,7 +93,12 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   shared treatment; the descriptor following the mark onto an interior header. The first two fail at
   BOTH adopting surfaces and the landing simultaneously, which is the point of sharing.
 - **NOT visually verified.** Left for manual review.
-- Status: implemented; not yet reviewed, not yet merged.
+- **SUPERSEDED ON THE SAME BRANCH — read as history, not as current state.** Everything below the
+  strategy note is accurate for the revision it describes and false at HEAD: the `stadium-1672`
+  assets, `center bottom` positioning, and the retained `--landing-turf` token were all replaced by
+  `TURFWAR-HOMEPAGE-ADOBE-STADIUM-PLATE-v1` and `TURFWAR-HOMEPAGE-WORDMARK-SIMPLIFY-v1`. Kept because
+  the REASONING — why a native CSS/SVG scene could not carry the atmosphere — is the durable part.
+- Status: implemented; superseded before merge by the entries above.
 
 ### TURFWAR-HOMEPAGE-WORDMARK-SIMPLIFY-v1
 
@@ -127,6 +132,60 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - **NOT visually verified.** The point of this pass is to see the wordmark without the strip; the
   rendered result is left for manual review.
 - Status: implemented; not yet reviewed, not yet merged.
+
+### TURFWAR-HOMEPAGE-ADOBE-STADIUM-PLATE-v1
+
+- Purpose: Replace the generated plate with the licensed Adobe Stock stadium photograph.
+- Scope: production derivatives, the scene rule, and the landing asset contract. No behaviour change.
+- **The prompt stated a 2048×1365 source; the supplied file was 6144×4096** — the same 3:2
+  composition at 3×. Producing the named `stadium-2048` asset therefore required a DOWNSCALE, which
+  is the permitted direction, and the derivatives were attributed to the v3 source by CONTENT
+  FINGERPRINT rather than by filename (mean pixel distance 0.86 vs v3, 32.4 vs the superseded v2).
+  `stadium-2048.avif` 91 KB / `stadium-2048.webp` 143 KB; `stadium-1672.*` retired. The 9.5 MB
+  licensed original stays in the gitignored `references/`, so the repository does not redistribute it.
+- **`center bottom` became `center`, and the aspect ratio is the reason.** A 3:2 source under `cover`
+  crops vertically on any desktop viewport, and `bottom` takes that entire crop off the TOP where the
+  light banks are: 15.6% at 1920×1080, 36.7% at 2560×1080 — which removes them completely.
+- **A legibility scrim was REQUIRED, not stylistic:** this field is vividly lit where the generated
+  one was dim, and the guidance card and sign-in link cross it. Legibility is measured against the
+  brightest region text actually crosses, not the average.
+
+### TURFWAR-HOMEPAGE-STADIUM-PLATE-V2-v1
+
+- **Executed and then SUPERSEDED before it reached a commit.** A corrected v2 generated plate was
+  converted and the derivatives written, then reverted when the licensed Adobe Stock image arrived.
+  Recorded so the branch history is legible: the v2 work is not in the diff, and its absence is
+  deliberate rather than an oversight.
+
+### TURFWAR-HOMEPAGE-MOBILE-COMPOSITION-v1 / -FRAMING-v2 / -LOWER-STACK-SPACING-v1 / -GOALPOST-REVEAL-v2
+
+- Four mobile passes over the same problem, grouped because the LAST one invalidates the approach of
+  the first three and that is the useful record.
+- **Passes 1–3 tried to move the guidance card off the goalpost by raising its top margin**
+  (1.75 → 2.5 → 4.5rem). Each barely moved it. The cause was `justify-center` on `.landing-root`:
+  content was CENTRED while the background is anchored to the VIEWPORT, so adding margin M inside the
+  centred block grew it by M and centring lifted its top edge by M/2 — content moved relative to the
+  photograph at HALF the requested rate, and everything above drifted up by the rest. A 2rem increase
+  bought 16px.
+- **Pass 4 replaced the lever rather than the value.** The hero anchors to the top and the lower stack
+  claims the remaining space via `margin-top: auto`, which is deterministic — it no longer depends on
+  content height, which is exactly what made the earlier attempts impossible to predict without
+  rendering. Later promoted to all widths by owner request after visual review.
+- Also mobile-only: the plate reframed to `auto 88%` / `center bottom` after a radial scrim proved to
+  be treating the symptom of a too-tight crop, plus tightened lede and card typography. **Background
+  position was evaluated and deliberately NOT changed vertically:** at every portrait aspect `cover`
+  scales a 3:2 plate by HEIGHT and crops the sides only, so the vertical component is inert there.
+
+### TURFWAR-HOMEPAGE-WORDMARK-KERNING-v1
+
+- Purpose: optical separation at the wordmark's `f` → `W` boundary without changing the spelling.
+- **The first attempt was correct CSS that shipped, won the cascade, and was invisible.** A `0.04em`
+  margin had to pay back the wordmark's `-0.03em` tracking before adding anything, leaving a NET gap
+  of +0.01em — about 1px — and, since the mark is centred, moving each word half a pixel. Diagnosis
+  required ruling out a deployment lag, a duplicate implementation, and a cascade loss first.
+- Shipped at `0.09em` for a net `0.06em`. **A test pins the NET rather than the margin**, so
+  retightening the tracking cannot silently swallow the gap again — the exact failure that produced
+  the round.
 
 ### PLATFORM-HOME-LANDING-RASTER-SCENE-v1
 

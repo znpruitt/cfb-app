@@ -353,3 +353,58 @@ test('no radial scrim is painted behind the hero', () => {
   // absence above is about the SPOTLIGHT rather than about all darkening.
   assert.match(css, /linear-gradient\(\s*to bottom/, 'the full-bleed scrim remains');
 });
+
+// ---------------------------------------------------------------------------
+// Three review fixes that shipped with no coverage until a mutation pass showed
+// all three surviving. Each is a CSS contract with a concrete failure mode, so
+// each is pinned the way the other CSS contracts in this file are — by reading
+// the stylesheet, not by pinning tunable values.
+// ---------------------------------------------------------------------------
+
+// REGRESSION TEST — `color-scheme` must sit on the ROOT scroller.
+//
+// It was on `.landing-root` (the `<main>`), where it governs only that element's
+// own UA widgets — and that element has `overflow: hidden`, so it has none. A
+// light-OS visitor kept light scrollbars over the stadium while the declaration
+// looked correct.
+test('the dark colour scheme is declared on the root scroller', () => {
+  const css = codeOf('src/styles/publicLanding.css');
+
+  const rootScoped = /html:has\(\.landing-root\)[^{]*\{[^}]*color-scheme:\s*dark/;
+  assert.match(css, rootScoped, 'declared against html, which owns the viewport scrollbar');
+
+  const onMain = /\.landing-root\s*\{[^}]*color-scheme/;
+  assert.ok(!onMain.test(css), 'and NOT on .landing-root, where it would do nothing');
+});
+
+// REGRESSION TEST — the anchored stack needs a floor.
+//
+// `margin-top: auto` on the card resolves to ZERO once content exceeds its
+// container — a landscape phone, or text zoom — and the markup's `mt-10` was
+// removed when that margin moved into CSS. Without a floor on the preceding
+// element the card's border sits flush against the supporting copy.
+test('a minimum gap survives the auto margin collapsing', () => {
+  const css = codeOf('src/styles/publicLanding.css');
+
+  assert.match(css, /\.landing-guidance\s*\{[^}]*margin-top:\s*auto/, 'the card claims slack');
+  assert.match(
+    css,
+    /\.landing-lede\s*\{[^}]*margin-bottom:\s*[\d.]+rem/,
+    'and the element before it carries a floor for when there is none'
+  );
+});
+
+// REGRESSION TEST — bottom-anchoring must measure the SMALL viewport.
+//
+// On iOS Safari `100vh` is the large viewport, so anchoring against it pushed the
+// account row — which carries "Sign out" — below the toolbar on first paint. That
+// is the control a signed-in non-admin needs to escape the `/` -> `/login` loop.
+test('the anchored height uses the dynamic viewport unit', () => {
+  const css = codeOf('src/styles/publicLanding.css');
+
+  assert.match(css, /\.landing-content\s*\{[^}]*min-height:\s*calc\(100dvh/);
+  assert.ok(
+    !/min-height:\s*calc\(100vh/.test(css),
+    'never 100vh here — it hides the sign-out control behind the iOS toolbar'
+  );
+});

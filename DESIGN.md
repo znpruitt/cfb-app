@@ -79,9 +79,9 @@ Supersedes: (none)
 - Amber/gold is reserved exclusively for champion/podium signals — not a general accent color
 - Blue signals interactivity or active state only — never use blue to mean "featured" or "important"
 - Chart line colors are fixed per owner for the full season — never change with standings position
-- No color for decoration — every color must encode meaning. **Scope: data surfaces.** The public
-  landing (`/`) carries no data and holds a documented, landing-scoped exception — see "Landing
-  page" below. That exception does not relax this rule anywhere else.
+- No color for decoration — every color must encode meaning. This stands unamended for every
+  surface. The public landing briefly carried a scoped turf-accent exception; it was removed with the
+  vector element that consumed it, and the landing's colour now comes entirely from a photograph.
 - CFP round badges use neutral slate/gray — distinct from status colors
 
 ## Interaction model
@@ -278,12 +278,11 @@ dashboard behind the same route is an operator surface and follows the admin con
   (~8.4:1) and `zinc-300` (~11.6:1) are the working tokens. Do NOT carry light-theme pairs like
   `text-gray-600 dark:text-zinc-400` onto this page — the light half renders near-black on black for
   a visitor whose system is set to light.
-- **No horizontal overflow at 390px.** Keep the single content column inside `max-w-xl` with real
+- **No horizontal overflow at 390px.** Keep the single content column inside `max-w-2xl` with real
   horizontal padding, break long strings, and keep the sign-in affordance in normal flow — fixing it
-  to a viewport corner clipped it on small screens. Decorative layers are viewport-bounded by
-  `inset`, and an outermost inline `<svg>` clips its own overflow, so geometry drawn outside the
-  viewBox never reaches the page — the landing root's `overflow: hidden` is defensive rather than
-  load-bearing.
+  to a viewport corner clipped it on small screens. The decorative layer is bounded by `inset`, so
+  the landing root's `overflow: hidden` is defensive rather than load-bearing — an earlier version of
+  this rule explained it with inline-SVG clipping, on a page that now contains no SVG at all.
 - **Affordances are named for who can actually use them.** The sign-in link reads "Platform admin
   sign-in" because middleware admits only platform admins; it previously said "Commissioner login".
 - **Typography is still the primary hierarchy.** Scale contrast, a second type register, a
@@ -293,8 +292,11 @@ dashboard behind the same route is an operator surface and follows the admin con
 - **The landing is an ALWAYS-DARK stadium composition.** Fixed dark regardless of the visitor's OS
   preference: no `prefers-color-scheme` block, no `dark:` variants, and no light-theme text token
   anywhere in the files that render it — a `text-gray-600 dark:text-zinc-400` pair renders
-  near-black on black for a light-OS visitor. The page must also declare `color-scheme: dark` and
-  paint the document canvas, or UA chrome and rubber-band overscroll stay light behind it. A stadium rendered on white is
+  near-black on black for a light-OS visitor. The page must also paint the document canvas and
+  declare `color-scheme: dark` **on the ROOT scroller** (`html:has(.landing-root)`), or UA chrome and
+  rubber-band overscroll stay light behind it. On a non-root element `color-scheme` governs only that
+  element's own widgets — and the landing root has `overflow: hidden`, so it has no scrollbar to
+  govern; declared there, the rule looks right and does nothing. A stadium rendered on white is
   not a lighter version of this page, it is a broken one. Every other app and admin surface remains
   theme-aware — this exception stops at `/`.
 - **No colour accent on this page.** A landing-scoped `--landing-turf` token once painted a
