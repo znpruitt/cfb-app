@@ -238,22 +238,37 @@ body:has(.landing-root) {
    * that panel is what makes the text readable at all.
    */
   /*
-   * The guidance card is pushed WELL down — this is the goalpost's clearance, not
-   * a spacing preference.
+   * ANCHOR THE STACK INSTEAD OF NUDGING ITS MARGIN.
    *
-   * The card sat over the crossbar, which is the feature that makes the structure
-   * legible: without it the uprights read as two unexplained yellow lines rather
-   * than as a goalpost. Two earlier attempts at 1.75rem and 2.5rem were too small
-   * to matter on a real device — 12px of movement against a feature that needs
-   * tens of pixels of clearance.
+   * Three attempts to push the guidance card down by raising its top margin
+   * (1.75 -> 2.5 -> 4.5rem) barely moved it, and the reason is `justify-center` on
+   * `.landing-root`: the hero is VERTICALLY CENTRED in a `100vh` container. Adding
+   * margin M inside a centred block grows the block by M, so centring lifts its
+   * top edge by M/2 — the card gains M/2 and the hero above LOSES M/2, leaving the
+   * gap between them almost unchanged. A 2rem increase bought 16px.
    *
-   * ONLY this margin changes. The sign-in block is a flow sibling, so it travels
-   * with the card automatically and its own `mt-10` is left alone — which is what
-   * keeps the gap BETWEEN them identical. Raising both would have moved the
-   * sign-in twice as far and opened a hole in the middle of the stack.
+   * Margin was never the wrong value; it was the wrong lever. On mobile the hero
+   * now anchors to the top and the lower stack takes the remaining space with
+   * `margin-top: auto`, so the goalpost gets every pixel between them — and the
+   * result is deterministic rather than a function of content height, which is
+   * what made the previous attempts impossible to predict without rendering.
+   *
+   * `min-height` accounts for the root's `py-16` (4rem top + 4rem bottom) so there
+   * is free space for `auto` to consume. If the content ever outgrows the
+   * viewport, `auto` collapses to zero and this degrades to normal flow.
    */
+  .landing-root {
+    justify-content: flex-start;
+  }
+
+  .landing-content {
+    display: flex;
+    min-height: calc(100vh - 8rem);
+    flex-direction: column;
+  }
+
   .landing-guidance {
-    margin-top: 4.5rem;
+    margin-top: auto;
     padding: 0.75rem 0.9rem;
   }
 
