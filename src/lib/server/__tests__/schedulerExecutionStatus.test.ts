@@ -793,3 +793,42 @@ test('parseSchedulerExecutionReceipt rejects wrong job, wrong source, and future
   // A correct record still parses.
   assert.ok(parseSchedulerExecutionReceipt(good, 'season-transition', now));
 });
+
+test('PLATFORM-089: the odds cadence set admits `early` and still rejects anything outside it', () => {
+  // The reader validates and REBUILDS, so an unrecognized cadence does not degrade
+  // gracefully — `parse` returns null and System Health reports the Odds job as
+  // having no recent authenticated invocation. Adding a cadence to the route
+  // without adding it here would have produced exactly that, silently.
+  const now = Date.now();
+  const built = receiptOf(
+    liveScoresInput({
+      job: 'odds',
+      result: 'success',
+      reason: 'written-clean',
+      providerCallAttempted: true,
+      startedAtMs: now - 60_000,
+      target: { kind: 'odds', year: 2026, cadence: 'baseline', eligibleGames: 1 },
+    })
+  );
+  // The builder only accepts the typed union, so the wire values under test are
+  // substituted onto a built record — exactly the shape the reader sees coming
+  // back off a durable store written by an older or newer deploy.
+  const withCadence = (cadence: unknown) => ({
+    ...built,
+    target: { ...built.target, cadence },
+  });
+
+  for (const cadence of ['early', 'baseline', 'pregame', null]) {
+    assert.ok(
+      parseSchedulerExecutionReceipt(withCadence(cadence), 'odds', now),
+      `cadence ${JSON.stringify(cadence)} must survive the reader`
+    );
+  }
+  for (const cadence of ['hourly', 'EARLY', '', 7]) {
+    assert.equal(
+      parseSchedulerExecutionReceipt(withCadence(cadence), 'odds', now),
+      null,
+      `cadence ${JSON.stringify(cadence)} must be rejected`
+    );
+  }
+});

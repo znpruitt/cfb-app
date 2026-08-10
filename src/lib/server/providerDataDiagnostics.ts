@@ -18,13 +18,28 @@ import { evaluatePartitionCoverage } from '../gameStats/partitionCoverage.ts';
 import { validateGameStatsEnvelope } from '../gameStats/publicProjection.ts';
 import type { WeeklyGameStats } from '../gameStats/types.ts';
 import { deriveApplicableScoreSeasonTypes } from './scoreApplicability.ts';
-import { classifyStatusLabel, isCanceledStatusLabel } from '../gameStatus.ts';
+import { loadCachedScheduleItems } from './canonicalScheduleCache.ts';
+import {
+  parseSchedulerExecutionReceipt,
+  SCHEDULER_EXECUTION_STATUS_SCOPE,
+} from './schedulerExecutionStatus.ts';
+import { isWithinEarlyOddsPollingHorizon } from '../odds/pollingPolicy.ts';
+import {
+  classifyStatusLabel,
+  isCanceledStatusLabel,
+  isDisruptedStatusLabel,
+} from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
 
-/** Minimal shape of a durable `odds-cache` entry — only its capture time matters here. */
-type OddsCacheFreshness = { lastFetch?: number | null };
+/**
+ * Minimal shape of a durable `odds-cache` entry — only its capture times matter
+ * here. `observedAt` is the provider OBSERVATION time and `lastFetch` the
+ * commit/TTL clock; the polling policy prefers the former, so reading only
+ * `lastFetch` would judge freshness on a different clock than the cron does.
+ */
+type OddsCacheFreshness = { lastFetch?: number | null; observedAt?: string | null };
 
 export type DiagnosticSeverity = 'info' | 'warning' | 'error';
 
@@ -142,6 +157,79 @@ function deriveCompletedSlates(items: ScheduleCacheEntry['items'], now: number):
   return [...latestByKey.values()]
     .filter((slate) => slate.latestKickoff <= now - SLATE_COMPLETE_AFTER_MS)
     .sort((a, b) => b.latestKickoff - a.latestKickoff);
+}
+
+/**
+ * Whether the LAST automatic Odds run confirmed the provider simply has no lines
+ * for this season right now — `no-op / early-lines-withdrawn`, recent enough to
+ * still describe the current state.
+ *
+ * This is the ONE case where an unmoving cache entry does not mean maintenance is
+ * behind. The provider was asked, answered "nothing", and the prior rows were
+ * retained by policy rather than by neglect, so the entry's timestamp cannot
+ * advance no matter how healthy the loop is. Without this the Odds card warns
+ * every day of a preseason book withdrawal, with no operator action that clears
+ * it — the standing false alarm PLATFORM-089 exists to remove, relocated from the
+ * provider-fault channel to the staleness channel.
+ *
+ * DELIBERATELY NARROW, keyed on the REASON rather than on "a check completed".
+ * The sibling no-op — `empty-response` over rows that could not be proven
+ * obsolete — leaves the entry untouched too, but there the served data really is
+ * unverified and the warning is right. Reading `lastCompletedCheckAt` alone
+ * cannot tell them apart, which is exactly why that broader rule was rejected.
+ *
+ * Fail-closed at every step: no receipt, an unparseable one, a different job,
+ * another year, or any other reason ⇒ the ordinary entry-based rule applies.
+ */
+async function providerConfirmedNoLines(year: number, now: number): Promise<boolean> {
+  try {
+    const record = await getAppState<unknown>(SCHEDULER_EXECUTION_STATUS_SCOPE, 'odds');
+    const receipt = parseSchedulerExecutionReceipt(record?.value, 'odds', now);
+    if (!receipt) return false;
+    if (receipt.result !== 'no-op' || receipt.reason !== 'early-lines-withdrawn') return false;
+    if (receipt.target.kind !== 'odds' || receipt.target.year !== year) return false;
+    const completedMs = Date.parse(receipt.completedAt);
+    // The confirmation expires on the SAME clock as staleness: once it is older
+    // than a snapshot would be allowed to be, it no longer describes now.
+    return Number.isFinite(completedMs) && now - completedMs <= STALE_ODDS_AFTER_MS;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether the Odds cron has anything to poll: some non-disrupted schedule game
+ * kicks off inside the 45-day polling horizon.
+ *
+ * Deliberately NOT the ±45-day `isSeasonActive` window below, which is symmetric
+ * and so counts games already played. It is also deliberately a SUPERSET of true
+ * eligibility — it does not re-derive canonical identity, because doing so here
+ * would mean a second resolution path in a cache-only read. Superset is the safe
+ * direction: it can leave a warning standing that the cron would skip for an
+ * unresolved participant, but it can never suppress one the cron could act on.
+ *
+ * Reads through `loadCachedScheduleItems` — the SAME authority the cron's
+ * canonical context uses — rather than the `${year}-all-all` items this module
+ * already loaded. That entry is only the first of three keys: the loader falls
+ * back to the `-all-regular` + `-all-postseason` pair when it is absent or empty.
+ * On that durable shape the caller's list is empty, so a check against it would
+ * see NO pollable target and could never warn, while the cron polled normally —
+ * reintroducing the health-vs-cron disagreement this whole change removes. The
+ * caller's items are still used when they are populated, so the common path
+ * costs no extra read.
+ */
+async function hasPollableOddsTarget(
+  year: number,
+  loadedItems: ScheduleCacheEntry['items'],
+  now: number
+): Promise<boolean> {
+  const items = loadedItems.length > 0 ? loadedItems : await loadCachedScheduleItems(year);
+  for (const item of items) {
+    if (!item.startDate) continue;
+    if (isDisruptedStatusLabel(item.status)) continue;
+    if (isWithinEarlyOddsPollingHorizon(new Date(item.startDate).getTime(), now)) return true;
+  }
+  return false;
 }
 
 /** Whether the season is "active" around now (any game within ±45 days). */
@@ -550,10 +638,46 @@ export async function getProviderDataDiagnostics(
   // canonical snapshot look fresh), and NOT the global quota-observation timestamp
   // (4th-review finding #4). Quota usage stays a separate panel display. Absence of
   // the canonical entry is reported as unknown, never treated as fresh.
+  //
+  // PLATFORM-089 — APPLICABILITY now agrees with the cron; FRESHNESS deliberately
+  // still comes from the cache entry, per binding invariant 1 ("odds staleness
+  // derives from the canonical/default season-scoped `odds-cache` entry").
+  //
+  // Applicability is the 45-day POLLING horizon, not the generic ±45-day
+  // `seasonActive` window. The latter is symmetric: a game 40 days in the PAST
+  // kept the season "active", so an old snapshot warned while the cron had
+  // nothing to poll and no operator action existed. That warning is what this
+  // task was reported for.
+  //
+  // FRESHNESS was briefly widened to `max(snapshot, lastCompletedCheckAt)` — the
+  // idea being that a valid no-op proves the data is being maintained even when
+  // the payload does not move. Both reviewers rejected it and the code agrees:
+  // every no-op that leaves the entry untouched is the `preserved` branch of
+  // `commitEmptyOddsRefresh`, which retains prior rows it CANNOT PROVE OBSOLETE
+  // and keeps serving them. Counting the check clock there would have cleared
+  // `odds-cache-stale` permanently — a fresh no-op every day — while `/api/odds`
+  // served the same old lines. The scenario it was insuring against does not
+  // arise: an unchanged non-empty payload still commits a fresh `lastFetch`, and
+  // an empty response with no prior rows (or provably dead ones) writes a fresh
+  // empty entry. The one remaining case is the one where the warning is right.
+  //
   try {
     const oddsRec = await getAppState<OddsCacheFreshness>('odds-cache', defaultOddsCacheKey(year));
-    const latestFetch = oddsRec?.value?.lastFetch;
-    if (typeof latestFetch !== 'number' || !Number.isFinite(latestFetch)) {
+    const cached = oddsRec?.value;
+    const lastFetch = cached?.lastFetch;
+    // The ENTRY's own clock, preferring the provider OBSERVATION time when the
+    // entry carries one — the same clock the polling cadence measures, so the two
+    // surfaces cannot disagree by measuring different things about the same
+    // record. `observedAt` is captured before the request and `lastFetch` at
+    // commit, so this only ever reads slightly OLDER, never fresher.
+    const observedMs = cached?.observedAt ? Date.parse(cached.observedAt) : Number.NaN;
+    const snapshotMs = Number.isFinite(observedMs)
+      ? observedMs
+      : typeof lastFetch === 'number' && Number.isFinite(lastFetch)
+        ? lastFetch
+        : null;
+
+    if (typeof lastFetch !== 'number' || !Number.isFinite(lastFetch)) {
       push(
         'odds',
         'info',
@@ -561,14 +685,14 @@ export async function getProviderDataDiagnostics(
         `No odds snapshot cached for ${year} yet.`,
         'data-maintenance'
       );
-    } else if (seasonActive) {
-      const ageMs = now - latestFetch;
-      if (Number.isFinite(ageMs) && ageMs > STALE_ODDS_AFTER_MS) {
+    } else if (await hasPollableOddsTarget(year, scheduleItems, now)) {
+      const ageMs = snapshotMs === null ? Number.POSITIVE_INFINITY : now - snapshotMs;
+      if (ageMs > STALE_ODDS_AFTER_MS && !(await providerConfirmedNoLines(year, now))) {
         push(
           'odds',
           'warning',
           'odds-cache-stale',
-          `Odds snapshot last captured ${formatRelativeTimestamp(latestFetch, now)}.`,
+          `Odds snapshot last captured ${formatRelativeTimestamp(lastFetch, now)}.`,
           'data-maintenance'
         );
       }

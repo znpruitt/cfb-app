@@ -507,7 +507,11 @@ const RESULT_VALUES: ReadonlySet<string> = new Set([
 
 const LIVE_SCORES_MODES: ReadonlySet<string> = new Set(['scoreboard', 'final-reconciliation']);
 const SEASON_TYPES: ReadonlySet<string> = new Set(['regular', 'postseason']);
-const ODDS_CADENCES: ReadonlySet<string> = new Set(['baseline', 'pregame']);
+// PLATFORM-089 — `early` joins the closed set. The reader VALIDATES AND REBUILDS,
+// so a cadence outside this set makes the whole receipt unparseable: shipping the
+// route's new value without widening this would have silently dropped every
+// early-cadence receipt and reported the Odds job as having no recent invocation.
+const ODDS_CADENCES: ReadonlySet<string> = new Set(['early', 'baseline', 'pregame']);
 const SCHEDULE_OPERATIONS: ReadonlySet<string> = new Set([
   'preseason-maintenance',
   'ordinary-maintenance',

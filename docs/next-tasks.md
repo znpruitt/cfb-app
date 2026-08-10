@@ -48,11 +48,15 @@ Supersedes: (none)
 5. ✅ **TURFWAR-WORDMARK-KERNING-CLEANUP-v1 — COMPLETE** (PR #468, `fc77420`, 2026-08-10). One
    shared-wordmark typography pass: tracking is now `normal` and the `f`/`W` join `0.02em`.
    Execution record, review, and verification live in `docs/prompt-registry.md`.
-6. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
-7. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+6. **PLATFORM-089 — implemented, pending merge.** Odds polling moves from a 7-day cliff to a staged
+   45-day horizon (24 h early / 6 h baseline / 2 h pregame), the Odds health card stops warning when
+   nothing is pollable, and a book withdrawing a far-out line is recorded as a no-op rather than
+   escalated as a provider fault. Execution record in `docs/prompt-registry.md`.
+7. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
+8. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
    History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
    later.
-8. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
+9. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
    schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its first
    qualifying automatic presentation refresh from production evidence when it occurs.
 

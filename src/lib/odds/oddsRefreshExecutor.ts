@@ -32,7 +32,12 @@ import type { DurableOddsRecord } from '../odds.ts';
 import type { AppGame } from '../schedule.ts';
 import type { TeamIdentityResolver } from '../teamIdentity.ts';
 import { withAppStateKeyTransaction } from '../server/appStateStore.ts';
-import { classifyEmptyOddsResponse, type OddsScheduleEvidenceItem } from './emptyOddsClassifier.ts';
+import {
+  classifyEmptyOddsResponse,
+  ODDS_EXPECTED_KICKOFF_HORIZON_MS,
+  type OddsScheduleEvidenceItem,
+} from './emptyOddsClassifier.ts';
+import { isDisruptedStatusLabel } from '../gameStatus.ts';
 import { loadCachedScheduleItems } from '../server/canonicalScheduleCache.ts';
 import { getScopedAliasMap } from '../server/globalAliasStore.ts';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '../teamIdentity.ts';
@@ -166,7 +171,29 @@ async function readBundledTeamsCatalog(): Promise<TeamCatalogItem[]> {
  * no-ops that either commit a fresh empty entry or retain prior-good.
  */
 type EmptyCommitOutcome =
-  | { kind: 'unexpected-empty' }
+  | {
+      kind: 'unexpected-empty';
+      /**
+       * The classifier's own two counts, carried through so the caller can tell
+       * WHY the empty was unexpected (PLATFORM-089). `nearHorizonGameCount > 0`
+       * means a game inside the expectation horizon should have posted lines and
+       * did not — a genuine fault. Zero means the only evidence was prior rows
+       * for games FURTHER out, where a book withdrawing a line is ordinary.
+       */
+      nearHorizonGameCount: number;
+      priorUpcomingEventCount: number;
+      /**
+       * Whether the slate evidence was POSITIVELY AVAILABLE — successfully read,
+       * nonempty, with identity inputs. `nearHorizonGameCount === 0` is otherwise
+       * ambiguous between "we looked and nothing is near" and "we could not
+       * look": an unreadable schedule, or an empty one (a real season slate is
+       * never empty), both yield zero. Downgrading on that would fail OPEN,
+       * turning a transient read failure into a silent no-op.
+       */
+      expectationEvidenceAvailable: boolean;
+      /** Prior-good rows, retained: an unexpected empty never clears them. */
+      entry: SharedOddsCacheEntry | undefined;
+    }
   | { kind: 'written-empty'; entry: SharedOddsCacheEntry }
   | { kind: 'preserved'; entry: SharedOddsCacheEntry | undefined };
 
@@ -224,7 +251,36 @@ async function commitEmptyOddsRefresh(params: {
         now: Date.now(),
       });
       if (classification.kind === 'unexpected-empty') {
-        return { kind: 'unexpected-empty' };
+        return {
+          kind: 'unexpected-empty',
+          nearHorizonGameCount: classification.nearHorizonGameCount,
+          priorUpcomingEventCount: classification.priorUpcomingEventCount,
+          // The same condition the classifier calls `reconcilable`, AND no game
+          // near enough to expect lines at all.
+          //
+          // The second half is not redundant with `nearHorizonGameCount`. That
+          // count only includes games whose BOTH labels resolve to real teams, so
+          // a bowl slot inside 7 days still reading "Winner of …" contributes
+          // zero — and a genuine provider drop would then be waved through as a
+          // benign withdrawal. Whether a label has resolved says nothing about
+          // whether the date is near, so nearness is asked separately and
+          // unconditionally here.
+          expectationEvidenceAvailable:
+            isCanonical &&
+            evidence.scheduleItems !== null &&
+            evidence.scheduleItems.length > 0 &&
+            evidence.resolver !== null &&
+            !evidence.scheduleItems.some((item) => {
+              if (isDisruptedStatusLabel(item.status)) return false;
+              const startMs = item.startDate === null ? Number.NaN : Date.parse(item.startDate);
+              return (
+                Number.isFinite(startMs) &&
+                startMs > Date.now() &&
+                startMs - Date.now() <= ODDS_EXPECTED_KICKOFF_HORIZON_MS
+              );
+            }),
+          entry: priorEntry ?? memoryEntry,
+        };
       }
       const priorHasData = (priorEntry?.data.length ?? 0) > 0;
       const replaceObsolete = priorHasData && classification.priorRowsProvablyObsolete;
@@ -312,6 +368,7 @@ export async function executeOddsRefresh(params: {
   emptyClassificationEvidence?: EmptyOddsScheduleEvidence;
 }): Promise<OddsRefreshExecution> {
   const {
+    mode,
     season,
     seasonScopedKey,
     isCanonical,
@@ -497,6 +554,46 @@ export async function executeOddsRefresh(params: {
       return base(result);
     }
     if (empty.kind === 'unexpected-empty') {
+      // PLATFORM-089 — the VERDICT is unchanged; only the CONSEQUENCE is split.
+      //
+      // The classifier is right that prior rows vanishing is worth noticing, and
+      // it deliberately applies no distance limit so a provider dropping
+      // early-posted lines is still caught. That was written when automation
+      // stopped at 7 days, so it could only fire out here on a manual refresh.
+      // Automation now polls to 45 days, where books routinely WITHDRAW a line
+      // and re-post it closer to kickoff — ordinary business, not a regression.
+      //
+      // The classifier already returns the exact discriminator, so nothing about
+      // it changes and its tests stand: `nearHorizonGameCount` counts games
+      // inside the expectation horizon that SHOULD have lines. Zero means the
+      // only evidence was prior rows for games further out.
+      //
+      //   near-horizon games expected  → billed FAILURE (unchanged): a game this
+      //                                  week has no lines and once did.
+      //   only far-out prior rows      → truthful NO-OP: recorded, visible in the
+      //                                  event and receipt, but no 502, no
+      //                                  backoff, no provider fault. Escalating a
+      //                                  daily false alarm through preseason is
+      //                                  the failure this campaign removes.
+      //
+      // Narrowed to the AUTOMATIC path on purpose. The consequences being
+      // softened — durable backoff and a System Health provider fault — exist
+      // only there. A manual refresh has neither: a person asked and will read
+      // the answer, which is the context the original rule was written for and
+      // the only one it could previously reach. Its behaviour is unchanged, and
+      // so are its tests.
+      //
+      // Prior rows are RETAINED either way — absence out here never proves them
+      // obsolete, so nothing licenses clearing them.
+      if (
+        mode === 'automatic' &&
+        empty.expectationEvidenceAvailable &&
+        empty.nearHorizonGameCount === 0
+      ) {
+        const result = oddsRefreshResult('no-op', 'early-lines-withdrawn', 200);
+        await recordProviderRefreshNoop('odds', scope, { attempt, source: 'odds-api' });
+        return base(result, { rawEntry: empty.entry });
+      }
       const result = oddsRefreshResult('failure', 'odds-empty-unexpected', 502);
       await recordProviderRefreshFailure('odds', scope, {
         attempt,

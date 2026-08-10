@@ -750,3 +750,243 @@ test('remediation R4: a successful refresh with MISSING usage headers never comm
   // The global estimate still deducts the request cost (480 - 3 = 477).
   assert.equal(event.quotaRemainingAfter, 477);
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-089 — early-season polling at the route.
+//
+// Production on 2026-08-09 returned `skipped / no-eligible-target · 0 eligible
+// game(s) · provider request: not attempted` on every hourly delivery while a
+// successful Jul 29 refresh sat aging in the canonical cache. The route now polls
+// a 45-day horizon at a 24-hour cadence.
+// ---------------------------------------------------------------------------
+
+test('#89a: a game 20 days out is an EARLY due target — one billed request, cadence `early`', async () => {
+  await seedSchedule(Date.now() + 20 * DAY);
+  const counts = installFetch({});
+  const { res, body, event } = await runCron();
+
+  assert.equal(res.status, 200);
+  assert.equal(event.result, 'success');
+  assert.equal(counts.oddsCalls, 1); // exactly one billed request
+  assert.equal(event.eligibleGames, 1); // the defect reported 0 here
+  // The event's cadence is written by the POST-LEASE re-check (the route assigns
+  // it twice, and the re-check assignment is the later one), so this also proves
+  // the TOCTOU re-check ran the staged policy and agreed on `early` — a re-check
+  // still using the old 7-day/6-hour reasoning would have released the lease
+  // without a request, and `oddsCalls` would be 0.
+  assert.equal(event.cadence, 'early');
+  assert.equal(body.cadence, 'early');
+});
+
+test('#89b: an early target checked 12h ago is NOT due — provider-free skip', async () => {
+  // The quota guard for the widened horizon: 12h would be due at the 6-hour
+  // baseline, and must not be at the 24-hour early cadence. No `/odds` AND no
+  // `/sports` probe — the decision precedes every provider touch.
+  await seedSchedule(Date.now() + 20 * DAY);
+  await setAppState('odds-refresh-control', SEASON_KEY, {
+    lease: null,
+    lastCompletedCheckAt: new Date(Date.now() - 12 * H).toISOString(),
+    automaticFailureCount: 0,
+    automaticNotBefore: null,
+  });
+  const counts = installFetch({});
+  const { body, event } = await runCron();
+
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'refresh-not-due');
+  assert.equal(counts.oddsCalls, 0);
+  assert.equal(counts.sportsCalls, 0);
+  assert.equal(event.providerCallAttempted, false);
+  assert.equal(event.quotaChecked, false);
+  assert.equal(event.cadence, null);
+  // Still a recognized target — this is "not yet", not "nothing to poll".
+  assert.equal(event.eligibleGames, 1);
+});
+
+test('#89c: an early target checked 25h ago IS due', async () => {
+  await seedSchedule(Date.now() + 20 * DAY);
+  await setAppState('odds-refresh-control', SEASON_KEY, {
+    lease: null,
+    lastCompletedCheckAt: new Date(Date.now() - 25 * H).toISOString(),
+    automaticFailureCount: 0,
+    automaticNotBefore: null,
+  });
+  const counts = installFetch({});
+  const { event } = await runCron();
+
+  assert.equal(event.result, 'success');
+  assert.equal(event.cadence, 'early');
+  assert.equal(counts.oddsCalls, 1);
+});
+
+test('#89d: beyond 45 days is still `no-eligible-target`, with no provider work', async () => {
+  // The horizon moved; it did not disappear. An offseason with nothing scheduled
+  // inside 45 days must still cost zero.
+  await seedSchedule(Date.now() + 46 * DAY);
+  const counts = installFetch({});
+  const { body, event } = await runCron();
+
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'no-eligible-target');
+  assert.equal(event.eligibleGames, 0);
+  assert.equal(event.cadence, null);
+  assert.equal(counts.oddsCalls, 0);
+  assert.equal(counts.sportsCalls, 0);
+});
+
+test('#89e: the 50-credit reserve still refuses an early target, provider-data-free', async () => {
+  // The widened horizon must not become a way around the quota reserve.
+  await seedSchedule(Date.now() + 20 * DAY);
+  const counts = installFetch({
+    sports: {
+      headers: { 'x-requests-used': '449', 'x-requests-remaining': '51', 'x-requests-last': '0' },
+    },
+  });
+  const { body } = await runCron();
+
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'quota-reserve');
+  assert.equal(counts.sportsCalls, 1); // the quota-free probe still runs
+  assert.equal(counts.oddsCalls, 0); // ...and nothing billed follows it
+});
+
+test('#89f: an EMPTY payload far from kickoff, with NO prior lines, is a benign no-op', async () => {
+  // The COLD half of the widened horizon's safety property — the prior-rows half
+  // is `#89g` below, and conflating them is how the gap got missed: this test
+  // seeds no prior lines, so on its own it says nothing about the branch that
+  // actually produced a fault.
+  //
+  // Polling 20 days out will routinely find no posted lines, and the
+  // empty-response classifier keeps its own 7-day EXPECTATION window precisely so
+  // that is not a fault: no book is expected to have priced a game that far out.
+  //
+  // Had the two same-named horizons been conflated — widening the classifier's
+  // window along with the polling one — every early poll of an unpriced slate
+  // would have become `odds-empty-unexpected`, a 502, and an arming backoff, and
+  // System Health would have reported a provider fault caused entirely by this
+  // change. The two constants are independent on purpose.
+  await seedSchedule(Date.now() + 20 * DAY);
+  const counts = installFetch({ odds: { body: [] } });
+  const { res, event } = await runCron();
+
+  assert.equal(res.status, 200);
+  assert.equal(counts.oddsCalls, 1);
+  assert.equal(event.result, 'no-op');
+  assert.equal(event.reason, 'empty-response');
+  assert.equal(event.cadence, 'early');
+
+  const control = await readOddsRefreshControl(SEASON_KEY);
+  assert.equal(control?.automaticFailureCount, 0, 'an expected empty must not arm backoff');
+  assert.equal(control?.automaticNotBefore, null);
+  // ...and it counts as a COMPLETED CHECK, which is what suppresses a repeat for
+  // the next 24 hours and what now keeps the Odds health card out of `stale`.
+  assert.ok(control?.lastCompletedCheckAt, 'a valid no-op advances the completed-check clock');
+});
+
+test('#89g: a book WITHDRAWING a far-out line is a recorded no-op, not a provider fault', async () => {
+  // The follow-up that made polling to 45 days safe to ship.
+  //
+  // Sequence: an early poll commits lines for a game 20 days out; the book later
+  // pulls them; the next daily poll returns `[]` while those rows still match a
+  // future game. The classifier still calls that unexpected — its rule and its
+  // tests are untouched, and it is right that this is worth noticing. What
+  // changed is the CONSEQUENCE: with no game inside the expectation horizon, this
+  // is a book withdrawing a far-out line, which is ordinary. It is recorded, and
+  // it is not a 502, not a backoff, and not a provider fault repeating daily
+  // through preseason.
+  await seedSchedule(Date.now() + 20 * DAY);
+
+  // First poll: lines exist and commit.
+  const first = installFetch({});
+  const seeded = await runCron();
+  assert.equal(seeded.event.result, 'success');
+  assert.equal(first.oddsCalls, 1);
+  const cached = await getAppState<{ data: unknown[]; lastFetch: number }>(
+    'odds-cache',
+    SEASON_KEY
+  );
+  assert.equal(cached?.value.data.length, 1, 'prior lines are now cached');
+
+  // A day passes. BOTH freshness signals must age, not just the control: the
+  // cadence takes the max of the raw observation and the completed check, so
+  // ageing one alone leaves the target correctly not-due and the test would
+  // prove nothing about the second poll.
+  const dayAgo = Date.now() - 25 * H;
+  await setAppState('odds-cache', SEASON_KEY, {
+    ...cached!.value,
+    lastFetch: dayAgo,
+    observedAt: new Date(dayAgo).toISOString(),
+  });
+  __resetOddsRouteCacheForTests(); // ...including the process copy
+  await setAppState('odds-refresh-control', SEASON_KEY, {
+    lease: null,
+    lastCompletedCheckAt: new Date(dayAgo).toISOString(),
+    automaticFailureCount: 0,
+    automaticNotBefore: null,
+  });
+
+  // The book pulls the line.
+  const second = installFetch({ odds: { body: [] } });
+  const { res, event } = await runCron();
+
+  assert.equal(second.oddsCalls, 1);
+  assert.equal(res.status, 200, 'not a 502');
+  assert.equal(event.result, 'no-op');
+  assert.equal(event.reason, 'early-lines-withdrawn', 'recorded under its own reason, not hidden');
+
+  const control = await readOddsRefreshControl(SEASON_KEY);
+  assert.equal(control?.automaticFailureCount, 0, 'no backoff armed');
+  assert.equal(control?.automaticNotBefore, null);
+  // A valid completed check, so the next poll is suppressed for the full day
+  // rather than retrying an outcome that is not an error.
+  assert.ok(control?.lastCompletedCheckAt);
+
+  // The prior lines are RETAINED — absence out here never proves them obsolete.
+  const after = await getAppState<{ data: unknown[] }>('odds-cache', SEASON_KEY);
+  assert.equal(after?.value.data.length, 1, 'unproven-obsolete rows are preserved');
+});
+
+test('#89h: the same disappearance INSIDE the horizon is still a billed fault', async () => {
+  // The other half, and the reason the classifier was left alone: a game three
+  // days out that had lines and now has none is exactly what the earlier slice's
+  // protection is for. Same code path, same classifier verdict, opposite
+  // consequence — the split is on whether any game is near enough to expect
+  // lines, not on how the empty response was produced.
+  await seedSchedule(Date.now() + 3 * DAY);
+
+  const first = installFetch({});
+  const seeded = await runCron();
+  assert.equal(seeded.event.result, 'success');
+  assert.equal(first.oddsCalls, 1);
+  const cached = await getAppState<{ data: unknown[]; lastFetch: number }>(
+    'odds-cache',
+    SEASON_KEY
+  );
+  assert.equal(cached?.value.data.length, 1);
+
+  const dayAgo = Date.now() - 25 * H;
+  await setAppState('odds-cache', SEASON_KEY, {
+    ...cached!.value,
+    lastFetch: dayAgo,
+    observedAt: new Date(dayAgo).toISOString(),
+  });
+  __resetOddsRouteCacheForTests();
+  await setAppState('odds-refresh-control', SEASON_KEY, {
+    lease: null,
+    lastCompletedCheckAt: new Date(dayAgo).toISOString(),
+    automaticFailureCount: 0,
+    automaticNotBefore: null,
+  });
+
+  const second = installFetch({ odds: { body: [] } });
+  const { res, event } = await runCron();
+
+  assert.equal(second.oddsCalls, 1);
+  assert.equal(res.status, 502);
+  assert.equal(event.result, 'failure');
+  assert.equal(event.reason, 'odds-empty-unexpected');
+
+  const control = await readOddsRefreshControl(SEASON_KEY);
+  assert.equal(control?.automaticFailureCount, 1, 'a real fault still arms backoff');
+  assert.ok(control?.automaticNotBefore);
+});

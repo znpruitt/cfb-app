@@ -22,7 +22,14 @@ import type { OddsRefreshReason } from './refreshResult.ts';
 
 export type OddsCronExecutionResult = 'skipped' | 'success' | 'no-op' | 'failure';
 
-export type OddsCronCadence = 'baseline' | 'pregame';
+/**
+ * The staged cadence the pure policy selected, verbatim. `early` (PLATFORM-089)
+ * is a DISTINCT value rather than a second meaning for `baseline`: the two carry
+ * materially different thresholds — 24 hours out beyond the 7-day horizon, 6
+ * hours inside it — and an operator reading a receipt cannot tell a once-a-day
+ * preseason check from a six-hourly in-season one if both say `baseline`.
+ */
+export type OddsCronCadence = 'early' | 'baseline' | 'pregame';
 
 /**
  * The stable route reason vocabulary: the two cron-authentication literals plus

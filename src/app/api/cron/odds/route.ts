@@ -29,7 +29,6 @@ import { executeOddsRefresh } from '@/lib/odds/oddsRefreshExecutor';
 import {
   createOddsCronExecutionState,
   emitOddsCronExecutionEvent,
-  type OddsCronCadence,
   type OddsCronExecutionReason,
   type OddsCronExecutionResult,
   type OddsCronExecutionState,
@@ -58,7 +57,8 @@ export const dynamic = 'force-dynamic';
  * is actually due. One invocation authenticates CRON_SECRET, honors the global
  * pause + Odds dataset toggle, loads the cache-only canonical context, performs
  * cache-only closing-line maintenance, reads durable refresh control + raw-cache
- * freshness, selects no-target / not-due / backoff / baseline / pregame, and — only
+ * freshness, selects no-target / not-due / backoff / early / baseline / pregame,
+ * and — only
  * when due — acquires the exact-target lease, validates the key, runs ONE
  * quota-free `/sports` probe, enforces the 50-credit reserve, and issues AT MOST
  * ONE `/odds` request through the shared execution authority. Every begun attempt
@@ -264,7 +264,10 @@ export async function GET(req: Request): Promise<Response> {
       }
       return finalize(exec, 'skipped', decision.reason);
     }
-    exec.cadence = decision.cadence as OddsCronCadence;
+    // No cast: the policy's cadence union and `OddsCronCadence` are the same set,
+    // and an assignment is what makes a future divergence a compile error rather
+    // than a value the receipt reader would silently reject at runtime.
+    exec.cadence = decision.cadence;
     const requestCost = estimateOddsRequestCost(ODDS_DEFAULT_MARKETS, ODDS_DEFAULT_BOOKMAKERS);
     exec.requestCost = requestCost;
 
@@ -322,7 +325,7 @@ export async function GET(req: Request): Promise<Response> {
       leaseResolution = 'release-only';
       return finalize(exec, 'skipped', recheck.reason);
     }
-    exec.cadence = recheck.cadence as OddsCronCadence;
+    exec.cadence = recheck.cadence;
 
     const scope = oddsTargetScope(context.year, 'canonical', seasonScopedKey);
 
@@ -449,8 +452,13 @@ export async function GET(req: Request): Promise<Response> {
     //     an overstated balance (review remediation — a billed schema-drift/invalid
     //     payload without usage headers previously left the balance unchanged). A
     //     later `/sports` probe corrects any over-deduction on the next run.
+    // Every reason here is an exact-empty provider response, which costs ZERO
+    // credits. `early-lines-withdrawn` (PLATFORM-089) is one: omitting it made
+    // the estimate deduct the full request cost and understate the balance until
+    // the next `/sports` probe corrected it.
     const wasEmptyResponse =
       execution.result.reason === 'empty-response' ||
+      execution.result.reason === 'early-lines-withdrawn' ||
       execution.result.reason === 'odds-empty-unexpected';
     try {
       if (execution.usageFromHeaders) {
