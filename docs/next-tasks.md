@@ -45,9 +45,9 @@ Supersedes: (none)
    gained a durable, app-wide "Decorative raster backgrounds" rule superseding the earlier blanket
    raster prohibition. The deferred HOMEPAGE-BRAND-IDENTITY item below is NOT absorbed by it —
    POLISH-004 was landing art direction, not a logo or an app-wide branding system.
-5. **TURFWAR-WORDMARK-KERNING-CLEANUP-v1 — implemented, pending merge.** One shared-wordmark
-   typography pass: tracking is now `normal` and the `f`/`W` join `0.02em`. Execution record,
-   review, and verification live in `docs/prompt-registry.md`.
+5. ✅ **TURFWAR-WORDMARK-KERNING-CLEANUP-v1 — COMPLETE** (PR #468, `fc77420`, 2026-08-10). One
+   shared-wordmark typography pass: tracking is now `normal` and the `f`/`W` join `0.02em`.
+   Execution record, review, and verification live in `docs/prompt-registry.md`.
 6. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
 7. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
    History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup

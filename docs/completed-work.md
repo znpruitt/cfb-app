@@ -2378,6 +2378,33 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### TURFWAR Wordmark Kerning Cleanup — Complete
+
+- **Status:** Complete — merged to `main` via PR #468 (merge commit `fc77420`), 2026-08-10. Three
+  commits: the typography pass, then two proof-surface remediation rounds.
+- **PROMPT_ID(s):** `TURFWAR-WORDMARK-KERNING-CLEANUP-v1`. Supersedes the treatment shipped by
+  `TURFWAR-HOMEPAGE-WORDMARK-KERNING-v1` and the join rationale in `TURFWAR-APP-WORDMARK-REUSE-v1`.
+- **Outcome:** the shared wordmark reads as one evenly spaced word at every size. `letter-spacing`
+  is `normal` and the `f`/`W` join is `0.02em`, replacing `-0.03em` tracking against a `0.09em` join.
+  No size, layout, copy, font-family, or behaviour change.
+- **THE defect was ONE defect.** The `r`/`f` crowding and the `f`/`W` word-space had a single cause:
+  the UI face kerns `r` → `f` OPEN (+0.023em) because the `r`'s arm and the italic `f` collide
+  without it, and blanket negative tracking applies after every letter, so it cancelled the
+  typeface's own per-pair correction — closing that pair to a 1px pinch at the landing's 96px while
+  its neighbours sat at 5–6px. The oversized join existed only to repay that tracking, and its
+  0.06em net read as a word space. **A global lever cannot fix what a per-pair correction owns.**
+- **Verification:** the values were measured, not tuned — the real font shaped with HarfBuzz so
+  actual GPOS kerning applied, outlines flattened, and the minimum ink-to-ink gap computed for every
+  adjacent pair; candidates were rasterized and compared, and the owner confirmed the render. Gates
+  on `63b0db57`: 3505/3505 tests, `tsc`, `lint:all`, `build`, with the built CSS bundle inspected
+  rather than assumed. Fifteen mutations are pinned against the guards — thirteen defects that must
+  fail, two legitimate stylesheets that must pass.
+- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md` — the
+  `insights-suppression` clock-boundary flake, and the unconsumed `--font-geist-sans` (the app
+  renders in the platform UI face, so the mark's appearance is platform-dependent).
+
+---
+
 ### POLISH-004 — Public Homepage Stadium — Complete
 
 - **Status:** Complete — merged to `main` via PR #466 (merge commit `38f5719`), 2026-08-09. 17

@@ -88,7 +88,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   that no selector form can dodge, and the per-block parse is trusted only to read values. Fifteen
   mutations are recorded against it: thirteen defects that must fail, two legitimate stylesheets that
   must pass.
-- Status: Implemented — pending merge.
+- Status: Merged (PR #468, `fc77420`, 2026-08-10).
 
 ### TURFWAR-APP-WORDMARK-REUSE-v1
 
