@@ -10,6 +10,7 @@ import test from 'node:test';
 import {
   deriveDatasetFreshness,
   deriveSystemHealthPanels,
+  type DatasetFreshness,
   type PanelStatus,
   type SystemHealthPanelKey,
   type SystemHealthPanelsInput,
@@ -71,7 +72,16 @@ function issue(
   };
 }
 
-const ALL_GREEN: PanelStatus[] = ['green', 'green', 'green', 'green', 'green', 'green'];
+/**
+ * A dataset freshness entry for the panel fold. `intentional` is false unless a
+ * test is exercising the PLATFORM-090 expected-absence state, so the pre-existing
+ * fold assertions keep their original meaning.
+ */
+function fresh(status: PanelStatus, intentional = false): DatasetFreshness {
+  return { status, label: `${status} label`, intentional };
+}
+
+const ALL_GREEN: DatasetFreshness[] = PROVIDER_DATASETS.map(() => fresh('green'));
 
 function baseInput(overrides: Partial<SystemHealthPanelsInput> = {}): SystemHealthPanelsInput {
   return {
@@ -119,7 +129,14 @@ test('all-healthy → every panel green (configuration-only labels for automatio
 });
 
 test('provider-data panel folds dataset freshness: an absent-cache row (no issue) → yellow', () => {
-  const freshness: PanelStatus[] = ['green', 'green', 'yellow', 'green', 'green', 'green'];
+  const freshness: DatasetFreshness[] = [
+    fresh('green'),
+    fresh('green'),
+    fresh('yellow'),
+    fresh('green'),
+    fresh('green'),
+    fresh('green'),
+  ];
   const p = panel(baseInput({ datasetFreshness: freshness }), 'provider-data');
   assert.equal(p.status, 'yellow');
   assert.equal(p.stateLabel, 'Attention needed');
@@ -136,7 +153,16 @@ test('overall is a holistic rollup of the sections (never contradicts a tile)', 
   // "all normal" over a yellow tile contradiction).
   assert.equal(
     panel(
-      baseInput({ datasetFreshness: ['green', 'green', 'yellow', 'green', 'green', 'green'] }),
+      baseInput({
+        datasetFreshness: [
+          fresh('green'),
+          fresh('green'),
+          fresh('yellow'),
+          fresh('green'),
+          fresh('green'),
+          fresh('green'),
+        ],
+      }),
       'overall'
     ).status,
     'yellow'
@@ -306,8 +332,9 @@ test('freshness: available cache + no diagnostics → green Current', () => {
     cacheState: 'available',
     diagnosticsAvailable: true,
     diagnostics: [],
+    expectation: 'expected',
   });
-  assert.deepEqual(f, { status: 'green', label: 'Current' });
+  assert.deepEqual(f, { status: 'green', label: 'Current', intentional: false });
 });
 
 test('freshness: conferences available → green Available (availability-only)', () => {
@@ -316,8 +343,9 @@ test('freshness: conferences available → green Available (availability-only)',
     cacheState: 'available',
     diagnosticsAvailable: true,
     diagnostics: [],
+    expectation: 'expected',
   });
-  assert.deepEqual(f, { status: 'green', label: 'Available' });
+  assert.deepEqual(f, { status: 'green', label: 'Available', intentional: false });
 });
 
 test('freshness: a *-cache-stale warning → yellow Stale', () => {
@@ -326,8 +354,9 @@ test('freshness: a *-cache-stale warning → yellow Stale', () => {
     cacheState: 'available',
     diagnosticsAvailable: true,
     diagnostics: [{ severity: 'warning', code: 'rankings-cache-stale' }],
+    expectation: 'expected',
   });
-  assert.deepEqual(f, { status: 'yellow', label: 'Stale' });
+  assert.deepEqual(f, { status: 'yellow', label: 'Stale', intentional: false });
 });
 
 test('freshness: a non-stale warning defect (identity mismatch) → yellow Attention, not Stale', () => {
@@ -336,6 +365,7 @@ test('freshness: a non-stale warning defect (identity mismatch) → yellow Atten
     cacheState: 'available',
     diagnosticsAvailable: true,
     diagnostics: [{ severity: 'warning', code: 'game-stats-identity-mismatch' }],
+    expectation: 'expected',
   });
   assert.equal(f.status, 'yellow');
   assert.equal(f.label, 'Attention');
@@ -347,8 +377,9 @@ test('freshness: an unavailable-evidence warning → gray Unknown, not Stale', (
     cacheState: 'available',
     diagnosticsAvailable: true,
     diagnostics: [{ severity: 'warning', code: 'game-stats-diagnostics-unavailable' }],
+    expectation: 'expected',
   });
-  assert.deepEqual(f, { status: 'gray', label: 'Unknown' });
+  assert.deepEqual(f, { status: 'gray', label: 'Unknown', intentional: false });
 });
 
 test('freshness: diagnostics subsystem unavailable → gray Unknown (even with cache present)', () => {
@@ -357,8 +388,9 @@ test('freshness: diagnostics subsystem unavailable → gray Unknown (even with c
     cacheState: 'available',
     diagnosticsAvailable: false,
     diagnostics: [],
+    expectation: 'expected',
   });
-  assert.deepEqual(f, { status: 'gray', label: 'Unknown' });
+  assert.deepEqual(f, { status: 'gray', label: 'Unknown', intentional: false });
 });
 
 test('freshness: an error diagnostic → red Missing', () => {
@@ -367,6 +399,7 @@ test('freshness: an error diagnostic → red Missing', () => {
     cacheState: 'absent',
     diagnosticsAvailable: true,
     diagnostics: [{ severity: 'error', code: 'schedule-cache-missing' }],
+    expectation: 'expected',
   });
   assert.equal(f.status, 'red');
   assert.equal(f.label, 'Missing');
@@ -378,8 +411,9 @@ test('freshness: absent cache + no diagnostics → yellow No cached data', () =>
     cacheState: 'absent',
     diagnosticsAvailable: true,
     diagnostics: [],
+    expectation: 'expected',
   });
-  assert.deepEqual(f, { status: 'yellow', label: 'No cached data' });
+  assert.deepEqual(f, { status: 'yellow', label: 'No cached data', intentional: false });
 });
 
 test('freshness: unknown cache + no diagnostics → gray Unknown', () => {
@@ -388,8 +422,9 @@ test('freshness: unknown cache + no diagnostics → gray Unknown', () => {
     cacheState: 'unknown',
     diagnosticsAvailable: true,
     diagnostics: [],
+    expectation: 'expected',
   });
-  assert.deepEqual(f, { status: 'gray', label: 'Unknown' });
+  assert.deepEqual(f, { status: 'gray', label: 'Unknown', intentional: false });
 });
 
 // ---------------------------------------------------------------------------
@@ -474,4 +509,110 @@ test('a real provider fault keeps the Provider data detail line', () => {
     'rankings refresh failed',
     'the provider tile reports the provider fault, not the lifecycle one'
   );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-090 — expected absence is NEUTRAL; unexpected absence still warns.
+//
+// Game stats cannot exist before a stat-producing slate has been played, so in
+// the preseason the dataset's cache is correctly absent, the canonical
+// diagnostics correctly emit nothing, and the row nevertheless rendered a yellow
+// "No cached data" that propagated into Provider data → Overall. These lock the
+// distinction the fix introduces, in BOTH directions.
+// ---------------------------------------------------------------------------
+
+// REGRESSION TEST — pre-fix this branch returned `{ yellow, 'No cached data' }`
+// for every absent cache regardless of expectation.
+test('freshness: absent cache the lifecycle does NOT yet expect → gray Awaiting games (intentional)', () => {
+  const f = deriveDatasetFreshness({
+    dataset: 'game-stats',
+    cacheState: 'absent',
+    diagnosticsAvailable: true,
+    diagnostics: [],
+    expectation: 'not-yet-expected',
+  });
+  assert.deepEqual(f, { status: 'gray', label: 'Awaiting games', intentional: true });
+  // Never green: green must keep meaning positive, present evidence.
+  assert.notEqual(f.status, 'green');
+});
+
+test('freshness: absent cache whose expectation is UNKNOWN keeps the actionable warning', () => {
+  const f = deriveDatasetFreshness({
+    dataset: 'game-stats',
+    cacheState: 'absent',
+    diagnosticsAvailable: true,
+    diagnostics: [],
+    expectation: 'unknown',
+  });
+  assert.deepEqual(f, { status: 'yellow', label: 'No cached data', intentional: false });
+});
+
+test('freshness: an UNREADABLE cache is never reported as expected absence', () => {
+  const f = deriveDatasetFreshness({
+    dataset: 'game-stats',
+    cacheState: 'unknown',
+    diagnosticsAvailable: true,
+    diagnostics: [],
+    expectation: 'not-yet-expected',
+  });
+  assert.deepEqual(f, { status: 'gray', label: 'Unknown', intentional: false });
+});
+
+test('freshness: expectation never softens a diagnostic-derived state', () => {
+  // An error outranks the absent-cache branch entirely...
+  assert.deepEqual(
+    deriveDatasetFreshness({
+      dataset: 'game-stats',
+      cacheState: 'absent',
+      diagnosticsAvailable: true,
+      diagnostics: [{ severity: 'error', code: 'schedule-cache-missing' }],
+      expectation: 'not-yet-expected',
+    }),
+    { status: 'red', label: 'Missing', intentional: false }
+  );
+  // ...as does a warning.
+  assert.deepEqual(
+    deriveDatasetFreshness({
+      dataset: 'game-stats',
+      cacheState: 'absent',
+      diagnosticsAvailable: true,
+      diagnostics: [{ severity: 'warning', code: 'game-stats-record-unservable' }],
+      expectation: 'not-yet-expected',
+    }),
+    { status: 'yellow', label: 'Attention', intentional: false }
+  );
+});
+
+// REGRESSION TEST — pre-fix the fold mapped EVERY gray row to yellow, so an
+// expected-absence row (had one existed) would still have degraded the panel.
+test('provider-data panel: an INTENTIONAL gray row does not degrade the panel', () => {
+  const freshness = [...ALL_GREEN];
+  freshness[5] = { status: 'gray', label: 'Awaiting games', intentional: true };
+  const p = panel(baseInput({ datasetFreshness: freshness }), 'provider-data');
+  assert.equal(p.status, 'green');
+  assert.equal(p.stateLabel, 'Healthy');
+});
+
+test('provider-data panel: an UNKNOWN gray row still contributes yellow', () => {
+  const freshness = [...ALL_GREEN];
+  freshness[5] = { status: 'gray', label: 'Unknown', intentional: false };
+  const p = panel(baseInput({ datasetFreshness: freshness }), 'provider-data');
+  assert.equal(p.status, 'yellow');
+  assert.equal(p.stateLabel, 'Attention needed');
+});
+
+test('overall: an intentional-gray dataset row alone leaves Overall healthy', () => {
+  const freshness = [...ALL_GREEN];
+  freshness[5] = { status: 'gray', label: 'Awaiting games', intentional: true };
+  const p = panel(baseInput({ datasetFreshness: freshness }), 'overall');
+  assert.equal(p.status, 'green');
+  assert.equal(p.stateLabel, 'Healthy');
+});
+
+test('overall: a genuine yellow elsewhere still dominates an intentional gray', () => {
+  const freshness = [...ALL_GREEN];
+  freshness[0] = fresh('yellow');
+  freshness[5] = { status: 'gray', label: 'Awaiting games', intentional: true };
+  assert.equal(panel(baseInput({ datasetFreshness: freshness }), 'provider-data').status, 'yellow');
+  assert.equal(panel(baseInput({ datasetFreshness: freshness }), 'overall').status, 'yellow');
 });

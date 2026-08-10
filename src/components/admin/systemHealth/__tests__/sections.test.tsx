@@ -17,6 +17,7 @@ import {
   type SystemHealthLoaders,
 } from '@/lib/server/systemHealth';
 import {
+  allExpectations,
   deliveryRow,
   deliverySnapshot,
   healthyDelivery,
@@ -61,6 +62,7 @@ function diagnostics(
     year: YEAR,
     generatedAt: new Date(NOW).toISOString(),
     diagnostics: list,
+    expectations: allExpectations(),
     scoreSeasonTypes: ['regular'],
   };
 }
@@ -221,6 +223,47 @@ test('provider renders 6 rows with freshness, outcome, automation as separate fa
     !/\/admin\/(data\/cache|season|aliases)/.test(html),
     'provider rows carry no repair links'
   );
+});
+
+// PLATFORM-090 — the Game stats row renders the neutral lifecycle state (gray
+// dot + "Awaiting games"), not the yellow "No cached data" warning, when the
+// canonical authority says no evidence is expected yet.
+test('provider Game stats row renders expected absence as neutral, not a warning', async () => {
+  const model = await buildModel({
+    cacheStates: () => Promise.resolve({ ...cacheStates('available'), 'game-stats': 'absent' }),
+    diagnostics: () =>
+      Promise.resolve({
+        ...diagnostics([]),
+        expectations: allExpectations('expected', { 'game-stats': 'not-yet-expected' }),
+      }),
+  });
+  const row = model.datasets.find((d) => d.dataset === 'game-stats')!;
+  assert.equal(row.freshness.status, 'gray');
+  const html = renderToStaticMarkup(
+    <ProviderHealthSection
+      datasets={model.datasets}
+      automation={model.automation}
+      year={model.year}
+      nowMs={NOW}
+    />
+  );
+  assert.ok(html.includes('Awaiting games'), 'the row states that absence is expected');
+  assert.ok(!html.includes('No cached data'), 'no dataset renders the absence warning');
+  // POSITIVE CONTROL — the same harness DOES render the warning when the
+  // expectation is ordinary, so the assertion above is not vacuous.
+  const warned = await buildModel({
+    cacheStates: () => Promise.resolve({ ...cacheStates('available'), 'game-stats': 'absent' }),
+  });
+  const warnedHtml = renderToStaticMarkup(
+    <ProviderHealthSection
+      datasets={warned.datasets}
+      automation={warned.automation}
+      year={warned.year}
+      nowMs={NOW}
+    />
+  );
+  assert.ok(warnedHtml.includes('No cached data'), 'positive control: the warning still renders');
+  assert.ok(!warnedHtml.includes('Awaiting games'));
 });
 
 test('scheduler execution column distinguishes missing / invalid / unavailable receipts', async () => {

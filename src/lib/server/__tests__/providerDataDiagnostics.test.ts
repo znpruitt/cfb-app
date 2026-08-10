@@ -1453,3 +1453,160 @@ test('PLATFORM-089: a corrupt receipt fails closed to the entry-based rule', asy
     'an unparseable receipt proves nothing; the ordinary rule applies'
   );
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-090 — the published game-stats EXPECTATION.
+//
+// The diagnostics already decide whether evidence should exist (that is what
+// gates every missing-evidence branch above); before this task that decision was
+// never published, so System Health could not tell an expected preseason absence
+// from a real gap and rendered a permanent yellow "No cached data". These pin
+// the decision to the SAME canonical inputs the diagnostics use — never the
+// calendar, a cache age, or a kickoff-proximity guess.
+// ---------------------------------------------------------------------------
+
+test('PLATFORM-090: a schedule of only FUTURE games expects no game stats yet', async () => {
+  await seedScheduleItems([
+    {
+      id: '201',
+      week: 1,
+      seasonType: 'regular',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+  ]);
+  const { diagnostics, expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(expectations['game-stats'], 'not-yet-expected');
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'game-stats'),
+    undefined,
+    'a scheduled-only season must not produce a game-stats diagnostic'
+  );
+});
+
+test('PLATFORM-090: a slate UNDERWAY but not yet complete expects no game stats yet', async () => {
+  // The Thursday game is old, the Saturday game kicked off ~2.5h ago: the
+  // whole-slate 6h completion threshold has not been crossed.
+  await seedScheduleItems([
+    {
+      id: '202',
+      week: 7,
+      seasonType: 'regular',
+      startDate: THURSDAY_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: '203',
+      week: 7,
+      seasonType: 'regular',
+      startDate: SATURDAY_STILL_LIVE,
+      status: 'STATUS_IN_PROGRESS',
+      homeTeam: 'Gamma',
+      awayTeam: 'Delta',
+    },
+  ]);
+  const { diagnostics, expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(expectations['game-stats'], 'not-yet-expected');
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'game-stats'),
+    undefined
+  );
+});
+
+test('PLATFORM-090: a completed stat-producing slate with no evidence expects game stats', async () => {
+  await seedSchedule();
+  const { diagnostics, expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(expectations['game-stats'], 'expected');
+  // The existing actionable warning is preserved, unweakened.
+  const missing = diagnostics.find((d) => d.code === 'game-stats-latest-slate-missing');
+  assert.ok(missing, 'a genuinely missing completed slate must still warn');
+  assert.equal(missing!.severity, 'warning');
+});
+
+test('PLATFORM-090: a completed slate WITH full evidence still expects game stats', async () => {
+  await seedSchedule();
+  await setAppState('game-stats', `${YEAR}:1:regular`, {
+    year: YEAR,
+    week: 1,
+    seasonType: 'regular',
+    fetchedAt: new Date(NOW).toISOString(),
+    games: [satisfiedRow(101)],
+  });
+  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  // Expectation is about whether evidence SHOULD exist, not whether it does.
+  assert.equal(expectations['game-stats'], 'expected');
+});
+
+test('PLATFORM-090: a completed slate whose every game is disrupted expects nothing', async () => {
+  await seedScheduleItems([
+    {
+      id: '204',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'Canceled',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: '205',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'Postponed',
+      homeTeam: 'Echo',
+      awayTeam: 'Foxtrot',
+    },
+  ]);
+  const { diagnostics, expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(expectations['game-stats'], 'not-yet-expected');
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'game-stats'),
+    undefined
+  );
+});
+
+test('PLATFORM-090: no cached schedule → expectation UNKNOWN, never expected absence', async () => {
+  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    expectations['game-stats'],
+    'unknown',
+    'the schedule is the source of truth; an absent one proves nothing about expectation'
+  );
+});
+
+test('PLATFORM-090: an unservable stored record → expectation UNKNOWN and the warning stands', async () => {
+  await seedSchedule();
+  // A structurally invalid envelope for the completed partition: coverage is
+  // never evaluated for it, so nothing proves what the slate expected.
+  await setAppState('game-stats', `${YEAR}:1:regular`, { year: YEAR, games: 'not-an-array' });
+  const { diagnostics, expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(expectations['game-stats'], 'unknown');
+  assert.ok(
+    diagnostics.find((d) => d.code === 'game-stats-record-unservable'),
+    'a malformed record must keep warning'
+  );
+});
+
+test('PLATFORM-090: every non-game-stats dataset keeps an unconditional expectation', async () => {
+  await seedScheduleItems([
+    {
+      id: '206',
+      week: 1,
+      seasonType: 'regular',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+  ]);
+  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  for (const [dataset, expectation] of Object.entries(expectations)) {
+    if (dataset === 'game-stats') continue;
+    assert.equal(expectation, 'expected', `${dataset} must keep its existing absence semantics`);
+  }
+});

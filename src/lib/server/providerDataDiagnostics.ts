@@ -30,7 +30,7 @@ import {
   isDisruptedStatusLabel,
 } from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
-import type { ProviderDataset } from '../providerDatasets.ts';
+import { PROVIDER_DATASETS, type ProviderDataset } from '../providerDatasets.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
 
 /**
@@ -92,10 +92,45 @@ export type ProviderDiagnostic = {
   repair: ProviderDiagnosticRepairSurface | null;
 };
 
+/**
+ * PLATFORM-090 — whether canonical schedule/slate semantics say a dataset's
+ * evidence SHOULD EXIST yet.
+ *
+ *   expected        → canonical semantics require evidence now; an absent cache
+ *                     is an actionable gap (the ordinary case)
+ *   not-yet-expected→ nothing has happened that would produce this data, so an
+ *                     absent cache is a healthy lifecycle state, not a fault
+ *   unknown         → the inputs that would decide it could not be read; never
+ *                     assert expected absence from an unreadable input
+ *
+ * This is the SAME decision the game-stats diagnostics already make when they
+ * choose whether to emit a missing-evidence diagnostic — published so the
+ * System Health presentation can distinguish expected from unexpected absence
+ * instead of inferring it. It is NOT a redefinition of cache availability:
+ * `game-stats` is the only dataset whose data cannot exist before a lifecycle
+ * condition occurs, so every other dataset is `expected` by construction.
+ */
+export type ProviderDataExpectation = 'expected' | 'not-yet-expected' | 'unknown';
+
+export type ProviderDataExpectations = Record<ProviderDataset, ProviderDataExpectation>;
+
+/** A conservative all-`unknown` map, for when the diagnostics pass itself fails. */
+export function unknownProviderDataExpectations(): ProviderDataExpectations {
+  return PROVIDER_DATASETS.reduce((acc, dataset) => {
+    acc[dataset] = 'unknown';
+    return acc;
+  }, {} as ProviderDataExpectations);
+}
+
 export type ProviderDataDiagnosticsResult = {
   year: number;
   generatedAt: string;
   diagnostics: ProviderDiagnostic[];
+  /**
+   * PLATFORM-090 — per-dataset evidence expectation (see above). Derived from
+   * the canonical schedule/slate authorities only; never from the calendar.
+   */
+  expectations: ProviderDataExpectations;
   /**
    * Score season-types worth a manual refresh for this year, derived cache-only
    * from the canonical schedule (rereview finding #1). Postseason is included
@@ -315,6 +350,31 @@ export async function getProviderDataDiagnostics(
 
   const completedSlates = deriveCompletedSlates(scheduleItems, now);
 
+  /**
+   * PLATFORM-090 — the game-stats EXPECTATION, decided by exactly the inputs
+   * that gate the missing-evidence diagnostics below, so the row a health panel
+   * renders can never disagree with whether a diagnostic could fire.
+   *
+   *   no readable schedule    → `unknown` (the schedule is the source of truth;
+   *                             an unread one proves nothing about expectation)
+   *   no completed slate      → `not-yet-expected` (preseason, a scheduled-only
+   *                             season, or a slate still underway: the 6h
+   *                             whole-slate completion threshold owns this)
+   *   completed slate(s)      → `expected` once the canonical slate/evidence
+   *                             authority expects ≥1 stat-producing game in one
+   *                             of them; a disrupted-only completed slate
+   *                             expects nothing and stays `not-yet-expected`
+   *
+   * It is never derived from the calendar, a cache age, or a kickoff-proximity
+   * guess — the same canonical semantics, or nothing.
+   */
+  let gameStatsExpectation: ProviderDataExpectation =
+    scheduleItems.length === 0
+      ? 'unknown'
+      : completedSlates.length === 0
+        ? 'not-yet-expected'
+        : 'unknown';
+
   // ---- Scores: completed slates lacking any cached TERMINAL score ----
   try {
     if (completedSlates.length > 0) {
@@ -413,6 +473,11 @@ export async function getProviderDataDiagnostics(
         // NO repair path (AGENTS.md game-stats deferral), so its diagnostic must
         // not offer a known-ineffective Data Maintenance action.
         let partialRepairable = false;
+        // PLATFORM-090 — how many stat-producing games the canonical authority
+        // expects across every completed slate. This is the coverage
+        // denominator the diagnostics already compute; zero of them is exactly
+        // the condition under which no missing-evidence diagnostic can fire.
+        let expectedGames = 0;
 
         for (const slate of completedSlates) {
           // Raw durable read + the ONE shared envelope validation: only an
@@ -450,6 +515,7 @@ export async function getProviderDataDiagnostics(
           // Zero expected stat-producing games (e.g. entirely disrupted): not
           // applicable — never a missing warning.
           if (coverage.games.length === 0) continue;
+          expectedGames += coverage.games.length;
 
           const count = (state: string): number =>
             coverage.games.filter((g) => g.decision.state === state).length;
@@ -497,6 +563,13 @@ export async function getProviderDataDiagnostics(
               `${manualOnly > 0 ? `, ${manualOnly} manual-only` : ''}`
           );
         }
+
+        // PLATFORM-090 — an unservable slate was skipped BEFORE its coverage
+        // could be evaluated, so with no expected game proven elsewhere the
+        // expectation is genuinely unknown, not "nothing is expected". A
+        // malformed record must never read as a healthy lifecycle state.
+        gameStatsExpectation =
+          expectedGames > 0 ? 'expected' : unservable.length > 0 ? 'unknown' : 'not-yet-expected';
 
         if (missing.length > 0) {
           const latest = completedSlates[0];
@@ -578,6 +651,8 @@ export async function getProviderDataDiagnostics(
       }
     }
   } catch (error) {
+    // PLATFORM-090 — the pass that would decide expectation did not finish.
+    gameStatsExpectation = 'unknown';
     push(
       'game-stats',
       'warning',
@@ -711,6 +786,12 @@ export async function getProviderDataDiagnostics(
     year,
     generatedAt: new Date(now).toISOString(),
     diagnostics,
+    // Only `game-stats` has a lifecycle condition its data cannot precede; every
+    // other dataset's absence stays actionable exactly as before (PLATFORM-090).
+    expectations: PROVIDER_DATASETS.reduce((acc, dataset) => {
+      acc[dataset] = dataset === 'game-stats' ? gameStatsExpectation : 'expected';
+      return acc;
+    }, {} as ProviderDataExpectations),
     scoreSeasonTypes: deriveApplicableScoreSeasonTypes(scheduleItems),
   };
 }

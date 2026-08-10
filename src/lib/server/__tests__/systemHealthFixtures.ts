@@ -6,6 +6,10 @@
 
 import type { ProviderCacheStates } from '../providerCacheState.ts';
 import type {
+  ProviderDataExpectation,
+  ProviderDataExpectations,
+} from '../providerDataDiagnostics.ts';
+import type {
   CanonicalRefreshFact,
   LatestScopedActivityFact,
   ProviderRefreshHealthRow,
@@ -263,6 +267,20 @@ export function allCache(availability: ProviderCacheStates[ProviderDataset]): Pr
   const states = {} as ProviderCacheStates;
   for (const dataset of PROVIDER_DATASETS) states[dataset] = availability;
   return states;
+}
+
+/**
+ * PLATFORM-090 — a per-dataset expectation map. The default is `expected` for
+ * every dataset (the ordinary in-season case, and the pre-090 behavior), with an
+ * optional override for the one dataset a test is exercising.
+ */
+export function allExpectations(
+  base: ProviderDataExpectation = 'expected',
+  overrides: Partial<ProviderDataExpectations> = {}
+): ProviderDataExpectations {
+  const expectations = {} as ProviderDataExpectations;
+  for (const dataset of PROVIDER_DATASETS) expectations[dataset] = base;
+  return { ...expectations, ...overrides };
 }
 
 export function emptyDiagnostics(): DiagnosticsFact {

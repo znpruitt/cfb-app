@@ -24,7 +24,9 @@ import {
 } from './providerCacheState.ts';
 import {
   getProviderDataDiagnostics,
+  unknownProviderDataExpectations,
   type ProviderDataDiagnosticsResult,
+  type ProviderDataExpectations,
 } from './providerDataDiagnostics.ts';
 import {
   readProviderRefreshHealth,
@@ -360,6 +362,12 @@ export async function buildSystemHealthViewModel(params: {
   // Datasets (with server-derived freshness) are computed BEFORE the panels so
   // the provider-data panel can fold per-dataset freshness into its status.
   const diagnosticsAvailable = diagnostics.state === 'available';
+  // PLATFORM-090 — the canonical expectation the diagnostics authority derived.
+  // A failed diagnostics pass yields all-`unknown`, so expected absence is never
+  // asserted from an input that could not be read.
+  const expectations: ProviderDataExpectations = diagR.ok
+    ? diagR.value.expectations
+    : unknownProviderDataExpectations();
   const datasets: ProviderDatasetHealthRow[] = providerRefresh.rows.map((row) => {
     const datasetDiagnostics = diagnosticsAvailable
       ? diagnostics.diagnostics.filter((diag) => diag.dataset === row.dataset)
@@ -376,6 +384,7 @@ export async function buildSystemHealthViewModel(params: {
         cacheState: cacheStates[row.dataset],
         diagnosticsAvailable,
         diagnostics: datasetDiagnostics,
+        expectation: expectations[row.dataset],
       }),
       diagnostics: datasetDiagnostics,
     };
@@ -387,7 +396,7 @@ export async function buildSystemHealthViewModel(params: {
     automation,
     quota,
     storage,
-    datasetFreshness: datasets.map((d) => d.freshness.status),
+    datasetFreshness: datasets.map((d) => d.freshness),
   });
 
   return {
