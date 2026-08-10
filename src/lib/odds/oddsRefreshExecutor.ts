@@ -32,7 +32,12 @@ import type { DurableOddsRecord } from '../odds.ts';
 import type { AppGame } from '../schedule.ts';
 import type { TeamIdentityResolver } from '../teamIdentity.ts';
 import { withAppStateKeyTransaction } from '../server/appStateStore.ts';
-import { classifyEmptyOddsResponse, type OddsScheduleEvidenceItem } from './emptyOddsClassifier.ts';
+import {
+  classifyEmptyOddsResponse,
+  ODDS_EXPECTED_KICKOFF_HORIZON_MS,
+  type OddsScheduleEvidenceItem,
+} from './emptyOddsClassifier.ts';
+import { isDisruptedStatusLabel } from '../gameStatus.ts';
 import { loadCachedScheduleItems } from '../server/canonicalScheduleCache.ts';
 import { getScopedAliasMap } from '../server/globalAliasStore.ts';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '../teamIdentity.ts';
@@ -250,12 +255,30 @@ async function commitEmptyOddsRefresh(params: {
           kind: 'unexpected-empty',
           nearHorizonGameCount: classification.nearHorizonGameCount,
           priorUpcomingEventCount: classification.priorUpcomingEventCount,
-          // The same condition the classifier calls `reconcilable`.
+          // The same condition the classifier calls `reconcilable`, AND no game
+          // near enough to expect lines at all.
+          //
+          // The second half is not redundant with `nearHorizonGameCount`. That
+          // count only includes games whose BOTH labels resolve to real teams, so
+          // a bowl slot inside 7 days still reading "Winner of …" contributes
+          // zero — and a genuine provider drop would then be waved through as a
+          // benign withdrawal. Whether a label has resolved says nothing about
+          // whether the date is near, so nearness is asked separately and
+          // unconditionally here.
           expectationEvidenceAvailable:
             isCanonical &&
             evidence.scheduleItems !== null &&
             evidence.scheduleItems.length > 0 &&
-            evidence.resolver !== null,
+            evidence.resolver !== null &&
+            !evidence.scheduleItems.some((item) => {
+              if (isDisruptedStatusLabel(item.status)) return false;
+              const startMs = item.startDate === null ? Number.NaN : Date.parse(item.startDate);
+              return (
+                Number.isFinite(startMs) &&
+                startMs > Date.now() &&
+                startMs - Date.now() <= ODDS_EXPECTED_KICKOFF_HORIZON_MS
+              );
+            }),
           entry: priorEntry ?? memoryEntry,
         };
       }

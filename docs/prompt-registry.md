@@ -75,10 +75,22 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   permanently at one no-op per day. The premise was also false: an unchanged non-empty payload still
   commits a fresh `lastFetch`. Owner decided to drop it; freshness stays on the cache entry, per
   binding invariant 1, with no amendment needed.
-- Review / verification: both reviewers ran against `1e6fd2e5` (two earlier attempts died — one API
-  error, one silent hang). Six findings, all reproduced before acceptance, one remediation round.
-  Gates re-run per commit. Mutation-checked throughout, including a guard against re-introducing the
-  removed freshness rule.
+- Review / verification: reviewed TWICE — against `1e6fd2e5` (6 findings) and again against
+  `9fa332be` after the authorized follow-up (6 more; both reviewers independently found the quota
+  one). Every finding reproduced before acceptance; one remediation round each. **Tooling note: five
+  review launches died first — two `/code-review` (API error, 600 s stall) and two Codex (a 17 h and
+  a 2 h hang, both cancelled). A hung run looks identical to a working one in its log; the tell is
+  log MTIME plus near-zero CPU, not log contents.** Gates re-run per commit; mutation-checked
+  throughout, including guards against re-introducing both removed rules.
+- **The staleness warning came back in a new channel, and that is the subtlest thing here.** After
+  the withdrawal downgrade the cache entry never advances, so `odds-cache-stale` fired daily with no
+  operator action available — the same false alarm, moved from the provider-fault channel to the
+  staleness channel, and produced by the fix for it. Health now suppresses it on the durable
+  scheduler receipt's REASON (`no-op / early-lines-withdrawn`, same-year, expiring on the staleness
+  clock), never on "a check completed": the sibling `empty-response` no-op leaves the entry untouched
+  too, but there the served rows are unverified and the warning is right. That distinction is the
+  whole reason the broader rule was rejected earlier, and a mutation collapsing the two fails a named
+  test.
 - **A second change was authorized mid-review and shipped WITH this one, because polling to 45 days
   is not safe without it.** The widened horizon makes the empty-payload classifier reachable from
   automation, where a book WITHDRAWING a far-out line reads as a provider regression: a billed 502,

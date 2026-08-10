@@ -452,8 +452,13 @@ export async function GET(req: Request): Promise<Response> {
     //     an overstated balance (review remediation — a billed schema-drift/invalid
     //     payload without usage headers previously left the balance unchanged). A
     //     later `/sports` probe corrects any over-deduction on the next run.
+    // Every reason here is an exact-empty provider response, which costs ZERO
+    // credits. `early-lines-withdrawn` (PLATFORM-089) is one: omitting it made
+    // the estimate deduct the full request cost and understate the balance until
+    // the next `/sports` probe corrected it.
     const wasEmptyResponse =
       execution.result.reason === 'empty-response' ||
+      execution.result.reason === 'early-lines-withdrawn' ||
       execution.result.reason === 'odds-empty-unexpected';
     try {
       if (execution.usageFromHeaders) {

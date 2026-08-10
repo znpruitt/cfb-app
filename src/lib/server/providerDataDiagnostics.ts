@@ -19,6 +19,10 @@ import { validateGameStatsEnvelope } from '../gameStats/publicProjection.ts';
 import type { WeeklyGameStats } from '../gameStats/types.ts';
 import { deriveApplicableScoreSeasonTypes } from './scoreApplicability.ts';
 import { loadCachedScheduleItems } from './canonicalScheduleCache.ts';
+import {
+  parseSchedulerExecutionReceipt,
+  SCHEDULER_EXECUTION_STATUS_SCOPE,
+} from './schedulerExecutionStatus.ts';
 import { isWithinEarlyOddsPollingHorizon } from '../odds/pollingPolicy.ts';
 import {
   classifyStatusLabel,
@@ -153,6 +157,44 @@ function deriveCompletedSlates(items: ScheduleCacheEntry['items'], now: number):
   return [...latestByKey.values()]
     .filter((slate) => slate.latestKickoff <= now - SLATE_COMPLETE_AFTER_MS)
     .sort((a, b) => b.latestKickoff - a.latestKickoff);
+}
+
+/**
+ * Whether the LAST automatic Odds run confirmed the provider simply has no lines
+ * for this season right now — `no-op / early-lines-withdrawn`, recent enough to
+ * still describe the current state.
+ *
+ * This is the ONE case where an unmoving cache entry does not mean maintenance is
+ * behind. The provider was asked, answered "nothing", and the prior rows were
+ * retained by policy rather than by neglect, so the entry's timestamp cannot
+ * advance no matter how healthy the loop is. Without this the Odds card warns
+ * every day of a preseason book withdrawal, with no operator action that clears
+ * it — the standing false alarm PLATFORM-089 exists to remove, relocated from the
+ * provider-fault channel to the staleness channel.
+ *
+ * DELIBERATELY NARROW, keyed on the REASON rather than on "a check completed".
+ * The sibling no-op — `empty-response` over rows that could not be proven
+ * obsolete — leaves the entry untouched too, but there the served data really is
+ * unverified and the warning is right. Reading `lastCompletedCheckAt` alone
+ * cannot tell them apart, which is exactly why that broader rule was rejected.
+ *
+ * Fail-closed at every step: no receipt, an unparseable one, a different job,
+ * another year, or any other reason ⇒ the ordinary entry-based rule applies.
+ */
+async function providerConfirmedNoLines(year: number, now: number): Promise<boolean> {
+  try {
+    const record = await getAppState<unknown>(SCHEDULER_EXECUTION_STATUS_SCOPE, 'odds');
+    const receipt = parseSchedulerExecutionReceipt(record?.value, 'odds', now);
+    if (!receipt) return false;
+    if (receipt.result !== 'no-op' || receipt.reason !== 'early-lines-withdrawn') return false;
+    if (receipt.target.kind !== 'odds' || receipt.target.year !== year) return false;
+    const completedMs = Date.parse(receipt.completedAt);
+    // The confirmation expires on the SAME clock as staleness: once it is older
+    // than a snapshot would be allowed to be, it no longer describes now.
+    return Number.isFinite(completedMs) && now - completedMs <= STALE_ODDS_AFTER_MS;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -645,7 +687,7 @@ export async function getProviderDataDiagnostics(
       );
     } else if (await hasPollableOddsTarget(year, scheduleItems, now)) {
       const ageMs = snapshotMs === null ? Number.POSITIVE_INFINITY : now - snapshotMs;
-      if (ageMs > STALE_ODDS_AFTER_MS) {
+      if (ageMs > STALE_ODDS_AFTER_MS && !(await providerConfirmedNoLines(year, now))) {
         push(
           'odds',
           'warning',
