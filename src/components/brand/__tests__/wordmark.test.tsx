@@ -123,17 +123,31 @@ function treatment(): string {
   );
 }
 
-/** A declared length in em; `normal`/absent reads as 0. Throws on any other unit. */
-function em(css: string, rule: string, prop: string): number {
-  const block = css.match(new RegExp(`\\.${rule}\\s*\\{([^}]*)\\}`));
-  if (!block) return 0;
-  const decl = block[1].match(new RegExp(`${prop}:\\s*([^;]+)`));
-  if (!decl) return 0;
-  const value = decl[1].trim();
-  if (value === 'normal' || value === '0') return 0;
-  const number = value.match(/^(-?[\d.]+)em$/);
-  assert.ok(number, `${rule} { ${prop} } must be em-based for scale invariance; got ${value}`);
-  return Number(number[1]);
+/**
+ * EVERY declared value of `prop` under `.rule`, in document order, in em.
+ *
+ * Every one, not the first: a second `.wordmark` block — a media query, a
+ * dark-mode variant — wins the cascade over the block above it, so reading only
+ * the first lets an override reintroduce exactly what these tests forbid. The
+ * assertions below hold for ALL declared values rather than modelling which one
+ * a given viewport resolves to; a guard should not have to simulate a cascade.
+ *
+ * An empty result means the property is NOT DECLARED, which is never the same as
+ * declaring zero — an undeclared `letter-spacing` inherits, and inherited
+ * tracking is the thing being guarded against. Callers must reject `[]`
+ * explicitly; nothing here defaults it to a passing value.
+ */
+function declaredEm(css: string, rule: string, prop: string): number[] {
+  const blocks = [...css.matchAll(new RegExp(`\\.${rule}\\s*\\{([^}]*)\\}`, 'g'))];
+  return blocks.flatMap((block) =>
+    [...block[1].matchAll(new RegExp(`${prop}:\\s*([^;]+)`, 'g'))].map((decl) => {
+      const value = decl[1].trim();
+      if (value === 'normal' || value === '0') return 0;
+      const number = value.match(/^(-?[\d.]+)em$/);
+      assert.ok(number, `${rule} { ${prop} } must be em-based for scale invariance; got ${value}`);
+      return Number(number[1]);
+    })
+  );
 }
 
 test('the shared treatment stays scale-invariant', () => {
@@ -145,10 +159,21 @@ test('the shared treatment stays scale-invariant', () => {
   // One set of declarations serves a 96px landing mark and a 24px interior
   // header. An absolute length is the regression: it would be tuned at one size
   // and wrong at the other, with no failure at the size it was tuned for.
-  assert.ok(
-    !/:\s*-?[\d.]+(px|rem|pt|ch|vw|vh)\b/.test(css),
-    'the treatment declares no absolute lengths'
-  );
+  //
+  // Scanned per DECLARATION VALUE, not per character-after-the-colon: a
+  // shorthand (`margin: 0 0 0 2px`) overrides the em join with a fixed length
+  // and would otherwise slip past — the regression this test is named for,
+  // hiding in the one syntax the check could not see.
+  const absolute =
+    /(?:^|[\s(,])-?\d*\.?\d+(px|pt|pc|in|cm|mm|q|ch|ex|rem|vw|vh|vmin|vmax|lh|%)(?![a-z%])/i;
+  for (const declaration of css.split(';')) {
+    const [prop, ...rest] = declaration.split(':');
+    const value = rest.join(':');
+    assert.ok(
+      !absolute.test(value),
+      `the treatment declares no absolute lengths; got ${prop.trim()}:${value}`
+    );
+  }
 });
 
 // REGRESSION TEST — the typeface's kerning is the authority, not a global lever.
@@ -160,39 +185,70 @@ test('the shared treatment stays scale-invariant', () => {
 // while its neighbours sat at 5–6px. This pins the mechanism, not a magnitude —
 // any non-negative tracking passes.
 test('the wordmark applies no global negative tracking', () => {
-  const tracking = em(treatment(), 'wordmark', 'letter-spacing');
+  const trackings = declaredEm(treatment(), 'wordmark', 'letter-spacing');
 
+  // The declaration must EXIST. `letter-spacing: normal` looks like a no-op and
+  // invites deletion in a later tidy — the stylesheet's own comment says so —
+  // but it is the reset that stops a caller's inherited `tracking-tight` from
+  // reaching the mark. Absent, this test would be asserting nothing while the
+  // collision it is named for reopened on all three surfaces at once.
   assert.ok(
-    tracking >= 0,
-    `global negative tracking overrides the font's per-pair kerning; got ${tracking}em`
+    trackings.length > 0,
+    '.wordmark must DECLARE its tracking; an undeclared value inherits the caller`s'
   );
+
+  for (const tracking of trackings) {
+    assert.ok(
+      tracking >= 0,
+      `global negative tracking overrides the font's per-pair kerning; got ${tracking}em`
+    );
+  }
 });
 
-// REGRESSION TEST — the brand is ONE WORD, and the join must not become a space.
+// REGRESSION TEST — the `f`/`W` join is VISIBLE, and it is not a word space.
 //
-// The join is an optical nudge for a pair no typeface kerns. It is NOT a word
-// separator, and past a point that distinction stops being visible: the shipped
-// `0.09em` margin, net `0.06em` of the tracking it paid back, read as "Turf War"
-// at hero size. This is a CEILING with an empirical basis, so the value below it
-// stays a free design choice.
-test('the f/W join stays an optical nudge, not a word space', () => {
+// Both bounds are empirical, and both have already been shipped as defects:
+//
+//  - Below ~0.01em the join is invisible. A `0.04em` margin against `-0.03em`
+//    tracking netted +0.01em — about a pixel at hero size, on a centred mark, so
+//    each word moved half a pixel. It was correct CSS that won the cascade and
+//    changed nothing anyone could see.
+//  - At 0.06em net the mark reads as two words: the treatment that shipped
+//    before this pass rebranded the product to "Turf War" at hero size.
+//
+// A BAND, not an equality — the value inside it stays a free design choice,
+// which is the point: the assertion this replaced was `net >= 0.05` and so
+// protected the very treatment that produced the second defect. The floor does
+// mean a future face that kerns `f`/`W` well enough to need no join at all
+// requires a deliberate edit here. That is the intent — a guard should force the
+// decision, not let the gap drift back to invisible unnoticed.
+test('the f/W join stays visible, and stays an optical nudge', () => {
   const css = treatment();
+  const joins = declaredEm(css, 'wordmark-join', 'margin-left');
+  const trackings = declaredEm(css, 'wordmark', 'letter-spacing');
 
   // The component emits `.wordmark-join` on every surface, so the stylesheet
   // owes it a rule — a class with no declaration is a leftover, and the
   // separation would silently become whatever the raw font metrics give. `em`
   // is what carries it from the 96px landing mark to a 24px header unchanged.
-  assert.match(
-    css,
-    /\.wordmark-join\s*\{[^}]*margin-left:\s*-?[\d.]+em/,
-    'the join the component emits is declared, in em'
-  );
+  assert.ok(joins.length > 0, 'the join the component emits is declared, in em');
 
-  const net = em(css, 'wordmark-join', 'margin-left') + em(css, 'wordmark', 'letter-spacing');
-
-  assert.ok(
-    net < 0.04,
-    `net f/W separation must not read as a space; got ${net.toFixed(3)}em ` +
-      '(0.06em demonstrably rebrands the mark to "Turf War")'
-  );
+  // Every combination, because `letter-spacing` applies after the `f` too: the
+  // margin pays the tracking back before it adds anything visible, so the NET is
+  // the only quantity a reader sees.
+  for (const join of joins) {
+    for (const tracking of trackings) {
+      const net = join + tracking;
+      assert.ok(
+        net >= 0.01,
+        `the f/W join must be visible; got ${net.toFixed(3)}em ` +
+          `(margin ${join}em + tracking ${tracking}em ≈ ${(net * 96).toFixed(1)}px at hero size)`
+      );
+      assert.ok(
+        net < 0.04,
+        `net f/W separation must not read as a space; got ${net.toFixed(3)}em ` +
+          '(0.06em demonstrably rebrands the mark to "Turf War")'
+      );
+    }
+  }
 });

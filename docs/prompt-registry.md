@@ -52,6 +52,36 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### TURFWAR-WORDMARK-KERNING-CLEANUP-v1
+
+- Purpose: one shared-wordmark typography pass — balance the whole `T-u-r-f-W-a-r` sequence as an
+  optical composition instead of patching one pair at a time. Supersedes the treatment shipped by
+  `TURFWAR-HOMEPAGE-WORDMARK-KERNING-v1` and the join rationale recorded in
+  `TURFWAR-APP-WORDMARK-REUSE-v1`.
+- Scope: `src/styles/wordmark.css`, `src/components/brand/Wordmark.tsx`, one stale comment in
+  `src/styles/publicLanding.css`, and the two test files that pinned the old arithmetic. No size,
+  layout, copy, font-family, or behaviour change.
+- Outcome: **the `r`/`f` crowding and the `f`/`W` word-space were ONE defect.** The UI faces this app
+  renders in kern `r` → `f` OPEN (+0.023em in SF at weight 800) because the `r`'s arm and the italic
+  `f` collide without it; the mark's blanket `letter-spacing: -0.03em` applies after every letter and
+  so cancelled that per-pair correction wholesale, closing the pair to a **1px pinch at the landing's
+  96px while its neighbours sat at 5–6px**. The `0.09em` join then existed mostly to repay that
+  tracking, and its 0.06em net read as a word space. Shipped: `letter-spacing: normal` (`normal`, not
+  `0` — it also resets a caller's inherited tracking) and a `0.02em` join, which is now the whole
+  visible gap. Minimum ink gap per pair at 96px, before → after: `Tu` 19.2→22.1, `ur` 5.7→8.6,
+  **`rf` 1.0→3.9**, **`fW` 8.8→5.0**, `Wa` 6.0→8.9, `ar` 5.4→8.3.
+- Review / verification: values were **measured, not tuned** — the real font was shaped with HarfBuzz
+  so actual GPOS kerning applied, outlines flattened, and the minimum ink-to-ink gap computed per
+  adjacent pair; candidates were also rasterized and compared before shipping. Gates on `364663ff`:
+  3505/3505 tests (+2), `tsc`, `lint:all`, `build`, and the built CSS bundle inspected rather than
+  assumed. Owner confirmed the render. **`/code-review` only — the Codex review required by
+  `AGENTS.md` (Review and remediation limits, rule 2) was NOT run; the user authorized proceeding on
+  the single review.** All five findings were reproduced independently and accepted: the join band
+  had no floor (`-0.05em` and `0.001em` both passed), an absent `letter-spacing` read as `0`, only
+  the first `.wordmark` block was parsed, the absolute-length scan missed shorthand, and two registry
+  claims went stale. One remediation round; all ten mutations now fail a named test.
+- Status: Implemented — pending review closeout and merge.
+
 ### TURFWAR-APP-WORDMARK-REUSE-v1
 
 - Purpose: Extract the homepage wordmark into a shared treatment and adopt it on the two interior
@@ -71,6 +101,10 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   CLEAR the negative tracking (at `-0.03em`, a naive `0.04em` nets +0.01em and is invisible); and both
   values in `em`, which is what makes one set of declarations serve a 96px landing mark and a 24px
   header. Copy-pasting that twice more would have invited all four back.
+  - The THIRD property no longer holds: `TURFWAR-WORDMARK-KERNING-CLEANUP-v1` removed the negative
+    tracking the join was sized to clear, so there is nothing to pay back and the join is `0.02em`.
+    The extraction argument stands — sharing the treatment is what made that a one-file correction
+    rather than three.
 - **The homepage became a CONSUMER while staying the visual source of truth.** `.landing-wordmark`
   keeps only `font-size` and `line-height`; the shipped declarations union to exactly the rule they
   replaced, verified in the built bundle rather than assumed from source. `line-height` stayed a
@@ -184,9 +218,15 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   margin had to pay back the wordmark's `-0.03em` tracking before adding anything, leaving a NET gap
   of +0.01em — about 1px — and, since the mark is centred, moving each word half a pixel. Diagnosis
   required ruling out a deployment lag, a duplicate implementation, and a cascade loss first.
-- Shipped at `0.09em` for a net `0.06em`. **A test pins the NET rather than the margin**, so
-  retightening the tracking cannot silently swallow the gap again — the exact failure that produced
-  the round.
+- Shipped at `0.09em` for a net `0.06em`. A test pinned the NET rather than the margin, so
+  retightening the tracking could not silently swallow the gap again — the exact failure that
+  produced the round.
+- **SUPERSEDED by `TURFWAR-WORDMARK-KERNING-CLEANUP-v1`.** Both halves of this entry's fix were
+  wrong, and the second defect was already latent in the first: `0.06em` of net gap reads as a WORD
+  SPACE at hero size, and the global `-0.03em` tracking this margin was sized against was itself
+  cancelling the typeface's `r` → `f` kern. **The net-pinning test described above no longer
+  exists** — it protected the very treatment that had to be removed. The join is now `0.02em`
+  against `letter-spacing: normal`.
 
 ### PLATFORM-HOME-LANDING-RASTER-SCENE-v1
 
