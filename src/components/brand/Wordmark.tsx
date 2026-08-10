@@ -12,11 +12,12 @@
  *  2. The visible mark is `aria-hidden`, with an `sr-only` `Turf War` supplying
  *     the accessible name. A screen reader announcing "TurfWar" as one token is
  *     worse than the product's actual name.
- *  3. The join margin exists to clear the wordmark's NEGATIVE tracking. At
- *     `-0.03em` letter-spacing a naive `0.04em` margin nets +0.01em — about a
- *     pixel, and invisible. The shipped pair is `-0.03em` / `0.09em`, a net
- *     `0.06em` gap.
- *  4. Both values are in `em`, which is what makes the treatment SCALE-INVARIANT:
+ *  3. The join margin is the ONLY per-pair adjustment, and it is deliberately
+ *     small (`0.02em`). It exists because no typeface kerns a mid-word `f` → `W`,
+ *     not to separate two words — the mark is one. An earlier `0.09em`, sized to
+ *     pay back a global `-0.03em` tracking, netted a `0.06em` gap that read as a
+ *     word space at hero size. The tracking is gone; see `wordmark.css`.
+ *  4. The value is in `em`, which is what makes the treatment SCALE-INVARIANT:
  *     the same declarations give the homepage's 96px mark and a 24px header the
  *     identical optical relationship, with no second set of values to maintain.
  *

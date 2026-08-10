@@ -156,7 +156,7 @@ body:has(.landing-root) {
 }
 
 /*
- * SIZE ONLY. The treatment — italic, weight, tracking, and the `f`/`W` join —
+ * SIZE ONLY. The treatment — italic, weight, and the `f`/`W` join —
  * lives in `src/styles/wordmark.css` and is shared with the interior headers.
  * It is `em`-based, so it follows whatever size is set here without a second set
  * of values.

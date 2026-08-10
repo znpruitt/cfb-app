@@ -104,28 +104,95 @@ for (const { name, tree } of SURFACES) {
   });
 }
 
-// The treatment is SCALE-INVARIANT, which is what lets one set of declarations
-// serve a 96px landing mark and a 24px interior header. Both values are `em`, and
-// the join must clear the tracking — at `-0.03em`, a `0.04em` margin nets +0.01em
-// and is invisible. Asserting the NET means retightening the tracking cannot
-// silently swallow the gap at every surface at once.
-test('the shared treatment stays scale-invariant and the join clears the tracking', () => {
-  const css = readFileSync(join(process.cwd(), 'src/styles/wordmark.css'), 'utf8').replace(
+// ---------------------------------------------------------------------------
+// The shared stylesheet's contract.
+//
+// These assert PROPERTIES OF THE MARK a user would notice — it scales, it reads
+// as one word, and the typeface's own kerning is the authority — not the
+// particular optical values, which are a design judgement and are meant to stay
+// tunable. An earlier version of this test froze the arithmetic
+// (`margin + tracking >= 0.05em`) and so protected the very treatment that
+// produced both defects this pass fixed.
+// ---------------------------------------------------------------------------
+
+/** The treatment, comments stripped so prose can discuss values it does not set. */
+function treatment(): string {
+  return readFileSync(join(process.cwd(), 'src/styles/wordmark.css'), 'utf8').replace(
     /\/\*[\s\S]*?\*\//g,
     ''
   );
+}
+
+/** A declared length in em; `normal`/absent reads as 0. Throws on any other unit. */
+function em(css: string, rule: string, prop: string): number {
+  const block = css.match(new RegExp(`\\.${rule}\\s*\\{([^}]*)\\}`));
+  if (!block) return 0;
+  const decl = block[1].match(new RegExp(`${prop}:\\s*([^;]+)`));
+  if (!decl) return 0;
+  const value = decl[1].trim();
+  if (value === 'normal' || value === '0') return 0;
+  const number = value.match(/^(-?[\d.]+)em$/);
+  assert.ok(number, `${rule} { ${prop} } must be em-based for scale invariance; got ${value}`);
+  return Number(number[1]);
+}
+
+test('the shared treatment stays scale-invariant', () => {
+  const css = treatment();
 
   assert.ok(!/font-size/.test(css), 'size is the caller`s, never the treatment`s');
   assert.ok(!/line-height/.test(css), 'and so is leading');
 
-  const tracking = css.match(/\.wordmark\s*\{[^}]*letter-spacing:\s*(-?[\d.]+)em/);
-  const margin = css.match(/\.wordmark-join\s*\{[^}]*margin-left:\s*(-?[\d.]+)em/);
-  assert.ok(tracking && margin, 'both values are declared in em');
-
-  const net = Number(margin[1]) + Number(tracking[1]);
+  // One set of declarations serves a 96px landing mark and a 24px interior
+  // header. An absolute length is the regression: it would be tuned at one size
+  // and wrong at the other, with no failure at the size it was tuned for.
   assert.ok(
-    net >= 0.05,
-    `net f/W gap must stay perceptible; got ${net.toFixed(3)}em ` +
-      `(margin ${margin[1]}em + tracking ${tracking[1]}em)`
+    !/:\s*-?[\d.]+(px|rem|pt|ch|vw|vh)\b/.test(css),
+    'the treatment declares no absolute lengths'
+  );
+});
+
+// REGRESSION TEST — the typeface's kerning is the authority, not a global lever.
+//
+// The UI faces this renders in kern `r` → `f` OPEN (+0.023em in SF at weight
+// 800) because the `r`'s arm and the italic `f` collide without it. Blanket
+// negative tracking applies after EVERY letter, so it cancels that correction
+// wholesale: at -0.03em the pair closed to a 1px pinch at the landing's 96px
+// while its neighbours sat at 5–6px. This pins the mechanism, not a magnitude —
+// any non-negative tracking passes.
+test('the wordmark applies no global negative tracking', () => {
+  const tracking = em(treatment(), 'wordmark', 'letter-spacing');
+
+  assert.ok(
+    tracking >= 0,
+    `global negative tracking overrides the font's per-pair kerning; got ${tracking}em`
+  );
+});
+
+// REGRESSION TEST — the brand is ONE WORD, and the join must not become a space.
+//
+// The join is an optical nudge for a pair no typeface kerns. It is NOT a word
+// separator, and past a point that distinction stops being visible: the shipped
+// `0.09em` margin, net `0.06em` of the tracking it paid back, read as "Turf War"
+// at hero size. This is a CEILING with an empirical basis, so the value below it
+// stays a free design choice.
+test('the f/W join stays an optical nudge, not a word space', () => {
+  const css = treatment();
+
+  // The component emits `.wordmark-join` on every surface, so the stylesheet
+  // owes it a rule — a class with no declaration is a leftover, and the
+  // separation would silently become whatever the raw font metrics give. `em`
+  // is what carries it from the 96px landing mark to a 24px header unchanged.
+  assert.match(
+    css,
+    /\.wordmark-join\s*\{[^}]*margin-left:\s*-?[\d.]+em/,
+    'the join the component emits is declared, in em'
+  );
+
+  const net = em(css, 'wordmark-join', 'margin-left') + em(css, 'wordmark', 'letter-spacing');
+
+  assert.ok(
+    net < 0.04,
+    `net f/W separation must not read as a space; got ${net.toFixed(3)}em ` +
+      '(0.06em demonstrably rebrands the mark to "Turf War")'
   );
 });
