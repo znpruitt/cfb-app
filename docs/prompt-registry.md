@@ -104,7 +104,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   backoff, no fault. Narrowed to the AUTOMATIC path (backoff and the health card exist only there)
   and fail-closed on evidence: an unreadable or empty slate yields the same zero count without
   proving anything, so the downgrade requires a POSITIVE slate. **No existing test changed.**
-- Status: Implemented — pending merge.
+- Status: Merged (PR #469, `ff5aa0c`, 2026-08-10).
 
 ### TURFWAR-WORDMARK-KERNING-CLEANUP-v1
 

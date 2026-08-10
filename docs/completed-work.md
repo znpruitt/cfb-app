@@ -2378,6 +2378,42 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-089 — Odds Early-Season Polling — Complete
+
+- **Status:** Complete — merged to `main` via PR #469 (merge commit `ff5aa0c`), 2026-08-10. Four
+  commits: the staged horizon, then three review-driven corrections.
+- **PROMPT_ID(s):** `PLATFORM-089-ODDS-EARLY-SEASON-POLLING-v1`.
+- **Outcome:** Odds polling runs on a staged 45-day horizon keyed to the nearest eligible kickoff —
+  24 h beyond a week out, 6 h inside it, 2 h in the pregame window — instead of not polling at all
+  past 7 days. The Odds health card no longer warns when nothing is pollable, and a book withdrawing
+  a far-out line is recorded as `no-op / early-lines-withdrawn` rather than escalated as a provider
+  fault. QStash cadence, the 50-credit reserve, lease/backoff, canonical identity, and closing-line
+  semantics are unchanged; no new durable state, no new provider endpoint. Budget: ~3 credits/day in
+  the early window.
+- **THE defect was that eligibility and cadence were the SAME number.** A game outside 7 days was not
+  a target at all, rather than a target checked less often — so 125 rows committed on Jul 29 aged
+  into `odds-cache-stale` while every hourly run reported `no-eligible-target`, and the only thing
+  that would refresh the data was the job that kept declining to run.
+- **THE lesson: fixing an unactionable warning kept MOVING it.** Widening the horizon exposed the
+  empty-payload classifier, so a withdrawn line became a daily billed 502. Downgrading that left the
+  cache entry frozen, so the same alarm reappeared as `odds-cache-stale`. Each fix relocated the
+  problem into the next channel, and only the third pass — suppressing on the receipt's REASON, not
+  on "a check completed" — actually closed it. **Ask where a suppressed symptom will surface next.**
+- **A stated requirement was implemented and then REMOVED on evidence**, by owner decision: counting
+  the completed-check clock as freshness would have cleared a warning permanently in the one case
+  where it is correct, and its premise (that an unchanged payload leaves the timestamp frozen) was
+  false. Binding invariant 1 stands unamended.
+- **A deliberate contract in another slice was left ALONE** after the first fix attempt broke four
+  tests, one named for the protection it guards. The verdict was right; only the consequence was
+  wrong, so the split moved to the consumer and no existing test changed.
+- **Verification:** reviewed twice (against `1e6fd2e5` and `9fa332be`), every finding reproduced
+  before acceptance, one remediation round each. Gates per commit; final `21f1804e`: 3537/3537 tests,
+  `tsc`, `lint:all`, `build`. Mutation-checked throughout, including guards against re-introducing
+  both removed rules. **Not verified against the live provider** — no production credential was used.
+- **Open follow-ups:** See the canonical deferrals/current queue in `docs/next-tasks.md`.
+
+---
+
 ### TURFWAR Wordmark Kerning Cleanup — Complete
 
 - **Status:** Complete — merged to `main` via PR #468 (merge commit `fc77420`), 2026-08-10. Three
