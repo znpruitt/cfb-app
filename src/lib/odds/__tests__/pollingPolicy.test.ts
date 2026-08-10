@@ -4,8 +4,13 @@ import test from 'node:test';
 import type { OddsRefreshControl } from '../refreshLease.ts';
 import {
   collectEligibleOddsGames,
+  freshestOddsSignalMs,
   isPregameWindowActive,
+  isWithinEarlyOddsPollingHorizon,
   ODDS_BASELINE_CADENCE_MS,
+  ODDS_EARLY_CADENCE_MS,
+  ODDS_EARLY_KICKOFF_HORIZON_MS,
+  ODDS_EXPECTED_KICKOFF_HORIZON_MS,
   ODDS_PREGAME_CADENCE_MS,
   selectOddsPollingDecision,
   type OddsCanonicalGame,
@@ -36,7 +41,10 @@ function control(overrides: Partial<OddsRefreshControl> = {}): OddsRefreshContro
   };
 }
 
-test('polling #21: unresolved, disrupted, invalid-kickoff, past, and beyond-7d games are ineligible', () => {
+test('polling #21: unresolved, disrupted, invalid-kickoff, past, and beyond-45d games are ineligible', () => {
+  // PLATFORM-089 — the horizon literal moved from 8 days to 46. Everything else
+  // in this list is untouched: widening WHEN a target exists must not widen WHAT
+  // counts as one, so unresolved participants and disrupted games stay out.
   const games: OddsCanonicalGame[] = [
     game({ key: 'unresolved-home', homeResolved: false }),
     game({ key: 'unresolved-away', awayResolved: false }),
@@ -47,7 +55,7 @@ test('polling #21: unresolved, disrupted, invalid-kickoff, past, and beyond-7d g
     game({ key: 'bad-kickoff', kickoff: 'not-a-date' }),
     game({ key: 'null-kickoff', kickoff: null }),
     game({ key: 'past', kickoff: new Date(NOW - HOUR).toISOString() }),
-    game({ key: 'beyond-horizon', kickoff: new Date(NOW + 8 * DAY).toISOString() }),
+    game({ key: 'beyond-horizon', kickoff: new Date(NOW + 46 * DAY).toISOString() }),
   ];
   assert.equal(collectEligibleOddsGames(games, NOW).length, 0);
   // An empty slate is likewise ineligible.
@@ -209,4 +217,191 @@ test('polling #31: a valid no-op completion suppresses an immediate repeat', () 
     now: NOW,
   });
   assert.deepEqual(viaRaw, { due: false, reason: 'refresh-not-due' });
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-089 — the staged early horizon.
+//
+// Production on 2026-08-09: the canonical 2026 refresh had committed 125 rows on
+// Jul 29, then aged into `odds-cache-stale` while every hourly invocation
+// answered `skipped / no-eligible-target · 0 eligible game(s)`. Useful data
+// existed and the policy would not maintain it. These pin the boundaries of the
+// fix EXACTLY, because "45 days" and "24 hours" are only meaningful if the edges
+// are where they claim to be.
+// ---------------------------------------------------------------------------
+
+test('polling #32: 46 days out is no target, exactly 45 days is an early target', () => {
+  const beyond = [
+    game({ kickoff: new Date(NOW + ODDS_EARLY_KICKOFF_HORIZON_MS + 1).toISOString() }),
+  ];
+  assert.equal(collectEligibleOddsGames(beyond, NOW).length, 0);
+  assert.deepEqual(
+    selectOddsPollingDecision({
+      games: beyond,
+      control: control(),
+      rawObservationMs: null,
+      now: NOW,
+    }),
+    { due: false, reason: 'no-eligible-target' }
+  );
+
+  // Exactly 45 days: eligible, and a cold target is due at the EARLY cadence.
+  const atHorizon = [
+    game({ kickoff: new Date(NOW + ODDS_EARLY_KICKOFF_HORIZON_MS).toISOString() }),
+  ];
+  assert.equal(collectEligibleOddsGames(atHorizon, NOW).length, 1);
+  assert.deepEqual(
+    selectOddsPollingDecision({
+      games: atHorizon,
+      control: control(),
+      rawObservationMs: null,
+      now: NOW,
+    }),
+    { due: true, cadence: 'early' }
+  );
+
+  // The exported predicate agrees at both edges, and rejects a past kickoff.
+  assert.equal(isWithinEarlyOddsPollingHorizon(NOW + ODDS_EARLY_KICKOFF_HORIZON_MS, NOW), true);
+  assert.equal(
+    isWithinEarlyOddsPollingHorizon(NOW + ODDS_EARLY_KICKOFF_HORIZON_MS + 1, NOW),
+    false
+  );
+  assert.equal(isWithinEarlyOddsPollingHorizon(NOW - 1, NOW), false);
+  assert.equal(isWithinEarlyOddsPollingHorizon(Number.NaN, NOW), false);
+});
+
+test('polling #33: between 7 and 45 days the cadence is 24 hours, at the exact boundary', () => {
+  const games = [game({ kickoff: new Date(NOW + 20 * DAY).toISOString() })];
+
+  // Cold → due, early.
+  assert.deepEqual(
+    selectOddsPollingDecision({ games, control: control(), rawObservationMs: null, now: NOW }),
+    { due: true, cadence: 'early' }
+  );
+
+  // A check 23h59m old is NOT due — this is the quota guard for the widened
+  // horizon: one billed request per day out here, not one per hourly delivery.
+  assert.deepEqual(
+    selectOddsPollingDecision({
+      games,
+      control: control({
+        lastCompletedCheckAt: new Date(NOW - ODDS_EARLY_CADENCE_MS + 60_000).toISOString(),
+      }),
+      rawObservationMs: null,
+      now: NOW,
+    }),
+    { due: false, reason: 'refresh-not-due' }
+  );
+
+  // Exactly 24h old → due.
+  assert.deepEqual(
+    selectOddsPollingDecision({
+      games,
+      control: control({
+        lastCompletedCheckAt: new Date(NOW - ODDS_EARLY_CADENCE_MS).toISOString(),
+      }),
+      rawObservationMs: null,
+      now: NOW,
+    }),
+    { due: true, cadence: 'early' }
+  );
+
+  // A 6h-old check would be baseline-due inside 7 days; out here it is NOT — the
+  // stage, not just the label, has to change.
+  assert.deepEqual(
+    selectOddsPollingDecision({
+      games,
+      control: control({
+        lastCompletedCheckAt: new Date(NOW - ODDS_BASELINE_CADENCE_MS).toISOString(),
+      }),
+      rawObservationMs: null,
+      now: NOW,
+    }),
+    { due: false, reason: 'refresh-not-due' }
+  );
+});
+
+test('polling #34: exactly 7 days out is the normal 6-hour cadence, not early', () => {
+  const atNormal = [
+    game({ kickoff: new Date(NOW + ODDS_EXPECTED_KICKOFF_HORIZON_MS).toISOString() }),
+  ];
+  // A 6h-old check at exactly the 7-day boundary is baseline-due.
+  assert.deepEqual(
+    selectOddsPollingDecision({
+      games: atNormal,
+      control: control({
+        lastCompletedCheckAt: new Date(NOW - ODDS_BASELINE_CADENCE_MS).toISOString(),
+      }),
+      rawObservationMs: null,
+      now: NOW,
+    }),
+    { due: true, cadence: 'baseline' }
+  );
+  // One millisecond further out is early, and that same 6h-old check is not due.
+  const justBeyond = [
+    game({ kickoff: new Date(NOW + ODDS_EXPECTED_KICKOFF_HORIZON_MS + 1).toISOString() }),
+  ];
+  assert.deepEqual(
+    selectOddsPollingDecision({
+      games: justBeyond,
+      control: control({
+        lastCompletedCheckAt: new Date(NOW - ODDS_BASELINE_CADENCE_MS).toISOString(),
+      }),
+      rawObservationMs: null,
+      now: NOW,
+    }),
+    { due: false, reason: 'refresh-not-due' }
+  );
+});
+
+test('polling #35: the NEAREST eligible kickoff sets the stage', () => {
+  // A distant game must not slow the check down when a near one is moving.
+  const mixed = [
+    game({ key: 'distant', kickoff: new Date(NOW + 30 * DAY).toISOString() }),
+    game({ key: 'near', kickoff: new Date(NOW + 2 * DAY).toISOString() }),
+  ];
+  assert.deepEqual(
+    selectOddsPollingDecision({
+      games: mixed,
+      control: control({
+        lastCompletedCheckAt: new Date(NOW - ODDS_BASELINE_CADENCE_MS).toISOString(),
+      }),
+      rawObservationMs: null,
+      now: NOW,
+    }),
+    { due: true, cadence: 'baseline' }
+  );
+});
+
+test('polling #36: durable backoff still overrides the early cadence', () => {
+  assert.deepEqual(
+    selectOddsPollingDecision({
+      games: [game({ kickoff: new Date(NOW + 20 * DAY).toISOString() })],
+      control: control({ automaticNotBefore: new Date(NOW + HOUR).toISOString() }),
+      rawObservationMs: null,
+      now: NOW,
+    }),
+    { due: false, reason: 'automatic-backoff' }
+  );
+});
+
+test('polling #37: the freshest-signal helper takes the max and never invents one', () => {
+  // The shared helper the Odds DIAGNOSTIC reuses, so health and the cron cannot
+  // disagree about when the provider was last successfully asked.
+  assert.equal(freshestOddsSignalMs(null, null), null);
+  assert.equal(freshestOddsSignalMs(control(), null), null);
+  assert.equal(freshestOddsSignalMs(null, NOW - HOUR), NOW - HOUR);
+
+  // A no-op completion is NEWER than the raw snapshot → it wins.
+  assert.equal(
+    freshestOddsSignalMs(control({ lastCompletedCheckAt: new Date(NOW).toISOString() }), NOW - DAY),
+    NOW
+  );
+  // ...and an older completion never drags a fresh snapshot backwards.
+  assert.equal(
+    freshestOddsSignalMs(control({ lastCompletedCheckAt: new Date(NOW - DAY).toISOString() }), NOW),
+    NOW
+  );
+  // An unparseable timestamp is ignored, not treated as now.
+  assert.equal(freshestOddsSignalMs(control({ lastCompletedCheckAt: 'not-a-date' }), null), null);
 });

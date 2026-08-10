@@ -325,3 +325,27 @@ test('no credential, URL, or payload marker leaks into the receipt', async () =>
   assert.ok(!serialized.includes('apiKey'));
   assert.ok(!serialized.includes('the-odds-api.com'));
 });
+
+test('PLATFORM-089: an early-cadence poll is recorded truthfully in the receipt', async () => {
+  // This suite owns the WRITE: the receipt carries the cadence the route actually
+  // selected, not a flattened `baseline`. Whether the closed cadence set ACCEPTS
+  // `early` on the way back in is the validating reader's contract, pinned in
+  // `schedulerExecutionStatus.test.ts` — the harness reader below is a raw
+  // `getAppState` and would happily return a value the real reader rejects.
+  await seedSchedule(Date.now() + 20 * DAY);
+  const counts = installFetch('53');
+  const { res, event } = await runCron();
+  assert.equal(res.status, 200);
+  assert.equal(counts.oddsCalls, 1);
+  assert.equal(event.cadence, 'early');
+
+  await deferrer.flush();
+  const stored = await readSchedulerReceipt('odds');
+  assert.equal(stored?.value.result, 'success');
+  assert.deepEqual(stored?.value.target, {
+    kind: 'odds',
+    year: YEAR,
+    cadence: 'early',
+    eligibleGames: 1,
+  });
+});

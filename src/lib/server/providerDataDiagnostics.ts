@@ -18,13 +18,24 @@ import { evaluatePartitionCoverage } from '../gameStats/partitionCoverage.ts';
 import { validateGameStatsEnvelope } from '../gameStats/publicProjection.ts';
 import type { WeeklyGameStats } from '../gameStats/types.ts';
 import { deriveApplicableScoreSeasonTypes } from './scoreApplicability.ts';
-import { classifyStatusLabel, isCanceledStatusLabel } from '../gameStatus.ts';
+import { readOddsRefreshControl } from '../odds/refreshLease.ts';
+import { freshestOddsSignalMs, isWithinEarlyOddsPollingHorizon } from '../odds/pollingPolicy.ts';
+import {
+  classifyStatusLabel,
+  isCanceledStatusLabel,
+  isDisruptedStatusLabel,
+} from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
 
-/** Minimal shape of a durable `odds-cache` entry — only its capture time matters here. */
-type OddsCacheFreshness = { lastFetch?: number | null };
+/**
+ * Minimal shape of a durable `odds-cache` entry — only its capture times matter
+ * here. `observedAt` is the provider OBSERVATION time and `lastFetch` the
+ * commit/TTL clock; the polling policy prefers the former, so reading only
+ * `lastFetch` would judge freshness on a different clock than the cron does.
+ */
+type OddsCacheFreshness = { lastFetch?: number | null; observedAt?: string | null };
 
 export type DiagnosticSeverity = 'info' | 'warning' | 'error';
 
@@ -142,6 +153,26 @@ function deriveCompletedSlates(items: ScheduleCacheEntry['items'], now: number):
   return [...latestByKey.values()]
     .filter((slate) => slate.latestKickoff <= now - SLATE_COMPLETE_AFTER_MS)
     .sort((a, b) => b.latestKickoff - a.latestKickoff);
+}
+
+/**
+ * Whether the Odds cron has anything to poll: some non-disrupted schedule game
+ * kicks off inside the 45-day polling horizon.
+ *
+ * Deliberately NOT the ±45-day `isSeasonActive` window below, which is symmetric
+ * and so counts games already played. It is also deliberately a SUPERSET of true
+ * eligibility — it does not re-derive canonical identity, because doing so here
+ * would mean a second resolution path in a cache-only read. Superset is the safe
+ * direction: it can leave a warning standing that the cron would skip for an
+ * unresolved participant, but it can never suppress one the cron could act on.
+ */
+function hasPollableOddsTarget(items: ScheduleCacheEntry['items'], now: number): boolean {
+  for (const item of items) {
+    if (!item.startDate) continue;
+    if (isDisruptedStatusLabel(item.status)) continue;
+    if (isWithinEarlyOddsPollingHorizon(new Date(item.startDate).getTime(), now)) return true;
+  }
+  return false;
 }
 
 /** Whether the season is "active" around now (any game within ±45 days). */
@@ -550,10 +581,37 @@ export async function getProviderDataDiagnostics(
   // canonical snapshot look fresh), and NOT the global quota-observation timestamp
   // (4th-review finding #4). Quota usage stays a separate panel display. Absence of
   // the canonical entry is reported as unknown, never treated as fresh.
+  //
+  // PLATFORM-089 — freshness and applicability BOTH now agree with the cron:
+  //
+  //  - Freshness is the EFFECTIVE COMPLETED CHECK, `max(raw observation,
+  //    lastCompletedCheckAt)` — the same quantity the polling cadence uses. A run
+  //    of valid no-ops (the provider correctly having nothing new) advances
+  //    `lastCompletedCheckAt` without moving the raw snapshot, and reading the
+  //    snapshot alone turned that healthy state into a warning no refresh could
+  //    clear. A provider FAILURE advances neither, so this cannot launder a
+  //    failing job into a fresh-looking one.
+  //  - Applicability is the 45-day POLLING horizon, not the generic ±45-day
+  //    `seasonActive` window. The latter is symmetric: a game 40 days in the PAST
+  //    kept the season "active", so an old snapshot warned when the cron had
+  //    nothing to poll and no operator action existed. A warning nobody can act
+  //    on is noise, and it is what this task was reported for.
+  //
+  // Still cache/durable-state only: a control read is `getAppState`, and it
+  // returns null rather than throwing, in which case freshness falls back to the
+  // snapshot alone rather than being fabricated.
   try {
     const oddsRec = await getAppState<OddsCacheFreshness>('odds-cache', defaultOddsCacheKey(year));
-    const latestFetch = oddsRec?.value?.lastFetch;
-    if (typeof latestFetch !== 'number' || !Number.isFinite(latestFetch)) {
+    const cached = oddsRec?.value;
+    const lastFetch = cached?.lastFetch;
+    const observedMs = cached?.observedAt ? Date.parse(cached.observedAt) : Number.NaN;
+    const snapshotMs = Number.isFinite(observedMs)
+      ? observedMs
+      : typeof lastFetch === 'number' && Number.isFinite(lastFetch)
+        ? lastFetch
+        : null;
+
+    if (typeof lastFetch !== 'number' || !Number.isFinite(lastFetch)) {
       push(
         'odds',
         'info',
@@ -561,14 +619,16 @@ export async function getProviderDataDiagnostics(
         `No odds snapshot cached for ${year} yet.`,
         'data-maintenance'
       );
-    } else if (seasonActive) {
-      const ageMs = now - latestFetch;
-      if (Number.isFinite(ageMs) && ageMs > STALE_ODDS_AFTER_MS) {
+    } else if (hasPollableOddsTarget(scheduleItems, now)) {
+      const control = await readOddsRefreshControl(defaultOddsCacheKey(year));
+      const effectiveCheckMs = freshestOddsSignalMs(control, snapshotMs);
+      const ageMs = effectiveCheckMs === null ? Number.POSITIVE_INFINITY : now - effectiveCheckMs;
+      if (ageMs > STALE_ODDS_AFTER_MS) {
         push(
           'odds',
           'warning',
           'odds-cache-stale',
-          `Odds snapshot last captured ${formatRelativeTimestamp(latestFetch, now)}.`,
+          `Odds snapshot last captured ${formatRelativeTimestamp(lastFetch, now)}.`,
           'data-maintenance'
         );
       }

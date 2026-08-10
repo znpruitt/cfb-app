@@ -750,3 +750,131 @@ test('remediation R4: a successful refresh with MISSING usage headers never comm
   // The global estimate still deducts the request cost (480 - 3 = 477).
   assert.equal(event.quotaRemainingAfter, 477);
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-089 — early-season polling at the route.
+//
+// Production on 2026-08-09 returned `skipped / no-eligible-target · 0 eligible
+// game(s) · provider request: not attempted` on every hourly delivery while a
+// successful Jul 29 refresh sat aging in the canonical cache. The route now polls
+// a 45-day horizon at a 24-hour cadence.
+// ---------------------------------------------------------------------------
+
+test('#89a: a game 20 days out is an EARLY due target — one billed request, cadence `early`', async () => {
+  await seedSchedule(Date.now() + 20 * DAY);
+  const counts = installFetch({});
+  const { res, body, event } = await runCron();
+
+  assert.equal(res.status, 200);
+  assert.equal(event.result, 'success');
+  assert.equal(counts.oddsCalls, 1); // exactly one billed request
+  assert.equal(event.eligibleGames, 1); // the defect reported 0 here
+  // The event's cadence is written by the POST-LEASE re-check (the route assigns
+  // it twice, and the re-check assignment is the later one), so this also proves
+  // the TOCTOU re-check ran the staged policy and agreed on `early` — a re-check
+  // still using the old 7-day/6-hour reasoning would have released the lease
+  // without a request, and `oddsCalls` would be 0.
+  assert.equal(event.cadence, 'early');
+  assert.equal(body.cadence, 'early');
+});
+
+test('#89b: an early target checked 12h ago is NOT due — provider-free skip', async () => {
+  // The quota guard for the widened horizon: 12h would be due at the 6-hour
+  // baseline, and must not be at the 24-hour early cadence. No `/odds` AND no
+  // `/sports` probe — the decision precedes every provider touch.
+  await seedSchedule(Date.now() + 20 * DAY);
+  await setAppState('odds-refresh-control', SEASON_KEY, {
+    lease: null,
+    lastCompletedCheckAt: new Date(Date.now() - 12 * H).toISOString(),
+    automaticFailureCount: 0,
+    automaticNotBefore: null,
+  });
+  const counts = installFetch({});
+  const { body, event } = await runCron();
+
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'refresh-not-due');
+  assert.equal(counts.oddsCalls, 0);
+  assert.equal(counts.sportsCalls, 0);
+  assert.equal(event.providerCallAttempted, false);
+  assert.equal(event.quotaChecked, false);
+  assert.equal(event.cadence, null);
+  // Still a recognized target — this is "not yet", not "nothing to poll".
+  assert.equal(event.eligibleGames, 1);
+});
+
+test('#89c: an early target checked 25h ago IS due', async () => {
+  await seedSchedule(Date.now() + 20 * DAY);
+  await setAppState('odds-refresh-control', SEASON_KEY, {
+    lease: null,
+    lastCompletedCheckAt: new Date(Date.now() - 25 * H).toISOString(),
+    automaticFailureCount: 0,
+    automaticNotBefore: null,
+  });
+  const counts = installFetch({});
+  const { event } = await runCron();
+
+  assert.equal(event.result, 'success');
+  assert.equal(event.cadence, 'early');
+  assert.equal(counts.oddsCalls, 1);
+});
+
+test('#89d: beyond 45 days is still `no-eligible-target`, with no provider work', async () => {
+  // The horizon moved; it did not disappear. An offseason with nothing scheduled
+  // inside 45 days must still cost zero.
+  await seedSchedule(Date.now() + 46 * DAY);
+  const counts = installFetch({});
+  const { body, event } = await runCron();
+
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'no-eligible-target');
+  assert.equal(event.eligibleGames, 0);
+  assert.equal(event.cadence, null);
+  assert.equal(counts.oddsCalls, 0);
+  assert.equal(counts.sportsCalls, 0);
+});
+
+test('#89e: the 50-credit reserve still refuses an early target, provider-data-free', async () => {
+  // The widened horizon must not become a way around the quota reserve.
+  await seedSchedule(Date.now() + 20 * DAY);
+  const counts = installFetch({
+    sports: {
+      headers: { 'x-requests-used': '449', 'x-requests-remaining': '51', 'x-requests-last': '0' },
+    },
+  });
+  const { body } = await runCron();
+
+  assert.equal(body.result, 'skipped');
+  assert.equal(body.reason, 'quota-reserve');
+  assert.equal(counts.sportsCalls, 1); // the quota-free probe still runs
+  assert.equal(counts.oddsCalls, 0); // ...and nothing billed follows it
+});
+
+test('#89f: an EMPTY payload far from kickoff is a benign no-op, not a fault', async () => {
+  // THE safety property of the widened horizon. Polling 20 days out will routinely
+  // find no posted lines, and the empty-response classifier keeps its own 7-day
+  // EXPECTATION window precisely so that is not a fault: no book is expected to
+  // have priced a game that far out.
+  //
+  // Had the two same-named horizons been conflated — widening the classifier's
+  // window along with the polling one — every early poll of an unpriced slate
+  // would have become `odds-empty-unexpected`, a 502, and an arming backoff, and
+  // System Health would have reported a provider fault caused entirely by this
+  // change. The two constants are independent on purpose.
+  await seedSchedule(Date.now() + 20 * DAY);
+  const counts = installFetch({ odds: { body: [] } });
+  const { res, event } = await runCron();
+
+  assert.equal(res.status, 200);
+  assert.equal(counts.oddsCalls, 1);
+  assert.equal(event.result, 'no-op');
+  assert.equal(event.reason, 'empty-response');
+  assert.equal(event.cadence, 'early');
+
+  const control = await readOddsRefreshControl(SEASON_KEY);
+  assert.equal(control?.automaticFailureCount, 0, 'an expected empty must not arm backoff');
+  assert.equal(control?.automaticNotBefore, null);
+  // ...and it counts as a COMPLETED CHECK, which is what suppresses a repeat for
+  // the next 24 hours and what now keeps the Odds health card out of `stale`.
+  assert.ok(control?.lastCompletedCheckAt, 'a valid no-op advances the completed-check clock');
+});

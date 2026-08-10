@@ -1107,3 +1107,194 @@ test('F2F: a historical manual-only partial → evidence-partial with NULL repai
   assert.ok(partial, 'historical manual-only surfaces as a partial');
   assert.equal(partial!.repair, null);
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-089 — the Odds diagnostic agrees with the polling authority.
+//
+// Production on 2026-08-09 had System Health reporting `odds-cache-stale` while
+// the Odds cron correctly reported `no-eligible-target` on every delivery: two
+// surfaces, two different questions, one contradiction an operator could not act
+// on. Freshness is now the effective COMPLETED CHECK and applicability is the
+// 45-day POLLING horizon, so both surfaces answer the same question.
+// ---------------------------------------------------------------------------
+
+/** A refresh-control record for the canonical season-scoped key. */
+function seedOddsRefreshControl(season: number, lastCompletedCheckAt: string | null) {
+  return setAppState('odds-refresh-control', defaultOddsCacheKey(season), {
+    lease: null,
+    lastCompletedCheckAt,
+    automaticFailureCount: 0,
+    automaticNotBefore: null,
+  });
+}
+
+/** A schedule whose only future game is `daysOut` away (plus one completed game). */
+function seedScheduleWithFutureGame(daysOut: number, status = 'STATUS_SCHEDULED') {
+  return seedScheduleItems([
+    {
+      id: '101',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: '102',
+      week: 2,
+      seasonType: 'regular',
+      startDate: new Date(NOW + daysOut * 24 * 60 * 60 * 1000).toISOString(),
+      status,
+      homeTeam: 'Gamma',
+      awayTeam: 'Delta',
+    },
+  ]);
+}
+
+test('PLATFORM-089: a recent completed CHECK clears staleness even when the payload never moved', async () => {
+  // The exact production shape: the provider is being asked on cadence and keeps
+  // answering "nothing new", so `lastCompletedCheckAt` advances while the raw
+  // snapshot does not. Reading the snapshot alone called that stale — a warning
+  // no refresh could ever clear, because the refresh was already happening.
+  await seedSchedule();
+  await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH);
+  await seedOddsRefreshControl(YEAR, new Date(NOW - 60 * 1000).toISOString());
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning'),
+    undefined,
+    'a valid no-op check is positive evidence the data is being maintained'
+  );
+});
+
+test('PLATFORM-089: a genuinely old effective check inside the horizon still warns', async () => {
+  // The other direction, which is what keeps the diagnostic worth having: both
+  // signals old, a pollable game inside 45 days ⇒ still actionable.
+  await seedSchedule();
+  await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH);
+  await seedOddsRefreshControl(YEAR, new Date(STALE_ODDS_FETCH).toISOString());
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const warn = diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning');
+  assert.ok(warn, 'an old check with a live polling target is still stale');
+  assert.equal(warn!.code, 'odds-cache-stale');
+});
+
+test('PLATFORM-089: no future game inside 45 days ⇒ an old snapshot is not reported stale', async () => {
+  // `isSeasonActive` is SYMMETRIC (±45 days), so a game 40 days in the PAST used
+  // to keep an old snapshot "actionable" when the cron had nothing to poll and no
+  // operator action existed. Applicability now matches the polling horizon.
+  await seedScheduleItems([
+    {
+      id: '101',
+      week: 1,
+      seasonType: 'regular',
+      startDate: new Date(NOW - 40 * 24 * 60 * 60 * 1000).toISOString(),
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+  ]);
+  await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH);
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning'),
+    undefined,
+    'nothing to poll ⇒ nothing to act on'
+  );
+});
+
+test('PLATFORM-089: the diagnostic horizon matches the polling horizon at both edges', async () => {
+  // 46 days out: outside the horizon, no warning.
+  await seedScheduleWithFutureGame(46);
+  await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH);
+  let result = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    result.diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning'),
+    undefined,
+    '46 days out is not a polling target'
+  );
+
+  // 44 days out: inside the horizon, the warning returns.
+  await seedScheduleWithFutureGame(44);
+  result = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.ok(
+    result.diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning'),
+    '44 days out IS a polling target, so staleness is actionable again'
+  );
+});
+
+test('PLATFORM-089: a disrupted future game is not a polling target for the diagnostic', async () => {
+  // Parity with `collectEligibleOddsGames`, which excludes disrupted games: a
+  // canceled game must not be the sole reason health asks for a refresh.
+  await seedScheduleWithFutureGame(10, 'STATUS_CANCELED');
+  await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning'),
+    undefined,
+    'a canceled game is not something to fetch odds for'
+  );
+});
+
+test('PLATFORM-089: an unreadable refresh control falls back to the snapshot, never to "fresh"', async () => {
+  // No control record at all (the conservative fallback): freshness reverts to the
+  // raw snapshot rather than being fabricated, so a genuinely stale cache with a
+  // live target still warns.
+  await seedSchedule();
+  await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH);
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.ok(
+    diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning'),
+    'absent control state must not read as a recent check'
+  );
+});
+
+test('PLATFORM-089: the odds diagnostic prefers the observation clock over the commit clock', async () => {
+  // The polling policy keys on `observedAt` when present; reading `lastFetch`
+  // alone would judge freshness on a different clock than the cron does.
+  await seedSchedule();
+  await setAppState('odds-cache', defaultOddsCacheKey(YEAR), {
+    data: [],
+    lastFetch: STALE_ODDS_FETCH,
+    usage: null,
+    observedAt: new Date(NOW - 60 * 1000).toISOString(),
+  });
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning'),
+    undefined,
+    'a fresh observation is fresh, whatever the commit timestamp says'
+  );
+});
+
+test('PLATFORM-089: the odds diagnostic makes no provider request', async () => {
+  // System Health must never spend quota to determine status. Any outbound fetch
+  // from this read is the defect.
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    calls += 1;
+    throw new Error(`diagnostics must not fetch (${String(input)})`);
+  }) as typeof fetch;
+  try {
+    await seedSchedule();
+    await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH);
+    await seedOddsRefreshControl(YEAR, new Date(NOW - 60 * 1000).toISOString());
+    await getProviderDataDiagnostics(YEAR, { now: NOW });
+    // POSITIVE CONTROL — prove the counter can SEE a request before asserting
+    // there were none. Without this the assertion below passes just as happily
+    // against a stub nothing could ever reach.
+    assert.equal(calls, 0, 'determining status must not spend quota');
+    await globalThis
+      .fetch('https://example.com/probe')
+      .then(() => undefined)
+      .catch(() => undefined);
+    assert.equal(calls, 1, 'the observer registers a real request');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

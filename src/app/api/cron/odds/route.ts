@@ -29,7 +29,6 @@ import { executeOddsRefresh } from '@/lib/odds/oddsRefreshExecutor';
 import {
   createOddsCronExecutionState,
   emitOddsCronExecutionEvent,
-  type OddsCronCadence,
   type OddsCronExecutionReason,
   type OddsCronExecutionResult,
   type OddsCronExecutionState,
@@ -264,7 +263,10 @@ export async function GET(req: Request): Promise<Response> {
       }
       return finalize(exec, 'skipped', decision.reason);
     }
-    exec.cadence = decision.cadence as OddsCronCadence;
+    // No cast: the policy's cadence union and `OddsCronCadence` are the same set,
+    // and an assignment is what makes a future divergence a compile error rather
+    // than a value the receipt reader would silently reject at runtime.
+    exec.cadence = decision.cadence;
     const requestCost = estimateOddsRequestCost(ODDS_DEFAULT_MARKETS, ODDS_DEFAULT_BOOKMAKERS);
     exec.requestCost = requestCost;
 
@@ -322,7 +324,7 @@ export async function GET(req: Request): Promise<Response> {
       leaseResolution = 'release-only';
       return finalize(exec, 'skipped', recheck.reason);
     }
-    exec.cadence = recheck.cadence as OddsCronCadence;
+    exec.cadence = recheck.cadence;
 
     const scope = oddsTargetScope(context.year, 'canonical', seasonScopedKey);
 
