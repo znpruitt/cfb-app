@@ -850,11 +850,15 @@ test('#89e: the 50-credit reserve still refuses an early target, provider-data-f
   assert.equal(counts.oddsCalls, 0); // ...and nothing billed follows it
 });
 
-test('#89f: an EMPTY payload far from kickoff is a benign no-op, not a fault', async () => {
-  // THE safety property of the widened horizon. Polling 20 days out will routinely
-  // find no posted lines, and the empty-response classifier keeps its own 7-day
-  // EXPECTATION window precisely so that is not a fault: no book is expected to
-  // have priced a game that far out.
+test('#89f: an EMPTY payload far from kickoff, with NO prior lines, is a benign no-op', async () => {
+  // The COLD half of the widened horizon's safety property — the prior-rows half
+  // is `#89g` below, and conflating them is how the gap got missed: this test
+  // seeds no prior lines, so on its own it says nothing about the branch that
+  // actually produced a fault.
+  //
+  // Polling 20 days out will routinely find no posted lines, and the
+  // empty-response classifier keeps its own 7-day EXPECTATION window precisely so
+  // that is not a fault: no book is expected to have priced a game that far out.
   //
   // Had the two same-named horizons been conflated — widening the classifier's
   // window along with the polling one — every early poll of an unpriced slate
@@ -877,4 +881,73 @@ test('#89f: an EMPTY payload far from kickoff is a benign no-op, not a fault', a
   // ...and it counts as a COMPLETED CHECK, which is what suppresses a repeat for
   // the next 24 hours and what now keeps the Odds health card out of `stale`.
   assert.ok(control?.lastCompletedCheckAt, 'a valid no-op advances the completed-check clock');
+});
+
+test('#89g: KNOWN CONSEQUENCE — empty + prior lines beyond 7 days is a BILLED FAULT', async () => {
+  // NOT the behaviour anyone would choose. This test exists so the consequence is
+  // visible and cannot change silently, because two deliberate contracts now
+  // collide and resolving them is not this task's call:
+  //
+  //  - PLATFORM-089 (here) polls to 45 days, so the automatic path now reaches
+  //    the empty-payload classifier out where books routinely PULL far-out lines.
+  //  - An earlier slice deliberately left the classifier's `matched-healthy` rule
+  //    UNCAPPED — `emptyOddsClassifier.test.ts` pins it by name at 10 days out,
+  //    with the rationale "early-line regression protection preserved".
+  //
+  // So a book pulling a line 20 days out now reads as a provider regression: a
+  // billed 502, an arming backoff, and a System Health provider fault, repeating
+  // daily until the game comes inside 7 days or the rows expire. Capping the rule
+  // makes this a benign no-op and fails four existing tests, including that named
+  // one — overturning another slice's decision, which needs its own authorization.
+  //
+  // Recorded as a follow-up in `docs/next-tasks.md`. If it is fixed, this test is
+  // the one to invert.
+  await seedSchedule(Date.now() + 20 * DAY);
+
+  // First poll: lines exist and commit.
+  const first = installFetch({});
+  const seeded = await runCron();
+  assert.equal(seeded.event.result, 'success');
+  assert.equal(first.oddsCalls, 1);
+  const cached = await getAppState<{ data: unknown[]; lastFetch: number }>(
+    'odds-cache',
+    SEASON_KEY
+  );
+  assert.equal(cached?.value.data.length, 1, 'prior lines are now cached');
+
+  // A day passes. BOTH freshness signals must age, not just the control: the
+  // cadence takes the max of the raw observation and the completed check, so
+  // ageing one alone leaves the target correctly not-due and the test would
+  // prove nothing about the second poll.
+  const dayAgo = Date.now() - 25 * H;
+  await setAppState('odds-cache', SEASON_KEY, {
+    ...cached!.value,
+    lastFetch: dayAgo,
+    observedAt: new Date(dayAgo).toISOString(),
+  });
+  __resetOddsRouteCacheForTests(); // ...including the process copy
+  await setAppState('odds-refresh-control', SEASON_KEY, {
+    lease: null,
+    lastCompletedCheckAt: new Date(dayAgo).toISOString(),
+    automaticFailureCount: 0,
+    automaticNotBefore: null,
+  });
+
+  // The book pulls the line.
+  const second = installFetch({ odds: { body: [] } });
+  const { res, event } = await runCron();
+
+  assert.equal(second.oddsCalls, 1);
+  assert.equal(res.status, 502, 'CURRENT behaviour: read as a provider regression');
+  assert.equal(event.result, 'failure');
+  assert.equal(event.reason, 'odds-empty-unexpected');
+
+  const control = await readOddsRefreshControl(SEASON_KEY);
+  assert.equal(control?.automaticFailureCount, 1, 'and it arms backoff');
+  assert.ok(control?.automaticNotBefore);
+
+  // The prior lines ARE retained either way — absence out here never licenses
+  // deleting them. Only the classification of the empty response is in dispute.
+  const after = await getAppState<{ data: unknown[] }>('odds-cache', SEASON_KEY);
+  assert.equal(after?.value.data.length, 1, 'unproven-obsolete rows are preserved');
 });

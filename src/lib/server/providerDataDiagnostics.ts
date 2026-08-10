@@ -18,8 +18,8 @@ import { evaluatePartitionCoverage } from '../gameStats/partitionCoverage.ts';
 import { validateGameStatsEnvelope } from '../gameStats/publicProjection.ts';
 import type { WeeklyGameStats } from '../gameStats/types.ts';
 import { deriveApplicableScoreSeasonTypes } from './scoreApplicability.ts';
-import { readOddsRefreshControl } from '../odds/refreshLease.ts';
-import { freshestOddsSignalMs, isWithinEarlyOddsPollingHorizon } from '../odds/pollingPolicy.ts';
+import { loadCachedScheduleItems } from './canonicalScheduleCache.ts';
+import { isWithinEarlyOddsPollingHorizon } from '../odds/pollingPolicy.ts';
 import {
   classifyStatusLabel,
   isCanceledStatusLabel,
@@ -165,8 +165,23 @@ function deriveCompletedSlates(items: ScheduleCacheEntry['items'], now: number):
  * would mean a second resolution path in a cache-only read. Superset is the safe
  * direction: it can leave a warning standing that the cron would skip for an
  * unresolved participant, but it can never suppress one the cron could act on.
+ *
+ * Reads through `loadCachedScheduleItems` — the SAME authority the cron's
+ * canonical context uses — rather than the `${year}-all-all` items this module
+ * already loaded. That entry is only the first of three keys: the loader falls
+ * back to the `-all-regular` + `-all-postseason` pair when it is absent or empty.
+ * On that durable shape the caller's list is empty, so a check against it would
+ * see NO pollable target and could never warn, while the cron polled normally —
+ * reintroducing the health-vs-cron disagreement this whole change removes. The
+ * caller's items are still used when they are populated, so the common path
+ * costs no extra read.
  */
-function hasPollableOddsTarget(items: ScheduleCacheEntry['items'], now: number): boolean {
+async function hasPollableOddsTarget(
+  year: number,
+  loadedItems: ScheduleCacheEntry['items'],
+  now: number
+): Promise<boolean> {
+  const items = loadedItems.length > 0 ? loadedItems : await loadCachedScheduleItems(year);
   for (const item of items) {
     if (!item.startDate) continue;
     if (isDisruptedStatusLabel(item.status)) continue;
@@ -582,28 +597,37 @@ export async function getProviderDataDiagnostics(
   // (4th-review finding #4). Quota usage stays a separate panel display. Absence of
   // the canonical entry is reported as unknown, never treated as fresh.
   //
-  // PLATFORM-089 — freshness and applicability BOTH now agree with the cron:
+  // PLATFORM-089 — APPLICABILITY now agrees with the cron; FRESHNESS deliberately
+  // still comes from the cache entry, per binding invariant 1 ("odds staleness
+  // derives from the canonical/default season-scoped `odds-cache` entry").
   //
-  //  - Freshness is the EFFECTIVE COMPLETED CHECK, `max(raw observation,
-  //    lastCompletedCheckAt)` — the same quantity the polling cadence uses. A run
-  //    of valid no-ops (the provider correctly having nothing new) advances
-  //    `lastCompletedCheckAt` without moving the raw snapshot, and reading the
-  //    snapshot alone turned that healthy state into a warning no refresh could
-  //    clear. A provider FAILURE advances neither, so this cannot launder a
-  //    failing job into a fresh-looking one.
-  //  - Applicability is the 45-day POLLING horizon, not the generic ±45-day
-  //    `seasonActive` window. The latter is symmetric: a game 40 days in the PAST
-  //    kept the season "active", so an old snapshot warned when the cron had
-  //    nothing to poll and no operator action existed. A warning nobody can act
-  //    on is noise, and it is what this task was reported for.
+  // Applicability is the 45-day POLLING horizon, not the generic ±45-day
+  // `seasonActive` window. The latter is symmetric: a game 40 days in the PAST
+  // kept the season "active", so an old snapshot warned while the cron had
+  // nothing to poll and no operator action existed. That warning is what this
+  // task was reported for.
   //
-  // Still cache/durable-state only: a control read is `getAppState`, and it
-  // returns null rather than throwing, in which case freshness falls back to the
-  // snapshot alone rather than being fabricated.
+  // FRESHNESS was briefly widened to `max(snapshot, lastCompletedCheckAt)` — the
+  // idea being that a valid no-op proves the data is being maintained even when
+  // the payload does not move. Both reviewers rejected it and the code agrees:
+  // every no-op that leaves the entry untouched is the `preserved` branch of
+  // `commitEmptyOddsRefresh`, which retains prior rows it CANNOT PROVE OBSOLETE
+  // and keeps serving them. Counting the check clock there would have cleared
+  // `odds-cache-stale` permanently — a fresh no-op every day — while `/api/odds`
+  // served the same old lines. The scenario it was insuring against does not
+  // arise: an unchanged non-empty payload still commits a fresh `lastFetch`, and
+  // an empty response with no prior rows (or provably dead ones) writes a fresh
+  // empty entry. The one remaining case is the one where the warning is right.
+  //
   try {
     const oddsRec = await getAppState<OddsCacheFreshness>('odds-cache', defaultOddsCacheKey(year));
     const cached = oddsRec?.value;
     const lastFetch = cached?.lastFetch;
+    // The ENTRY's own clock, preferring the provider OBSERVATION time when the
+    // entry carries one — the same clock the polling cadence measures, so the two
+    // surfaces cannot disagree by measuring different things about the same
+    // record. `observedAt` is captured before the request and `lastFetch` at
+    // commit, so this only ever reads slightly OLDER, never fresher.
     const observedMs = cached?.observedAt ? Date.parse(cached.observedAt) : Number.NaN;
     const snapshotMs = Number.isFinite(observedMs)
       ? observedMs
@@ -619,10 +643,8 @@ export async function getProviderDataDiagnostics(
         `No odds snapshot cached for ${year} yet.`,
         'data-maintenance'
       );
-    } else if (hasPollableOddsTarget(scheduleItems, now)) {
-      const control = await readOddsRefreshControl(defaultOddsCacheKey(year));
-      const effectiveCheckMs = freshestOddsSignalMs(control, snapshotMs);
-      const ageMs = effectiveCheckMs === null ? Number.POSITIVE_INFINITY : now - effectiveCheckMs;
+    } else if (await hasPollableOddsTarget(year, scheduleItems, now)) {
+      const ageMs = snapshotMs === null ? Number.POSITIVE_INFINITY : now - snapshotMs;
       if (ageMs > STALE_ODDS_AFTER_MS) {
         push(
           'odds',

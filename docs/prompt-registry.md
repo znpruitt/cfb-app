@@ -52,6 +52,40 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-089-ODDS-EARLY-SEASON-POLLING-v1
+
+- Purpose: poll Odds on a staged horizon so already-available lines are maintained before the old
+  7-day cliff, and stop the Odds health card warning when nothing is pollable.
+- Scope: `pollingPolicy`, `cronExecutionLog`, `cron/odds/route`, `providerDataDiagnostics`, plus
+  `schedulerExecutionStatus` (its closed cadence set gates the validating receipt reader). No new
+  durable state, no new provider endpoint, no change to quota, lease/backoff, canonical identity, or
+  closing-line semantics.
+- Outcome: eligibility and cadence were the SAME 7-day number, so a game outside it was not a target
+  at all rather than one checked less often. Production on 2026-08-09: 125 rows committed Jul 29,
+  then `skipped / no-eligible-target · 0 eligible game(s)` on every hourly delivery while the
+  snapshot aged into `odds-cache-stale`. Now staged on the NEAREST eligible kickoff — `pregame` 2 h,
+  `baseline` 6 h (≤ 7 d), `early` 24 h (> 7 and ≤ 45 d), nothing eligible inside 45 d ⇒ unchanged
+  `no-eligible-target`. Health applicability uses the same 45-day horizon instead of the symmetric
+  ±45-day `isSeasonActive` window, which counted games already PLAYED.
+- **A requirement was implemented and then REMOVED on evidence.** The prompt asked for diagnostic
+  freshness to count `lastCompletedCheckAt`, so a valid no-op could not read as stale. Both reviews
+  rejected it and the code agreed: every no-op that leaves the entry untouched is the `preserved`
+  branch of `commitEmptyOddsRefresh`, which retains rows it cannot prove obsolete and keeps SERVING
+  them — so the warning there is correct, and counting the check clock would have cleared it
+  permanently at one no-op per day. The premise was also false: an unchanged non-empty payload still
+  commits a fresh `lastFetch`. Owner decided to drop it; freshness stays on the cache entry, per
+  binding invariant 1, with no amendment needed.
+- Review / verification: both reviewers ran against `1e6fd2e5` (two earlier attempts died — one API
+  error, one silent hang). Six findings, all reproduced before acceptance, one remediation round.
+  Gates re-run per commit. Mutation-checked throughout, including a guard against re-introducing the
+  removed freshness rule.
+- **Known consequence, NOT fixed here (follow-up in `docs/next-tasks.md`):** polling to 45 days makes
+  the empty-payload classifier's uncapped `matched-healthy` rule reachable from automation, so a book
+  PULLING a far-out line reads as a provider regression — a billed 502, arming backoff, repeating
+  daily. Capping it fails four existing tests including one named for that protection, so overturning
+  it needs its own authorization. Pinned by `#89g` so it cannot change silently.
+- Status: Implemented — pending merge.
+
 ### TURFWAR-WORDMARK-KERNING-CLEANUP-v1
 
 - Purpose: one shared-wordmark typography pass — balance the whole `T-u-r-f-W-a-r` sequence as an

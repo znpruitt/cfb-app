@@ -4,7 +4,6 @@ import test from 'node:test';
 import type { OddsRefreshControl } from '../refreshLease.ts';
 import {
   collectEligibleOddsGames,
-  freshestOddsSignalMs,
   isPregameWindowActive,
   isWithinEarlyOddsPollingHorizon,
   ODDS_BASELINE_CADENCE_MS,
@@ -385,23 +384,33 @@ test('polling #36: durable backoff still overrides the early cadence', () => {
   );
 });
 
-test('polling #37: the freshest-signal helper takes the max and never invents one', () => {
-  // The shared helper the Odds DIAGNOSTIC reuses, so health and the cron cannot
-  // disagree about when the provider was last successfully asked.
-  assert.equal(freshestOddsSignalMs(null, null), null);
-  assert.equal(freshestOddsSignalMs(control(), null), null);
-  assert.equal(freshestOddsSignalMs(null, NOW - HOUR), NOW - HOUR);
+test('polling #37: the cadence takes the FRESHEST of the two signals, and invents neither', () => {
+  // Asserted through the decision rather than the helper: the helper is internal
+  // again now that the diagnostic no longer shares it, and what actually matters
+  // is that neither signal can drag the other backwards into a wasted request.
+  const games = [game({ kickoff: new Date(NOW + 20 * DAY).toISOString() })];
+  const decide = (overrides: Partial<OddsRefreshControl>, rawObservationMs: number | null) =>
+    selectOddsPollingDecision({ games, control: control(overrides), rawObservationMs, now: NOW });
 
-  // A no-op completion is NEWER than the raw snapshot → it wins.
-  assert.equal(
-    freshestOddsSignalMs(control({ lastCompletedCheckAt: new Date(NOW).toISOString() }), NOW - DAY),
-    NOW
+  // A recent no-op completion wins over an ancient raw snapshot → not due.
+  assert.deepEqual(decide({ lastCompletedCheckAt: new Date(NOW).toISOString() }, NOW - 30 * DAY), {
+    due: false,
+    reason: 'refresh-not-due',
+  });
+  // ...and an ancient completion never drags a fresh snapshot backwards.
+  assert.deepEqual(decide({ lastCompletedCheckAt: new Date(NOW - 30 * DAY).toISOString() }, NOW), {
+    due: false,
+    reason: 'refresh-not-due',
+  });
+  // Both genuinely old → due.
+  assert.deepEqual(
+    decide({ lastCompletedCheckAt: new Date(NOW - 30 * DAY).toISOString() }, NOW - 30 * DAY),
+    { due: true, cadence: 'early' }
   );
-  // ...and an older completion never drags a fresh snapshot backwards.
-  assert.equal(
-    freshestOddsSignalMs(control({ lastCompletedCheckAt: new Date(NOW - DAY).toISOString() }), NOW),
-    NOW
-  );
-  // An unparseable timestamp is ignored, not treated as now.
-  assert.equal(freshestOddsSignalMs(control({ lastCompletedCheckAt: 'not-a-date' }), null), null);
+  // An unparseable completion is ignored, not read as "just now": with no raw
+  // signal either, the target is cold and due.
+  assert.deepEqual(decide({ lastCompletedCheckAt: 'not-a-date' }, null), {
+    due: true,
+    cadence: 'early',
+  });
 });

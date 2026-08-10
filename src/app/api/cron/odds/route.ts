@@ -57,7 +57,8 @@ export const dynamic = 'force-dynamic';
  * is actually due. One invocation authenticates CRON_SECRET, honors the global
  * pause + Odds dataset toggle, loads the cache-only canonical context, performs
  * cache-only closing-line maintenance, reads durable refresh control + raw-cache
- * freshness, selects no-target / not-due / backoff / baseline / pregame, and — only
+ * freshness, selects no-target / not-due / backoff / early / baseline / pregame,
+ * and — only
  * when due — acquires the exact-target lease, validates the key, runs ONE
  * quota-free `/sports` probe, enforces the 50-credit reserve, and issues AT MOST
  * ONE `/odds` request through the shared execution authority. Every begun attempt

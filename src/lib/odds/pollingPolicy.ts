@@ -165,47 +165,35 @@ export function isPregameWindowActive(games: readonly OddsCanonicalGame[], now: 
 }
 
 /**
- * The freshest completed-check signal: `max` of the canonical raw entry's
- * effective observation and `lastCompletedCheckAt`, or `null` when neither
- * exists (a cold target).
+ * The elapsed time since the freshest completed signal (`max` of the canonical
+ * raw entry's effective observation and `lastCompletedCheckAt`). A cold target
+ * with no signal is infinitely old (always due).
  *
- * THE TWO SIGNALS ANSWER DIFFERENT QUESTIONS, which is the whole point of taking
- * the max. The raw observation says when data last CHANGED; `lastCompletedCheckAt`
- * says when the provider was last successfully ASKED — including a valid no-op,
- * where the answer was "nothing new". A provider failure sets neither (it only
- * arms backoff), so nothing here can fabricate freshness out of a failure.
+ * The two signals answer different questions, which is why the max is right HERE
+ * and wrong elsewhere: the raw observation says when data last CHANGED,
+ * `lastCompletedCheckAt` says when the provider was last successfully ASKED. For
+ * deciding whether to spend a credit, "we already asked" is the whole point.
  *
- * Exported because the Odds DIAGNOSTIC needs the same answer. It used to read the
- * raw `lastFetch` alone, so a run of correct no-ops — the provider genuinely
- * having nothing new — would age the snapshot into an `odds-cache-stale` warning
- * that no refresh could clear, and health would contradict a cron that was
- * working exactly as designed.
- */
-export function freshestOddsSignalMs(
-  control: Pick<OddsRefreshControl, 'lastCompletedCheckAt'> | null,
-  rawObservationMs: number | null
-): number | null {
-  const signals: number[] = [];
-  if (rawObservationMs !== null && Number.isFinite(rawObservationMs))
-    signals.push(rawObservationMs);
-  if (control?.lastCompletedCheckAt) {
-    const ms = Date.parse(control.lastCompletedCheckAt);
-    if (Number.isFinite(ms)) signals.push(ms);
-  }
-  return signals.length === 0 ? null : Math.max(...signals);
-}
-
-/**
- * The elapsed time since the freshest completed signal. A cold target with no
- * signal is infinitely old (always due).
+ * PLATFORM-089 briefly exported this so the Odds DIAGNOSTIC could reuse it. That
+ * was wrong and is reverted: health answers "is the data anyone is being served
+ * stale", and a completed check that leaves the served entry untouched is not
+ * evidence about the data. Binding invariant 1 says as much — odds staleness
+ * derives from the canonical `odds-cache` entry.
  */
 function elapsedSinceFreshestSignal(
   control: OddsRefreshControl,
   rawObservationMs: number | null,
   now: number
 ): number {
-  const freshest = freshestOddsSignalMs(control, rawObservationMs);
-  return freshest === null ? Number.POSITIVE_INFINITY : now - freshest;
+  const signals: number[] = [];
+  if (rawObservationMs !== null && Number.isFinite(rawObservationMs))
+    signals.push(rawObservationMs);
+  if (control.lastCompletedCheckAt) {
+    const ms = Date.parse(control.lastCompletedCheckAt);
+    if (Number.isFinite(ms)) signals.push(ms);
+  }
+  if (signals.length === 0) return Number.POSITIVE_INFINITY;
+  return now - Math.max(...signals);
 }
 
 /**

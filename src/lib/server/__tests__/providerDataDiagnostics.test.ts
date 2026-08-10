@@ -1109,13 +1109,15 @@ test('F2F: a historical manual-only partial → evidence-partial with NULL repai
 });
 
 // ---------------------------------------------------------------------------
-// PLATFORM-089 — the Odds diagnostic agrees with the polling authority.
+// PLATFORM-089 — the Odds diagnostic agrees with the polling authority about
+// WHETHER THERE IS ANYTHING TO POLL, and judges freshness from the served entry.
 //
 // Production on 2026-08-09 had System Health reporting `odds-cache-stale` while
-// the Odds cron correctly reported `no-eligible-target` on every delivery: two
-// surfaces, two different questions, one contradiction an operator could not act
-// on. Freshness is now the effective COMPLETED CHECK and applicability is the
-// 45-day POLLING horizon, so both surfaces answer the same question.
+// the Odds cron reported `no-eligible-target` on every delivery: two surfaces
+// disagreeing about whether an operator could do anything. Applicability is now
+// the 45-day polling horizon. Freshness deliberately stays on the cache entry —
+// see the block comment in the source for why the refresh-control clock was
+// tried and rejected.
 // ---------------------------------------------------------------------------
 
 /** A refresh-control record for the canonical season-scoped key. */
@@ -1152,33 +1154,34 @@ function seedScheduleWithFutureGame(daysOut: number, status = 'STATUS_SCHEDULED'
   ]);
 }
 
-test('PLATFORM-089: a recent completed CHECK clears staleness even when the payload never moved', async () => {
-  // The exact production shape: the provider is being asked on cadence and keeps
-  // answering "nothing new", so `lastCompletedCheckAt` advances while the raw
-  // snapshot does not. Reading the snapshot alone called that stale — a warning
-  // no refresh could ever clear, because the refresh was already happening.
+// REGRESSION TEST — a recent completed CHECK must NOT clear a stale SERVED
+// snapshot.
+//
+// This pass briefly counted `lastCompletedCheckAt` as freshness, reasoning that a
+// valid no-op proves the data is being maintained. It does not. The no-op branch
+// that leaves the entry untouched is the one retaining prior rows it cannot prove
+// obsolete — and `/api/odds` keeps serving exactly those rows. Counting the check
+// clock there cleared the warning permanently, one fresh no-op per day, while the
+// stale lines stayed on screen. Binding invariant 1 says the same thing: odds
+// staleness derives from the canonical `odds-cache` entry.
+test('PLATFORM-089: a recent completed check does NOT clear a stale served snapshot', async () => {
   await seedSchedule();
   await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH);
   await seedOddsRefreshControl(YEAR, new Date(NOW - 60 * 1000).toISOString());
 
   const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
-  assert.equal(
-    diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning'),
-    undefined,
-    'a valid no-op check is positive evidence the data is being maintained'
-  );
+  const warn = diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning');
+  assert.ok(warn, 'the served snapshot is what is stale, whatever the check clock says');
+  assert.equal(warn!.code, 'odds-cache-stale');
 });
 
-test('PLATFORM-089: a genuinely old effective check inside the horizon still warns', async () => {
-  // The other direction, which is what keeps the diagnostic worth having: both
-  // signals old, a pollable game inside 45 days ⇒ still actionable.
+test('PLATFORM-089: a stale snapshot inside the horizon still warns', async () => {
   await seedSchedule();
   await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH);
-  await seedOddsRefreshControl(YEAR, new Date(STALE_ODDS_FETCH).toISOString());
 
   const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
   const warn = diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning');
-  assert.ok(warn, 'an old check with a live polling target is still stale');
+  assert.ok(warn, 'an old snapshot with a live polling target is actionable');
   assert.equal(warn!.code, 'odds-cache-stale');
 });
 
@@ -1240,16 +1243,40 @@ test('PLATFORM-089: a disrupted future game is not a polling target for the diag
   );
 });
 
-test('PLATFORM-089: an unreadable refresh control falls back to the snapshot, never to "fresh"', async () => {
-  // No control record at all (the conservative fallback): freshness reverts to the
-  // raw snapshot rather than being fabricated, so a genuinely stale cache with a
-  // live target still warns.
-  await seedSchedule();
+// REGRESSION TEST — the horizon check reads the SAME schedule keys the cron does.
+//
+// `${year}-all-all` is only the first of three: the shared loader falls back to
+// the `-all-regular` + `-all-postseason` pair. Checking only the first meant that
+// on the split shape the diagnostic saw no pollable target and could never warn,
+// while the cron polled normally — the exact health-vs-cron disagreement this
+// change exists to remove, reintroduced by the fix for it.
+test('PLATFORM-089: a split regular/postseason schedule is still a pollable target', async () => {
+  await setAppState('schedule', `${YEAR}-all-regular`, {
+    at: NOW - 3 * 60 * 60 * 1000,
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: [
+      {
+        id: '201',
+        week: 2,
+        seasonType: 'regular',
+        startDate: new Date(NOW + 10 * 24 * 60 * 60 * 1000).toISOString(),
+        status: 'STATUS_SCHEDULED',
+        homeTeam: 'Gamma',
+        awayTeam: 'Delta',
+        neutralSite: false,
+        conferenceGame: false,
+        homeConference: 'SEC',
+        awayConference: 'Big Ten',
+      },
+    ],
+  });
   await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH);
+
   const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
   assert.ok(
-    diagnostics.find((d) => d.dataset === 'odds' && d.severity === 'warning'),
-    'absent control state must not read as a recent check'
+    diagnostics.find((d) => d.dataset === 'odds' && d.code === 'odds-cache-stale'),
+    'the cron would poll this shape, so health must be able to say it is stale'
   );
 });
 
@@ -1283,7 +1310,6 @@ test('PLATFORM-089: the odds diagnostic makes no provider request', async () => 
   try {
     await seedSchedule();
     await seedCanonicalOddsCache(YEAR, STALE_ODDS_FETCH);
-    await seedOddsRefreshControl(YEAR, new Date(NOW - 60 * 1000).toISOString());
     await getProviderDataDiagnostics(YEAR, { now: NOW });
     // POSITIVE CONTROL — prove the counter can SEE a request before asserting
     // there were none. Without this the assertion below passes just as happily

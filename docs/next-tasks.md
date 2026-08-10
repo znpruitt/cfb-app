@@ -48,11 +48,14 @@ Supersedes: (none)
 5. ✅ **TURFWAR-WORDMARK-KERNING-CLEANUP-v1 — COMPLETE** (PR #468, `fc77420`, 2026-08-10). One
    shared-wordmark typography pass: tracking is now `normal` and the `f`/`W` join `0.02em`.
    Execution record, review, and verification live in `docs/prompt-registry.md`.
-6. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
-7. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+6. **PLATFORM-089 — implemented, pending merge.** Odds polling moves from a 7-day cliff to a staged
+   45-day horizon (24 h early / 6 h baseline / 2 h pregame), and the Odds health card stops warning
+   when nothing is pollable. Execution record in `docs/prompt-registry.md`.
+7. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
+8. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
    History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
    later.
-8. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
+9. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
    schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its first
    qualifying automatic presentation refresh from production evidence when it occurs.
 
@@ -1252,6 +1255,15 @@ record under Active priorities above).
 
 ## Non-blocking maintenance
 
+- **Odds empty-payload classification beyond 7 days (opened by PLATFORM-089).** Polling to 45 days
+  makes the empty-response classifier's `matched-healthy` rule reachable from automation, and that
+  rule is deliberately UNCAPPED (`emptyOddsClassifier.test.ts` pins it by name at 10 days out:
+  "early-line regression protection preserved"). A book PULLING a far-out line is therefore read as a
+  provider regression: a billed 502, an arming backoff, and a System Health provider fault, repeating
+  daily until the game comes inside 7 days or the rows expire. Capping the rule at the module's own
+  expectation horizon makes it a benign no-op and fails four existing tests, so it overturns an
+  earlier slice's decision and needs its own authorization. Current behaviour is pinned by `#89g` in
+  `cron-odds.test.ts`; inverting that test is the marker for a fix. No owner slice.
 - **Flaky clock-boundary test — `insights-suppression.test.ts` ("record at exactly TTL boundary is
   not expired").** The fixture stamps `firedAt` from `Date.now()` and `isSuppressionRecordExpired`
   reads `Date.now()` again, so a millisecond tick between the two calls pushes the age past the TTL
