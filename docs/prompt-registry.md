@@ -72,15 +72,23 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   **`rf` 1.0→3.9**, **`fW` 8.8→5.0**, `Wa` 6.0→8.9, `ar` 5.4→8.3.
 - Review / verification: values were **measured, not tuned** — the real font was shaped with HarfBuzz
   so actual GPOS kerning applied, outlines flattened, and the minimum ink-to-ink gap computed per
-  adjacent pair; candidates were also rasterized and compared before shipping. Gates on `364663ff`:
-  3505/3505 tests (+2), `tsc`, `lint:all`, `build`, and the built CSS bundle inspected rather than
-  assumed. Owner confirmed the render. **`/code-review` only — the Codex review required by
-  `AGENTS.md` (Review and remediation limits, rule 2) was NOT run; the user authorized proceeding on
-  the single review.** All five findings were reproduced independently and accepted: the join band
-  had no floor (`-0.05em` and `0.001em` both passed), an absent `letter-spacing` read as `0`, only
-  the first `.wordmark` block was parsed, the absolute-length scan missed shorthand, and two registry
-  claims went stale. One remediation round; all ten mutations now fail a named test.
-- Status: Implemented — pending review closeout and merge.
+  adjacent pair; candidates were also rasterized and compared before shipping. Owner confirmed the
+  render. Gates re-run per commit; the built CSS bundle was inspected rather than assumed.
+  **TWO remediation rounds, both authorized by the user, and both confined to the PROOF SURFACE —
+  no production CSS changed after the owner approved the render.** Round 1 answered `/code-review`
+  against `364663ff`; the Codex review required by `AGENTS.md` rule 2 had not run, and the user
+  authorized proceeding on the single review (deviation on the record). Round 2 answered the rule-5
+  confirming passes — Codex and `/code-review` against `64a9f1e4` — under rule 6 approval; two of
+  its five findings were pre-existing rather than round-1 defects, included by the same approval.
+- **What the two rounds actually found is one lesson: every guard was a REGEX OVER CSS TEXT, and each
+  round it was walked past by a string it did not anticipate** — a shorthand, a grouped selector, a
+  pseudo-class, a `margin: 0` reset — while a legitimate media query and an `hsl()` percentage were
+  _rejected_. Round 2's fix was to make the harness SMALLER: the two properties whose absence is a
+  defect are now whole-file scans (`letter-spacing:\s*-`, and no `margin` shorthand at any selector)
+  that no selector form can dodge, and the per-block parse is trusted only to read values. Fifteen
+  mutations are recorded against it: thirteen defects that must fail, two legitimate stylesheets that
+  must pass.
+- Status: Implemented — pending merge.
 
 ### TURFWAR-APP-WORDMARK-REUSE-v1
 

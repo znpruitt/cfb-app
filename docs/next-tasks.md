@@ -46,11 +46,8 @@ Supersedes: (none)
    raster prohibition. The deferred HOMEPAGE-BRAND-IDENTITY item below is NOT absorbed by it —
    POLISH-004 was landing art direction, not a logo or an app-wide branding system.
 5. **TURFWAR-WORDMARK-KERNING-CLEANUP-v1 — implemented, pending merge.** One shared-wordmark
-   typography pass: the global negative tracking was cancelling the typeface's own `r` → `f` kern,
-   which caused BOTH the `r`/`f` crowding and — through the oversized join sized to repay it — an
-   `f`/`W` gap that read as "Turf War". Tracking is now `normal` and the join `0.02em`. Owner
-   confirmed the render. Deviation on record: `/code-review` ran, the Codex review did not, and the
-   user authorized proceeding on the single review. Execution record in `docs/prompt-registry.md`.
+   typography pass: tracking is now `normal` and the `f`/`W` join `0.02em`. Execution record,
+   review, and verification live in `docs/prompt-registry.md`.
 6. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
 7. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
    History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
@@ -1256,12 +1253,10 @@ record under Active priorities above).
 ## Non-blocking maintenance
 
 - **Flaky clock-boundary test — `insights-suppression.test.ts` ("record at exactly TTL boundary is
-  not expired").** Observed failing once in a full-suite run on 2026-08-09 and passing 10/10 in
-  isolation immediately after. Pre-existing, unrelated to the change that surfaced it
-  (`TURFWAR-WORDMARK-KERNING-CLEANUP-v1` touched no `src/lib` file). Cause: the fixture stamps
-  `firedAt` from `Date.now()` and `isSuppressionRecordExpired` reads `Date.now()` again, so a
-  millisecond tick between the two calls makes the age _exceed_ the TTL and the boundary case flips.
-  Fix is to inject the clock rather than to widen the assertion; scheduled with no owner slice.
+  not expired").** The fixture stamps `firedAt` from `Date.now()` and `isSuppressionRecordExpired`
+  reads `Date.now()` again, so a millisecond tick between the two calls pushes the age past the TTL
+  and the boundary case flips. Fails intermittently under full-suite load only. Fix is to inject the
+  clock, not to widen the assertion. No owner slice.
 - Revisit TypeScript import/test-runner cleanup separately from active campaign work.
 - Keep optional decomposition of `CFBScheduleApp.tsx` and `scoreAttachment.ts` as non-blocking
   technical debt unless explicitly scheduled.
