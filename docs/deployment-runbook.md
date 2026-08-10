@@ -413,6 +413,8 @@ The **server-side** automation — the QStash `turfwar-odds-hourly` schedule tha
 
 The polling horizon is **45 days**; it was 7 days through PLATFORM-086C2, which left already-downloaded lines unmaintained for weeks before a season and produced a standing `odds-cache-stale` health warning no operator action could clear. **Budget impact: about 3 credits/day** (one canonical request) while the nearest game is 7–45 days out — the 50-credit automation reserve, the quota-free `/sports` probe, the one-billed-request-per-due-invocation rule, and the hourly schedule itself are all unchanged. Expect `skipped / no-eligible-target` to be rare in the ~6 weeks before a season and normal in deep offseason.
 
+**`no-op / early-lines-withdrawn`** is an expected reason in the early window, not a fault: prior lines existed and the provider returned none while no game is inside the 7-day expectation horizon — a book withdrawing a far-out line. It records a completed check, resets nothing, and arms no backoff. The same disappearance with a game inside 7 days remains `failure / odds-empty-unexpected` (502, backoff), and a manual refresh is unchanged.
+
 **Odds health freshness** is judged from the canonical `odds-cache` entry (per binding invariant 1) and is only reported as actionable when a non-disrupted game falls inside that same 45-day polling horizon — so an old snapshot with nothing to poll for no longer warns. On any CLI exit `4` (indeterminate durability), inspect read-only and STOP; never blind-retry.
 
 1. **Confirm the merged build is deployed** and the two lifecycle crons are still the only entries in `vercel.json` (`/api/cron/odds` is NOT a Vercel cron — it is triggered externally by QStash, like game-stats and live-scores).

@@ -48,6 +48,7 @@ export type OddsRefreshReason =
   | 'unexpected-error' // an unclassified internal error
   // ---- no-op (validated but nothing changed) ----
   | 'empty-response' // valid empty payload for a legitimately quiet target
+  | 'early-lines-withdrawn' // prior rows vanished, but only for games beyond the expectation horizon
   | 'stale-observation' // this observation lost to a fresher committed one
   | 'unchanged-clean' // recomputed durable state equals prior-good
   // ---- success ----

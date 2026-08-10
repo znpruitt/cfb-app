@@ -79,11 +79,19 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   error, one silent hang). Six findings, all reproduced before acceptance, one remediation round.
   Gates re-run per commit. Mutation-checked throughout, including a guard against re-introducing the
   removed freshness rule.
-- **Known consequence, NOT fixed here (follow-up in `docs/next-tasks.md`):** polling to 45 days makes
-  the empty-payload classifier's uncapped `matched-healthy` rule reachable from automation, so a book
-  PULLING a far-out line reads as a provider regression — a billed 502, arming backoff, repeating
-  daily. Capping it fails four existing tests including one named for that protection, so overturning
-  it needs its own authorization. Pinned by `#89g` so it cannot change silently.
+- **A second change was authorized mid-review and shipped WITH this one, because polling to 45 days
+  is not safe without it.** The widened horizon makes the empty-payload classifier reachable from
+  automation, where a book WITHDRAWING a far-out line reads as a provider regression: a billed 502,
+  arming backoff, a health fault, repeating daily through preseason — the exact false alarm this
+  campaign removes. The first attempt capped the classifier's `matched-healthy` rule and broke four
+  tests, one named "a matched healthy game keeps prior evidence even BEYOND the 7-day horizon"
+  ("early-line regression protection preserved"). **That was the wrong layer.** The verdict is
+  correct; only the CONSEQUENCE was wrong. The classifier already returns `nearHorizonGameCount`, so
+  the executor now splits on it: near-horizon games expected ⇒ billed failure, unchanged; only
+  far-out prior rows ⇒ `no-op / early-lines-withdrawn`, recorded in the event and receipt, no 502, no
+  backoff, no fault. Narrowed to the AUTOMATIC path (backoff and the health card exist only there)
+  and fail-closed on evidence: an unreadable or empty slate yields the same zero count without
+  proving anything, so the downgrade requires a POSITIVE slate. **No existing test changed.**
 - Status: Implemented — pending merge.
 
 ### TURFWAR-WORDMARK-KERNING-CLEANUP-v1

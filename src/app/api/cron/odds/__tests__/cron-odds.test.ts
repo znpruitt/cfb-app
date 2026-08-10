@@ -883,25 +883,17 @@ test('#89f: an EMPTY payload far from kickoff, with NO prior lines, is a benign 
   assert.ok(control?.lastCompletedCheckAt, 'a valid no-op advances the completed-check clock');
 });
 
-test('#89g: KNOWN CONSEQUENCE — empty + prior lines beyond 7 days is a BILLED FAULT', async () => {
-  // NOT the behaviour anyone would choose. This test exists so the consequence is
-  // visible and cannot change silently, because two deliberate contracts now
-  // collide and resolving them is not this task's call:
+test('#89g: a book WITHDRAWING a far-out line is a recorded no-op, not a provider fault', async () => {
+  // The follow-up that made polling to 45 days safe to ship.
   //
-  //  - PLATFORM-089 (here) polls to 45 days, so the automatic path now reaches
-  //    the empty-payload classifier out where books routinely PULL far-out lines.
-  //  - An earlier slice deliberately left the classifier's `matched-healthy` rule
-  //    UNCAPPED — `emptyOddsClassifier.test.ts` pins it by name at 10 days out,
-  //    with the rationale "early-line regression protection preserved".
-  //
-  // So a book pulling a line 20 days out now reads as a provider regression: a
-  // billed 502, an arming backoff, and a System Health provider fault, repeating
-  // daily until the game comes inside 7 days or the rows expire. Capping the rule
-  // makes this a benign no-op and fails four existing tests, including that named
-  // one — overturning another slice's decision, which needs its own authorization.
-  //
-  // Recorded as a follow-up in `docs/next-tasks.md`. If it is fixed, this test is
-  // the one to invert.
+  // Sequence: an early poll commits lines for a game 20 days out; the book later
+  // pulls them; the next daily poll returns `[]` while those rows still match a
+  // future game. The classifier still calls that unexpected — its rule and its
+  // tests are untouched, and it is right that this is worth noticing. What
+  // changed is the CONSEQUENCE: with no game inside the expectation horizon, this
+  // is a book withdrawing a far-out line, which is ordinary. It is recorded, and
+  // it is not a 502, not a backoff, and not a provider fault repeating daily
+  // through preseason.
   await seedSchedule(Date.now() + 20 * DAY);
 
   // First poll: lines exist and commit.
@@ -938,16 +930,63 @@ test('#89g: KNOWN CONSEQUENCE — empty + prior lines beyond 7 days is a BILLED 
   const { res, event } = await runCron();
 
   assert.equal(second.oddsCalls, 1);
-  assert.equal(res.status, 502, 'CURRENT behaviour: read as a provider regression');
+  assert.equal(res.status, 200, 'not a 502');
+  assert.equal(event.result, 'no-op');
+  assert.equal(event.reason, 'early-lines-withdrawn', 'recorded under its own reason, not hidden');
+
+  const control = await readOddsRefreshControl(SEASON_KEY);
+  assert.equal(control?.automaticFailureCount, 0, 'no backoff armed');
+  assert.equal(control?.automaticNotBefore, null);
+  // A valid completed check, so the next poll is suppressed for the full day
+  // rather than retrying an outcome that is not an error.
+  assert.ok(control?.lastCompletedCheckAt);
+
+  // The prior lines are RETAINED — absence out here never proves them obsolete.
+  const after = await getAppState<{ data: unknown[] }>('odds-cache', SEASON_KEY);
+  assert.equal(after?.value.data.length, 1, 'unproven-obsolete rows are preserved');
+});
+
+test('#89h: the same disappearance INSIDE the horizon is still a billed fault', async () => {
+  // The other half, and the reason the classifier was left alone: a game three
+  // days out that had lines and now has none is exactly what the earlier slice's
+  // protection is for. Same code path, same classifier verdict, opposite
+  // consequence — the split is on whether any game is near enough to expect
+  // lines, not on how the empty response was produced.
+  await seedSchedule(Date.now() + 3 * DAY);
+
+  const first = installFetch({});
+  const seeded = await runCron();
+  assert.equal(seeded.event.result, 'success');
+  assert.equal(first.oddsCalls, 1);
+  const cached = await getAppState<{ data: unknown[]; lastFetch: number }>(
+    'odds-cache',
+    SEASON_KEY
+  );
+  assert.equal(cached?.value.data.length, 1);
+
+  const dayAgo = Date.now() - 25 * H;
+  await setAppState('odds-cache', SEASON_KEY, {
+    ...cached!.value,
+    lastFetch: dayAgo,
+    observedAt: new Date(dayAgo).toISOString(),
+  });
+  __resetOddsRouteCacheForTests();
+  await setAppState('odds-refresh-control', SEASON_KEY, {
+    lease: null,
+    lastCompletedCheckAt: new Date(dayAgo).toISOString(),
+    automaticFailureCount: 0,
+    automaticNotBefore: null,
+  });
+
+  const second = installFetch({ odds: { body: [] } });
+  const { res, event } = await runCron();
+
+  assert.equal(second.oddsCalls, 1);
+  assert.equal(res.status, 502);
   assert.equal(event.result, 'failure');
   assert.equal(event.reason, 'odds-empty-unexpected');
 
   const control = await readOddsRefreshControl(SEASON_KEY);
-  assert.equal(control?.automaticFailureCount, 1, 'and it arms backoff');
+  assert.equal(control?.automaticFailureCount, 1, 'a real fault still arms backoff');
   assert.ok(control?.automaticNotBefore);
-
-  // The prior lines ARE retained either way — absence out here never licenses
-  // deleting them. Only the classification of the empty response is in dispute.
-  const after = await getAppState<{ data: unknown[] }>('odds-cache', SEASON_KEY);
-  assert.equal(after?.value.data.length, 1, 'unproven-obsolete rows are preserved');
 });
