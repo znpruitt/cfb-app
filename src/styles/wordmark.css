@@ -13,9 +13,28 @@
 .wordmark {
   font-style: italic;
   font-weight: 800;
-  /* Tight tracking, echoing a condensed display face without shipping a typeface
-     for one word. The join margin below is sized against THIS value. */
-  letter-spacing: -0.03em;
+  /*
+   * NO GLOBAL TRACKING. This is a correction, and the reason is measurable.
+   *
+   * The mark previously carried `letter-spacing: -0.03em` for a condensed
+   * display feel, with a `0.09em` join paying it back at the `f` → `W` pair.
+   * Both halves of that were wrong, and each caused a visible defect:
+   *
+   *  - The UI face kerns `r` → `f` OPEN by +0.023em. It has to: the `r`'s arm
+   *    and the italic `f`'s stem both reach toward each other at x-height, and
+   *    the pair collides without help. A blanket -0.03em MORE than cancelled the
+   *    font's own correction, closing that pair to a 1px pinch at the landing's
+   *    96px — while its neighbours sat at 5–6px. That is the crowding: one
+   *    global lever undoing a per-pair fix the typeface had already made.
+   *  - The join then had to be large enough to clear the tracking before it
+   *    added anything, and 0.09em - 0.03em = 0.06em of net gap reads as a WORD
+   *    SPACE at hero size. The mark said "Turf War".
+   *
+   * `normal` rather than `0` on purpose: it is not a no-op declaration. It is
+   * inherited-tracking insulation, so a caller that sets `tracking-tight` on a
+   * heading cannot silently reopen the collision on every surface at once.
+   */
+  letter-spacing: normal;
 }
 
 /*
@@ -24,16 +43,15 @@
  * Not a space: the brand is one word, and `letter-spacing` cannot do this because
  * it applies after EVERY letter in its element rather than to a single pair.
  *
- * THE VALUE PAYS BACK THE TRACKING ABOVE FIRST. A first attempt at `0.04em`
- * produced a NET gap of +0.01em — about 1px at the landing's size — and, since
- * the mark is centred there, moved each word barely half a pixel. It was correct
- * CSS that shipped and won the cascade, and it was invisible.
+ * This pair is the one place the font offers no help — it kerns `r`/`f` and
+ * `W`/`a`, but no face anticipates a mid-word `f` → `W`, so the `f`'s hook and
+ * the `W`'s apex close to ~3px at 96px on their own metrics. `0.02em` opens that
+ * to ~5px, which is clear of the tightest natural pair in the word (`r`/`f`, at
+ * ~4px) without approaching the ~21px advance of a real space.
  *
- *   net visible gap = margin-left + letter-spacing = 0.09 - 0.03 = 0.06em
- *
- * A test pins that relationship, so retightening the tracking cannot silently
- * swallow the gap again.
+ * With tracking now `normal`, this value is the whole visible gap — it is no
+ * longer paying anything back first.
  */
 .wordmark-join {
-  margin-left: 0.09em;
+  margin-left: 0.02em;
 }

@@ -45,11 +45,14 @@ Supersedes: (none)
    gained a durable, app-wide "Decorative raster backgrounds" rule superseding the earlier blanket
    raster prohibition. The deferred HOMEPAGE-BRAND-IDENTITY item below is NOT absorbed by it —
    POLISH-004 was landing art direction, not a logo or an app-wide branding system.
-5. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
-6. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+5. **TURFWAR-WORDMARK-KERNING-CLEANUP-v1 — implemented, pending merge.** One shared-wordmark
+   typography pass: tracking is now `normal` and the `f`/`W` join `0.02em`. Execution record,
+   review, and verification live in `docs/prompt-registry.md`.
+6. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
+7. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
    History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
    later.
-7. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
+8. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
    schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its first
    qualifying automatic presentation refresh from production evidence when it occurs.
 
@@ -1249,6 +1252,11 @@ record under Active priorities above).
 
 ## Non-blocking maintenance
 
+- **Flaky clock-boundary test — `insights-suppression.test.ts` ("record at exactly TTL boundary is
+  not expired").** The fixture stamps `firedAt` from `Date.now()` and `isSuppressionRecordExpired`
+  reads `Date.now()` again, so a millisecond tick between the two calls pushes the age past the TTL
+  and the boundary case flips. Fails intermittently under full-suite load only. Fix is to inject the
+  clock, not to widen the assertion. No owner slice.
 - Revisit TypeScript import/test-runner cleanup separately from active campaign work.
 - Keep optional decomposition of `CFBScheduleApp.tsx` and `scoreAttachment.ts` as non-blocking
   technical debt unless explicitly scheduled.

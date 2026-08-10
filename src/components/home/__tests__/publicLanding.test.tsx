@@ -287,28 +287,12 @@ test('the visible wordmark contains no whitespace', () => {
   assert.equal(mark, 'TurfWar');
   assert.ok(!/\s/.test(mark), `no whitespace inside the mark; got ${JSON.stringify(mark)}`);
 
-  // The separation is CSS, not a character — and in `em` so it tracks the
-  // wordmark's clamp rather than drifting at size.
-  // The treatment lives in the SHARED stylesheet now — it is no longer a landing
-  // concern, and the interior headers depend on the same relationship.
-  const css = codeOf('src/styles/wordmark.css');
-  const margin = css.match(/\.wordmark-join\s*\{[^}]*margin-left:\s*(-?[\d.]+)em/);
-  assert.ok(margin, 'the join carries an em margin');
-
-  // REGRESSION TEST — the margin must CLEAR the wordmark's negative tracking.
-  //
-  // `letter-spacing` applies after every character, including the `f`, so the
-  // margin pays that back before it adds anything visible. At `-0.03em` tracking
-  // a `0.04em` margin nets +0.01em — roughly 1px, and invisible. This asserts the
-  // NET, so retightening the tracking cannot silently swallow the gap again.
-  const tracking = css.match(/\.wordmark\s*\{[^}]*letter-spacing:\s*(-?[\d.]+)em/);
-  assert.ok(tracking, 'the wordmark declares its tracking in em');
-  const net = Number(margin[1]) + Number(tracking[1]);
-  assert.ok(
-    net >= 0.05,
-    `net f/W gap must stay perceptible; got ${net.toFixed(3)}em ` +
-      `(margin ${margin[1]}em + tracking ${tracking[1]}em)`
-  );
+  // What is LANDING-specific ends here: the mark that reaches this page carries
+  // no whitespace. How the separation is achieved — an em margin, its size, and
+  // the tracking it must not fight — belongs to the shared treatment and is
+  // asserted once in `src/components/brand/__tests__/wordmark.test.tsx`. This
+  // test previously carried its own copy of that arithmetic, which froze the
+  // same brittle relationship in two files at once.
 });
 
 // REGRESSION TEST — the mobile composition must not reach desktop.
