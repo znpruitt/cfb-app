@@ -1401,9 +1401,11 @@ export default function CFBScheduleApp({
           const bannerState = selectPreseasonBannerState({
             leagueStatus,
             ownersRosterSource: canonicalStandings?.ownersRosterSource,
-            // `rows` already excludes NoClaim, so this counts real owners. The
-            // source tag alone would call a NoClaim-only CSV a confirmed roster.
-            currentSeasonOwnerCount: canonicalStandings?.rows.length,
+            // `canonicalRows` already defends a snapshot without `rows`; reuse it
+            // rather than re-deriving. `rows` excludes NoClaim, so this counts
+            // real owners — the source tag alone would call a NoClaim-only CSV a
+            // confirmed roster.
+            currentSeasonOwnerCount: canonicalRows.length,
             assignmentMethod,
             draftPhase,
             draftScheduledAt,
@@ -1548,23 +1550,6 @@ export default function CFBScheduleApp({
                 <span style={{ fontWeight: 500, color: tone.text }}>
                   {bannerState.headline}
                   {detail}
-                </span>
-              </div>
-            );
-          }
-
-          // Setup complete — the commissioner finished preseason setup.
-          if (bannerState.kind === 'ready-for-kickoff') {
-            return (
-              <div
-                style={{
-                  ...bannerBase,
-                  borderLeftColor: palette.draftComplete.border,
-                  background: palette.draftComplete.background,
-                }}
-              >
-                <span style={{ fontWeight: 500, color: palette.draftComplete.text }}>
-                  {bannerState.headline}
                 </span>
               </div>
             );

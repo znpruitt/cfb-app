@@ -88,6 +88,19 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `<section>` rather than the roster grid it was added to de-duplicate, dropping the schedule
   placeholder that was the only explanation of the empty owner surface — a net removal, now scoped
   to the grid.
+- **Remediation round 3 (user-approved).** The third cycle found the SAME predicate yielding a new
+  edge — `setupComplete` outliving a method switch this time, after outliving a draft reset in round
+  2 — so the state was DELETED rather than guarded again. `ready-for-kickoff` was justified as the
+  last stage for a manually-assigning league, and that flow does not exist:
+  `League.manualAssignmentComplete` is read by the admin checklist and written NOWHERE. The only way
+  `setupComplete: true` met `assignmentMethod: 'manual'` was a league that completed setup through a
+  draft, reset it, and switched methods. `setupComplete` is no longer an input at all; the affected
+  leagues now read `Roster confirmed · Season setup in progress`, which is true. Reinstating a
+  readiness claim means extracting the admin page's `teamsAssigned` derivation into a selector both
+  surfaces consume — recorded in the module comment and pinned by tests that assert the ABSENCE of
+  the claim. Also: Matchups and Members now pass `mostRecentArchivedYear` (passing `leagueStatus`
+  made the offseason header branch reachable there), and the owner count reuses the already-defensive
+  `canonicalRows`.
 - Tracked follow-ups, not addressed here: (a) the draft-facts fetch gap above; (b) the
   `awaiting-roster` copy says "Contact your commissioner" to every viewer including the operator —
   `isAdmin` is a PLATFORM-admin flag and `src/lib/league.ts` records that there is no commissioner

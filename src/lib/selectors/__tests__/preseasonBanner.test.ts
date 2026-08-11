@@ -324,88 +324,78 @@ test('draft complete shows results until kickoff, then stands down', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Setup complete — the existing durable preseason authority
+// `setupComplete` is NOT an input, and there is no readiness state.
+//
+// An earlier version had `ready-for-kickoff`, justified as the last preseason
+// stage for a league that assigns teams manually. That flow does not exist:
+// `League.manualAssignmentComplete` is read by the admin checklist and written
+// NOWHERE, so a manual league can never reach `teamsAssigned`. Two review
+// rounds each found a different live signal the flag outlived — a reset draft
+// phase, then a method switch — which is the signal that the INPUT was wrong
+// rather than a guard missing.
+//
+// These tests pin the ABSENCE of the claim across every shape that used to
+// produce it, so reinstating it means confronting them.
 // ---------------------------------------------------------------------------
 
-test('setupComplete reports readiness for a league that never drafts', () => {
-  // `completeSetup` requires owners AND team assignment, so for a manual league
-  // this is the last preseason state. There is no draft record to talk about.
-  const state = selectPreseasonBannerState(
-    input({
-      leagueStatus: { state: 'preseason', year: 2026, setupComplete: true },
-      ...roster('csv'),
-    })
+const SETUP_COMPLETE = { state: 'preseason', year: 2026, setupComplete: true } as const;
+
+test('a recorded setupComplete never produces a readiness claim on its own', () => {
+  // Was `ready-for-kickoff`. A league with owners and no draft is mid-setup as
+  // far as any fact the banner can see.
+  const noDraft = selectPreseasonBannerState(
+    input({ leagueStatus: SETUP_COMPLETE, ...roster('csv') })
   );
-  assert.equal(state?.kind, 'ready-for-kickoff');
-  assert.equal(state?.headline, '2026 setup complete · Ready for kickoff');
+  assert.equal(noDraft?.kind, 'roster-confirmed');
+  assert.doesNotMatch(noDraft!.headline, /[Rr]eady for kickoff/);
+  assert.doesNotMatch(noDraft!.headline, /setup complete/);
+
+  // The flag changes nothing: same league without it lands identically.
+  const withoutFlag = selectPreseasonBannerState(
+    input({ leagueStatus: PRESEASON_2026, ...roster('csv') })
+  );
+  assert.deepEqual(noDraft, withoutFlag);
 });
 
-test('a stale setupComplete never outranks a draft that has been reset', () => {
+test('a draft reset does not leave a readiness claim behind', () => {
   // `POST /api/draft/[slug]/[year]/reset` accepts a COMPLETE draft, returns it
-  // to `setup`, and clears its picks. Nothing in the draft API touches
-  // `setupComplete` — `completePreseasonSetup` is its only writer and only ever
-  // sets it true — so the flag survives a reset that undid what it recorded.
-  // The owners CSV survives too, so the roster gate passes and this lands on
-  // the readiness claim unless the live draft phase outranks the flag.
-  const state = selectPreseasonBannerState(
-    input({
-      leagueStatus: { state: 'preseason', year: 2026, setupComplete: true },
-      ...roster('csv'),
-      assignmentMethod: 'draft',
-      draftPhase: 'setup',
-    })
-  );
-
-  assert.equal(state?.kind, 'draft-unscheduled');
-  assert.doesNotMatch(state!.headline, /[Rr]eady for kickoff/);
-  assert.doesNotMatch(state!.headline, /setup complete/);
-
-  // Every incomplete phase behaves the same way — a reset lands on `setup`, but
-  // `settings` and `preview` are equally "not assigned yet".
-  for (const draftPhase of ['settings', 'preview'] as const) {
-    const s = selectPreseasonBannerState(
+  // to `setup`, and clears its picks, while nothing clears `setupComplete`.
+  for (const draftPhase of ['setup', 'settings', 'preview'] as const) {
+    const state = selectPreseasonBannerState(
       input({
-        leagueStatus: { state: 'preseason', year: 2026, setupComplete: true },
+        leagueStatus: SETUP_COMPLETE,
         ...roster('csv'),
         assignmentMethod: 'draft',
         draftPhase,
       })
     );
-    assert.equal(s?.kind, 'draft-unscheduled', draftPhase);
+    assert.equal(state?.kind, 'draft-unscheduled', draftPhase);
+    assert.doesNotMatch(state!.headline, /[Rr]eady for kickoff/, draftPhase);
   }
 });
 
-test('readiness still stands for a league with no draft in front of it', () => {
-  // The reset guard must not swallow the state it was added beside: a manual
-  // league, and a league with no draft record at all, still report readiness.
-  const manual = selectPreseasonBannerState(
+test('switching to manual after completing a draft does not claim readiness', () => {
+  // `setAssignmentMethod` preserves `setupComplete` while
+  // `manualAssignmentComplete` stays false, so the admin checklist computes
+  // `teamsAssigned === false`. The banner must not disagree with it.
+  const state = selectPreseasonBannerState(
     input({
-      leagueStatus: { state: 'preseason', year: 2026, setupComplete: true },
+      leagueStatus: SETUP_COMPLETE,
       ...roster('csv'),
       assignmentMethod: 'manual',
       draftPhase: 'preview',
     })
   );
-  assert.equal(manual?.kind, 'ready-for-kickoff');
-
-  const noDraft = selectPreseasonBannerState(
-    input({
-      leagueStatus: { state: 'preseason', year: 2026, setupComplete: true },
-      ...roster('csv'),
-    })
-  );
-  assert.equal(noDraft?.kind, 'ready-for-kickoff');
+  assert.equal(state?.kind, 'roster-confirmed');
+  assert.equal(state?.headline, 'Roster confirmed · Season setup in progress');
+  assert.doesNotMatch(state!.headline, /[Rr]eady for kickoff/);
+  // Manual still silences the stale draft record — that guard is unaffected.
+  assert.doesNotMatch(state!.headline, /[Dd]raft/);
 });
 
-test('a stale setupComplete never outranks a roster that is actually gone', () => {
-  // `setupComplete` is an operator assertion recorded earlier; the canonical
-  // snapshot is the live fact. If the owners it was based on are gone, the
-  // truthful state is the earlier one.
+test('a recorded setupComplete never outranks a roster that is actually gone', () => {
   const state = selectPreseasonBannerState(
-    input({
-      leagueStatus: { state: 'preseason', year: 2026, setupComplete: true },
-      ownersRosterSource: 'none',
-    })
+    input({ leagueStatus: SETUP_COMPLETE, ownersRosterSource: 'none' })
   );
   assert.equal(state?.kind, 'awaiting-roster');
 });

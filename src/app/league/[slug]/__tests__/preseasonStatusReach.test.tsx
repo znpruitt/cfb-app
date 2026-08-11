@@ -3,7 +3,11 @@ import test, { beforeEach } from 'node:test';
 import type { ReactElement } from 'react';
 
 import { addLeague } from '@/lib/leagueRegistry';
-import { __deleteAppStateFileForTests, __resetAppStateForTests } from '@/lib/server/appStateStore';
+import {
+  __deleteAppStateFileForTests,
+  __resetAppStateForTests,
+  setAppState,
+} from '@/lib/server/appStateStore';
 import type { CanonicalStandings } from '@/lib/selectors/leagueStandings';
 import type { LeagueStatus } from '@/lib/league';
 
@@ -36,6 +40,7 @@ type CFBScheduleAppProps = {
   leagueStatus?: LeagueStatus;
   leagueYear?: number;
   assignmentMethod?: 'draft' | 'manual' | null;
+  mostRecentArchivedYear?: number;
   canonicalStandings?: CanonicalStandings;
   initialWeekViewMode?: string;
 };
@@ -134,6 +139,11 @@ test('the surfaces agree on the lifecycle facts and differ only by entry point',
     assert.deepEqual(props.leagueStatus, overview.leagueStatus, name);
     assert.equal(props.leagueYear, overview.leagueYear, name);
     assert.equal(props.assignmentMethod, overview.assignmentMethod, name);
+    // `mostRecentArchivedYear` is lifecycle-derived and feeds the offseason
+    // header branch, which passing `leagueStatus` newly made reachable on
+    // Matchups and Members. It was the one prop this test named in its title
+    // but did not check.
+    assert.equal(props.mostRecentArchivedYear, overview.mostRecentArchivedYear, name);
     assert.equal(props.canonicalStandings?.source, overview.canonicalStandings?.source, name);
     assert.equal(
       props.canonicalStandings?.ownersRosterSource,
@@ -153,4 +163,35 @@ test('the surfaces agree on the lifecycle facts and differ only by entry point',
       ['standings', 'standings'],
     ]
   );
+});
+
+test('an offseason league resolves the same archive year on every surface', async () => {
+  // The header renders `{mostRecentArchivedYear} Final Standings` on the
+  // offseason branch. Passing `leagueStatus` to Matchups and Members made that
+  // branch reachable there, so the prop it reads has to arrive with it — the
+  // views are switched by client-side buttons with no navigation, so props
+  // stay fixed at whatever the entry route supplied.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Turf War',
+    year: 2025,
+    createdAt: '2025-01-01T00:00:00.000Z',
+    status: { state: 'offseason' },
+  });
+  await setAppState(`standings-archive:${SLUG}`, '2025', {
+    leagueSlug: SLUG,
+    year: 2025,
+    archivedAt: '2026-01-15T00:00:00.000Z',
+    ownerRosterSnapshot: 'team,owner\n',
+    standingsHistory: { weeks: [], byWeek: {}, byOwner: {} },
+    finalStandings: [],
+    games: [],
+    scoresByKey: {},
+  });
+
+  for (const [name, render] of SURFACES) {
+    const props = appProps(await render(SLUG));
+    assert.deepEqual(props.leagueStatus, { state: 'offseason' }, name);
+    assert.equal(props.mostRecentArchivedYear, 2025, name);
+  }
 });

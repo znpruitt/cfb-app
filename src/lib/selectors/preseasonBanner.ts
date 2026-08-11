@@ -23,7 +23,6 @@ import type { CanonicalStandingsRosterSource } from './leagueStandings.ts';
  *   draft complete            `DraftState.phase === 'complete'`
  *   draft scheduled           `DraftSettings.scheduledAt` parses to a real date
  *   a draft is coming at all  `League.assignmentMethod !== 'manual'`
- *   setup complete            `LeagueStatus.setupComplete === true`
  *   roster confirmed          a CURRENT-season source (`csv` | `preseason-owners`)
  *                             AND at least one real (non-NoClaim) owner row
  *   awaiting roster           none of the above
@@ -48,6 +47,23 @@ import type { CanonicalStandingsRosterSource } from './leagueStandings.ts';
  *    stale `setup`/`settings`/`preview` record behind. Only
  *    `assignmentMethod` says whether a draft is still the plan.
  *
+ * **There is deliberately no "ready for kickoff" state, and `setupComplete` is
+ * deliberately not an input.** An earlier version had both, justified as the
+ * last preseason stage for a league that assigns teams manually. That flow does
+ * not exist: `League.manualAssignmentComplete` is READ by the admin checklist
+ * and written NOWHERE (manual assignment is unimplemented), so a manual league
+ * can never reach `teamsAssigned`. The only way `setupComplete: true` meets
+ * `assignmentMethod: 'manual'` is a league that completed setup through a
+ * draft, reset it, and switched methods — `setAssignmentMethod` preserves the
+ * flag — at which point the banner claimed readiness while the admin checklist
+ * showed teams unassigned. Two review rounds each found a different live signal
+ * the flag outlived (a reset draft phase, then a method switch), which is the
+ * signal that the INPUT was wrong rather than a guard missing. The authoritative
+ * fact is `teamsAssigned`, and it is currently inlined in
+ * `/admin/[slug]/preseason` rather than derived here. Reinstating a readiness
+ * claim means extracting that into a selector both surfaces consume — not
+ * reading the flag again.
+ *
  * Kept pure and JSX-free so every claim is provable without rendering, and so
  * there is exactly one place where the banner's readiness decision is made.
  * Presentation (palette, pulsing dot, link target, localized date) stays in the
@@ -71,8 +87,7 @@ export type PreseasonBannerState =
   | { kind: 'awaiting-roster'; headline: string }
   | { kind: 'awaiting-roster-draft-dated'; headline: string; scheduledAt: string }
   | { kind: 'roster-confirmed'; headline: string }
-  | { kind: 'draft-unscheduled'; headline: string }
-  | { kind: 'ready-for-kickoff'; headline: string };
+  | { kind: 'draft-unscheduled'; headline: string };
 
 export type PreseasonBannerInput = {
   /** Stored lifecycle status. `undefined` on routes that do not pass one. */
@@ -142,13 +157,8 @@ function hasCurrentSeasonRoster(
  * Precedence: the draft-engine phases come first, because a running or finished
  * draft is an observed event rather than an inference about readiness.
  *
- * Every remaining claim is gated on a confirmed current-season roster. Nothing
- * downstream of that gate — a recorded `setupComplete`, a draft date — can
- * assert readiness the roster has not reached: both can be set against a roster
- * that no longer (or does not yet) exist for this year, and the earlier stage is
- * the one a member actually needs.
- *
- * A real draft date survives that gate as DETAIL rather than as a claim. The
+ * Every remaining claim is gated on a confirmed current-season roster. A real
+ * draft date survives that gate as DETAIL rather than as a claim: the
  * draft-setup page can be reached before owners are confirmed, so a dated draft
  * with no roster is a normal ordering, not a contradiction — the banner leads
  * with the roster gap and still shows the date the league actually has.
@@ -219,25 +229,8 @@ export function selectPreseasonBannerState(
   }
 
   // A draft record exists (`setup`/`settings`/`preview`) but carries no date.
-  //
-  // This precedes `setupComplete` for the same reason the roster gate does, and
-  // the first version of this module got it wrong by applying that reason to
-  // only one of the two: `setupComplete` is an operator assertion recorded
-  // earlier, and it can outlive the DRAFT it was recorded against just as
-  // easily as the owners. `POST /api/draft/[slug]/[year]/reset` returns a
-  // completed draft to `setup` and clears its picks, and nothing in the draft
-  // API touches `setupComplete` — `completePreseasonSetup` is its only writer
-  // and only ever sets it true. A live draft phase is observed; the flag is
-  // remembered, so the phase wins.
   if (draftIsThePlan && draftPhase !== null) {
     return { kind: 'draft-unscheduled', headline: 'Roster confirmed · Draft to be scheduled' };
-  }
-
-  if (leagueStatus.setupComplete === true) {
-    return {
-      kind: 'ready-for-kickoff',
-      headline: `${bannerYear} setup complete · Ready for kickoff`,
-    };
   }
 
   // No draft is coming, or none has been started — either way the banner cannot
