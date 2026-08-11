@@ -77,8 +77,8 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   rows yields `csv` with zero rows — and the existence of a `DraftState` is not evidence a draft is
   still the plan, because `setAssignmentMethod` leaves stale draft records behind. Both were fixed
   by correcting the inputs rather than adding guards.
-- Status: **implemented and in final pre-merge review** — not merged. Branch
-  `fix/preseason-status-banner-truthfulness`, PR #471.
+- Status: ✅ **MERGED** via PR #471 (`75d32b7b`), 2026-08-11. Branch
+  `fix/preseason-status-banner-truthfulness` deleted.
 - **Remediation round 2 (user-approved, `AGENTS.md` rule 6).** The confirming passes found a P2 and
   one LOW caused by round 1. Both were the SAME oversight as the original defect, one layer in:
   `setupComplete` was gated behind the roster but not behind the DRAFT, so a draft reset
