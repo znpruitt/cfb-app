@@ -65,6 +65,22 @@ export type LeagueLifecycleSummary = {
   ownership: LeagueLifecycleOwnership;
 };
 
+/**
+ * The read-only status a surface should DISPLAY for a league record.
+ *
+ * A legacy record with no stored status is shown as its active season; nothing
+ * is persisted by reading (AGENTS.md, Lifecycle Authority). Exported so the
+ * five `/league/[slug]/*` routes share one definition — three of them inlined
+ * `league?.status` raw while two applied this fallback, so the surfaces
+ * disagreed for exactly the records the fallback exists to cover.
+ */
+export function resolveDisplayLeagueStatus(
+  league: { status?: LeagueStatus | null; year: number } | null | undefined
+): LeagueStatus | undefined {
+  if (!league) return undefined;
+  return league.status ?? { state: 'season', year: league.year };
+}
+
 function stateLabelFor(status: LeagueStatus): string {
   switch (status.state) {
     case 'offseason':

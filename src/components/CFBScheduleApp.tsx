@@ -34,6 +34,10 @@ import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
 import { resolveOverviewCanonicalInputs } from '../lib/selectors/overview';
+import {
+  formatDraftScheduleDetail,
+  selectPreseasonBannerState,
+} from '../lib/selectors/preseasonBanner';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import { buildScheduleFromApi, fetchSeasonSchedule, type AppGame } from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
@@ -93,6 +97,13 @@ type CFBScheduleAppProps = {
   leagueDisplayName?: string;
   leagueYear?: number;
   leagueStatus?: LeagueStatus;
+  /**
+   * `League.assignmentMethod` — how this league assigns teams for the season.
+   * The preseason banner needs it because `setAssignmentMethod` leaves any
+   * existing draft record in place, so a stale draft must not speak for a
+   * league that has since switched to manual assignment.
+   */
+  assignmentMethod?: 'draft' | 'manual' | null;
   mostRecentArchivedYear?: number;
   canonicalStandings?: CanonicalStandings;
   initialGames?: AppGame[];
@@ -267,6 +278,7 @@ export default function CFBScheduleApp({
   leagueDisplayName,
   leagueYear,
   leagueStatus,
+  assignmentMethod,
   mostRecentArchivedYear,
   canonicalStandings,
   initialGames = [],
@@ -564,6 +576,19 @@ export default function CFBScheduleApp({
   }, [loadRankings]);
 
   const weeks = useMemo(() => deriveRegularWeekTabs(games), [games]);
+  // Only the post-draft banner consumes this, but the scan is over the whole
+  // schedule — memoized so an in-season league does not re-walk ~800 games on
+  // every score and odds tick to answer a question its banner never asks.
+  const week1StartMs = useMemo(() => {
+    let earliest: number | null = null;
+    for (const g of games) {
+      if (g.week !== 1 || !g.date) continue;
+      const ms = new Date(g.date).getTime();
+      if (Number.isNaN(ms)) continue;
+      if (earliest === null || ms < earliest) earliest = ms;
+    }
+    return earliest;
+  }, [games]);
   const presentationTimeZone = useMemo(() => getPresentationTimeZone(), []);
   const weekDateMetadataByWeek = useMemo(
     () => deriveWeekDateMetadataByWeek(games, presentationTimeZone),
@@ -1368,140 +1393,38 @@ export default function CFBScheduleApp({
             );
           }
 
-          // Preseason / draft banners
-          if (leagueStatus?.state === 'preseason' || draftPhase) {
-            // Draft in progress — live or paused
-            if (draftPhase === 'live' || draftPhase === 'paused') {
-              return (
-                <>
-                  <style>{`
+          // Preseason / draft banners. WHAT this banner claims is decided by
+          // `selectPreseasonBannerState` — one authoritative fact per claim —
+          // and never by the lifecycle state alone, which is what made a league
+          // with no owners and no draft date read `Draft scheduled · Date TBD`.
+          // This block only renders the decision.
+          const bannerState = selectPreseasonBannerState({
+            leagueStatus,
+            ownersRosterSource: canonicalStandings?.ownersRosterSource,
+            // `canonicalRows` already defends a snapshot without `rows`; reuse it
+            // rather than re-deriving. `rows` excludes NoClaim, so this counts
+            // real owners — the source tag alone would call a NoClaim-only CSV a
+            // confirmed roster.
+            currentSeasonOwnerCount: canonicalRows.length,
+            assignmentMethod,
+            draftPhase,
+            draftScheduledAt,
+            draftCurrentRound,
+            bannerYear,
+            week1HasStarted: week1StartMs !== null && Date.now() >= week1StartMs,
+          });
+
+          // Season state, or a post-draft banner that has stood down at kickoff.
+          if (bannerState === null) return null;
+
+          // Draft in progress — live or paused
+          if (bannerState.kind === 'draft-live' || bannerState.kind === 'draft-paused') {
+            return (
+              <>
+                <style>{`
                   @keyframes cfb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
                   @keyframes cfb-pulse-ring { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(2.2); opacity: 0; } }
                 `}</style>
-                  <div
-                    style={{
-                      ...bannerBase,
-                      borderLeftColor: palette.draft.border,
-                      background: palette.draft.background,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      {/* Pulsing live indicator dot */}
-                      <div
-                        style={{ position: 'relative', width: '8px', height: '8px', flexShrink: 0 }}
-                      >
-                        <div
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            borderRadius: '50%',
-                            background: '#2563eb',
-                            opacity: 0.4,
-                            animation: 'cfb-pulse-ring 2s ease-out infinite',
-                          }}
-                        />
-                        <div
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            borderRadius: '50%',
-                            background: '#2563eb',
-                            animation: 'cfb-pulse 2s ease-in-out infinite',
-                          }}
-                        />
-                      </div>
-                      <span style={{ fontWeight: 500, color: palette.draft.text }}>
-                        {draftPhase === 'live' ? (
-                          <>
-                            Draft is live
-                            {draftCurrentRound ? ` · Round ${draftCurrentRound} in progress` : ''}
-                          </>
-                        ) : (
-                          <>
-                            Draft paused{draftCurrentRound ? ` · Round ${draftCurrentRound}` : ''}
-                          </>
-                        )}
-                      </span>
-                    </div>
-                    <Link
-                      href={
-                        isAdmin
-                          ? `/league/${leagueSlug}/draft`
-                          : `/league/${leagueSlug}/draft/board`
-                      }
-                      style={{
-                        borderRadius: '4px',
-                        border: `1px solid ${palette.draft.linkBorder}`,
-                        background: palette.draft.linkBackground,
-                        padding: '4px 10px',
-                        fontSize: '12px',
-                        fontWeight: 500,
-                        color: palette.draft.linkText,
-                        textDecoration: 'none',
-                        transition: 'background 0.15s',
-                      }}
-                    >
-                      Join Draft Board →
-                    </Link>
-                  </div>
-                </>
-              );
-            }
-
-            // Draft complete — show until Week 1 starts
-            if (draftPhase === 'complete') {
-              const week1Dates = games
-                .filter((g) => g.week === 1 && g.date)
-                .map((g) => new Date(g.date!).getTime());
-              const week1Start = week1Dates.length > 0 ? Math.min(...week1Dates) : null;
-              if (week1Start !== null && Date.now() >= week1Start) return null;
-              return (
-                <div
-                  style={{
-                    ...bannerBase,
-                    borderLeftColor: palette.draftComplete.border,
-                    background: palette.draftComplete.background,
-                  }}
-                >
-                  <span style={{ fontWeight: 500, color: palette.draftComplete.text }}>
-                    {bannerYear} Draft complete — view results
-                  </span>
-                  <Link
-                    href={`/league/${leagueSlug}/draft/summary`}
-                    style={{
-                      borderRadius: '4px',
-                      border: `1px solid ${palette.draftComplete.linkBorder}`,
-                      background: palette.draftComplete.linkBackground,
-                      padding: '4px 10px',
-                      fontSize: '12px',
-                      fontWeight: 500,
-                      color: palette.draftComplete.linkText,
-                      textDecoration: 'none',
-                      transition: 'background 0.15s',
-                    }}
-                  >
-                    Draft Summary →
-                  </Link>
-                </div>
-              );
-            }
-
-            // Draft scheduled or not yet started (setup, settings, preview, or null)
-            if (leagueStatus?.state === 'preseason') {
-              const formattedDate = draftScheduledAt
-                ? new Date(draftScheduledAt).toLocaleString(undefined, {
-                    dateStyle: 'medium',
-                    timeStyle: 'short',
-                  })
-                : null;
-              const countdown = draftScheduledAt ? getDraftCountdown(draftScheduledAt) : null;
-              let suffix = '';
-              if (formattedDate) {
-                suffix = countdown ? ` · ${formattedDate} · ${countdown}` : ` · ${formattedDate}`;
-              } else {
-                suffix = ' · Date TBD';
-              }
-              return (
                 <div
                   style={{
                     ...bannerBase,
@@ -1509,16 +1432,145 @@ export default function CFBScheduleApp({
                     background: palette.draft.background,
                   }}
                 >
-                  <span style={{ fontWeight: 500, color: palette.draft.text }}>
-                    {bannerYear} Draft scheduled{suffix}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {/* Pulsing live indicator dot */}
+                    <div
+                      style={{ position: 'relative', width: '8px', height: '8px', flexShrink: 0 }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          borderRadius: '50%',
+                          background: '#2563eb',
+                          opacity: 0.4,
+                          animation: 'cfb-pulse-ring 2s ease-out infinite',
+                        }}
+                      />
+                      <div
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          borderRadius: '50%',
+                          background: '#2563eb',
+                          animation: 'cfb-pulse 2s ease-in-out infinite',
+                        }}
+                      />
+                    </div>
+                    <span style={{ fontWeight: 500, color: palette.draft.text }}>
+                      {bannerState.headline}
+                    </span>
+                  </div>
+                  <Link
+                    href={
+                      isAdmin ? `/league/${leagueSlug}/draft` : `/league/${leagueSlug}/draft/board`
+                    }
+                    style={{
+                      borderRadius: '4px',
+                      border: `1px solid ${palette.draft.linkBorder}`,
+                      background: palette.draft.linkBackground,
+                      padding: '4px 10px',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      color: palette.draft.linkText,
+                      textDecoration: 'none',
+                      transition: 'background 0.15s',
+                    }}
+                  >
+                    Join Draft Board →
+                  </Link>
                 </div>
-              );
-            }
+              </>
+            );
           }
 
-          // Season state — no banner
-          return null;
+          // Draft complete — shown until Week 1 starts
+          if (bannerState.kind === 'draft-complete') {
+            return (
+              <div
+                style={{
+                  ...bannerBase,
+                  borderLeftColor: palette.draftComplete.border,
+                  background: palette.draftComplete.background,
+                }}
+              >
+                <span style={{ fontWeight: 500, color: palette.draftComplete.text }}>
+                  {bannerState.headline}
+                </span>
+                <Link
+                  href={`/league/${leagueSlug}/draft/summary`}
+                  style={{
+                    borderRadius: '4px',
+                    border: `1px solid ${palette.draftComplete.linkBorder}`,
+                    background: palette.draftComplete.linkBackground,
+                    padding: '4px 10px',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: palette.draftComplete.linkText,
+                    textDecoration: 'none',
+                    transition: 'background 0.15s',
+                  }}
+                >
+                  Draft Summary →
+                </Link>
+              </div>
+            );
+          }
+
+          // The two states that carry a date. `formatDraftScheduleDetail` owns
+          // the join so it is provable without pinning `toLocaleString` output;
+          // this arm only supplies the real formatter and the countdown. There
+          // is no `Date TBD` fallback anywhere — a missing date selects an
+          // earlier state instead of weakening a claim in place.
+          if (
+            bannerState.kind === 'draft-scheduled' ||
+            bannerState.kind === 'awaiting-roster-draft-dated'
+          ) {
+            const isFirm = bannerState.kind === 'draft-scheduled';
+            const detail = formatDraftScheduleDetail({
+              state: bannerState,
+              formatDateTime: (iso) =>
+                new Date(iso).toLocaleString(undefined, {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                }),
+              countdown: isFirm ? getDraftCountdown(bannerState.scheduledAt) : null,
+            });
+            // A penciled-in date sits under the neutral roster-gap treatment;
+            // only a firm date earns the draft palette.
+            const tone = isFirm ? palette.draft : palette.offseason;
+            return (
+              <div
+                style={{
+                  ...bannerBase,
+                  borderLeftColor: tone.border,
+                  background: tone.background,
+                }}
+              >
+                <span style={{ fontWeight: 500, color: tone.text }}>
+                  {bannerState.headline}
+                  {detail}
+                </span>
+              </div>
+            );
+          }
+
+          // Earlier preseason stages — neutral, because nothing has been
+          // arranged yet. Detailed setup instructions stay on the commissioner
+          // surfaces; this line only says where the league stands.
+          return (
+            <div
+              style={{
+                ...bannerBase,
+                borderLeftColor: palette.offseason.border,
+                background: palette.offseason.background,
+              }}
+            >
+              <span style={{ fontWeight: 500, color: palette.offseason.text }}>
+                {bannerState.headline}
+              </span>
+            </div>
+          );
         })()}
 
       {hasFatalLeagueBootstrapFailure ? (
@@ -1565,11 +1617,17 @@ export default function CFBScheduleApp({
         </section>
       ) : null}
 
-      {/* Pre-season overview — shown when in preseason state with no schedule data */}
+      {/* Pre-season overview — shown when in preseason state with no schedule
+          data. The section carries TWO things and only one of them duplicates
+          anything, so the Members exclusion sits on the roster grid rather than
+          here — the schedule placeholder is the only thing explaining the empty
+          state on that surface, and it was reachable there before this work. */}
       {isPreseason && !canRenderLeagueSurface ? (
         <section className="space-y-6">
-          {/* Owner roster */}
-          {roster.length > 0
+          {/* Owner roster. Excluded on the Members surface: `canRenderPrimarySurface`
+              is unconditionally true for `weekViewMode === 'owner'`, so this grid
+              would stack on top of OwnerPanel and list the same owners twice. */}
+          {roster.length > 0 && weekViewMode !== 'owner'
             ? (() => {
                 const ownerTeams = new Map<string, string[]>();
                 for (const row of roster) {
@@ -1604,9 +1662,7 @@ export default function CFBScheduleApp({
                   </div>
                 );
               })()
-            : draftPhase && draftPhase !== 'complete'
-              ? null
-              : null}
+            : null}
 
           {/* Schedule placeholder */}
           <div className="mt-4 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-950">

@@ -52,6 +52,66 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-091-PRESEASON-STATUS-BANNER-v1
+
+- Purpose: make the league banner state the league's actual preseason readiness instead of claiming
+  `{year} Draft scheduled · Date TBD` from the lifecycle state alone, and give every league surface
+  the facts that decision needs.
+- Scope: new `selectors/preseasonBanner` (the decision + the date detail), the `CFBScheduleApp`
+  banner block, `resolveDisplayLeagueStatus` in `selectors/leagueLifecycle`, and the five
+  `/league/[slug]/*` routes' prop wiring, plus focused suites. No change to persistence, draft
+  execution, owner assignment, lifecycle transitions, or draft phase semantics. No new durable
+  state — every input already existed and already had an owner.
+- Outcome: a LIFECYCLE state was standing in as evidence for a DRAFT-STATUS claim. Because
+  `DraftSettings.scheduledAt` is nullable by design, a null date was reconciled with `· Date TBD`
+  rather than treated as the absence of evidence, so one lifecycle fact licensed four materially
+  different states. The banner now derives from one authoritative fact per claim: draft phase for
+  live/paused/complete, a parseable `scheduledAt` for `Draft scheduled`, `League.assignmentMethod`
+  for whether a draft is coming at all, `LeagueStatus.setupComplete` for readiness, and a
+  current-season roster SOURCE paired with a real owner COUNT for `Roster confirmed`. `Date TBD` is
+  gone: a missing date selects an earlier state instead of weakening a claim in place.
+- **`· Date TBD` was the tell.** A qualifier that exists only to let a claim survive a null means
+  the CLAIM is wrong, not the qualifier — the same shape as PLATFORM-090's guard accretion.
+- **Two review findings shared one root: the inputs were tags, not facts.** `ownersRosterSource`
+  answers WHERE a roster came from, not WHETHER one exists — a current-year CSV of only `NoClaim`
+  rows yields `csv` with zero rows — and the existence of a `DraftState` is not evidence a draft is
+  still the plan, because `setAssignmentMethod` leaves stale draft records behind. Both were fixed
+  by correcting the inputs rather than adding guards.
+- Status: **implemented and in final pre-merge review** — not merged. Branch
+  `fix/preseason-status-banner-truthfulness`, PR #471.
+- **Remediation round 2 (user-approved, `AGENTS.md` rule 6).** The confirming passes found a P2 and
+  one LOW caused by round 1. Both were the SAME oversight as the original defect, one layer in:
+  `setupComplete` was gated behind the roster but not behind the DRAFT, so a draft reset
+  (`POST /api/draft/[slug]/[year]/reset` returns a complete draft to `setup` and clears its picks
+  while nothing clears the flag) left the banner claiming `Ready for kickoff`. An incomplete draft
+  phase now outranks the remembered flag. The round-1 Members guard also sat on the whole preseason
+  `<section>` rather than the roster grid it was added to de-duplicate, dropping the schedule
+  placeholder that was the only explanation of the empty owner surface — a net removal, now scoped
+  to the grid.
+- **Remediation round 3 (user-approved).** The third cycle found the SAME predicate yielding a new
+  edge — `setupComplete` outliving a method switch this time, after outliving a draft reset in round
+  2 — so the state was DELETED rather than guarded again. `ready-for-kickoff` was justified as the
+  last stage for a manually-assigning league, and that flow does not exist:
+  `League.manualAssignmentComplete` is read by the admin checklist and written NOWHERE. The only way
+  `setupComplete: true` met `assignmentMethod: 'manual'` was a league that completed setup through a
+  draft, reset it, and switched methods. `setupComplete` is no longer an input at all; the affected
+  leagues now read `Roster confirmed · Season setup in progress`, which is true. Reinstating a
+  readiness claim means extracting the admin page's `teamsAssigned` derivation into a selector both
+  surfaces consume — recorded in the module comment and pinned by tests that assert the ABSENCE of
+  the claim. Also: Matchups and Members now pass `mostRecentArchivedYear` (passing `leagueStatus`
+  made the offseason header branch reachable there), and the owner count reuses the already-defensive
+  `canonicalRows`.
+- Tracked follow-ups, not addressed here: (a) the draft-facts fetch gap above; (b) the
+  `awaiting-roster` copy says "Contact your commissioner" to every viewer including the operator —
+  `isAdmin` is a PLATFORM-admin flag and `src/lib/league.ts` records that there is no commissioner
+  identity in this app, so branching on it would encode a wrong audience model to fix a cosmetic
+  problem; owner decided it is not worth the work.
+- Notes: owner decisions during review: an
+  unconfirmed roster leads over a draft date, but the date survives as `Draft penciled in for …`
+  rather than being discarded; the banner rides on all five league surfaces. Known accepted gap —
+  when `/api/draft/…` is unavailable the best-effort fetch leaves draft facts null, so a league
+  with a live draft and no confirmed roster reads as awaiting-roster until the fetch succeeds.
+
 ### PLATFORM-090-GAME-STATS-PRESEASON-HEALTH-STATE-v1
 
 - Purpose: stop the System Health Game stats row rendering an operational warning when the absence
