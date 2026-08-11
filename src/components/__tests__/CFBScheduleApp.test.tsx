@@ -606,3 +606,72 @@ test('live-status section still renders for the other live signals (finding #5 r
   );
   assert.equal(shouldRenderLiveStatusSection({ ...cleanLiveStatusInput, loadingLive: true }), true);
 });
+
+// ---------------------------------------------------------------------------
+// PRESEASON-STATUS-BANNER-TRUTHFULNESS — the banner is rendered from
+// `selectPreseasonBannerState`, so the claim ledger lives in that module's
+// tests. These render tests prove the WIRING: that the canonical snapshot's
+// `ownersRosterSource` actually reaches the decision, and that the fabricated
+// `Draft scheduled · Date TBD` claim is gone from the rendered surface.
+//
+// Only the no-draft-record states are reachable here: `draftPhase` and
+// `draftScheduledAt` arrive from a client fetch effect that never runs under
+// `renderToStaticMarkup`, which leaves `draftPhase` null — exactly the
+// production shape of the regression.
+// ---------------------------------------------------------------------------
+
+function preseasonSnapshot(
+  ownersRosterSource: CanonicalStandings['ownersRosterSource']
+): CanonicalStandings {
+  const base = canonicalStandings(ownersRosterSource === 'none' ? [] : ['Alice', 'Bob']);
+  return {
+    ...base,
+    source: ownersRosterSource === 'none' ? 'preseason-awaiting-kickoff' : 'preseason-names',
+    lifecycle: 'preseason',
+    ownersRosterSource,
+  };
+}
+
+test('preseason with no current-season roster states the real stage instead of claiming a scheduled draft', () => {
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      leagueSlug="tsc"
+      leagueStatus={{ state: 'preseason', year: 2026 }}
+      canonicalStandings={preseasonSnapshot('none')}
+      initialGames={[]}
+    />
+  );
+
+  assert.match(html, /Awaiting 2026 roster confirmation · Contact your commissioner/);
+  assert.doesNotMatch(html, /Draft scheduled/);
+  assert.doesNotMatch(html, /Date TBD/);
+});
+
+test('confirmed preseason owners advance the banner without promising a draft', () => {
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      leagueSlug="tsc"
+      leagueStatus={{ state: 'preseason', year: 2026 }}
+      canonicalStandings={preseasonSnapshot('preseason-owners')}
+      initialGames={[]}
+    />
+  );
+
+  assert.match(html, /Roster confirmed · Season setup in progress/);
+  assert.doesNotMatch(html, /Awaiting 2026 roster confirmation/);
+  assert.doesNotMatch(html, /Draft scheduled/);
+});
+
+test('a prior season archive roster does not advance the preseason banner', () => {
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      leagueSlug="tsc"
+      leagueStatus={{ state: 'preseason', year: 2026 }}
+      canonicalStandings={preseasonSnapshot('archive')}
+      initialGames={[]}
+    />
+  );
+
+  assert.match(html, /Awaiting 2026 roster confirmation/);
+  assert.doesNotMatch(html, /Roster confirmed/);
+});

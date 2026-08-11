@@ -34,6 +34,7 @@ import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
 import { resolveOverviewCanonicalInputs } from '../lib/selectors/overview';
+import { selectPreseasonBannerState } from '../lib/selectors/preseasonBanner';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import { buildScheduleFromApi, fetchSeasonSchedule, type AppGame } from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
@@ -1368,140 +1369,36 @@ export default function CFBScheduleApp({
             );
           }
 
-          // Preseason / draft banners
-          if (leagueStatus?.state === 'preseason' || draftPhase) {
-            // Draft in progress — live or paused
-            if (draftPhase === 'live' || draftPhase === 'paused') {
-              return (
-                <>
-                  <style>{`
+          // Preseason / draft banners. WHAT this banner claims is decided by
+          // `selectPreseasonBannerState` — one authoritative fact per claim —
+          // and never by the lifecycle state alone, which is what made a league
+          // with no owners and no draft date read `Draft scheduled · Date TBD`.
+          // This block only renders the decision.
+          const week1Kickoffs = games
+            .filter((g) => g.week === 1 && g.date)
+            .map((g) => new Date(g.date!).getTime());
+          const week1Start = week1Kickoffs.length > 0 ? Math.min(...week1Kickoffs) : null;
+          const bannerState = selectPreseasonBannerState({
+            leagueStatus,
+            ownersRosterSource: canonicalStandings?.ownersRosterSource,
+            draftPhase,
+            draftScheduledAt,
+            draftCurrentRound,
+            bannerYear,
+            week1HasStarted: week1Start !== null && Date.now() >= week1Start,
+          });
+
+          // Season state, or a post-draft banner that has stood down at kickoff.
+          if (bannerState === null) return null;
+
+          // Draft in progress — live or paused
+          if (bannerState.kind === 'draft-live' || bannerState.kind === 'draft-paused') {
+            return (
+              <>
+                <style>{`
                   @keyframes cfb-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
                   @keyframes cfb-pulse-ring { 0% { transform: scale(1); opacity: 0.6; } 100% { transform: scale(2.2); opacity: 0; } }
                 `}</style>
-                  <div
-                    style={{
-                      ...bannerBase,
-                      borderLeftColor: palette.draft.border,
-                      background: palette.draft.background,
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      {/* Pulsing live indicator dot */}
-                      <div
-                        style={{ position: 'relative', width: '8px', height: '8px', flexShrink: 0 }}
-                      >
-                        <div
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            borderRadius: '50%',
-                            background: '#2563eb',
-                            opacity: 0.4,
-                            animation: 'cfb-pulse-ring 2s ease-out infinite',
-                          }}
-                        />
-                        <div
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            borderRadius: '50%',
-                            background: '#2563eb',
-                            animation: 'cfb-pulse 2s ease-in-out infinite',
-                          }}
-                        />
-                      </div>
-                      <span style={{ fontWeight: 500, color: palette.draft.text }}>
-                        {draftPhase === 'live' ? (
-                          <>
-                            Draft is live
-                            {draftCurrentRound ? ` · Round ${draftCurrentRound} in progress` : ''}
-                          </>
-                        ) : (
-                          <>
-                            Draft paused{draftCurrentRound ? ` · Round ${draftCurrentRound}` : ''}
-                          </>
-                        )}
-                      </span>
-                    </div>
-                    <Link
-                      href={
-                        isAdmin
-                          ? `/league/${leagueSlug}/draft`
-                          : `/league/${leagueSlug}/draft/board`
-                      }
-                      style={{
-                        borderRadius: '4px',
-                        border: `1px solid ${palette.draft.linkBorder}`,
-                        background: palette.draft.linkBackground,
-                        padding: '4px 10px',
-                        fontSize: '12px',
-                        fontWeight: 500,
-                        color: palette.draft.linkText,
-                        textDecoration: 'none',
-                        transition: 'background 0.15s',
-                      }}
-                    >
-                      Join Draft Board →
-                    </Link>
-                  </div>
-                </>
-              );
-            }
-
-            // Draft complete — show until Week 1 starts
-            if (draftPhase === 'complete') {
-              const week1Dates = games
-                .filter((g) => g.week === 1 && g.date)
-                .map((g) => new Date(g.date!).getTime());
-              const week1Start = week1Dates.length > 0 ? Math.min(...week1Dates) : null;
-              if (week1Start !== null && Date.now() >= week1Start) return null;
-              return (
-                <div
-                  style={{
-                    ...bannerBase,
-                    borderLeftColor: palette.draftComplete.border,
-                    background: palette.draftComplete.background,
-                  }}
-                >
-                  <span style={{ fontWeight: 500, color: palette.draftComplete.text }}>
-                    {bannerYear} Draft complete — view results
-                  </span>
-                  <Link
-                    href={`/league/${leagueSlug}/draft/summary`}
-                    style={{
-                      borderRadius: '4px',
-                      border: `1px solid ${palette.draftComplete.linkBorder}`,
-                      background: palette.draftComplete.linkBackground,
-                      padding: '4px 10px',
-                      fontSize: '12px',
-                      fontWeight: 500,
-                      color: palette.draftComplete.linkText,
-                      textDecoration: 'none',
-                      transition: 'background 0.15s',
-                    }}
-                  >
-                    Draft Summary →
-                  </Link>
-                </div>
-              );
-            }
-
-            // Draft scheduled or not yet started (setup, settings, preview, or null)
-            if (leagueStatus?.state === 'preseason') {
-              const formattedDate = draftScheduledAt
-                ? new Date(draftScheduledAt).toLocaleString(undefined, {
-                    dateStyle: 'medium',
-                    timeStyle: 'short',
-                  })
-                : null;
-              const countdown = draftScheduledAt ? getDraftCountdown(draftScheduledAt) : null;
-              let suffix = '';
-              if (formattedDate) {
-                suffix = countdown ? ` · ${formattedDate} · ${countdown}` : ` · ${formattedDate}`;
-              } else {
-                suffix = ' · Date TBD';
-              }
-              return (
                 <div
                   style={{
                     ...bannerBase,
@@ -1509,16 +1406,150 @@ export default function CFBScheduleApp({
                     background: palette.draft.background,
                   }}
                 >
-                  <span style={{ fontWeight: 500, color: palette.draft.text }}>
-                    {bannerYear} Draft scheduled{suffix}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    {/* Pulsing live indicator dot */}
+                    <div
+                      style={{ position: 'relative', width: '8px', height: '8px', flexShrink: 0 }}
+                    >
+                      <div
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          borderRadius: '50%',
+                          background: '#2563eb',
+                          opacity: 0.4,
+                          animation: 'cfb-pulse-ring 2s ease-out infinite',
+                        }}
+                      />
+                      <div
+                        style={{
+                          position: 'absolute',
+                          inset: 0,
+                          borderRadius: '50%',
+                          background: '#2563eb',
+                          animation: 'cfb-pulse 2s ease-in-out infinite',
+                        }}
+                      />
+                    </div>
+                    <span style={{ fontWeight: 500, color: palette.draft.text }}>
+                      {bannerState.headline}
+                    </span>
+                  </div>
+                  <Link
+                    href={
+                      isAdmin ? `/league/${leagueSlug}/draft` : `/league/${leagueSlug}/draft/board`
+                    }
+                    style={{
+                      borderRadius: '4px',
+                      border: `1px solid ${palette.draft.linkBorder}`,
+                      background: palette.draft.linkBackground,
+                      padding: '4px 10px',
+                      fontSize: '12px',
+                      fontWeight: 500,
+                      color: palette.draft.linkText,
+                      textDecoration: 'none',
+                      transition: 'background 0.15s',
+                    }}
+                  >
+                    Join Draft Board →
+                  </Link>
                 </div>
-              );
-            }
+              </>
+            );
           }
 
-          // Season state — no banner
-          return null;
+          // Draft complete — shown until Week 1 starts
+          if (bannerState.kind === 'draft-complete') {
+            return (
+              <div
+                style={{
+                  ...bannerBase,
+                  borderLeftColor: palette.draftComplete.border,
+                  background: palette.draftComplete.background,
+                }}
+              >
+                <span style={{ fontWeight: 500, color: palette.draftComplete.text }}>
+                  {bannerState.headline}
+                </span>
+                <Link
+                  href={`/league/${leagueSlug}/draft/summary`}
+                  style={{
+                    borderRadius: '4px',
+                    border: `1px solid ${palette.draftComplete.linkBorder}`,
+                    background: palette.draftComplete.linkBackground,
+                    padding: '4px 10px',
+                    fontSize: '12px',
+                    fontWeight: 500,
+                    color: palette.draftComplete.linkText,
+                    textDecoration: 'none',
+                    transition: 'background 0.15s',
+                  }}
+                >
+                  Draft Summary →
+                </Link>
+              </div>
+            );
+          }
+
+          // Draft genuinely scheduled — `scheduledAt` parsed to a real date, so
+          // the date is always rendered. There is no `Date TBD` fallback: a
+          // missing date now selects an earlier state instead of weakening this
+          // claim in place.
+          if (bannerState.kind === 'draft-scheduled') {
+            const formattedDate = new Date(bannerState.scheduledAt).toLocaleString(undefined, {
+              dateStyle: 'medium',
+              timeStyle: 'short',
+            });
+            const countdown = getDraftCountdown(bannerState.scheduledAt);
+            return (
+              <div
+                style={{
+                  ...bannerBase,
+                  borderLeftColor: palette.draft.border,
+                  background: palette.draft.background,
+                }}
+              >
+                <span style={{ fontWeight: 500, color: palette.draft.text }}>
+                  {bannerState.headline} · {formattedDate}
+                  {countdown ? ` · ${countdown}` : ''}
+                </span>
+              </div>
+            );
+          }
+
+          // Setup complete — the commissioner finished preseason setup.
+          if (bannerState.kind === 'ready-for-kickoff') {
+            return (
+              <div
+                style={{
+                  ...bannerBase,
+                  borderLeftColor: palette.draftComplete.border,
+                  background: palette.draftComplete.background,
+                }}
+              >
+                <span style={{ fontWeight: 500, color: palette.draftComplete.text }}>
+                  {bannerState.headline}
+                </span>
+              </div>
+            );
+          }
+
+          // Earlier preseason stages — neutral, because nothing has been
+          // arranged yet. Detailed setup instructions stay on the commissioner
+          // surfaces; this line only says where the league stands.
+          return (
+            <div
+              style={{
+                ...bannerBase,
+                borderLeftColor: palette.offseason.border,
+                background: palette.offseason.background,
+              }}
+            >
+              <span style={{ fontWeight: 500, color: palette.offseason.text }}>
+                {bannerState.headline}
+              </span>
+            </div>
+          );
         })()}
 
       {hasFatalLeagueBootstrapFailure ? (
