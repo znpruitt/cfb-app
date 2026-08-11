@@ -196,6 +196,12 @@ type CompletedSlateScan = {
    * CFBD's `start_date`), so this is defensive rather than routine.
    */
   unreadableKickoffs: number;
+  /**
+   * PLATFORM-090 review round 3 — raw rows per partition, grouped by exactly the
+   * same (week, seasonType) policy that forms the slates, so the canonical slate
+   * can be checked for DROPPED rows rather than merely for presence.
+   */
+  rawRowsByPartition: Map<SlateKey, number>;
 };
 
 /**
@@ -215,6 +221,7 @@ function deriveCompletedSlates(
 ): CompletedSlateScan {
   // 1) Group EVERY game by slate; track each slate's max kickoff across all games.
   const latestByKey = new Map<SlateKey, CompletedSlate>();
+  const rawRowsByPartition = new Map<SlateKey, number>();
   let unreadableKickoffs = 0;
   for (const item of items) {
     if (!item.startDate) {
@@ -228,6 +235,7 @@ function deriveCompletedSlates(
     }
     const seasonType = normalizeSeasonType(item.seasonType);
     const key = slateKey(item.week, seasonType);
+    rawRowsByPartition.set(key, (rawRowsByPartition.get(key) ?? 0) + 1);
     const prev = latestByKey.get(key);
     if (!prev || kickoff > prev.latestKickoff) {
       latestByKey.set(key, { week: item.week, seasonType, latestKickoff: kickoff });
@@ -237,7 +245,7 @@ function deriveCompletedSlates(
   const slates = [...latestByKey.values()]
     .filter((slate) => slate.latestKickoff <= now - SLATE_COMPLETE_AFTER_MS)
     .sort((a, b) => b.latestKickoff - a.latestKickoff);
-  return { slates, unreadableKickoffs };
+  return { slates, unreadableKickoffs, rawRowsByPartition };
 }
 
 /**
@@ -346,6 +354,16 @@ export async function getProviderDataDiagnostics(
   // ---- Schedule (also the source of "completed slate" expectations) ----
   let scheduleItems: ScheduleCacheEntry['items'] = [];
   let seasonActive = false;
+  /**
+   * PLATFORM-090 review round 3 — the cached schedule is known to be MISSING a
+   * partition, so the rows present are not the whole season. Its own warning is
+   * raised below; it is captured here because it also invalidates the negative
+   * claim "nothing has been played" — the absent partition could hold a completed
+   * stat-producing slate. Near-unreachable today (`hasRequiredSeasonTypeFailure`
+   * rejects a partial `all` refresh and the full-season refresh never commits
+   * one), so this covers a pre-085B legacy record.
+   */
+  let scheduleIncomplete = false;
   try {
     const scheduleRec = await getAppState<ScheduleCacheEntry>('schedule', `${year}-all-all`);
     const entry = scheduleRec?.value;
@@ -361,6 +379,8 @@ export async function getProviderDataDiagnostics(
         'data-maintenance'
       );
     } else {
+      scheduleIncomplete =
+        entry.partialFailure === true || (entry.failedSeasonTypes?.length ?? 0) > 0;
       if (entry.partialFailure) {
         const missing = entry.failedSeasonTypes?.length
           ? ` (missing: ${entry.failedSeasonTypes.join(', ')})`
@@ -423,7 +443,7 @@ export async function getProviderDataDiagnostics(
    * — the single thing this design must never do.
    */
   const concludeNotYetExpected = (): ProviderDataExpectation =>
-    slateScan.unreadableKickoffs > 0 ? 'unknown' : 'not-yet-expected';
+    slateScan.unreadableKickoffs > 0 || scheduleIncomplete ? 'unknown' : 'not-yet-expected';
 
   let gameStatsExpectation: ProviderDataExpectation =
     scheduleItems.length === 0
@@ -542,34 +562,55 @@ export async function getProviderDataDiagnostics(
         // the condition under which no missing-evidence diagnostic can fire.
         let expectedGames = 0;
         /**
-         * PLATFORM-090 review — completed slates for which the canonical slate
-         * produced NO row of any kind.
+         * PLATFORM-090 review — completed slates whose zero coverage denominator
+         * the canonical slate does NOT account for.
          *
-         * A zero coverage denominator has two causes that must not be conflated.
-         * The benign one is "the canonical slate says nothing is expected here"
-         * (every game disrupted). The other is "the canonical BUILD dropped every
-         * row" — `classifyScheduleRow` returning `invalid_row` /
-         * `out_of_scope_postseason`, or a non-decimal provider id — which drops
-         * games silently via `continue`, so the slate loads `available` and merely
-         * empty. A completed slate exists only because RAW rows for that partition
-         * existed, so an empty canonical partition means those rows were dropped,
-         * and treating that as "nothing is expected" would render a whole season of
-         * genuinely missing stats as a healthy lifecycle state.
+         * A zero denominator has two causes that must not be conflated. The benign
+         * one is "the canonical slate says nothing is expected here". The other is
+         * "the canonical BUILD dropped rows" — `classifyScheduleRow` returning
+         * `invalid_row` / `out_of_scope_postseason`, or a non-decimal provider id —
+         * which drops games silently via `continue`, so the slate loads `available`
+         * and merely incomplete. A completed slate exists only because RAW rows for
+         * that partition existed, so treating a dropped row as "nothing is expected"
+         * would render genuinely missing stats as a healthy lifecycle state.
          *
-         * The membership probe deliberately reads `slate.games` directly rather than
-         * `selectCanonicalPartition`, which buckets only expected/pending/placeholder
-         * and so reports a disrupted-only partition as empty too — exactly the
-         * distinction being drawn here.
+         * Round 3 tightened this from a PRESENCE probe to a full accounting, after
+         * both reviewers found the weaker form admits a false neutral:
+         *   - every raw row must have produced a canonical row (a surviving
+         *     canceled game otherwise masks a dropped stat-producing sibling), and
+         *   - every surviving row must be `disrupted`, the only reason that is
+         *     itself evidence no stats are owed. A `placeholder` shell is NOT: if
+         *     its kickoff has passed, that game was played and does produce stats.
+         *     That second clause is DEFENSE IN DEPTH with no behavioral test in
+         *     this suite: a placeholder requires derived postseason slots from the
+         *     postseason classifier, which these cache-seeded fixtures cannot
+         *     construct (arbitrary team labels, even "TBD", resolve as ordinary
+         *     addressable participants). It is reachable in production — an
+         *     unset CFP bracket row — which is why it is enforced rather than
+         *     dropped, but do not read a passing suite as proof of it.
          *
-         * Known and accepted: a completed slate whose every raw row is legitimately
-         * excluded by the builder (e.g. all FCS-vs-FCS) also lands here and reports
-         * `unknown`, i.e. it keeps the ordinary absence warning. That is the safe
+         * `selectCanonicalPartition` is deliberately not used — it buckets only
+         * expected/pending/placeholder, so it reports a disrupted-only partition as
+         * empty too, collapsing the exact distinction being drawn.
+         *
+         * Known and accepted: a completed slate whose raw rows are legitimately
+         * excluded by the builder (e.g. FCS-vs-FCS) also lands here and reports
+         * `unknown`, i.e. keeps the ordinary absence warning. That is the safe
          * direction — fail toward the warning, never toward calm.
          */
         const unexplainedSlates: CompletedSlate[] = [];
-        const canonicalPartitions = new Set<SlateKey>(
-          slateResult.slate.games.map((game) => slateKey(game.providerWeek, game.seasonType))
-        );
+        const canonicalByPartition = new Map<SlateKey, { rows: number; allDisrupted: boolean }>();
+        for (const game of slateResult.slate.games) {
+          const key = slateKey(game.providerWeek, game.seasonType);
+          const disrupted = game.notExpectedReason === 'disrupted';
+          const prev = canonicalByPartition.get(key);
+          if (prev) {
+            prev.rows += 1;
+            prev.allDisrupted = prev.allDisrupted && disrupted;
+          } else {
+            canonicalByPartition.set(key, { rows: 1, allDisrupted: disrupted });
+          }
+        }
 
         for (const slate of completedSlates) {
           // Raw durable read + the ONE shared envelope validation: only an
@@ -610,9 +651,13 @@ export async function getProviderDataDiagnostics(
           // the published expectation — never this diagnostic's silence, which is
           // pre-existing behavior.
           if (coverage.games.length === 0) {
-            if (!canonicalPartitions.has(slateKey(slate.week, slate.seasonType))) {
-              unexplainedSlates.push(slate);
-            }
+            const key = slateKey(slate.week, slate.seasonType);
+            const canonical = canonicalByPartition.get(key);
+            const explained =
+              canonical !== undefined &&
+              canonical.allDisrupted &&
+              canonical.rows === (slateScan.rawRowsByPartition.get(key) ?? 0);
+            if (!explained) unexplainedSlates.push(slate);
             continue;
           }
           expectedGames += coverage.games.length;

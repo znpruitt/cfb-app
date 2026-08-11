@@ -36,11 +36,18 @@ function participantIds(id: string): { homeId: number; awayId: number } {
   return { homeId: base + 1, awayId: base + 2 };
 }
 
-function seedScheduleItems(items: ScheduleItemSeed[]) {
-  return setAppState('schedule', `${YEAR}-all-all`, {
-    at: NOW - 3 * 60 * 60 * 1000,
+function seedScheduleItems(
+  items: ScheduleItemSeed[],
+  // PLATFORM-090 round 3 — a schedule KNOWN to be missing a partition.
+  partial: { partialFailure: boolean; failedSeasonTypes: string[] } = {
     partialFailure: false,
     failedSeasonTypes: [],
+  }
+) {
+  return setAppState('schedule', `${YEAR}-all-all`, {
+    at: NOW - 3 * 60 * 60 * 1000,
+    partialFailure: partial.partialFailure,
+    failedSeasonTypes: partial.failedSeasonTypes,
     // PLATFORM-086H3E3: diagnostics now judge coverage through the canonical
     // slate + evidence authorities, so seeds must be REAL canonical-build
     // inputs — FBS conferences (so games are tracked) and numeric participant
@@ -1772,4 +1779,88 @@ test('PLATFORM-090: an unavailable canonical context is UNKNOWN, with its warnin
     'positive control: this fixture really does make the canonical context unavailable'
   );
   assert.equal(expectations['game-stats'], 'unknown');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-090 round three — both confirming reviewers found the same class of
+// residual hole: `not-yet-expected` could still be concluded from schedule
+// evidence that was incomplete rather than genuinely empty.
+// ---------------------------------------------------------------------------
+
+// REGRESSION TEST — a cached schedule KNOWN to be missing a partition. The rows
+// present are all future games, so rounds one and two concluded the positive
+// claim `not-yet-expected`; the absent partition could hold a completed
+// stat-producing slate.
+test('PLATFORM-090: a partial schedule blocks the not-yet-expected conclusion', async () => {
+  await seedScheduleItems(
+    [
+      {
+        id: '501',
+        week: 1,
+        seasonType: 'postseason',
+        startDate: FUTURE_KICKOFF,
+        status: 'STATUS_SCHEDULED',
+        homeTeam: 'Alpha',
+        awayTeam: 'Beta',
+      },
+    ],
+    { partialFailure: true, failedSeasonTypes: ['regular'] }
+  );
+  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    expectations['game-stats'],
+    'unknown',
+    'the missing partition could contain a completed slate'
+  );
+});
+
+// POSITIVE CONTROL — the identical schedule committed COMPLETE does reach the
+// neutral state, so the assertion above discriminates the partial flag itself.
+test('PLATFORM-090: the same schedule committed complete reaches not-yet-expected', async () => {
+  await seedScheduleItems([
+    {
+      id: '501',
+      week: 1,
+      seasonType: 'postseason',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+  ]);
+  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(expectations['game-stats'], 'not-yet-expected');
+});
+
+// REGRESSION TEST — a completed partition holding BOTH a surviving canceled game
+// and a raw row the canonical build dropped. Round two's presence probe saw the
+// canceled survivor, called the partition explained, and let the dropped
+// stat-producing row disappear into a neutral row.
+test('PLATFORM-090: a disrupted survivor does not explain a DROPPED sibling row', async () => {
+  await seedScheduleItems([
+    {
+      id: '502',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'Canceled',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: 'dropped-non-decimal-id',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Echo',
+      awayTeam: 'Foxtrot',
+    },
+  ]);
+  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    expectations['game-stats'],
+    'unknown',
+    'the dropped row could have produced stats; a canceled sibling proves nothing about it'
+  );
 });
