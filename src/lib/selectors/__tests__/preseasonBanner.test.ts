@@ -83,6 +83,23 @@ test('both current-season roster sources count as confirmed, and a draft record 
   assert.doesNotMatch(confirmed!.headline, /[Dd]raft/);
 });
 
+test('an unconfirmed roster outranks a scheduled draft date', () => {
+  // A date can be set against a roster that does not exist for this year:
+  // `/league/[slug]/draft/setup` seeds a draft from last season's archive owners
+  // whenever no preseason-owners record exists. The missing roster is the stage
+  // a member needs to hear about, and it names who to ask.
+  const state = selectPreseasonBannerState(
+    input({
+      draftPhase: 'preview',
+      ownersRosterSource: 'none',
+      draftScheduledAt: '2026-08-20T23:00:00.000Z',
+    })
+  );
+
+  assert.equal(state?.kind, 'awaiting-roster');
+  assert.doesNotMatch(state!.headline, /[Dd]raft scheduled/);
+});
+
 test('a PRIOR season roster is not current-season readiness', () => {
   // `archive` is last season's roster. The draft-setup page seeds a new draft
   // from archive owners when no preseason-owners record exists, so historical

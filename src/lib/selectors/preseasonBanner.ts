@@ -106,12 +106,14 @@ function hasCurrentSeasonRoster(source: CanonicalStandingsRosterSource | undefin
 /**
  * Decide the banner's readiness claim, or `null` for no banner.
  *
- * Precedence is strongest-evidence-first. The draft-engine phases come first
- * because a running or finished draft is an observed event, not an inference.
- * Among the pre-draft states the roster check precedes `setupComplete`: the
- * canonical snapshot is the live roster fact, while `setupComplete` is an
- * operator assertion recorded earlier that can outlive the owners it was based
- * on.
+ * Precedence: the draft-engine phases come first, because a running or finished
+ * draft is an observed event rather than an inference about readiness.
+ *
+ * Every remaining claim is gated on a confirmed current-season roster. Nothing
+ * downstream of that gate — a draft date, a recorded `setupComplete` — can
+ * assert readiness the roster has not reached: both can be set against a roster
+ * that no longer (or does not yet) exist for this year, and the earlier stage is
+ * the one a member actually needs.
  */
 export function selectPreseasonBannerState(
   input: PreseasonBannerInput
@@ -158,17 +160,23 @@ export function selectPreseasonBannerState(
   // does not call preseason licenses no readiness statement.
   if (!isPreseason) return null;
 
-  // `Draft scheduled` requires a date. This is the claim the defect fabricated.
-  const scheduledAt = resolveScheduledAt(draftScheduledAt);
-  if (scheduledAt !== null) {
-    return { kind: 'draft-scheduled', headline: `${bannerYear} Draft scheduled`, scheduledAt };
-  }
-
+  // The roster gate precedes every later claim. A scheduled date does NOT clear
+  // it: `/league/[slug]/draft/setup` seeds a draft from last season's archive
+  // owners whenever no preseason-owners record exists, so a date can be set
+  // against a roster that does not exist for this year yet. Until the owners are
+  // confirmed, the stage a member needs to hear about is the missing roster —
+  // and who to ask about it — not a draft date that may still move.
   if (!hasCurrentSeasonRoster(ownersRosterSource)) {
     return {
       kind: 'awaiting-roster',
       headline: `Awaiting ${bannerYear} roster confirmation · Contact your commissioner`,
     };
+  }
+
+  // `Draft scheduled` requires a date. This is the claim the defect fabricated.
+  const scheduledAt = resolveScheduledAt(draftScheduledAt);
+  if (scheduledAt !== null) {
+    return { kind: 'draft-scheduled', headline: `${bannerYear} Draft scheduled`, scheduledAt };
   }
 
   if (leagueStatus.setupComplete === true) {

@@ -25,6 +25,7 @@ export default async function LeagueMembersPage({
         leagueSlug={slug}
         leagueDisplayName={league?.displayName}
         leagueYear={league?.year}
+        leagueStatus={league?.status}
         canonicalStandings={canonicalStandings}
         initialWeekViewMode="owner"
         isAdmin={isAdmin}
