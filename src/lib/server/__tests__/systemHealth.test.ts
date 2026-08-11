@@ -17,7 +17,13 @@ import type { OddsUsageReadState } from '../oddsUsageStore.ts';
 import type { AppStateStorageStatus } from '../appStateStore.ts';
 import { PROVIDER_DATASETS, type ProviderDataset } from '../../providerDatasets.ts';
 import { EXTERNAL_SCHEDULER_JOBS } from '../schedulerExecutionStatus.ts';
-import { NOW, YEAR, healthyDelivery, refreshSnapshot } from './systemHealthFixtures.ts';
+import {
+  NOW,
+  YEAR,
+  allExpectations,
+  healthyDelivery,
+  refreshSnapshot,
+} from './systemHealthFixtures.ts';
 
 function healthySettings(): ProviderRefreshSettings {
   const datasets = {} as ProviderRefreshSettings['datasets'];
@@ -30,6 +36,7 @@ function healthyDiagnostics(): ProviderDataDiagnosticsResult {
     year: YEAR,
     generatedAt: new Date(NOW).toISOString(),
     diagnostics: [],
+    expectations: allExpectations(),
     scoreSeasonTypes: ['regular'],
   };
 }
@@ -385,6 +392,7 @@ test('raw error, source, and filesystem-path canaries never appear in the model'
               repair: null,
             },
           ],
+          expectations: allExpectations(),
           scoreSeasonTypes: [],
         }),
       // A thrown error whose message carries a canary is discarded by the settle wrapper.
@@ -494,4 +502,117 @@ test('generatedAt reflects the injected nowMs', async () => {
   });
   assert.equal(model.generatedAt, new Date(NOW).toISOString());
   assert.equal(model.year, YEAR);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-090 — end-to-end: the REPORTED preseason state must not read as
+// degraded.
+//
+// That reported state, exactly: game-stats cache absent (correctly — no slate
+// has been played), no game-stats diagnostic, and every OTHER provider cache
+// populated. The row nevertheless rendered yellow "No cached data" and dragged
+// Provider data and Overall to "Attention needed".
+//
+// SCOPE, stated precisely (review finding): this is not a claim that any cold
+// preseason renders green. On a deployment where `scores`, `odds`, or
+// `rankings` are also uncached, those rows are still yellow "No cached data" —
+// their absence diagnostics are `info` (or gated on a completed slate), which
+// the freshness stoplight does not consult — and the panels degrade again.
+// Giving them their own applicability authority is the tracked follow-up
+// recorded in `providerDataDiagnostics.ts`; this fixture holds them `available`
+// deliberately, to isolate the game-stats axis rather than to assert that case.
+// ---------------------------------------------------------------------------
+
+function cacheStatesWith(overrides: Partial<Record<ProviderDataset, 'available' | 'absent'>>) {
+  return { ...allAvailable(), ...overrides };
+}
+
+function panelOf(model: Awaited<ReturnType<typeof buildSystemHealthViewModel>>, key: string) {
+  const p = model.panels.find((x) => x.key === key);
+  assert.ok(p, `expected panel ${key}`);
+  return p!;
+}
+
+// REGRESSION TEST — pre-fix this produced a yellow game-stats row, a yellow
+// Provider data panel, and a yellow Overall panel.
+test('PLATFORM-090: expected preseason game-stats absence is neutral end to end', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      cacheStates: () => Promise.resolve(cacheStatesWith({ 'game-stats': 'absent' })),
+      diagnostics: () =>
+        Promise.resolve({
+          ...healthyDiagnostics(),
+          expectations: allExpectations('expected', { 'game-stats': 'not-yet-expected' }),
+        }),
+    }),
+  });
+
+  const row = model.datasets.find((d) => d.dataset === 'game-stats')!;
+  assert.equal(row.cacheState, 'absent');
+  assert.deepEqual(row.diagnostics, [], 'no diagnostic requires action');
+  assert.deepEqual(row.freshness, {
+    status: 'gray',
+    label: 'None expected',
+    intentional: true,
+  });
+  assert.equal(panelOf(model, 'provider-data').status, 'green');
+  assert.equal(panelOf(model, 'provider-data').stateLabel, 'Healthy');
+  // Green must not assert that data is PRESENT while this cache is absent.
+  assert.ok(
+    !/present and current/.test(panelOf(model, 'provider-data').detail),
+    'the green provider tile must account for the expected absence'
+  );
+  assert.equal(panelOf(model, 'overall').status, 'green');
+  assert.equal(panelOf(model, 'overall').stateLabel, 'Healthy');
+  assert.equal(model.overallState, 'healthy');
+});
+
+test('PLATFORM-090: once evidence IS expected, an absent game-stats cache still warns', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      cacheStates: () => Promise.resolve(cacheStatesWith({ 'game-stats': 'absent' })),
+      diagnostics: () =>
+        Promise.resolve({
+          ...healthyDiagnostics(),
+          expectations: allExpectations('expected'),
+        }),
+    }),
+  });
+
+  const row = model.datasets.find((d) => d.dataset === 'game-stats')!;
+  assert.deepEqual(row.freshness, {
+    status: 'yellow',
+    label: 'No cached data',
+    intentional: false,
+  });
+  assert.equal(panelOf(model, 'provider-data').status, 'yellow');
+  assert.equal(panelOf(model, 'provider-data').stateLabel, 'Attention needed');
+  assert.equal(panelOf(model, 'overall').status, 'yellow');
+  assert.equal(panelOf(model, 'overall').stateLabel, 'Attention needed');
+});
+
+// CONTRACT PIN (not a regression test for the expectation fallback) — review
+// mutation-proved that this scenario is decided by the `diagnosticsAvailable`
+// short-circuit, NOT by `unknownProviderDataExpectations()`: replacing that
+// helper's return with all-`not-yet-expected` leaves this assertion green. What
+// it truthfully pins is that a failed diagnostics pass still yields a
+// non-intentional Unknown row, whichever of the two guards gets there first.
+test('PLATFORM-090: a diagnostics-pass failure yields a non-intentional Unknown row', async () => {
+  const model = await buildSystemHealthViewModel({
+    year: YEAR,
+    nowMs: NOW,
+    loaders: healthyLoaders({
+      cacheStates: () => Promise.resolve(cacheStatesWith({ 'game-stats': 'absent' })),
+      diagnostics: () => Promise.reject(new Error('diagnostics boom')),
+    }),
+  });
+
+  const row = model.datasets.find((d) => d.dataset === 'game-stats')!;
+  assert.equal(row.freshness.intentional, false);
+  assert.equal(row.freshness.status, 'gray');
+  assert.equal(row.freshness.label, 'Unknown');
 });

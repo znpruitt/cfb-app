@@ -12,7 +12,10 @@ import { defaultOddsCacheKey } from '@/app/api/odds/routeInternals';
 import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
 import { getAppState, getAppStateEntries } from './appStateStore.ts';
 import { GAME_STATS_SCOPE, getGameStatsKey } from '../gameStats/cache.ts';
-import { loadCanonicalGameStatsSlate } from '../gameStats/canonicalSlate.ts';
+import {
+  loadCanonicalGameStatsSlate,
+  type CanonicalSlateResult,
+} from '../gameStats/canonicalSlate.ts';
 import type { SeasonRelation } from '../gameStats/contract.ts';
 import { evaluatePartitionCoverage } from '../gameStats/partitionCoverage.ts';
 import { validateGameStatsEnvelope } from '../gameStats/publicProjection.ts';
@@ -30,7 +33,7 @@ import {
   isDisruptedStatusLabel,
 } from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
-import type { ProviderDataset } from '../providerDatasets.ts';
+import { PROVIDER_DATASETS, type ProviderDataset } from '../providerDatasets.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
 
 /**
@@ -92,10 +95,67 @@ export type ProviderDiagnostic = {
   repair: ProviderDiagnosticRepairSurface | null;
 };
 
+/**
+ * PLATFORM-090 — whether canonical schedule/slate semantics say a dataset's
+ * evidence SHOULD EXIST yet.
+ *
+ *   expected        → canonical semantics require evidence now; an absent cache
+ *                     is an actionable gap (the ordinary case)
+ *   not-yet-expected→ nothing has happened that would produce this data, so an
+ *                     absent cache is a healthy lifecycle state, not a fault
+ *   unknown         → the inputs that would decide it could not be read; never
+ *                     assert expected absence from an unreadable input
+ *
+ * This is the SAME decision the game-stats diagnostics already make when they
+ * choose whether to emit a missing-evidence diagnostic — published so the
+ * System Health presentation can distinguish expected from unexpected absence
+ * instead of inferring it. It is NOT a redefinition of cache availability.
+ *
+ * `game-stats` is the only dataset GIVEN an applicability state here, which is
+ * deliberately narrower than "the only dataset that could have one" — a claim
+ * this module does not establish and which review showed to be false. On a
+ * genuinely cold preseason deployment `scores` (its cron skips
+ * `no-polling-target`, and its diagnostics are gated on a completed slate),
+ * `odds`, and `rankings` (whose absence diagnostics are `info`, which the
+ * freshness stoplight does not consult) can each show the same absent cache
+ * with no actionable diagnostic. Extending the concept to them is deliberately
+ * out of this task's scope: each needs its own canonical applicability
+ * authority, and none may borrow game-stats' slate semantics. Tracked in
+ * `docs/next-tasks.md` → "Unresolved decisions & known deferrals". Until then
+ * every other dataset is `expected` by construction and its absence stays
+ * actionable exactly as before.
+ */
+export type ProviderDataExpectation = 'expected' | 'not-yet-expected' | 'unknown';
+
+export type ProviderDataExpectations = Record<ProviderDataset, ProviderDataExpectation>;
+
+/**
+ * A conservative all-`unknown` map, for when the diagnostics pass itself fails.
+ *
+ * Today this is a SECOND guard, not the operative one: the same failed pass also
+ * makes `diagnosticsAvailable` false, and `deriveDatasetFreshness` short-circuits
+ * to Unknown before it ever reads an expectation. It is kept because the two
+ * signals are independent inputs to that function and nothing forces them to
+ * stay coupled — but do not mistake a passing freshness test for proof that this
+ * fallback is what produced the result (review finding; mutating this helper's
+ * return value does not move any freshness assertion).
+ */
+export function unknownProviderDataExpectations(): ProviderDataExpectations {
+  return PROVIDER_DATASETS.reduce((acc, dataset) => {
+    acc[dataset] = 'unknown';
+    return acc;
+  }, {} as ProviderDataExpectations);
+}
+
 export type ProviderDataDiagnosticsResult = {
   year: number;
   generatedAt: string;
   diagnostics: ProviderDiagnostic[];
+  /**
+   * PLATFORM-090 — per-dataset evidence expectation (see above). Derived from
+   * the canonical schedule/slate authorities only; never from the calendar.
+   */
+  expectations: ProviderDataExpectations;
   /**
    * Score season-types worth a manual refresh for this year, derived cache-only
    * from the canonical schedule (rereview finding #1). Postseason is included
@@ -244,6 +304,133 @@ function isSeasonActive(items: ScheduleCacheEntry['items'], now: number): boolea
   return false;
 }
 
+/**
+ * `loadCanonicalGameStatsSlate`, guarded.
+ *
+ * The loader wraps every one of its own boundaries and so cannot currently
+ * throw — this catch is UNREACHABLE today (review finding, confirmed). It is
+ * kept because this call sits OUTSIDE the per-dataset try blocks, so a future
+ * throw here would sink the entire diagnostics pass and degrade every row to
+ * Unknown, breaking this module's stated isolation invariant ("one failing read
+ * cannot sink the whole report"). It is a structural guard, not a live one; the
+ * reason it reports is a best guess and should not be read as a diagnosis.
+ */
+async function loadGameStatsSlate(year: number, now: number): Promise<CanonicalSlateResult> {
+  try {
+    return await loadCanonicalGameStatsSlate({ year, now: new Date(now) });
+  } catch {
+    return { status: 'unavailable', reason: 'canonical-build-failed' };
+  }
+}
+
+/**
+ * Whether the schedule the CANONICAL SLATE is built from is known to be missing
+ * part of the season (review round 5).
+ *
+ * This MUST mirror `loadCachedScheduleItems`' key precedence, because that is
+ * what the slate reads. Round 4 derived completeness from the `${year}-all-all`
+ * aggregate alone while moving the slate onto the broader loader — two inputs to
+ * one predicate, read from two different places. On the fallback shape
+ * (`all-all` absent/empty, children serving) the flag stayed false, so a cache
+ * holding only future postseason rows could report `not-yet-expected` while an
+ * entire played regular season was simply absent.
+ *
+ * Asymmetry is deliberate and load-bearing: a missing REGULAR partition is
+ * dangerous (it is where a played season lives), while a missing POSTSEASON
+ * partition is the ordinary state for most of the year — bowls are not published
+ * until late, and a postseason game is always LATER than the regular games we
+ * can see, so it cannot hide a played game while every regular game is still
+ * pending. Treating an absent postseason partition as incomplete would report
+ * `unknown` for most of a normal season and defeat the feature.
+ */
+async function isScheduleIncomplete(
+  year: number,
+  aggregate: ScheduleCacheEntry | undefined
+): Promise<boolean> {
+  // The aggregate serves only when it actually carries rows — the exact
+  // precedence `loadCachedScheduleItems` applies.
+  if ((aggregate?.items?.length ?? 0) > 0) {
+    return aggregate?.partialFailure === true || (aggregate?.failedSeasonTypes?.length ?? 0) > 0;
+  }
+  // GUARDED, and this is the only durable read on the function's top-level path
+  // (round 6, found independently by both reviewers). `getAppState` THROWS on a
+  // real store error, and this helper is called outside every per-dataset try
+  // block — so an unguarded rejection escaped `getProviderDataDiagnostics`
+  // entirely, 500ing `/api/admin/provider-status` and degrading all six System
+  // Health rows to Unknown. That breaks this module's stated isolation rule
+  // ("one failing read cannot sink the whole report") and is strictly worse than
+  // the warning this branch exists to remove.
+  //
+  // Fails closed to INCOMPLETE: an unreadable partition cannot prove the season
+  // is fully accounted for, so the expectation resolves `unknown` and the
+  // ordinary absence warning stands.
+  try {
+    const regular = await getAppState<ScheduleCacheEntry>('schedule', `${year}-all-regular`);
+    const value = regular?.value;
+    if ((value?.items?.length ?? 0) === 0) return true;
+    return value?.partialFailure === true || (value?.failedSeasonTypes?.length ?? 0) > 0;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * PLATFORM-090 v2 — whether game-stat evidence should exist yet.
+ *
+ * RE-DERIVED (review round 4). Rounds 1–3 inferred this from coverage
+ * denominators over COMPLETED SLATES, and then accreted a guard per round to
+ * patch the edges of that basis: unreadable kickoffs, dropped rows, per-partition
+ * raw-vs-canonical accounting, unservable records. All of it existed because the
+ * basis was wrong, not because the question is hard.
+ *
+ * The canonical slate answers the question DIRECTLY. `CanonicalGame.applicability`
+ * is the schedule-authoritative "is evidence owed for this game" decision —
+ * `expected` once a stat-producing game's own kickoff is ≥6h old, `pending`
+ * before that, `not-expected` for disrupted/placeholder games — and it is the
+ * same authority `evaluatePartitionCoverage` counts and the polling target
+ * selects from. Asking it directly removes every accumulated guard:
+ *
+ *   - a DROPPED row is not "missing evidence" — it is outside the canonical
+ *     system entirely (never polled, never counted by coverage, never warned
+ *     about), so it cannot make evidence owed. The total-drift case, where the
+ *     whole slate drops out, is caught by the empty-slate rule below.
+ *   - an UNSERVABLE stored record says nothing about whether evidence is owed;
+ *     it raises its own warning, which outranks the absent-cache branch in the
+ *     freshness stoplight anyway.
+ *   - per-partition accounting is unnecessary when nothing is inferred from a
+ *     partition's coverage count.
+ *
+ * `not-yet-expected` remains a POSITIVE claim, so it still requires positively
+ * trustworthy inputs — an available, non-empty slate, a schedule not known to be
+ * missing a partition, and no game left `pending` by an unreadable kickoff
+ * (which could be hiding a played game). Everything else is `unknown`, which
+ * keeps the ordinary absence warning.
+ *
+ * Known and stated: the polling window opens at kickoff+3h while `expected`
+ * begins at +6h, so for three hours after the season's first kickoff the cron may
+ * poll a game this reports as not yet owed. That is not a discrepancy to fix
+ * here — `expected` is the coverage authority's own threshold, and matching the
+ * poll window instead would make this row disagree with the diagnostics.
+ */
+function deriveGameStatsExpectation(
+  slateResult: CanonicalSlateResult,
+  scheduleIncomplete: boolean
+): ProviderDataExpectation {
+  if (slateResult.status === 'unavailable') return 'unknown';
+  const games = slateResult.slate.games;
+  // An empty canonical slate proves nothing: no schedule cached, or a build that
+  // dropped everything. Never "no games are expected".
+  if (games.length === 0) return 'unknown';
+  if (games.some((game) => game.applicability === 'expected')) return 'expected';
+  if (scheduleIncomplete) return 'unknown';
+  const hasUnreadablePending = games.some(
+    (game) =>
+      game.applicability === 'pending' &&
+      !(typeof game.kickoff === 'string' && Number.isFinite(Date.parse(game.kickoff)))
+  );
+  return hasUnreadablePending ? 'unknown' : 'not-yet-expected';
+}
+
 export async function getProviderDataDiagnostics(
   year: number,
   options: {
@@ -265,9 +452,13 @@ export async function getProviderDataDiagnostics(
   // ---- Schedule (also the source of "completed slate" expectations) ----
   let scheduleItems: ScheduleCacheEntry['items'] = [];
   let seasonActive = false;
+  // The `${year}-all-all` entry, retained so the expectation's completeness check
+  // can apply the SAME key precedence the canonical slate loader uses (round 5).
+  let scheduleAggregate: ScheduleCacheEntry | undefined;
   try {
     const scheduleRec = await getAppState<ScheduleCacheEntry>('schedule', `${year}-all-all`);
     const entry = scheduleRec?.value;
+    scheduleAggregate = entry;
     scheduleItems = entry?.items ?? [];
     seasonActive = isSeasonActive(scheduleItems, now);
 
@@ -314,6 +505,28 @@ export async function getProviderDataDiagnostics(
   }
 
   const completedSlates = deriveCompletedSlates(scheduleItems, now);
+
+  /**
+   * PLATFORM-090 — the game-stats expectation, and the canonical slate it and the
+   * coverage pass below share (loaded ONCE).
+   *
+   * Round 5 — completeness is read through `isScheduleIncomplete`, which mirrors
+   * the slate loader's key precedence, so the two inputs to the predicate always
+   * describe the SAME schedule. When that check reports incomplete AND the
+   * aggregate held nothing, the slate would be built from a partial (or absent)
+   * schedule and can only produce `unknown`, so the build is skipped entirely —
+   * this restores the preseason/offseason cheapness the v2 re-derivation gave up
+   * for a year with no usable cached schedule (catalog + alias reads and a full
+   * `buildScheduleFromApi` are the expensive part, not the app-state reads).
+   */
+  const scheduleIncomplete = await isScheduleIncomplete(year, scheduleAggregate);
+  const skipSlate = scheduleIncomplete && scheduleItems.length === 0;
+  const slateResult: CanonicalSlateResult = skipSlate
+    ? { status: 'unavailable', reason: 'schedule-load-failed' }
+    : await loadGameStatsSlate(year, now);
+  const gameStatsExpectation = skipSlate
+    ? 'unknown'
+    : deriveGameStatsExpectation(slateResult, scheduleIncomplete);
 
   // ---- Scores: completed slates lacking any cached TERMINAL score ----
   try {
@@ -382,7 +595,6 @@ export async function getProviderDataDiagnostics(
   // reported distinctly. ----
   try {
     if (completedSlates.length > 0) {
-      const slateResult = await loadCanonicalGameStatsSlate({ year, now: new Date(now) });
       if (slateResult.status === 'unavailable') {
         push(
           'game-stats',
@@ -578,6 +790,8 @@ export async function getProviderDataDiagnostics(
       }
     }
   } catch (error) {
+    // The COVERAGE pass failed. The expectation is unaffected: it is derived from
+    // the canonical slate above, independently of any stored record (v2).
     push(
       'game-stats',
       'warning',
@@ -711,6 +925,12 @@ export async function getProviderDataDiagnostics(
     year,
     generatedAt: new Date(now).toISOString(),
     diagnostics,
+    // Only `game-stats` has a lifecycle condition its data cannot precede; every
+    // other dataset's absence stays actionable exactly as before (PLATFORM-090).
+    expectations: PROVIDER_DATASETS.reduce((acc, dataset) => {
+      acc[dataset] = dataset === 'game-stats' ? gameStatsExpectation : 'expected';
+      return acc;
+    }, {} as ProviderDataExpectations),
     scoreSeasonTypes: deriveApplicableScoreSeasonTypes(scheduleItems),
   };
 }

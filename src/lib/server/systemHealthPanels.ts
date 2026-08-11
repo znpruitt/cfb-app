@@ -17,7 +17,11 @@ import type {
   SystemHealthIssue,
   SystemHealthQuota,
 } from './systemHealthIssues.ts';
-import type { DiagnosticSeverity, ProviderDiagnosticCode } from './providerDataDiagnostics.ts';
+import type {
+  DiagnosticSeverity,
+  ProviderDataExpectation,
+  ProviderDiagnosticCode,
+} from './providerDataDiagnostics.ts';
 import type { ProviderCacheAvailability } from './providerCacheState.ts';
 import type { ProviderDataset } from '../providerDatasets.ts';
 
@@ -51,9 +55,9 @@ export type SystemHealthPanelsInput = {
   automation: AutomationHealth;
   quota: SystemHealthQuota;
   storage: StorageHealthFact;
-  /** Per-dataset freshness statuses (folded into the provider-data panel so a
+  /** Per-dataset freshness (folded into the provider-data panel so a
    *  yellow/red/unknown dataset row can never sit under a green panel). */
-  datasetFreshness: PanelStatus[];
+  datasetFreshness: DatasetFreshness[];
 };
 
 const SCHEDULER_CODES = new Set<string>([
@@ -202,9 +206,13 @@ function providerDataPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
   // Fold in per-dataset freshness so a dataset row that is stale/missing/unknown
   // (even without a warning-level issue — e.g. an absent cache) can never sit
   // under a green "all present" panel. An unknown (gray) freshness warrants
-  // attention at the panel level, so it contributes yellow.
+  // attention at the panel level, so it contributes yellow — but an INTENTIONAL
+  // gray does not (PLATFORM-090). A dataset whose canonical lifecycle says its
+  // data should not exist yet is a healthy state with no operator action, so it
+  // is non-degrading here exactly as a paused section is in Overall.
   const freshnessStatus = input.datasetFreshness.reduce<PanelStatus>(
-    (worst, f) => worseStatus(worst, f === 'gray' ? 'yellow' : f),
+    (worst, f) =>
+      worseStatus(worst, f.status === 'gray' ? (f.intentional ? 'green' : 'yellow') : f.status),
     'green'
   );
   const status = worseStatus(issueStatus, freshnessStatus);
@@ -216,10 +224,18 @@ function providerDataPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
           ? 'Unknown'
           : 'Attention needed'
         : 'Healthy';
+  // PLATFORM-090 review — a non-degrading awaiting row makes the panel green,
+  // but the panel must not then claim every dataset is PRESENT: its cache is
+  // provably absent, which is exactly the contradiction (green tile above a
+  // "no data" row) this file's UNTILED_CODES note exists to prevent. Green has
+  // two truthful readings now, so it needs two sentences.
+  const awaiting = input.datasetFreshness.some((f) => f.status === 'gray' && f.intentional);
   const detail = gov
     ? gov.title
     : status === 'green'
-      ? 'Canonical provider data is present and current.'
+      ? awaiting
+        ? 'Canonical provider data is current, apart from data not expected yet.'
+        : 'Canonical provider data is present and current.'
       : 'One or more datasets are missing, stale, or unverifiable.';
   return {
     key: 'provider-data',
@@ -364,7 +380,23 @@ function storagePanel(input: SystemHealthPanelsInput): SystemHealthPanel {
  * "Attention" rather than being mislabeled "Stale". When the diagnostics
  * subsystem itself is unavailable, freshness is genuinely unknowable → "Unknown".
  */
-export type DatasetFreshness = { status: PanelStatus; label: string };
+export type DatasetFreshness = {
+  status: PanelStatus;
+  label: string;
+  /**
+   * PLATFORM-090 — true only for a gray that is a DELIBERATE lifecycle state
+   * (canonical semantics say this data should not exist yet), never for a gray
+   * meaning "could not be assessed". Only a gray status can be intentional; the
+   * rollups fold an unknown gray in as yellow and leave an intentional one
+   * non-degrading, so the two must stay distinguishable.
+   */
+  intentional: boolean;
+};
+
+/** A fresh object per call — rows must never alias one another's freshness. */
+function unknownFreshness(): DatasetFreshness {
+  return { status: 'gray', label: 'Unknown', intentional: false };
+}
 
 export function deriveDatasetFreshness(input: {
   dataset: ProviderDataset;
@@ -372,26 +404,54 @@ export function deriveDatasetFreshness(input: {
   /** False when the whole diagnostics pass failed — freshness cannot be assessed. */
   diagnosticsAvailable: boolean;
   diagnostics: ReadonlyArray<{ severity: DiagnosticSeverity; code: ProviderDiagnosticCode }>;
+  /**
+   * PLATFORM-090 — whether canonical semantics expect this dataset's data to
+   * exist yet. Supplied by the diagnostics authority; it ONLY ever softens the
+   * absent-cache branch, and never suppresses a diagnostic-derived state.
+   */
+  expectation: ProviderDataExpectation;
 }): DatasetFreshness {
-  const { dataset, cacheState, diagnosticsAvailable, diagnostics } = input;
-  if (!diagnosticsAvailable) return { status: 'gray', label: 'Unknown' };
-  if (diagnostics.some((d) => d.severity === 'error')) return { status: 'red', label: 'Missing' };
+  const { dataset, cacheState, diagnosticsAvailable, diagnostics, expectation } = input;
+  if (!diagnosticsAvailable) return unknownFreshness();
+  if (diagnostics.some((d) => d.severity === 'error')) {
+    return { status: 'red', label: 'Missing', intentional: false };
+  }
   const warnings = diagnostics.filter((d) => d.severity === 'warning');
   if (warnings.length > 0) {
     if (warnings.some((d) => d.code.endsWith('-cache-stale'))) {
-      return { status: 'yellow', label: 'Stale' };
+      return { status: 'yellow', label: 'Stale', intentional: false };
     }
     if (warnings.some((d) => d.code.endsWith('-unavailable'))) {
-      return { status: 'gray', label: 'Unknown' };
+      return unknownFreshness();
     }
-    return { status: 'yellow', label: 'Attention' };
+    return { status: 'yellow', label: 'Attention', intentional: false };
   }
   if (cacheState === 'available') {
-    return { status: 'green', label: dataset === 'conferences' ? 'Available' : 'Current' };
+    return {
+      status: 'green',
+      label: dataset === 'conferences' ? 'Available' : 'Current',
+      intentional: false,
+    };
   }
-  if (cacheState === 'absent') return { status: 'yellow', label: 'No cached data' };
-  // cacheState 'unknown' (e.g. the cache read failed) with no diagnostics.
-  return { status: 'gray', label: 'Unknown' };
+  if (cacheState === 'absent') {
+    // An absence the canonical lifecycle says is EXPECTED is neutral, not a
+    // warning — there is no operator action, and green would falsely claim
+    // present evidence. Anything else (expected data, or an expectation that
+    // could not be determined) keeps the actionable warning.
+    //
+    // The label is "None expected" rather than the "Awaiting games" wording this
+    // originally shipped with (review round 5): the same state is reached when
+    // the canonical authority says nothing WILL be produced — a slate whose
+    // every game is canceled/postponed — and "awaiting" asserts a future arrival
+    // that never comes. "None expected" is true of both branches and still
+    // communicates that the absence is expected rather than merely unknown.
+    return expectation === 'not-yet-expected'
+      ? { status: 'gray', label: 'None expected', intentional: true }
+      : { status: 'yellow', label: 'No cached data', intentional: false };
+  }
+  // cacheState 'unknown' (e.g. the cache read failed) with no diagnostics. An
+  // unreadable store is never reported as an expected absence.
+  return unknownFreshness();
 }
 
 /** Derive the six stoplight panels in fixed order. Pure + deterministic. */

@@ -52,6 +52,49 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-090-GAME-STATS-PRESEASON-HEALTH-STATE-v1
+
+- Purpose: stop the System Health Game stats row rendering an operational warning when the absence
+  of cached game-stat data is the expected preseason state, without weakening any genuine
+  missing-evidence warning.
+- Scope: `providerDataDiagnostics` (publishes the expectation), `systemHealthPanels`
+  (`deriveDatasetFreshness` + the provider-data rollup), `systemHealth` (wiring), and their focused
+  suites. No change to polling, provider requests, quota, ingestion, the evidence authority,
+  canonical game construction, schedule identity, durable game-stat storage, or scheduler cadence.
+  No new durable state.
+- Outcome: the diagnostics authority already decided whether evidence should exist — that decision
+  gates every missing-evidence branch — but never PUBLISHED it, so the presentation layer could not
+  tell an expected absence from a real gap and defaulted to yellow `No cached data`, which folded
+  into `Provider data → Attention needed` and `Overall → Attention needed`. The result now carries a
+  per-dataset `ProviderDataExpectation`; an absent cache the canonical authority does not yet expect
+  renders a neutral gray `None expected` row (never green — green must keep meaning present
+  evidence) that is non-degrading in both rollups. `game-stats` is the only dataset given an
+  applicability state; every other dataset's absence stays actionable exactly as before.
+- **The basis was wrong for three rounds, and re-derivation deleted the fix.** Rounds 1–3 inferred
+  the expectation from COVERAGE DENOMINATORS over completed slates, then accreted one guard per
+  review round to patch that basis (unreadable kickoffs, dropped-row probe, per-partition
+  raw-vs-canonical accounting, an unservable-record coupling). `CanonicalGame.applicability` already
+  IS the schedule-authoritative "is evidence owed for this game" decision — the same authority
+  `evaluatePartitionCoverage` counts and `selectPollingTarget` polls from. Asking it directly was
+  **net −79 production lines** and dissolved every accumulated guard. Diagnostic THRESHOLDS are
+  untouched: the whole-slate 6 h rule still governs warning silence, so only the published
+  expectation changed, never warning noise.
+- **A dropped schedule row is not missing evidence.** Rounds 2–3 forced `unknown` for rows the
+  canonical build drops; such a row is never polled, never counted by coverage, never warned about,
+  and carries no addressable CFBD id, so forcing `unknown` manufactured a permanent unactionable
+  yellow — the exact defect this task exists to remove. The total-drift case (every row dropped) is
+  still caught, by the empty-slate rule.
+- Review / verification: reviewed FIVE times (`1b3afe73`, `aa01d773`, `1978a491`, `49c32ad4`,
+  `61961b28`), both reviewers each round, every finding reproduced against the code before
+  acceptance. Four authorized remediation rounds, rounds 2–5 each explicitly approved by the owner;
+  the reconstruction rule was invoked by Codex at round 4 and resolved as a SCOPED re-derivation of
+  the one wrong predicate rather than a full branch rebuild, because the accumulation was in a
+  single predicate and not in behavior, architecture, or scope. Three review findings were false
+  claims I had written (an unestablished "only dataset" premise; two test names that mutation showed
+  pinned a different guard than they named) — each corrected rather than carried into closeout.
+  Gates re-run per commit; every clause of the final predicate is mutation-proven load-bearing.
+- Status: Implemented — PR not yet opened.
+
 ### PLATFORM-089-ODDS-EARLY-SEASON-POLLING-v1
 
 - Purpose: poll Odds on a staged horizon so already-available lines are maintained before the old
