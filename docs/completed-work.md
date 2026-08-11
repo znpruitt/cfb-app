@@ -2378,6 +2378,38 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### PLATFORM-090 — Game-Stats Preseason Health State — Complete
+
+- **Status:** Complete — merged to `main` via PR #470 (merge commit `ee39e09`), 2026-08-11. Six
+  commits: the fix, then four review-driven remediation rounds and one scoped re-derivation.
+- **PROMPT_ID(s):** `PLATFORM-090-GAME-STATS-PRESEASON-HEALTH-STATE-v1`.
+- **Outcome:** System Health distinguishes an absence the schedule says is EXPECTED from a real gap.
+  The provider-data diagnostics publish a per-dataset `ProviderDataExpectation`, derived for
+  `game-stats` from `CanonicalGame.applicability` — the same authority `evaluatePartitionCoverage`
+  counts and `selectPollingTarget` polls from — and an absent cache no evidence is yet owed for
+  renders a neutral gray `None expected` row that is non-degrading in both the Provider data and
+  Overall rollups. Green still requires positive, present evidence; genuine missing evidence still
+  warns once a completed stat-producing slate exists. `game-stats` is the only dataset given an
+  applicability state, so `ProviderCacheAvailability === 'absent'` keeps its meaning everywhere else.
+  No change to polling, provider requests, quota, ingestion, the evidence authority, canonical game
+  construction, schedule identity, durable storage, or scheduler cadence; no new durable state.
+- **THE defect was a decision that was made and then discarded.** The diagnostics already decided
+  whether evidence should exist — that decision gates every missing-evidence branch — but never
+  published it, so the presentation layer could not tell expected absence from a real gap and
+  defaulted to yellow `No cached data`, which propagated to `Attention needed` on two panels with no
+  operator action available to clear it.
+- **THE lesson: when every review round finds a NEW edge case in the same predicate, the predicate's
+  INPUT is wrong.** Rounds 1–3 inferred the expectation from coverage denominators over completed
+  slates and added one guard per round to patch that basis (unreadable kickoffs, dropped-row probes,
+  per-partition raw-vs-canonical accounting, an unservable-record coupling). Re-deriving onto
+  per-game applicability was net −79 production lines and dissolved every accumulated guard. The two
+  rounds after it fixed defects the re-derivation itself introduced — moving one input of a predicate
+  to a new source while leaving another behind, then adding an unguarded durable read to a function
+  whose contract promises no single read can sink it. Ask which authority already answers the
+  question before hardening a predicate a fourth time.
+
+---
+
 ### PLATFORM-089 — Odds Early-Season Polling — Complete
 
 - **Status:** Complete — merged to `main` via PR #469 (merge commit `ff5aa0c`), 2026-08-10. Four

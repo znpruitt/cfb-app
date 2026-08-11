@@ -93,7 +93,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   claims I had written (an unestablished "only dataset" premise; two test names that mutation showed
   pinned a different guard than they named) — each corrected rather than carried into closeout.
   Gates re-run per commit; every clause of the final predicate is mutation-proven load-bearing.
-- Status: Implemented — PR not yet opened.
+- Status: Merged (PR #470, `ee39e09`, 2026-08-11).
 
 ### PLATFORM-089-ODDS-EARLY-SEASON-POLLING-v1
 

@@ -52,13 +52,18 @@ Supersedes: (none)
    cliff to a staged 45-day horizon (24 h early / 6 h baseline / 2 h pregame), the Odds health card
    stops warning when nothing is pollable, and a book withdrawing a far-out line is recorded as a
    no-op rather than escalated as a provider fault. Execution record in `docs/prompt-registry.md`.
-7. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
-8. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+7. ✅ **PLATFORM-090 — COMPLETE** (PR #470, `ee39e09`, 2026-08-11). System Health tells an expected
+   absence from a real gap: `game-stats` publishes a canonical applicability state, so an absent
+   cache no evidence is yet owed for renders a neutral `None expected` row instead of a yellow
+   warning that degraded Provider data and Overall. Genuine missing evidence still warns. Execution
+   record in `docs/prompt-registry.md`; two deferrals recorded below.
+8. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
+9. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
    History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
    later.
-9. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2 §8i**
-   schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its first
-   qualifying automatic presentation refresh from production evidence when it occurs.
+10. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+    §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
+    first qualifying automatic presentation refresh from production evidence when it occurs.
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
