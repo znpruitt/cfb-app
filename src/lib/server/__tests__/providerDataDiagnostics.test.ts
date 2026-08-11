@@ -1497,24 +1497,26 @@ test('PLATFORM-090: a schedule of only FUTURE games expects no game stats yet', 
   );
 });
 
-test('PLATFORM-090: a slate UNDERWAY but not yet complete expects no game stats yet', async () => {
-  // The Thursday game is old, the Saturday game kicked off ~2.5h ago: the
-  // whole-slate 6h completion threshold has not been crossed.
+// The genuine "slate underway" case the task requires to stay neutral: every
+// game kicked off within the last 6h, so the canonical authority owes evidence
+// for none of them yet.
+test('PLATFORM-090: a slate whose games ALL kicked off <6h ago expects no game stats yet', async () => {
+  const justKicked = new Date(NOW - 2 * 60 * 60 * 1000).toISOString();
   await seedScheduleItems([
     {
-      id: '202',
+      id: '801',
       week: 7,
       seasonType: 'regular',
-      startDate: THURSDAY_KICKOFF,
-      status: 'STATUS_FINAL',
+      startDate: justKicked,
+      status: 'STATUS_IN_PROGRESS',
       homeTeam: 'Alpha',
       awayTeam: 'Beta',
     },
     {
-      id: '203',
+      id: '802',
       week: 7,
       seasonType: 'regular',
-      startDate: SATURDAY_STILL_LIVE,
+      startDate: justKicked,
       status: 'STATUS_IN_PROGRESS',
       homeTeam: 'Gamma',
       awayTeam: 'Delta',
@@ -1525,6 +1527,47 @@ test('PLATFORM-090: a slate UNDERWAY but not yet complete expects no game stats 
   assert.equal(
     diagnostics.find((d) => d.dataset === 'game-stats'),
     undefined
+  );
+});
+
+// REGRESSION TEST (review round 4) — the OTHER half of the same slate. Rounds 1-3
+// derived expectation from whole-slate completion, so a Thursday opener played
+// SIX DAYS ago still reported "Awaiting games" while the cron was polling it,
+// simply because the Saturday games had not finished. Per-game applicability —
+// the same authority the cron and coverage use — gets this right.
+test('PLATFORM-090: a game played 6h+ ago expects stats even mid-slate', async () => {
+  await seedScheduleItems([
+    {
+      id: '803',
+      week: 7,
+      seasonType: 'regular',
+      startDate: THURSDAY_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: '804',
+      week: 7,
+      seasonType: 'regular',
+      startDate: SATURDAY_STILL_LIVE,
+      status: 'STATUS_IN_PROGRESS',
+      homeTeam: 'Gamma',
+      awayTeam: 'Delta',
+    },
+  ]);
+  const { diagnostics, expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    expectations['game-stats'],
+    'expected',
+    'a game finished days ago is owed evidence; "Awaiting games" would be false'
+  );
+  // The DIAGNOSTIC threshold is unchanged: still silent mid-slate, so this
+  // changes only the published expectation, never warning noise.
+  assert.equal(
+    diagnostics.find((d) => d.dataset === 'game-stats'),
+    undefined,
+    'the whole-slate completion threshold still governs diagnostic silence'
   );
 });
 
@@ -1590,13 +1633,18 @@ test('PLATFORM-090: no cached schedule → expectation UNKNOWN, never expected a
   );
 });
 
-test('PLATFORM-090: an unservable stored record → expectation UNKNOWN and the warning stands', async () => {
+// Re-derived (round 4): the expectation comes from the SLATE, so a malformed
+// stored record cannot influence it — it raises its own warning, which outranks
+// the absent-cache branch in the freshness stoplight regardless.
+test('PLATFORM-090: an unservable stored record leaves the expectation slate-derived', async () => {
   await seedSchedule();
-  // A structurally invalid envelope for the completed partition: coverage is
-  // never evaluated for it, so nothing proves what the slate expected.
   await setAppState('game-stats', `${YEAR}:1:regular`, { year: YEAR, games: 'not-an-array' });
   const { diagnostics, expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
-  assert.equal(expectations['game-stats'], 'unknown');
+  assert.equal(
+    expectations['game-stats'],
+    'expected',
+    'the completed slate owes evidence whatever the stored record looks like'
+  );
   assert.ok(
     diagnostics.find((d) => d.code === 'game-stats-record-unservable'),
     'a malformed record must keep warning'
@@ -1664,10 +1712,11 @@ test('PLATFORM-090: a completed slate whose canonical rows were all dropped is U
   );
 });
 
-// The benign twin of the test above: the SAME zero denominator, but explained by
-// the canonical slate itself (the games are present and disrupted). This is what
-// proves the new probe discriminates rather than blanket-failing every zero.
-test('PLATFORM-090: a disrupted-only completed slate stays NOT-YET-EXPECTED (probe discriminates)', async () => {
+// The benign twin of the test above: the game is PRESENT in the canonical slate
+// and disrupted, so the authority positively says no evidence is owed. This is
+// what proves the empty-slate rule discriminates rather than failing every
+// zero-expected season.
+test('PLATFORM-090: a disrupted-only completed slate stays NOT-YET-EXPECTED', async () => {
   await seedScheduleItems([
     {
       id: '301',
@@ -1744,14 +1793,12 @@ test('PLATFORM-090: the same schedule with readable kickoffs reaches not-yet-exp
   assert.equal(expectations['game-stats'], 'not-yet-expected');
 });
 
-// CONTRACT PIN (review finding 4) — NOT a regression test, and mutation-proven
-// so: deleting the branch's new explicit `gameStatsExpectation = 'unknown'`
-// leaves this green, because the initializer independently produces `unknown`
-// whenever `completedSlates.length > 0`. The explicit assignment is defense in
-// depth against a future reorder of that initializer, which no runtime
-// observation can distinguish today. What this test DOES pin behaviorally is
-// that an unreadable canonical context publishes `unknown` and keeps its
-// warning — by whichever of the two guards gets there first.
+// An unreadable canonical context. Duplicate CFBD ids make the canonical build
+// throw, so the slate loads `unavailable`. Round 4 made this structural rather
+// than incidental: `deriveGameStatsExpectation` takes the slate result as its
+// first input and returns `unknown` for an unavailable one, so there is no
+// longer an assignment that could be reordered away (rounds 2-3 needed an
+// explicit assignment precisely because the value came from elsewhere).
 test('PLATFORM-090: an unavailable canonical context is UNKNOWN, with its warning intact', async () => {
   await seedScheduleItems([
     {
@@ -1832,11 +1879,14 @@ test('PLATFORM-090: the same schedule committed complete reaches not-yet-expecte
   assert.equal(expectations['game-stats'], 'not-yet-expected');
 });
 
-// REGRESSION TEST — a completed partition holding BOTH a surviving canceled game
-// and a raw row the canonical build dropped. Round two's presence probe saw the
-// canceled survivor, called the partition explained, and let the dropped
-// stat-producing row disappear into a neutral row.
-test('PLATFORM-090: a disrupted survivor does not explain a DROPPED sibling row', async () => {
+// Re-derived (round 4). Rounds 2-3 treated a dropped raw row as possible missing
+// evidence and forced `unknown`. It is not: a row the canonical build drops is
+// outside the system entirely — never polled, never counted by coverage, never
+// warned about, and unrepairable by any refresh, because it carries no
+// addressable CFBD id. Reporting `unknown` there produced a permanent
+// unactionable yellow, the exact defect this task exists to remove. The
+// total-drift case (every row dropped) is still caught, by the empty-slate rule.
+test('PLATFORM-090: an unaddressable dropped row does not manufacture an expectation', async () => {
   await seedScheduleItems([
     {
       id: '502',
@@ -1857,10 +1907,11 @@ test('PLATFORM-090: a disrupted survivor does not explain a DROPPED sibling row'
       awayTeam: 'Foxtrot',
     },
   ]);
-  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const { diagnostics, expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(expectations['game-stats'], 'not-yet-expected');
   assert.equal(
-    expectations['game-stats'],
-    'unknown',
-    'the dropped row could have produced stats; a canceled sibling proves nothing about it'
+    diagnostics.find((d) => d.dataset === 'game-stats'),
+    undefined,
+    'nothing in the system owes evidence for an unaddressable row'
   );
 });
