@@ -438,8 +438,15 @@ export function deriveDatasetFreshness(input: {
     // warning — there is no operator action, and green would falsely claim
     // present evidence. Anything else (expected data, or an expectation that
     // could not be determined) keeps the actionable warning.
+    //
+    // The label is "None expected", not "None expected" (review round 5): the
+    // same state is reached when the canonical authority says nothing WILL be
+    // produced — a slate whose every game is canceled/postponed — and "awaiting"
+    // asserts a future arrival that will never come. "None expected" is true of
+    // both branches and still communicates that the absence is expected rather
+    // than merely unknown.
     return expectation === 'not-yet-expected'
-      ? { status: 'gray', label: 'Awaiting games', intentional: true }
+      ? { status: 'gray', label: 'None expected', intentional: true }
       : { status: 'yellow', label: 'No cached data', intentional: false };
   }
   // cacheState 'unknown' (e.g. the cache read failed) with no diagnostics. An

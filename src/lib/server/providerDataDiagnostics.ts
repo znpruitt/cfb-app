@@ -118,11 +118,12 @@ export type ProviderDiagnostic = {
  * `no-polling-target`, and its diagnostics are gated on a completed slate),
  * `odds`, and `rankings` (whose absence diagnostics are `info`, which the
  * freshness stoplight does not consult) can each show the same absent cache
- * with no actionable diagnostic. Extending the concept to them is a tracked
- * FOLLOW-UP, deliberately out of this task's scope: each needs its own
- * canonical applicability authority, and none may borrow game-stats' slate
- * semantics. Until then every other dataset is `expected` by construction and
- * its absence stays actionable exactly as before.
+ * with no actionable diagnostic. Extending the concept to them is deliberately
+ * out of this task's scope: each needs its own canonical applicability
+ * authority, and none may borrow game-stats' slate semantics. Tracked in
+ * `docs/next-tasks.md` → "Unresolved decisions & known deferrals". Until then
+ * every other dataset is `expected` by construction and its absence stays
+ * actionable exactly as before.
  */
 export type ProviderDataExpectation = 'expected' | 'not-yet-expected' | 'unknown';
 
@@ -303,13 +304,58 @@ function isSeasonActive(items: ScheduleCacheEntry['items'], now: number): boolea
   return false;
 }
 
-/** `loadCanonicalGameStatsSlate`, with a thrown loader degraded to unavailable context. */
+/**
+ * `loadCanonicalGameStatsSlate`, guarded.
+ *
+ * The loader wraps every one of its own boundaries and so cannot currently
+ * throw — this catch is UNREACHABLE today (review finding, confirmed). It is
+ * kept because this call sits OUTSIDE the per-dataset try blocks, so a future
+ * throw here would sink the entire diagnostics pass and degrade every row to
+ * Unknown, breaking this module's stated isolation invariant ("one failing read
+ * cannot sink the whole report"). It is a structural guard, not a live one; the
+ * reason it reports is a best guess and should not be read as a diagnosis.
+ */
 async function loadGameStatsSlate(year: number, now: number): Promise<CanonicalSlateResult> {
   try {
     return await loadCanonicalGameStatsSlate({ year, now: new Date(now) });
   } catch {
     return { status: 'unavailable', reason: 'canonical-build-failed' };
   }
+}
+
+/**
+ * Whether the schedule the CANONICAL SLATE is built from is known to be missing
+ * part of the season (review round 5).
+ *
+ * This MUST mirror `loadCachedScheduleItems`' key precedence, because that is
+ * what the slate reads. Round 4 derived completeness from the `${year}-all-all`
+ * aggregate alone while moving the slate onto the broader loader — two inputs to
+ * one predicate, read from two different places. On the fallback shape
+ * (`all-all` absent/empty, children serving) the flag stayed false, so a cache
+ * holding only future postseason rows could report `not-yet-expected` while an
+ * entire played regular season was simply absent.
+ *
+ * Asymmetry is deliberate and load-bearing: a missing REGULAR partition is
+ * dangerous (it is where a played season lives), while a missing POSTSEASON
+ * partition is the ordinary state for most of the year — bowls are not published
+ * until late, and a postseason game is always LATER than the regular games we
+ * can see, so it cannot hide a played game while every regular game is still
+ * pending. Treating an absent postseason partition as incomplete would report
+ * `unknown` for most of a normal season and defeat the feature.
+ */
+async function isScheduleIncomplete(
+  year: number,
+  aggregate: ScheduleCacheEntry | undefined
+): Promise<boolean> {
+  // The aggregate serves only when it actually carries rows — the exact
+  // precedence `loadCachedScheduleItems` applies.
+  if ((aggregate?.items?.length ?? 0) > 0) {
+    return aggregate?.partialFailure === true || (aggregate?.failedSeasonTypes?.length ?? 0) > 0;
+  }
+  const regular = await getAppState<ScheduleCacheEntry>('schedule', `${year}-all-regular`);
+  const value = regular?.value;
+  if ((value?.items?.length ?? 0) === 0) return true;
+  return value?.partialFailure === true || (value?.failedSeasonTypes?.length ?? 0) > 0;
 }
 
 /**
@@ -390,19 +436,13 @@ export async function getProviderDataDiagnostics(
   // ---- Schedule (also the source of "completed slate" expectations) ----
   let scheduleItems: ScheduleCacheEntry['items'] = [];
   let seasonActive = false;
-  /**
-   * PLATFORM-090 review round 3 — the cached schedule is known to be MISSING a
-   * partition, so the rows present are not the whole season. Its own warning is
-   * raised below; it is captured here because it also invalidates the negative
-   * claim "nothing has been played" — the absent partition could hold a completed
-   * stat-producing slate. Near-unreachable today (`hasRequiredSeasonTypeFailure`
-   * rejects a partial `all` refresh and the full-season refresh never commits
-   * one), so this covers a pre-085B legacy record.
-   */
-  let scheduleIncomplete = false;
+  // The `${year}-all-all` entry, retained so the expectation's completeness check
+  // can apply the SAME key precedence the canonical slate loader uses (round 5).
+  let scheduleAggregate: ScheduleCacheEntry | undefined;
   try {
     const scheduleRec = await getAppState<ScheduleCacheEntry>('schedule', `${year}-all-all`);
     const entry = scheduleRec?.value;
+    scheduleAggregate = entry;
     scheduleItems = entry?.items ?? [];
     seasonActive = isSeasonActive(scheduleItems, now);
 
@@ -415,8 +455,6 @@ export async function getProviderDataDiagnostics(
         'data-maintenance'
       );
     } else {
-      scheduleIncomplete =
-        entry.partialFailure === true || (entry.failedSeasonTypes?.length ?? 0) > 0;
       if (entry.partialFailure) {
         const missing = entry.failedSeasonTypes?.length
           ? ` (missing: ${entry.failedSeasonTypes.join(', ')})`
@@ -452,10 +490,27 @@ export async function getProviderDataDiagnostics(
 
   const completedSlates = deriveCompletedSlates(scheduleItems, now);
 
-  // PLATFORM-090 v2 — loaded ONCE and shared: the expectation below reads it
-  // unconditionally, the coverage pass reads it only for completed slates.
-  const slateResult = await loadGameStatsSlate(year, now);
-  const gameStatsExpectation = deriveGameStatsExpectation(slateResult, scheduleIncomplete);
+  /**
+   * PLATFORM-090 — the game-stats expectation, and the canonical slate it and the
+   * coverage pass below share (loaded ONCE).
+   *
+   * Round 5 — completeness is read through `isScheduleIncomplete`, which mirrors
+   * the slate loader's key precedence, so the two inputs to the predicate always
+   * describe the SAME schedule. When that check reports incomplete AND the
+   * aggregate held nothing, the slate would be built from a partial (or absent)
+   * schedule and can only produce `unknown`, so the build is skipped entirely —
+   * this restores the preseason/offseason cheapness the v2 re-derivation gave up
+   * for a year with no usable cached schedule (catalog + alias reads and a full
+   * `buildScheduleFromApi` are the expensive part, not the app-state reads).
+   */
+  const scheduleIncomplete = await isScheduleIncomplete(year, scheduleAggregate);
+  const skipSlate = scheduleIncomplete && scheduleItems.length === 0;
+  const slateResult: CanonicalSlateResult = skipSlate
+    ? { status: 'unavailable', reason: 'schedule-load-failed' }
+    : await loadGameStatsSlate(year, now);
+  const gameStatsExpectation = skipSlate
+    ? 'unknown'
+    : deriveGameStatsExpectation(slateResult, scheduleIncomplete);
 
   // ---- Scores: completed slates lacking any cached TERMINAL score ----
   try {
@@ -554,10 +609,7 @@ export async function getProviderDataDiagnostics(
         // NO repair path (AGENTS.md game-stats deferral), so its diagnostic must
         // not offer a known-ineffective Data Maintenance action.
         let partialRepairable = false;
-        // PLATFORM-090 — how many stat-producing games the canonical authority
-        // expects across every completed slate. This is the coverage
-        // denominator the diagnostics already compute; zero of them is exactly
-        // the condition under which no missing-evidence diagnostic can fire.
+
         for (const slate of completedSlates) {
           // Raw durable read + the ONE shared envelope validation: only an
           // exactly-valid envelope for THIS partition resolves games.

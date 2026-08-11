@@ -523,7 +523,7 @@ test('a real provider fault keeps the Provider data detail line', () => {
 
 // REGRESSION TEST — pre-fix this branch returned `{ yellow, 'No cached data' }`
 // for every absent cache regardless of expectation.
-test('freshness: absent cache the lifecycle does NOT yet expect → gray Awaiting games (intentional)', () => {
+test('freshness: absent cache the lifecycle does NOT yet expect → gray None expected (intentional)', () => {
   const f = deriveDatasetFreshness({
     dataset: 'game-stats',
     cacheState: 'absent',
@@ -531,7 +531,7 @@ test('freshness: absent cache the lifecycle does NOT yet expect → gray Awaitin
     diagnostics: [],
     expectation: 'not-yet-expected',
   });
-  assert.deepEqual(f, { status: 'gray', label: 'Awaiting games', intentional: true });
+  assert.deepEqual(f, { status: 'gray', label: 'None expected', intentional: true });
   // Never green: green must keep meaning positive, present evidence.
   assert.notEqual(f.status, 'green');
 });
@@ -587,7 +587,7 @@ test('freshness: expectation never softens a diagnostic-derived state', () => {
 // expected-absence row (had one existed) would still have degraded the panel.
 test('provider-data panel: an INTENTIONAL gray row does not degrade the panel', () => {
   const freshness = [...ALL_GREEN];
-  freshness[5] = { status: 'gray', label: 'Awaiting games', intentional: true };
+  freshness[5] = { status: 'gray', label: 'None expected', intentional: true };
   const p = panel(baseInput({ datasetFreshness: freshness }), 'provider-data');
   assert.equal(p.status, 'green');
   assert.equal(p.stateLabel, 'Healthy');
@@ -603,7 +603,7 @@ test('provider-data panel: an UNKNOWN gray row still contributes yellow', () => 
 
 test('overall: an intentional-gray dataset row alone leaves Overall healthy', () => {
   const freshness = [...ALL_GREEN];
-  freshness[5] = { status: 'gray', label: 'Awaiting games', intentional: true };
+  freshness[5] = { status: 'gray', label: 'None expected', intentional: true };
   const p = panel(baseInput({ datasetFreshness: freshness }), 'overall');
   assert.equal(p.status, 'green');
   assert.equal(p.stateLabel, 'Healthy');
@@ -612,7 +612,7 @@ test('overall: an intentional-gray dataset row alone leaves Overall healthy', ()
 test('overall: a genuine yellow elsewhere still dominates an intentional gray', () => {
   const freshness = [...ALL_GREEN];
   freshness[0] = fresh('yellow');
-  freshness[5] = { status: 'gray', label: 'Awaiting games', intentional: true };
+  freshness[5] = { status: 'gray', label: 'None expected', intentional: true };
   assert.equal(panel(baseInput({ datasetFreshness: freshness }), 'provider-data').status, 'yellow');
   assert.equal(panel(baseInput({ datasetFreshness: freshness }), 'overall').status, 'yellow');
 });
@@ -623,7 +623,7 @@ test('overall: a genuine yellow elsewhere still dominates an intentional gray', 
 // above a row whose cache is provably absent.
 test('provider-data panel: a green panel with an awaiting row does not claim all data present', () => {
   const freshness = [...ALL_GREEN];
-  freshness[5] = { status: 'gray', label: 'Awaiting games', intentional: true };
+  freshness[5] = { status: 'gray', label: 'None expected', intentional: true };
   const p = panel(baseInput({ datasetFreshness: freshness }), 'provider-data');
   assert.equal(p.status, 'green');
   assert.equal(p.stateLabel, 'Healthy');
@@ -644,7 +644,7 @@ test('provider-data panel: a fully green panel keeps the unqualified present-and
 // A governing issue still owns the detail line, awaiting row or not.
 test('provider-data panel: a governing issue still owns the detail line over an awaiting row', () => {
   const freshness = [...ALL_GREEN];
-  freshness[5] = { status: 'gray', label: 'Awaiting games', intentional: true };
+  freshness[5] = { status: 'gray', label: 'None expected', intentional: true };
   const p = panel(
     baseInput({
       datasetFreshness: freshness,

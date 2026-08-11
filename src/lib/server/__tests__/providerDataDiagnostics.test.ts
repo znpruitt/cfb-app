@@ -1532,7 +1532,7 @@ test('PLATFORM-090: a slate whose games ALL kicked off <6h ago expects no game s
 
 // REGRESSION TEST (review round 4) — the OTHER half of the same slate. Rounds 1-3
 // derived expectation from whole-slate completion, so a Thursday opener played
-// SIX DAYS ago still reported "Awaiting games" while the cron was polling it,
+// SIX DAYS ago still reported "None expected" while the cron was polling it,
 // simply because the Saturday games had not finished. Per-game applicability —
 // the same authority the cron and coverage use — gets this right.
 test('PLATFORM-090: a game played 6h+ ago expects stats even mid-slate', async () => {
@@ -1560,7 +1560,7 @@ test('PLATFORM-090: a game played 6h+ ago expects stats even mid-slate', async (
   assert.equal(
     expectations['game-stats'],
     'expected',
-    'a game finished days ago is owed evidence; "Awaiting games" would be false'
+    'a game finished days ago is owed evidence; "None expected" would be false'
   );
   // The DIAGNOSTIC threshold is unchanged: still silent mid-slate, so this
   // changes only the published expectation, never warning noise.
@@ -1914,4 +1914,110 @@ test('PLATFORM-090: an unaddressable dropped row does not manufacture an expecta
     undefined,
     'nothing in the system owes evidence for an unaddressable row'
   );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-090 round five — the schedule the SLATE reads and the schedule the
+// completeness check reads must be the same one.
+// ---------------------------------------------------------------------------
+
+// REGRESSION TEST — the v2 re-derivation moved the slate onto
+// `loadCachedScheduleItems` (which falls back to the season-partition children)
+// while completeness still came from the `-all-all` aggregate alone. On that
+// fallback shape the flag stayed false, so a cache holding only future bowls
+// reported the neutral state while an entire played regular season was absent.
+test('PLATFORM-090: a postseason-only fallback cache never reports the neutral state', async () => {
+  await setAppState('schedule', `${YEAR}-all-postseason`, {
+    at: NOW - 3 * 60 * 60 * 1000,
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: [
+      {
+        id: '901',
+        week: 1,
+        seasonType: 'postseason',
+        startDate: FUTURE_KICKOFF,
+        status: 'STATUS_SCHEDULED',
+        homeTeam: 'Alpha',
+        awayTeam: 'Beta',
+        neutralSite: false,
+        conferenceGame: false,
+        homeConference: 'SEC',
+        awayConference: 'Big Ten',
+        homeId: 9011,
+        awayId: 9012,
+      },
+    ],
+  });
+  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    expectations['game-stats'],
+    'unknown',
+    'the absent regular partition could hold a whole played season'
+  );
+});
+
+// POSITIVE CONTROL — the same fallback shape WITH the regular partition present
+// does reach the neutral state, so the assertion above discriminates the missing
+// partition and not merely "the aggregate key was absent".
+test('PLATFORM-090: a complete fallback cache (both children) reaches the neutral state', async () => {
+  const wire = (id: string, seasonType: 'regular' | 'postseason') => ({
+    id,
+    week: 1,
+    seasonType,
+    startDate: FUTURE_KICKOFF,
+    status: 'STATUS_SCHEDULED',
+    homeTeam: 'Alpha',
+    awayTeam: 'Beta',
+    neutralSite: false,
+    conferenceGame: false,
+    homeConference: 'SEC',
+    awayConference: 'Big Ten',
+    homeId: Number(id) * 10 + 1,
+    awayId: Number(id) * 10 + 2,
+  });
+  await setAppState('schedule', `${YEAR}-all-regular`, {
+    at: NOW - 3 * 60 * 60 * 1000,
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: [wire('902', 'regular')],
+  });
+  await setAppState('schedule', `${YEAR}-all-postseason`, {
+    at: NOW - 3 * 60 * 60 * 1000,
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: [wire('903', 'postseason')],
+  });
+  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(expectations['game-stats'], 'not-yet-expected');
+});
+
+// An absent POSTSEASON partition is the ordinary state for most of a season
+// (bowls are unpublished), and a postseason game is always later than the
+// regular games in hand — so it must NOT block the neutral state.
+test('PLATFORM-090: an absent postseason partition alone does not block the neutral state', async () => {
+  await setAppState('schedule', `${YEAR}-all-regular`, {
+    at: NOW - 3 * 60 * 60 * 1000,
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: [
+      {
+        id: '904',
+        week: 1,
+        seasonType: 'regular',
+        startDate: FUTURE_KICKOFF,
+        status: 'STATUS_SCHEDULED',
+        homeTeam: 'Alpha',
+        awayTeam: 'Beta',
+        neutralSite: false,
+        conferenceGame: false,
+        homeConference: 'SEC',
+        awayConference: 'Big Ten',
+        homeId: 9041,
+        awayId: 9042,
+      },
+    ],
+  });
+  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(expectations['game-stats'], 'not-yet-expected');
 });

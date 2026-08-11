@@ -226,7 +226,7 @@ test('provider renders 6 rows with freshness, outcome, automation as separate fa
 });
 
 // PLATFORM-090 — the Game stats row renders the neutral lifecycle state (gray
-// dot + "Awaiting games"), not the yellow "No cached data" warning, when the
+// dot + "None expected"), not the yellow "No cached data" warning, when the
 // canonical authority says no evidence is expected yet.
 test('provider Game stats row renders expected absence as neutral, not a warning', async () => {
   const model = await buildModel({
@@ -247,7 +247,7 @@ test('provider Game stats row renders expected absence as neutral, not a warning
       nowMs={NOW}
     />
   );
-  assert.ok(html.includes('Awaiting games'), 'the row states that absence is expected');
+  assert.ok(html.includes('None expected'), 'the row states that absence is expected');
   assert.ok(!html.includes('No cached data'), 'no dataset renders the absence warning');
   // POSITIVE CONTROL — the same harness DOES render the warning when the
   // expectation is ordinary, so the assertion above is not vacuous.
@@ -263,7 +263,7 @@ test('provider Game stats row renders expected absence as neutral, not a warning
     />
   );
   assert.ok(warnedHtml.includes('No cached data'), 'positive control: the warning still renders');
-  assert.ok(!warnedHtml.includes('Awaiting games'));
+  assert.ok(!warnedHtml.includes('None expected'));
 });
 
 test('scheduler execution column distinguishes missing / invalid / unavailable receipts', async () => {

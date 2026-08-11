@@ -554,7 +554,7 @@ test('PLATFORM-090: expected preseason game-stats absence is neutral end to end'
   assert.deepEqual(row.diagnostics, [], 'no diagnostic requires action');
   assert.deepEqual(row.freshness, {
     status: 'gray',
-    label: 'Awaiting games',
+    label: 'None expected',
     intentional: true,
   });
   assert.equal(panelOf(model, 'provider-data').status, 'green');
