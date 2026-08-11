@@ -1633,14 +1633,16 @@ export default function CFBScheduleApp({
       ) : null}
 
       {/* Pre-season overview — shown when in preseason state with no schedule
-          data. Excluded on the Members surface: `canRenderPrimarySurface` is
-          unconditionally true for `weekViewMode === 'owner'`, so without this
-          the preseason roster grid would stack on top of OwnerPanel and show
-          the same owners twice. */}
-      {isPreseason && !canRenderLeagueSurface && weekViewMode !== 'owner' ? (
+          data. The section carries TWO things and only one of them duplicates
+          anything, so the Members exclusion sits on the roster grid rather than
+          here — the schedule placeholder is the only thing explaining the empty
+          state on that surface, and it was reachable there before this work. */}
+      {isPreseason && !canRenderLeagueSurface ? (
         <section className="space-y-6">
-          {/* Owner roster */}
-          {roster.length > 0
+          {/* Owner roster. Excluded on the Members surface: `canRenderPrimarySurface`
+              is unconditionally true for `weekViewMode === 'owner'`, so this grid
+              would stack on top of OwnerPanel and list the same owners twice. */}
+          {roster.length > 0 && weekViewMode !== 'owner'
             ? (() => {
                 const ownerTeams = new Map<string, string[]>();
                 for (const row of roster) {
@@ -1675,9 +1677,7 @@ export default function CFBScheduleApp({
                   </div>
                 );
               })()
-            : draftPhase && draftPhase !== 'complete'
-              ? null
-              : null}
+            : null}
 
           {/* Schedule placeholder */}
           <div className="mt-4 rounded-xl border border-dashed border-gray-300 bg-gray-50 px-6 py-10 text-center dark:border-zinc-700 dark:bg-zinc-950">

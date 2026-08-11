@@ -79,6 +79,20 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   by correcting the inputs rather than adding guards.
 - Status: **implemented and in final pre-merge review** — not merged. Branch
   `fix/preseason-status-banner-truthfulness`, PR #471.
+- **Remediation round 2 (user-approved, `AGENTS.md` rule 6).** The confirming passes found a P2 and
+  one LOW caused by round 1. Both were the SAME oversight as the original defect, one layer in:
+  `setupComplete` was gated behind the roster but not behind the DRAFT, so a draft reset
+  (`POST /api/draft/[slug]/[year]/reset` returns a complete draft to `setup` and clears its picks
+  while nothing clears the flag) left the banner claiming `Ready for kickoff`. An incomplete draft
+  phase now outranks the remembered flag. The round-1 Members guard also sat on the whole preseason
+  `<section>` rather than the roster grid it was added to de-duplicate, dropping the schedule
+  placeholder that was the only explanation of the empty owner surface — a net removal, now scoped
+  to the grid.
+- Tracked follow-ups, not addressed here: (a) the draft-facts fetch gap above; (b) the
+  `awaiting-roster` copy says "Contact your commissioner" to every viewer including the operator —
+  `isAdmin` is a PLATFORM-admin flag and `src/lib/league.ts` records that there is no commissioner
+  identity in this app, so branching on it would encode a wrong audience model to fix a cosmetic
+  problem; owner decided it is not worth the work.
 - Notes: owner decisions during review: an
   unconfirmed roster leads over a draft date, but the date survives as `Draft penciled in for …`
   rather than being discarded; the banner rides on all five league surfaces. Known accepted gap —

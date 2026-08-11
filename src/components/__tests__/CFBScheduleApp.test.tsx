@@ -716,6 +716,11 @@ test('the members surface does not stack the preseason roster grid on top of Own
   assert.match(html, /Roster confirmed/);
   // ...but the preseason-only roster grid does not.
   assert.doesNotMatch(html, /2026 Rosters/);
+  // The exclusion is scoped to the grid, not the whole section: the schedule
+  // placeholder is the only thing explaining the empty owner surface here, and
+  // it was reachable on this route before this work. Dropping it with the grid
+  // would have been a net removal.
+  assert.match(html, /season schedule not yet available/);
 });
 
 test('other preseason surfaces keep the roster grid the members fix excludes', () => {

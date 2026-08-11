@@ -218,16 +218,26 @@ export function selectPreseasonBannerState(
     return { kind: 'draft-scheduled', headline: `${bannerYear} Draft scheduled`, scheduledAt };
   }
 
+  // A draft record exists (`setup`/`settings`/`preview`) but carries no date.
+  //
+  // This precedes `setupComplete` for the same reason the roster gate does, and
+  // the first version of this module got it wrong by applying that reason to
+  // only one of the two: `setupComplete` is an operator assertion recorded
+  // earlier, and it can outlive the DRAFT it was recorded against just as
+  // easily as the owners. `POST /api/draft/[slug]/[year]/reset` returns a
+  // completed draft to `setup` and clears its picks, and nothing in the draft
+  // API touches `setupComplete` — `completePreseasonSetup` is its only writer
+  // and only ever sets it true. A live draft phase is observed; the flag is
+  // remembered, so the phase wins.
+  if (draftIsThePlan && draftPhase !== null) {
+    return { kind: 'draft-unscheduled', headline: 'Roster confirmed · Draft to be scheduled' };
+  }
+
   if (leagueStatus.setupComplete === true) {
     return {
       kind: 'ready-for-kickoff',
       headline: `${bannerYear} setup complete · Ready for kickoff`,
     };
-  }
-
-  // A draft record exists (`setup`/`settings`/`preview`) but carries no date.
-  if (draftIsThePlan && draftPhase !== null) {
-    return { kind: 'draft-unscheduled', headline: 'Roster confirmed · Draft to be scheduled' };
   }
 
   // No draft is coming, or none has been started — either way the banner cannot
