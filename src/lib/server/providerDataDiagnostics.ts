@@ -184,6 +184,20 @@ function normalizeSeasonType(value: unknown): CfbdSeasonType {
 
 type CompletedSlate = { week: number; seasonType: CfbdSeasonType; latestKickoff: number };
 
+type CompletedSlateScan = {
+  slates: CompletedSlate[];
+  /**
+   * PLATFORM-090 review — rows skipped because their kickoff was absent or
+   * unparseable. Such a row's completion is UNPROVABLE: it may be a game played
+   * last week. It cannot change which slates ARE complete (it contributes no
+   * kickoff), but it does invalidate the negative claim "no slate has completed",
+   * so the expectation must fail closed rather than report expected absence.
+   * `startDate` is `string | null` on the wire (passed straight through from
+   * CFBD's `start_date`), so this is defensive rather than routine.
+   */
+  unreadableKickoffs: number;
+};
+
 /**
  * Completed slates (whole-slate latest kickoff > 6h ago), newest first.
  *
@@ -195,13 +209,23 @@ type CompletedSlate = { week: number; seasonType: CfbdSeasonType; latestKickoff:
  * Saturday games are old, so it no longer raises false missing-score /
  * missing-game-stats warnings while the slate is still underway.
  */
-function deriveCompletedSlates(items: ScheduleCacheEntry['items'], now: number): CompletedSlate[] {
+function deriveCompletedSlates(
+  items: ScheduleCacheEntry['items'],
+  now: number
+): CompletedSlateScan {
   // 1) Group EVERY game by slate; track each slate's max kickoff across all games.
   const latestByKey = new Map<SlateKey, CompletedSlate>();
+  let unreadableKickoffs = 0;
   for (const item of items) {
-    if (!item.startDate) continue;
+    if (!item.startDate) {
+      unreadableKickoffs += 1;
+      continue;
+    }
     const kickoff = new Date(item.startDate).getTime();
-    if (!Number.isFinite(kickoff)) continue;
+    if (!Number.isFinite(kickoff)) {
+      unreadableKickoffs += 1;
+      continue;
+    }
     const seasonType = normalizeSeasonType(item.seasonType);
     const key = slateKey(item.week, seasonType);
     const prev = latestByKey.get(key);
@@ -210,9 +234,10 @@ function deriveCompletedSlates(items: ScheduleCacheEntry['items'], now: number):
     }
   }
   // 2) A slate is complete only once its WHOLE-slate latest kickoff is old enough.
-  return [...latestByKey.values()]
+  const slates = [...latestByKey.values()]
     .filter((slate) => slate.latestKickoff <= now - SLATE_COMPLETE_AFTER_MS)
     .sort((a, b) => b.latestKickoff - a.latestKickoff);
+  return { slates, unreadableKickoffs };
 }
 
 /**
@@ -369,7 +394,8 @@ export async function getProviderDataDiagnostics(
     );
   }
 
-  const completedSlates = deriveCompletedSlates(scheduleItems, now);
+  const slateScan = deriveCompletedSlates(scheduleItems, now);
+  const completedSlates = slateScan.slates;
 
   /**
    * PLATFORM-090 — the game-stats EXPECTATION, decided by exactly the inputs
@@ -388,12 +414,22 @@ export async function getProviderDataDiagnostics(
    *
    * It is never derived from the calendar, a cache age, or a kickoff-proximity
    * guess — the same canonical semantics, or nothing.
+   *
+   * PLATFORM-090 review — `not-yet-expected` is a POSITIVE claim ("nothing that
+   * would produce this data has happened"), so it is drawn in exactly one place,
+   * through `concludeNotYetExpected`, which refuses it whenever a row of the
+   * schedule could be hiding a played slate. Reaching the neutral state by any
+   * other route would let an unreadable input read as a healthy lifecycle state
+   * — the single thing this design must never do.
    */
+  const concludeNotYetExpected = (): ProviderDataExpectation =>
+    slateScan.unreadableKickoffs > 0 ? 'unknown' : 'not-yet-expected';
+
   let gameStatsExpectation: ProviderDataExpectation =
     scheduleItems.length === 0
       ? 'unknown'
       : completedSlates.length === 0
-        ? 'not-yet-expected'
+        ? concludeNotYetExpected()
         : 'unknown';
 
   // ---- Scores: completed slates lacking any cached TERMINAL score ----
@@ -465,6 +501,12 @@ export async function getProviderDataDiagnostics(
     if (completedSlates.length > 0) {
       const slateResult = await loadCanonicalGameStatsSlate({ year, now: new Date(now) });
       if (slateResult.status === 'unavailable') {
+        // PLATFORM-090 review — assigned EXPLICITLY, not left to the initializer.
+        // It happens to hold its `unknown` arm here only because this branch sits
+        // inside `completedSlates.length > 0`; nothing enforces that coupling, so
+        // widening the guard or reordering the initializer would silently publish
+        // expected absence from a context that could not be read.
+        gameStatsExpectation = 'unknown';
         push(
           'game-stats',
           'warning',
@@ -499,6 +541,35 @@ export async function getProviderDataDiagnostics(
         // denominator the diagnostics already compute; zero of them is exactly
         // the condition under which no missing-evidence diagnostic can fire.
         let expectedGames = 0;
+        /**
+         * PLATFORM-090 review — completed slates for which the canonical slate
+         * produced NO row of any kind.
+         *
+         * A zero coverage denominator has two causes that must not be conflated.
+         * The benign one is "the canonical slate says nothing is expected here"
+         * (every game disrupted). The other is "the canonical BUILD dropped every
+         * row" — `classifyScheduleRow` returning `invalid_row` /
+         * `out_of_scope_postseason`, or a non-decimal provider id — which drops
+         * games silently via `continue`, so the slate loads `available` and merely
+         * empty. A completed slate exists only because RAW rows for that partition
+         * existed, so an empty canonical partition means those rows were dropped,
+         * and treating that as "nothing is expected" would render a whole season of
+         * genuinely missing stats as a healthy lifecycle state.
+         *
+         * The membership probe deliberately reads `slate.games` directly rather than
+         * `selectCanonicalPartition`, which buckets only expected/pending/placeholder
+         * and so reports a disrupted-only partition as empty too — exactly the
+         * distinction being drawn here.
+         *
+         * Known and accepted: a completed slate whose every raw row is legitimately
+         * excluded by the builder (e.g. all FCS-vs-FCS) also lands here and reports
+         * `unknown`, i.e. it keeps the ordinary absence warning. That is the safe
+         * direction — fail toward the warning, never toward calm.
+         */
+        const unexplainedSlates: CompletedSlate[] = [];
+        const canonicalPartitions = new Set<SlateKey>(
+          slateResult.slate.games.map((game) => slateKey(game.providerWeek, game.seasonType))
+        );
 
         for (const slate of completedSlates) {
           // Raw durable read + the ONE shared envelope validation: only an
@@ -534,8 +605,16 @@ export async function getProviderDataDiagnostics(
             seasonRelation
           );
           // Zero expected stat-producing games (e.g. entirely disrupted): not
-          // applicable — never a missing warning.
-          if (coverage.games.length === 0) continue;
+          // applicable — never a missing warning. Whether that zero is a canonical
+          // FACT or a dropped-row artifact is recorded (above), and only affects
+          // the published expectation — never this diagnostic's silence, which is
+          // pre-existing behavior.
+          if (coverage.games.length === 0) {
+            if (!canonicalPartitions.has(slateKey(slate.week, slate.seasonType))) {
+              unexplainedSlates.push(slate);
+            }
+            continue;
+          }
           expectedGames += coverage.games.length;
 
           const count = (state: string): number =>
@@ -586,11 +665,16 @@ export async function getProviderDataDiagnostics(
         }
 
         // PLATFORM-090 — an unservable slate was skipped BEFORE its coverage
-        // could be evaluated, so with no expected game proven elsewhere the
-        // expectation is genuinely unknown, not "nothing is expected". A
-        // malformed record must never read as a healthy lifecycle state.
+        // could be evaluated, and an unexplained slate lost its canonical rows to
+        // the build, so with no expected game proven elsewhere the expectation is
+        // genuinely unknown, not "nothing is expected". Neither a malformed record
+        // nor a dropped schedule row may read as a healthy lifecycle state.
         gameStatsExpectation =
-          expectedGames > 0 ? 'expected' : unservable.length > 0 ? 'unknown' : 'not-yet-expected';
+          expectedGames > 0
+            ? 'expected'
+            : unservable.length > 0 || unexplainedSlates.length > 0
+              ? 'unknown'
+              : concludeNotYetExpected();
 
         if (missing.length > 0) {
           const latest = completedSlates[0];

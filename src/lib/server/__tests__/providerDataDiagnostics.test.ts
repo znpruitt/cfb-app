@@ -1624,3 +1624,152 @@ test('PLATFORM-090: unknownProviderDataExpectations is all-unknown for every dat
     assert.equal(expectations[dataset], 'unknown', `${dataset} must not assert an expectation`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-090 second review round — the expectation must fail closed on every
+// input it cannot corroborate. `not-yet-expected` is a POSITIVE claim; anything
+// that could be hiding a played slate has to resolve `unknown` instead.
+// ---------------------------------------------------------------------------
+
+// REGRESSION TEST (review finding 1) — a completed slate whose raw rows were all
+// DROPPED by the canonical build (here: unaddressable non-decimal ids, the same
+// mechanism an `invalid_row` / `out_of_scope_postseason` classification uses)
+// yields `coverage.games.length === 0`. Round one read that zero as "nothing is
+// expected" and rendered a healthy gray row while a whole slate's stats were
+// genuinely missing and no diagnostic fired.
+test('PLATFORM-090: a completed slate whose canonical rows were all dropped is UNKNOWN', async () => {
+  await seedScheduleItems([
+    {
+      id: 'not-a-decimal-id',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+  ]);
+  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    expectations['game-stats'],
+    'unknown',
+    'a dropped-row artifact must never read as a healthy lifecycle state'
+  );
+});
+
+// The benign twin of the test above: the SAME zero denominator, but explained by
+// the canonical slate itself (the games are present and disrupted). This is what
+// proves the new probe discriminates rather than blanket-failing every zero.
+test('PLATFORM-090: a disrupted-only completed slate stays NOT-YET-EXPECTED (probe discriminates)', async () => {
+  await seedScheduleItems([
+    {
+      id: '301',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'Canceled',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+  ]);
+  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(expectations['game-stats'], 'not-yet-expected');
+});
+
+// REGRESSION TEST (review finding 3) — a row whose kickoff cannot be read is
+// skipped by `deriveCompletedSlates`, so it can never PROVE a slate complete,
+// but it equally cannot be proven incomplete. Round one concluded
+// `not-yet-expected` from the resulting empty slate list.
+test('PLATFORM-090: an unreadable kickoff blocks the not-yet-expected conclusion', async () => {
+  await seedScheduleItems([
+    {
+      id: '302',
+      week: 2,
+      seasonType: 'regular',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Gamma',
+      awayTeam: 'Delta',
+    },
+    {
+      id: '303',
+      week: 1,
+      seasonType: 'regular',
+      startDate: 'not-a-parseable-date',
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+  ]);
+  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(
+    expectations['game-stats'],
+    'unknown',
+    'an unreadable kickoff could be hiding a played slate'
+  );
+});
+
+// POSITIVE CONTROL for the test above — the identical schedule with a READABLE
+// future kickoff does reach `not-yet-expected`, so the assertion is discriminating
+// the unreadable date and not some unrelated property of the fixture.
+test('PLATFORM-090: the same schedule with readable kickoffs reaches not-yet-expected', async () => {
+  await seedScheduleItems([
+    {
+      id: '302',
+      week: 2,
+      seasonType: 'regular',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Gamma',
+      awayTeam: 'Delta',
+    },
+    {
+      id: '303',
+      week: 1,
+      seasonType: 'regular',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+  ]);
+  const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(expectations['game-stats'], 'not-yet-expected');
+});
+
+// CONTRACT PIN (review finding 4) — NOT a regression test, and mutation-proven
+// so: deleting the branch's new explicit `gameStatsExpectation = 'unknown'`
+// leaves this green, because the initializer independently produces `unknown`
+// whenever `completedSlates.length > 0`. The explicit assignment is defense in
+// depth against a future reorder of that initializer, which no runtime
+// observation can distinguish today. What this test DOES pin behaviorally is
+// that an unreadable canonical context publishes `unknown` and keeps its
+// warning — by whichever of the two guards gets there first.
+test('PLATFORM-090: an unavailable canonical context is UNKNOWN, with its warning intact', async () => {
+  await seedScheduleItems([
+    {
+      id: '401',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: '401',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Echo',
+      awayTeam: 'Foxtrot',
+    },
+  ]);
+  const { diagnostics, expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.ok(
+    diagnostics.find((d) => d.code === 'game-stats-context-unavailable'),
+    'positive control: this fixture really does make the canonical context unavailable'
+  );
+  assert.equal(expectations['game-stats'], 'unknown');
+});

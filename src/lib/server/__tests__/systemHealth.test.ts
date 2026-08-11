@@ -505,12 +505,22 @@ test('generatedAt reflects the injected nowMs', async () => {
 });
 
 // ---------------------------------------------------------------------------
-// PLATFORM-090 — end-to-end: a healthy preseason must not read as degraded.
+// PLATFORM-090 — end-to-end: the REPORTED preseason state must not read as
+// degraded.
 //
-// The reported production state: game-stats cache absent (correctly — no slate
-// has been played), no game-stats diagnostic, everything else healthy. The row
-// nevertheless rendered yellow "No cached data" and dragged Provider data and
-// Overall to "Attention needed".
+// That reported state, exactly: game-stats cache absent (correctly — no slate
+// has been played), no game-stats diagnostic, and every OTHER provider cache
+// populated. The row nevertheless rendered yellow "No cached data" and dragged
+// Provider data and Overall to "Attention needed".
+//
+// SCOPE, stated precisely (review finding): this is not a claim that any cold
+// preseason renders green. On a deployment where `scores`, `odds`, or
+// `rankings` are also uncached, those rows are still yellow "No cached data" —
+// their absence diagnostics are `info` (or gated on a completed slate), which
+// the freshness stoplight does not consult — and the panels degrade again.
+// Giving them their own applicability authority is the tracked follow-up
+// recorded in `providerDataDiagnostics.ts`; this fixture holds them `available`
+// deliberately, to isolate the game-stats axis rather than to assert that case.
 // ---------------------------------------------------------------------------
 
 function cacheStatesWith(overrides: Partial<Record<ProviderDataset, 'available' | 'absent'>>) {
