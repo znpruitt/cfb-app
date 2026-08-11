@@ -3,8 +3,8 @@ import type { LeagueStatus } from '../league.ts';
 import type { CanonicalStandingsRosterSource } from './leagueStandings.ts';
 
 /**
- * PRESEASON-STATUS-BANNER-TRUTHFULNESS — the ONE place that decides what the
- * league banner claims about a league's readiness for the upcoming season.
+ * PLATFORM-091 — the ONE place that decides what the league banner claims about
+ * a league's readiness for the upcoming season.
  *
  * It lives under `src/lib/selectors/` because AGENTS.md invariant 9 is binding:
  * derived league data is computed here, never inlined in a UI component. The
@@ -22,17 +22,31 @@ import type { CanonicalStandingsRosterSource } from './leagueStandings.ts';
  *   draft is live / paused    `DraftState.phase` — the draft engine's own state
  *   draft complete            `DraftState.phase === 'complete'`
  *   draft scheduled           `DraftSettings.scheduledAt` parses to a real date
+ *   a draft is coming at all  `League.assignmentMethod !== 'manual'`
  *   setup complete            `LeagueStatus.setupComplete === true`
- *   roster confirmed          `CanonicalStandings.ownersRosterSource` names a
- *                             CURRENT-season roster (`csv` | `preseason-owners`)
+ *   roster confirmed          a CURRENT-season source (`csv` | `preseason-owners`)
+ *                             AND at least one real (non-NoClaim) owner row
  *   awaiting roster           none of the above
  *
- * `ownersRosterSource` is an allowlist, not a `!== 'none'` test. `archive` is a
- * PRIOR season's roster, and the draft-setup page will happily seed a draft
- * from last year's archive owners when no preseason-owners record exists — so
- * historical roster data must never read as current-season readiness. In
- * preseason `getCanonicalStandings` cannot return `archive` today; the
- * allowlist means this module stays correct if that ever changes.
+ * Two of those inputs are deliberately NOT the obvious ones, because the
+ * obvious ones are tags rather than facts:
+ *
+ *  - `ownersRosterSource` alone is a STORAGE-SOURCE tag. A current-year CSV
+ *    holding only `NoClaim` rows still yields `csv` while `rows` is empty
+ *    (pinned by `selectors-leagueStandings.test.ts` — "preseason with CSV
+ *    containing only NoClaim"). The source answers WHERE the roster came from;
+ *    only the owner count answers WHETHER there is one. Both are required:
+ *    `archive` is a PRIOR season's roster with a perfectly healthy row count,
+ *    and `/league/[slug]/draft/setup` seeds a draft from last year's archive
+ *    owners whenever no preseason-owners record exists, so historical roster
+ *    data reaching this decision is a live path.
+ *
+ *  - the existence of a `DraftState` is NOT evidence that a draft is how this
+ *    league assigns teams. `setAssignmentMethod` writes only
+ *    `League.assignmentMethod` and leaves any existing draft record intact, so
+ *    a commissioner who configures a draft and then switches to manual leaves a
+ *    stale `setup`/`settings`/`preview` record behind. Only
+ *    `assignmentMethod` says whether a draft is still the plan.
  *
  * Kept pure and JSX-free so every claim is provable without rendering, and so
  * there is exactly one place where the banner's readiness decision is made.
@@ -41,11 +55,13 @@ import type { CanonicalStandingsRosterSource } from './leagueStandings.ts';
  */
 
 /**
- * A preseason/draft banner state. `headline` is the complete rendered claim
- * except for `draft-scheduled`, whose localized date and countdown are appended
- * by the consumer — `toLocaleString` is locale- and timezone-dependent and
- * the countdown is wall-clock-dependent, neither of which belongs in a pure
- * derivation.
+ * A preseason/draft banner state.
+ *
+ * `headline` is the complete rendered claim. The two states that carry a
+ * `scheduledAt` also carry a localized date, appended by the consumer via
+ * `formatDraftScheduleDetail` — `toLocaleString` is locale- and
+ * timezone-dependent and the countdown is wall-clock-dependent, neither of
+ * which belongs in a pure derivation.
  */
 export type PreseasonBannerState =
   | { kind: 'draft-live'; headline: string }
@@ -53,6 +69,7 @@ export type PreseasonBannerState =
   | { kind: 'draft-complete'; headline: string }
   | { kind: 'draft-scheduled'; headline: string; scheduledAt: string }
   | { kind: 'awaiting-roster'; headline: string }
+  | { kind: 'awaiting-roster-draft-dated'; headline: string; scheduledAt: string }
   | { kind: 'roster-confirmed'; headline: string }
   | { kind: 'draft-unscheduled'; headline: string }
   | { kind: 'ready-for-kickoff'; headline: string };
@@ -61,10 +78,22 @@ export type PreseasonBannerInput = {
   /** Stored lifecycle status. `undefined` on routes that do not pass one. */
   leagueStatus: LeagueStatus | undefined;
   /**
-   * `CanonicalStandings.ownersRosterSource` — the canonical current-season
-   * ownership authority. `undefined` when the route passed no snapshot.
+   * `CanonicalStandings.ownersRosterSource` — WHERE the roster came from.
+   * `undefined` when the route passed no snapshot.
    */
   ownersRosterSource: CanonicalStandingsRosterSource | undefined;
+  /**
+   * `CanonicalStandings.rows.length` — how many real owners that roster holds.
+   * `rows` already excludes `NoClaim` (`splitOutNoClaim` runs inside
+   * `deriveStandings`), so this is a count of genuine owners.
+   */
+  currentSeasonOwnerCount: number | undefined;
+  /**
+   * `League.assignmentMethod` — how this league assigns teams. `'manual'`
+   * suppresses every forward-looking draft claim; `null`/`undefined` means the
+   * commissioner has not chosen yet and a draft record still speaks for itself.
+   */
+  assignmentMethod: 'draft' | 'manual' | null | undefined;
   /** `DraftState.phase`, or null when no draft record exists for the year. */
   draftPhase: DraftPhase | null;
   /** `DraftSettings.scheduledAt` — nullable by design; null means unscheduled. */
@@ -96,11 +125,15 @@ function resolveScheduledAt(value: string | null): string | null {
 }
 
 /**
- * Whether a roster exists for the CURRENT season. Allowlist — see the module
- * comment on why `archive` is excluded.
+ * Whether a roster exists for the CURRENT season, with real owners in it.
+ * Source and count are both required — see the module comment.
  */
-function hasCurrentSeasonRoster(source: CanonicalStandingsRosterSource | undefined): boolean {
-  return source === 'csv' || source === 'preseason-owners';
+function hasCurrentSeasonRoster(
+  source: CanonicalStandingsRosterSource | undefined,
+  ownerCount: number | undefined
+): boolean {
+  if (source !== 'csv' && source !== 'preseason-owners') return false;
+  return typeof ownerCount === 'number' && ownerCount > 0;
 }
 
 /**
@@ -110,10 +143,15 @@ function hasCurrentSeasonRoster(source: CanonicalStandingsRosterSource | undefin
  * draft is an observed event rather than an inference about readiness.
  *
  * Every remaining claim is gated on a confirmed current-season roster. Nothing
- * downstream of that gate — a draft date, a recorded `setupComplete` — can
+ * downstream of that gate — a recorded `setupComplete`, a draft date — can
  * assert readiness the roster has not reached: both can be set against a roster
  * that no longer (or does not yet) exist for this year, and the earlier stage is
  * the one a member actually needs.
+ *
+ * A real draft date survives that gate as DETAIL rather than as a claim. The
+ * draft-setup page can be reached before owners are confirmed, so a dated draft
+ * with no roster is a normal ordering, not a contradiction — the banner leads
+ * with the roster gap and still shows the date the league actually has.
  */
 export function selectPreseasonBannerState(
   input: PreseasonBannerInput
@@ -121,6 +159,8 @@ export function selectPreseasonBannerState(
   const {
     leagueStatus,
     ownersRosterSource,
+    currentSeasonOwnerCount,
+    assignmentMethod,
     draftPhase,
     draftScheduledAt,
     draftCurrentRound,
@@ -160,21 +200,20 @@ export function selectPreseasonBannerState(
   // does not call preseason licenses no readiness statement.
   if (!isPreseason) return null;
 
-  // The roster gate precedes every later claim. A scheduled date does NOT clear
-  // it: `/league/[slug]/draft/setup` seeds a draft from last season's archive
-  // owners whenever no preseason-owners record exists, so a date can be set
-  // against a roster that does not exist for this year yet. Until the owners are
-  // confirmed, the stage a member needs to hear about is the missing roster —
-  // and who to ask about it — not a draft date that may still move.
-  if (!hasCurrentSeasonRoster(ownersRosterSource)) {
-    return {
-      kind: 'awaiting-roster',
-      headline: `Awaiting ${bannerYear} roster confirmation · Contact your commissioner`,
-    };
+  // A manual league is not heading for a draft at all, so a leftover draft
+  // record must not speak for it. Its date is suppressed with it.
+  const draftIsThePlan = assignmentMethod !== 'manual';
+  const scheduledAt = draftIsThePlan ? resolveScheduledAt(draftScheduledAt) : null;
+
+  // The roster gate precedes every later CLAIM, but does not discard the date.
+  if (!hasCurrentSeasonRoster(ownersRosterSource, currentSeasonOwnerCount)) {
+    const headline = `Awaiting ${bannerYear} roster confirmation`;
+    return scheduledAt !== null
+      ? { kind: 'awaiting-roster-draft-dated', headline, scheduledAt }
+      : { kind: 'awaiting-roster', headline: `${headline} · Contact your commissioner` };
   }
 
   // `Draft scheduled` requires a date. This is the claim the defect fabricated.
-  const scheduledAt = resolveScheduledAt(draftScheduledAt);
   if (scheduledAt !== null) {
     return { kind: 'draft-scheduled', headline: `${bannerYear} Draft scheduled`, scheduledAt };
   }
@@ -187,11 +226,42 @@ export function selectPreseasonBannerState(
   }
 
   // A draft record exists (`setup`/`settings`/`preview`) but carries no date.
-  if (draftPhase !== null) {
+  if (draftIsThePlan && draftPhase !== null) {
     return { kind: 'draft-unscheduled', headline: 'Roster confirmed · Draft to be scheduled' };
   }
 
-  // No draft record at all, so the banner cannot claim a draft is coming — this
-  // league may be assigning teams manually.
+  // No draft is coming, or none has been started — either way the banner cannot
+  // claim one. Manual leagues and undecided leagues both land here.
   return { kind: 'roster-confirmed', headline: 'Roster confirmed · Season setup in progress' };
+}
+
+/**
+ * The date detail appended to the two states that carry a `scheduledAt`.
+ *
+ * `formatDateTime` is injected rather than called directly so the join logic —
+ * the part that actually decides what a member reads — is provable without
+ * pinning `toLocaleString` output, which varies by locale, timezone, and ICU
+ * build. The consumer passes the real formatter.
+ *
+ * `countdown` is only appended for a firm `draft-scheduled`; a date attached to
+ * an unconfirmed roster is penciled in, and counting down to it would restate
+ * the certainty the roster gate just withheld.
+ */
+export function formatDraftScheduleDetail(params: {
+  state: PreseasonBannerState;
+  formatDateTime: (iso: string) => string;
+  countdown: string | null;
+}): string | null {
+  const { state, formatDateTime, countdown } = params;
+
+  if (state.kind === 'draft-scheduled') {
+    const formatted = formatDateTime(state.scheduledAt);
+    return countdown ? ` · ${formatted} · ${countdown}` : ` · ${formatted}`;
+  }
+
+  if (state.kind === 'awaiting-roster-draft-dated') {
+    return ` · Draft penciled in for ${formatDateTime(state.scheduledAt)}`;
+  }
+
+  return null;
 }

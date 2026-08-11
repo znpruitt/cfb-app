@@ -4,6 +4,7 @@ import { getLeague } from '../../../../lib/leagueRegistry';
 import { getPreseasonOwners } from '../../../../lib/preseasonOwnerStore';
 import { listSeasonArchives } from '../../../../lib/seasonArchive';
 import { getCanonicalStandings } from '../../../../lib/selectors/leagueStandings';
+import { resolveDisplayLeagueStatus } from '../../../../lib/selectors/leagueLifecycle';
 import { isPlatformAdminSession } from '../../../../lib/server/adminAuth';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 
@@ -47,7 +48,8 @@ export default async function LeagueStandingsPage({
         leagueDisplayName={league?.displayName}
         initialWeekViewMode="standings"
         leagueYear={league?.year}
-        leagueStatus={league?.status}
+        leagueStatus={resolveDisplayLeagueStatus(league)}
+        assignmentMethod={league?.assignmentMethod}
         mostRecentArchivedYear={mostRecentArchivedYear}
         canonicalStandings={canonicalStandings}
         initialPreseasonOwners={preseasonOwners}

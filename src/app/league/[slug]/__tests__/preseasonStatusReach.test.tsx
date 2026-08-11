@@ -35,6 +35,7 @@ type CFBScheduleAppProps = {
   leagueSlug?: string;
   leagueStatus?: LeagueStatus;
   leagueYear?: number;
+  assignmentMethod?: 'draft' | 'manual' | null;
   canonicalStandings?: CanonicalStandings;
   initialWeekViewMode?: string;
 };
@@ -72,6 +73,7 @@ test('every league surface receives the preseason status the banner decides from
     year: 2026,
     createdAt: '2026-01-01T00:00:00.000Z',
     status: { state: 'preseason', year: 2026 },
+    assignmentMethod: 'draft',
   });
 
   for (const [name, render] of SURFACES) {
@@ -86,6 +88,31 @@ test('every league surface receives the preseason status the banner decides from
     assert.ok(props.canonicalStandings, `${name} must pass canonicalStandings`);
     assert.equal(props.canonicalStandings?.slug, SLUG, name);
     assert.equal(props.canonicalStandings?.ownersRosterSource, 'none', name);
+
+    // The roster gate needs the owner COUNT as well as the source tag, and a
+    // stale draft record must not speak for a manual league — both facts have
+    // to reach the component or the banner decides on partial evidence.
+    assert.ok(Array.isArray(props.canonicalStandings?.rows), name);
+    assert.equal(props.assignmentMethod, 'draft', name);
+  }
+});
+
+test('a legacy record with no stored status resolves identically on every surface', async () => {
+  // The fallback inference (`?? { state: 'season', year }`) was inlined on two
+  // routes and omitted on three, so the surfaces disagreed for exactly the
+  // records the fallback exists to cover. `resolveDisplayLeagueStatus` is now
+  // the single definition; this is the case that proves they share it.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Turf War',
+    year: 2026,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    // No status stored.
+  });
+
+  for (const [name, render] of SURFACES) {
+    const props = appProps(await render(SLUG));
+    assert.deepEqual(props.leagueStatus, { state: 'season', year: 2026 }, name);
   }
 });
 
@@ -106,6 +133,7 @@ test('the surfaces agree on the lifecycle facts and differ only by entry point',
   for (const [name, props] of rendered.slice(1)) {
     assert.deepEqual(props.leagueStatus, overview.leagueStatus, name);
     assert.equal(props.leagueYear, overview.leagueYear, name);
+    assert.equal(props.assignmentMethod, overview.assignmentMethod, name);
     assert.equal(props.canonicalStandings?.source, overview.canonicalStandings?.source, name);
     assert.equal(
       props.canonicalStandings?.ownersRosterSource,

@@ -34,7 +34,10 @@ import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
 import { resolveOverviewCanonicalInputs } from '../lib/selectors/overview';
-import { selectPreseasonBannerState } from '../lib/selectors/preseasonBanner';
+import {
+  formatDraftScheduleDetail,
+  selectPreseasonBannerState,
+} from '../lib/selectors/preseasonBanner';
 import { selectSeasonContext } from '../lib/selectors/seasonContext';
 import { buildScheduleFromApi, fetchSeasonSchedule, type AppGame } from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
@@ -94,6 +97,13 @@ type CFBScheduleAppProps = {
   leagueDisplayName?: string;
   leagueYear?: number;
   leagueStatus?: LeagueStatus;
+  /**
+   * `League.assignmentMethod` — how this league assigns teams for the season.
+   * The preseason banner needs it because `setAssignmentMethod` leaves any
+   * existing draft record in place, so a stale draft must not speak for a
+   * league that has since switched to manual assignment.
+   */
+  assignmentMethod?: 'draft' | 'manual' | null;
   mostRecentArchivedYear?: number;
   canonicalStandings?: CanonicalStandings;
   initialGames?: AppGame[];
@@ -268,6 +278,7 @@ export default function CFBScheduleApp({
   leagueDisplayName,
   leagueYear,
   leagueStatus,
+  assignmentMethod,
   mostRecentArchivedYear,
   canonicalStandings,
   initialGames = [],
@@ -565,6 +576,19 @@ export default function CFBScheduleApp({
   }, [loadRankings]);
 
   const weeks = useMemo(() => deriveRegularWeekTabs(games), [games]);
+  // Only the post-draft banner consumes this, but the scan is over the whole
+  // schedule — memoized so an in-season league does not re-walk ~800 games on
+  // every score and odds tick to answer a question its banner never asks.
+  const week1StartMs = useMemo(() => {
+    let earliest: number | null = null;
+    for (const g of games) {
+      if (g.week !== 1 || !g.date) continue;
+      const ms = new Date(g.date).getTime();
+      if (Number.isNaN(ms)) continue;
+      if (earliest === null || ms < earliest) earliest = ms;
+    }
+    return earliest;
+  }, [games]);
   const presentationTimeZone = useMemo(() => getPresentationTimeZone(), []);
   const weekDateMetadataByWeek = useMemo(
     () => deriveWeekDateMetadataByWeek(games, presentationTimeZone),
@@ -1374,18 +1398,18 @@ export default function CFBScheduleApp({
           // and never by the lifecycle state alone, which is what made a league
           // with no owners and no draft date read `Draft scheduled · Date TBD`.
           // This block only renders the decision.
-          const week1Kickoffs = games
-            .filter((g) => g.week === 1 && g.date)
-            .map((g) => new Date(g.date!).getTime());
-          const week1Start = week1Kickoffs.length > 0 ? Math.min(...week1Kickoffs) : null;
           const bannerState = selectPreseasonBannerState({
             leagueStatus,
             ownersRosterSource: canonicalStandings?.ownersRosterSource,
+            // `rows` already excludes NoClaim, so this counts real owners. The
+            // source tag alone would call a NoClaim-only CSV a confirmed roster.
+            currentSeasonOwnerCount: canonicalStandings?.rows.length,
+            assignmentMethod,
             draftPhase,
             draftScheduledAt,
             draftCurrentRound,
             bannerYear,
-            week1HasStarted: week1Start !== null && Date.now() >= week1Start,
+            week1HasStarted: week1StartMs !== null && Date.now() >= week1StartMs,
           });
 
           // Season state, or a post-draft banner that has stood down at kickoff.
@@ -1491,27 +1515,39 @@ export default function CFBScheduleApp({
             );
           }
 
-          // Draft genuinely scheduled — `scheduledAt` parsed to a real date, so
-          // the date is always rendered. There is no `Date TBD` fallback: a
-          // missing date now selects an earlier state instead of weakening this
-          // claim in place.
-          if (bannerState.kind === 'draft-scheduled') {
-            const formattedDate = new Date(bannerState.scheduledAt).toLocaleString(undefined, {
-              dateStyle: 'medium',
-              timeStyle: 'short',
+          // The two states that carry a date. `formatDraftScheduleDetail` owns
+          // the join so it is provable without pinning `toLocaleString` output;
+          // this arm only supplies the real formatter and the countdown. There
+          // is no `Date TBD` fallback anywhere — a missing date selects an
+          // earlier state instead of weakening a claim in place.
+          if (
+            bannerState.kind === 'draft-scheduled' ||
+            bannerState.kind === 'awaiting-roster-draft-dated'
+          ) {
+            const isFirm = bannerState.kind === 'draft-scheduled';
+            const detail = formatDraftScheduleDetail({
+              state: bannerState,
+              formatDateTime: (iso) =>
+                new Date(iso).toLocaleString(undefined, {
+                  dateStyle: 'medium',
+                  timeStyle: 'short',
+                }),
+              countdown: isFirm ? getDraftCountdown(bannerState.scheduledAt) : null,
             });
-            const countdown = getDraftCountdown(bannerState.scheduledAt);
+            // A penciled-in date sits under the neutral roster-gap treatment;
+            // only a firm date earns the draft palette.
+            const tone = isFirm ? palette.draft : palette.offseason;
             return (
               <div
                 style={{
                   ...bannerBase,
-                  borderLeftColor: palette.draft.border,
-                  background: palette.draft.background,
+                  borderLeftColor: tone.border,
+                  background: tone.background,
                 }}
               >
-                <span style={{ fontWeight: 500, color: palette.draft.text }}>
-                  {bannerState.headline} · {formattedDate}
-                  {countdown ? ` · ${countdown}` : ''}
+                <span style={{ fontWeight: 500, color: tone.text }}>
+                  {bannerState.headline}
+                  {detail}
                 </span>
               </div>
             );
@@ -1596,8 +1632,12 @@ export default function CFBScheduleApp({
         </section>
       ) : null}
 
-      {/* Pre-season overview — shown when in preseason state with no schedule data */}
-      {isPreseason && !canRenderLeagueSurface ? (
+      {/* Pre-season overview — shown when in preseason state with no schedule
+          data. Excluded on the Members surface: `canRenderPrimarySurface` is
+          unconditionally true for `weekViewMode === 'owner'`, so without this
+          the preseason roster grid would stack on top of OwnerPanel and show
+          the same owners twice. */}
+      {isPreseason && !canRenderLeagueSurface && weekViewMode !== 'owner' ? (
         <section className="space-y-6">
           {/* Owner roster */}
           {roster.length > 0

@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { selectPreseasonBannerState, type PreseasonBannerInput } from '../preseasonBanner.ts';
+import {
+  formatDraftScheduleDetail,
+  selectPreseasonBannerState,
+  type PreseasonBannerInput,
+} from '../preseasonBanner.ts';
 
 // ---------------------------------------------------------------------------
 // PRESEASON-STATUS-BANNER-TRUTHFULNESS
@@ -24,6 +28,8 @@ function input(overrides: Partial<PreseasonBannerInput> = {}): PreseasonBannerIn
   return {
     leagueStatus: PRESEASON_2026,
     ownersRosterSource: 'none',
+    currentSeasonOwnerCount: 0,
+    assignmentMethod: null,
     draftPhase: null,
     draftScheduledAt: null,
     draftCurrentRound: null,
@@ -31,6 +37,18 @@ function input(overrides: Partial<PreseasonBannerInput> = {}): PreseasonBannerIn
     week1HasStarted: false,
     ...overrides,
   };
+}
+
+/**
+ * A confirmed roster is TWO facts, never one. Every call site states both so a
+ * source tag can never stand in for an owner count, which is the defect that
+ * let a NoClaim-only CSV read as a confirmed roster.
+ */
+function roster(
+  ownersRosterSource: 'csv' | 'preseason-owners',
+  currentSeasonOwnerCount = 2
+): Partial<PreseasonBannerInput> {
+  return { ownersRosterSource, currentSeasonOwnerCount };
 }
 
 // ---------------------------------------------------------------------------
@@ -56,7 +74,7 @@ test('the earlier preseason states are reached through every pre-draft phase, no
     assert.equal(withoutRoster?.kind, 'awaiting-roster', draftPhase);
 
     const withRoster = selectPreseasonBannerState(
-      input({ draftPhase, ownersRosterSource: 'preseason-owners' })
+      input({ draftPhase, ...roster('preseason-owners') })
     );
     assert.equal(withRoster?.kind, 'draft-unscheduled', draftPhase);
     assert.equal(withRoster?.headline, 'Roster confirmed · Draft to be scheduled');
@@ -70,12 +88,12 @@ test('the earlier preseason states are reached through every pre-draft phase, no
 
 test('both current-season roster sources count as confirmed, and a draft record decides the wording', () => {
   // `preseason-owners` — commissioner confirmed owners, no CSV written yet.
-  const confirmed = selectPreseasonBannerState(input({ ownersRosterSource: 'preseason-owners' }));
+  const confirmed = selectPreseasonBannerState(input({ ...roster('preseason-owners') }));
   assert.equal(confirmed?.kind, 'roster-confirmed');
   assert.equal(confirmed?.headline, 'Roster confirmed · Season setup in progress');
 
   // `csv` — a real owners roster exists for the preseason year.
-  const csv = selectPreseasonBannerState(input({ ownersRosterSource: 'csv' }));
+  const csv = selectPreseasonBannerState(input({ ...roster('csv') }));
   assert.equal(csv?.kind, 'roster-confirmed');
 
   // With no draft record at all the banner must not promise a draft: the league
@@ -83,11 +101,12 @@ test('both current-season roster sources count as confirmed, and a draft record 
   assert.doesNotMatch(confirmed!.headline, /[Dd]raft/);
 });
 
-test('an unconfirmed roster outranks a scheduled draft date', () => {
-  // A date can be set against a roster that does not exist for this year:
-  // `/league/[slug]/draft/setup` seeds a draft from last season's archive owners
-  // whenever no preseason-owners record exists. The missing roster is the stage
-  // a member needs to hear about, and it names who to ask.
+test('an unconfirmed roster outranks a scheduled draft date, but does not erase it', () => {
+  // A date can be set before owners are confirmed — `owners:{slug}:{year}` is
+  // written only when the draft FINISHES, so a commissioner who opens
+  // `/league/[slug]/draft/setup` first has a real dated draft and no roster.
+  // The roster gap leads, because that is the stage that explains the wait; the
+  // date survives as detail rather than as a claim.
   const state = selectPreseasonBannerState(
     input({
       draftPhase: 'preview',
@@ -96,8 +115,114 @@ test('an unconfirmed roster outranks a scheduled draft date', () => {
     })
   );
 
-  assert.equal(state?.kind, 'awaiting-roster');
+  assert.equal(state?.kind, 'awaiting-roster-draft-dated');
+  assert.equal(state?.headline, 'Awaiting 2026 roster confirmation');
   assert.doesNotMatch(state!.headline, /[Dd]raft scheduled/);
+  assert.equal(
+    state?.kind === 'awaiting-roster-draft-dated' ? state.scheduledAt : null,
+    '2026-08-20T23:00:00.000Z'
+  );
+});
+
+test('a NoClaim-only roster is a source without owners, and must not read as confirmed', () => {
+  // `resolvePreseason` returns `ownersRosterSource: 'csv'` for a current-year CSV
+  // holding only NoClaim rows, while `rows` is empty — pinned by
+  // `selectors-leagueStandings.test.ts`. The source tag says WHERE a roster came
+  // from; only the owner count says WHETHER there is one.
+  const state = selectPreseasonBannerState(input({ ...roster('csv', 0) }));
+  assert.equal(state?.kind, 'awaiting-roster');
+
+  // And it must not be rescued by a stale setupComplete either.
+  const withSetupComplete = selectPreseasonBannerState(
+    input({
+      leagueStatus: { state: 'preseason', year: 2026, setupComplete: true },
+      ...roster('csv', 0),
+    })
+  );
+  assert.equal(withSetupComplete?.kind, 'awaiting-roster');
+
+  // One real owner is enough; the gate is "any", not a quorum.
+  assert.equal(
+    selectPreseasonBannerState(input({ ...roster('csv', 1) }))?.kind,
+    'roster-confirmed'
+  );
+});
+
+test('a count without a current-season source proves nothing', () => {
+  // The two facts are independent: `archive` carries a perfectly healthy row
+  // count for LAST season. Neither fact alone may open the gate.
+  const state = selectPreseasonBannerState(
+    input({ ownersRosterSource: 'archive', currentSeasonOwnerCount: 12 })
+  );
+  assert.equal(state?.kind, 'awaiting-roster');
+
+  const noCount = selectPreseasonBannerState(
+    input({ ownersRosterSource: 'csv', currentSeasonOwnerCount: undefined })
+  );
+  assert.equal(noCount?.kind, 'awaiting-roster');
+});
+
+// ---------------------------------------------------------------------------
+// Assignment method — a draft record is not proof a draft is still the plan
+// ---------------------------------------------------------------------------
+
+test('manual assignment silences a stale draft record, dated or not', () => {
+  // `setAssignmentMethod` writes only `League.assignmentMethod` and leaves any
+  // existing DraftState intact, so a commissioner who configures a draft and
+  // then switches to manual leaves `preview` behind. The banner must not keep
+  // promising a draft that will never run.
+  const dated = selectPreseasonBannerState(
+    input({
+      assignmentMethod: 'manual',
+      ...roster('csv'),
+      draftPhase: 'preview',
+      draftScheduledAt: '2026-08-20T23:00:00.000Z',
+    })
+  );
+  assert.equal(dated?.kind, 'roster-confirmed');
+  assert.doesNotMatch(dated!.headline, /[Dd]raft/);
+
+  const undated = selectPreseasonBannerState(
+    input({ assignmentMethod: 'manual', ...roster('csv'), draftPhase: 'preview' })
+  );
+  assert.equal(undated?.kind, 'roster-confirmed');
+
+  // Manual + no roster still leads with the roster gap, and no penciled-in date.
+  const noRoster = selectPreseasonBannerState(
+    input({
+      assignmentMethod: 'manual',
+      draftPhase: 'preview',
+      draftScheduledAt: '2026-08-20T23:00:00.000Z',
+    })
+  );
+  assert.equal(noRoster?.kind, 'awaiting-roster');
+});
+
+test('an explicit draft method and an undecided one both let the draft record speak', () => {
+  for (const assignmentMethod of ['draft', null, undefined] as const) {
+    const state = selectPreseasonBannerState(
+      input({
+        assignmentMethod,
+        ...roster('csv'),
+        draftPhase: 'preview',
+        draftScheduledAt: '2026-08-20T23:00:00.000Z',
+      })
+    );
+    assert.equal(state?.kind, 'draft-scheduled', String(assignmentMethod));
+  }
+});
+
+test('manual assignment never suppresses a draft that is actually running', () => {
+  // Live/paused/complete are observed events. Whatever the method now says, the
+  // draft in front of the league is real.
+  assert.equal(
+    selectPreseasonBannerState(input({ assignmentMethod: 'manual', draftPhase: 'live' }))?.kind,
+    'draft-live'
+  );
+  assert.equal(
+    selectPreseasonBannerState(input({ assignmentMethod: 'manual', draftPhase: 'complete' }))?.kind,
+    'draft-complete'
+  );
 });
 
 test('a PRIOR season roster is not current-season readiness', () => {
@@ -120,7 +245,7 @@ test('a real scheduled date is the only thing that produces the scheduled claim'
   const state = selectPreseasonBannerState(
     input({
       draftPhase: 'preview',
-      ownersRosterSource: 'preseason-owners',
+      ...roster('preseason-owners'),
       draftScheduledAt: '2026-08-20T23:00:00.000Z',
     })
   );
@@ -139,7 +264,7 @@ test('an unusable scheduledAt is no evidence at all', () => {
   // render `Invalid Date` under a `scheduled` headline.
   for (const draftScheduledAt of ['', '   ', 'sometime in August', 'not-a-date']) {
     const state = selectPreseasonBannerState(
-      input({ ownersRosterSource: 'csv', draftPhase: 'preview', draftScheduledAt })
+      input({ ...roster('csv'), draftPhase: 'preview', draftScheduledAt })
     );
     assert.equal(state?.kind, 'draft-unscheduled', JSON.stringify(draftScheduledAt));
   }
@@ -151,7 +276,7 @@ test('a scheduled date still reads as scheduled once it has passed', () => {
   const state = selectPreseasonBannerState(
     input({
       draftPhase: 'preview',
-      ownersRosterSource: 'csv',
+      ...roster('csv'),
       draftScheduledAt: '2020-01-01T00:00:00.000Z',
     })
   );
@@ -208,7 +333,7 @@ test('setupComplete reports readiness for a league that never drafts', () => {
   const state = selectPreseasonBannerState(
     input({
       leagueStatus: { state: 'preseason', year: 2026, setupComplete: true },
-      ownersRosterSource: 'csv',
+      ...roster('csv'),
     })
   );
   assert.equal(state?.kind, 'ready-for-kickoff');
@@ -244,9 +369,7 @@ test('readiness claims are made only for a league the lifecycle authority calls 
     // A draft parked in a configuration phase licenses no readiness claim
     // outside preseason either.
     assert.equal(
-      selectPreseasonBannerState(
-        input({ leagueStatus, draftPhase: 'preview', ownersRosterSource: 'csv' })
-      ),
+      selectPreseasonBannerState(input({ leagueStatus, draftPhase: 'preview', ...roster('csv') })),
       null
     );
 
@@ -271,4 +394,70 @@ test('the banner year comes from the caller, not from the draft record', () => {
     input({ leagueStatus: { state: 'preseason', year: 2027 }, bannerYear: 2027 })
   );
   assert.equal(state?.headline, 'Awaiting 2027 roster confirmation · Contact your commissioner');
+});
+
+// ---------------------------------------------------------------------------
+// The date detail. `formatDateTime` is injected so the JOIN — the part that
+// decides what a member actually reads — is provable without pinning
+// `toLocaleString`, whose output varies by locale, timezone, and ICU build.
+// This arm previously had no test at any layer: the selector test stopped at
+// `scheduledAt`, and the component test cannot reach it because the draft facts
+// arrive from a client fetch effect that never runs under static rendering.
+// ---------------------------------------------------------------------------
+
+const AT = '2026-08-20T23:00:00.000Z';
+const stamp = (): string => 'Aug 20, 2026, 7:00 PM';
+
+test('a firm draft date renders the date, and the countdown only when there is one', () => {
+  const scheduled = selectPreseasonBannerState(
+    input({ ...roster('csv'), draftPhase: 'preview', draftScheduledAt: AT })
+  )!;
+
+  assert.equal(
+    formatDraftScheduleDetail({
+      state: scheduled,
+      formatDateTime: stamp,
+      countdown: '3 days away',
+    }),
+    ' · Aug 20, 2026, 7:00 PM · 3 days away'
+  );
+
+  // A past date yields no countdown; the date still stands alone, never `TBD`.
+  assert.equal(
+    formatDraftScheduleDetail({ state: scheduled, formatDateTime: stamp, countdown: null }),
+    ' · Aug 20, 2026, 7:00 PM'
+  );
+});
+
+test('a penciled-in date is shown as provisional and never counts down', () => {
+  // Counting down would restate the certainty the roster gate just withheld.
+  const penciled = selectPreseasonBannerState(
+    input({ draftPhase: 'preview', draftScheduledAt: AT })
+  )!;
+  assert.equal(penciled.kind, 'awaiting-roster-draft-dated');
+
+  assert.equal(
+    formatDraftScheduleDetail({
+      state: penciled,
+      formatDateTime: stamp,
+      countdown: '3 days away',
+    }),
+    ' · Draft penciled in for Aug 20, 2026, 7:00 PM'
+  );
+});
+
+test('states that carry no date produce no detail', () => {
+  for (const state of [
+    selectPreseasonBannerState(input())!,
+    selectPreseasonBannerState(input({ ...roster('csv') }))!,
+    selectPreseasonBannerState(input({ ...roster('csv'), draftPhase: 'preview' }))!,
+    selectPreseasonBannerState(input({ draftPhase: 'live' }))!,
+    selectPreseasonBannerState(input({ draftPhase: 'complete' }))!,
+  ]) {
+    assert.equal(
+      formatDraftScheduleDetail({ state, formatDateTime: stamp, countdown: '3 days away' }),
+      null,
+      state.kind
+    );
+  }
 });

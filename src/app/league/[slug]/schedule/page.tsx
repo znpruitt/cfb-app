@@ -2,6 +2,7 @@ import CFBScheduleApp from 'components/CFBScheduleApp';
 import { getLeague } from '../../../../lib/leagueRegistry';
 import { listSeasonArchives } from '../../../../lib/seasonArchive';
 import { getCanonicalStandings } from '../../../../lib/selectors/leagueStandings';
+import { resolveDisplayLeagueStatus } from '../../../../lib/selectors/leagueLifecycle';
 import { isPlatformAdminSession } from '../../../../lib/server/adminAuth';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 
@@ -25,8 +26,7 @@ export default async function LeagueSchedulePage({
     getCanonicalStandings({ slug }),
     isPlatformAdminSession(),
   ]);
-  const leagueStatus =
-    league?.status ?? (league ? { state: 'season' as const, year: league.year } : undefined);
+  const leagueStatus = resolveDisplayLeagueStatus(league);
   const mostRecentArchivedYear =
     archiveYears.length > 0 ? [...archiveYears].sort((a, b) => b - a)[0] : undefined;
   return (
@@ -36,6 +36,7 @@ export default async function LeagueSchedulePage({
         leagueDisplayName={league?.displayName}
         leagueYear={league?.year}
         leagueStatus={leagueStatus}
+        assignmentMethod={league?.assignmentMethod}
         mostRecentArchivedYear={mostRecentArchivedYear}
         canonicalStandings={canonicalStandings}
         initialWeekViewMode="schedule"

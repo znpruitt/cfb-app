@@ -57,11 +57,18 @@ Supersedes: (none)
    cache no evidence is yet owed for renders a neutral `None expected` row instead of a yellow
    warning that degraded Provider data and Overall. Genuine missing evidence still warns. Execution
    record in `docs/prompt-registry.md`; two deferrals recorded below.
-8. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
-9. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
-   History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
+8. ⏳ **PLATFORM-091 — IN PRE-MERGE REVIEW** (branch
+   `fix/preseason-status-banner-truthfulness`, not merged). The league banner states actual
+   preseason readiness instead of claiming `{year} Draft scheduled · Date TBD` from the lifecycle
+   state; `Draft scheduled` now requires a parseable `scheduledAt`, `Roster confirmed` requires a
+   current-season roster source paired with a real owner count, and a stale draft record no longer
+   speaks for a league that switched to manual assignment. Execution record in
+   `docs/prompt-registry.md`; one accepted gap recorded there.
+9. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
+10. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+    History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
    later.
-10. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+11. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 

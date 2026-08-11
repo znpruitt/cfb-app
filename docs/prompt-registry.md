@@ -52,6 +52,39 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-091-PRESEASON-STATUS-BANNER-v1
+
+- Purpose: make the league banner state the league's actual preseason readiness instead of claiming
+  `{year} Draft scheduled · Date TBD` from the lifecycle state alone, and give every league surface
+  the facts that decision needs.
+- Scope: new `selectors/preseasonBanner` (the decision + the date detail), the `CFBScheduleApp`
+  banner block, `resolveDisplayLeagueStatus` in `selectors/leagueLifecycle`, and the five
+  `/league/[slug]/*` routes' prop wiring, plus focused suites. No change to persistence, draft
+  execution, owner assignment, lifecycle transitions, or draft phase semantics. No new durable
+  state — every input already existed and already had an owner.
+- Outcome: a LIFECYCLE state was standing in as evidence for a DRAFT-STATUS claim. Because
+  `DraftSettings.scheduledAt` is nullable by design, a null date was reconciled with `· Date TBD`
+  rather than treated as the absence of evidence, so one lifecycle fact licensed four materially
+  different states. The banner now derives from one authoritative fact per claim: draft phase for
+  live/paused/complete, a parseable `scheduledAt` for `Draft scheduled`, `League.assignmentMethod`
+  for whether a draft is coming at all, `LeagueStatus.setupComplete` for readiness, and a
+  current-season roster SOURCE paired with a real owner COUNT for `Roster confirmed`. `Date TBD` is
+  gone: a missing date selects an earlier state instead of weakening a claim in place.
+- **`· Date TBD` was the tell.** A qualifier that exists only to let a claim survive a null means
+  the CLAIM is wrong, not the qualifier — the same shape as PLATFORM-090's guard accretion.
+- **Two review findings shared one root: the inputs were tags, not facts.** `ownersRosterSource`
+  answers WHERE a roster came from, not WHETHER one exists — a current-year CSV of only `NoClaim`
+  rows yields `csv` with zero rows — and the existence of a `DraftState` is not evidence a draft is
+  still the plan, because `setAssignmentMethod` leaves stale draft records behind. Both were fixed
+  by correcting the inputs rather than adding guards.
+- Status: **implemented and in final pre-merge review** — not merged. Branch
+  `fix/preseason-status-banner-truthfulness`; no PR opened.
+- Notes: owner decisions during review: an
+  unconfirmed roster leads over a draft date, but the date survives as `Draft penciled in for …`
+  rather than being discarded; the banner rides on all five league surfaces. Known accepted gap —
+  when `/api/draft/…` is unavailable the best-effort fetch leaves draft facts null, so a league
+  with a live draft and no confirmed roster reads as awaiting-roster until the fetch succeeds.
+
 ### PLATFORM-090-GAME-STATS-PRESEASON-HEALTH-STATE-v1
 
 - Purpose: stop the System Health Game stats row rendering an operational warning when the absence

@@ -1,6 +1,7 @@
 import CFBScheduleApp from 'components/CFBScheduleApp';
 import { getLeague } from '../../../../lib/leagueRegistry';
 import { getCanonicalStandings } from '../../../../lib/selectors/leagueStandings';
+import { resolveDisplayLeagueStatus } from '../../../../lib/selectors/leagueLifecycle';
 import { isPlatformAdminSession } from '../../../../lib/server/adminAuth';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 
@@ -25,7 +26,8 @@ export default async function LeagueMatchupsPage({
         leagueSlug={slug}
         leagueDisplayName={league?.displayName}
         leagueYear={league?.year}
-        leagueStatus={league?.status}
+        leagueStatus={resolveDisplayLeagueStatus(league)}
+        assignmentMethod={league?.assignmentMethod}
         canonicalStandings={canonicalStandings}
         initialWeekViewMode="matchups"
         isAdmin={isAdmin}
