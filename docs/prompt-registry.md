@@ -78,7 +78,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   still the plan, because `setAssignmentMethod` leaves stale draft records behind. Both were fixed
   by correcting the inputs rather than adding guards.
 - Status: **implemented and in final pre-merge review** — not merged. Branch
-  `fix/preseason-status-banner-truthfulness`; no PR opened.
+  `fix/preseason-status-banner-truthfulness`, PR #471.
 - Notes: owner decisions during review: an
   unconfirmed roster leads over a draft date, but the date survives as `Draft penciled in for …`
   rather than being discarded; the banner rides on all five league surfaces. Known accepted gap —

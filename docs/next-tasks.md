@@ -57,7 +57,7 @@ Supersedes: (none)
    cache no evidence is yet owed for renders a neutral `None expected` row instead of a yellow
    warning that degraded Provider data and Overall. Genuine missing evidence still warns. Execution
    record in `docs/prompt-registry.md`; two deferrals recorded below.
-8. ⏳ **PLATFORM-091 — IN PRE-MERGE REVIEW** (branch
+8. ⏳ **PLATFORM-091 — IN PRE-MERGE REVIEW** (PR #471, branch
    `fix/preseason-status-banner-truthfulness`, not merged). The league banner states actual
    preseason readiness instead of claiming `{year} Draft scheduled · Date TBD` from the lifecycle
    state; `Draft scheduled` now requires a parseable `scheduledAt`, `Roster confirmed` requires a
