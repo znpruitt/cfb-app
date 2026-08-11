@@ -4,6 +4,8 @@ import test from 'node:test';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
+  getAppState,
   setAppState,
 } from '../appStateStore.ts';
 import { __resetOddsUsageStoreForTests, setLatestKnownOddsUsage } from '../oddsUsageStore.ts';
@@ -2020,4 +2022,46 @@ test('PLATFORM-090: an absent postseason partition alone does not block the neut
   });
   const { expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
   assert.equal(expectations['game-stats'], 'not-yet-expected');
+});
+
+// REGRESSION TEST (round 6, found independently by BOTH reviewers) — the
+// completeness read is the only durable read on the function's top-level path,
+// outside every per-dataset try block. Unguarded, a `schedule`-scope store
+// failure escaped the whole function: `/api/admin/provider-status` 500d and
+// every System Health row degraded to Unknown — strictly worse than the warning
+// this branch removes, and a breach of the module's isolation rule.
+test('PLATFORM-090: a schedule-scope read failure degrades only its own facts', async () => {
+  __setAppStateReadFailureForTests(new Error('schedule store boom'), 'schedule');
+  try {
+    const { diagnostics, expectations } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+    // The pass COMPLETED rather than rejecting — the point of the fix.
+    assert.ok(
+      diagnostics.find((d) => d.code === 'schedule-diagnostics-unavailable'),
+      'the schedule read failure is reported as its own diagnostic'
+    );
+    // An unreadable partition cannot prove the season is accounted for.
+    assert.equal(expectations['game-stats'], 'unknown');
+    // Other datasets still report — one failing scope did not sink the report.
+    assert.ok(
+      diagnostics.some((d) => d.dataset !== 'schedule'),
+      'non-schedule datasets still produced diagnostics'
+    );
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
+});
+
+// POSITIVE CONTROL for the observer above — the same seam DOES make the read
+// throw, so the test is not passing because the failure never occurred.
+test('PLATFORM-090: the read-failure seam genuinely fails the schedule scope', async () => {
+  __setAppStateReadFailureForTests(new Error('schedule store boom'), 'schedule');
+  try {
+    await assert.rejects(
+      () => getAppState('schedule', `${YEAR}-all-regular`),
+      /schedule store boom/,
+      'the seam must actually throw on the scope the guard protects'
+    );
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
 });

@@ -352,10 +352,26 @@ async function isScheduleIncomplete(
   if ((aggregate?.items?.length ?? 0) > 0) {
     return aggregate?.partialFailure === true || (aggregate?.failedSeasonTypes?.length ?? 0) > 0;
   }
-  const regular = await getAppState<ScheduleCacheEntry>('schedule', `${year}-all-regular`);
-  const value = regular?.value;
-  if ((value?.items?.length ?? 0) === 0) return true;
-  return value?.partialFailure === true || (value?.failedSeasonTypes?.length ?? 0) > 0;
+  // GUARDED, and this is the only durable read on the function's top-level path
+  // (round 6, found independently by both reviewers). `getAppState` THROWS on a
+  // real store error, and this helper is called outside every per-dataset try
+  // block — so an unguarded rejection escaped `getProviderDataDiagnostics`
+  // entirely, 500ing `/api/admin/provider-status` and degrading all six System
+  // Health rows to Unknown. That breaks this module's stated isolation rule
+  // ("one failing read cannot sink the whole report") and is strictly worse than
+  // the warning this branch exists to remove.
+  //
+  // Fails closed to INCOMPLETE: an unreadable partition cannot prove the season
+  // is fully accounted for, so the expectation resolves `unknown` and the
+  // ordinary absence warning stands.
+  try {
+    const regular = await getAppState<ScheduleCacheEntry>('schedule', `${year}-all-regular`);
+    const value = regular?.value;
+    if ((value?.items?.length ?? 0) === 0) return true;
+    return value?.partialFailure === true || (value?.failedSeasonTypes?.length ?? 0) > 0;
+  } catch {
+    return true;
+  }
 }
 
 /**
