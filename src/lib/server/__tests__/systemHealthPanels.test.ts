@@ -616,3 +616,48 @@ test('overall: a genuine yellow elsewhere still dominates an intentional gray', 
   assert.equal(panel(baseInput({ datasetFreshness: freshness }), 'provider-data').status, 'yellow');
   assert.equal(panel(baseInput({ datasetFreshness: freshness }), 'overall').status, 'yellow');
 });
+
+// REGRESSION TEST (PLATFORM-090 review) — the first cut mapped an intentional
+// gray to green for the fold and then reused the unqualified green detail, so
+// the tile asserted "Canonical provider data is present and current." directly
+// above a row whose cache is provably absent.
+test('provider-data panel: a green panel with an awaiting row does not claim all data present', () => {
+  const freshness = [...ALL_GREEN];
+  freshness[5] = { status: 'gray', label: 'Awaiting games', intentional: true };
+  const p = panel(baseInput({ datasetFreshness: freshness }), 'provider-data');
+  assert.equal(p.status, 'green');
+  assert.equal(p.stateLabel, 'Healthy');
+  assert.ok(
+    !/present and current/.test(p.detail),
+    'must not claim every dataset is present while one is absent'
+  );
+  assert.equal(p.detail, 'Canonical provider data is current, apart from data not expected yet.');
+});
+
+// The unqualified sentence must survive for the case it is actually true of.
+test('provider-data panel: a fully green panel keeps the unqualified present-and-current detail', () => {
+  const p = panel(baseInput(), 'provider-data');
+  assert.equal(p.status, 'green');
+  assert.equal(p.detail, 'Canonical provider data is present and current.');
+});
+
+// A governing issue still owns the detail line, awaiting row or not.
+test('provider-data panel: a governing issue still owns the detail line over an awaiting row', () => {
+  const freshness = [...ALL_GREEN];
+  freshness[5] = { status: 'gray', label: 'Awaiting games', intentional: true };
+  const p = panel(
+    baseInput({
+      datasetFreshness: freshness,
+      issues: [
+        issue({
+          code: 'provider-refresh-failed',
+          severity: 'warning',
+          subject: { axis: 'dataset', id: 'rankings' },
+          title: 'rankings refresh failed',
+        }),
+      ],
+    }),
+    'provider-data'
+  );
+  assert.equal(p.detail, 'rankings refresh failed');
+});

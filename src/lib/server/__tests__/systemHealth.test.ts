@@ -549,6 +549,11 @@ test('PLATFORM-090: expected preseason game-stats absence is neutral end to end'
   });
   assert.equal(panelOf(model, 'provider-data').status, 'green');
   assert.equal(panelOf(model, 'provider-data').stateLabel, 'Healthy');
+  // Green must not assert that data is PRESENT while this cache is absent.
+  assert.ok(
+    !/present and current/.test(panelOf(model, 'provider-data').detail),
+    'the green provider tile must account for the expected absence'
+  );
   assert.equal(panelOf(model, 'overall').status, 'green');
   assert.equal(panelOf(model, 'overall').stateLabel, 'Healthy');
   assert.equal(model.overallState, 'healthy');
@@ -580,8 +585,13 @@ test('PLATFORM-090: once evidence IS expected, an absent game-stats cache still 
   assert.equal(panelOf(model, 'overall').stateLabel, 'Attention needed');
 });
 
-// A failed diagnostics pass must not be read as "nothing is expected yet".
-test('PLATFORM-090: a diagnostics-pass failure never yields expected absence', async () => {
+// CONTRACT PIN (not a regression test for the expectation fallback) — review
+// mutation-proved that this scenario is decided by the `diagnosticsAvailable`
+// short-circuit, NOT by `unknownProviderDataExpectations()`: replacing that
+// helper's return with all-`not-yet-expected` leaves this assertion green. What
+// it truthfully pins is that a failed diagnostics pass still yields a
+// non-intentional Unknown row, whichever of the two guards gets there first.
+test('PLATFORM-090: a diagnostics-pass failure yields a non-intentional Unknown row', async () => {
   const model = await buildSystemHealthViewModel({
     year: YEAR,
     nowMs: NOW,

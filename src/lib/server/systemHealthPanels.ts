@@ -224,10 +224,18 @@ function providerDataPanel(input: SystemHealthPanelsInput): SystemHealthPanel {
           ? 'Unknown'
           : 'Attention needed'
         : 'Healthy';
+  // PLATFORM-090 review — a non-degrading awaiting row makes the panel green,
+  // but the panel must not then claim every dataset is PRESENT: its cache is
+  // provably absent, which is exactly the contradiction (green tile above a
+  // "no data" row) this file's UNTILED_CODES note exists to prevent. Green has
+  // two truthful readings now, so it needs two sentences.
+  const awaiting = input.datasetFreshness.some((f) => f.status === 'gray' && f.intentional);
   const detail = gov
     ? gov.title
     : status === 'green'
-      ? 'Canonical provider data is present and current.'
+      ? awaiting
+        ? 'Canonical provider data is current, apart from data not expected yet.'
+        : 'Canonical provider data is present and current.'
       : 'One or more datasets are missing, stale, or unverifiable.';
   return {
     key: 'provider-data',

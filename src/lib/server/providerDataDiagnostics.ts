@@ -106,15 +106,36 @@ export type ProviderDiagnostic = {
  * This is the SAME decision the game-stats diagnostics already make when they
  * choose whether to emit a missing-evidence diagnostic — published so the
  * System Health presentation can distinguish expected from unexpected absence
- * instead of inferring it. It is NOT a redefinition of cache availability:
- * `game-stats` is the only dataset whose data cannot exist before a lifecycle
- * condition occurs, so every other dataset is `expected` by construction.
+ * instead of inferring it. It is NOT a redefinition of cache availability.
+ *
+ * `game-stats` is the only dataset GIVEN an applicability state here, which is
+ * deliberately narrower than "the only dataset that could have one" — a claim
+ * this module does not establish and which review showed to be false. On a
+ * genuinely cold preseason deployment `scores` (its cron skips
+ * `no-polling-target`, and its diagnostics are gated on a completed slate),
+ * `odds`, and `rankings` (whose absence diagnostics are `info`, which the
+ * freshness stoplight does not consult) can each show the same absent cache
+ * with no actionable diagnostic. Extending the concept to them is a tracked
+ * FOLLOW-UP, deliberately out of this task's scope: each needs its own
+ * canonical applicability authority, and none may borrow game-stats' slate
+ * semantics. Until then every other dataset is `expected` by construction and
+ * its absence stays actionable exactly as before.
  */
 export type ProviderDataExpectation = 'expected' | 'not-yet-expected' | 'unknown';
 
 export type ProviderDataExpectations = Record<ProviderDataset, ProviderDataExpectation>;
 
-/** A conservative all-`unknown` map, for when the diagnostics pass itself fails. */
+/**
+ * A conservative all-`unknown` map, for when the diagnostics pass itself fails.
+ *
+ * Today this is a SECOND guard, not the operative one: the same failed pass also
+ * makes `diagnosticsAvailable` false, and `deriveDatasetFreshness` short-circuits
+ * to Unknown before it ever reads an expectation. It is kept because the two
+ * signals are independent inputs to that function and nothing forces them to
+ * stay coupled — but do not mistake a passing freshness test for proof that this
+ * fallback is what produced the result (review finding; mutating this helper's
+ * return value does not move any freshness assertion).
+ */
 export function unknownProviderDataExpectations(): ProviderDataExpectations {
   return PROVIDER_DATASETS.reduce((acc, dataset) => {
     acc[dataset] = 'unknown';

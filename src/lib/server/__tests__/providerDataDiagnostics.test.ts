@@ -7,9 +7,13 @@ import {
   setAppState,
 } from '../appStateStore.ts';
 import { __resetOddsUsageStoreForTests, setLatestKnownOddsUsage } from '../oddsUsageStore.ts';
-import { getProviderDataDiagnostics } from '../providerDataDiagnostics.ts';
+import {
+  getProviderDataDiagnostics,
+  unknownProviderDataExpectations,
+} from '../providerDataDiagnostics.ts';
 import { createOddsCacheKey, defaultOddsCacheKey } from '../../../app/api/odds/routeInternals.ts';
 import { legacyRowFromWire, wireGame } from '../../gameStats/__tests__/fixtures.ts';
+import { PROVIDER_DATASETS } from '../../providerDatasets.ts';
 
 const YEAR = 2026;
 const NOW = Date.parse('2026-10-15T12:00:00.000Z');
@@ -1608,5 +1612,15 @@ test('PLATFORM-090: every non-game-stats dataset keeps an unconditional expectat
   for (const [dataset, expectation] of Object.entries(expectations)) {
     if (dataset === 'game-stats') continue;
     assert.equal(expectation, 'expected', `${dataset} must keep its existing absence semantics`);
+  }
+});
+
+// The fallback map's OWN contract, tested directly — the freshness-level test
+// that names it cannot discriminate it (review finding).
+test('PLATFORM-090: unknownProviderDataExpectations is all-unknown for every dataset', () => {
+  const expectations = unknownProviderDataExpectations();
+  assert.deepEqual(Object.keys(expectations).sort(), [...PROVIDER_DATASETS].sort());
+  for (const dataset of PROVIDER_DATASETS) {
+    assert.equal(expectations[dataset], 'unknown', `${dataset} must not assert an expectation`);
   }
 });
