@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react';
 import { confirmPreseasonOwners } from '../../actions';
+import { NO_CLAIM_OWNER } from '@/lib/standings';
 
 const btnClass =
   'px-3 py-1.5 rounded border border-gray-300 bg-white text-sm text-gray-900 transition-colors hover:bg-gray-50 hover:border-gray-400 disabled:opacity-50 disabled:cursor-not-allowed dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700/60';
@@ -26,6 +27,14 @@ export default function OwnerConfirmationShell({ slug, year, initialOwners }: Pr
     }
     if (owners.some((o) => o.toLowerCase() === name.toLowerCase())) {
       setAddError('That owner is already in the list.');
+      return;
+    }
+    // PLATFORM-092 — `confirmPreseasonOwners` refuses this name, so the button
+    // must not enable for it. Duplicates are already caught above; this was the
+    // one input that could reach an enabled Save and then throw from the Server
+    // Action with nothing to display it.
+    if (name === NO_CLAIM_OWNER) {
+      setAddError(`"${NO_CLAIM_OWNER}" is reserved for unclaimed teams and cannot be an owner.`);
       return;
     }
     setOwners((prev) => [...prev, name]);

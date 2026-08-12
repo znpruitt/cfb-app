@@ -6,7 +6,7 @@ import { getLeague } from '@/lib/leagueRegistry';
 import { describeLeagueLifecycle } from '@/lib/selectors/leagueLifecycle';
 import { TEST_LEAGUE_SLUG } from '@/lib/league';
 import { getAppState } from '@/lib/server/appStateStore';
-import { getPreseasonOwners } from '@/lib/preseasonOwnerStore';
+import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
 import { draftScope, type DraftPhase } from '@/lib/draft';
 import AssignmentMethodCard from '../components/AssignmentMethodCard';
 import { completeSetup } from '../actions';
@@ -31,16 +31,16 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   let teamsAssigned = false;
 
   try {
-    const [preseasonOwners, draftRecord, ownersCsvRecord] = await Promise.all([
-      getPreseasonOwners(slug, year),
+    // PLATFORM-092 — one derivation answers "is there a confirmed roster",
+    // shared with the draft-setup page and the create-draft gate. This counted
+    // CSV LINES, so a header plus two malformed rows read as a roster and this
+    // checklist could show ✓ while the draft gate refused.
+    const [roster, draftRecord] = await Promise.all([
+      getConfirmedRoster(slug, year),
       getAppState<{ phase: DraftPhase }>(draftScope(slug), String(year)),
-      getAppState<string>(`owners:${slug}:${year}`, 'csv'),
     ]);
 
-    const hasCsvRoster =
-      typeof ownersCsvRecord?.value === 'string' &&
-      ownersCsvRecord.value.trim().split('\n').length > 2; // header + at least 2 owners
-    hasRoster = (preseasonOwners !== null && preseasonOwners.length >= 2) || hasCsvRoster;
+    hasRoster = roster.isConfirmed;
 
     const draftPhase = draftRecord?.value?.phase ?? null;
     if (league.assignmentMethod === 'draft') {

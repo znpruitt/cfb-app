@@ -20,6 +20,7 @@ import {
   setAppState,
 } from '@/lib/server/appStateStore';
 import { draftScope, type DraftState, type DraftPick } from '@/lib/draft';
+import { cleanOwnerNames, findOwnerListProblem } from '@/lib/selectors/confirmedRoster';
 import { TEST_LEAGUE_SLUG, type LeagueStatus } from '@/lib/league';
 import type { AutoCompleteDraftResult, TestControlResult } from '@/lib/testLeagueControl';
 import { requireAdminAction } from '@/lib/auth/requireAdminAction';
@@ -314,8 +315,14 @@ export async function confirmPreseasonOwners(
   owners: string[]
 ): Promise<void> {
   await requireAdminAction('confirmPreseasonOwners');
-  if (owners.length < 2) throw new Error('At least 2 owners required');
-  await savePreseasonOwners(slug, year, owners);
+  // PLATFORM-092 — validate what the READER will see, and store names exactly as
+  // typed. Owner identity is the raw string everywhere downstream, so nothing is
+  // folded or de-duplicated on the commissioner's behalf: a repeated name is a
+  // mistake to report, not something to quietly collapse into a shorter roster
+  // than they entered.
+  const problem = findOwnerListProblem(owners);
+  if (problem) throw new Error(`Owners cannot be confirmed — ${problem}`);
+  await savePreseasonOwners(slug, year, cleanOwnerNames(owners));
   // Preseason owners feed the preseason standings snapshot; bust this league's
   // cached standings so the confirmed roster shows without a hard refresh.
   // Before the redirect, which throws.

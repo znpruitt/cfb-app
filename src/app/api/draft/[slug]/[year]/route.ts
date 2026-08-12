@@ -4,6 +4,8 @@ import { isAuthorizedForLeague } from '@/lib/leagueAuth';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
+import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
+import { draftOwnersMatchRoster } from '@/lib/selectors/confirmedRoster';
 import {
   type DraftState,
   type DraftSettings,
@@ -134,24 +136,33 @@ export async function POST(
     return NextResponse.json({ error: 'request body must be valid JSON' }, { status: 400 });
   }
 
-  const { owners, settings: rawSettings } = body as { owners?: unknown; settings?: unknown };
+  const { settings: rawSettings } = body as { settings?: unknown };
 
-  if (!Array.isArray(owners) || owners.length < 2) {
+  // PLATFORM-092 — owners must be confirmed before a draft can occur, and the
+  // draft TAKES them from the confirmed roster rather than accepting them from
+  // the request.
+  //
+  // The body used to supply them, checked only for "two non-empty strings". That
+  // is what let `/league/[slug]/draft/setup` seed a draft from the PRIOR
+  // season's archive owners, and it is why the draft record could hold a list
+  // nothing else in the app agreed with. Reading the roster here makes that
+  // unrepresentable instead of merely detected: there is no submitted list to
+  // disagree with.
+  const roster = await getConfirmedRoster(slug, year);
+  if (!roster.isConfirmed) {
     return NextResponse.json(
-      { error: 'owners must be an array of at least 2 owner names', field: 'owners' },
-      { status: 400 }
+      {
+        error: `Confirm the ${year} owners for "${slug}" before creating a draft`,
+        reason: 'owners-not-confirmed',
+      },
+      // 422, not 409: the request is well-formed and no conflicting resource
+      // exists — a precondition on league state is unmet. `DraftSetupShell`
+      // treats 409 as "already exists, carry on", so a 409 here would send it
+      // into a PUT against a draft that does not exist.
+      { status: 422 }
     );
   }
-
-  const ownerNames = owners.filter(
-    (o): o is string => typeof o === 'string' && o.trim().length > 0
-  );
-  if (ownerNames.length < 2) {
-    return NextResponse.json(
-      { error: 'owners must contain at least 2 non-empty strings', field: 'owners' },
-      { status: 400 }
-    );
-  }
+  const ownerNames = roster.owners;
 
   // Validate and merge provided settings
   let settings: DraftSettings = defaultDraftSettings(ownerNames);
@@ -308,6 +319,12 @@ export async function PUT(
   let draft: DraftState = { ...original };
 
   // Update owners
+  //
+  // PLATFORM-092 — the body's `owners` is IGNORED. Pre-start, a draft's owners
+  // are the confirmed roster; the request cannot propose a different set,
+  // because the only screen that changes owners is the confirmation page and
+  // this record is a copy of what it wrote. Callers still send the field (the
+  // setup shell does), so it stays accepted and simply does not decide anything.
   if (owners !== undefined) {
     if (!Array.isArray(owners) || owners.length < 2) {
       return NextResponse.json(
@@ -315,29 +332,62 @@ export async function PUT(
         { status: 400 }
       );
     }
-    const ownerNames = owners.filter(
+    const proposed = owners.filter(
       (o): o is string => typeof o === 'string' && o.trim().length > 0
     );
-    if (ownerNames.length < 2) {
+    if (proposed.length < 2) {
       return NextResponse.json(
         { error: 'owners must contain at least 2 non-empty strings', field: 'owners' },
         { status: 400 }
       );
     }
-    const ownersChanged =
-      ownerNames.length !== original.owners.length ||
-      ownerNames.some((name, i) => name !== original.owners[i]);
-    if (draftStarted && ownersChanged) {
-      return NextResponse.json(
-        {
-          error:
-            'owners cannot be changed after the draft has started. Reset or reopen the draft to change the owner set or order.',
-          field: 'owners',
-        },
-        { status: 409 }
-      );
+
+    // A started draft keeps its pre-existing contract exactly: the owner set is
+    // frozen, and an attempt to change it is refused with 409. This precedes the
+    // roster read deliberately — that refusal is the more specific one, callers
+    // depend on its status, and a running draft's owners are frozen regardless of
+    // what the roster now says.
+    const attemptsChange =
+      proposed.length !== original.owners.length ||
+      proposed.some((name, i) => name !== original.owners[i]);
+    if (draftStarted) {
+      if (attemptsChange) {
+        return NextResponse.json(
+          {
+            error:
+              'owners cannot be changed after the draft has started. Reset or reopen the draft to change the owner set or order.',
+            field: 'owners',
+          },
+          { status: 409 }
+        );
+      }
+      // Identical to what is stored — nothing to do.
+    } else {
+      const roster = await getConfirmedRoster(slug, year);
+      if (!roster.isConfirmed) {
+        return NextResponse.json(
+          {
+            error: `Confirm the ${year} owners for "${slug}" before editing this draft`,
+            reason: 'owners-not-confirmed',
+          },
+          { status: 422 }
+        );
+      }
+      const ownerNames = roster.owners;
+      const ownersChanged = !draftOwnersMatchRoster(original.owners, ownerNames);
+      draft = { ...draft, owners: ownerNames };
+
+      // PLATFORM-092 — `owners` and `settings.draftOrder` are the two arrays the
+      // engine derives from: `getPickOwner` indexes the order while total picks are
+      // sized from the owner set. Resizing one without the other yields a draft
+      // that can never be confirmed ("Pick counts are uneven"), and an owners-only
+      // request carries no `settings` to fix it. Re-derive the order here; a
+      // request that also supplies `draftOrder` overwrites this below, validated
+      // against the set we just stored.
+      if (ownersChanged) {
+        draft = { ...draft, settings: { ...draft.settings, draftOrder: [...ownerNames] } };
+      }
     }
-    draft = { ...draft, owners: ownerNames };
   }
 
   // Update settings — validate every provided field BEFORE merging so a malformed
@@ -451,6 +501,36 @@ export async function PUT(
       );
     }
     const targetPhase = phase as DraftPhase;
+
+    // PLATFORM-092 — the draft that RUNS must be for the confirmed roster.
+    //
+    // Every write above takes owners from the roster, so a draft only goes stale
+    // when the roster changes AFTER the last settings save — and
+    // `DraftSetupShell.handleStartDraft` sends `{ phase: 'live' }` alone, so
+    // nothing re-reads it on the way in.
+    //
+    // This REFUSES rather than silently re-seeding: starting is the moment the
+    // owner set and pick order freeze, and quietly regenerating both under the
+    // commissioner is a worse surprise than being told to reopen settings. The
+    // remedy works — the setup page shows the current roster, and saving there
+    // updates the draft.
+    //
+    // `paused → live` is exempt: that draft is already running with picks against
+    // a frozen owner set, and re-checking would strand it mid-draft.
+    if (targetPhase === 'live' && draft.phase !== 'paused') {
+      const roster = await getConfirmedRoster(slug, year);
+      if (!draftOwnersMatchRoster(draft.owners, roster.owners)) {
+        return NextResponse.json(
+          {
+            error: `the ${year} roster for "${slug}" has changed since this draft was set up — reopen draft settings to pick it up, then start`,
+            field: 'phase',
+            reason: 'draft-owners-stale',
+          },
+          { status: 422 }
+        );
+      }
+    }
+
     if (!isValidTransition(draft.phase, targetPhase)) {
       return NextResponse.json(
         { error: `Cannot transition from '${draft.phase}' to '${targetPhase}'`, field: 'phase' },
