@@ -72,8 +72,8 @@ Supersedes: (none)
    remediation rounds whose fixes generated the next round's findings — its post-mortem, and the
    product decisions that came out of it, are in `docs/prompt-registry.md`. Closes follow-up (b)
    recorded under PLATFORM-091.
-10. ⏳ **PLATFORM-093 — IN PRE-MERGE REVIEW** (branch `platform/093-new-league-preseason-birth`,
-    not merged). A new league is born `{ state: 'preseason', year }` with the season DERIVED rather
+10. ⏳ **PLATFORM-093 — IN PRE-MERGE REVIEW** (PR #473, branch
+    `platform/093-new-league-preseason-birth`, not merged). A new league is born `{ state: 'preseason', year }` with the season DERIVED rather
     than entered, so it can reach owner confirmation at all. Closes follow-up 12(a) below. Adoption
     keeps its `season` seed deliberately — see `docs/prompt-registry.md`.
 11. **NEXT after 093 — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
