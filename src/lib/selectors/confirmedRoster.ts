@@ -154,7 +154,14 @@ export function draftOwnersMatchRoster(
   draftOwners: readonly string[],
   rosterOwners: readonly string[]
 ): boolean {
-  if (draftOwners.length !== rosterOwners.length) return false;
+  // Same length plus "every draft name is in the roster" is NOT set equality:
+  // `['Alice','Alice']` passes against `['Alice','Bob']` while Bob is missing.
+  // Drafts created before this work accepted any two non-empty strings, so a
+  // stored duplicate is reachable. Requiring distinct names closes it.
+  const draft = new Set(draftOwners);
+  if (draft.size !== draftOwners.length) return false;
+  if (draft.size !== rosterOwners.length) return false;
   const roster = new Set(rosterOwners);
+  if (roster.size !== rosterOwners.length) return false;
   return draftOwners.every((name) => roster.has(name));
 }

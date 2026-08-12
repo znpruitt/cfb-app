@@ -17,21 +17,21 @@ export type DraftSetupGate = {
 /**
  * `null` means the page renders normally.
  *
- * `hasDraft` short-circuits because the create gate is creation-only: a league
- * that already reached a draft keeps working on it rather than being locked out
- * of its own setup. There are no such leagues today, but the alternative — a page
- * that can strand a draft it cannot fix — is the failure mode worth designing
- * out rather than relying on the population staying empty.
+ * An earlier version let a league through when a draft already existed, so it
+ * would not be "locked out of its own setup". That exception escaped nothing:
+ * the page rendered and then every write it made was refused, because a draft
+ * with no confirmed roster cannot be saved or started either. A page that looks
+ * usable and is not is worse than an honest refusal — and this refusal names a
+ * step that works, after which the draft reconciles itself.
  */
 export function resolveDraftSetupGate(input: {
   isConfirmed: boolean;
-  hasDraft: boolean;
   isPreseason: boolean;
   slug: string;
   year: number;
 }): DraftSetupGate | null {
-  const { isConfirmed, hasDraft, isPreseason, slug, year } = input;
-  if (isConfirmed || hasDraft) return null;
+  const { isConfirmed, isPreseason, slug, year } = input;
+  if (isConfirmed) return null;
 
   // The remedy has to match the lifecycle. `/admin/[slug]/preseason/owners`
   // redirects to the admin home unless the league is in PRESEASON, and this page

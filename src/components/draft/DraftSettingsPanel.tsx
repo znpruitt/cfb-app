@@ -47,9 +47,19 @@ export default function DraftSettingsPanel({
   fbsTeamCount,
   onAdvance,
 }: DraftSettingsPanelProps): React.ReactElement {
+  // PLATFORM-092 — the confirmed roster wins over the draft's stored copy.
+  //
+  // This panel only ever renders pre-start (`DraftSetupShell` returns a different
+  // view for live/paused/complete), and pre-start a draft's owners ARE the
+  // roster. Reading `draftState.owners` first made reopening settings the one
+  // thing that could NOT reconcile a stale draft: it re-sent the old owner set,
+  // `buildDraftOrder` derived the old order from it, and the server — which
+  // re-derives owners from the roster — then rejected that order as not matching.
+  // The documented remedy for a stale draft was the very path that could not
+  // apply it.
   const [owners] = useState<string[]>(() => {
-    if (draftState.owners.length > 0) return draftState.owners;
-    return priorOwners.length > 0 ? priorOwners : [];
+    if (priorOwners.length > 0) return priorOwners;
+    return draftState.owners;
   });
   const existing = draftState.settings;
 
@@ -67,9 +77,18 @@ export default function DraftSettingsPanel({
   }
 
   const [orderMode, setOrderMode] = useState<DraftOrderMode>(detectInitialMode);
+  // PLATFORM-092 — the stored order must be reconciled against the roster too,
+  // not just the owner list beside it.
+  //
+  // Seeding this straight from `existing.draftOrder` left the panel submitting an
+  // order that was not a permutation of the owners it also submitted, which the
+  // server rejects — so fixing `owners` alone did NOT restore the reopen-settings
+  // remedy. Keep the commissioner's chosen sequence for everyone still on the
+  // roster, drop anyone who left, and append anyone new at the end.
   const [manualOrder, setManualOrder] = useState<string[]>(() => {
-    if (existing.draftOrder.length > 0) return existing.draftOrder;
-    return [...owners];
+    const kept = existing.draftOrder.filter((o) => owners.includes(o));
+    const added = owners.filter((o) => !kept.includes(o));
+    return [...kept, ...added];
   });
   const [timerSeconds, setTimerSeconds] = useState<number | null>(existing.pickTimerSeconds);
   const [expiryBehavior, setExpiryBehavior] = useState<DraftSettings['timerExpiryBehavior']>(

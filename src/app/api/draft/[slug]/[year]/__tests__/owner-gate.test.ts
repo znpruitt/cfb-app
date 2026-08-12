@@ -217,3 +217,44 @@ test('resuming a paused draft is never blocked by the roster check', async () =>
   assert.equal(res.status, 200, await res.text());
   assert.equal((await persisted())?.phase, 'live');
 });
+
+test('the reopen-settings remedy is the one the UI actually performs', async () => {
+  // The previous version proved an owners-ONLY PUT works. The settings screen
+  // sends `owners` AND `settings.draftOrder`, and that path used to 400: the
+  // panel seeded from the draft's stale copy, so the order it sent no longer
+  // matched the owners the server had just re-derived. The documented remedy
+  // could not be applied through the interface.
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  assert.equal((await CREATE_DRAFT(req('POST', {}), { params })).status, 201);
+
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob', 'Carol']);
+  assert.equal((await PUT(req('PUT', { phase: 'live' }), { params })).status, 422);
+
+  // What the settings screen submits once the panel reads the current roster.
+  const saved = await PUT(
+    req('PUT', {
+      owners: ['Alice', 'Bob', 'Carol'],
+      settings: { draftOrder: ['Alice', 'Bob', 'Carol'] },
+    }),
+    { params }
+  );
+  assert.equal(saved.status, 200, await saved.text());
+
+  assert.equal((await PUT(req('PUT', { phase: 'settings' }), { params })).status, 200);
+  const started = await PUT(req('PUT', { phase: 'live' }), { params });
+  assert.equal(started.status, 200, await started.text());
+});
+
+test('an unconfirmed roster is diagnosed as unconfirmed, not as "changed"', async () => {
+  // Two causes, two remedies. Reachable on the demo league, whose controls clear
+  // the owner record directly.
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  assert.equal((await CREATE_DRAFT(req('POST', {}), { params })).status, 201);
+  await setAppState(`preseason-owners:${SLUG}`, String(YEAR), null);
+
+  const res = await PUT(req('PUT', { phase: 'live' }), { params });
+  assert.equal(res.status, 422);
+  const body = (await res.json()) as { reason?: string; error?: string };
+  assert.equal(body.reason, 'owners-not-confirmed');
+  assert.doesNotMatch(body.error ?? '', /has changed/);
+});

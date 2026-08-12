@@ -79,7 +79,7 @@ test("the checklist does not accept a PRIOR season's roster", async () => {
 
 // --- The draft-setup page's blocked state ------------------------------------
 
-const GATE = { hasDraft: false, isPreseason: true, slug: SLUG, year: YEAR };
+const GATE = { isPreseason: true, slug: SLUG, year: YEAR };
 
 test('an unconfirmed season with no draft is blocked, and pointed at confirmation', () => {
   const gate = resolveDraftSetupGate({ ...GATE, isConfirmed: false });
@@ -101,8 +101,11 @@ test('a confirmed roster is not blocked', () => {
   assert.equal(resolveDraftSetupGate({ ...GATE, isConfirmed: true }), null);
 });
 
-test('an existing draft is never blocked, even with no confirmed roster', () => {
-  // A page that can strand a draft it cannot fix is the failure mode worth
-  // designing out, rather than relying on that population staying empty.
-  assert.equal(resolveDraftSetupGate({ ...GATE, isConfirmed: false, hasDraft: true }), null);
+test('an unconfirmed roster blocks the page even when a draft already exists', () => {
+  // The earlier exception here let such a league through so it would not be
+  // "locked out of its own setup" — but every write the rendered page made was
+  // then refused, because a draft with no confirmed roster can be neither saved
+  // nor started. Blocking with a working next step beats a page whose buttons
+  // all fail.
+  assert.equal(resolveDraftSetupGate({ ...GATE, isConfirmed: false })?.cta, 'Confirm 2026 owners');
 });

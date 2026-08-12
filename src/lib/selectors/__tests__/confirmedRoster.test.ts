@@ -185,7 +185,23 @@ test('a draft does not match a roster that has since changed', () => {
   assert.equal(draftOwnersMatchRoster(['Alice', 'Bob', 'Carol'], ['Alice', 'Bob']), false);
   // Exact names — `alice` is a different owner downstream.
   assert.equal(draftOwnersMatchRoster(['alice', 'Bob'], ['Alice', 'Bob']), false);
-  // An empty roster matches nothing, including an empty draft.
-  assert.equal(draftOwnersMatchRoster([], []), true);
   assert.equal(draftOwnersMatchRoster(['Alice'], []), false);
+});
+
+test('a duplicated owner never stands in for a missing one', () => {
+  // Same length plus "every draft name is in the roster" is not set equality:
+  // this passed while Bob was missing from the draft entirely. Drafts created
+  // before this work accepted any two non-empty strings, so a stored duplicate
+  // is reachable on legacy data.
+  assert.equal(draftOwnersMatchRoster(['Alice', 'Alice'], ['Alice', 'Bob']), false);
+  assert.equal(draftOwnersMatchRoster(['Alice', 'Bob'], ['Alice', 'Alice']), false);
+});
+
+test('two empty lists match, so the CALLER must check isConfirmed first', () => {
+  // Documented rather than "fixed": an empty draft against an empty roster is
+  // vacuously equal, and forcing it to false here would be a lie about set
+  // equality. The route asks `roster.isConfirmed` BEFORE reaching this, so an
+  // unconfirmed league is refused with its own reason rather than sliding
+  // through a comparison that has nothing to compare.
+  assert.equal(draftOwnersMatchRoster([], []), true);
 });

@@ -519,6 +519,22 @@ export async function PUT(
     // a frozen owner set, and re-checking would strand it mid-draft.
     if (targetPhase === 'live' && draft.phase !== 'paused') {
       const roster = await getConfirmedRoster(slug, year);
+      // Two different causes, two different remedies. An unconfirmed roster is
+      // not a roster that CHANGED — telling the operator to go pick up a change
+      // that never happened points them at the wrong screen. This ordering also
+      // keeps the comparison from being asked a question it answers badly:
+      // `draftOwnersMatchRoster([], [])` is true, so an unconfirmed league would
+      // otherwise pass the gate outright.
+      if (!roster.isConfirmed) {
+        return NextResponse.json(
+          {
+            error: `Confirm the ${year} owners for "${slug}" before starting this draft`,
+            field: 'phase',
+            reason: 'owners-not-confirmed',
+          },
+          { status: 422 }
+        );
+      }
       if (!draftOwnersMatchRoster(draft.owners, roster.owners)) {
         return NextResponse.json(
           {

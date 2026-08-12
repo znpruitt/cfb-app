@@ -83,6 +83,28 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - Recorded limit: the draft-setup RSC cannot be rendered under the test runner (admin-gated via
   `canAccessDraftBoard`, which has no authorizing path without a Request), so its decision lives in
   `setup/draftSetupGate.ts` and is pinned there; the JSX consuming it is not covered.
+- **Remediation round 1.** Both reviewers reported the same P1: the remedy this work advertises —
+  "reopen draft settings to pick up the roster" — was the one path that could NOT apply it.
+  `DraftSettingsPanel` seeded owners from the draft's stale copy rather than the roster the page
+  passes, and Codex added that Preview's "Back to Settings" reaches the same panel, so BOTH routes
+  back into settings returned the old list. Fixing the owner list alone was not enough: `manualOrder`
+  was seeded from the stored `draftOrder` too, so the panel still submitted an order that was not a
+  permutation of the owners beside it. The order is now reconciled as well — the commissioner's
+  sequence is kept for everyone still on the roster, departures drop out, additions append.
+- Also in the round: the `hasDraft` exception on the setup gate was deleted — it let a league with an
+  unconfirmed roster reach a page whose every write then refused, which is worse than an honest
+  block with a working next step; `draftOwnersMatchRoster` now requires distinct names (same-length
+  membership let `['Alice','Alice']` match `['Alice','Bob']` with Bob missing, reachable on
+  pre-092 drafts); the start transition distinguishes "never confirmed" from "changed since setup",
+  which also stops an unconfirmed league sliding through a comparison of two empty lists; and the
+  owner-confirmation form now applies `findOwnerListProblem`, the same rule the Server Action does,
+  so the two refusal reasons this work added cannot reach an enabled Save with no error surface.
+- **The P1 and the two components were invisible to mutation testing until component tests existed.**
+  Reverting the panel to the stale copy left the whole suite green. Server tests exercise the route;
+  the defect was which list the SCREEN submits. Two of the three assertions written to close that gap
+  were themselves wrong on the first attempt — a bare `/disabled/` match hit Tailwind's
+  `disabled:opacity-50`, and the first panel assertion targeted a list that only renders in manual
+  order mode.
 - Status: **implemented and in final pre-merge review** — not merged. Branch
   `platform/092-preseason-owner-gate-v2`; no PR opened.
 
