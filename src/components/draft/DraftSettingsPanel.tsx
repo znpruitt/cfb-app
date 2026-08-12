@@ -16,6 +16,29 @@ type DraftSettingsPanelProps = {
   onAdvance: (draft: DraftState) => void;
 };
 
+/**
+ * Move one entry to a 1-based position, clamped to the list.
+ *
+ * Exported and pure so the reorder itself is provable: this repo's test harness
+ * renders statically and cannot fire events, so the input's commit-on-blur
+ * WIRING is not covered — see the note in
+ * `src/components/draft/__tests__/settingsOwnerSource.test.tsx`. Keeping the
+ * arithmetic here means the part that can silently corrupt a draft order is at
+ * least pinned.
+ */
+export function moveToPosition<T>(
+  order: readonly T[],
+  currentIdx: number,
+  newPosition: number
+): T[] {
+  const clamped = Math.max(1, Math.min(order.length, newPosition)) - 1;
+  if (clamped === currentIdx) return order as T[];
+  const next = [...order];
+  const [moved] = next.splice(currentIdx, 1);
+  next.splice(clamped, 0, moved!);
+  return next;
+}
+
 const TIMER_OPTIONS: { label: string; value: number | null }[] = [
   { label: 'No timer', value: null },
   { label: '30 seconds', value: 30 },
@@ -169,15 +192,22 @@ export default function DraftSettingsPanel({
   }, []);
 
   // --- Direct number entry ---
+  // PLATFORM-092 — what the commissioner is TYPING, held separately from the
+  // committed order.
+  //
+  // The input used to reorder on every keystroke, so entering "10" moved the row
+  // to position 1 on the first character and the list reshuffled under the
+  // cursor. That was invisible while the box was too narrow to type two digits;
+  // widening it made it the normal experience for any league of ten or more.
+  // Only blur and Enter commit now.
+  const [positionDraft, setPositionDraft] = useState<{ owner: string; value: string } | null>(null);
+  // Escape must not commit. `blur()` runs before React re-renders, so the input
+  // still holds the typed text when `onBlur` fires — a ref is the only thing that
+  // survives that gap.
+  const cancelPositionRef = useRef(false);
+
   const handlePositionChange = useCallback((currentIdx: number, newPosition: number) => {
-    setManualOrder((prev) => {
-      const clamped = Math.max(1, Math.min(prev.length, newPosition)) - 1;
-      if (clamped === currentIdx) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(currentIdx, 1);
-      next.splice(clamped, 0, moved!);
-      return next;
-    });
+    setManualOrder((prev) => moveToPosition(prev, currentIdx, newPosition));
   }, []);
 
   function buildDraftOrder(): string[] {
@@ -395,18 +425,42 @@ export default function DraftSettingsPanel({
                           <circle cx="8" cy="10" r="1" />
                         </svg>
                       </span>
-                      {/* Position number input */}
+                      {/* Position number input.
+
+                          A league can hold more than nine owners, and `w-8`
+                          (32px) minus padding minus the number spinners left
+                          room for a single digit — so position 10 and beyond
+                          read as "1". The arrows were unusable at that size
+                          anyway; suppressing them gives the whole width to
+                          text. */}
                       <input
                         type="number"
                         min={1}
                         max={manualOrder.filter((o) => owners.includes(o)).length}
-                        value={idx + 1}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value, 10);
-                          if (!isNaN(val)) handlePositionChange(idx, val);
+                        value={
+                          positionDraft?.owner === owner ? positionDraft.value : String(idx + 1)
+                        }
+                        onChange={(e) => setPositionDraft({ owner, value: e.target.value })}
+                        onBlur={(e) => {
+                          const raw = e.target.value;
+                          const cancelled = cancelPositionRef.current;
+                          cancelPositionRef.current = false;
+                          setPositionDraft(null);
+                          if (cancelled) return;
+                          const val = Number.parseInt(raw, 10);
+                          if (!Number.isNaN(val)) handlePositionChange(idx, val);
                         }}
-                        className="w-8 rounded border border-gray-200 bg-gray-50 px-1 py-0.5 text-center text-xs text-gray-700 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200"
-                        title="Type a position number"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.currentTarget.blur();
+                          } else if (e.key === 'Escape') {
+                            cancelPositionRef.current = true;
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        className="w-12 rounded border border-gray-200 bg-gray-50 px-1 py-0.5 text-center text-xs text-gray-700 [appearance:textfield] dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        title="Type a position number, then press Enter"
                       />
                       <span className="flex-1 text-sm text-gray-900 dark:text-zinc-100">
                         {owner}

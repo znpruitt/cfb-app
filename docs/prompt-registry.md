@@ -105,6 +105,19 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   were themselves wrong on the first attempt — a bare `/disabled/` match hit Tailwind's
   `disabled:opacity-50`, and the first panel assertion targeted a list that only renders in manual
   order mode.
+- **Draft-order input usability (folded in deliberately, not unrelated cleanup).** This work makes
+  "reopen draft settings" the official remedy for a stale roster, and the drag-to-reorder list is
+  the control a commissioner lands on when they follow it — so shipping the remedy while that
+  control was unusable would have been self-defeating. The position box was `w-8` (32px), which
+  minus padding and the number spinners left room for one digit, so position 10 and beyond read as
+  "1". Widening it exposed a second problem: the input reordered on every KEYSTROKE, so typing "10"
+  moved the row to position 1 on the first character and reshuffled the list under the cursor. It
+  now holds what is being typed locally and commits on blur or Enter, with Escape cancelling.
+- Recorded limit: this repo's harness renders statically and cannot fire events, so the input's
+  commit-on-blur wiring is not covered. The reorder arithmetic was extracted as a pure
+  `moveToPosition` export and pinned — it is the part that can silently drop an owner and make a
+  draft unconfirmable. Closing the wiring gap would mean adding jsdom or testing-library, which is
+  outside this change.
 - Status: **implemented and in final pre-merge review** — not merged. Branch
   `platform/092-preseason-owner-gate-v2`; no PR opened.
 

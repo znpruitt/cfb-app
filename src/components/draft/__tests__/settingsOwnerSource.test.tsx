@@ -3,7 +3,7 @@ import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
-import DraftSettingsPanel from '../DraftSettingsPanel';
+import DraftSettingsPanel, { moveToPosition } from '../DraftSettingsPanel';
 import OwnerConfirmationShell from '../../../app/admin/[slug]/preseason/owners/OwnerConfirmationShell';
 import type { DraftState } from '@/lib/draft';
 
@@ -16,6 +16,11 @@ import type { DraftState } from '@/lib/draft';
 //
 // Server tests cannot reach either: they exercise the route, and the defect is
 // which list the SCREEN submits.
+//
+// HONEST LIMIT: this harness renders statically and cannot fire events, so the
+// position input's commit-on-blur/Enter WIRING is not covered — only the reorder
+// arithmetic it calls (`moveToPosition`) and the rendered output. Closing that
+// would mean adding jsdom or testing-library, which is not this change's scope.
 // ---------------------------------------------------------------------------
 
 function draftWith(owners: string[]): DraftState {
@@ -148,4 +153,32 @@ test('a departed owner drops out of the order, and the rest keep their sequence'
   assert.doesNotMatch(html, /Bob/, 'the departed owner is gone');
   // Carol kept her first position rather than the list being rebuilt from scratch.
   assert.ok(html.indexOf('Carol') < html.indexOf('Alice'), 'existing sequence preserved');
+});
+
+// ---------------------------------------------------------------------------
+// The reorder arithmetic behind the position input
+// ---------------------------------------------------------------------------
+
+test('moveToPosition moves an entry to a 1-based slot', () => {
+  const order = ['A', 'B', 'C', 'D'];
+  assert.deepEqual(moveToPosition(order, 3, 1), ['D', 'A', 'B', 'C']);
+  assert.deepEqual(moveToPosition(order, 0, 4), ['B', 'C', 'D', 'A']);
+  assert.deepEqual(moveToPosition(order, 1, 3), ['A', 'C', 'B', 'D']);
+});
+
+test('moveToPosition clamps out-of-range positions instead of dropping entries', () => {
+  // The input is `type="number"` with a `max`, but a typed value is not bound by
+  // it — losing an owner here would silently make the draft unconfirmable.
+  const order = ['A', 'B', 'C'];
+  assert.deepEqual(moveToPosition(order, 2, 99), ['A', 'B', 'C']);
+  assert.deepEqual(moveToPosition(order, 2, 0), ['C', 'A', 'B']);
+  assert.deepEqual(moveToPosition(order, 0, -5), ['A', 'B', 'C']);
+  for (const pos of [1, 2, 3, 0, 99]) {
+    assert.equal(moveToPosition(order, 1, pos).length, 3, String(pos));
+  }
+});
+
+test('moveToPosition returns the same list when nothing moves', () => {
+  const order = ['A', 'B', 'C'];
+  assert.equal(moveToPosition(order, 1, 2), order);
 });
