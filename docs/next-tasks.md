@@ -112,6 +112,18 @@ Supersedes: (none)
     residue it guards; (c) what either means once leagues are not all one operator's. Belongs with
     the multi-tenant campaign; recorded now because it was found in front of us rather than when an
     external commissioner is involved.
+    **(b) now has a concrete argument for "no", found during PLATFORM-093 review and PRE-EXISTING on
+    `main`.** Adoption stamps the restored league with the season the operator states, and every
+    creation path seeds `status: { state: 'season', year }`. `groupRolloverTargets` selects
+    `status.state === 'season'` grouped by `status.year`, and `resolveNationalChampionshipRollover`
+    is eligible for any season whose championship is more than a week past — so restoring a league at
+    a PAST season enrols that year for rollover on the next nightly run. `saveSeasonArchive` is an
+    unconditional write with no already-archived guard, so the cron rebuilds the archive from
+    whatever remains cached and saves it OVER the genuine one — `standings-archive:{slug}` being one
+    of the very scopes adoption exists to reattach. Within 24h, unprompted, and degraded or empty if
+    the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
+    the honest options are a purge that removes the residue, an already-archived guard in the
+    rollover path, or retiring adoption — all of which are this campaign's decisions.
 15. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing

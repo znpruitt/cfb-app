@@ -117,6 +117,25 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   record derives from the server's, so a tab left open across 00:00 UTC on 1 January could promise
   one season and create another. Rare, self-evident on the resulting league page, and closing it
   properly means confirming the year from the 201 response.
+- **Confirming pass.** Codex: clean. `/code-review`: four findings, all on the ADOPTION path, none
+  on the creation path this work exists for. Two corrected here; two recorded and deliberately not
+  fixed.
+- **The HIGH finding is PRE-EXISTING on `main`, and the attribution was checked rather than assumed.**
+  Adopting a league at a PAST season enrols that year for the nightly rollover, which rebuilds and
+  OVERWRITES the archive the restore existed to recover. `main` already seeds
+  `status: { state: 'season', year }` on every creation path, so this is `main`'s behaviour, not a
+  regression here — round 1 restored it. (The ORIGINAL 093 commit had briefly moved adoption to
+  `preseason`, which incidentally swapped one cron hazard for another; that was the regression, and
+  it is gone.) Recorded against the adoption/deletion follow-up in `docs/next-tasks.md`, which is
+  where "should adoption exist at all" already lives and which now has a concrete argument for "no".
+- Corrected: the "Season to restore" help text asserted the season year "is frozen once set" and
+  that a wrong season "cannot be corrected afterwards". Both false — the season year is
+  lifecycle-managed, and the surviving data is filed by its own year independently of `league.year`,
+  so it stays readable whichever season is chosen. Writing confident help text for a field whose
+  premise I had not verified is what produced the round-1 churn.
+- Not fixed, deliberately: the adoption year is validated for range but never cross-checked against
+  the residual scopes the route has already enumerated. A real improvement to a path that has never
+  been used; recorded rather than built during a two-week window that needs the creation path.
 - Status: **implemented and in final pre-merge review** — not merged. Branch
   `platform/093-new-league-preseason-birth`; no PR opened.
 

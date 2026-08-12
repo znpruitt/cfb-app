@@ -510,9 +510,10 @@ export default function AdminLeaguesPage() {
                 placeholder={String(newLeagueSeason)}
               />
               <p className="text-xs text-gray-500 dark:text-zinc-400">
-                The season the surviving data belongs to. Ordinary creation derives this, but a
-                restoration must state it — filing 2024 material under {newLeagueSeason} cannot be
-                corrected afterwards, because the season year is frozen once set.
+                The season this league should resume at. Ordinary creation derives it; a restoration
+                states it, because the route requires one here. The surviving data is filed by its
+                own year and stays readable whichever season you pick, so this does not decide what
+                history the league keeps.
               </p>
               <label
                 className="block text-xs text-gray-500 dark:text-zinc-400"
