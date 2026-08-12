@@ -52,6 +52,40 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v2
+
+- Purpose: enforce "owners must be confirmed before a draft can occur" by removing the unreconciled
+  copy of the roster that `DraftState` carries — not by validating that copy against its source.
+- Scope: new pure `selectors/confirmedRoster` + `server/confirmedRosterStore`; the create/update
+  paths and start transition in `/api/draft/[slug]/[year]`; the draft-setup page's owner seeding and
+  blocked state; the admin preseason checklist's roster fact; the owner-confirmation write boundary
+  and its entry form. No change to draft execution, canonical standings, lifecycle transitions, or
+  the post-start owner lock. No new durable state.
+- Outcome: a draft now TAKES its owners from the confirmed roster instead of accepting them from the
+  request, so a draft holding names nothing else agrees with is unrepresentable rather than merely
+  detected. Creation is gated on a confirmed roster; the setup page seeds from the current roster
+  (the archive fallback is deleted); reopening settings reconciles a draft after the roster changes
+  and carries `settings.draftOrder` with it; starting refuses a draft whose owners have gone stale,
+  with a remedy that works.
+- **Reconstruction, not remediation.** v1 validated submitted lists at each entry point and spent
+  two remediation rounds discovering new entry points — its fixes were generating the findings. The
+  rebuild deleted the owner-set matching, the case-insensitive comparison and the legacy carve-out,
+  replacing three "validate the request" guards with one "take the roster" rule.
+- Precedence deliberately differs from `resolvePreseason`: this answers "who is in the league",
+  which the commissioner controls, so the confirmation record must win or re-confirming an owner
+  becomes a silent no-op for the season. `resolvePreseason` answers "what standings rows can I
+  draw", which needs the team→owner mapping only the CSV carries. Different questions, different
+  records; the failure would be two answers to the SAME question.
+- Names are stored exactly as entered (whitespace trimmed only) because owner identity is the raw
+  string throughout `deriveStandings`. Duplicates and `NoClaim` are REFUSED at entry rather than
+  silently collapsed, and the entry form now applies the same rule the Server Action does.
+  `NoClaim` is filtered only on the CSV read path, where it genuinely occurs.
+- Recorded limit: the draft-setup RSC cannot be rendered under the test runner (admin-gated via
+  `canAccessDraftBoard`, which has no authorizing path without a Request), so its decision lives in
+  `setup/draftSetupGate.ts` and is pinned there; the JSX consuming it is not covered.
+- Status: **implemented and in final pre-merge review** — not merged. Branch
+  `platform/092-preseason-owner-gate-v2`; no PR opened.
+
 ### PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v1
 
 - Purpose: enforce the invariant "owners must be confirmed before a draft can occur", so a draft
