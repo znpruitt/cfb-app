@@ -164,6 +164,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Polish              | Link Styling Audit (LINK-STYLING-AUDIT)                                                 | Planned               |
 | Draft               | Slow Draft Mode                                                                         | Planned               |
 | Draft               | Draft Difficulty Settings                                                               | Planned               |
+| Platform            | League State vs Season State separation                                                 | Planned — deliberate fork; see `docs/roadmap.md` |
 | Platform            | Multi-tenant Commissioner Sign-up                                                       | Planned — carries the league-deletion/data-retention question (item 13) |
 | Platform            | Server Action Auth Hardening                                                            | Planned               |
 | Platform            | Provider Refresh Observability (PLATFORM-086A)                                          | ✅ Complete (PR #391) |

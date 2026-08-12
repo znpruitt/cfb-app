@@ -321,6 +321,48 @@ self-call) are recorded as provisional backlog items in `docs/next-tasks.md` →
 - DNS configured, session token customized, production keys set in Vercel
 - Commissioner account created with `platform_admin` role; all auth flows verified
 
+#### League State vs Season State (planned)
+
+**Backlog slug (provisional):** `PLATFORM-LEAGUE-STATE-SEPARATION`
+
+`LeagueStatus` currently stores two independent facts as one value:
+
+- **where the football calendar is** — offseason / preseason / in-season. Global, time-driven,
+  identical for every league.
+- **where a given league is in its own life** — initial setup / active / archived. Per-league,
+  progress-driven, and time-agnostic.
+
+`{ state: 'preseason', year }` asserts both at once, and there is no way to say one without the
+other. A league that is calendar-active but setup-incomplete has nowhere to live.
+
+**Why it is worth separating.** The calendar half is already derivable — the app computes kickoff
+from the schedule (`getScheduleProbeState(year).firstGameDate`), which is how canonical standings
+produces `preseason-awaiting-kickoff` without consulting stored status. So the stored value is doing
+two jobs when only one of them needs storing.
+
+**It is also the root of a run of shipped fixes.** PLATFORM-091 was `preseason` (a calendar claim)
+standing in as evidence for "draft scheduled" (a league-progress claim). PLATFORM-092 was the
+draft's owner list drifting from the roster because nothing owned "this league is set up". Both were
+this conflation surfacing in different places and were fixed as symptoms.
+
+**Known consequences waiting on it** (each recorded in `docs/next-tasks.md`):
+
+- The preseason setup surfaces are gated on `status.state === 'preseason'`, so a league that reaches
+  `season` without owners cannot confirm them. `completePreseasonSetup` refuses outside preseason
+  for the same reason.
+- A league created for a season already under way is born `preseason` (PLATFORM-093) and the
+  transition cron flips it to `season` within a day, leaving roughly a day to complete setup.
+- The season-transition cron transitions every preseason league at kickoff minus 24h with no setup
+  gate. Gating it was considered and rejected: `setupComplete` is unsatisfiable for manual-assignment
+  leagues (`manualAssignmentComplete` has no writer), and a stalled league falls out of rollover too,
+  which targets `season` only.
+
+**Not a blocker for the 2026 season** — TSC is set up through the existing flow, and a second league
+created before kickoff is unaffected. This is a deliberate fork to plan, not urgent work. Shape and
+migration path are for implementation; `LeagueStatus` is a closed union read by both lifecycle crons,
+the canonical standings selector, the league banner and every admin lifecycle surface, so the
+migration is the bulk of the work rather than the model.
+
 #### Custom Domain Setup ✓ Complete
 
 - `turfwar.games` and `tscturfwar.com` registered via Porkbun
