@@ -170,6 +170,16 @@ test('findOwnerListProblem reports the specific mistake', () => {
   assert.equal(findOwnerListProblem(['Mike', 'mike']), null);
 });
 
+test('findOwnerListProblem refuses a non-array instead of throwing', () => {
+  // Its documented caller is a Server Action, and Server Action arguments cross
+  // HTTP unvalidated. Taking `readonly string[]` on faith meant a forged call
+  // produced `names.map is not a function` — a 500 rather than the refusal this
+  // function exists to produce.
+  for (const forged of ['Alice,Bob', 42, { owners: ['A', 'B'] }, null, undefined, true]) {
+    assert.match(findOwnerListProblem(forged) ?? '', /at least 2 owners/, String(forged));
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Staleness — the only comparison in the module
 // ---------------------------------------------------------------------------

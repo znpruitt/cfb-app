@@ -5,7 +5,7 @@ import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
-import { draftOwnersMatchRoster } from '@/lib/selectors/confirmedRoster';
+import { draftOwnersMatchRoster, type ConfirmedRoster } from '@/lib/selectors/confirmedRoster';
 import {
   type DraftState,
   type DraftSettings,
@@ -316,6 +316,15 @@ export async function PUT(
     original.phase === 'paused' ||
     original.phase === 'complete';
 
+  // PLATFORM-092 — ONE roster read per request, shared by the owners branch and
+  // the start transition. `handleSave('live')` sends owners, settings and phase
+  // together, so reading twice let a confirmation landing between them 422 a
+  // draft the same request had just reconciled. Lazy, so a PUT that touches
+  // neither branch still costs no store round-trip.
+  let rosterPromise: Promise<ConfirmedRoster> | null = null;
+  const readRoster = (): Promise<ConfirmedRoster> =>
+    (rosterPromise ??= getConfirmedRoster(slug, year));
+
   let draft: DraftState = { ...original };
 
   // Update owners
@@ -363,7 +372,7 @@ export async function PUT(
       }
       // Identical to what is stored — nothing to do.
     } else {
-      const roster = await getConfirmedRoster(slug, year);
+      const roster = await readRoster();
       if (!roster.isConfirmed) {
         return NextResponse.json(
           {
@@ -502,7 +511,21 @@ export async function PUT(
     }
     const targetPhase = phase as DraftPhase;
 
+    if (!isValidTransition(draft.phase, targetPhase)) {
+      return NextResponse.json(
+        { error: `Cannot transition from '${draft.phase}' to '${targetPhase}'`, field: 'phase' },
+        { status: 422 }
+      );
+    }
+
     // PLATFORM-092 — the draft that RUNS must be for the confirmed roster.
+    //
+    // Below `isValidTransition` deliberately: a `complete` draft asked to go
+    // live is an illegal transition, and answering it with "the roster has
+    // changed — reopen draft settings" sends the operator to a screen that
+    // cannot help. The specific diagnosis belongs only on requests the
+    // transition itself permits, and this ordering also skips the store read on
+    // every rejected path.
     //
     // Every write above takes owners from the roster, so a draft only goes stale
     // when the roster changes AFTER the last settings save — and
@@ -518,7 +541,7 @@ export async function PUT(
     // `paused → live` is exempt: that draft is already running with picks against
     // a frozen owner set, and re-checking would strand it mid-draft.
     if (targetPhase === 'live' && draft.phase !== 'paused') {
-      const roster = await getConfirmedRoster(slug, year);
+      const roster = await readRoster();
       // Two different causes, two different remedies. An unconfirmed roster is
       // not a roster that CHANGED — telling the operator to go pick up a change
       // that never happened points them at the wrong screen. This ordering also
@@ -547,12 +570,6 @@ export async function PUT(
       }
     }
 
-    if (!isValidTransition(draft.phase, targetPhase)) {
-      return NextResponse.json(
-        { error: `Cannot transition from '${draft.phase}' to '${targetPhase}'`, field: 'phase' },
-        { status: 422 }
-      );
-    }
     // On transition to setup (reset), clear picks
     if (targetPhase === 'setup') {
       draft = {

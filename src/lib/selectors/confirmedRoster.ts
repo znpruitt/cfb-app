@@ -99,7 +99,13 @@ export function cleanOwnerNames(value: unknown): string[] {
  * byproduct of unselected teams, never a person, so its presence in typed input
  * is an error rather than something to filter.
  */
-export function findOwnerListProblem(names: readonly string[]): string | null {
+export function findOwnerListProblem(names: unknown): string | null {
+  // `unknown`, because the documented caller is a Server Action and Server Action
+  // arguments cross HTTP unvalidated. Taking `readonly string[]` here meant a
+  // forged call with a string or an object threw `names.map is not a function` —
+  // a 500 instead of the refusal this function exists to produce. `cleanOwnerNames`
+  // already guards this correctly one function away.
+  if (!Array.isArray(names)) return `at least ${MIN_CONFIRMED_OWNERS} owners are required`;
   const trimmed = names.map((n) => (typeof n === 'string' ? n.trim() : '')).filter((n) => n !== '');
   if (trimmed.includes(NO_CLAIM_OWNER)) {
     return `"${NO_CLAIM_OWNER}" is reserved for unclaimed teams and cannot be an owner`;

@@ -109,7 +109,14 @@ export default function DraftSettingsPanel({
   // remedy. Keep the commissioner's chosen sequence for everyone still on the
   // roster, drop anyone who left, and append anyone new at the end.
   const [manualOrder, setManualOrder] = useState<string[]>(() => {
-    const kept = existing.draftOrder.filter((o) => owners.includes(o));
+    // De-duplicated: a draft created before this work could hold
+    // `owners: ['Alice','Alice']` (the old create route only filtered non-empty
+    // strings, and the default settings copy owners into the order). Seeding the
+    // duplicate through made the saved order longer than the owner set, so the
+    // save failed the permutation check — and there is no UI affordance to delete
+    // a row here, so the draft could be neither started nor repaired. Also stops
+    // React rendering two children with the same key.
+    const kept = [...new Set(existing.draftOrder.filter((o) => owners.includes(o)))];
     const added = owners.filter((o) => !kept.includes(o));
     return [...kept, ...added];
   });

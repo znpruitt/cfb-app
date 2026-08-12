@@ -167,13 +167,35 @@ test('a draft cannot start against a roster that has since changed', async () =>
   // so nothing re-reads the roster on the way in.
   await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
   assert.equal((await CREATE_DRAFT(req('POST', {}), { params })).status, 201);
+  // `setup → live` is not a legal transition, so the draft has to reach
+  // `settings` first — otherwise this asserts against the transition check
+  // rather than the roster gate.
+  assert.equal((await PUT(req('PUT', { phase: 'settings' }), { params })).status, 200);
 
   await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Carol']);
 
   const res = await PUT(req('PUT', { phase: 'live' }), { params });
   assert.equal(res.status, 422);
   assert.equal(((await res.json()) as { reason?: string }).reason, 'draft-owners-stale');
-  assert.equal((await persisted())?.phase, 'setup');
+  assert.equal((await persisted())?.phase, 'settings');
+});
+
+test('an illegal transition keeps its own diagnosis, not the roster one', () => {
+  // The roster gate sits BELOW `isValidTransition` so a draft that cannot go live
+  // at all is told that, rather than being sent to a settings screen that cannot
+  // help it.
+  return (async () => {
+    await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+    assert.equal((await CREATE_DRAFT(req('POST', {}), { params })).status, 201);
+    await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Carol']);
+
+    // Still in `setup`, where `live` is not reachable.
+    const res = await PUT(req('PUT', { phase: 'live' }), { params });
+    assert.equal(res.status, 422);
+    const body = (await res.json()) as { error?: string; reason?: string };
+    assert.match(body.error ?? '', /Cannot transition from 'setup' to 'live'/);
+    assert.notEqual(body.reason, 'draft-owners-stale');
+  })();
 });
 
 test('the refusal names a remedy that works', async () => {
@@ -250,6 +272,7 @@ test('an unconfirmed roster is diagnosed as unconfirmed, not as "changed"', asyn
   // the owner record directly.
   await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
   assert.equal((await CREATE_DRAFT(req('POST', {}), { params })).status, 201);
+  assert.equal((await PUT(req('PUT', { phase: 'settings' }), { params })).status, 200);
   await setAppState(`preseason-owners:${SLUG}`, String(YEAR), null);
 
   const res = await PUT(req('PUT', { phase: 'live' }), { params });

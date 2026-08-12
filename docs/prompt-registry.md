@@ -135,6 +135,27 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   took no draft input at all, so "blocks the page even when a draft already exists" passed
   byte-identical input to the test above it. It now covers no-draft, each pre-start phase, and each
   running/finished phase separately.
+- **Remediation round 3 (user-approved).** Five findings, all narrow, none re-opening a question
+  already answered wrong: the reorder seed de-duplicates (a pre-092 draft could hold
+  `owners: ['Alice','Alice']`, and seeding the duplicate made the submitted order longer than the
+  owner set, so the save failed the permutation check with no UI affordance to delete the row);
+  Reset now calls `router.refresh()` so the server-side gate is re-evaluated, because round 2's
+  exception for running drafts left the commissioner on a settings form whose saves all failed until
+  a manual reload; `findOwnerListProblem` accepts `unknown` and guards `Array.isArray`, since its
+  documented caller is a Server Action and Server Action arguments cross HTTP unvalidated; the
+  roster gate moved BELOW `isValidTransition`, so an illegal transition keeps its own diagnosis
+  rather than being sent to a screen that cannot help; and a PUT reads the roster ONCE, shared
+  lazily between the owners branch and the start transition, so a confirmation landing mid-request
+  can no longer 422 a draft the same request just reconciled.
+- Moving the gate below `isValidTransition` exposed two of this work's own tests as attempting
+  `setup → live`, which was never a legal transition — they asserted against the roster gate while
+  passing through a path production never takes. Both now advance to `settings` first, and a new
+  test pins that an illegal transition keeps its own message.
+- One reported finding was REFUTED with evidence rather than applied: that the owner-confirmation
+  shell was "the first `'use client'` component to import `@/lib/standings`". `CFBScheduleApp`,
+  `TrendsDetailSurface` and `SeasonArcChart` already do, so that dependency graph is in the client
+  bundle on every league page. The admin route is separately chunked, so the tidy is real but the
+  severity was not what was claimed; left as a follow-up.
 - Status: **implemented and in final pre-merge review** — not merged. Branch
   `platform/092-preseason-owner-gate-v2`; no PR opened.
 

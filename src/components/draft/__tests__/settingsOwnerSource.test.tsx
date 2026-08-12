@@ -182,3 +182,27 @@ test('moveToPosition returns the same list when nothing moves', () => {
   const order = ['A', 'B', 'C'];
   assert.equal(moveToPosition(order, 1, 2), order);
 });
+
+test('a legacy draft with a duplicated owner does not seed a duplicate row', () => {
+  // A draft created before this work could hold `owners: ['Alice','Alice']` — the
+  // old create route only filtered non-empty strings. Seeding that through made
+  // the submitted order longer than the owner set, so the save failed the
+  // permutation check, and there is no affordance here to delete a row: the
+  // draft could be neither started nor repaired.
+  const draft = draftWith(['Alice', 'Alice']);
+  const html = renderToStaticMarkup(
+    <DraftSettingsPanel
+      slug="tsc"
+      year={2026}
+      draftState={draft}
+      priorOwners={['Alice', 'Bob']}
+      priorChampOrder={null}
+      fbsTeamCount={136}
+      onAdvance={() => {}}
+    />
+  );
+
+  // One Alice, one Bob — not two Alices.
+  assert.equal(html.split('>Alice<').length - 1, 1, 'Alice must appear once');
+  assert.match(html, /Bob/);
+});
