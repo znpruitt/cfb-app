@@ -159,8 +159,37 @@ test('adoption files the league under the season it states, not the current one'
   const body = (await res.json()) as { league: League };
   assert.equal(res.status, 201, JSON.stringify(body));
   assert.equal(body.league.year, 2024, 'the stated season, not the derived one');
-  assert.deepEqual(body.league.status, { state: 'preseason', year: 2024 });
   assert.equal(body.league.foundedYear, 2019);
+});
+
+test('adoption keeps its `season` seed, and stays out of the transition cron', async () => {
+  // Seeding adoption `preseason` looked harmless and was not. The
+  // season-transition cron selects on `status.state === 'preseason'` and groups
+  // by `status.year`, so a restored 2024 league would enrol 2024 as a target:
+  // `shouldFetch` is unconditionally true for a season that old
+  // (`now >= firstGameDate - 7d`), buying a billed regular + postseason CFBD
+  // refetch, a durable re-commit of that season's schedule, and a standings
+  // invalidation — for a restoration that previously cost nothing.
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:revived:2024', 'csv', 'Owner,Team\nDana,Alabama');
+
+  const res = await POST(
+    createRequest({
+      slug: 'revived',
+      displayName: 'Revived',
+      year: 2024,
+      adoptExistingData: true,
+      restoreFoundedYear: null,
+    })
+  );
+  const body = (await res.json()) as { league: League };
+  assert.equal(res.status, 201, JSON.stringify(body));
+  assert.deepEqual(body.league.status, { state: 'season', year: 2024 });
+  assert.notEqual(
+    body.league.status.state,
+    'preseason',
+    'a restored past season must not become a transition target'
+  );
 });
 
 test('league creation rejects the aliases slug that collides with the static admin route', async () => {

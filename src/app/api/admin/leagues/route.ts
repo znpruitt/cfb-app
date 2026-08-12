@@ -284,9 +284,15 @@ export async function POST(req: Request): Promise<Response> {
     // status-less records appeared. It carried the inference forward without
     // asking whether it was right.
     //
-    // Adoption keeps the same shape: it is restoring a league that is, from the
-    // app's point of view, being set up again.
-    status: { state: 'preseason', year },
+    // ADOPTION IS UNTOUCHED and keeps its previous `season` seed. Seeding it
+    // `preseason` looked harmless and was not: the season-transition cron selects
+    // on `status.state === 'preseason'` and groups by `status.year`, so restoring
+    // a 2024 league would enrol 2024 as a transition target. `shouldFetch` is
+    // unconditionally true for a season that old (`now >= firstGameDate - 7d`),
+    // which buys a billed regular + postseason CFBD refetch, a durable re-commit
+    // of that season's schedule, and a standings invalidation — for a restoration
+    // that used to cost nothing.
+    status: adoptExistingData ? { state: 'season', year } : { state: 'preseason', year },
   };
 
   const updated = await addLeague(league);

@@ -88,6 +88,35 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `preseason(Y)` and the season-transition cron flips it to `season(Y)` on its next run, because
   kickoff minus 24h has already passed — leaving about a day to confirm owners. That is the
   league-state/season-state conflation, planned as its own campaign in `docs/roadmap.md`.
+- **Remediation round 1.** Both reviewers reported the same defect and `/code-review` found a more
+  expensive one. (a) `restoreSeasonYear` survived a slug change: `handleSlugChange` retracts
+  adoption and clears `restoreFoundedYear`, and the new field was added beside it without being
+  added to that reset — the same stale-consent class the F2J retraction closed, and worse here
+  because the season year is what the data is filed under and cannot be changed afterwards.
+  (b) **Adoption must NOT be seeded `preseason`.** The settled scope said adoption was untouched;
+  seeding it `preseason` was a change made anyway, with a rationale invented after the fact. The
+  season-transition cron selects on `status.state === 'preseason'` and groups by `status.year`, so
+  restoring a 2024 league would enrol 2024 as a transition target — `shouldFetch` is unconditionally
+  true for a season that old — buying a billed regular + postseason CFBD refetch, a durable
+  re-commit of that season's schedule, and a standings invalidation, for a restoration that
+  previously cost nothing. Adoption keeps `season`. (c) A blank "Season to restore" submitted
+  `Number('') === 0`; the deleted year validation was replaced rather than merely removed. Note the
+  deliberate asymmetry preserved with the sibling field: a blank FOUNDING year is a meaningful
+  `null`, a blank season is simply missing. (d) `AGENTS.md` Lifecycle Authority invariants 1 and 3
+  and `docs/architecture/admin-control-plane.md` all still described the old seed and ingress rule;
+  `AGENTS.md` is binding, so a future slice reading it would have "restored" the `season` seed as a
+  correctness fix. (e) The empty-registry example and page header still instructed the operator to
+  supply a year.
+- **Two of my own mistakes surfaced only through mutation.** The blank-season guard was inserted into
+  the DELETE handler rather than `handleCreate` — `let authHeaders` appears twice in the file and the
+  first occurrence was replaced — so it never ran on the path it was written for. And the page test's
+  fetch mock refused residue only ONCE per test, which made a second residual slug unreachable and
+  therefore made the carried-over-season scenario untestable; it now refuses per-slug, faithful to
+  the route.
+- Recorded, not fixed: the create form derives its stated season from the CLIENT clock while the
+  record derives from the server's, so a tab left open across 00:00 UTC on 1 January could promise
+  one season and create another. Rare, self-evident on the resulting league page, and closing it
+  properly means confirming the year from the 201 response.
 - Status: **implemented and in final pre-merge review** — not merged. Branch
   `platform/093-new-league-preseason-birth`; no PR opened.
 

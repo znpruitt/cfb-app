@@ -187,6 +187,11 @@ export default function AdminLeaguesPage() {
     setAdoptOffered(false);
     setAdoptExistingData(false);
     setRestoreFoundedYear('');
+    // PLATFORM-093 — the season is slug-scoped recovery state too. Leaving it
+    // behind is the same stale-consent defect the F2J retraction closed for the
+    // founding year, and worse here: the season year is what the data is filed
+    // under, and `updateLeague` and `PATCH` both refuse to change it afterwards.
+    setRestoreSeasonYear('');
   }
 
   async function handleCreate(e: React.FormEvent) {
@@ -209,6 +214,18 @@ export default function AdminLeaguesPage() {
     if (!trimmedName) {
       setCreateError('Display name is required.');
       return;
+    }
+    // The old year validation was deleted with the field rather than moved. A
+    // blank "Season to restore" would otherwise submit `Number('') === 0` and
+    // come back as an opaque range error from the route. Note the deliberate
+    // asymmetry with the sibling field: a blank FOUNDING year is a meaningful
+    // null, a blank season is simply missing.
+    if (adoptExistingData) {
+      const seasonNum = Number(restoreSeasonYear.trim());
+      if (!restoreSeasonYear.trim() || !Number.isInteger(seasonNum) || seasonNum < 2000) {
+        setCreateError('Season to restore must be a valid season year (2000 or later).');
+        return;
+      }
     }
 
     let authHeaders: Record<string, string>;
@@ -277,8 +294,8 @@ export default function AdminLeaguesPage() {
             League Management
           </h2>
           <p className="max-w-2xl text-sm text-gray-600 dark:text-zinc-300">
-            Set up and manage your leagues. Each league gets its own URL, a display name, and an
-            active season year. Once created, a league&apos;s URL cannot be changed.
+            Set up and manage your leagues. Each league gets its own URL and display name, and is
+            set up for the current season. Once created, a league&apos;s URL cannot be changed.
           </p>
         </div>
       </div>
@@ -297,8 +314,7 @@ export default function AdminLeaguesPage() {
           <p className="text-sm text-gray-500 dark:text-zinc-400">
             No leagues configured yet. Use the form below to create your first league. For example:
             league URL — <span className="font-mono">work-league</span>, display name —{' '}
-            <span className="font-mono">Work League</span>, year —{' '}
-            <span className="font-mono">2025</span>.
+            <span className="font-mono">Work League</span>. The season is set for you.
           </p>
         )}
 
