@@ -90,12 +90,30 @@ Supersedes: (none)
     shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
     constant. Severity was overstated when first reported — three client components already import
     that module, so the graph is in the client bundle on every league page anyway.
-13. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+13. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
+    Verified 2026-08-12. `DELETE /api/admin/leagues/[slug]` calls `removeLeague`, which filters the
+    slug out of the registry list and nothing else. Every keyed record survives: `owners:{slug}:{year}`
+    (team→owner rosters carrying real names), `preseason-owners:{slug}`, `draft:{slug}` (picks and
+    order), `standings-archive:{slug}` (full season history), plus scoped aliases and score and
+    presentation caches. "Delete" today means "hide from the league list."
+    **Adoption is the door back in.** Creating a league on a released slug with
+    `adoptExistingData: true` re-attaches all of it. That is platform-admin-only today, so it is
+    currently a retention question rather than an exposure one — but **Multi-tenant Commissioner
+    Sign-up is a planned campaign**, and once league creation is not exclusively the platform
+    operator's, someone claiming a released slug inherits another league's rosters, history and
+    owner names.
+    Three separable decisions, none of them PLATFORM-093's: (a) should delete PURGE, or is
+    hide-and-retain a deliberate soft delete; (b) should adoption exist at all — it was built as a
+    safety net against silently overwriting residue, and a real purge would remove most of the
+    residue it guards; (c) what either means once leagues are not all one operator's. Belongs with
+    the multi-tenant campaign; recorded now because it was found in front of us rather than when an
+    external commissioner is involved.
+14. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
     once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
     retry.
-14. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+15. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -105,7 +123,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-15. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+16. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 
@@ -146,7 +164,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Polish              | Link Styling Audit (LINK-STYLING-AUDIT)                                                 | Planned               |
 | Draft               | Slow Draft Mode                                                                         | Planned               |
 | Draft               | Draft Difficulty Settings                                                               | Planned               |
-| Platform            | Multi-tenant Commissioner Sign-up                                                       | Planned               |
+| Platform            | Multi-tenant Commissioner Sign-up                                                       | Planned — carries the league-deletion/data-retention question (item 13) |
 | Platform            | Server Action Auth Hardening                                                            | Planned               |
 | Platform            | Provider Refresh Observability (PLATFORM-086A)                                          | ✅ Complete (PR #391) |
 | Platform            | Provider Automation & Correctness (PLATFORM-086B–I)                                     | ✅ Complete           |
