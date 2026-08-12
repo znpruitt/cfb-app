@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import AdminAuthPanel from 'components/AdminAuthPanel';
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
+import { seasonYearForNewLeague } from '@/lib/league';
 import type { PublicLeague } from '@/lib/league';
 
 const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
@@ -54,7 +55,11 @@ export default function AdminLeaguesPage() {
 
   const [slug, setSlug] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [year, setYear] = useState(String(new Date().getFullYear()));
+  // PLATFORM-093 — derived once per mount, not entered. `seasonYearForNewLeague`
+  // is the single definition; the January reasoning lives with it.
+  const [newLeagueSeason] = useState(() => seasonYearForNewLeague(new Date()));
+  // Adoption states the season its data belongs to; ordinary creation derives it.
+  const [restoreSeasonYear, setRestoreSeasonYear] = useState('');
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   /**
@@ -190,7 +195,6 @@ export default function AdminLeaguesPage() {
 
     const trimmedSlug = slug.trim();
     const trimmedName = displayName.trim();
-    const yearNum = Number(year);
 
     if (!trimmedSlug) {
       setCreateError('Slug is required.');
@@ -204,10 +208,6 @@ export default function AdminLeaguesPage() {
     }
     if (!trimmedName) {
       setCreateError('Display name is required.');
-      return;
-    }
-    if (!Number.isFinite(yearNum) || yearNum < 2000) {
-      setCreateError('Year must be a valid season year (2000 or later).');
       return;
     }
 
@@ -227,11 +227,13 @@ export default function AdminLeaguesPage() {
         body: JSON.stringify({
           slug: trimmedSlug,
           displayName: trimmedName,
-          year: yearNum,
           // A blank field is an explicit "no recorded founding year" (null), not
           // an omission — omitting it is what the route refuses. Leagues created
           // before the field existed carry none, and restoring one must not
           // force the operator to invent a year the freeze then makes permanent.
+          // Adoption must state the season the surviving data belongs to. The
+          // route refuses it on ordinary creation and requires it here.
+          ...(adoptExistingData ? { year: Number(restoreSeasonYear) } : {}),
           ...(adoptExistingData
             ? {
                 adoptExistingData: true,
@@ -446,18 +448,17 @@ export default function AdminLeaguesPage() {
                 placeholder="My Fantasy League"
               />
             </div>
+            {/* PLATFORM-093 — the season is DERIVED, and stated rather than asked.
+                There is only ever one season in play: either it is under way or it
+                is about to be, so there was never a choice to offer. It is shown
+                because a surface that quietly decides something this consequential
+                should say what it decided. */}
             <div className="space-y-1">
-              <label className="text-xs text-gray-500 dark:text-zinc-400" htmlFor="create-year">
-                Year
-              </label>
-              <input
-                id="create-year"
-                className={inputClass}
-                type="number"
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-                placeholder={String(new Date().getFullYear())}
-              />
+              <span className="text-xs text-gray-500 dark:text-zinc-400">Season</span>
+              <p className="text-sm text-gray-900 dark:text-zinc-100">
+                This league will be set up for the{' '}
+                <span className="font-semibold">{newLeagueSeason}</span> season.
+              </p>
             </div>
           </div>
           {createError && <p className="text-xs text-red-700 dark:text-red-400">{createError}</p>}
@@ -479,6 +480,26 @@ export default function AdminLeaguesPage() {
             <div className="space-y-1">
               <label
                 className="text-xs text-gray-500 dark:text-zinc-400"
+                htmlFor="restore-season-year"
+              >
+                Season to restore
+              </label>
+              <input
+                id="restore-season-year"
+                aria-label="Season to restore"
+                className={inputClass}
+                type="number"
+                value={restoreSeasonYear}
+                onChange={(e) => setRestoreSeasonYear(e.target.value)}
+                placeholder={String(newLeagueSeason)}
+              />
+              <p className="text-xs text-gray-500 dark:text-zinc-400">
+                The season the surviving data belongs to. Ordinary creation derives this, but a
+                restoration must state it — filing 2024 material under {newLeagueSeason} cannot be
+                corrected afterwards, because the season year is frozen once set.
+              </p>
+              <label
+                className="block text-xs text-gray-500 dark:text-zinc-400"
                 htmlFor="restore-founded-year"
               >
                 Founding year to restore

@@ -59,54 +59,113 @@ test.after(() => {
   else MUTABLE_ENV.ADMIN_API_TOKEN = ORIGINAL_ADMIN_API_TOKEN;
 });
 
-test('league creation persists synchronized year and status in one record', async () => {
-  const res = await POST(
-    createRequest({ slug: 'my-league', displayName: 'My League', year: 2026 })
-  );
-  assert.equal(res.status, 201);
+test('a new league is born in PRESEASON, for the derived season year', async () => {
+  // PLATFORM-093 — a league with no owners, no roster and no draft is setting up,
+  // not in season. `season` asserted otherwise and, because every setup surface is
+  // gated on `preseason`, left a new league unable to confirm owners at all.
+  const expectedYear = new Date().getUTCFullYear();
+  const res = await POST(createRequest({ slug: 'my-league', displayName: 'My League' }));
   const body = (await res.json()) as { league: League };
-  assert.equal(body.league.year, 2026);
-  assert.deepEqual(body.league.status, { state: 'season', year: 2026 });
+  assert.equal(res.status, 201, JSON.stringify(body));
+  assert.equal(body.league.year, expectedYear);
+  assert.deepEqual(body.league.status, { state: 'preseason', year: expectedYear });
 
   const record = await getAppState<League[]>('leagues', 'registry');
   const stored = record?.value?.[0];
-  assert.equal(stored?.year, 2026);
-  assert.deepEqual(stored?.status, { state: 'season', year: 2026 });
+  assert.equal(stored?.year, expectedYear);
+  assert.deepEqual(stored?.status, { state: 'preseason', year: expectedYear });
   assert.equal(body.league.foundedYear, new Date(body.league.createdAt).getUTCFullYear());
 });
 
-test('league creation accepts both supported year boundaries', async () => {
-  const currentMaximum = maxCreatableSeasonYear(Date.now());
-
-  const minimum = await POST(
-    createRequest({ slug: 'minimum-year', displayName: 'Minimum', year: MIN_SEASON_YEAR })
+test('ordinary creation REFUSES a supplied season year', async () => {
+  // There is only ever one season in play, so there was never a choice to offer —
+  // and accepting one invited a league to be created for a season it will never
+  // play. Mirrors `restoreFoundedYear`: a value the adopting path states and the
+  // ordinary path may not send.
+  const res = await POST(
+    createRequest({ slug: 'supplied-year', displayName: 'Supplied', year: 2026 })
   );
-  assert.equal(minimum.status, 201);
+  assert.equal(res.status, 400);
+  assert.match(await res.text(), /derives the season year and accepts no value/i);
 
-  const maximum = await POST(
-    createRequest({ slug: 'maximum-year', displayName: 'Maximum', year: currentMaximum })
-  );
-  assert.equal(maximum.status, 201);
+  const record = await getAppState<League[]>('leagues', 'registry');
+  assert.equal(record?.value?.length ?? 0, 0, 'a refused creation writes nothing');
 });
 
-test('league creation rejects unsupported or non-integer years without a registry write', async () => {
-  const currentMaximum = maxCreatableSeasonYear(Date.now());
-  const invalidYears = [MIN_SEASON_YEAR - 1, currentMaximum + 1, 2026.5, 'not-a-year'];
+test('a supplied year is still refused when it happens to be correct', async () => {
+  // The refusal is about the CONTRACT, not the value. Accepting a "correct" year
+  // would leave the field alive and the next caller free to send a wrong one.
+  const res = await POST(
+    createRequest({
+      slug: 'right-year',
+      displayName: 'Right',
+      year: new Date().getUTCFullYear(),
+    })
+  );
+  assert.equal(res.status, 400);
+});
 
-  for (const [index, year] of invalidYears.entries()) {
+test('adoption still requires a year, and still validates its range', async () => {
+  // Adoption re-attaches a record to data that already exists for a particular
+  // season, so it must state which — deriving today's year would file 2024
+  // material under this season with no way to correct it (`updateLeague` and
+  // `PATCH` both refuse `year`). Residue has to exist for adoption to be reachable
+  // at all, so seed some.
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:revived:2024', 'csv', 'Owner,Team\nDana,Alabama');
+
+  const omitted = await POST(
+    createRequest({
+      slug: 'revived',
+      displayName: 'Revived',
+      adoptExistingData: true,
+      restoreFoundedYear: null,
+    })
+  );
+  assert.equal(omitted.status, 400);
+  assert.match(await omitted.text(), /year is required when adopting/i);
+
+  const currentMaximum = maxCreatableSeasonYear(Date.now());
+  for (const year of [MIN_SEASON_YEAR - 1, currentMaximum + 1, 2026.5, 'not-a-year']) {
     const response = await POST(
-      createRequest({ slug: `invalid-year-${index}`, displayName: 'Invalid', year })
+      createRequest({
+        slug: 'revived',
+        displayName: 'Revived',
+        year,
+        adoptExistingData: true,
+        restoreFoundedYear: null,
+      })
     );
-    assert.equal(response.status, 400);
-    assert.match(await response.text(), /integer season year/);
+    assert.equal(response.status, 400, String(year));
+    assert.match(await response.text(), /integer season year/, String(year));
   }
 
-  assert.equal(await getAppState<League[]>('leagues', 'registry'), null);
+  assert.deepEqual(await readRegistry(), [], 'no league was created on any refused path');
+});
+
+test('adoption files the league under the season it states, not the current one', async () => {
+  await setAppState('leagues', 'registry', []);
+  await setAppState('owners:revived:2024', 'csv', 'Owner,Team\nDana,Alabama');
+
+  const res = await POST(
+    createRequest({
+      slug: 'revived',
+      displayName: 'Revived',
+      year: 2024,
+      adoptExistingData: true,
+      restoreFoundedYear: 2019,
+    })
+  );
+  const body = (await res.json()) as { league: League };
+  assert.equal(res.status, 201, JSON.stringify(body));
+  assert.equal(body.league.year, 2024, 'the stated season, not the derived one');
+  assert.deepEqual(body.league.status, { state: 'preseason', year: 2024 });
+  assert.equal(body.league.foundedYear, 2019);
 });
 
 test('league creation rejects the aliases slug that collides with the static admin route', async () => {
   const response = await POST(
-    createRequest({ slug: 'aliases', displayName: 'Unreachable League', year: 2026 })
+    createRequest({ slug: 'aliases', displayName: 'Unreachable League' })
   );
 
   assert.equal(response.status, 400);
@@ -130,7 +189,7 @@ test('creation refuses a slug whose previous league data survives', async () => 
   await setAppState('owners:ghost:2024', 'csv', 'Owner,Team\nDana,Alabama');
   await setAppState('draft:ghost', '2024', { phase: 'complete' });
 
-  const res = await POST(createRequest({ slug: 'ghost', displayName: 'Ghost', year: 2025 }));
+  const res = await POST(createRequest({ slug: 'ghost', displayName: 'Ghost' }));
 
   assert.equal(res.status, 409);
   const text = await res.text();
@@ -145,7 +204,7 @@ test('creation still succeeds for a slug with no surviving data', async () => {
   await setAppState('leagues', 'registry', []);
   await setAppState('owners:ghost:2024', 'csv', 'Owner,Team\nDana,Alabama');
 
-  const res = await POST(createRequest({ slug: 'fresh', displayName: 'Fresh', year: 2025 }));
+  const res = await POST(createRequest({ slug: 'fresh', displayName: 'Fresh' }));
 
   assert.equal(res.status, 201);
   assert.deepEqual(
@@ -164,7 +223,7 @@ test('residue detection does not confuse a slug with a longer sibling slug', asy
   await setAppState('owners:tsc-old:2024', 'csv', 'Owner,Team\nDana,Alabama');
   await setAppState('draft:tsc-old', '2024', { phase: 'complete' });
 
-  const res = await POST(createRequest({ slug: 'tsc', displayName: 'TSC', year: 2025 }));
+  const res = await POST(createRequest({ slug: 'tsc', displayName: 'TSC' }));
 
   assert.equal(res.status, 201, 'tsc is clean; tsc-old`s data is not tsc`s');
   assert.deepEqual(
@@ -177,10 +236,10 @@ test('residue detection does not confuse a slug with a longer sibling slug', asy
 // exist — and must stay distinguishable.
 test('a live-slug conflict reads differently from a residual-data conflict', async () => {
   await setAppState('leagues', 'registry', []);
-  const created = await POST(createRequest({ slug: 'alpha', displayName: 'Alpha', year: 2025 }));
+  const created = await POST(createRequest({ slug: 'alpha', displayName: 'Alpha' }));
   assert.equal(created.status, 201);
 
-  const live = await POST(createRequest({ slug: 'alpha', displayName: 'Alpha 2', year: 2025 }));
+  const live = await POST(createRequest({ slug: 'alpha', displayName: 'Alpha 2' }));
   assert.equal(live.status, 409);
   const liveText = await live.text();
   assert.match(liveText, /already exists/i);
@@ -201,7 +260,7 @@ test('an explicit adopt acknowledgement lets the same slug be restored', async (
   await setAppState('leagues', 'registry', []);
   await setAppState('owners:ghost:2024', 'csv', 'Owner,Team\nDana,Alabama');
 
-  const refused = await POST(createRequest({ slug: 'ghost', displayName: 'G', year: 2025 }));
+  const refused = await POST(createRequest({ slug: 'ghost', displayName: 'G' }));
   assert.equal(refused.status, 409, 'not by accident');
 
   const adopted = await POST(
@@ -322,7 +381,7 @@ test('a restore year outside the accepted range is refused', async () => {
 test('ordinary creation still derives the founding year', async () => {
   await setAppState('leagues', 'registry', []);
 
-  const res = await POST(createRequest({ slug: 'fresh', displayName: 'Fresh', year: 2025 }));
+  const res = await POST(createRequest({ slug: 'fresh', displayName: 'Fresh' }));
 
   assert.equal(res.status, 201);
   const stored = (await readRegistry())[0]!;
@@ -408,7 +467,7 @@ test('an acknowledgement earned on one slug does not carry to another', async ()
   await setAppState('owners:ghost:2024', 'csv', 'Owner,Team\nDana,Alabama');
 
   assert.equal(
-    (await POST(createRequest({ slug: 'ghost', displayName: 'G', year: 2025 }))).status,
+    (await POST(createRequest({ slug: 'ghost', displayName: 'G' }))).status,
     409,
     'ghost is the slug that earned the acknowledgement'
   );

@@ -245,11 +245,19 @@ test('the residue refusal offers adoption, and adopting sends the restored year'
   });
 
   await user.click(checkbox);
-  const yearField = await waitFor(() => {
-    const field = container.querySelector('#restore-founded-year') as HTMLInputElement | null;
-    assert.ok(field, 'ticking it reveals the founding-year field');
+  // PLATFORM-093 — ticking adopt reveals BOTH years. Ordinary creation derives
+  // the season and sends none; a restoration must state the season its data
+  // belongs to, because filing old material under the current season cannot be
+  // corrected afterwards.
+  const seasonField = await waitFor(() => {
+    const field = container.querySelector('#restore-season-year') as HTMLInputElement | null;
+    assert.ok(field, 'ticking it reveals the season field');
     return field;
   });
+  await user.type(seasonField, '2024');
+
+  const yearField = container.querySelector('#restore-founded-year') as HTMLInputElement | null;
+  assert.ok(yearField, 'ticking it reveals the founding-year field');
   await user.type(yearField, '2019');
 
   submitCreate(container);
@@ -258,10 +266,33 @@ test('the residue refusal offers adoption, and adopting sends the restored year'
   assert.deepEqual(bodies[1], {
     slug: 'ghost',
     displayName: 'Ghost',
-    year: 2026,
+    year: 2024,
     adoptExistingData: true,
     restoreFoundedYear: 2019,
   });
+});
+
+test('ordinary creation sends no year at all, and states the season it derived', async () => {
+  // The route refuses a supplied year on ordinary creation, so a form that kept
+  // sending one would fail every create. The season is shown rather than asked:
+  // a surface that quietly decides something this consequential should say what
+  // it decided.
+  const user = userEvent.setup({ document: dom.window.document });
+  const { container } = renderPage();
+
+  const expected = new Date().getUTCFullYear();
+  assert.match(
+    container.textContent ?? '',
+    new RegExp(`This league will be set up for the\\s*${expected}\\s*season`),
+    'the derived season is stated on the form'
+  );
+  assert.equal(container.querySelector('#create-year'), null, 'the editable year field is gone');
+
+  await fillCreateForm(container, user, { slug: 'fresh', name: 'Fresh' });
+  submitCreate(container);
+  await waitFor(() => assert.ok(bodies.length >= 1, 'a POST was issued'));
+
+  assert.deepEqual(bodies[0], { slug: 'fresh', displayName: 'Fresh' });
 });
 
 // REGRESSION TEST — the acknowledgement is granted for ONE slug.

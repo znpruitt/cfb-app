@@ -52,6 +52,45 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-093-NEW-LEAGUE-PRESEASON-BIRTH-v1
+
+- Purpose: let a newly created league be set up. Every league was born `season`, and the whole
+  owner-confirmation flow is gated on `preseason`, so a new league could never confirm owners — and
+  since PLATFORM-092 it could not create a draft either.
+- Scope: `POST /api/admin/leagues` and the admin create form. Nothing else.
+- Outcome: a new league is born `{ state: 'preseason', year }`, and the season year is DERIVED
+  rather than entered. An unconfigured league with no owners, no roster and no draft is setting up,
+  not in season.
+- **The `season` default was never a product decision.** PLATFORM-086F2B chose it to preserve the
+  behaviour where a MISSING status was inferred as `{ state: 'season', year }`, making that
+  inference explicit so no new status-less records appeared. It carried the inference forward
+  without asking whether it was right.
+- **The year had nothing to choose.** There is only ever one season in play — either it is under way
+  or it is about to be — so creation derives it and REFUSES a supplied value, mirroring
+  `restoreFoundedYear` exactly: a value the adopting path must state and the ordinary path may not
+  send. Adoption still requires it, because it re-attaches a record to data belonging to a
+  particular season and deriving the current one would file old material under the wrong year with
+  no way to correct it (`updateLeague` and `PATCH` both refuse `year`).
+- **The derivation is the calendar year, and the absence of an adjustment is the point.**
+  `seasonYearForNewLeague` lives in `src/lib/league.ts` with the reasoning attached: February–July is
+  the upcoming season, August–December is that same season under way, and January belongs to the
+  UPCOMING season because a league created then is being set up for the following autumn, not
+  joining one that ends within days. `seasonYearForToday` (`month >= 6 ? year : year - 1`) answers
+  "which season's data am I looking at", is right for that, and is wrong here from January through
+  June — the tests pin the absence of that adjustment so a reader cannot "fix" it.
+- The create form now STATES the derived season instead of asking ("This league will be set up for
+  the N season"). A surface that quietly decides something this consequential should say what it
+  decided.
+- Removing the editable field broke the form's adoption path — the route requires a year there — so
+  ticking adopt now reveals a "Season to restore" field alongside the existing founding-year one.
+  The pre-existing adoption test caught it.
+- Known limitation, recorded not fixed: a league created for a season already under way is born
+  `preseason(Y)` and the season-transition cron flips it to `season(Y)` on its next run, because
+  kickoff minus 24h has already passed — leaving about a day to confirm owners. That is the
+  league-state/season-state conflation, planned as its own campaign in `docs/roadmap.md`.
+- Status: **implemented and in final pre-merge review** — not merged. Branch
+  `platform/093-new-league-preseason-birth`; no PR opened.
+
 ### PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v2
 
 - Purpose: enforce "owners must be confirmed before a draft can occur" by removing the unreconciled

@@ -4,6 +4,7 @@ import { sanitizeLeague, sanitizeLeagues } from '@/lib/leagueSanitize';
 import { findResidualLeagueScopes } from '@/lib/server/leagueResidualData';
 import {
   isCreatableSeasonYear,
+  seasonYearForNewLeague,
   maxCreatableSeasonYear,
   MIN_SEASON_YEAR,
   type League,
@@ -47,8 +48,6 @@ export async function POST(req: Request): Promise<Response> {
 
   const slug = typeof obj.slug === 'string' ? obj.slug.trim() : '';
   const displayName = typeof obj.displayName === 'string' ? obj.displayName.trim() : '';
-  const year =
-    typeof obj.year === 'number' ? obj.year : typeof obj.year === 'string' ? Number(obj.year) : NaN;
 
   if (!slug) return new Response('slug is required', { status: 400 });
   if (!isValidSlug(slug))
@@ -64,12 +63,6 @@ export async function POST(req: Request): Promise<Response> {
   if (!displayName) return new Response('displayName is required', { status: 400 });
   const now = new Date();
   const nowMs = now.getTime();
-  if (!isCreatableSeasonYear(year, nowMs)) {
-    return new Response(
-      `year must be an integer season year between ${MIN_SEASON_YEAR} and ${maxCreatableSeasonYear(nowMs)}`,
-      { status: 400 }
-    );
-  }
 
   const existing = await getLeagues();
   if (existing.some((l) => l.slug === slug)) {
@@ -210,6 +203,54 @@ export async function POST(req: Request): Promise<Response> {
   // preventing new missing-status records.
   // Adoption supplies the value, INCLUDING an explicit "none recorded";
   // ordinary creation derives it and offers no way to influence it.
+  // PLATFORM-093 — the SEASON year, and who gets to state it.
+  //
+  // Ordinary creation DERIVES it and refuses a supplied value. There is only ever
+  // one season in play — either it is under way or it is about to be — so there
+  // was never a choice to offer, and accepting one invited a league to be created
+  // for a season it will never play. This mirrors `restoreFoundedYear` directly:
+  // a value the adopting path must state and the ordinary path may not send.
+  //
+  // ADOPTION still requires it, unchanged. It re-attaches a record to data that
+  // already exists for a particular season, and deriving today's year would file
+  // 2024 material under 2026 with no way to correct it afterwards — `updateLeague`
+  // and `PATCH` both refuse `year`.
+  const hasSuppliedYear = 'year' in obj;
+  if (hasSuppliedYear && !adoptExistingData) {
+    return new Response(
+      'year is only accepted when adopting the surviving data of a previously deleted league ' +
+        '(adoptExistingData: true). Ordinary league creation derives the season year and accepts ' +
+        'no value for it.',
+      { status: 400 }
+    );
+  }
+
+  let year: number;
+  if (adoptExistingData) {
+    if (!hasSuppliedYear) {
+      return new Response(
+        'year is required when adopting surviving data: the data belongs to a particular season, ' +
+          'and deriving the current one would file it under a season it does not belong to.',
+        { status: 400 }
+      );
+    }
+    const supplied =
+      typeof obj.year === 'number'
+        ? obj.year
+        : typeof obj.year === 'string'
+          ? Number(obj.year)
+          : NaN;
+    if (!isCreatableSeasonYear(supplied, nowMs)) {
+      return new Response(
+        `year must be an integer season year between ${MIN_SEASON_YEAR} and ${maxCreatableSeasonYear(nowMs)}`,
+        { status: 400 }
+      );
+    }
+    year = supplied;
+  } else {
+    year = seasonYearForNewLeague(now);
+  }
+
   const foundedYear = adoptExistingData ? (restoredFoundedYear ?? undefined) : now.getUTCFullYear();
 
   const league: League = {
@@ -232,7 +273,20 @@ export async function POST(req: Request): Promise<Response> {
     // On a RESTORATION this is the value the operator supplied; on ordinary
     // creation it is derived and there is no way to influence it.
     ...(foundedYear === undefined ? {} : { foundedYear }),
-    status: { state: 'season', year },
+    // PLATFORM-093 — a new league is SETTING UP, not in season. It has no owners,
+    // no roster and no draft, so `season` asserted something untrue about it and
+    // — because every setup surface is gated on `preseason` — left it unable to
+    // confirm owners at all.
+    //
+    // The old default was never a product decision: PLATFORM-086F2B chose it to
+    // preserve the behaviour where a MISSING status was inferred as
+    // `{ state: 'season', year }`, making that inference explicit so no new
+    // status-less records appeared. It carried the inference forward without
+    // asking whether it was right.
+    //
+    // Adoption keeps the same shape: it is restoring a league that is, from the
+    // app's point of view, being set up again.
+    status: { state: 'preseason', year },
   };
 
   const updated = await addLeague(league);
