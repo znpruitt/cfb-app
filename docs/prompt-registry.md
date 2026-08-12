@@ -157,7 +157,7 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   bundle on every league page. The admin route is separately chunked, so the tidy is real but the
   severity was not what was claimed; left as a follow-up.
 - Status: **implemented and in final pre-merge review** — not merged. Branch
-  `platform/092-preseason-owner-gate-v2`; no PR opened.
+  `platform/092-preseason-owner-gate-v2`, PR #472.
 
 ### PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v1
 
