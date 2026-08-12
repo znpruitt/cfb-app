@@ -64,20 +64,38 @@ Supersedes: (none)
    longer speaks for a league that switched to manual assignment, and the banner carries no
    readiness claim at all — the fact that would license one is unwritten. Execution record in
    `docs/prompt-registry.md`; three follow-ups recorded below.
-9. 🔄 **PLATFORM-092 — v1 SUPERSEDED, v2 IN PROGRESS.** v1
-   (`platform/092-preseason-owner-confirmation-gate`) was abandoned unimplemented after two
-   remediation rounds whose fixes generated the next round's findings. The defect it never named:
-   `DraftState.owners` is a COPY of the season roster, and the only screen that edits owners
-   (`/admin/[slug]/preseason/owners`) does not touch the draft record, so nothing reconciles them.
-   v2 removes the copy rather than validating it: a draft TAKES its owners from the confirmed
-   roster instead of accepting them from the request. PR #472 on
-   `platform/092-preseason-owner-gate-v2`, in pre-merge review, not merged. Closes follow-up (b)
-   recorded under PLATFORM-091. Post-mortem and execution record in `docs/prompt-registry.md`.
-10. **NEXT after 092 — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
+9. ✅ **PLATFORM-092 — COMPLETE** (v2 via PR #472, `4b301296`, 2026-08-11). Owners must be
+   confirmed before a draft can occur. A draft now TAKES its owners from the confirmed roster
+   rather than accepting them from the request, so a draft holding names nothing else agrees with
+   is unrepresentable rather than merely detected; the draft-setup page seeds from the current
+   roster instead of the prior season's archive. v1 was abandoned unimplemented after two
+   remediation rounds whose fixes generated the next round's findings — its post-mortem, and the
+   product decisions that came out of it, are in `docs/prompt-registry.md`. Closes follow-up (b)
+   recorded under PLATFORM-091.
+10. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
 11. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
     later.
-12. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+12. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) **a brand-new league
+    has no path to confirm owners** — new leagues are born `season`, `/admin/[slug]/preseason/owners`
+    redirects away unless the league is in `preseason`, and only `beginPreseason` (offseason-only) or
+    the rollover cron reach that state, leaving only the historical/repair CSV import, which asks the
+    commissioner to hand-produce what the draft exists to produce. This predates 092, which turns a
+    soft dead end into a hard refusal. **Owner's rule for the fix: season state + no owners or team
+    roster → open the preseason setup flow.** Queued as its own prompt; (b) `selectors/preseasonBanner`
+    accepts a single owner where `selectConfirmedRoster` requires two, so a one-owner CSV shows
+    "Roster confirmed" on the league banner while the admin checklist shows ○ — reachable only via a
+    hand-edited repair import; (c) `DraftSettingsPanel` is 601 lines against the ~600 extraction
+    guideline, and its reorder editor is the natural piece to lift out; (d) the owner-confirmation
+    shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
+    constant. Severity was overstated when first reported — three client components already import
+    that module, so the graph is in the client bundle on every league page anyway.
+13. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+    exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
+    re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
+    once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
+    retry.
+14. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -87,7 +105,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-13. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+15. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 

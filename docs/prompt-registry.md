@@ -156,8 +156,8 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `TrendsDetailSurface` and `SeasonArcChart` already do, so that dependency graph is in the client
   bundle on every league page. The admin route is separately chunked, so the tidy is real but the
   severity was not what was claimed; left as a follow-up.
-- Status: **implemented and in final pre-merge review** — not merged. Branch
-  `platform/092-preseason-owner-gate-v2`, PR #472.
+- Status: ✅ **MERGED** via PR #472 (`4b301296`), 2026-08-11. Branch
+  `platform/092-preseason-owner-gate-v2` deleted.
 
 ### PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v1
 
@@ -165,8 +165,8 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   can neither be created without a current-season roster nor created for people who were never on
   it.
 - Status: ⛔ **SUPERSEDED / UNIMPLEMENTED.** Never merged, no PR. Branch
-  `platform/092-preseason-owner-confirmation-gate` (`8f960857`) abandoned 2026-08-11 after two
-  remediation rounds whose fixes generated the next round's findings — the AGENTS.md
+  `platform/092-preseason-owner-confirmation-gate` (`8f960857`) abandoned and DELETED 2026-08-11
+  after two remediation rounds whose fixes generated the next round's findings — the AGENTS.md
   reconstruct-don't-accumulate trigger. Replaced by
   `PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v2`, rebuilt from clean `main`. Recorded here
   rather than omitted because the post-mortem is the reusable part.
