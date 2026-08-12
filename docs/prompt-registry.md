@@ -52,6 +52,40 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v1
+
+- Purpose: enforce the invariant "owners must be confirmed before a draft can occur", so a draft
+  can neither be created without a current-season roster nor created for people who were never on
+  it.
+- Status: ⛔ **SUPERSEDED / UNIMPLEMENTED.** Never merged, no PR. Branch
+  `platform/092-preseason-owner-confirmation-gate` (`8f960857`) abandoned 2026-08-11 after two
+  remediation rounds whose fixes generated the next round's findings — the AGENTS.md
+  reconstruct-don't-accumulate trigger. Replaced by
+  `PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v2`, rebuilt from clean `main`. Recorded here
+  rather than omitted because the post-mortem is the reusable part.
+- **The fact the attempt was missing.** `DraftState.owners` is a COPY of the season roster,
+  captured at draft creation. Owners are set on `/admin/[slug]/preseason/owners` (checklist step 1);
+  `/league/[slug]/draft/setup` (step 2) cannot edit them at all — `DraftSettingsPanel` holds them in
+  a setter-less `useState`, and `RosterSetupPanel`, which had the editor, is dead code with no
+  importers. So the only screen that changes owners never touches the draft record, and nothing
+  reconciles the two. All eight review findings across three rounds were symptoms of that copy; v1
+  built validation to DETECT the divergence at each mutation entry point instead of removing the
+  thing that diverges. Two independent reviewers ended up prescribing OPPOSITE record-precedence
+  fixes for the same seam — the clearest possible evidence that the model, not the ordering, was
+  wrong.
+- Product decisions established in the post-mortem and carried into v2, none of which were
+  derivable from the code: only one league exists and it holds no draft, so there are no legacy
+  drafts to preserve; mid-draft owner changes are not a real use case and the existing post-start
+  lock already handles them correctly; owner names display exactly as entered, with duplicates
+  rejected at entry and compared exactly, because owner identity is already the raw string
+  throughout `deriveStandings`; `NoClaim` is a byproduct of unselected teams and is filtered on the
+  CSV read path only, never at the confirmation write boundary.
+- Audit facts worth keeping: `POST /api/draft/[slug]/[year]` is the only place the app creates a
+  draft record. `owners:{slug}:{year}` has exactly two writers — the draft CONFIRM route
+  (post-draft) and `PUT /api/owners`, reachable only from `/admin/[slug]/roster` ("Historical /
+  repair roster CSV import"); no ordinary user path writes it. The admin preseason checklist
+  decides "has roster" by counting CSV lines, so a header plus two malformed rows reads as a roster.
+
 ### PLATFORM-091-PRESEASON-STATUS-BANNER-v1
 
 - Purpose: make the league banner state the league's actual preseason readiness instead of claiming

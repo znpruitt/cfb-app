@@ -64,11 +64,18 @@ Supersedes: (none)
    longer speaks for a league that switched to manual assignment, and the banner carries no
    readiness claim at all — the fact that would license one is unwritten. Execution record in
    `docs/prompt-registry.md`; three follow-ups recorded below.
-9. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
-10. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+9. 🔄 **PLATFORM-092 — v1 SUPERSEDED, v2 IN PROGRESS.** v1
+   (`platform/092-preseason-owner-confirmation-gate`) was abandoned unimplemented after two
+   remediation rounds whose fixes generated the next round's findings. The defect it never named:
+   `DraftState.owners` is a COPY of the season roster, and the only screen that edits owners
+   (`/admin/[slug]/preseason/owners`) does not touch the draft record, so nothing reconciles them.
+   v2 removes the copy rather than validating it. Closes follow-up (b) recorded under PLATFORM-091.
+   Post-mortem in `docs/prompt-registry.md`.
+10. **NEXT after 092 — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
+11. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
     later.
-11. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+12. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -78,7 +85,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-12. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+13. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 
