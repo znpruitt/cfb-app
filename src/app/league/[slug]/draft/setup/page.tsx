@@ -81,6 +81,7 @@ export default async function DraftSetupPage({
   // here rather than rendering a settings form whose save fails.
   const setupGate = resolveDraftSetupGate({
     isConfirmed: roster.isConfirmed,
+    draftPhase: draftState?.phase ?? null,
     isPreseason: status?.state === 'preseason',
     slug,
     year,

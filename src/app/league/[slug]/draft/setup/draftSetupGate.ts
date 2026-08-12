@@ -1,3 +1,5 @@
+import type { DraftPhase } from '@/lib/draft';
+
 /**
  * PLATFORM-092 — what the draft-setup page shows when there is no confirmed
  * roster, and where it sends the commissioner to fix that.
@@ -15,23 +17,45 @@ export type DraftSetupGate = {
 };
 
 /**
+ * Draft phases in which nothing has happened yet, so blocking the page costs the
+ * commissioner nothing they could have used.
+ *
+ * `null` is "no draft record at all".
+ */
+const PRE_START_PHASES: ReadonlySet<DraftPhase> = new Set<DraftPhase>([
+  'setup',
+  'settings',
+  'preview',
+]);
+
+/**
  * `null` means the page renders normally.
  *
- * An earlier version let a league through when a draft already existed, so it
- * would not be "locked out of its own setup". That exception escaped nothing:
- * the page rendered and then every write it made was refused, because a draft
- * with no confirmed roster cannot be saved or started either. A page that looks
- * usable and is not is worse than an honest refusal — and this refusal names a
- * step that works, after which the draft reconciles itself.
+ * This has been wrong in BOTH directions, so the reasoning is worth keeping.
+ * The first version let a league through whenever a draft existed, which escaped
+ * nothing — every write that page made was still refused. Removing the exception
+ * outright then blocked running drafts too, and this page carries the ONLY Reset
+ * Draft button and pick-timer control in the app (`DraftControls` has no
+ * importers, and the board links here from four places). That justification —
+ * "every write is refused anyway" — was checked for pre-start drafts only: a
+ * settings-only save and the reset route carry neither `owners` nor `phase`, so
+ * they pass the gates untouched.
+ *
+ * The deciding fact is the draft's PHASE, not its existence. Blocking a draft
+ * that has not started costs nothing; blocking one that is running takes away
+ * the only way to reset it — which, on the demo league, is exactly what its
+ * year-clearing control leaves you needing.
  */
 export function resolveDraftSetupGate(input: {
   isConfirmed: boolean;
+  draftPhase: DraftPhase | null;
   isPreseason: boolean;
   slug: string;
   year: number;
 }): DraftSetupGate | null {
-  const { isConfirmed, isPreseason, slug, year } = input;
+  const { isConfirmed, draftPhase, isPreseason, slug, year } = input;
   if (isConfirmed) return null;
+  if (draftPhase !== null && !PRE_START_PHASES.has(draftPhase)) return null;
 
   // The remedy has to match the lifecycle. `/admin/[slug]/preseason/owners`
   // redirects to the admin home unless the league is in PRESEASON, and this page

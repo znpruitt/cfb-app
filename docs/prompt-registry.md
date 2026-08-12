@@ -118,6 +118,23 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   `moveToPosition` export and pinned — it is the part that can silently drop an owner and make a
   draft unconfirmable. Closing the wiring gap would mean adding jsdom or testing-library, which is
   outside this change.
+- **Remediation round 2 (user-approved).** The setup gate has now been wrong in BOTH directions, so
+  the reasoning is recorded in the module rather than the history. The original `hasDraft` exception
+  let any existing draft through and escaped nothing — every write that page made was still refused.
+  Round 1 removed it outright, which also blocked RUNNING drafts, and this page carries the only
+  Reset Draft button and pick-timer control in the app (`DraftControls` has no importers; the board
+  links here from four places). The round-1 justification — "every write is refused anyway" — had
+  been checked for pre-start drafts only: a settings-only save and the reset route carry neither
+  `owners` nor `phase` and pass the gates untouched. The deciding fact is the draft's PHASE, not its
+  existence; pre-start is blocked, running and finished are not.
+- Blast radius was small and was overstated when first reported: creating a draft already requires a
+  confirmed roster, so a running draft essentially always has one. The reachable case is the demo
+  league, whose year-clearing control deletes both owner records while a draft may still exist —
+  exactly when Reset is the button needed.
+- The test that named this case could not have caught it. Once `hasDraft` was removed the function
+  took no draft input at all, so "blocks the page even when a draft already exists" passed
+  byte-identical input to the test above it. It now covers no-draft, each pre-start phase, and each
+  running/finished phase separately.
 - Status: **implemented and in final pre-merge review** — not merged. Branch
   `platform/092-preseason-owner-gate-v2`; no PR opened.
 
