@@ -94,13 +94,37 @@ test('confirmPreseasonOwners invalidates the league standings for that year', as
   assert.deepEqual(stored?.value, ['Alice', 'Bob']);
 });
 
-test('confirmPreseasonOwners with <2 owners throws before persisting or invalidating', async () => {
-  await assert.rejects(
-    () => runCapturingTags(() => confirmPreseasonOwners('alpha', 2026, ['Alice'])),
-    /At least 2 owners required/
-  );
+test('confirmPreseasonOwners refuses an unusable owner list before persisting or invalidating', async () => {
+  // PLATFORM-092 — validate what the READER will see. Server Action arguments
+  // cross HTTP unvalidated, so the shell's own guards are not the enforcement.
+  const cases: Array<[string[], RegExp]> = [
+    [['Alice'], /at least 2 owners are required/i],
+    // A repeated name is a mistake to report, not something to quietly collapse
+    // into a shorter roster than the commissioner entered.
+    [['Alice', 'Alice', 'Bob'], /listed more than once/i],
+    // NoClaim is the absorber for unclaimed teams, never a person.
+    [['NoClaim', 'Alice'], /reserved for unclaimed teams/i],
+  ];
+  for (const [owners, expected] of cases) {
+    await assert.rejects(
+      () => runCapturingTags(() => confirmPreseasonOwners('alpha', 2026, owners)),
+      expected,
+      owners.join(',')
+    );
+    assert.equal(
+      await getAppState<string[]>('preseason-owners:alpha', '2026'),
+      null,
+      `no preseason owners persisted on the rejected path: ${owners.join(',')}`
+    );
+  }
+});
+
+test('confirmPreseasonOwners stores names exactly as entered, minus stray whitespace', async () => {
+  // Owner identity is the raw string everywhere downstream, so nothing is folded
+  // on the commissioner's behalf — two people really can be "Mike" and "mike".
+  await runCapturingTags(() => confirmPreseasonOwners('alpha', 2026, ['  Mike ', 'mike', 'Zach']));
   const stored = await getAppState<string[]>('preseason-owners:alpha', '2026');
-  assert.equal(stored, null, 'no preseason owners persisted on the rejected path');
+  assert.deepEqual(stored?.value, ['Mike', 'mike', 'Zach']);
 });
 
 test('beginPreseason invalidates the league standings (offseason→preseason)', async () => {

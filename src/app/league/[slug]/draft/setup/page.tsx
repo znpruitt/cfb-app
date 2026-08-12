@@ -3,8 +3,8 @@ import { notFound, redirect } from 'next/navigation';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
-import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
-import { getPreseasonOwners } from '@/lib/preseasonOwnerStore';
+import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
+import { resolveDraftSetupGate } from './draftSetupGate';
 import { draftScope, getDraftEligibleTeams, type DraftState } from '@/lib/draft';
 import teamsData from '@/data/teams.json';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
@@ -40,25 +40,21 @@ export default async function DraftSetupPage({
   const draftRecord = await getAppState<DraftState>(draftScope(slug), String(year));
   const draftState = draftRecord?.value ?? null;
 
-  // Pre-populate owners: prefer confirmed preseason owners, fall back to most recent archive
-  let priorOwners: string[] = [];
+  // PLATFORM-092 — the CURRENT confirmed roster, never a prior season's.
+  //
+  // This used to fall back to the most recent season ARCHIVE when no
+  // confirmation existed for the year being drafted, which is how a returning
+  // league reached a configured, dated draft while nothing had recorded who owns
+  // teams this year. Last season's owners are a fine thing to pre-fill the
+  // CONFIRMATION form with (`/admin/[slug]/preseason/owners` does exactly that);
+  // they are not a substitute for confirming them.
+  //
+  // Reading it here is also what reconciles the draft record: this page is the
+  // one place a commissioner returns to after changing owners, and the shell
+  // sends these names on its next write.
+  const roster = await getConfirmedRoster(slug, year);
+  const priorOwners = roster.owners;
   let priorChampOrder: string[] | null = null;
-
-  const confirmedOwners = await getPreseasonOwners(slug, year);
-  if (confirmedOwners !== null) {
-    priorOwners = confirmedOwners;
-  } else {
-    const years = await listSeasonArchives(slug);
-    const priorYears = years.filter((y) => y < year).sort((a, b) => b - a);
-    if (priorYears.length > 0) {
-      const priorArchive = await getSeasonArchive(slug, priorYears[0]!);
-      if (priorArchive) {
-        const rows = parseOwnersCsv(priorArchive.ownerRosterSnapshot);
-        const uniqueOwners = Array.from(new Set(rows.map((r) => r.owner).filter(Boolean)));
-        priorOwners = uniqueOwners.filter((o) => o !== 'NoClaim');
-      }
-    }
-  }
 
   // Build reverse championship order from most recent archive: last place picks first
   const archiveYears = await listSeasonArchives(slug);
@@ -79,6 +75,48 @@ export default async function DraftSetupPage({
   // Draft-eligible team count for auto-suggesting rounds (excludes NoClaim)
   const { items } = teamsData as TeamsJson;
   const fbsTeamCount = getDraftEligibleTeams(items).length;
+
+  // PLATFORM-092 — with no confirmed roster there is nothing to seed a draft
+  // with and `POST /api/draft/[slug]/[year]` will refuse to create one, so say so
+  // here rather than rendering a settings form whose save fails.
+  const setupGate = resolveDraftSetupGate({
+    isConfirmed: roster.isConfirmed,
+    draftPhase: draftState?.phase ?? null,
+    isPreseason: status?.state === 'preseason',
+    slug,
+    year,
+  });
+  if (setupGate) {
+    return (
+      <main className="mx-auto max-w-3xl px-6 py-10">
+        <Link
+          href={`/league/${slug}/`}
+          className="mb-6 inline-block text-sm text-blue-600 hover:underline dark:text-blue-400"
+        >
+          ← Back to {league.displayName}
+        </Link>
+        <h1 className="mt-2 text-2xl font-bold tracking-tight text-gray-950 dark:text-zinc-50">
+          {league.displayName} — {year} Draft Setup
+        </h1>
+        <section className="mt-8 rounded-lg border border-gray-200 bg-gray-50 p-5 dark:border-zinc-700 dark:bg-zinc-900">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
+            Confirm your {year} owners first
+          </h2>
+          <p className="mt-2 text-sm text-gray-600 dark:text-zinc-300">
+            A draft needs to know who is in the league this season. Record the {year} owners and
+            this page will pick up from there — last season&apos;s owners are offered as a starting
+            point.
+          </p>
+          <Link
+            href={setupGate.href}
+            className="mt-4 inline-block rounded-md bg-gray-900 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+          >
+            {setupGate.cta}
+          </Link>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-10">

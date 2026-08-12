@@ -6,6 +6,7 @@ import test from 'node:test';
 import { POST } from '../confirm/route';
 import { PUT, POST as CREATE_DRAFT } from '../route';
 import { addLeague } from '@/lib/leagueRegistry';
+import { savePreseasonOwners } from '@/lib/preseasonOwnerStore';
 import {
   setAppState,
   getAppState,
@@ -156,6 +157,10 @@ test.beforeEach(async () => {
     year: YEAR,
     createdAt: '2026-01-01T00:00:00.000Z',
   });
+  // PLATFORM-092 — a draft now takes its owners from the confirmed roster, so
+  // the create cases below need the precondition they always assumed. They
+  // exercise draftOrder validation, not the owner gate.
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
 });
 
 test.after(() => {

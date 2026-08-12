@@ -69,8 +69,10 @@ Supersedes: (none)
    remediation rounds whose fixes generated the next round's findings. The defect it never named:
    `DraftState.owners` is a COPY of the season roster, and the only screen that edits owners
    (`/admin/[slug]/preseason/owners`) does not touch the draft record, so nothing reconciles them.
-   v2 removes the copy rather than validating it. Closes follow-up (b) recorded under PLATFORM-091.
-   Post-mortem in `docs/prompt-registry.md`.
+   v2 removes the copy rather than validating it: a draft TAKES its owners from the confirmed
+   roster instead of accepting them from the request. PR #472 on
+   `platform/092-preseason-owner-gate-v2`, in pre-merge review, not merged. Closes follow-up (b)
+   recorded under PLATFORM-091. Post-mortem and execution record in `docs/prompt-registry.md`.
 10. **NEXT after 092 — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
 11. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup

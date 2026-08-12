@@ -52,6 +52,113 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v2
+
+- Purpose: enforce "owners must be confirmed before a draft can occur" by removing the unreconciled
+  copy of the roster that `DraftState` carries — not by validating that copy against its source.
+- Scope: new pure `selectors/confirmedRoster` + `server/confirmedRosterStore`; the create/update
+  paths and start transition in `/api/draft/[slug]/[year]`; the draft-setup page's owner seeding and
+  blocked state; the admin preseason checklist's roster fact; the owner-confirmation write boundary
+  and its entry form. No change to draft execution, canonical standings, lifecycle transitions, or
+  the post-start owner lock. No new durable state.
+- Outcome: a draft now TAKES its owners from the confirmed roster instead of accepting them from the
+  request, so a draft holding names nothing else agrees with is unrepresentable rather than merely
+  detected. Creation is gated on a confirmed roster; the setup page seeds from the current roster
+  (the archive fallback is deleted); reopening settings reconciles a draft after the roster changes
+  and carries `settings.draftOrder` with it; starting refuses a draft whose owners have gone stale,
+  with a remedy that works.
+- **Reconstruction, not remediation.** v1 validated submitted lists at each entry point and spent
+  two remediation rounds discovering new entry points — its fixes were generating the findings. The
+  rebuild deleted the owner-set matching, the case-insensitive comparison and the legacy carve-out,
+  replacing three "validate the request" guards with one "take the roster" rule.
+- Precedence deliberately differs from `resolvePreseason`: this answers "who is in the league",
+  which the commissioner controls, so the confirmation record must win or re-confirming an owner
+  becomes a silent no-op for the season. `resolvePreseason` answers "what standings rows can I
+  draw", which needs the team→owner mapping only the CSV carries. Different questions, different
+  records; the failure would be two answers to the SAME question.
+- Names are stored exactly as entered (whitespace trimmed only) because owner identity is the raw
+  string throughout `deriveStandings`. Duplicates and `NoClaim` are REFUSED at entry rather than
+  silently collapsed, and the entry form now applies the same rule the Server Action does.
+  `NoClaim` is filtered only on the CSV read path, where it genuinely occurs.
+- Recorded limit: the draft-setup RSC cannot be rendered under the test runner (admin-gated via
+  `canAccessDraftBoard`, which has no authorizing path without a Request), so its decision lives in
+  `setup/draftSetupGate.ts` and is pinned there; the JSX consuming it is not covered.
+- **Remediation round 1.** Both reviewers reported the same P1: the remedy this work advertises —
+  "reopen draft settings to pick up the roster" — was the one path that could NOT apply it.
+  `DraftSettingsPanel` seeded owners from the draft's stale copy rather than the roster the page
+  passes, and Codex added that Preview's "Back to Settings" reaches the same panel, so BOTH routes
+  back into settings returned the old list. Fixing the owner list alone was not enough: `manualOrder`
+  was seeded from the stored `draftOrder` too, so the panel still submitted an order that was not a
+  permutation of the owners beside it. The order is now reconciled as well — the commissioner's
+  sequence is kept for everyone still on the roster, departures drop out, additions append.
+- Also in the round: the `hasDraft` exception on the setup gate was deleted — it let a league with an
+  unconfirmed roster reach a page whose every write then refused, which is worse than an honest
+  block with a working next step; `draftOwnersMatchRoster` now requires distinct names (same-length
+  membership let `['Alice','Alice']` match `['Alice','Bob']` with Bob missing, reachable on
+  pre-092 drafts); the start transition distinguishes "never confirmed" from "changed since setup",
+  which also stops an unconfirmed league sliding through a comparison of two empty lists; and the
+  owner-confirmation form now applies `findOwnerListProblem`, the same rule the Server Action does,
+  so the two refusal reasons this work added cannot reach an enabled Save with no error surface.
+- **The P1 and the two components were invisible to mutation testing until component tests existed.**
+  Reverting the panel to the stale copy left the whole suite green. Server tests exercise the route;
+  the defect was which list the SCREEN submits. Two of the three assertions written to close that gap
+  were themselves wrong on the first attempt — a bare `/disabled/` match hit Tailwind's
+  `disabled:opacity-50`, and the first panel assertion targeted a list that only renders in manual
+  order mode.
+- **Draft-order input usability (folded in deliberately, not unrelated cleanup).** This work makes
+  "reopen draft settings" the official remedy for a stale roster, and the drag-to-reorder list is
+  the control a commissioner lands on when they follow it — so shipping the remedy while that
+  control was unusable would have been self-defeating. The position box was `w-8` (32px), which
+  minus padding and the number spinners left room for one digit, so position 10 and beyond read as
+  "1". Widening it exposed a second problem: the input reordered on every KEYSTROKE, so typing "10"
+  moved the row to position 1 on the first character and reshuffled the list under the cursor. It
+  now holds what is being typed locally and commits on blur or Enter, with Escape cancelling.
+- Recorded limit: this repo's harness renders statically and cannot fire events, so the input's
+  commit-on-blur wiring is not covered. The reorder arithmetic was extracted as a pure
+  `moveToPosition` export and pinned — it is the part that can silently drop an owner and make a
+  draft unconfirmable. Closing the wiring gap would mean adding jsdom or testing-library, which is
+  outside this change.
+- **Remediation round 2 (user-approved).** The setup gate has now been wrong in BOTH directions, so
+  the reasoning is recorded in the module rather than the history. The original `hasDraft` exception
+  let any existing draft through and escaped nothing — every write that page made was still refused.
+  Round 1 removed it outright, which also blocked RUNNING drafts, and this page carries the only
+  Reset Draft button and pick-timer control in the app (`DraftControls` has no importers; the board
+  links here from four places). The round-1 justification — "every write is refused anyway" — had
+  been checked for pre-start drafts only: a settings-only save and the reset route carry neither
+  `owners` nor `phase` and pass the gates untouched. The deciding fact is the draft's PHASE, not its
+  existence; pre-start is blocked, running and finished are not.
+- Blast radius was small and was overstated when first reported: creating a draft already requires a
+  confirmed roster, so a running draft essentially always has one. The reachable case is the demo
+  league, whose year-clearing control deletes both owner records while a draft may still exist —
+  exactly when Reset is the button needed.
+- The test that named this case could not have caught it. Once `hasDraft` was removed the function
+  took no draft input at all, so "blocks the page even when a draft already exists" passed
+  byte-identical input to the test above it. It now covers no-draft, each pre-start phase, and each
+  running/finished phase separately.
+- **Remediation round 3 (user-approved).** Five findings, all narrow, none re-opening a question
+  already answered wrong: the reorder seed de-duplicates (a pre-092 draft could hold
+  `owners: ['Alice','Alice']`, and seeding the duplicate made the submitted order longer than the
+  owner set, so the save failed the permutation check with no UI affordance to delete the row);
+  Reset now calls `router.refresh()` so the server-side gate is re-evaluated, because round 2's
+  exception for running drafts left the commissioner on a settings form whose saves all failed until
+  a manual reload; `findOwnerListProblem` accepts `unknown` and guards `Array.isArray`, since its
+  documented caller is a Server Action and Server Action arguments cross HTTP unvalidated; the
+  roster gate moved BELOW `isValidTransition`, so an illegal transition keeps its own diagnosis
+  rather than being sent to a screen that cannot help; and a PUT reads the roster ONCE, shared
+  lazily between the owners branch and the start transition, so a confirmation landing mid-request
+  can no longer 422 a draft the same request just reconciled.
+- Moving the gate below `isValidTransition` exposed two of this work's own tests as attempting
+  `setup → live`, which was never a legal transition — they asserted against the roster gate while
+  passing through a path production never takes. Both now advance to `settings` first, and a new
+  test pins that an illegal transition keeps its own message.
+- One reported finding was REFUTED with evidence rather than applied: that the owner-confirmation
+  shell was "the first `'use client'` component to import `@/lib/standings`". `CFBScheduleApp`,
+  `TrendsDetailSurface` and `SeasonArcChart` already do, so that dependency graph is in the client
+  bundle on every league page. The admin route is separately chunked, so the tidy is real but the
+  severity was not what was claimed; left as a follow-up.
+- Status: **implemented and in final pre-merge review** — not merged. Branch
+  `platform/092-preseason-owner-gate-v2`, PR #472.
+
 ### PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v1
 
 - Purpose: enforce the invariant "owners must be confirmed before a draft can occur", so a draft

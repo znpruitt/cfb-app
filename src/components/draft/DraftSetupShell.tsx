@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState } from '@/lib/draft';
 import DraftSettingsPanel from './DraftSettingsPanel';
@@ -33,6 +34,7 @@ export default function DraftSetupShell({
   fbsTeamCount,
   isAdmin,
 }: DraftSetupShellProps): React.ReactElement {
+  const router = useRouter();
   const [draftState, setDraftState] = useState<DraftState | null>(initialDraftState);
   const [backLoading, setBackLoading] = useState(false);
   const [backError, setBackError] = useState<string | null>(null);
@@ -189,6 +191,14 @@ export default function DraftSetupShell({
       const data = (await res.json()) as { draft?: DraftState; error?: string };
       if (res.ok && data.draft) {
         setDraftState(data.draft);
+        // PLATFORM-092 — the roster gate lives on the SERVER render of this page,
+        // and Reset only changes local state. A draft that reached `live` and then
+        // lost its roster records (the demo league's year-clearing control does
+        // exactly that) is allowed past the gate precisely so Reset stays
+        // reachable — but after resetting, the page must be re-rendered or the
+        // auto-advance below re-submits the draft's old owners, takes a 422, and
+        // strands the commissioner on a settings form whose saves all fail.
+        router.refresh();
       } else {
         setSettingsError(data.error ?? 'Failed to reset draft');
       }

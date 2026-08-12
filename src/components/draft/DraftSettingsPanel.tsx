@@ -16,6 +16,29 @@ type DraftSettingsPanelProps = {
   onAdvance: (draft: DraftState) => void;
 };
 
+/**
+ * Move one entry to a 1-based position, clamped to the list.
+ *
+ * Exported and pure so the reorder itself is provable: this repo's test harness
+ * renders statically and cannot fire events, so the input's commit-on-blur
+ * WIRING is not covered — see the note in
+ * `src/components/draft/__tests__/settingsOwnerSource.test.tsx`. Keeping the
+ * arithmetic here means the part that can silently corrupt a draft order is at
+ * least pinned.
+ */
+export function moveToPosition<T>(
+  order: readonly T[],
+  currentIdx: number,
+  newPosition: number
+): T[] {
+  const clamped = Math.max(1, Math.min(order.length, newPosition)) - 1;
+  if (clamped === currentIdx) return order as T[];
+  const next = [...order];
+  const [moved] = next.splice(currentIdx, 1);
+  next.splice(clamped, 0, moved!);
+  return next;
+}
+
 const TIMER_OPTIONS: { label: string; value: number | null }[] = [
   { label: 'No timer', value: null },
   { label: '30 seconds', value: 30 },
@@ -47,9 +70,19 @@ export default function DraftSettingsPanel({
   fbsTeamCount,
   onAdvance,
 }: DraftSettingsPanelProps): React.ReactElement {
+  // PLATFORM-092 — the confirmed roster wins over the draft's stored copy.
+  //
+  // This panel only ever renders pre-start (`DraftSetupShell` returns a different
+  // view for live/paused/complete), and pre-start a draft's owners ARE the
+  // roster. Reading `draftState.owners` first made reopening settings the one
+  // thing that could NOT reconcile a stale draft: it re-sent the old owner set,
+  // `buildDraftOrder` derived the old order from it, and the server — which
+  // re-derives owners from the roster — then rejected that order as not matching.
+  // The documented remedy for a stale draft was the very path that could not
+  // apply it.
   const [owners] = useState<string[]>(() => {
-    if (draftState.owners.length > 0) return draftState.owners;
-    return priorOwners.length > 0 ? priorOwners : [];
+    if (priorOwners.length > 0) return priorOwners;
+    return draftState.owners;
   });
   const existing = draftState.settings;
 
@@ -67,9 +100,25 @@ export default function DraftSettingsPanel({
   }
 
   const [orderMode, setOrderMode] = useState<DraftOrderMode>(detectInitialMode);
+  // PLATFORM-092 — the stored order must be reconciled against the roster too,
+  // not just the owner list beside it.
+  //
+  // Seeding this straight from `existing.draftOrder` left the panel submitting an
+  // order that was not a permutation of the owners it also submitted, which the
+  // server rejects — so fixing `owners` alone did NOT restore the reopen-settings
+  // remedy. Keep the commissioner's chosen sequence for everyone still on the
+  // roster, drop anyone who left, and append anyone new at the end.
   const [manualOrder, setManualOrder] = useState<string[]>(() => {
-    if (existing.draftOrder.length > 0) return existing.draftOrder;
-    return [...owners];
+    // De-duplicated: a draft created before this work could hold
+    // `owners: ['Alice','Alice']` (the old create route only filtered non-empty
+    // strings, and the default settings copy owners into the order). Seeding the
+    // duplicate through made the saved order longer than the owner set, so the
+    // save failed the permutation check — and there is no UI affordance to delete
+    // a row here, so the draft could be neither started nor repaired. Also stops
+    // React rendering two children with the same key.
+    const kept = [...new Set(existing.draftOrder.filter((o) => owners.includes(o)))];
+    const added = owners.filter((o) => !kept.includes(o));
+    return [...kept, ...added];
   });
   const [timerSeconds, setTimerSeconds] = useState<number | null>(existing.pickTimerSeconds);
   const [expiryBehavior, setExpiryBehavior] = useState<DraftSettings['timerExpiryBehavior']>(
@@ -150,15 +199,22 @@ export default function DraftSettingsPanel({
   }, []);
 
   // --- Direct number entry ---
+  // PLATFORM-092 — what the commissioner is TYPING, held separately from the
+  // committed order.
+  //
+  // The input used to reorder on every keystroke, so entering "10" moved the row
+  // to position 1 on the first character and the list reshuffled under the
+  // cursor. That was invisible while the box was too narrow to type two digits;
+  // widening it made it the normal experience for any league of ten or more.
+  // Only blur and Enter commit now.
+  const [positionDraft, setPositionDraft] = useState<{ owner: string; value: string } | null>(null);
+  // Escape must not commit. `blur()` runs before React re-renders, so the input
+  // still holds the typed text when `onBlur` fires — a ref is the only thing that
+  // survives that gap.
+  const cancelPositionRef = useRef(false);
+
   const handlePositionChange = useCallback((currentIdx: number, newPosition: number) => {
-    setManualOrder((prev) => {
-      const clamped = Math.max(1, Math.min(prev.length, newPosition)) - 1;
-      if (clamped === currentIdx) return prev;
-      const next = [...prev];
-      const [moved] = next.splice(currentIdx, 1);
-      next.splice(clamped, 0, moved!);
-      return next;
-    });
+    setManualOrder((prev) => moveToPosition(prev, currentIdx, newPosition));
   }, []);
 
   function buildDraftOrder(): string[] {
@@ -376,18 +432,42 @@ export default function DraftSettingsPanel({
                           <circle cx="8" cy="10" r="1" />
                         </svg>
                       </span>
-                      {/* Position number input */}
+                      {/* Position number input.
+
+                          A league can hold more than nine owners, and `w-8`
+                          (32px) minus padding minus the number spinners left
+                          room for a single digit — so position 10 and beyond
+                          read as "1". The arrows were unusable at that size
+                          anyway; suppressing them gives the whole width to
+                          text. */}
                       <input
                         type="number"
                         min={1}
                         max={manualOrder.filter((o) => owners.includes(o)).length}
-                        value={idx + 1}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value, 10);
-                          if (!isNaN(val)) handlePositionChange(idx, val);
+                        value={
+                          positionDraft?.owner === owner ? positionDraft.value : String(idx + 1)
+                        }
+                        onChange={(e) => setPositionDraft({ owner, value: e.target.value })}
+                        onBlur={(e) => {
+                          const raw = e.target.value;
+                          const cancelled = cancelPositionRef.current;
+                          cancelPositionRef.current = false;
+                          setPositionDraft(null);
+                          if (cancelled) return;
+                          const val = Number.parseInt(raw, 10);
+                          if (!Number.isNaN(val)) handlePositionChange(idx, val);
                         }}
-                        className="w-8 rounded border border-gray-200 bg-gray-50 px-1 py-0.5 text-center text-xs text-gray-700 dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200"
-                        title="Type a position number"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            e.currentTarget.blur();
+                          } else if (e.key === 'Escape') {
+                            cancelPositionRef.current = true;
+                            e.currentTarget.blur();
+                          }
+                        }}
+                        className="w-12 rounded border border-gray-200 bg-gray-50 px-1 py-0.5 text-center text-xs text-gray-700 [appearance:textfield] dark:border-zinc-600 dark:bg-zinc-700 dark:text-zinc-200 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                        title="Type a position number, then press Enter"
                       />
                       <span className="flex-1 text-sm text-gray-900 dark:text-zinc-100">
                         {owner}
