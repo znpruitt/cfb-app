@@ -52,6 +52,93 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-093-NEW-LEAGUE-PRESEASON-BIRTH-v1
+
+- Purpose: let a newly created league be set up. Every league was born `season`, and the whole
+  owner-confirmation flow is gated on `preseason`, so a new league could never confirm owners — and
+  since PLATFORM-092 it could not create a draft either.
+- Scope: `POST /api/admin/leagues` and the admin create form. Nothing else.
+- Outcome: a new league is born `{ state: 'preseason', year }`, and the season year is DERIVED
+  rather than entered. An unconfigured league with no owners, no roster and no draft is setting up,
+  not in season.
+- **The `season` default was never a product decision.** PLATFORM-086F2B chose it to preserve the
+  behaviour where a MISSING status was inferred as `{ state: 'season', year }`, making that
+  inference explicit so no new status-less records appeared. It carried the inference forward
+  without asking whether it was right.
+- **The year had nothing to choose.** There is only ever one season in play — either it is under way
+  or it is about to be — so creation derives it and REFUSES a supplied value, mirroring
+  `restoreFoundedYear` exactly: a value the adopting path must state and the ordinary path may not
+  send. Adoption still requires it, because it re-attaches a record to data belonging to a
+  particular season and deriving the current one would file old material under the wrong year with
+  no way to correct it (`updateLeague` and `PATCH` both refuse `year`).
+- **The derivation is the calendar year, and the absence of an adjustment is the point.**
+  `seasonYearForNewLeague` lives in `src/lib/league.ts` with the reasoning attached: February–July is
+  the upcoming season, August–December is that same season under way, and January belongs to the
+  UPCOMING season because a league created then is being set up for the following autumn, not
+  joining one that ends within days. `seasonYearForToday` (`month >= 6 ? year : year - 1`) answers
+  "which season's data am I looking at", is right for that, and is wrong here from January through
+  June — the tests pin the absence of that adjustment so a reader cannot "fix" it.
+- The create form now STATES the derived season instead of asking ("This league will be set up for
+  the N season"). A surface that quietly decides something this consequential should say what it
+  decided.
+- Removing the editable field broke the form's adoption path — the route requires a year there — so
+  ticking adopt now reveals a "Season to restore" field alongside the existing founding-year one.
+  The pre-existing adoption test caught it.
+- Known limitation, recorded not fixed: a league created for a season already under way is born
+  `preseason(Y)` and the season-transition cron flips it to `season(Y)` on its next run, because
+  kickoff minus 24h has already passed — leaving about a day to confirm owners. That is the
+  league-state/season-state conflation, planned as its own campaign in `docs/roadmap.md`.
+- **Remediation round 1.** Both reviewers reported the same defect and `/code-review` found a more
+  expensive one. (a) `restoreSeasonYear` survived a slug change: `handleSlugChange` retracts
+  adoption and clears `restoreFoundedYear`, and the new field was added beside it without being
+  added to that reset — the same stale-consent class the F2J retraction closed, and worse here
+  because the season year is what the data is filed under and cannot be changed afterwards.
+  (b) **Adoption must NOT be seeded `preseason`.** The settled scope said adoption was untouched;
+  seeding it `preseason` was a change made anyway, with a rationale invented after the fact. The
+  season-transition cron selects on `status.state === 'preseason'` and groups by `status.year`, so
+  restoring a 2024 league would enrol 2024 as a transition target — `shouldFetch` is unconditionally
+  true for a season that old — buying a billed regular + postseason CFBD refetch, a durable
+  re-commit of that season's schedule, and a standings invalidation, for a restoration that
+  previously cost nothing. Adoption keeps `season`. (c) A blank "Season to restore" submitted
+  `Number('') === 0`; the deleted year validation was replaced rather than merely removed. Note the
+  deliberate asymmetry preserved with the sibling field: a blank FOUNDING year is a meaningful
+  `null`, a blank season is simply missing. (d) `AGENTS.md` Lifecycle Authority invariants 1 and 3
+  and `docs/architecture/admin-control-plane.md` all still described the old seed and ingress rule;
+  `AGENTS.md` is binding, so a future slice reading it would have "restored" the `season` seed as a
+  correctness fix. (e) The empty-registry example and page header still instructed the operator to
+  supply a year.
+- **Two of my own mistakes surfaced only through mutation.** The blank-season guard was inserted into
+  the DELETE handler rather than `handleCreate` — `let authHeaders` appears twice in the file and the
+  first occurrence was replaced — so it never ran on the path it was written for. And the page test's
+  fetch mock refused residue only ONCE per test, which made a second residual slug unreachable and
+  therefore made the carried-over-season scenario untestable; it now refuses per-slug, faithful to
+  the route.
+- Recorded, not fixed: the create form derives its stated season from the CLIENT clock while the
+  record derives from the server's, so a tab left open across 00:00 UTC on 1 January could promise
+  one season and create another. Rare, self-evident on the resulting league page, and closing it
+  properly means confirming the year from the 201 response.
+- **Confirming pass.** Codex: clean. `/code-review`: four findings, all on the ADOPTION path, none
+  on the creation path this work exists for. Two corrected here; two recorded and deliberately not
+  fixed.
+- **The HIGH finding is PRE-EXISTING on `main`, and the attribution was checked rather than assumed.**
+  Adopting a league at a PAST season enrols that year for the nightly rollover, which rebuilds and
+  OVERWRITES the archive the restore existed to recover. `main` already seeds
+  `status: { state: 'season', year }` on every creation path, so this is `main`'s behaviour, not a
+  regression here — round 1 restored it. (The ORIGINAL 093 commit had briefly moved adoption to
+  `preseason`, which incidentally swapped one cron hazard for another; that was the regression, and
+  it is gone.) Recorded against the adoption/deletion follow-up in `docs/next-tasks.md`, which is
+  where "should adoption exist at all" already lives and which now has a concrete argument for "no".
+- Corrected: the "Season to restore" help text asserted the season year "is frozen once set" and
+  that a wrong season "cannot be corrected afterwards". Both false — the season year is
+  lifecycle-managed, and the surviving data is filed by its own year independently of `league.year`,
+  so it stays readable whichever season is chosen. Writing confident help text for a field whose
+  premise I had not verified is what produced the round-1 churn.
+- Not fixed, deliberately: the adoption year is validated for range but never cross-checked against
+  the residual scopes the route has already enumerated. A real improvement to a path that has never
+  been used; recorded rather than built during a two-week window that needs the creation path.
+- Status: **implemented and in final pre-merge review** — not merged. Branch
+  `platform/093-new-league-preseason-birth`, PR #473.
+
 ### PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v2
 
 - Purpose: enforce "owners must be confirmed before a draft can occur" by removing the unreconciled

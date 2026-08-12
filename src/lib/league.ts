@@ -31,6 +31,34 @@ export function isStructurallyValidSeasonYear(year: unknown): year is number {
   return typeof year === 'number' && Number.isSafeInteger(year) && year >= 1869;
 }
 
+/**
+ * PLATFORM-093 — the season a NEWLY CREATED league is for.
+ *
+ * There is only ever one season in play: either it is under way or it is about to
+ * be. So there is nothing for a commissioner to choose, and creation derives this
+ * rather than accepting it.
+ *
+ * The rule is simply the calendar year, and the absence of an adjustment is the
+ * part worth explaining:
+ *
+ *  - February through July — the season has not started; the upcoming one is this
+ *    calendar year.
+ *  - August through December — that same season is under way.
+ *  - January — the previous season's bowls and playoff are still finishing, but a
+ *    league created then is being set up for the FOLLOWING autumn, not joining a
+ *    season that ends within days. January therefore belongs to the upcoming
+ *    season, which is again the calendar year.
+ *
+ * **Do NOT reuse `seasonYearForToday`.** It answers "which season's data am I
+ * looking at" and returns the PREVIOUS year from January through June — correct
+ * there, because in February you are still reading the previous season's results,
+ * and wrong here, because a league created in February is for the season about to
+ * start.
+ */
+export function seasonYearForNewLeague(now: Date): number {
+  return now.getUTCFullYear();
+}
+
 /** Whether a year may enter the registry through new-league creation. */
 export function isCreatableSeasonYear(year: unknown, nowMs: number): year is number {
   return (

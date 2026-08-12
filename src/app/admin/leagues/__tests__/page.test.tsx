@@ -53,13 +53,13 @@ function league(slug: string): PublicLeague {
 
 let requests: Array<{ method: string; url: string }> = [];
 let bodies: Array<Record<string, unknown>> = [];
-let adoptOffered = false;
+/** Slugs the fake route treats as holding surviving data. */
+const RESIDUAL_SLUGS = new Set(['ghost', 'phantom']);
 const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
   requests = [];
   bodies = [];
-  adoptOffered = false;
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
@@ -67,11 +67,18 @@ beforeEach(() => {
     if (init?.body) bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
     if (method === 'GET') return Response.json({ leagues: [league('alpha'), league('bravo')] });
     if (method === 'DELETE') return Response.json({ leagues: [league('bravo')] });
-    if (method === 'POST' && !adoptOffered) {
-      adoptOffered = true;
-      return new Response('Stored data still exists for slug "ghost" (2 record group(s)).', {
-        status: 409,
-      });
+    // PLATFORM-093 — faithful to the route rather than one-shot: it refuses a
+    // slug holding residue UNLESS the caller acknowledges adoption. The previous
+    // single-use flag made a second residual slug unreachable, which is exactly
+    // the scenario that carries stale recovery state between slugs.
+    if (method === 'POST') {
+      const sent = bodies[bodies.length - 1] ?? {};
+      const slug = String(sent.slug ?? '');
+      if (RESIDUAL_SLUGS.has(slug) && sent.adoptExistingData !== true) {
+        return new Response(`Stored data still exists for slug "${slug}" (2 record group(s)).`, {
+          status: 409,
+        });
+      }
     }
     return Response.json({});
   }) as typeof globalThis.fetch;
@@ -245,11 +252,19 @@ test('the residue refusal offers adoption, and adopting sends the restored year'
   });
 
   await user.click(checkbox);
-  const yearField = await waitFor(() => {
-    const field = container.querySelector('#restore-founded-year') as HTMLInputElement | null;
-    assert.ok(field, 'ticking it reveals the founding-year field');
+  // PLATFORM-093 — ticking adopt reveals BOTH years. Ordinary creation derives
+  // the season and sends none; a restoration must state the season its data
+  // belongs to, because filing old material under the current season cannot be
+  // corrected afterwards.
+  const seasonField = await waitFor(() => {
+    const field = container.querySelector('#restore-season-year') as HTMLInputElement | null;
+    assert.ok(field, 'ticking it reveals the season field');
     return field;
   });
+  await user.type(seasonField, '2024');
+
+  const yearField = container.querySelector('#restore-founded-year') as HTMLInputElement | null;
+  assert.ok(yearField, 'ticking it reveals the founding-year field');
   await user.type(yearField, '2019');
 
   submitCreate(container);
@@ -258,10 +273,33 @@ test('the residue refusal offers adoption, and adopting sends the restored year'
   assert.deepEqual(bodies[1], {
     slug: 'ghost',
     displayName: 'Ghost',
-    year: 2026,
+    year: 2024,
     adoptExistingData: true,
     restoreFoundedYear: 2019,
   });
+});
+
+test('ordinary creation sends no year at all, and states the season it derived', async () => {
+  // The route refuses a supplied year on ordinary creation, so a form that kept
+  // sending one would fail every create. The season is shown rather than asked:
+  // a surface that quietly decides something this consequential should say what
+  // it decided.
+  const user = userEvent.setup({ document: dom.window.document });
+  const { container } = renderPage();
+
+  const expected = new Date().getUTCFullYear();
+  assert.match(
+    container.textContent ?? '',
+    new RegExp(`This league will be set up for the\\s*${expected}\\s*season`),
+    'the derived season is stated on the form'
+  );
+  assert.equal(container.querySelector('#create-year'), null, 'the editable year field is gone');
+
+  await fillCreateForm(container, user, { slug: 'fresh', name: 'Fresh' });
+  submitCreate(container);
+  await waitFor(() => assert.ok(bodies.length >= 1, 'a POST was issued'));
+
+  assert.deepEqual(bodies[0], { slug: 'fresh', displayName: 'Fresh' });
 });
 
 // REGRESSION TEST — the acknowledgement is granted for ONE slug.
@@ -285,6 +323,13 @@ test('editing the slug retracts the adoption acknowledgement', async () => {
   await user.click(checkbox);
   await waitFor(() => assert.ok(container.querySelector('#restore-founded-year')));
 
+  // PLATFORM-093 — fill BOTH restoration fields, so the assertions below can see
+  // a value survive rather than merely seeing a field disappear. The season is
+  // the more damaging of the two to carry across: it is what the data gets filed
+  // under, and `updateLeague` and `PATCH` both refuse to change it afterwards.
+  await user.type(container.querySelector('#restore-season-year') as HTMLInputElement, '2019');
+  await user.type(container.querySelector('#restore-founded-year') as HTMLInputElement, '2019');
+
   // The operator realises it is a different league and changes the slug.
   await user.clear(container.querySelector('#create-slug') as HTMLInputElement);
   await user.type(container.querySelector('#create-slug') as HTMLInputElement, 'other');
@@ -298,6 +343,10 @@ test('editing the slug retracts the adoption acknowledgement', async () => {
       container.querySelector('#restore-founded-year') === null,
       'and the founding-year field goes with it'
     );
+    assert.ok(
+      container.querySelector('#restore-season-year') === null,
+      'and so does the season field'
+    );
   });
 
   submitCreate(container);
@@ -308,6 +357,45 @@ test('editing the slug retracts the adoption acknowledgement', async () => {
     'the new slug is created ordinarily, so the route surveys it'
   );
   assert.ok(!('restoreFoundedYear' in bodies[1]!));
+  assert.ok(!('year' in bodies[1]!), 'and no season carried over from the abandoned slug');
+});
+
+test('a re-ticked adoption on a NEW slug starts with an empty season field', async () => {
+  // The field disappearing is not the same as its VALUE being cleared. React
+  // keeps unmounted state only if the owner does — and this owner did, so
+  // re-ticking adopt for a second residual slug re-opened the field still
+  // pre-filled with the first slug's season, and submitted it.
+  const user = userEvent.setup({ document: dom.window.document });
+  const { container } = renderPage();
+
+  await fillCreateForm(container, user, { slug: 'ghost', name: 'Ghost' });
+  submitCreate(container);
+  const first = await waitFor(() => {
+    const box = container.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+    assert.ok(box);
+    return box;
+  });
+  await user.click(first);
+  await user.type(container.querySelector('#restore-season-year') as HTMLInputElement, '2019');
+
+  // Move to a different slug that ALSO holds residue, and acknowledge it.
+  await user.clear(container.querySelector('#create-slug') as HTMLInputElement);
+  await user.type(container.querySelector('#create-slug') as HTMLInputElement, 'phantom');
+  await waitFor(() => assert.equal(container.querySelector('input[type="checkbox"]'), null));
+  submitCreate(container);
+  const second = await waitFor(() => {
+    const box = container.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+    assert.ok(box, 'the second residual slug offers adoption in its own right');
+    return box;
+  });
+  await user.click(second);
+
+  const seasonField = await waitFor(() => {
+    const field = container.querySelector('#restore-season-year') as HTMLInputElement | null;
+    assert.ok(field);
+    return field;
+  });
+  assert.equal(seasonField.value, '', 'no season carried over from the abandoned slug');
 });
 
 // A blank founding year is an explicit "none recorded", sent as null. Omission is
@@ -327,9 +415,43 @@ test('a blank founding year is sent as an explicit null', async () => {
   });
   await user.click(checkbox);
   await waitFor(() => assert.ok(container.querySelector('#restore-founded-year')));
+  // PLATFORM-093 — the two restoration fields are NOT symmetric. A restoration
+  // must state the season its data belongs to, so that field is required; the
+  // founding year may legitimately be absent, and blank still means null.
+  await user.type(container.querySelector('#restore-season-year') as HTMLInputElement, '2024');
 
   submitCreate(container);
   await waitFor(() => assert.ok(bodies.length >= 2));
   assert.equal(bodies[1]!.adoptExistingData, true);
+  assert.equal(bodies[1]!.year, 2024);
   assert.equal(bodies[1]!.restoreFoundedYear, null, 'null, not 0 and not omitted');
+});
+
+test('a blank "Season to restore" is refused here, not sent as year 0', () => {
+  // The old year validation was deleted with the field rather than moved, so a
+  // blank season submitted `Number('') === 0` and came back as an opaque range
+  // error from the route. Note the deliberate asymmetry with the sibling field:
+  // a blank FOUNDING year is a meaningful null, a blank season is just missing.
+  return (async () => {
+    const user = userEvent.setup({ document: dom.window.document });
+    const { container } = renderPage();
+
+    await fillCreateForm(container, user, { slug: 'ghost', name: 'Ghost' });
+    submitCreate(container);
+    const checkbox = await waitFor(() => {
+      const box = container.querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+      assert.ok(box);
+      return box;
+    });
+    await user.click(checkbox);
+    await waitFor(() => assert.ok(container.querySelector('#restore-season-year')));
+
+    const before = bodies.length;
+    submitCreate(container);
+
+    await waitFor(() =>
+      assert.match(container.textContent ?? '', /Season to restore must be a valid season year/)
+    );
+    assert.equal(bodies.length, before, 'no request is issued for a blank season');
+  })();
 });
