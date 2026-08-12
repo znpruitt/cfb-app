@@ -136,8 +136,8 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - Not fixed, deliberately: the adoption year is validated for range but never cross-checked against
   the residual scopes the route has already enumerated. A real improvement to a path that has never
   been used; recorded rather than built during a two-week window that needs the creation path.
-- Status: **implemented and in final pre-merge review** — not merged. Branch
-  `platform/093-new-league-preseason-birth`, PR #473.
+- Status: ✅ **MERGED** via PR #473 (`7deafdb3`), 2026-08-12. Branch
+  `platform/093-new-league-preseason-birth` deleted.
 
 ### PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v2
 
