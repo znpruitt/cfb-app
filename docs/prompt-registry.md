@@ -192,8 +192,20 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
     so "incomplete" was false, and it routed the checklist to the setup screen while the only publish
     control sits on the summary page — the dead end reached through the reopen door. The blocker now
     defers to `selectDraftPublicationControls`, so one definition of "publishable" serves both.
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3724/3724
-  (+52 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
+- **An END-TO-END walk was added, and it should have existed first.** Every other suite on this
+  campaign seeds its starting state, so each seam was verified against records written by hand and
+  the PATH between them never was — which is exactly how the original defect survived: the pieces
+  all passed while a finished draft had no reachable publish control.
+  `__tests__/preseason-to-setup-complete.test.ts` drives the real handlers in the order a
+  commissioner uses them (confirm owners → create → settings → live → every pick → confirm →
+  checklist → Complete Setup), asserting only on state the production code produced, with a
+  positive control that stops before publishing and must be refused. It caught a real gap on first
+  run: a draft is born in `setup` and the transition map is `setup → settings → live`, so starting
+  one is two steps, not one — a fact no seam test could surface. Mutation against this file ALONE
+  kills confirm-not-recording-publication, the checklist ticking unconditionally, the checklist link
+  reverting to setup, and `completeSetup` dropping its check.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3726/3726
+  (+54 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
   — `completeSetup`'s refusal and the confirm route's atomicity — and coverage was added before they
   failed. Atomicity on the confirm path is a labelled STRUCTURAL pin: the only injectable store
   failure is lock acquisition, which aborts before either write and cannot distinguish a
