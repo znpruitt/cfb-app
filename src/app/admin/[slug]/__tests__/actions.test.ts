@@ -10,13 +10,14 @@ import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage
 import { confirmPreseasonOwners, beginPreseason, completeSetup } from '../actions';
 import { __withAdminActionAuthorizerForTests } from '../../../../lib/auth/requireAdminAction.ts';
 import type { League } from '../../../../lib/league.ts';
-import { draftScope, draftPicksDigest } from '../../../../lib/draft.ts';
+import { draftScope } from '../../../../lib/draft.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   getAppState,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
+import { draftPicksSignature } from '../../../../lib/selectors/draftPublication.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-071 — preseason lifecycle server actions must invalidate standings.
@@ -142,7 +143,7 @@ async function seedAssignedTeams(slug: string, year: number): Promise<void> {
   await setAppState(draftScope(slug), String(year), {
     phase: 'complete',
     picks,
-    publishedPicks: draftPicksDigest(picks),
+    publishedPicks: draftPicksSignature(picks),
   });
   await setAppState(`owners:${slug}:${year}`, 'csv', 'team,owner\nTexas,Alice\nOhio State,Bob');
 }
@@ -356,7 +357,7 @@ test('completeSetup refuses a draft whose picks changed after it published', asy
   await setAppState(draftScope('alpha'), '2026', {
     phase: 'complete',
     picks: [{ ...SEED_PICKS[0]!, team: 'Michigan' }, SEED_PICKS[1]!],
-    publishedPicks: draftPicksDigest(SEED_PICKS),
+    publishedPicks: draftPicksSignature(SEED_PICKS),
   });
 
   await assert.rejects(

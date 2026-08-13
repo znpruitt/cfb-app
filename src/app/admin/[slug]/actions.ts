@@ -20,13 +20,14 @@ import {
   setAppState,
   withAppStateKeyTransaction,
 } from '@/lib/server/appStateStore';
-import { draftScope, draftPicksDigest, type DraftState, type DraftPick } from '@/lib/draft';
+import { draftScope, type DraftState, type DraftPick } from '@/lib/draft';
 import { cleanOwnerNames, findOwnerListProblem } from '@/lib/selectors/confirmedRoster';
 import { getTeamAssignment } from '@/lib/server/teamAssignmentStore';
 import { TEST_LEAGUE_SLUG, type LeagueStatus } from '@/lib/league';
 import type { AutoCompleteDraftResult, TestControlResult } from '@/lib/testLeagueControl';
 import { requireAdminAction } from '@/lib/auth/requireAdminAction';
 import teamsData from '@/data/teams.json';
+import { draftPicksSignature } from '@/lib/selectors/draftPublication';
 
 /** The admin path the demo controls revalidate. */
 const TEST_LEAGUE_ADMIN_PATH = `/admin/${TEST_LEAGUE_SLUG}`;
@@ -476,7 +477,7 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
     picks: allPicks,
     currentPickIndex: totalPicks,
     phase: 'complete',
-    publishedPicks: draftPicksDigest(allPicks),
+    publishedPicks: draftPicksSignature(allPicks),
     timerState: 'off',
     timerExpiresAt: null,
     updatedAt: now,

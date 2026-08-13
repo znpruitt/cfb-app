@@ -4,7 +4,8 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 import DraftSummaryClient from '../DraftSummaryClient';
-import { draftPicksDigest, type DraftState, type DraftPick } from '@/lib/draft';
+import { type DraftState, type DraftPick } from '@/lib/draft';
+import { draftPicksSignature } from '@/lib/selectors/draftPublication';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-094 — the dead end.
@@ -60,7 +61,7 @@ function draftWith(overrides: Partial<DraftState> = {}): DraftState {
 /** A draft that has published exactly the picks it currently holds. */
 function published(overrides: Partial<DraftState> = {}): DraftState {
   const draft = draftWith(overrides);
-  return { ...draft, publishedPicks: draftPicksDigest(draft.picks) };
+  return { ...draft, publishedPicks: draftPicksSignature(draft.picks) };
 }
 
 function render(draft: DraftState, isAdmin = true): string {
@@ -107,12 +108,55 @@ test('a draft whose picks changed since publishing can be published again', () =
   assert.doesNotMatch(html, /Reopen Draft/);
 });
 
-test('an unfinished draft offers neither control', () => {
-  // Mid-draft the summary is a results view, not a publication screen.
-  const html = render(draftWith({ phase: 'live', publishedPicks: null }));
+test('a draft with picks still outstanding offers neither control', () => {
+  // Mid-draft the summary is a results view, not a publication screen. The test
+  // that stood here seeded a `live` draft with a FULL pick set and asserted no
+  // controls — which described the reopen dead end rather than an unfinished
+  // draft, and passed while the bug was live. What makes a draft publishable is
+  // that every configured pick is in.
+  const html = render(
+    draftWith({
+      phase: 'live',
+      publishedPicks: null,
+      picks: picks(['Texas']),
+      settings: {
+        style: 'snake',
+        draftOrder: [...OWNERS],
+        pickTimerSeconds: 60,
+        timerExpiryBehavior: 'pause-and-prompt',
+        totalRounds: 1,
+        scheduledAt: null,
+      },
+    })
+  );
 
-  assert.doesNotMatch(html, /Confirm Draft/);
+  assert.doesNotMatch(html, /Confirm Draft/, '1 of 2 picks made');
   assert.doesNotMatch(html, /Reopen Draft/);
+});
+
+test('a REOPENED draft can still be published', () => {
+  // Both reviewers, P1/HIGH. Reopen preserves every pick and sets `phase: 'live'`,
+  // so a condition requiring `complete` withheld Confirm, while Reopen was
+  // withheld because publication had lapsed — leaving NEITHER control on the
+  // only screen that can call POST /confirm. A commissioner who reopened to fix
+  // one pick had no way back: the same dead end this work exists to remove.
+  const reopened = { ...published(), phase: 'live' as const };
+  const html = render(reopened);
+
+  assert.match(html, /Confirm Draft/, 'the way back to publication is open');
+  assert.doesNotMatch(html, /Reopen Draft/, 'already reopened');
+});
+
+test('a reopened draft whose picks were then edited can still be published', () => {
+  // The realistic sequence: reopen, fix a pick, publish. The edit deliberately
+  // does NOT rewrite live ownership, so Confirm is the only thing that can.
+  const reopened = {
+    ...published(),
+    phase: 'live' as const,
+    picks: picks(['Michigan', 'Ohio State']),
+  };
+
+  assert.match(render(reopened), /Confirm Draft/);
 });
 
 test('neither control is offered to a non-admin', () => {

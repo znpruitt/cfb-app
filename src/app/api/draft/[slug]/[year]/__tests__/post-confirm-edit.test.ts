@@ -4,6 +4,7 @@ import './_setup/installAsyncLocalStorage';
 import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { PUT } from '../pick/[n]/route';
@@ -18,16 +19,10 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
 } from '@/lib/server/appStateStore';
-import {
-  type DraftState,
-  type DraftPick,
-  draftScope,
-  draftPicksDigest,
-  getDraftEligibleTeams,
-  isDraftPublished,
-} from '@/lib/draft';
+import { type DraftState, type DraftPick, draftScope, getDraftEligibleTeams } from '@/lib/draft';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import teamsData from '@/data/teams.json';
+import { draftPicksSignature, isDraftPublished } from '@/lib/selectors/draftPublication';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-072 — post-confirm draft pick edit ownership drift.
@@ -320,7 +315,7 @@ test('confirm records the picks it published', async () => {
 
   const draft = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
   assert.equal(draft?.phase, 'complete');
-  assert.equal(draft?.publishedPicks, draftPicksDigest(draft!.picks));
+  assert.equal(draft?.publishedPicks, draftPicksSignature(draft!.picks));
   assert.equal(isDraftPublished(draft), true);
 });
 
@@ -451,6 +446,51 @@ test('a published draft stays published when its edit carries the roster along',
 
   const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
   assert.equal(isDraftPublished(after), true, 'still describes the stored roster');
-  assert.equal(after?.publishedPicks, draftPicksDigest(after!.picks));
+  assert.equal(after?.publishedPicks, draftPicksSignature(after!.picks));
   assert.equal((await readOwnerByTeam())?.get(TEAM_C.toLowerCase()), 'Owner1');
+});
+
+test('an edit does not claim publication when there was no roster to carry', async () => {
+  // `PUT /api/owners` can blank the CSV without touching the draft, so a
+  // published draft can have nothing left to patch. Re-stamping on
+  // `wasPublished` alone then recorded a publication of picks NO roster
+  // describes — which keeps Confirm hidden and lets a later unrelated repair
+  // import satisfy readiness against picks it never described.
+  //
+  // This guard existed on the abandoned branch and was lost in the rebuild;
+  // re-deriving rather than cherry-picking is required, and this is what it cost.
+  await seedConfirmed();
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', null);
+
+  const { result: res, tags } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(after?.picks[0]?.team, TEAM_C, 'the edit itself still lands');
+  assert.equal(isDraftPublished(after), false, 'no roster was carried, so no claim');
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    [],
+    'and nothing was invalidated'
+  );
+});
+
+test('a pick edit reads the draft inside its own transaction', () => {
+  // Structural pin. The route writes inside a transaction but used to read from
+  // a snapshot taken before it — atomicity without isolation. A confirmation
+  // committing in between was then overwritten by this write, wiping the
+  // publication it had just recorded and leaving a roster the draft no longer
+  // claimed. `confirm-eligibility.test.ts` pins the same rule for the publish
+  // path; observing the interleaving directly needs two requests suspended
+  // mid-transaction, which the store exposes no seam for.
+  const source = readFileSync(new URL('../pick/[n]/route.ts', import.meta.url), 'utf8');
+  const txnAt = source.indexOf('withAppStateKeyTransaction');
+  assert.ok(txnAt > 0);
+  assert.match(
+    source.slice(txnAt),
+    /await txn\.read<DraftState>\(\)/,
+    'the picks written must come from the transaction itself'
+  );
 });

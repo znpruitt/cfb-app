@@ -11,9 +11,10 @@ import {
   __resetAppStateForTests,
 } from '@/lib/server/appStateStore';
 
-import { draftScope, draftPicksDigest, type DraftPick } from '@/lib/draft';
+import { draftScope, type DraftPick } from '@/lib/draft';
 import { resolveDraftSetupGate } from '../setup/draftSetupGate';
 import PreseasonPage from '../../../../admin/[slug]/preseason/page';
+import { draftPicksSignature } from '@/lib/selectors/draftPublication';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-092 — AGENTS.md: "Every surface a PR touches must carry its own
@@ -102,7 +103,7 @@ test('the checklist ticks Teams assigned only when the draft PUBLISHED', async (
   await setAppState(draftScope(SLUG), String(YEAR), {
     phase: 'complete',
     picks,
-    publishedPicks: draftPicksDigest(picks),
+    publishedPicks: draftPicksSignature(picks),
   });
   assert.equal(
     markerFor(await renderChecklist(), 'Teams assigned'),
@@ -115,7 +116,7 @@ test('the checklist ticks Teams assigned only when the draft PUBLISHED', async (
   await setAppState(draftScope(SLUG), String(YEAR), {
     phase: 'complete',
     picks: picksFor(['Michigan', 'Ohio State']),
-    publishedPicks: draftPicksDigest(picks),
+    publishedPicks: draftPicksSignature(picks),
   });
   assert.equal(markerFor(await renderChecklist(), 'Teams assigned'), '○');
 });

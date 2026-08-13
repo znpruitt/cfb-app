@@ -1,5 +1,6 @@
-import { isDraftPublished, type DraftState } from '../draft.ts';
+import { type DraftState } from '../draft.ts';
 import { hasUsableOfficialRoster } from './confirmedRoster.ts';
+import { isDraftPublished } from './draftPublication.ts';
 
 /**
  * PLATFORM-094 — the ONE answer to "have this league's teams been assigned?"

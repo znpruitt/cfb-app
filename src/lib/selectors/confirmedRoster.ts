@@ -122,13 +122,6 @@ export function findOwnerListProblem(names: unknown): string | null {
 }
 
 /**
- * Resolve the confirmed roster from the two stored records.
- *
- * `NoClaim` is dropped from the CSV path only — that is where it legitimately
- * appears, as the absorber for teams no owner holds. It is never dropped from
- * typed input; `findOwnerListProblem` refuses it there instead.
- */
-/**
  * The owner names carried by the OFFICIAL `owners:{slug}:{year}` CSV, with
  * `NoClaim` (the absorber for unclaimed teams) removed.
  *
@@ -151,6 +144,13 @@ export function hasUsableOfficialRoster(csvRecord: unknown): boolean {
   return officialRosterOwners(csvRecord).length >= MIN_CONFIRMED_OWNERS;
 }
 
+/**
+ * Resolve the confirmed roster from the two stored records.
+ *
+ * `NoClaim` is dropped from the CSV path only — that is where it legitimately
+ * appears, as the absorber for teams no owner holds. It is never dropped from
+ * typed input; `findOwnerListProblem` refuses it there instead.
+ */
 export function selectConfirmedRoster(input: ConfirmedRosterInput): ConfirmedRoster {
   const confirmed = cleanOwnerNames(input.confirmedOwnersRecord);
   if (confirmed.length >= MIN_CONFIRMED_OWNERS) {

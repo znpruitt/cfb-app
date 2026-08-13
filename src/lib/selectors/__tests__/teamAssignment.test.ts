@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { draftPicksDigest, type DraftPick, type DraftState } from '../../draft.ts';
+import { type DraftPick, type DraftState } from '../../draft.ts';
 import { selectTeamAssignment, type TeamAssignmentInput } from '../teamAssignment.ts';
+import { draftPicksSignature } from '../draftPublication.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-094 — the checklist and the Complete Setup action decided this
@@ -44,7 +45,7 @@ function draft(
   return {
     phase: 'complete',
     picks: base,
-    publishedPicks: draftPicksDigest(base),
+    publishedPicks: draftPicksSignature(base),
     ...overrides,
   };
 }
@@ -238,7 +239,7 @@ test('the blocker names the step the operator actually has to take', () => {
 
 test('the digest distinguishes every edit that changes who owns what', () => {
   const base = picks();
-  assert.equal(draftPicksDigest(base), draftPicksDigest(picks()), 'deterministic');
+  assert.equal(draftPicksSignature(base), draftPicksSignature(picks()), 'deterministic');
 
   const variants: [string, DraftPick[]][] = [
     ['a removed pick', base.slice(0, 1)],
@@ -266,7 +267,7 @@ test('the digest distinguishes every edit that changes who owns what', () => {
     ],
   ];
   for (const [label, variant] of variants) {
-    assert.notEqual(draftPicksDigest(variant), draftPicksDigest(base), label);
+    assert.notEqual(draftPicksSignature(variant), draftPicksSignature(base), label);
   }
 });
 
@@ -280,14 +281,12 @@ test('the digest ignores metadata that does not change ownership', () => {
     pickedAt: '2027-01-01T00:00:00.000Z',
     autoSelected: true,
   }));
-  assert.equal(draftPicksDigest(restamped), draftPicksDigest(base));
+  assert.equal(draftPicksSignature(restamped), draftPicksSignature(base));
 });
 
 test('adding a pick cannot collide with editing one', () => {
-  // The pick COUNT is carried alongside the hash precisely so a longer draft can
-  // never be mistaken for a re-ordered one of the same length.
-  const two = draftPicksDigest(picks());
-  const three = draftPicksDigest(
+  const two = draftPicksSignature(picks());
+  const three = draftPicksSignature(
     picks([
       ['Alice', 'Texas'],
       ['Bob', 'Ohio State'],
@@ -295,6 +294,39 @@ test('adding a pick cannot collide with editing one', () => {
     ])
   );
   assert.notEqual(two, three);
-  assert.match(two, /^2-/);
-  assert.match(three, /^3-/);
+});
+
+test('two different real drafts never share a signature', () => {
+  // Regression for a DEMONSTRATED collision. The signature was a 32-bit FNV-1a
+  // hash whose comment claimed it was "practically collision-free for this
+  // domain"; review found these two catalog-real pick sets, which both hashed to
+  // `3-5a8e6545`. Publish the first, reset, run the draft again into the second,
+  // and the retained value matched — so readiness passed against the OLD roster
+  // and Confirm stayed hidden. The representation is injective now, so this is
+  // not a question of probability.
+  const a = picks([
+    ['Alice', 'App State'],
+    ['Bob', 'Buffalo'],
+    ['Carol', 'South Carolina'],
+  ]);
+  const b = picks([
+    ['Alice', 'Arkansas'],
+    ['Bob', 'Bowling Green'],
+    ['Carol', 'Fresno State'],
+  ]);
+  assert.notEqual(draftPicksSignature(a), draftPicksSignature(b));
+});
+
+test('the signature is unambiguous for names containing its own punctuation', () => {
+  // An injective encoding has to survive names that look like delimiters —
+  // otherwise "A,B" + "C" and "A" + "B,C" would be indistinguishable.
+  const left = picks([
+    ['Alice', 'Texas A&M'],
+    ['Bob"X', 'Ohio State'],
+  ]);
+  const right = picks([
+    ['Alice', 'Texas A&M'],
+    ['Bob', 'X","Ohio State'],
+  ]);
+  assert.notEqual(draftPicksSignature(left), draftPicksSignature(right));
 });

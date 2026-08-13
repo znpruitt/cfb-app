@@ -15,7 +15,7 @@ import {
   requireAdminAction,
 } from '../../../../lib/auth/requireAdminAction.ts';
 import type { League } from '../../../../lib/league.ts';
-import { draftScope, draftPicksDigest } from '../../../../lib/draft.ts';
+import { draftScope } from '../../../../lib/draft.ts';
 
 const SEED_AT = '2026-08-01T00:00:00.000Z';
 import {
@@ -25,6 +25,7 @@ import {
   listAppStateScopes,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
+import { draftPicksSignature } from '../../../../lib/selectors/draftPublication.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-086F2H1SB — every admin Server Action authorizes at its own boundary.
@@ -117,7 +118,7 @@ async function seedWorld(): Promise<void> {
   await setAppState(draftScope('bravo'), '2026', {
     phase: 'complete',
     picks: bravoPicks,
-    publishedPicks: draftPicksDigest(bravoPicks),
+    publishedPicks: draftPicksSignature(bravoPicks),
   });
   await setAppState('owners:bravo:2026', 'csv', 'team,owner\nTexas,Alice\nOhio State,Bob');
   await setAppState('preseason-owners:test', '2026', ['Alice', 'Bob']);

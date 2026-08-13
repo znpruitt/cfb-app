@@ -7,12 +7,12 @@ import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import {
   type DraftState,
   draftScope,
-  draftPicksDigest,
   getDraftEligibleTeams,
   buildConfirmedOwnersCsv,
 } from '@/lib/draft';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import teamsData from '@/data/teams.json';
+import { draftPicksSignature } from '@/lib/selectors/draftPublication';
 
 type TeamsJson = { items: TeamCatalogItem[] };
 
@@ -170,11 +170,11 @@ export async function POST(
       //   scope = owners:${slug}:${year}   key = 'csv'
       await txn.writeKey(`owners:${slug}:${year}`, 'csv', csvString);
 
-      // The roster and the record of WHICH PICKS produced it commit together.
+      // The roster and the signature of WHICH PICKS produced it commit together.
       const published: DraftState = {
         ...draft,
         phase: 'complete',
-        publishedPicks: draftPicksDigest(draft.picks),
+        publishedPicks: draftPicksSignature(draft.picks),
         updatedAt: confirmedAt,
       };
       await txn.write<DraftState>(published);

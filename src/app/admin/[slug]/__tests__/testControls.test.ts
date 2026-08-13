@@ -53,7 +53,7 @@ function runWithRevalidateContext<T>(fn: () => Promise<T>): Promise<T> {
 import { autoCompleteDraft, resetTestLeague, setTestLeagueStatus } from '../actions';
 import { TEST_LEAGUE_SLUG, type League } from '../../../../lib/league.ts';
 import { TEST_LEAGUE_RESET_YEAR } from '../../../../lib/leagueRegistry.ts';
-import { draftScope, isDraftPublished, type DraftState } from '../../../../lib/draft.ts';
+import { draftScope, type DraftState } from '../../../../lib/draft.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -62,6 +62,7 @@ import {
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 import type { ScheduleProbeState } from '../../../../lib/scheduleProbe.ts';
+import { isDraftPublished } from '../../../../lib/selectors/draftPublication.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-086F2H1T1 — the demo-league sandbox controls.

@@ -98,8 +98,34 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - Deliberately NOT in scope: serializing every draft writer under one lock. Verified pre-existing —
   on `main`, ZERO draft routes use transactions and each is a plain whole-record read-then-write, so
   concurrent draft writers already clobber each other. Recorded as a follow-up rather than folded in.
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3708/3708
-  (+36 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
+- **Remediation round 1 — both reviewers, one P1/HIGH, and it was the SAME dead end.** Reopen sets
+  `phase: 'live'` while preserving every pick, so a `canPublish` requiring `complete` withheld
+  Confirm while Reopen was withheld because publication had lapsed: a reopened draft rendered with
+  NEITHER control, on the only screen that calls `POST /confirm`. Verified by direct render before
+  accepting. `canPublish` now asks whether every configured pick is in. The test that should have
+  caught it seeded a `live` draft with a FULL pick set and asserted no controls — it described the
+  bug and passed.
+- **The signature was demonstrably NOT collision-free, and I had claimed it was.** Codex produced two
+  catalog-real pick sets — Alice/Bob/Carol drafting `App State, Buffalo, South Carolina` versus
+  `Arkansas, Bowling Green, Fresno State` — that both hashed to `3-5a8e6545` under the 32-bit FNV-1a
+  digest whose own comment said "practically collision-free for this domain". Reproduced locally
+  before accepting. A collision means publish-reset-rerun lands on a matching value, so readiness
+  passes against the OLD roster and Confirm stays hidden. Replaced with an INJECTIVE
+  `JSON.stringify` over ordered `[pickNumber, owner, team]` triples: no probability argument left to
+  get wrong, at the cost of a few KB on a record already holding every pick.
+- **AGENTS.md invariant 9 was broken, again.** The derivation sat in `src/lib/draft.ts` and the
+  control state was recombined inline in `DraftSummaryClient` — "any derivation found outside
+  `src/lib/selectors/` is an architecture violation". Now `src/lib/selectors/draftPublication.ts`,
+  which also owns `selectDraftPublicationControls`, so the component maps state to markup and makes
+  no decision. Same invariant broken in PLATFORM-086F2H3B1; reading the rule is not obeying it.
+- Also remediated: the pick-edit route read the draft OUTSIDE the transaction it wrote inside
+  (atomicity without isolation — a confirmation committing in between was overwritten, wiping the
+  publication it had just recorded); the re-stamp fired on `wasPublished` alone even when the CSV was
+  blank and no roster was patched, recording a publication of picks no roster described — **a guard
+  that existed on the abandoned branch and was lost in the rebuild**, which is what re-deriving
+  rather than cherry-picking costs; and an inserted doc block orphaned `selectConfirmedRoster`.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3714/3714
+  (+42 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
   — `completeSetup`'s refusal and the confirm route's atomicity — and coverage was added before they
   failed. Atomicity on the confirm path is a labelled STRUCTURAL pin: the only injectable store
   failure is lock acquisition, which aborts before either write and cannot distinguish a

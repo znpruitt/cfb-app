@@ -7,14 +7,13 @@ import {
   type DraftState,
   draftScope,
   getDraftEligibleTeams,
-  draftPicksDigest,
-  isDraftPublished,
   patchConfirmedOwnersCsv,
 } from '@/lib/draft';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIdentity';
 import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import teamsData from '@/data/teams.json';
+import { draftPicksSignature, isDraftPublished } from '@/lib/selectors/draftPublication';
 
 type TeamsJson = { items: TeamCatalogItem[] };
 
@@ -154,13 +153,28 @@ export async function PUT(
   // all, and must not have one minted for it here: this route is not the
   // publication authority.
   const editedAt = new Date().toISOString();
-  const wasPublished = isDraftPublished(draft);
 
   // One transaction over both records — the picks and the roster describing them
-  // cannot be left disagreeing by a failure in between, and the re-stamped digest
-  // has to land with the roster it re-describes.
+  // cannot be left disagreeing by a failure in between, and a re-stamped
+  // signature has to land with the roster it re-describes.
+  //
+  // The draft is re-read INSIDE the transaction rather than reusing the snapshot
+  // above. Reading outside gave atomicity without isolation: a confirmation
+  // committing in between would be overwritten by this write, wiping the
+  // publication it had just recorded and leaving a roster the draft no longer
+  // claims. `confirm-eligibility.test.ts` pins the same rule for the publish
+  // path; this route holds itself to it.
+  let updated: DraftState | null = null;
+  let rosterPatched = false;
+
   await withAppStateKeyTransaction(draftScope(slug), String(year), async (txn) => {
     await txn.lockKey(`owners:${slug}:${year}`, 'csv');
+
+    const current = (await txn.read<DraftState>())?.value ?? draft;
+    const currentPicks = current.picks.map((p, idx) =>
+      idx === pickIndex ? newPicks[pickIndex]! : p
+    );
+    const wasPublished = isDraftPublished(current);
 
     if (wasPublished) {
       const ownersRecord = await txn.readKey<string>(`owners:${slug}:${year}`, 'csv');
@@ -179,28 +193,24 @@ export async function PUT(
             resolveTeam: (label: string) => resolver.resolveName(label).canonicalName ?? label,
           })
         );
+        rosterPatched = true;
       }
     }
 
-    // The roster was carried along, so it still describes the picks — re-stamp
-    // the digest over the NEW picks. This is the one place a writer opts back
-    // into publication, and only because it just made the roster match.
-    await txn.write<DraftState>({
-      ...draft,
-      picks: newPicks,
-      publishedPicks: wasPublished ? draftPicksDigest(newPicks) : draft.publishedPicks,
+    // Re-stamp ONLY when a roster was actually patched. `wasPublished` alone is
+    // not enough: `PUT /api/owners` can blank the CSV, and then this route would
+    // record a publication of picks no roster describes — keeping Confirm hidden
+    // and letting a later unrelated repair import satisfy readiness.
+    updated = {
+      ...current,
+      picks: currentPicks,
+      publishedPicks: rosterPatched ? draftPicksSignature(currentPicks) : current.publishedPicks,
       updatedAt: editedAt,
-    });
+    };
+    await txn.write<DraftState>(updated);
   });
 
-  if (wasPublished) invalidateStandings(slug, year);
-
-  const updated: DraftState = {
-    ...draft,
-    picks: newPicks,
-    publishedPicks: wasPublished ? draftPicksDigest(newPicks) : draft.publishedPicks,
-    updatedAt: editedAt,
-  };
+  if (rosterPatched) invalidateStandings(slug, year);
 
   return NextResponse.json({ draft: updated, pick: newPicks[pickIndex] });
 }

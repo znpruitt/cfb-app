@@ -3,9 +3,10 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
-import { isDraftPublished, type DraftState, type DraftPick } from '@/lib/draft';
+import { type DraftState, type DraftPick } from '@/lib/draft';
 import type { LeagueStatus } from '@/lib/league';
 import InterestingFactsPanel from './InterestingFactsPanel';
+import { selectDraftPublicationControls } from '@/lib/selectors/draftPublication';
 
 type DraftSummaryClientProps = {
   slug: string;
@@ -184,11 +185,10 @@ export default function DraftSummaryClient({
 
   const draftBoardHref = isAdmin ? `/league/${slug}/draft` : `/league/${slug}/draft/board`;
 
-  // Whether this draft's results are the league's current official roster. Read
-  // from the draft's own publication record rather than inferred from `phase` —
-  // see `isDraftPublished`.
-  const isPublished = isDraftPublished(draft);
-  const canPublish = draft.phase === 'complete' && !isPublished;
+  // Which publication control to offer. Derived in the selector layer, not
+  // recombined here — AGENTS.md invariant 9, and the reason the previous inline
+  // version could stand a reopened draft up with NEITHER button.
+  const { canPublish, canReopen } = selectDraftPublicationControls(draft);
 
   return (
     <div className="space-y-10">
@@ -436,7 +436,7 @@ export default function DraftSummaryClient({
       )}
 
       {/* Reopen Draft — admin only, shown once the results have been published */}
-      {isAdmin && isPublished && (
+      {isAdmin && canReopen && (
         <section className="border-t border-gray-200 pt-8 dark:border-zinc-700">
           {reopenError && (
             <p className="mb-3 text-sm text-red-700 dark:text-red-400">{reopenError}</p>
