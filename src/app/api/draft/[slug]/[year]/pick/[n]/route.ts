@@ -132,11 +132,13 @@ export async function PUT(
   // signature has to land with the roster it re-describes.
   //
   // The draft is re-read INSIDE the transaction rather than reusing the snapshot
-  // above. Reading outside gave atomicity without isolation: a confirmation
-  // committing in between would be overwritten by this write, wiping the
-  // publication it had just recorded and leaving a roster the draft no longer
-  // claims. `confirm-eligibility.test.ts` pins the same rule for the publish
-  // path; this route holds itself to it.
+  // above. Reading outside gave atomicity without isolation against the other
+  // TRANSACTIONAL writer: a confirmation committing in between would be
+  // overwritten by this write, wiping the publication it had just recorded and
+  // leaving a roster the draft no longer claims. THAT race is closed, because
+  // `POST /confirm` takes this same lock. The non-transactional writers noted
+  // below are not, and no re-read can fix that from here.
+  // `confirm-eligibility.test.ts` pins the same rule for the publish path.
   type Refusal = { error: string; status: number };
   let outcome: Refusal | { ok: true; draft: DraftState; pick: DraftPick } | null = null;
   let rosterPatched = false;
@@ -155,6 +157,15 @@ export async function PUT(
     // edit silently dropped — the mapped picks never reached `pickIndex` — while
     // the route still returned 200 with a pick it had not persisted, and wrote
     // back a draft in a phase it refuses to edit.
+    //
+    // This NARROWS that window; it does not close it. `withAppStateKeyTransaction`
+    // serializes only against other transactions on the same key, and `/reset`,
+    // `/unpick`, `POST /pick`, the settings `PUT` and the reopen `DELETE` all
+    // still write this record with unlocked `setAppState`. One of those
+    // committing AFTER this read is still clobbered by the write below. Closing
+    // it means putting every draft writer on the same lock — filed in
+    // `docs/next-tasks.md` as draft-writer serialization, and pre-existing: no
+    // draft route on `main` uses a transaction at all.
     if (current.phase !== 'live' && current.phase !== 'paused' && current.phase !== 'complete') {
       outcome = { error: `Cannot edit picks in phase: ${current.phase}`, status: 422 };
       return;

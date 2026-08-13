@@ -164,11 +164,16 @@ Supersedes: (none)
     the rollover cron reach that state, leaving only the historical/repair CSV import, which asks the
     commissioner to hand-produce what the draft exists to produce. This predates 092, which turns a
     soft dead end into a hard refusal. **Owner's rule for the fix: season state + no owners or team
-    roster → open the preseason setup flow.** Queued as its own prompt; (b) ✅ **CLOSED by PLATFORM-094** — the readiness extraction that entry asked for now exists as
-    `selectors/teamAssignment.ts`; `selectors/preseasonBanner`
-    accepts a single owner where `selectConfirmedRoster` requires two, so a one-owner CSV shows
+    roster → open the preseason setup flow.** Queued as its own prompt; (b) **STILL OPEN** — `selectors/preseasonBanner`
+    accepts a single owner (`ownerCount > 0`) where `selectConfirmedRoster` requires
+    `MIN_CONFIRMED_OWNERS = 2`, so a one-owner CSV shows
     "Roster confirmed" on the league banner while the admin checklist shows ○ — reachable only via a
-    hand-edited repair import; (c) `DraftSettingsPanel` is 601 lines against the ~600 extraction
+    hand-edited repair import. **PLATFORM-094 did NOT close this**, and a closeout in that PR
+    briefly claimed it had: the entry was marked resolved because the readiness EXTRACTION it
+    mentions in passing now exists (`selectors/teamAssignment.ts`), but the open item is the owner
+    THRESHOLD, which is untouched — the banner does not route through `selectTeamAssignment`.
+    Closing a follow-up on the strength of a different fact is the ledger error DOCS-012 exists to
+    prevent; (c) `DraftSettingsPanel` is 601 lines against the ~600 extraction
     guideline, and its reorder editor is the natural piece to lift out; (d) the owner-confirmation
     shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
     constant. Severity was overstated when first reported — three client components already import

@@ -62,8 +62,12 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   draft summary UI, `selectors/teamAssignment.ts` + `server/teamAssignmentStore.ts` (both new), the
   admin preseason page, and `completeSetup`. Storage gained one optional field; no migration
   required — the owner confirmed there are no draft records in the app.
-- **Sizing: 22 files, +2267/-239 — OVER BOTH stop-and-reassess signals (>15 files, >1500 net
-  lines), with owner approval given and recorded here on 2026-08-13.** The initial rebuild was 13
+- **Sizing: 23 files, +2925/-236 — OVER BOTH stop-and-reassess signals (>15 files, >1500 net
+  lines), with owner approval given and recorded here on 2026-08-13.** (Restated at closeout: the
+  figure recorded mid-branch was 22 files / +2267/-239 and drifted again over rounds 6–7 and the
+  PR. It drifted TWICE, the second time in the same entry that observes a diffstat is only useful
+  if re-checked when the branch moves — so it is now taken from the merge base at closeout rather
+  than carried forward.) The initial rebuild was 13
   files / +900/-181 and genuinely within the signals; four review-driven remediation rounds grew it
   by roughly 60% and **the recorded figure was not revised as that happened**, so this entry claimed
   compliance it no longer had until Codex checked the real diff. Recording the diffstat is only
