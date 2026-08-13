@@ -1,6 +1,6 @@
 import { type DraftState } from '../draft.ts';
 import { hasUsableOfficialRoster } from './confirmedRoster.ts';
-import { isDraftPublished, selectDraftPublicationControls } from './draftPublication.ts';
+import { draftPicksAreComplete, isDraftPublished } from './draftPublication.ts';
 
 /**
  * PLATFORM-094 — the ONE answer to "have this league's teams been assigned?"
@@ -79,23 +79,34 @@ export function selectTeamAssignment(input: TeamAssignmentInput): TeamAssignment
   const { assignmentMethod, draft, officialRosterCsv, manualAssignmentComplete } = input;
 
   if (assignmentMethod === 'draft') {
-    // Ordered so the blocker names the operator's ACTUAL next step: finish the
-    // draft, then publish it, then restore a roster that went missing. A single
-    // "not assigned" would send all three to the same dead end.
-    // A reopened draft keeps every pick and moves to `live`. Calling that
-    // "incomplete" is false — the picks ARE in — and it routed the checklist to
-    // the setup screen while the only publish control sat on the summary page.
-    // `selectDraftPublicationControls` already owns the definition of
-    // publishable, so it decides here too rather than a second rule drifting.
-    if (draft?.phase !== 'complete') {
-      if (draft && selectDraftPublicationControls(draft).canPublish) {
-        return blocked('draft-not-published');
-      }
-      return blocked('draft-incomplete');
+    // Publication first, because it is the fact that settles the question.
+    // `isDraftPublished` already requires `phase === 'complete'`, a non-empty
+    // pick list, and a signature matching those picks — so a published draft has
+    // been through `POST /confirm`, which validated the pick counts. Re-deriving
+    // "are the picks complete" for it would only add a way to fail.
+    if (isDraftPublished(draft)) {
+      // Publication is a PAST event. `PUT /api/owners` can blank the CSV without
+      // touching the draft, so the roster has to be checked separately or the
+      // record would outlive its data.
+      if (!hasUsableOfficialRoster(officialRosterCsv)) return blocked('published-roster-missing');
+      return ASSIGNED;
     }
-    if (!isDraftPublished(draft)) return blocked('draft-not-published');
-    if (!hasUsableOfficialRoster(officialRosterCsv)) return blocked('published-roster-missing');
-    return ASSIGNED;
+
+    // Not published — the blocker names which step is actually outstanding.
+    //
+    // The pick count decides, NOT the phase. These used to disagree: one branch
+    // asked whether the draft was publishable while the other assumed `complete`
+    // implied a full pick set. `PUT /api/draft/{slug}/{year}` allows
+    // `live → complete` without validating any pick count, so a complete draft
+    // holding a partial set answered `draft-not-published`, the checklist routed
+    // to the summary page, and that page offered NEITHER control — publishable
+    // false because the picks are short, reopenable false because it never
+    // published. Told to publish, sent somewhere with no publish button.
+    //
+    // A draft still `live` with every pick in is one that was REOPENED: not
+    // incomplete, simply not published.
+    if (!draftPicksAreComplete(draft)) return blocked('draft-incomplete');
+    return blocked('draft-not-published');
   }
 
   if (assignmentMethod === 'manual') {

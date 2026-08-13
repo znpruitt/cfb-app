@@ -145,6 +145,12 @@ Supersedes: (none)
       collisions negligible at ~32 characters, or the signature could live outside the polled
       record.
 
+    - Also (review, LOW): `AssignmentMethodCard` renders while `!teamsAssigned`, so it now stays
+      visible through the whole finished-but-unpublished window — the very screen the commissioner
+      is on to go and publish. One click on "Change → Assign Manually" reaches
+      `manual-assignment-incomplete`, a blocker with no writer anywhere in the app, which blocks
+      Complete Setup until they switch back. Suppress the card once a draft exists with picks.
+
     Read `DESIGN.md` first. Every touched surface carries its own tests, and the acceptance check is
     a walkthrough on the demo league — the two most valuable findings of PLATFORM-094 came from the
     owner clicking through, not from review.

@@ -143,6 +143,15 @@ async function seedAssignedTeams(slug: string, year: number): Promise<void> {
   await setAppState(draftScope(slug), String(year), {
     phase: 'complete',
     picks,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
     publishedPicks: draftPicksSignature(picks),
   });
   await setAppState(`owners:${slug}:${year}`, 'csv', 'team,owner\nTexas,Alice\nOhio State,Bob');
@@ -325,7 +334,19 @@ test('completeSetup refuses a draft that is complete but never published', async
   // The shape `draftPhase === 'complete'` alone admitted — and the state EVERY
   // draft is in the moment its final pick lands.
   await seedPreseasonLeague();
-  await setAppState(draftScope('alpha'), '2026', { phase: 'complete', picks: SEED_PICKS });
+  await setAppState(draftScope('alpha'), '2026', {
+    phase: 'complete',
+    picks: SEED_PICKS,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
 
   await assert.rejects(
     () => runCapturingTags(() => completeSetup('alpha', 2026)),
@@ -340,7 +361,19 @@ test('completeSetup refuses a pre-draft roster standing in for a published one',
   // setup on ownership the draft never made.
   await seedPreseasonLeague();
   await setAppState('owners:alpha:2026', 'csv', 'team,owner\nTexas,Carol\nOhio State,Dave');
-  await setAppState(draftScope('alpha'), '2026', { phase: 'complete', picks: SEED_PICKS });
+  await setAppState(draftScope('alpha'), '2026', {
+    phase: 'complete',
+    picks: SEED_PICKS,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
 
   await assert.rejects(
     () => runCapturingTags(() => completeSetup('alpha', 2026)),
@@ -357,6 +390,15 @@ test('completeSetup refuses a draft whose picks changed after it published', asy
   await setAppState(draftScope('alpha'), '2026', {
     phase: 'complete',
     picks: [{ ...SEED_PICKS[0]!, team: 'Michigan' }, SEED_PICKS[1]!],
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
     publishedPicks: draftPicksSignature(SEED_PICKS),
   });
 

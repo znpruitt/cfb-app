@@ -84,7 +84,19 @@ test('the checklist ticks Teams assigned only when the draft PUBLISHED', async (
   await seedLeague();
   await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
   const picks = picksFor(['Texas', 'Ohio State']);
-  await setAppState(draftScope(SLUG), String(YEAR), { phase: 'complete', picks });
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
 
   assert.equal(
     markerFor(await renderChecklist(), 'Teams assigned'),
@@ -146,7 +158,19 @@ test('the Teams assigned link points where the publish control actually is', asy
   assert.equal(await hrefFor(), `href="/league/${SLUG}/draft/setup"`);
 
   // Finished but never published — the one remaining step is Confirm.
-  await setAppState(draftScope(SLUG), String(YEAR), { phase: 'complete', picks });
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
   assert.equal(
     await hrefFor(),
     `href="/league/${SLUG}/draft/summary"`,

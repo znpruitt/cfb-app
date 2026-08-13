@@ -108,17 +108,20 @@ test('changing the picks retracts publication, with no writer maintaining it', (
   // checklist ticked and Confirm hid itself.
   const published = draft();
 
-  // Reset — picks cleared.
+  // Reset — picks cleared. The blocker names the REAL next step: this draft has
+  // to be run, not published. Phase-first ordering used to answer
+  // `draft-not-published` here and route the commissioner at a publish control
+  // that had nothing to publish.
   assert.equal(
     selectTeamAssignment(input({ draft: { ...published, picks: [] } })).blocker,
-    'draft-not-published'
+    'draft-incomplete'
   );
 
-  // Undo last pick — one fewer.
+  // Undo last pick — one short, so likewise incomplete rather than unpublished.
   assert.equal(
     selectTeamAssignment(input({ draft: { ...published, picks: published.picks.slice(0, 1) } }))
       .blocker,
-    'draft-not-published'
+    'draft-incomplete'
   );
 
   // A pick edited to a different team.
@@ -260,6 +263,39 @@ test('a malformed draft record produces a blocker, never a crash', () => {
     const result = selectTeamAssignment(input({ draft: shape as TeamAssignmentInput['draft'] }));
     assert.equal(result.isAssigned, false, JSON.stringify(shape));
     assert.ok(result.blocker, `a blocker, not a throw: ${JSON.stringify(shape)}`);
+  }
+});
+
+test('a malformed record cannot MATCH its way to published', () => {
+  // Codex P2, and the sharpest shape in this campaign. Making
+  // `draftPicksSignature` total was right; the degraded value chosen for it was
+  // not — it returned `'[]'`, which is ALSO the honest signature of an empty
+  // pick list. So a row of `{ phase: 'complete', publishedPicks: '[]' }` with no
+  // picks compared EQUAL and read as published, and with any usable roster
+  // present the league reported fully assigned and setup could be completed.
+  //
+  // The previous malformed-shape test missed it by enumerating shapes without
+  // asking which stamp VALUE would defeat the comparison.
+  const roster = 'team,owner\nTexas,Alice\nOhio State,Bob';
+  for (const publishedPicks of ['[]', JSON.stringify([])]) {
+    for (const picks of [undefined, null, 'not-an-array', []]) {
+      const result = selectTeamAssignment(
+        input({
+          draft: {
+            phase: 'complete',
+            publishedPicks,
+            picks,
+          } as unknown as TeamAssignmentInput['draft'],
+          officialRosterCsv: roster,
+        })
+      );
+      assert.equal(
+        result.isAssigned,
+        false,
+        `stamp ${publishedPicks} vs picks ${JSON.stringify(picks)}`
+      );
+      assert.equal(result.blocker, 'draft-incomplete');
+    }
   }
 });
 

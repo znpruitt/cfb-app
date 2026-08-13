@@ -67,6 +67,18 @@ export function isDraftPublished(draft: PublishableDraft | null | undefined): bo
   if (!draft || draft.phase !== 'complete') return false;
   const published = draft.publishedPicks;
   if (typeof published !== 'string' || published === '') return false;
+
+  // A malformed row must not match. `draftPicksSignature` degrades to `'[]'` for
+  // a missing or non-array pick list, and `'[]'` is ALSO the honest signature of
+  // an empty draft — so `{ phase: 'complete', publishedPicks: '[]' }` with no
+  // picks compared equal and read as published, and any usable roster then
+  // completed setup. Making the signature total was right; choosing a degraded
+  // value that collides with a real one was not.
+  //
+  // Requiring picks costs nothing legitimate: `POST /confirm` refuses a draft
+  // with zero picks, so a genuinely published draft always has at least one.
+  if (!Array.isArray(draft.picks) || draft.picks.length === 0) return false;
+
   return published === draftPicksSignature(draft.picks);
 }
 
@@ -85,7 +97,8 @@ export function isDraftPublished(draft: PublishableDraft | null | undefined): bo
  * An unreadable draft is not a publishable one, so every degraded shape answers
  * `false`.
  */
-function allPicksAreIn(draft: ControllableDraft): boolean {
+export function draftPicksAreComplete(draft: ControllableDraft | null | undefined): boolean {
+  if (!draft) return false;
   const rounds = draft.settings?.totalRounds;
   const ownerCount = draft.owners?.length;
   if (typeof rounds !== 'number' || typeof ownerCount !== 'number') return false;
@@ -142,7 +155,7 @@ export function selectDraftPublicationControls(
   // which puts Confirm back and withdraws a Reopen that would reopen nothing.
   const standing = isDraftPublished(draft) && facts.publishedRosterExists;
   return {
-    canPublish: !standing && allPicksAreIn(draft),
+    canPublish: !standing && draftPicksAreComplete(draft),
     canReopen: standing,
   };
 }

@@ -240,8 +240,32 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - Mutation also showed the new tolerance in `draftPicksSignature` was UNREACHED by the first version
   of its own test — the malformed shapes never got past the publication type-guard to reach it — so
   a shape carrying a stamp was added specifically to exercise it.
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3728/3728
-  (+56 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
+- **Remediation round 7 (owner-approved, and the agreed LAST) — two conservative guards.**
+  - Codex P2: making `draftPicksSignature` total in round 6 was right, but the degraded value chosen
+    for it was `'[]'` — which is ALSO the honest signature of an empty pick list. A row of
+    `{ phase: 'complete', publishedPicks: '[]' }` with no picks therefore compared EQUAL and read as
+    published; with any usable roster present the league reported fully assigned and setup could be
+    completed. **Totality is not enough — the degraded value has to be unmistakable.**
+    `isDraftPublished` now requires a non-empty picks array before comparing, which excludes nothing
+    legitimate because `POST /confirm` refuses a zero-pick draft.
+  - `/code-review` medium: the two branches of `selectTeamAssignment` disagreed. Round 4 taught the
+    not-complete branch to consult publishability and left the complete branch assuming `complete`
+    implied a full pick set — but `PUT /api/draft/{slug}/{year}` allows `live → complete` without
+    validating any pick count. A complete draft holding a partial set answered
+    `draft-not-published`, the checklist routed to the summary, and that page offered NEITHER
+    control. Restructured so PUBLICATION settles it first and the pick count, not the phase, chooses
+    between `draft-incomplete` and `draft-not-published`. A reset or half-undone draft now names the
+    real next step — finish it — instead of pointing at a publish control with nothing to publish.
+- Several test seeds wrote partial draft rows (no `owners`/`settings`) that the app cannot produce;
+  they are now realistic records. That habit is what let an earlier assertion pass through a `catch`.
+- **Stopping criterion, agreed with the owner:** the findings converged from "the model is wrong"
+  (rounds 1–2) to "a hand-edited row yields the wrong blocker" (round 7), while every round has
+  introduced something of its own. From here anything that is not a P0, or not reachable on the
+  happy path through the UI, is filed rather than fixed. These two were taken because they are
+  monotonically CONSERVATIVE — they can only refuse more often, never publish something that should
+  not be.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3729/3729
+  (+57 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
   — `completeSetup`'s refusal and the confirm route's atomicity — and coverage was added before they
   failed. Atomicity on the confirm path is a labelled STRUCTURAL pin: the only injectable store
   failure is lock acquisition, which aborts before either write and cannot distinguish a
