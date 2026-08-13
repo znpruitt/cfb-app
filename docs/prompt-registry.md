@@ -52,6 +52,77 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-094-DRAFT-PUBLICATION-AND-READINESS-v2
+
+- Purpose: make a draft's PUBLICATION a fact the app can ask about, and make setup readiness ask for
+  it. The preseason checklist and the Complete Setup action disagreed about "are teams assigned?",
+  and both were reading a phase that cannot answer it.
+- Scope: `DraftState.publishedPicks` + `draftPicksDigest` + `isDraftPublished`, the draft confirm
+  route (POST and DELETE), the post-confirm pick-edit resync, the demo `autoCompleteDraft`, the
+  draft summary UI, `selectors/teamAssignment.ts` + `server/teamAssignmentStore.ts` (both new), the
+  admin preseason page, and `completeSetup`. Storage gained one optional field; no migration
+  required — the owner confirmed there are no draft records in the app.
+- Sizing: 13 files, +900/-181. Within the stop-and-reassess signals. One PR under the "one
+  end-to-end behavior" exemption: a draft publishes its roster, and setup requires the published
+  roster. Splitting them ships a readiness gate against a publication path that cannot be reached,
+  which is how v1 failed review.
+- **`phase: 'complete'` is set by the FINAL PICK.** It says every selection has been taken and
+  nothing more; the roster is written separately, at confirmation. Conflating them produced three
+  defects that two independent reviewers found from different directions.
+- **The dead end.** `DraftSummaryClient` gated "Confirm Draft — Write Rosters to League" on
+  `phase !== 'complete'`, and that button is the app's ONLY caller of `POST .../confirm`. The publish
+  control therefore vanished at the exact moment a draft became publishable: a draft that ended
+  normally could not be published at all, and the only way out was Reopen → Confirm, which nothing
+  documented. The same screen meanwhile said "Ready to complete setup? → Continue Setup".
+- **A pre-existing roster is not evidence the draft published it.** `owners:{slug}:{year}` has
+  writers unrelated to any draft — the repair import at `/admin/{slug}/roster`, and the demo
+  year-migration that copies one season's roster onto the next — so a roster can predate the draft
+  and describe assignments it never made.
+- **Publication digests the PICKS, and that is the load-bearing decision.** v1 stored a boolean, then
+  a timestamp; both failed because `phase: 'complete'` is not a resting state — Undo last pick,
+  Reset, and the pick-timer control are all live on a completed draft. A boolean survived all three
+  (reset a published draft, run it again, and the checklist ticked against the PREVIOUS draft's
+  roster). A timestamp keyed to `updatedAt` fixed that but retracted publication on a pick-timer
+  change and compared equal for same-millisecond writes. Digesting the picks retracts exactly when
+  ownership changes and never otherwise, and no writer maintains the field.
+- **Roster repairs are deliberately invisible to it.** The digest covers the draft's picks, not the
+  roster's contents, so a post-publication correction through `PUT /api/owners` does not demand a
+  re-draft or a re-confirm — the owner's stated rule.
+- **The pick-edit resync is gated on publication**, which requires `complete`. A reopened draft is
+  `live`, and the reopen contract is that the previously confirmed roster stays in effect until the
+  commissioner confirms again; a looser gate rewrote live ownership mid-reopen. It re-stamps the
+  digest only when it actually carried the roster along.
+- **`completeSetup` checks against the LEAGUE'S year, not the submitted one**, so a stale form still
+  reaches the lifecycle authority's designed `year-mismatch` refusal instead of being converted into
+  a hard error about unassigned teams.
+- Deliberately NOT in scope: serializing every draft writer under one lock. Verified pre-existing —
+  on `main`, ZERO draft routes use transactions and each is a plain whole-record read-then-write, so
+  concurrent draft writers already clobber each other. Recorded as a follow-up rather than folded in.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3708/3708
+  (+36 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
+  — `completeSetup`'s refusal and the confirm route's atomicity — and coverage was added before they
+  failed. Atomicity on the confirm path is a labelled STRUCTURAL pin: the only injectable store
+  failure is lock acquisition, which aborts before either write and cannot distinguish a
+  transactional write from a plain one. The same property on the demo path IS behavioral, because
+  that path's roster write is reached only through the lock.
+
+### PLATFORM-094-TEAM-ASSIGNMENT-READINESS-v1
+
+- Status: **Superseded/unimplemented.** Branch `platform/094-team-assignment-readiness` abandoned at
+  `51c4beab` after two remediation rounds, per `AGENTS.md` → reconstruction over accumulation.
+  Rebuilt from clean `main` as `-v2` by re-deriving, not cherry-picking.
+- **Why it stopped.** Each round's fix relocated the defect into the next seam. Round 1 fixed the
+  dead end and moved the problem into a publication FLAG that every draft writer had to clear by
+  hand — nine write sites, two updated. Round 2 made it a timestamp, which retracted publication on
+  unrelated metadata edits and could compare equal within a millisecond, and its own change lost the
+  pick-edit resync's phase gate so an edit mid-reopen rewrote live ownership.
+- **The audit that should have come first, and did not.** Three commands established: the official
+  roster has six writers (not the two designed around); `phase: 'complete'` exposes Undo, Reset and
+  the pick timer, so it is not a resting state; and twenty sites read `phase === 'complete'` meaning
+  two different things. Every round of findings came from a seam that inventory would have listed.
+- Recorded rather than discarded: my stated reason for declining the writer-serialization finding in
+  round 2 was wrong — it considered only the ordering where the other writer lands last.
+
 ### PLATFORM-093-NEW-LEAGUE-PRESEASON-BIRTH-v1
 
 - Purpose: let a newly created league be set up. Every league was born `season`, and the whole

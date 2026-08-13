@@ -11,6 +11,7 @@ import {
   __resetAppStateForTests,
 } from '@/lib/server/appStateStore';
 
+import { draftScope, draftPicksDigest, type DraftPick } from '@/lib/draft';
 import { resolveDraftSetupGate } from '../setup/draftSetupGate';
 import PreseasonPage from '../../../../admin/[slug]/preseason/page';
 
@@ -45,6 +46,79 @@ async function renderChecklist(): Promise<string> {
   const page = (await PreseasonPage({ params: Promise.resolve({ slug: SLUG }) })) as ReactElement;
   return renderToStaticMarkup(page);
 }
+
+/**
+ * The ✓/○ marker belonging to ONE checklist row.
+ *
+ * A proximity regex (`/✓[\s\S]{0,400}Teams assigned/`) does not work here and
+ * passes in both directions: every row carries a marker, so the ✓ from "Owners
+ * confirmed" sits well inside any window that reaches "Teams assigned". The
+ * marker immediately BEFORE the label is the row's own.
+ */
+function markerFor(html: string, label: string): string {
+  const at = html.indexOf(`>${label}<`);
+  assert.ok(at > 0, `checklist row "${label}" not rendered`);
+  const before = html.slice(0, at);
+  return before.lastIndexOf('✓') > before.lastIndexOf('○') ? '✓' : '○';
+}
+
+function picksFor(teams: string[]): DraftPick[] {
+  return teams.map((team, i) => ({
+    pickNumber: i + 1,
+    round: 0,
+    roundPick: i,
+    owner: ['Alice', 'Bob'][i]!,
+    team,
+    pickedAt: '2026-08-01T00:00:00.000Z',
+    autoSelected: false,
+  }));
+}
+
+test('the checklist ticks Teams assigned only when the draft PUBLISHED', async () => {
+  // PLATFORM-094 — `draftPhase === 'complete'` alone was not evidence: it fires
+  // on the final pick, while the roster is written separately at confirmation.
+  // This checklist ticked for that, letting setup be completed for a league
+  // whose teams were never assigned to anyone.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+  await setAppState(draftScope(SLUG), String(YEAR), { phase: 'complete', picks });
+
+  assert.equal(
+    markerFor(await renderChecklist(), 'Teams assigned'),
+    '○',
+    'a complete draft that never published is NOT assigned'
+  );
+
+  // A roster alone does not tick it either — this CSV could be a repair import
+  // that predates the draft and describes assignments it never made.
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', 'team,owner\nTexas,Alice\nOhio State,Bob');
+  assert.equal(
+    markerFor(await renderChecklist(), 'Teams assigned'),
+    '○',
+    'a roster the draft did not publish is not evidence'
+  );
+
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks,
+    publishedPicks: draftPicksDigest(picks),
+  });
+  assert.equal(
+    markerFor(await renderChecklist(), 'Teams assigned'),
+    '✓',
+    'published, with the roster still in place'
+  );
+
+  // And a later change to the picks unticks it again, with nothing maintaining
+  // the field — this is how Reset and Undo retract.
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks: picksFor(['Michigan', 'Ohio State']),
+    publishedPicks: draftPicksDigest(picks),
+  });
+  assert.equal(markerFor(await renderChecklist(), 'Teams assigned'), '○');
+});
 
 beforeEach(async () => {
   await __deleteAppStateFileForTests();

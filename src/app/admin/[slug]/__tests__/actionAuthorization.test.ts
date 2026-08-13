@@ -15,7 +15,9 @@ import {
   requireAdminAction,
 } from '../../../../lib/auth/requireAdminAction.ts';
 import type { League } from '../../../../lib/league.ts';
-import { draftScope } from '../../../../lib/draft.ts';
+import { draftScope, draftPicksDigest } from '../../../../lib/draft.ts';
+
+const SEED_AT = '2026-08-01T00:00:00.000Z';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -41,13 +43,19 @@ import {
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 const MUTABLE_ENV = process.env as Record<string, string | undefined>;
 
-function makeLeague(slug: string, year: number, status?: League['status']): League {
+function makeLeague(
+  slug: string,
+  year: number,
+  status?: League['status'],
+  assignmentMethod?: League['assignmentMethod']
+): League {
   return {
     slug,
     displayName: `League ${slug}`,
     year,
     createdAt: '2024-01-01T00:00:00.000Z',
     ...(status !== undefined ? { status } : {}),
+    ...(assignmentMethod !== undefined ? { assignmentMethod } : {}),
   };
 }
 
@@ -80,8 +88,38 @@ async function seedWorld(): Promise<void> {
   await setAppState('leagues', 'registry', [
     makeLeague('test', 2025, { state: 'season', year: 2025 }),
     makeLeague('alpha', 2025, { state: 'offseason' }),
-    makeLeague('bravo', 2026, { state: 'preseason', year: 2026 }),
+    makeLeague('bravo', 2026, { state: 'preseason', year: 2026 }, 'draft'),
   ]);
+  // PLATFORM-094 — `completeSetup` verifies team assignment, so `bravo` needs a
+  // draft that PUBLISHED plus the roster it published. Without them the
+  // AUTHORIZED half of the matrix would prove only that the new guard refuses,
+  // not that authorization lets the write through.
+  const bravoPicks = [
+    {
+      pickNumber: 1,
+      round: 0,
+      roundPick: 0,
+      owner: 'Alice',
+      team: 'Texas',
+      pickedAt: SEED_AT,
+      autoSelected: false,
+    },
+    {
+      pickNumber: 2,
+      round: 0,
+      roundPick: 1,
+      owner: 'Bob',
+      team: 'Ohio State',
+      pickedAt: SEED_AT,
+      autoSelected: false,
+    },
+  ];
+  await setAppState(draftScope('bravo'), '2026', {
+    phase: 'complete',
+    picks: bravoPicks,
+    publishedPicks: draftPicksDigest(bravoPicks),
+  });
+  await setAppState('owners:bravo:2026', 'csv', 'team,owner\nTexas,Alice\nOhio State,Bob');
   await setAppState('preseason-owners:test', '2026', ['Alice', 'Bob']);
   // Distinguishable payloads: `migrateTestOwnersCsv(2025, 2026)` copies 2025
   // over 2026, so identical seeds would leave only `updatedAt` differing and the

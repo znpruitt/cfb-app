@@ -1,6 +1,7 @@
 import { runWithRevalidateContext } from './_setup/revalidateContext';
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { POST } from '../confirm/route';
@@ -464,4 +465,38 @@ test('POST create accepts a valid draftOrder permutation of owners', async () =>
 
   const persisted = await getAppState<DraftState>(draftScope(SLUG), String(YEAR));
   assert.deepEqual(persisted?.value?.settings.draftOrder, ['Bob', 'Alice']);
+});
+
+test('publication writes BOTH records through the same transaction', () => {
+  // Structural pin, and labelled as one deliberately.
+  //
+  // The property is that the roster and the record of which picks produced it
+  // commit together — a failure between them leaves either a roster nothing
+  // claims to have produced or a draft claiming a roster that was never written.
+  // Observing that at runtime needs a fault injected BETWEEN the two writes, and
+  // the store exposes no such seam: the only injectable failure is lock
+  // acquisition, which aborts before either write and so cannot tell a
+  // transactional write from a plain one.
+  //
+  // The equivalent property on the demo path IS covered behaviorally
+  // (`testControls.test.ts` — "a demo publication that cannot commit writes
+  // NOTHING"), because that path's roster write is reached only via the lock.
+  const source = readFileSync(new URL('../confirm/route.ts', import.meta.url), 'utf8');
+  const post = source.slice(
+    source.indexOf('export async function POST'),
+    source.indexOf('export async function DELETE')
+  );
+
+  const txnAt = post.indexOf('withAppStateKeyTransaction');
+  assert.ok(txnAt > 0, 'POST publishes inside a transaction');
+  assert.ok(
+    !post.slice(0, txnAt).includes('getAppState'),
+    'the draft must NOT be read before the transaction opens'
+  );
+  assert.match(post.slice(txnAt), /txn\.lockKey\(`owners:/, 'the roster key is locked with it');
+  assert.match(post.slice(txnAt), /txn\.writeKey\(`owners:/, 'the roster is written through it');
+  assert.ok(
+    !post.slice(txnAt).includes('setAppState('),
+    'nothing in the publish path writes outside the transaction'
+  );
 });

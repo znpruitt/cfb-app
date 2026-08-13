@@ -34,7 +34,77 @@ export type DraftState = {
   timerExpiresAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The digest of the PICKS this draft published to the league as its official
+   * owner assignment, or `null`/absent if it never published.
+   *
+   * PLATFORM-094 — `phase` cannot answer "was this published". The final pick
+   * sets `phase: 'complete'` the instant the last selection is taken, which says
+   * every pick has been made and nothing more; the roster is written separately,
+   * when the commissioner reviews the results and confirms. Conflating them left
+   * a draft that was complete, unpublished, and had no button anywhere in the app
+   * that could publish it — the summary page hid Confirm at `complete`.
+   *
+   * **It records WHAT was published, not merely THAT something was.** A boolean
+   * has to be cleared by hand on every path that changes the picks it described,
+   * and `phase: 'complete'` is not a resting state: Undo last pick, Reset, and
+   * the pick-timer control are all live on a completed draft. A flag survived all
+   * three, so resetting a published draft and running it again restored
+   * `complete` beside a marker pointing at the PREVIOUS draft's roster.
+   *
+   * Deriving it from the picks makes retraction automatic — reset and unpick
+   * change the picks, so the digest stops matching and nobody has to remember —
+   * while a timer change leaves the picks alone and keeps the publication valid.
+   * A timestamp would have failed both halves: it retracts on metadata edits it
+   * should ignore, and two writes in the same millisecond compare equal.
+   *
+   * It deliberately does NOT track the roster's own contents. Post-publication
+   * roster repairs through `PUT /api/owners` are a roster edit, not a draft edit,
+   * and must not demand a re-draft or a re-confirm.
+   */
+  publishedPicks?: string | null;
 };
+
+/**
+ * A deterministic digest of a draft's picks — the identity of "this set of
+ * selections", used to tell whether the league's stored roster still describes
+ * the draft in front of us.
+ *
+ * Pure and dependency-free on purpose: `src/lib/draft.ts` is imported by client
+ * components, so `node:crypto` is not available here. FNV-1a over the ordered
+ * `pickNumber:owner:team` triples, carrying the pick COUNT alongside the hash so
+ * that adding or removing picks cannot collide with editing one.
+ */
+export function draftPicksDigest(picks: readonly DraftPick[]): string {
+  let hash = 0x811c9dc5;
+  for (const pick of picks) {
+    const field = `${pick.pickNumber}:${pick.owner}:${pick.team};`;
+    for (let i = 0; i < field.length; i++) {
+      hash ^= field.charCodeAt(i);
+      // FNV prime, via shifts so the value stays in 32-bit range under JS math.
+      hash = (hash + ((hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24))) >>> 0;
+    }
+  }
+  return `${picks.length}-${hash.toString(16)}`;
+}
+
+/**
+ * Whether the league's stored roster describes this draft AS IT STANDS.
+ *
+ * The ONE reading of `publishedPicks`, so no surface re-derives publication from
+ * `phase` — the mistake this field exists to correct. `complete` is required as
+ * well as a matching digest: a reopened draft has the same picks it published,
+ * but it is being edited again, and the reopen route's contract is that the
+ * previous roster stays in effect until the commissioner confirms anew.
+ */
+export function isDraftPublished(
+  draft: Pick<DraftState, 'phase' | 'picks' | 'publishedPicks'> | null | undefined
+): boolean {
+  if (!draft || draft.phase !== 'complete') return false;
+  const published = draft.publishedPicks;
+  if (typeof published !== 'string' || published === '') return false;
+  return published === draftPicksDigest(draft.picks);
+}
 
 export function defaultDraftSettings(owners: string[] = []): DraftSettings {
   return {

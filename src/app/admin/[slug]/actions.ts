@@ -18,9 +18,11 @@ import {
   deleteAppState,
   getAppState,
   setAppState,
+  withAppStateKeyTransaction,
 } from '@/lib/server/appStateStore';
-import { draftScope, type DraftState, type DraftPick } from '@/lib/draft';
+import { draftScope, draftPicksDigest, type DraftState, type DraftPick } from '@/lib/draft';
 import { cleanOwnerNames, findOwnerListProblem } from '@/lib/selectors/confirmedRoster';
+import { getTeamAssignment } from '@/lib/server/teamAssignmentStore';
 import { TEST_LEAGUE_SLUG, type LeagueStatus } from '@/lib/league';
 import type { AutoCompleteDraftResult, TestControlResult } from '@/lib/testLeagueControl';
 import { requireAdminAction } from '@/lib/auth/requireAdminAction';
@@ -333,6 +335,27 @@ export async function confirmPreseasonOwners(
 /** Mark preseason setup as complete. Season transition happens automatically via cron. */
 export async function completeSetup(slug: string, year: number): Promise<void> {
   await requireAdminAction('completeSetup');
+
+  // PLATFORM-094 — the action verifies team assignment itself. It previously
+  // trusted a `disabled` button, which is not a guard: this Server Action is
+  // reachable without the form, and Server Action arguments cross HTTP
+  // unvalidated. It shares ONE derivation with the checklist, so the page a
+  // commissioner reads and the write they trigger cannot disagree.
+  //
+  // The lifecycle authority below owns state and year validity — including the
+  // stale-form year mismatch, which it answers with a logged refusal rather than
+  // a throw. This check therefore runs against the LEAGUE'S OWN year, not the
+  // submitted one, so a stale form still reaches that designed path instead of
+  // being turned into a hard error about unassigned teams.
+  const league = await getLeague(slug);
+  if (league?.status?.state === 'preseason' && league.status.year === year) {
+    const assignment = await getTeamAssignment(slug, year, league);
+    if (!assignment.isAssigned) {
+      throw new Error(
+        `Setup cannot be completed — teams are not assigned (${assignment.blocker}).`
+      );
+    }
+  }
   const result = await completePreseasonSetup(slug, year);
   if (result.outcome === 'league-not-found') throw new Error('League not found');
   if (result.outcome === 'not-in-preseason') throw new Error('League is not in preseason');
@@ -442,17 +465,22 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
 
   const allPicks = [...draft.picks, ...newPicks];
 
-  // Write completed draft state
+  // Write completed draft state.
+  //
+  // PLATFORM-094 — this demo control writes the owners CSV below, so it IS a
+  // publication and must record which picks it published. Without that, the demo
+  // league drives itself into the state readiness refuses: a complete draft
+  // beside a roster nothing claims to have produced.
   const completed: DraftState = {
     ...draft,
     picks: allPicks,
     currentPickIndex: totalPicks,
     phase: 'complete',
+    publishedPicks: draftPicksDigest(allPicks),
     timerState: 'off',
     timerExpiresAt: null,
     updatedAt: now,
   };
-  await setAppState<DraftState>(draftScope('test'), String(year), completed);
 
   // Write owners CSV (same format as confirm route)
   const csvLines = ['team,owner'];
@@ -480,7 +508,14 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
     }
   }
 
-  await setAppState(`owners:test:${year}`, 'csv', csvLines.join('\n'));
+  // Both records commit together — a failure between them would leave the demo
+  // league recording a publication it never performed, with a retry then refused
+  // as already-complete. Same transaction shape as the confirm route.
+  await withAppStateKeyTransaction(draftScope('test'), String(year), async (txn) => {
+    await txn.lockKey(`owners:test:${year}`, 'csv');
+    await txn.writeKey(`owners:test:${year}`, 'csv', csvLines.join('\n'));
+    await txn.write<DraftState>(completed);
+  });
 
   revalidatePath(TEST_LEAGUE_ADMIN_PATH);
   return { kind: 'completed', picks: newPicks.length };

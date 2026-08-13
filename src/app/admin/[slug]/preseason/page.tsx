@@ -5,9 +5,8 @@ import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import { getLeague } from '@/lib/leagueRegistry';
 import { describeLeagueLifecycle } from '@/lib/selectors/leagueLifecycle';
 import { TEST_LEAGUE_SLUG } from '@/lib/league';
-import { getAppState } from '@/lib/server/appStateStore';
 import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
-import { draftScope, type DraftPhase } from '@/lib/draft';
+import { getTeamAssignment } from '@/lib/server/teamAssignmentStore';
 import AssignmentMethodCard from '../components/AssignmentMethodCard';
 import { completeSetup } from '../actions';
 
@@ -35,21 +34,18 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
     // shared with the draft-setup page and the create-draft gate. This counted
     // CSV LINES, so a header plus two malformed rows read as a roster and this
     // checklist could show ✓ while the draft gate refused.
-    const [roster, draftRecord] = await Promise.all([
+    // PLATFORM-094 — team assignment is decided by ONE derivation, shared with
+    // the Complete Setup action, so the page a commissioner reads and the action
+    // that writes `setupComplete` cannot disagree. `draftPhase === 'complete'`
+    // alone was not evidence: it fires on the final pick, while the roster is
+    // written separately at confirmation.
+    const [roster, assignment] = await Promise.all([
       getConfirmedRoster(slug, year),
-      getAppState<{ phase: DraftPhase }>(draftScope(slug), String(year)),
+      getTeamAssignment(slug, year, league),
     ]);
 
     hasRoster = roster.isConfirmed;
-
-    const draftPhase = draftRecord?.value?.phase ?? null;
-    if (league.assignmentMethod === 'draft') {
-      teamsAssigned = draftPhase === 'complete';
-    } else if (league.assignmentMethod === 'manual') {
-      teamsAssigned = league.manualAssignmentComplete === true;
-    } else {
-      teamsAssigned = false;
-    }
+    teamsAssigned = assignment.isAssigned;
   } catch {
     // Storage unavailable — checklist shows incomplete
   }

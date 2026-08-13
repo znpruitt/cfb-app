@@ -128,6 +128,29 @@ export function findOwnerListProblem(names: unknown): string | null {
  * appears, as the absorber for teams no owner holds. It is never dropped from
  * typed input; `findOwnerListProblem` refuses it there instead.
  */
+/**
+ * The owner names carried by the OFFICIAL `owners:{slug}:{year}` CSV, with
+ * `NoClaim` (the absorber for unclaimed teams) removed.
+ *
+ * Split out so `selectTeamAssignment` can ask about the official roster without
+ * inheriting this module's precedence rule — which prefers the `preseason-owners`
+ * confirmation record, and would therefore report a roster for a league that
+ * named its owners but published no assignments.
+ */
+export function officialRosterOwners(csvRecord: unknown): string[] {
+  const csvText = typeof csvRecord === 'string' ? csvRecord : '';
+  return cleanOwnerNames(
+    parseOwnersCsv(csvText)
+      .map((row) => row.owner)
+      .filter((owner) => owner !== NO_CLAIM_OWNER)
+  );
+}
+
+/** Whether the official roster names at least `MIN_CONFIRMED_OWNERS` real owners. */
+export function hasUsableOfficialRoster(csvRecord: unknown): boolean {
+  return officialRosterOwners(csvRecord).length >= MIN_CONFIRMED_OWNERS;
+}
+
 export function selectConfirmedRoster(input: ConfirmedRosterInput): ConfirmedRoster {
   const confirmed = cleanOwnerNames(input.confirmedOwnersRecord);
   if (confirmed.length >= MIN_CONFIRMED_OWNERS) {
@@ -135,13 +158,10 @@ export function selectConfirmedRoster(input: ConfirmedRosterInput): ConfirmedRos
   }
 
   // Parse rather than count lines: the admin checklist's `split('\n').length > 2`
-  // heuristic called a header plus two malformed rows a roster.
-  const csvText = typeof input.ownersCsvRecord === 'string' ? input.ownersCsvRecord : '';
-  const fromCsv = cleanOwnerNames(
-    parseOwnersCsv(csvText)
-      .map((row) => row.owner)
-      .filter((owner) => owner !== NO_CLAIM_OWNER)
-  );
+  // heuristic called a header plus two malformed rows a roster. Shared with
+  // `selectTeamAssignment` through `officialRosterOwners` so the two cannot
+  // disagree about what the CSV says.
+  const fromCsv = officialRosterOwners(input.ownersCsvRecord);
   if (fromCsv.length >= MIN_CONFIRMED_OWNERS) {
     return { owners: fromCsv, source: 'owners-csv', isConfirmed: true };
   }

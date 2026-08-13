@@ -1,13 +1,14 @@
 import { NextResponse } from 'next/server';
 
 import { requireAdminRequest } from '@/lib/server/adminAuth';
-import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { getAppState, withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import {
   type DraftState,
   draftScope,
   getDraftEligibleTeams,
-  buildConfirmedOwnersCsv,
+  draftPicksDigest,
+  isDraftPublished,
   patchConfirmedOwnersCsv,
 } from '@/lib/draft';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIdentity';
@@ -135,36 +136,40 @@ export async function PUT(
       : p
   );
 
-  const updated: DraftState = {
-    ...draft,
-    picks: newPicks,
-    updatedAt: new Date().toISOString(),
-  };
-
-  await setAppState<DraftState>(draftScope(slug), String(year), updated);
-
-  // PLATFORM-072: if the draft is already confirmed, the persisted owner
-  // assignment (owners:${slug}:${year} / 'csv', written at confirm) is the
-  // authoritative ownership source that standings / gameOwnership consume —
-  // editing a pick in draft state alone would leave it crediting the old
-  // team→owner. Patch that persisted CSV so the change follows the edit, then
-  // bust the cached standings snapshot.
+  // PLATFORM-072: a PUBLISHED draft's persisted owner assignment
+  // (owners:${slug}:${year} / 'csv') is the authoritative ownership source that
+  // standings / gameOwnership consume, so editing a pick in draft state alone
+  // would leave it crediting the old team→owner. Patch that CSV so the change
+  // follows the edit, then bust the cached standings snapshot.
   //
-  // Patch rather than rebuild-from-picks: this store is shared with
-  // PUT /api/owners (admin repair/override), which also leaves phase 'complete';
-  // a full rebuild would silently discard unrelated manual reassignments. If no
-  // CSV exists yet (shouldn't happen at phase 'complete', but be safe), fall back
-  // to the authoritative full build from the picks.
+  // Patch rather than rebuild-from-picks: the store is shared with
+  // PUT /api/owners (admin repair/override), and a rebuild would silently
+  // discard unrelated manual reassignments.
   //
-  // Pre-confirm phases ('live'/'paused', incl. a draft reopened via DELETE, which
-  // intentionally keeps the last confirmed CSV until re-confirm) are unaffected:
-  // no authoritative CSV is derived from in-progress picks.
-  if (updated.phase === 'complete') {
-    const ownersRecord = await getAppState<string>(`owners:${slug}:${year}`, 'csv');
-    const currentCsv = ownersRecord?.value;
-    const nextCsv =
-      typeof currentCsv === 'string' && currentCsv.trim()
-        ? patchConfirmedOwnersCsv(currentCsv, {
+  // PLATFORM-094 — gated on PUBLICATION, which requires `phase: 'complete'`.
+  // A reopened draft is `live`, and the reopen contract is that the previously
+  // confirmed roster stays in effect until the commissioner confirms again —
+  // so an edit mid-reopen must NOT rewrite live ownership. A
+  // complete-but-never-confirmed draft has no authoritative roster to follow at
+  // all, and must not have one minted for it here: this route is not the
+  // publication authority.
+  const editedAt = new Date().toISOString();
+  const wasPublished = isDraftPublished(draft);
+
+  // One transaction over both records — the picks and the roster describing them
+  // cannot be left disagreeing by a failure in between, and the re-stamped digest
+  // has to land with the roster it re-describes.
+  await withAppStateKeyTransaction(draftScope(slug), String(year), async (txn) => {
+    await txn.lockKey(`owners:${slug}:${year}`, 'csv');
+
+    if (wasPublished) {
+      const ownersRecord = await txn.readKey<string>(`owners:${slug}:${year}`, 'csv');
+      const currentCsv = ownersRecord?.value;
+      if (typeof currentCsv === 'string' && currentCsv.trim()) {
+        await txn.writeKey(
+          `owners:${slug}:${year}`,
+          'csv',
+          patchConfirmedOwnersCsv(currentCsv, {
             oldTeam: previousTeam,
             newTeam: canonicalTeam,
             fallbackOwner: newPicks[pickIndex]!.owner,
@@ -173,10 +178,29 @@ export async function PUT(
             // /api/owners resolves to the same slot (no stale duplicate row).
             resolveTeam: (label: string) => resolver.resolveName(label).canonicalName ?? label,
           })
-        : buildConfirmedOwnersCsv(newPicks, getDraftEligibleTeams(items)).csv;
-    await setAppState(`owners:${slug}:${year}`, 'csv', nextCsv);
-    invalidateStandings(slug, year);
-  }
+        );
+      }
+    }
+
+    // The roster was carried along, so it still describes the picks — re-stamp
+    // the digest over the NEW picks. This is the one place a writer opts back
+    // into publication, and only because it just made the roster match.
+    await txn.write<DraftState>({
+      ...draft,
+      picks: newPicks,
+      publishedPicks: wasPublished ? draftPicksDigest(newPicks) : draft.publishedPicks,
+      updatedAt: editedAt,
+    });
+  });
+
+  if (wasPublished) invalidateStandings(slug, year);
+
+  const updated: DraftState = {
+    ...draft,
+    picks: newPicks,
+    publishedPicks: wasPublished ? draftPicksDigest(newPicks) : draft.publishedPicks,
+    updatedAt: editedAt,
+  };
 
   return NextResponse.json({ draft: updated, pick: newPicks[pickIndex] });
 }
