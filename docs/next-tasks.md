@@ -94,8 +94,11 @@ Supersedes: (none)
     commits in a transaction but derives its payload from a read taken before it (demo league only),
     and a settings PUT whose read predates a `POST /confirm` commit writes back a draft WITHOUT
     `publishedPicks`, silently retracting a valid publication — recovery is re-Confirming.
-13. **Preview and production share one database — environment isolation.** Confirmed by the owner
-    2026-08-13. There is a single `DATABASE_URL`, and Vercel shares environment variables across
+13. ✅ **CLOSED 2026-08-13 — preview now gets its own database.** The owner configured the
+    Vercel/Neon integration to create a CHILD BRANCH per preview deployment, so each preview runs
+    against its own isolated copy rather than production. Stronger than the preview-scoped
+    `DATABASE_URL` originally proposed, which would still have had concurrent WIP branches sharing
+    one store. Original finding, kept for the reasoning: There is a single `DATABASE_URL`, and Vercel shares environment variables across
     Preview and Production unless preview-scoped values are set, so a preview deployment reads and
     writes the SAME durable store as production. This matters more than it looks because
     `CLAUDE.md` documents force-pushing every work-in-progress branch to `preview`: unreviewed code
@@ -106,6 +109,10 @@ Supersedes: (none)
     not by environment. Fix is a preview-scoped `DATABASE_URL` (or a separate database) in the
     Vercel project's Preview environment; no application change required. Until then, treat preview
     as production for any surface outside the `test` slug.
+    **Residual worth knowing:** a Neon child branch is a copy-on-write clone of production at the
+    branch point, so preview databases still CONTAIN production data — they just cannot write back
+    to it. That is the right trade for write safety, and it is a different question from the
+    data-retention item below.
 14. **NEXT — PLATFORM-095 (publication wayfinding).** Split out of PLATFORM-094 rather than folded
     in: it is information-architecture work, and `AGENTS.md` keeps that out of correctness PRs.
     Found by the owner walking a two-round draft on preview — the flow WORKS, but every surface
