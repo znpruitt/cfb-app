@@ -77,7 +77,7 @@ Supersedes: (none)
     owner confirmation and a draft at all. The `season` default was never a product decision —
     PLATFORM-086F2B carried forward an inference about MISSING status. Adoption keeps its `season`
     seed deliberately; execution record in `docs/prompt-registry.md`.
-11. ⏳ **PLATFORM-094 — PR #474 open, awaiting merge.** A draft's PUBLICATION is a fact the app can ask
+11. ✅ **PLATFORM-094 — COMPLETE** (PR #474, `263a48b0`, 2026-08-13). A draft's PUBLICATION is a fact the app can ask
     about: `DraftState.publishedPicks` digests the picks that were written to the league, and the
     preseason checklist and Complete Setup share one derivation that requires it. `phase: 'complete'`
     is set by the final pick and says only that every selection was taken — treating it as

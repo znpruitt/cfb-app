@@ -54,6 +54,10 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 
 ### PLATFORM-094-DRAFT-PUBLICATION-AND-READINESS-v2
 
+- Status: **Merged** (PR #474, `263a48b0`, 2026-08-13). Seven owner-approved remediation rounds;
+  both reviewers' final passes agreed the implementation was correct and only documentation
+  remained wrong.
+
 - Purpose: make a draft's PUBLICATION a fact the app can ask about, and make setup readiness ask for
   it. The preseason checklist and the Complete Setup action disagreed about "are teams assigned?",
   and both were reading a phase that cannot answer it.
