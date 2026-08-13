@@ -62,10 +62,19 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   draft summary UI, `selectors/teamAssignment.ts` + `server/teamAssignmentStore.ts` (both new), the
   admin preseason page, and `completeSetup`. Storage gained one optional field; no migration
   required — the owner confirmed there are no draft records in the app.
-- Sizing: 13 files, +900/-181. Within the stop-and-reassess signals. One PR under the "one
-  end-to-end behavior" exemption: a draft publishes its roster, and setup requires the published
-  roster. Splitting them ships a readiness gate against a publication path that cannot be reached,
-  which is how v1 failed review.
+- **Sizing: 22 files, +2267/-239 — OVER BOTH stop-and-reassess signals (>15 files, >1500 net
+  lines), with owner approval given and recorded here on 2026-08-13.** The initial rebuild was 13
+  files / +900/-181 and genuinely within the signals; four review-driven remediation rounds grew it
+  by roughly 60% and **the recorded figure was not revised as that happened**, so this entry claimed
+  compliance it no longer had until Codex checked the real diff. Recording the diffstat is only
+  useful if it is re-checked when the branch moves.
+- What expanded, and why: the selector extraction demanded by invariant 9; the injective signature
+  replacing a demonstrably colliding hash; the pick-edit transaction restructure; the roster fact
+  threaded to the summary page; the checklist link target; and tests for each. All of it traces to
+  review findings rather than new scope. Kept as one PR under the "one end-to-end behavior"
+  exemption — a draft publishes its roster, and setup requires the published roster. Splitting them
+  ships a readiness gate against a publication path that cannot be reached, which is how v1 failed
+  review.
 - **`phase: 'complete'` is set by the FINAL PICK.** It says every selection has been taken and
   nothing more; the roster is written separately, at confirmation. Conflating them produced three
   defects that two independent reviewers found from different directions.
@@ -169,8 +178,22 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - The summary page's roster read is a labelled STRUCTURAL pin: its admin controls are gated on a
   session the harness has none of, so a real render shows no controls either way. The control
   behavior itself is pinned behaviorally against the client component.
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3722/3722
-  (+50 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
+- **Remediation round 4 (owner-approved) — the confirming pass.** Codex raised the sizing record
+  above and a P2 on reopened drafts; `/code-review` raised the same reopen issue plus a HIGH and
+  MEDIUM rooted in one thing: no backfill for records written before `publishedPicks` existed.
+  - **The resync gate is `phase === 'complete'` plus an existing roster, not publication.** Gating on
+    publication dropped every draft confirmed before the field existed — a pick edit returned 200
+    while the stored roster kept crediting the old team and standings were never invalidated, which
+    is PLATFORM-072's defect returning through the new field. The phase still keeps a REOPENED draft
+    out, and requiring an existing CSV still stops this route minting one. The edit then backfills
+    the signature truthfully, so no migration is needed — and the two earlier reviewers' split
+    verdict on whether "no draft records exist" made the legacy case moot is no longer load-bearing.
+  - **A reopened draft reads as `draft-not-published`, not `draft-incomplete`.** It keeps every pick,
+    so "incomplete" was false, and it routed the checklist to the setup screen while the only publish
+    control sits on the summary page — the dead end reached through the reopen door. The blocker now
+    defers to `selectDraftPublicationControls`, so one definition of "publishable" serves both.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3724/3724
+  (+52 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
   — `completeSetup`'s refusal and the confirm route's atomicity — and coverage was added before they
   failed. Atomicity on the confirm path is a labelled STRUCTURAL pin: the only injectable store
   failure is lock acquisition, which aborts before either write and cannot distinguish a

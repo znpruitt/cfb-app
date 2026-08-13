@@ -450,6 +450,38 @@ test('a published draft stays published when its edit carries the roster along',
   assert.equal((await readOwnerByTeam())?.get(TEAM_C.toLowerCase()), 'Owner1');
 });
 
+test('a draft confirmed before publication existed still syncs its roster', async () => {
+  // Review, HIGH. Records written before `publishedPicks` existed have no
+  // signature, so gating the resync on publication dropped them: a pick edit
+  // returned 200 while `owners:{slug}:{year}` kept crediting the old team and
+  // standings were never invalidated — PLATFORM-072's defect returning through
+  // the new field. The gate is `phase === 'complete'` plus an existing roster,
+  // which is what `main` covered.
+  await seedConfirmed();
+  const confirmed = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))!.value!;
+  const legacy = { ...confirmed };
+  delete (legacy as { publishedPicks?: string | null }).publishedPicks;
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), legacy);
+
+  const { result: res, tags } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const owners = await readOwnerByTeam();
+  assert.equal(owners?.get(TEAM_C.toLowerCase()), 'Owner1', 'the roster followed the edit');
+  assert.equal(owners?.get(TEAM_A.toLowerCase()), 'NoClaim', 'the old team was released');
+  assert.ok(
+    tags.some((t) => t.startsWith('standings:')),
+    'standings were invalidated'
+  );
+
+  // And the edit BACKFILLS the signature: the roster now describes these picks,
+  // so saying so is truthful and no migration is needed.
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(isDraftPublished(after), true);
+});
+
 test('an edit does not claim publication when there was no roster to carry', async () => {
   // `PUT /api/owners` can blank the CSV without touching the draft, so a
   // published draft can have nothing left to patch. Re-stamping on

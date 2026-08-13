@@ -14,7 +14,7 @@ import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIden
 import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import teamsData from '@/data/teams.json';
-import { draftPicksSignature, isDraftPublished } from '@/lib/selectors/draftPublication';
+import { draftPicksSignature } from '@/lib/selectors/draftPublication';
 
 type TeamsJson = { items: TeamCatalogItem[] };
 
@@ -189,7 +189,19 @@ export async function PUT(
     };
     const nextPicks = current.picks.map((p, idx) => (idx === pickIndex ? replacement : p));
 
-    if (isDraftPublished(current)) {
+    // Sync the stored roster whenever the draft is COMPLETE and a roster exists
+    // — not when it is "published".
+    //
+    // Gating on publication dropped every draft confirmed before `publishedPicks`
+    // existed: no signature, so no patch, so a pick edit returned 200 while
+    // standings kept crediting the old team→owner, silently. That is the
+    // PLATFORM-072 defect returning through the new field.
+    //
+    // `phase === 'complete'` is what keeps a REOPENED draft out — reopen sets
+    // `live`, and its contract is that the previous roster stands until the
+    // commissioner confirms again — and requiring an existing CSV is what stops
+    // this route minting one, since it is not the publication authority.
+    if (current.phase === 'complete') {
       const ownersRecord = await txn.readKey<string>(`owners:${slug}:${year}`, 'csv');
       const currentCsv = ownersRecord?.value;
       if (typeof currentCsv === 'string' && currentCsv.trim()) {
@@ -210,10 +222,13 @@ export async function PUT(
       }
     }
 
-    // Re-stamp ONLY when a roster was actually patched. Publication alone is not
-    // enough: `PUT /api/owners` can blank the CSV, and this route would then
-    // record a publication of picks no roster describes — keeping Confirm hidden
-    // and letting a later unrelated repair import satisfy readiness.
+    // Re-stamp ONLY when a roster was actually patched. Nothing else may claim
+    // publication: `PUT /api/owners` can blank the CSV, and this route would
+    // otherwise record a publication of picks no roster describes.
+    //
+    // For a draft confirmed before this field existed, the patch above just made
+    // the stored roster describe these picks — so stamping here BACKFILLS the
+    // signature truthfully, instead of needing a migration.
     const written: DraftState = {
       ...current,
       picks: nextPicks,

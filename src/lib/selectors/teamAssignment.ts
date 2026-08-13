@@ -1,6 +1,6 @@
 import { type DraftState } from '../draft.ts';
 import { hasUsableOfficialRoster } from './confirmedRoster.ts';
-import { isDraftPublished } from './draftPublication.ts';
+import { isDraftPublished, selectDraftPublicationControls } from './draftPublication.ts';
 
 /**
  * PLATFORM-094 — the ONE answer to "have this league's teams been assigned?"
@@ -43,7 +43,7 @@ export type TeamAssignmentInput = {
    * published digest cannot be passed from different records — the answer turns
    * on all three describing the same draft.
    */
-  draft: Pick<DraftState, 'phase' | 'picks' | 'publishedPicks'> | null;
+  draft: Pick<DraftState, 'phase' | 'picks' | 'publishedPicks' | 'owners' | 'settings'> | null;
   /** The raw `owners:{slug}:{year}` CSV record, untrusted. */
   officialRosterCsv: unknown;
   /** `League.manualAssignmentComplete`. */
@@ -82,7 +82,17 @@ export function selectTeamAssignment(input: TeamAssignmentInput): TeamAssignment
     // Ordered so the blocker names the operator's ACTUAL next step: finish the
     // draft, then publish it, then restore a roster that went missing. A single
     // "not assigned" would send all three to the same dead end.
-    if (draft?.phase !== 'complete') return blocked('draft-incomplete');
+    // A reopened draft keeps every pick and moves to `live`. Calling that
+    // "incomplete" is false — the picks ARE in — and it routed the checklist to
+    // the setup screen while the only publish control sat on the summary page.
+    // `selectDraftPublicationControls` already owns the definition of
+    // publishable, so it decides here too rather than a second rule drifting.
+    if (draft?.phase !== 'complete') {
+      if (draft && selectDraftPublicationControls(draft).canPublish) {
+        return blocked('draft-not-published');
+      }
+      return blocked('draft-incomplete');
+    }
     if (!isDraftPublished(draft)) return blocked('draft-not-published');
     if (!hasUsableOfficialRoster(officialRosterCsv)) return blocked('published-roster-missing');
     return ASSIGNED;

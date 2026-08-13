@@ -178,6 +178,37 @@ test('the summary page reads the published roster and passes it down', () => {
   );
 });
 
+test('a reopened draft still points at the publish control', async () => {
+  // Both reviewers. Reopen keeps every pick and sets `live`, which read as
+  // `draft-incomplete` and routed here to the SETUP screen — while
+  // `selectDraftPublicationControls` deliberately makes that state publishable
+  // and Confirm lives only on the summary page. The same dead end the previous
+  // fix closed, reached through the reopen door.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'live',
+    picks,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+    publishedPicks: draftPicksSignature(picks),
+  });
+
+  const html = await renderChecklist();
+  assert.equal(
+    html.match(/href="[^"]*\/draft\/[^"]*"/)?.[0],
+    `href="/league/${SLUG}/draft/summary"`
+  );
+});
+
 test('the checklist reports owners unconfirmed until a real roster exists', async () => {
   await seedLeague();
   assert.match(await renderChecklist(), /○[\s\S]{0,400}Owners confirmed/);

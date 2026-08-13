@@ -38,14 +38,26 @@ function picks(
 }
 
 /** A draft slice. Published means the digest matches the picks it holds. */
-function draft(
-  overrides: Partial<Pick<DraftState, 'phase' | 'picks' | 'publishedPicks'>> = {}
-): Pick<DraftState, 'phase' | 'picks' | 'publishedPicks'> {
+type DraftSlice = NonNullable<TeamAssignmentInput['draft']>;
+
+const OWNERS = ['Alice', 'Bob'];
+const SETTINGS: DraftState['settings'] = {
+  style: 'snake',
+  draftOrder: [...OWNERS],
+  pickTimerSeconds: null,
+  timerExpiryBehavior: 'pause-and-prompt',
+  totalRounds: 1,
+  scheduledAt: null,
+};
+
+function draft(overrides: Partial<DraftSlice> = {}): DraftSlice {
   const base = picks();
   return {
     phase: 'complete',
     picks: base,
     publishedPicks: draftPicksSignature(base),
+    owners: [...OWNERS],
+    settings: SETTINGS,
     ...overrides,
   };
 }
@@ -164,20 +176,27 @@ test('a roster naming fewer than two real owners is not a published assignment',
 });
 
 test('an unfinished draft is not assigned, whatever the roster says', () => {
+  // Genuinely unfinished — one of the two configured picks made. The phase alone
+  // is not what makes a draft incomplete; the missing picks are.
+  const partial = picks([['Alice', 'Texas']]);
   for (const phase of ['setup', 'settings', 'preview', 'live', 'paused'] as const) {
-    const result = selectTeamAssignment(input({ draft: draft({ phase }) }));
+    const result = selectTeamAssignment(input({ draft: draft({ phase, picks: partial }) }));
     assert.equal(result.isAssigned, false, phase);
     assert.equal(result.blocker, 'draft-incomplete', phase);
   }
   assert.equal(selectTeamAssignment(input({ draft: null })).blocker, 'draft-incomplete');
 });
 
-test('a reopened draft is not assigned even though its picks are unchanged', () => {
-  // Reopening moves the phase to `live` while the previously confirmed roster
-  // deliberately stays in effect. The picks still match the digest, so the phase
-  // is what says "this is being edited" — and the checklist must stop ticking.
+test('a reopened draft reads as UNPUBLISHED, not incomplete', () => {
+  // Reopening moves the phase to `live` while keeping every pick, so the
+  // checklist must stop ticking — but calling it "incomplete" is false, and it
+  // sent the commissioner to the setup screen when the only publish control is
+  // on the summary page. It is a draft awaiting publication, and the blocker
+  // says so, which is what routes the link correctly.
   const reopened = draft({ phase: 'live' });
-  assert.equal(selectTeamAssignment(input({ draft: reopened })).blocker, 'draft-incomplete');
+  const result = selectTeamAssignment(input({ draft: reopened }));
+  assert.equal(result.isAssigned, false);
+  assert.equal(result.blocker, 'draft-not-published');
 });
 
 test('a league with no assignment method is not assigned', () => {
@@ -218,7 +237,10 @@ test('the blocker names the step the operator actually has to take', () => {
   // unpublished one must not be told its roster is missing.
   assert.equal(
     selectTeamAssignment(
-      input({ draft: draft({ phase: 'live', publishedPicks: null }), officialRosterCsv: null })
+      input({
+        draft: draft({ phase: 'live', publishedPicks: null, picks: picks([['Alice', 'Texas']]) }),
+        officialRosterCsv: null,
+      })
     ).blocker,
     'draft-incomplete'
   );
