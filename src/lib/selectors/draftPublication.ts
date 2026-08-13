@@ -79,6 +79,17 @@ export type DraftPublicationControls = {
   canReopen: boolean;
 };
 
+export type DraftPublicationFacts = {
+  /**
+   * Whether the roster this draft published is still stored.
+   *
+   * A separate fact because publication records a PAST event: `PUT /api/owners`
+   * can blank `owners:{slug}:{year}` without touching the draft, and the picks
+   * still match their signature afterwards.
+   */
+  publishedRosterExists: boolean;
+};
+
 /**
  * Which publication control the draft summary should offer.
  *
@@ -95,12 +106,21 @@ export type DraftPublicationControls = {
  * eligibility regardless; this decides what to OFFER, never what is allowed.
  */
 export function selectDraftPublicationControls(
-  draft: ControllableDraft | null | undefined
+  draft: ControllableDraft | null | undefined,
+  facts: DraftPublicationFacts = { publishedRosterExists: true }
 ): DraftPublicationControls {
   if (!draft) return { canPublish: false, canReopen: false };
-  const published = isDraftPublished(draft);
+
+  // A published draft whose roster has since been cleared is published in name
+  // only: `selectTeamAssignment` blocks setup with `published-roster-missing`,
+  // and that blocker's stated next step — put the roster back — had no control
+  // that performed it. Confirm was hidden because publication still "held", so
+  // recovery meant Reopen then Confirm: the same two-step workaround this work
+  // exists to remove. Treat a missing roster as unpublished FOR THE CONTROLS,
+  // which puts Confirm back and withdraws a Reopen that would reopen nothing.
+  const standing = isDraftPublished(draft) && facts.publishedRosterExists;
   return {
-    canPublish: !published && allPicksAreIn(draft),
-    canReopen: published,
+    canPublish: !standing && allPicksAreIn(draft),
+    canReopen: standing,
   };
 }

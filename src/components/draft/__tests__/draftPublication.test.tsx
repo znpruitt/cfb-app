@@ -64,7 +64,11 @@ function published(overrides: Partial<DraftState> = {}): DraftState {
   return { ...draft, publishedPicks: draftPicksSignature(draft.picks) };
 }
 
-function render(draft: DraftState, isAdmin = true): string {
+function render(
+  draft: DraftState,
+  isAdmin = true,
+  opts: { publishedRosterExists?: boolean } = {}
+): string {
   return renderToStaticMarkup(
     <DraftSummaryClient
       slug="tsc"
@@ -75,6 +79,7 @@ function render(draft: DraftState, isAdmin = true): string {
       displayNameMap={{}}
       facts={[]}
       leagueStatus={{ state: 'preseason', year: 2026 }}
+      publishedRosterExists={opts.publishedRosterExists ?? true}
       isAdmin={isAdmin}
     />
   );
@@ -164,4 +169,26 @@ test('neither control is offered to a non-admin', () => {
 
   assert.doesNotMatch(html, /Confirm Draft/);
   assert.doesNotMatch(html, /Reopen Draft/);
+});
+
+test('a published draft whose roster was cleared can be published again', () => {
+  // Review finding. `PUT /api/owners` can blank `owners:{slug}:{year}` without
+  // touching the draft, and the picks still match their signature — so the draft
+  // read as published, Confirm stayed hidden, and the checklist blocked setup
+  // with `published-roster-missing`, a blocker whose stated next step had no
+  // control that performed it. Recovery was Reopen then Confirm: the two-step
+  // workaround this work exists to remove.
+  const html = render(published(), true, { publishedRosterExists: false });
+
+  assert.match(html, /Confirm Draft/, 'the way to restore the roster is offered');
+  assert.doesNotMatch(html, /Reopen Draft/, 'there is nothing to reopen');
+});
+
+test('a published draft with its roster intact still offers only Reopen', () => {
+  // The control: the same render with the roster present must NOT offer Confirm,
+  // so the test above is pinning the roster fact rather than passing vacuously.
+  const html = render(published(), true, { publishedRosterExists: true });
+
+  assert.match(html, /Reopen Draft/);
+  assert.doesNotMatch(html, /Confirm Draft/);
 });

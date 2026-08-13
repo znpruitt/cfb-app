@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test, { beforeEach } from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ReactElement } from 'react';
@@ -127,6 +128,55 @@ beforeEach(async () => {
 });
 
 // --- The admin checklist -----------------------------------------------------
+
+test('the Teams assigned link points where the publish control actually is', async () => {
+  // Review finding. The step now stays ○ for the normal post-draft state — every
+  // pick made, nothing confirmed — which made this link render there for the
+  // first time. It pointed at the draft SETUP page, a settings screen with no
+  // Confirm control, so a commissioner whose draft had just finished was sent to
+  // configure it. Confirm lives on the summary page.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+
+  const hrefFor = async (): Promise<string> =>
+    (await renderChecklist()).match(/href="[^"]*\/draft\/[^"]*"/)?.[0] ?? '(no draft link)';
+
+  // No draft yet — setup is right, because there is a draft to create.
+  assert.equal(await hrefFor(), `href="/league/${SLUG}/draft/setup"`);
+
+  // Finished but never published — the one remaining step is Confirm.
+  await setAppState(draftScope(SLUG), String(YEAR), { phase: 'complete', picks });
+  assert.equal(
+    await hrefFor(),
+    `href="/league/${SLUG}/draft/summary"`,
+    'a finished draft points at the page that can publish it'
+  );
+
+  // Still running — setup again; there is nothing to confirm yet.
+  await setAppState(draftScope(SLUG), String(YEAR), { phase: 'live', picks: picks.slice(0, 1) });
+  assert.equal(await hrefFor(), `href="/league/${SLUG}/draft/setup"`);
+});
+
+test('the summary page reads the published roster and passes it down', () => {
+  // Structural pin, labelled as one. The publish controls need a fact the client
+  // cannot see — whether `owners:{slug}:{year}` still holds a usable roster,
+  // since `PUT /api/owners` can blank it without touching the draft. Rendering
+  // the real page cannot check it: the admin controls are gated on a session
+  // this harness has none of, so every control is absent either way. The
+  // CONTROL behavior is pinned behaviorally in
+  // `components/draft/__tests__/draftPublication.test.tsx`; what remains
+  // uncheckable at runtime is that the server actually supplies the fact.
+  const source = readFileSync(new URL('../summary/page.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /getAppState<unknown>\(`owners:\$\{slug\}:\$\{year\}`, 'csv'\)/);
+  assert.match(source, /hasUsableOfficialRoster\(ownersCsvRecord\?\.value \?\? null\)/);
+  assert.match(
+    source,
+    /publishedRosterExists=\{publishedRosterExists\}/,
+    'and hands it to the summary client'
+  );
+});
 
 test('the checklist reports owners unconfirmed until a real roster exists', async () => {
   await seedLeague();

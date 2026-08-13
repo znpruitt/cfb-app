@@ -148,8 +148,29 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
 - Not remediated, deliberately: `autoCompleteDraft` has the same read-outside-transaction shape
   (demo league only), and the four non-transactional whole-record draft writers can still clobber
   `publishedPicks` — both recorded as follow-ups rather than folded into an approved-narrow round.
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3718/3718
-  (+46 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
+- **Remediation round 3 (owner-approved) — the confirming pass's three findings.** Codex's
+  confirming pass was clean; `/code-review` found one medium and two low, all accepted:
+  - the checklist's "Teams assigned" link pointed at the draft SETUP page. Harmless while the step
+    ticked at `phase === 'complete'` (it never rendered there), but requiring publication made the
+    normal post-draft state render it — so a commissioner whose draft had just finished was sent to
+    a settings screen with no Confirm control. **Not an edge case: every draft passes through that
+    state.** Now keyed on the blocker — `draft-not-published` / `published-roster-missing` point at
+    the summary page, anything else at setup.
+  - a published draft whose roster was cleared via `PUT /api/owners` offered only Reopen, so
+    `published-roster-missing` named a next step no control performed. `selectDraftPublicationControls`
+    now takes `publishedRosterExists`, supplied by the summary page.
+  - the stale `preseasonBanner` doc block, and the `next-tasks` entry repeating it. **Second fix lost
+    to re-deriving** (the first was the re-stamp guard) — worth weighing when reconstruction is next
+    chosen.
+- **A test insert silently no-opped and I nearly shipped the coverage claim.** The anchor string for
+  the link test did not exist in the file, so the suite count never moved and mutation showed the
+  fix unpinned. Anchors are now asserted before replacing. This is the same vacuous-coverage failure
+  as the `/✓[\s\S]{0,400}/` proximity regex earlier in this campaign, in a different disguise.
+- The summary page's roster read is a labelled STRUCTURAL pin: its admin controls are gated on a
+  session the harness has none of, so a real render shows no controls either way. The control
+  behavior itself is pinned behaviorally against the client component.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3722/3722
+  (+50 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
   — `completeSetup`'s refusal and the confirm route's atomicity — and coverage was added before they
   failed. Atomicity on the confirm path is a labelled STRUCTURAL pin: the only injectable store
   failure is lock acquisition, which aborts before either write and cannot distinguish a

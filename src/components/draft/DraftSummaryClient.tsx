@@ -22,6 +22,11 @@ type DraftSummaryClientProps = {
   facts: string[];
   /** League lifecycle status for conditional commissioner prompts. */
   leagueStatus?: LeagueStatus;
+  /**
+   * Whether the roster this draft published is still stored. Read on the server
+   * because the client cannot see `owners:{slug}:{year}`.
+   */
+  publishedRosterExists?: boolean;
   /** Server-verified: true when the current session passed the canAccessDraftBoard gate. */
   isAdmin: boolean;
 };
@@ -35,6 +40,7 @@ export default function DraftSummaryClient({
   displayNameMap,
   facts,
   leagueStatus,
+  publishedRosterExists = true,
   isAdmin,
 }: DraftSummaryClientProps): React.ReactElement {
   const [draft, setDraft] = useState(initialDraft);
@@ -188,7 +194,9 @@ export default function DraftSummaryClient({
   // Which publication control to offer. Derived in the selector layer, not
   // recombined here — AGENTS.md invariant 9, and the reason the previous inline
   // version could stand a reopened draft up with NEITHER button.
-  const { canPublish, canReopen } = selectDraftPublicationControls(draft);
+  const { canPublish, canReopen } = selectDraftPublicationControls(draft, {
+    publishedRosterExists,
+  });
 
   return (
     <div className="space-y-10">
