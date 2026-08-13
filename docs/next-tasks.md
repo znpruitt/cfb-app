@@ -144,7 +144,11 @@ Supersedes: (none)
       the picks are visible; a write button on the checklist lets a commissioner publish every
       roster without seeing one.
 
-    - Also queued here (review, LOW): `publishedPicks` stores a full JSON encoding of every
+    - **NOT in this slice** (owner-agreed split): the `publishedPicks` payload size below is a
+      STORAGE-FORMAT change, not information architecture. Folding it in repeats the mistake
+      PLATFORM-094/095 were split to avoid. Its own slice, after 095.
+
+    - Deferred to that slice (review, LOW): `publishedPicks` stores a full JSON encoding of every
       `[pickNumber, owner, team]` triple inside `DraftState`, which `GET /api/draft/[slug]/[year]`
       returns and the board polls every 5s (30s once complete) — roughly 10 KB of redundancy per
       poll per viewer on a 12-owner × 10-round draft. The injectivity requirement is settled and
@@ -152,11 +156,28 @@ Supersedes: (none)
       collisions negligible at ~32 characters, or the signature could live outside the polled
       record.
 
-    - Also (review, LOW): `AssignmentMethodCard` renders while `!teamsAssigned`, so it now stays
-      visible through the whole finished-but-unpublished window — the very screen the commissioner
-      is on to go and publish. One click on "Change → Assign Manually" reaches
-      `manual-assignment-incomplete`, a blocker with no writer anywhere in the app, which blocks
-      Complete Setup until they switch back. Suppress the card once a draft exists with picks.
+    - **Assignment-method switching — CORRECTNESS, not just IA, and owner-ruled 2026-08-13.**
+      `AssignmentMethodCard` renders while `!teamsAssigned`, so it now stays visible through the
+      whole finished-but-unpublished window — the very screen the commissioner is on to go and
+      publish. One click on "Change → Assign Manually" reaches `manual-assignment-incomplete`, a
+      blocker with **no writer anywhere in the app**, blocking Complete Setup until they switch
+      back. **`setAssignmentMethod` has no guard of any kind** — no draft check, no picks check — so
+      the card is the only thing preventing it. That is the "a disabled control is not a guard"
+      defect this campaign already fixed for `completeSetup`: the Server Action is reachable without
+      the form.
+
+      Owner's ruling: switching to manual is ALLOWED while a draft is in progress, behind a
+      confirmation dialog stating plainly that it discards the in-progress draft. Once the draft is
+      complete it is NOT an option.
+
+      Implementation reading of "complete": **every pick is in**, i.e. `draftPicksAreComplete` —
+      not `phase === 'complete'`. That covers a published draft (necessarily complete) and a
+      REOPENED one, which sets the phase back to `live` while keeping every pick and leaving a
+      published roster live in standings. Treating a reopened draft as "in progress" would let one
+      click discard a finished draft AND strand its rosters. Using the existing predicate keeps the
+      phase-vs-published distinction out of it entirely.
+
+      The refusal belongs in the ACTION; the dialog is the UI half and does not replace it.
 
     Read `DESIGN.md` first. Every touched surface carries its own tests, and the acceptance check is
     a walkthrough on the demo league — the two most valuable findings of PLATFORM-094 came from the
