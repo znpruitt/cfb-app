@@ -106,11 +106,45 @@ Supersedes: (none)
     not by environment. Fix is a preview-scoped `DATABASE_URL` (or a separate database) in the
     Vercel project's Preview environment; no application change required. Until then, treat preview
     as production for any surface outside the `test` slug.
-14. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
-15. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+14. **NEXT — PLATFORM-095 (publication wayfinding).** Split out of PLATFORM-094 rather than folded
+    in: it is information-architecture work, and `AGENTS.md` keeps that out of correctness PRs.
+    Found by the owner walking a two-round draft on preview — the flow WORKS, but every surface
+    still treats "all picks made" as "done" and offers the after-you-are-finished action before the
+    commissioner has finished.
+
+    **Prompt:** `PLATFORM-095-PUBLICATION-WAYFINDING-v1`. The rule: before publication every surface
+    points at Confirm; after publication `Continue Setup` is correct and is the only place it
+    appears. Today `Continue Setup` renders on `phase === 'complete'` regardless, so following it
+    lands on a checklist that cannot move forward.
+
+    Scope, from the owner's walkthrough:
+    - `DraftHeaderArea` (draft board, complete state) — drop `Continue Setup` while unpublished;
+      `View Draft Summary` is the way forward. Restore `Continue Setup` once published.
+    - `DraftSummaryClient` — the Confirm control sits at the bottom of the pick table; move it to
+      the header/banner area so it is the visible next action. **Label stays `Confirm draft`** — the
+      review IS the page, so the button must not say "review". The `Continue Setup` prompt below it
+      should appear only once published.
+    - `/admin/[slug]/preseason` checklist — the blocker text is generated from a generic list
+      (`Complete team assignment before finishing setup.`) and reads identically whether the draft
+      has not started, has finished without confirming, or has lost its roster. `assignmentBlocker`
+      is already on the page and distinguishes all four cases; say the true thing and name the next
+      action, keeping `View draft summary` as the destination label:
+      `draft-not-published` → "Your draft is complete. Confirm the results to assign teams.";
+      `draft-incomplete` → "Finish the draft to assign teams.";
+      `published-roster-missing` → "The published roster is missing. Confirm the draft again.";
+      `no-assignment-method` → "Choose how teams are assigned."
+    - Owner ruling: do NOT put the Confirm control on the checklist. Publishing must happen where
+      the picks are visible; a write button on the checklist lets a commissioner publish every
+      roster without seeing one.
+
+    Read `DESIGN.md` first. Every touched surface carries its own tests, and the acceptance check is
+    a walkthrough on the demo league — the two most valuable findings of PLATFORM-094 came from the
+    owner clicking through, not from review.
+15. **Then — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
+16. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
     later.
-16. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
+17. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
     PLATFORM-093** — a brand-new league had no path to confirm owners — new leagues are born `season`, `/admin/[slug]/preseason/owners`
     redirects away unless the league is in `preseason`, and only `beginPreseason` (offseason-only) or
     the rollover cron reach that state, leaving only the historical/repair CSV import, which asks the
@@ -125,7 +159,7 @@ Supersedes: (none)
     shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
     constant. Severity was overstated when first reported — three client components already import
     that module, so the graph is in the client bundle on every league page anyway.
-17. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
+18. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
     Verified 2026-08-12. `DELETE /api/admin/leagues/[slug]` calls `removeLeague`, which filters the
     slug out of the registry list and nothing else. Every keyed record survives: `owners:{slug}:{year}`
     (team→owner rosters carrying real names), `preseason-owners:{slug}`, `draft:{slug}` (picks and
@@ -155,12 +189,12 @@ Supersedes: (none)
     the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
     the honest options are a purge that removes the residue, an already-archived guard in the
     rollover path, or retiring adoption — all of which are this campaign's decisions.
-18. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+19. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
     once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
     retry.
-19. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+20. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -170,7 +204,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-20. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+21. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 
