@@ -27,7 +27,7 @@ import { TEST_LEAGUE_SLUG, type LeagueStatus } from '@/lib/league';
 import type { AutoCompleteDraftResult, TestControlResult } from '@/lib/testLeagueControl';
 import { requireAdminAction } from '@/lib/auth/requireAdminAction';
 import teamsData from '@/data/teams.json';
-import { draftPicksSignature } from '@/lib/selectors/draftPublication';
+import { draftPicksAreComplete, draftPicksSignature } from '@/lib/selectors/draftPublication';
 
 /** The admin path the demo controls revalidate. */
 const TEST_LEAGUE_ADMIN_PATH = `/admin/${TEST_LEAGUE_SLUG}`;
@@ -307,6 +307,39 @@ export async function beginPreseason(slug: string): Promise<void> {
 /** Persist the commissioner's choice of how teams will be assigned this preseason. */
 export async function setAssignmentMethod(slug: string, method: 'draft' | 'manual'): Promise<void> {
   await requireAdminAction('setAssignmentMethod');
+
+  // PLATFORM-095 — a finished draft's assignment cannot be thrown away by
+  // switching method. Owner's ruling: switching is fine while a draft is IN
+  // PROGRESS (behind a confirmation that says it discards that draft), and is
+  // not an option once the draft is finished.
+  //
+  // "Finished" means EVERY PICK IS IN, not `phase === 'complete'`. Reopening a
+  // published draft returns the phase to `live` while keeping every pick, with
+  // its roster still live in standings — so a phase test would call that "in
+  // progress" and let one click discard a completed draft AND strand the
+  // rosters it published. `draftPicksAreComplete` is the same predicate the
+  // publication controls use, so the two cannot drift apart.
+  //
+  // The guard lives HERE and not only in the card. `AssignmentMethodCard` is a
+  // client component calling a Server Action, which is reachable without the
+  // form and whose arguments cross HTTP unvalidated — hiding the control is
+  // presentation, not enforcement (PLATFORM-086F2H1SB, and PLATFORM-094's
+  // `completeSetup` for the same reason).
+  const league = await getLeague(slug);
+  const year =
+    league?.status?.state === 'preseason' || league?.status?.state === 'season'
+      ? league.status.year
+      : league?.year;
+
+  if (league && typeof year === 'number') {
+    const draft = (await getAppState<DraftState>(draftScope(slug), String(year)))?.value ?? null;
+    if (draftPicksAreComplete(draft)) {
+      throw new Error(
+        'The draft for this season is finished — its team assignments cannot be discarded by changing the assignment method.'
+      );
+    }
+  }
+
   await updateLeague(slug, { assignmentMethod: method });
   revalidatePath(`/admin/${slug}/preseason`);
 }

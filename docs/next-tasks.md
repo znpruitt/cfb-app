@@ -113,7 +113,7 @@ Supersedes: (none)
     branch point, so preview databases still CONTAIN production data — they just cannot write back
     to it. That is the right trade for write safety, and it is a different question from the
     data-retention item below.
-14. **NEXT — PLATFORM-095 (publication wayfinding).** Split out of PLATFORM-094 rather than folded
+14. ⏳ **PLATFORM-095 — implemented, PR pending.** Split out of PLATFORM-094 rather than folded
     in: it is information-architecture work, and `AGENTS.md` keeps that out of correctness PRs.
     Found by the owner walking a two-round draft on preview — the flow WORKS, but every surface
     still treats "all picks made" as "done" and offers the after-you-are-finished action before the

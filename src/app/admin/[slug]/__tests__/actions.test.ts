@@ -7,7 +7,12 @@ import test from 'node:test';
 import '../../../api/draft/[slug]/[year]/__tests__/_setup/installAsyncLocalStorage';
 import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
 
-import { confirmPreseasonOwners, beginPreseason, completeSetup } from '../actions';
+import {
+  confirmPreseasonOwners,
+  beginPreseason,
+  completeSetup,
+  setAssignmentMethod,
+} from '../actions';
 import { __withAdminActionAuthorizerForTests } from '../../../../lib/auth/requireAdminAction.ts';
 import type { League } from '../../../../lib/league.ts';
 import { draftScope } from '../../../../lib/draft.ts';
@@ -435,4 +440,51 @@ test('completeSetup refuses a league with no assignment method', async () => {
     /no-assignment-method/
   );
   assert.notEqual(await setupCompleteFlag(), true);
+});
+
+test('setAssignmentMethod refuses to discard a draft that has every pick', async () => {
+  // PLATFORM-095, owner's ruling. Switching is fine mid-draft; once the picks are
+  // all in, the draft's assignment must not be thrown away by changing method.
+  //
+  // The refusal lives in the ACTION, not only in the card. This is a Server
+  // Action: reachable without the form, arguments crossing HTTP unvalidated —
+  // hiding the control is presentation, not enforcement.
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }),
+  ]);
+  await seedAssignedTeams('alpha', 2026);
+
+  await assert.rejects(
+    () => runCapturingTags(() => setAssignmentMethod('alpha', 'manual')),
+    /cannot be discarded/
+  );
+
+  const league = (await getAppState<League[]>('leagues', 'registry'))?.value?.[0];
+  assert.equal(league?.assignmentMethod, 'draft', 'the method is unchanged');
+});
+
+test('setAssignmentMethod still allows a switch mid-draft', async () => {
+  // The other half of the ruling: an in-progress draft may be abandoned. The
+  // confirmation dialog is the UI half; the action must not block it.
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }),
+  ]);
+  await setAppState(draftScope('alpha'), '2026', {
+    phase: 'live',
+    picks: [SEED_PICKS[0]!],
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
+
+  await runCapturingTags(() => setAssignmentMethod('alpha', 'manual'));
+
+  const league = (await getAppState<League[]>('leagues', 'registry'))?.value?.[0];
+  assert.equal(league?.assignmentMethod, 'manual');
 });

@@ -50,7 +50,47 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
-This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
+### PLATFORM-095-PUBLICATION-WAYFINDING-v1
+
+- Purpose: make every surface point at Confirm before publication, and offer `Continue Setup` only
+  after it. Found by the owner walking a two-round draft on preview — PLATFORM-094 made the flow
+  correct, but the post-draft surfaces still treated "all picks made" as "done" and offered the
+  after-you-are-finished action before the commissioner had finished.
+- Scope: `DraftHeaderArea`, `DraftSummaryClient`, the preseason checklist copy, `AssignmentMethodCard`,
+  and `setAssignmentMethod`. 8 files, +466/-80 — within the stop-and-reassess signals.
+- **The same conflation PLATFORM-094 fixed, one layer up.** `Continue Setup` rendered on
+  `phase === 'complete'` regardless of publication, so following it landed on a checklist that could
+  not proceed. Before PLATFORM-094 the checklist ticked at `complete` and the link was right; the
+  new semantics turned it into a detour. Both offending surfaces now gate on publication.
+- **The publish control moved to the top of the summary page** and says why it is there — "Draft
+  complete — these results are not yet the league's rosters." It was the last thing on a long
+  scroll. Label is exactly `Confirm draft` per the owner: the review IS the page, so a button asking
+  the reader to review what they are looking at is noise. Tests pin the exact string.
+- **The checklist names the step, not the category.** `Complete team assignment before finishing
+  setup.` was generated from a blocker LIST and read identically whether the draft had not started,
+  had finished unconfirmed, or had lost its roster — telling a commissioner who had just finished a
+  draft to complete team assignment. `assignmentBlocker` already distinguished all four.
+- **Assignment-method switching was a CORRECTNESS item wearing an IA costume.**
+  `setAssignmentMethod` had no guard of any kind, so a hidden card was the only thing preventing a
+  drafted league from being switched to `manual` — a state with no writer anywhere in the app. That
+  is the "a disabled control is not a guard" defect PLATFORM-094 already fixed for `completeSetup`.
+  Owner's ruling: allowed mid-draft behind a warning that says it discards the draft; refused once
+  every pick is in. "Once complete" is `draftPicksAreComplete`, NOT `phase === 'complete'` — a
+  reopened draft keeps every pick with its roster live in standings, so a phase test would call that
+  "in progress" and let one click discard a finished draft and strand its rosters.
+- The confirmation is INLINE amber disclosure, not a modal: that is this codebase's established
+  pattern for destructive admin actions (`DraftControls` arms its Reset; `DraftSummaryClient` opens
+  an amber box before writing rosters), and there is no modal anywhere to be consistent with. The
+  owner asked for a "pop-up"; the deviation was flagged before implementing.
+- The seam audit ran FIRST this time ([[feedback_audit_seams_before_writing]]) and immediately found
+  a THIRD `Continue Setup` — on the admin league page — which is correct as-is: it is the admin
+  home's entry point into the checklist, gated on setup being incomplete, and the checklist now
+  routes onward properly. Auditing it took one grep and prevented a wrong "fix".
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3737/3737
+  (+8). Seven mutations across the five guards; **two killed nothing at first** — both
+  `Continue Setup` gates had no coverage — and tests were added before they failed. One assertion
+  was written vacuously (`/draftHasPicks|Change/i` matches "Change", always present), caught on
+  review of my own work and replaced with a labelled structural pin that a mutation does kill.
 
 ### PLATFORM-094-DRAFT-PUBLICATION-AND-READINESS-v2
 

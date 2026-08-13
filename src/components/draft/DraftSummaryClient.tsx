@@ -209,6 +209,63 @@ export default function DraftSummaryClient({
         </Link>
       </div>
 
+      {/* PLATFORM-095 — the publish control sits at the TOP, not below the pick
+          table. It is the one outstanding action on this page for a finished
+          draft, and it was the last thing on a long scroll: the owner walked the
+          flow and found the page's most prominent affordances pointed anywhere
+          but here. The review IS the page, so the button says "Confirm draft" —
+          it does not ask to review something the reader is already looking at.
+
+          Gated on `canPublish` (PLATFORM-094): this was `phase !== 'complete'`,
+          and this is the app's ONLY caller of POST /confirm, so the control
+          vanished at the exact moment a draft became publishable. */}
+      {isAdmin && canPublish && (
+        <section className="rounded-xl border border-green-200 bg-green-50/60 px-4 py-3 dark:border-green-800/40 dark:bg-green-950/20">
+          {confirmError && (
+            <p className="mb-3 text-sm text-red-700 dark:text-red-400">{confirmError}</p>
+          )}
+          {confirmOpen ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950">
+              <p className="mb-3 text-sm text-amber-900 dark:text-amber-100">
+                This will write all owner rosters to the league for the {year} season. This cannot
+                be undone without starting a new draft or uploading a CSV override.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  disabled={confirmLoading}
+                  onClick={() => void handleConfirm()}
+                  className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+                >
+                  {confirmLoading ? 'Confirming…' : 'Confirm'}
+                </button>
+                <button
+                  type="button"
+                  disabled={confirmLoading}
+                  onClick={() => setConfirmOpen(false)}
+                  className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm font-semibold text-green-800 dark:text-green-300">
+                Draft complete — these results are not yet the league&rsquo;s rosters.
+              </p>
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(true)}
+                className="shrink-0 rounded bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+              >
+                Confirm draft
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Owner Roster Cards */}
       <section>
         <h2 className="mb-4 text-sm font-semibold uppercase tracking-[0.15em] text-gray-500 dark:text-zinc-400">
@@ -392,57 +449,6 @@ export default function DraftSummaryClient({
       {/* Interesting Facts */}
       <InterestingFactsPanel facts={facts} />
 
-      {/* Confirm Draft — admin only, shown once the picks are in and until they
-          have been published.
-
-          PLATFORM-094: this was `phase !== 'complete'`, and this button is the
-          app's ONLY caller of POST /confirm. `complete` is set by the final
-          pick, so the publish control disappeared at the exact moment a draft
-          became publishable — a draft that ended normally could not be
-          published at all, and the only way out was Reopen (back to `live`)
-          then Confirm, which nothing documented and no link pointed at. */}
-      {isAdmin && canPublish && (
-        <section className="border-t border-gray-200 pt-8 dark:border-zinc-700">
-          {confirmError && (
-            <p className="mb-3 text-sm text-red-700 dark:text-red-400">{confirmError}</p>
-          )}
-          {confirmOpen ? (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950">
-              <p className="mb-3 text-sm text-amber-900 dark:text-amber-100">
-                This will write all owner rosters to the league for the {year} season. This cannot
-                be undone without starting a new draft or uploading a CSV override.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  disabled={confirmLoading}
-                  onClick={() => void handleConfirm()}
-                  className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-60"
-                >
-                  {confirmLoading ? 'Confirming…' : 'Confirm'}
-                </button>
-                <button
-                  type="button"
-                  disabled={confirmLoading}
-                  onClick={() => setConfirmOpen(false)}
-                  className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmOpen(true)}
-              className="rounded bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
-            >
-              Confirm Draft — Write Rosters to League
-            </button>
-          )}
-        </section>
-      )}
-
       {/* Reopen Draft — admin only, shown once the results have been published */}
       {isAdmin && canReopen && (
         <section className="border-t border-gray-200 pt-8 dark:border-zinc-700">
@@ -486,8 +492,11 @@ export default function DraftSummaryClient({
         </section>
       )}
 
-      {/* Continue Setup prompt — commissioner only, preseason only */}
-      {isAdmin && leagueStatus?.state === 'preseason' && (
+      {/* Continue Setup prompt — commissioner only, preseason only, and only
+          once the results have been PUBLISHED. Shown while unpublished it sat
+          directly beneath the Confirm button and pointed away from it, at a
+          checklist that could not proceed. */}
+      {isAdmin && leagueStatus?.state === 'preseason' && canReopen && (
         <section className="border-t border-gray-200 pt-6 dark:border-zinc-700">
           <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50/60 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800/40">
             <span className="text-sm text-gray-600 dark:text-zinc-400">

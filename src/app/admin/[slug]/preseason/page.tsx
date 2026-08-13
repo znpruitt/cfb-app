@@ -7,6 +7,9 @@ import { describeLeagueLifecycle } from '@/lib/selectors/leagueLifecycle';
 import { TEST_LEAGUE_SLUG } from '@/lib/league';
 import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
 import { getTeamAssignment } from '@/lib/server/teamAssignmentStore';
+import { getAppState } from '@/lib/server/appStateStore';
+import { draftScope, type DraftState } from '@/lib/draft';
+import { draftPicksAreComplete } from '@/lib/selectors/draftPublication';
 import type { TeamAssignmentBlocker } from '@/lib/selectors/teamAssignment';
 import AssignmentMethodCard from '../components/AssignmentMethodCard';
 import { completeSetup } from '../actions';
@@ -30,6 +33,8 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   let hasRoster = false;
   let teamsAssigned = false;
   let assignmentBlocker: TeamAssignmentBlocker | null = null;
+  let draftPicksComplete = false;
+  let draftHasPicks = false;
 
   try {
     // PLATFORM-092 — one derivation answers "is there a confirmed roster",
@@ -49,6 +54,10 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
     hasRoster = roster.isConfirmed;
     teamsAssigned = assignment.isAssigned;
     assignmentBlocker = assignment.blocker;
+    const draftRecord =
+      (await getAppState<DraftState>(draftScope(slug), String(year)))?.value ?? null;
+    draftPicksComplete = draftPicksAreComplete(draftRecord);
+    draftHasPicks = Array.isArray(draftRecord?.picks) && draftRecord.picks.length > 0;
   } catch {
     // Storage unavailable — checklist shows incomplete
   }
@@ -91,14 +100,32 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
 
   const completeSetupAction = completeSetup.bind(null, slug, year);
 
-  // Helper text for disabled Complete Setup button
-  const blockers = [!hasRoster && 'owners', !teamsAssigned && 'team assignment'].filter(Boolean);
-  const blockerText =
-    blockers.length === 2
-      ? 'Complete owners and team assignment before finishing setup.'
-      : blockers.length === 1
-        ? `Complete ${blockers[0]} before finishing setup.`
-        : '';
+  // Helper text for the disabled Complete Setup button.
+  //
+  // PLATFORM-095 — this named the CATEGORY that was unfinished and never the
+  // step. "Complete team assignment before finishing setup." read identically
+  // whether the draft had not started, had finished without being confirmed, or
+  // had lost its roster — and in the finished-but-unconfirmed case it told the
+  // commissioner to do the one thing they had just done. `assignmentBlocker`
+  // already distinguishes all four, so say the true thing and name the action.
+  const assignmentText =
+    assignmentBlocker === 'draft-not-published'
+      ? 'Your draft is complete. Confirm the results to assign teams.'
+      : assignmentBlocker === 'draft-incomplete'
+        ? 'Finish the draft to assign teams.'
+        : assignmentBlocker === 'published-roster-missing'
+          ? 'The published roster is missing. Confirm the draft again.'
+          : assignmentBlocker === 'manual-assignment-incomplete'
+            ? 'Assign every team to an owner to finish setup.'
+            : 'Choose how teams are assigned.';
+
+  const blockerText = !hasRoster
+    ? teamsAssigned
+      ? 'Confirm the owners before finishing setup.'
+      : `Confirm the owners before finishing setup. ${assignmentText}`
+    : teamsAssigned
+      ? ''
+      : assignmentText;
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
@@ -195,9 +222,22 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
         </ol>
       </section>
 
-      {/* Assignment method — hidden once teams are assigned */}
-      {!teamsAssigned && (
-        <AssignmentMethodCard slug={slug} currentMethod={league.assignmentMethod ?? null} />
+      {/* Assignment method — hidden once teams are assigned, AND once the draft
+          has every pick in.
+
+          PLATFORM-095: tightening `teamsAssigned` left this visible through the
+          whole finished-but-unpublished window — the very screen the
+          commissioner is on to go and publish. One click on "Assign Manually"
+          reached `manual-assignment-incomplete`, a state with no writer
+          anywhere in the app, blocking Complete Setup until they switched back.
+          `setAssignmentMethod` refuses the same case server-side; hiding the
+          control is presentation, and the action is the guard. */}
+      {!teamsAssigned && !draftPicksComplete && (
+        <AssignmentMethodCard
+          slug={slug}
+          currentMethod={league.assignmentMethod ?? null}
+          draftHasPicks={draftHasPicks}
+        />
       )}
 
       {/* Manual assignment coming soon notice */}

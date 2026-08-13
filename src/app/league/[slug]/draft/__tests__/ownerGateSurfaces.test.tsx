@@ -342,3 +342,124 @@ test('a RUNNING or finished draft is never blocked, even with no confirmed roste
     );
   }
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-095 — wayfinding. Every surface points at Confirm before publication;
+// `Continue Setup` appears only after it, and only there.
+// ---------------------------------------------------------------------------
+
+test('the checklist names the actual outstanding step, not the category', async () => {
+  // The old copy was generated from a blocker LIST and read identically whether
+  // the draft had not started, had finished without being confirmed, or had lost
+  // its roster — telling a commissioner who had just finished a draft to
+  // "complete team assignment".
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+  const full = {
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake' as const,
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt' as const,
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  };
+
+  // No draft yet.
+  assert.match(await renderChecklist(), /Finish the draft to assign teams\./);
+
+  // Finished, never confirmed — the case the old copy got exactly backwards.
+  await setAppState(draftScope(SLUG), String(YEAR), { phase: 'complete', picks, ...full });
+  const finished = await renderChecklist();
+  assert.match(finished, /Your draft is complete\. Confirm the results to assign teams\./);
+  assert.doesNotMatch(finished, /Complete team assignment/);
+
+  // Published, then the roster was blanked.
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks,
+    ...full,
+    publishedPicks: draftPicksSignature(picks),
+  });
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', null);
+  assert.match(
+    await renderChecklist(),
+    /The published roster is missing\. Confirm the draft again\./
+  );
+});
+
+test('the assignment-method switcher disappears once every pick is in', async () => {
+  // It stayed visible through the finished-but-unpublished window — the screen
+  // the commissioner is on to go and publish — and switching to manual reached a
+  // blocker with no writer.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+  const full = {
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake' as const,
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt' as const,
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  };
+
+  // Mid-draft the commissioner may still change their mind.
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'live',
+    picks: picks.slice(0, 1),
+    ...full,
+  });
+  assert.match(await renderChecklist(), /Assignment method/i);
+
+  // Every pick in — the draft's assignment must not be discardable by a click.
+  await setAppState(draftScope(SLUG), String(YEAR), { phase: 'complete', picks, ...full });
+  assert.doesNotMatch(await renderChecklist(), /Assignment method/i);
+});
+
+test('changing method mid-draft warns that it discards the draft', async () => {
+  // Owner's ruling: switching IS allowed while a draft is in progress, but only
+  // behind a warning that says what it costs. The card asks; the action enforces.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'live',
+    picks: picksFor(['Texas']),
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
+
+  // The card is still offered — a half-run draft may be abandoned.
+  assert.match(await renderChecklist(), /Assignment method/i);
+
+  // The WARNING itself is client state raised by a click, which a static render
+  // cannot reach, so it is pinned two ways instead — neither of them by matching
+  // page text, which would pass on the word "Change" alone:
+  //   1. the page passes the fact (structural, below);
+  //   2. the ACTION refuses a finished draft outright, covered behaviorally in
+  //      `admin/[slug]/__tests__/actions.test.ts`. That is the guard; the dialog
+  //      is the courtesy.
+  const pageSource = readFileSync(
+    new URL('../../../../admin/[slug]/preseason/page.tsx', import.meta.url),
+    'utf8'
+  );
+  assert.match(pageSource, /draftHasPicks=\{draftHasPicks\}/, 'the card is told what is at stake');
+  assert.match(
+    pageSource,
+    /draftHasPicks = Array\.isArray\(draftRecord\?\.picks\) && draftRecord\.picks\.length > 0;/,
+    'and the fact is derived from the stored draft'
+  );
+});
