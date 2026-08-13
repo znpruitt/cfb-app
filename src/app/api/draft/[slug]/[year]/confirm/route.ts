@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { requireAdminRequest } from '@/lib/server/adminAuth';
-import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { getAppState, setAppState, withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import {
@@ -12,10 +12,18 @@ import {
 } from '@/lib/draft';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import teamsData from '@/data/teams.json';
+import { draftPicksSignature } from '@/lib/selectors/draftPublication';
 
 type TeamsJson = { items: TeamCatalogItem[] };
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * A refusal produced inside the publish transaction. Returned rather than
+ * thrown: the callback writes nothing on this path, so the transaction commits
+ * an empty change set and the caller renders the response.
+ */
+type Refusal = { error: string; status: number };
 
 function parseYear(raw: string): number | null {
   const n = Number.parseInt(raw, 10);
@@ -49,131 +57,144 @@ export async function POST(
     return NextResponse.json({ error: `League "${slug}" not found` }, { status: 404 });
   }
 
-  const record = await getAppState<DraftState>(draftScope(slug), String(year));
-  if (!record?.value) {
-    return NextResponse.json({ error: `No draft found for ${slug} ${year}` }, { status: 404 });
-  }
+  // PLATFORM-094 — read, validate, and publish inside ONE transaction.
+  //
+  // Publication was a validating read followed by two independent writes, so a
+  // failure between them left either a roster nothing claimed to have produced
+  // or a draft claiming a roster that was never written. Validating inside the
+  // transaction also means the roster is built from the picks that are actually
+  // committed, not from a snapshot taken earlier.
+  //
+  // Rooted on the draft record so the secondary lock ASCENDS as the store
+  // requires: `draft:{slug}` sorts strictly below `owners:{slug}:{year}`.
+  const confirmedAt = new Date().toISOString();
 
-  const draft = record.value;
+  const outcome = await withAppStateKeyTransaction<Refusal | { ok: true; draft: DraftState }>(
+    draftScope(slug),
+    String(year),
+    async (txn) => {
+      await txn.lockKey(`owners:${slug}:${year}`, 'csv');
 
-  // Derive expected pick count from the draft's CONFIGURED round count — the same
-  // value setup/update validate (1 <= totalRounds <= floor(eligibleCount / owners))
-  // and the value the live draft completes against (totalRounds * ownerCount). A
-  // commissioner may run fewer than the catalog maximum rounds, so confirmation must
-  // honor totalRounds rather than recomputing the max from the full catalog; doing
-  // the latter 422s every sub-max-round draft. Eligibility (which teams may be
-  // drafted at all, and which fill NoClaim) is defined by the shared
-  // getDraftEligibleTeams helper so it matches setup/update/auto-pick exactly. Every
-  // undrafted eligible team — not just an even-division remainder — is written as
-  // NoClaim below.
-  const { items: allTeams } = teamsData as TeamsJson;
-  const eligibleTeams = getDraftEligibleTeams(allTeams);
-  const ownerCount = draft.owners.length;
-  const teamsPerOwner = draft.settings.totalRounds;
-  const totalExpectedPicks = teamsPerOwner * ownerCount;
+      const record = await txn.read<DraftState>();
+      if (!record?.value) {
+        return { error: `No draft found for ${slug} ${year}`, status: 404 };
+      }
 
-  if (draft.picks.length !== totalExpectedPicks) {
-    return NextResponse.json(
-      {
-        error: `Draft is not complete — ${draft.picks.length} of ${totalExpectedPicks} picks have been made (${teamsPerOwner} teams per owner × ${ownerCount} owners)`,
-      },
-      { status: 422 }
-    );
-  }
+      const draft = record.value;
 
-  // Validate that every owner has exactly teamsPerOwner picks — no skew allowed.
-  const pickCountByOwner = new Map<string, number>();
-  for (const pick of draft.picks) {
-    pickCountByOwner.set(pick.owner, (pickCountByOwner.get(pick.owner) ?? 0) + 1);
-  }
-  const uneven = Array.from(pickCountByOwner.values()).some((n) => n !== teamsPerOwner);
-  if (uneven) {
-    return NextResponse.json(
-      {
-        error: `Pick counts are uneven — all owners must have exactly ${teamsPerOwner} teams before confirming`,
-      },
-      { status: 422 }
-    );
-  }
+      // Derive expected pick count from the draft's CONFIGURED round count — the same
+      // value setup/update validate (1 <= totalRounds <= floor(eligibleCount / owners))
+      // and the value the live draft completes against (totalRounds * ownerCount). A
+      // commissioner may run fewer than the catalog maximum rounds, so confirmation must
+      // honor totalRounds rather than recomputing the max from the full catalog; doing
+      // the latter 422s every sub-max-round draft. Eligibility (which teams may be
+      // drafted at all, and which fill NoClaim) is defined by the shared
+      // getDraftEligibleTeams helper so it matches setup/update/auto-pick exactly. Every
+      // undrafted eligible team — not just an even-division remainder — is written as
+      // NoClaim below.
+      const { items: allTeams } = teamsData as TeamsJson;
+      const eligibleTeams = getDraftEligibleTeams(allTeams);
+      const ownerCount = draft.owners.length;
+      const teamsPerOwner = draft.settings.totalRounds;
+      const totalExpectedPicks = teamsPerOwner * ownerCount;
 
-  // Validate no team appears in more than one pick.
-  const teamToPicks = new Map<string, number[]>();
-  for (const pick of draft.picks) {
-    const key = pick.team.toLowerCase();
-    const existing = teamToPicks.get(key) ?? [];
-    existing.push(pick.pickNumber);
-    teamToPicks.set(key, existing);
-  }
-  const duplicateTeams = Array.from(teamToPicks.entries())
-    .filter(([, picks]) => picks.length > 1)
-    .map(([team]) => draft.picks.find((p) => p.team.toLowerCase() === team)?.team ?? team);
-  if (duplicateTeams.length > 0) {
-    return NextResponse.json(
-      {
-        error: `Duplicate team assignments found — the following teams have been picked more than once: ${duplicateTeams.join(', ')}. Resolve before confirming.`,
-      },
-      { status: 422 }
-    );
-  }
+      if (draft.picks.length !== totalExpectedPicks) {
+        return {
+          error: `Draft is not complete — ${draft.picks.length} of ${totalExpectedPicks} picks have been made (${teamsPerOwner} teams per owner × ${ownerCount} owners)`,
+          status: 422,
+        };
+      }
 
-  // Validate all pick.team values resolve to a draft-eligible team in the catalog.
-  const eligibleTeamNames = new Set(eligibleTeams.map((t) => t.school.toLowerCase()));
-  const unrecognizedTeams = draft.picks
-    .filter((p) => !eligibleTeamNames.has(p.team.toLowerCase()))
-    .map((p) => p.team);
-  if (unrecognizedTeams.length > 0) {
-    return NextResponse.json(
-      {
-        error: `Unrecognized team names found in draft picks: ${unrecognizedTeams.join(', ')}. These do not match any known FBS team. Resolve before confirming.`,
-      },
-      { status: 422 }
-    );
-  }
+      // Validate that every owner has exactly teamsPerOwner picks — no skew allowed.
+      const pickCountByOwner = new Map<string, number>();
+      for (const pick of draft.picks) {
+        pickCountByOwner.set(pick.owner, (pickCountByOwner.get(pick.owner) ?? 0) + 1);
+      }
+      const uneven = Array.from(pickCountByOwner.values()).some((n) => n !== teamsPerOwner);
+      if (uneven) {
+        return {
+          error: `Pick counts are uneven — all owners must have exactly ${teamsPerOwner} teams before confirming`,
+          status: 422,
+        };
+      }
 
-  // Build owner assignment CSV — same format as the CSV upload route (header
-  // "team,owner" + one row per pick, then NoClaim for undrafted eligible teams).
-  // Shared builder with the post-confirm pick-edit path so the two can't diverge.
-  const draftedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
-  const undraftedEligibleCount = eligibleTeams.filter(
-    (t) => !draftedTeamsLower.has(t.school.toLowerCase())
-  ).length;
-  const { csv: csvString, rowCount } = buildConfirmedOwnersCsv(draft.picks, eligibleTeams);
+      // Validate no team appears in more than one pick.
+      const teamToPicks = new Map<string, number[]>();
+      for (const pick of draft.picks) {
+        const key = pick.team.toLowerCase();
+        const existing = teamToPicks.get(key) ?? [];
+        existing.push(pick.pickNumber);
+        teamToPicks.set(key, existing);
+      }
+      const duplicateTeams = Array.from(teamToPicks.entries())
+        .filter(([, picks]) => picks.length > 1)
+        .map(([team]) => draft.picks.find((p) => p.team.toLowerCase() === team)?.team ?? team);
+      if (duplicateTeams.length > 0) {
+        return {
+          error: `Duplicate team assignments found — the following teams have been picked more than once: ${duplicateTeams.join(', ')}. Resolve before confirming.`,
+          status: 422,
+        };
+      }
 
-  // Belt-and-suspenders: verify the builder's structural row count before writing.
-  const expectedTotalRows = totalExpectedPicks + undraftedEligibleCount;
-  if (rowCount !== expectedTotalRows) {
-    return NextResponse.json(
-      {
-        error: `CSV generation error — expected ${expectedTotalRows} rows (${totalExpectedPicks} drafted + ${undraftedEligibleCount} unclaimed) but produced ${rowCount}. Do not write partial data.`,
-      },
-      { status: 422 }
-    );
-  }
+      // Validate all pick.team values resolve to a draft-eligible team in the catalog.
+      const eligibleTeamNames = new Set(eligibleTeams.map((t) => t.school.toLowerCase()));
+      const unrecognizedTeams = draft.picks
+        .filter((p) => !eligibleTeamNames.has(p.team.toLowerCase()))
+        .map((p) => p.team);
+      if (unrecognizedTeams.length > 0) {
+        return {
+          error: `Unrecognized team names found in draft picks: ${unrecognizedTeams.join(', ')}. These do not match any known FBS team. Resolve before confirming.`,
+          status: 422,
+        };
+      }
 
-  // Write to the same scope/key pattern as /api/owners PUT:
-  //   scope = owners:${slug}:${year}   key = 'csv'
-  await setAppState(`owners:${slug}:${year}`, 'csv', csvString);
+      // Build owner assignment CSV — same format as the CSV upload route (header
+      // "team,owner" + one row per pick, then NoClaim for undrafted eligible teams).
+      // Shared builder with the post-confirm pick-edit path so the two can't diverge.
+      const draftedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
+      const undraftedEligibleCount = eligibleTeams.filter(
+        (t) => !draftedTeamsLower.has(t.school.toLowerCase())
+      ).length;
+      const { csv: csvString, rowCount } = buildConfirmedOwnersCsv(draft.picks, eligibleTeams);
 
-  // Advance phase to 'complete' if not already.
-  if (draft.phase !== 'complete') {
-    const updated: DraftState = {
-      ...draft,
-      phase: 'complete',
-      updatedAt: new Date().toISOString(),
-    };
-    await setAppState<DraftState>(draftScope(slug), String(year), updated);
+      // Belt-and-suspenders: verify the builder's structural row count before writing.
+      const expectedTotalRows = totalExpectedPicks + undraftedEligibleCount;
+      if (rowCount !== expectedTotalRows) {
+        return {
+          error: `CSV generation error — expected ${expectedTotalRows} rows (${totalExpectedPicks} drafted + ${undraftedEligibleCount} unclaimed) but produced ${rowCount}. Do not write partial data.`,
+          status: 422,
+        };
+      }
+
+      // Write to the same scope/key pattern as /api/owners PUT:
+      //   scope = owners:${slug}:${year}   key = 'csv'
+      await txn.writeKey(`owners:${slug}:${year}`, 'csv', csvString);
+
+      // The roster and the signature of WHICH PICKS produced it commit together.
+      const published: DraftState = {
+        ...draft,
+        phase: 'complete',
+        publishedPicks: draftPicksSignature(draft.picks),
+        updatedAt: confirmedAt,
+      };
+      await txn.write<DraftState>(published);
+
+      return { ok: true, draft: published };
+    }
+  );
+
+  if (!('ok' in outcome)) {
+    return NextResponse.json({ error: outcome.error }, { status: outcome.status });
   }
 
   invalidateStandings(slug, year);
-
-  const confirmedAt = new Date().toISOString();
 
   return NextResponse.json({
     success: true,
     leagueSlug: slug,
     year,
-    ownerCount,
-    teamCount: draft.picks.length,
+    ownerCount: outcome.draft.owners.length,
+    teamCount: outcome.draft.picks.length,
     confirmedAt,
   });
 }
@@ -219,6 +240,12 @@ export async function DELETE(
     );
   }
 
+  // Nothing here touches `publishedPicks`, deliberately. `isDraftPublished`
+  // requires `phase: 'complete'`, so moving to `live` retracts the publication
+  // on its own — and the digest is preserved, so re-confirming an unchanged
+  // draft is recognisably the same publication. Every other path that changes
+  // picks (/reset, /unpick, pick edits) retracts the same way, by changing what
+  // the digest is computed over. No writer maintains this field.
   const updated: DraftState = {
     ...draft,
     phase: 'live',

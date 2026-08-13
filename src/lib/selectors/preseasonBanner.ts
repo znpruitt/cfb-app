@@ -59,10 +59,10 @@ import type { CanonicalStandingsRosterSource } from './leagueStandings.ts';
  * showed teams unassigned. Two review rounds each found a different live signal
  * the flag outlived (a reset draft phase, then a method switch), which is the
  * signal that the INPUT was wrong rather than a guard missing. The authoritative
- * fact is `teamsAssigned`, and it is currently inlined in
- * `/admin/[slug]/preseason` rather than derived here. Reinstating a readiness
- * claim means extracting that into a selector both surfaces consume — not
- * reading the flag again.
+ * fact is `teamsAssigned`, and PLATFORM-094 extracted it into
+ * `selectors/teamAssignment.ts`, which the admin checklist and the Complete
+ * Setup action both consume. Reinstating a readiness claim here means taking the
+ * answer from THAT selector — not reading the flag again.
  *
  * Kept pure and JSX-free so every claim is provable without rendering, and so
  * there is exactly one place where the banner's readiness decision is made.

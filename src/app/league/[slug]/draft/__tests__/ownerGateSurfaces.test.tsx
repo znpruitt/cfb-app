@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test, { beforeEach } from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { ReactElement } from 'react';
@@ -11,8 +12,10 @@ import {
   __resetAppStateForTests,
 } from '@/lib/server/appStateStore';
 
+import { draftScope, type DraftPick } from '@/lib/draft';
 import { resolveDraftSetupGate } from '../setup/draftSetupGate';
 import PreseasonPage from '../../../../admin/[slug]/preseason/page';
+import { draftPicksSignature } from '@/lib/selectors/draftPublication';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-092 — AGENTS.md: "Every surface a PR touches must carry its own
@@ -46,12 +49,206 @@ async function renderChecklist(): Promise<string> {
   return renderToStaticMarkup(page);
 }
 
+/**
+ * The ✓/○ marker belonging to ONE checklist row.
+ *
+ * A proximity regex (`/✓[\s\S]{0,400}Teams assigned/`) does not work here and
+ * passes in both directions: every row carries a marker, so the ✓ from "Owners
+ * confirmed" sits well inside any window that reaches "Teams assigned". The
+ * marker immediately BEFORE the label is the row's own.
+ */
+function markerFor(html: string, label: string): string {
+  const at = html.indexOf(`>${label}<`);
+  assert.ok(at > 0, `checklist row "${label}" not rendered`);
+  const before = html.slice(0, at);
+  return before.lastIndexOf('✓') > before.lastIndexOf('○') ? '✓' : '○';
+}
+
+function picksFor(teams: string[]): DraftPick[] {
+  return teams.map((team, i) => ({
+    pickNumber: i + 1,
+    round: 0,
+    roundPick: i,
+    owner: ['Alice', 'Bob'][i]!,
+    team,
+    pickedAt: '2026-08-01T00:00:00.000Z',
+    autoSelected: false,
+  }));
+}
+
+test('the checklist ticks Teams assigned only when the draft PUBLISHED', async () => {
+  // PLATFORM-094 — `draftPhase === 'complete'` alone was not evidence: it fires
+  // on the final pick, while the roster is written separately at confirmation.
+  // This checklist ticked for that, letting setup be completed for a league
+  // whose teams were never assigned to anyone.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
+
+  assert.equal(
+    markerFor(await renderChecklist(), 'Teams assigned'),
+    '○',
+    'a complete draft that never published is NOT assigned'
+  );
+
+  // A roster alone does not tick it either — this CSV could be a repair import
+  // that predates the draft and describes assignments it never made.
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', 'team,owner\nTexas,Alice\nOhio State,Bob');
+  assert.equal(
+    markerFor(await renderChecklist(), 'Teams assigned'),
+    '○',
+    'a roster the draft did not publish is not evidence'
+  );
+
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks,
+    publishedPicks: draftPicksSignature(picks),
+  });
+  assert.equal(
+    markerFor(await renderChecklist(), 'Teams assigned'),
+    '✓',
+    'published, with the roster still in place'
+  );
+
+  // And a later change to the picks unticks it again, with nothing maintaining
+  // the field — this is how Reset and Undo retract.
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks: picksFor(['Michigan', 'Ohio State']),
+    publishedPicks: draftPicksSignature(picks),
+  });
+  assert.equal(markerFor(await renderChecklist(), 'Teams assigned'), '○');
+});
+
 beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
 });
 
 // --- The admin checklist -----------------------------------------------------
+
+test('the Teams assigned link points where the publish control actually is', async () => {
+  // Review finding. The step now stays ○ for the normal post-draft state — every
+  // pick made, nothing confirmed — which made this link render there for the
+  // first time. It pointed at the draft SETUP page, a settings screen with no
+  // Confirm control, so a commissioner whose draft had just finished was sent to
+  // configure it. Confirm lives on the summary page.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+
+  const hrefFor = async (): Promise<string> =>
+    (await renderChecklist()).match(/href="[^"]*\/draft\/[^"]*"/)?.[0] ?? '(no draft link)';
+
+  // No draft yet — setup is right, because there is a draft to create.
+  assert.equal(await hrefFor(), `href="/league/${SLUG}/draft/setup"`);
+
+  // Finished but never published — the one remaining step is Confirm.
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
+  assert.equal(
+    await hrefFor(),
+    `href="/league/${SLUG}/draft/summary"`,
+    'a finished draft points at the page that can publish it'
+  );
+
+  // Still running — setup again; there is nothing to confirm yet.
+  //
+  // Seeded as a COMPLETE record. The first version omitted `settings`/`owners`,
+  // which made the derivation throw, the page's catch swallow it, and the href
+  // fall through to setup — passing for a reason unrelated to routing. It could
+  // not have failed.
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'live',
+    picks: picks.slice(0, 1),
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
+  assert.equal(await hrefFor(), `href="/league/${SLUG}/draft/setup"`);
+});
+
+test('the summary page reads the published roster and passes it down', () => {
+  // Structural pin, labelled as one. The publish controls need a fact the client
+  // cannot see — whether `owners:{slug}:{year}` still holds a usable roster,
+  // since `PUT /api/owners` can blank it without touching the draft. Rendering
+  // the real page cannot check it: the admin controls are gated on a session
+  // this harness has none of, so every control is absent either way. The
+  // CONTROL behavior is pinned behaviorally in
+  // `components/draft/__tests__/draftPublication.test.tsx`; what remains
+  // uncheckable at runtime is that the server actually supplies the fact.
+  const source = readFileSync(new URL('../summary/page.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /getAppState<unknown>\(`owners:\$\{slug\}:\$\{year\}`, 'csv'\)/);
+  assert.match(source, /hasUsableOfficialRoster\(ownersCsvRecord\?\.value \?\? null\)/);
+  assert.match(
+    source,
+    /publishedRosterExists=\{publishedRosterExists\}/,
+    'and hands it to the summary client'
+  );
+});
+
+test('a reopened draft still points at the publish control', async () => {
+  // Both reviewers. Reopen keeps every pick and sets `live`, which read as
+  // `draft-incomplete` and routed here to the SETUP screen — while
+  // `selectDraftPublicationControls` deliberately makes that state publishable
+  // and Confirm lives only on the summary page. The same dead end the previous
+  // fix closed, reached through the reopen door.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'live',
+    picks,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+    publishedPicks: draftPicksSignature(picks),
+  });
+
+  const html = await renderChecklist();
+  assert.equal(
+    html.match(/href="[^"]*\/draft\/[^"]*"/)?.[0],
+    `href="/league/${SLUG}/draft/summary"`
+  );
+});
 
 test('the checklist reports owners unconfirmed until a real roster exists', async () => {
   await seedLeague();

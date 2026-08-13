@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getAppState } from '@/lib/server/appStateStore';
+import { hasUsableOfficialRoster } from '@/lib/selectors/confirmedRoster';
 import {
   draftScope,
   getDraftEligibleTeams,
@@ -123,8 +124,13 @@ export default async function DraftSummaryPage({
   const year =
     status?.state === 'preseason' || status?.state === 'season' ? status.year : league.year;
 
-  // Load draft state
-  const draftRecord = await getAppState<DraftState>(draftScope(slug), String(year));
+  // Load draft state, plus whether the roster it published is still stored —
+  // the summary's publish controls need both (see `selectDraftPublicationControls`).
+  const [draftRecord, ownersCsvRecord] = await Promise.all([
+    getAppState<DraftState>(draftScope(slug), String(year)),
+    getAppState<unknown>(`owners:${slug}:${year}`, 'csv'),
+  ]);
+  const publishedRosterExists = hasUsableOfficialRoster(ownersCsvRecord?.value ?? null);
   const draft = draftRecord?.value ?? null;
 
   if (!draft) {
@@ -196,6 +202,7 @@ export default async function DraftSummaryPage({
         displayNameMap={displayNameMap}
         facts={facts}
         leagueStatus={league.status}
+        publishedRosterExists={publishedRosterExists}
         isAdmin={isAdmin}
       />
     </main>

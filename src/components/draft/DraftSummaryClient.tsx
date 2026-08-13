@@ -3,9 +3,10 @@
 import React, { useState } from 'react';
 import Link from 'next/link';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
-import type { DraftState, DraftPick } from '@/lib/draft';
+import { type DraftState, type DraftPick } from '@/lib/draft';
 import type { LeagueStatus } from '@/lib/league';
 import InterestingFactsPanel from './InterestingFactsPanel';
+import { selectDraftPublicationControls } from '@/lib/selectors/draftPublication';
 
 type DraftSummaryClientProps = {
   slug: string;
@@ -21,6 +22,11 @@ type DraftSummaryClientProps = {
   facts: string[];
   /** League lifecycle status for conditional commissioner prompts. */
   leagueStatus?: LeagueStatus;
+  /**
+   * Whether the roster this draft published is still stored. Read on the server
+   * because the client cannot see `owners:{slug}:{year}`.
+   */
+  publishedRosterExists?: boolean;
   /** Server-verified: true when the current session passed the canAccessDraftBoard gate. */
   isAdmin: boolean;
 };
@@ -34,6 +40,7 @@ export default function DraftSummaryClient({
   displayNameMap,
   facts,
   leagueStatus,
+  publishedRosterExists = true,
   isAdmin,
 }: DraftSummaryClientProps): React.ReactElement {
   const [draft, setDraft] = useState(initialDraft);
@@ -183,6 +190,13 @@ export default function DraftSummaryClient({
   // -------------------------------------------------------------------------
 
   const draftBoardHref = isAdmin ? `/league/${slug}/draft` : `/league/${slug}/draft/board`;
+
+  // Which publication control to offer. Derived in the selector layer, not
+  // recombined here — AGENTS.md invariant 9, and the reason the previous inline
+  // version could stand a reopened draft up with NEITHER button.
+  const { canPublish, canReopen } = selectDraftPublicationControls(draft, {
+    publishedRosterExists,
+  });
 
   return (
     <div className="space-y-10">
@@ -378,8 +392,16 @@ export default function DraftSummaryClient({
       {/* Interesting Facts */}
       <InterestingFactsPanel facts={facts} />
 
-      {/* Confirm Draft — admin only, shown when draft is not yet confirmed */}
-      {isAdmin && draft.phase !== 'complete' && (
+      {/* Confirm Draft — admin only, shown once the picks are in and until they
+          have been published.
+
+          PLATFORM-094: this was `phase !== 'complete'`, and this button is the
+          app's ONLY caller of POST /confirm. `complete` is set by the final
+          pick, so the publish control disappeared at the exact moment a draft
+          became publishable — a draft that ended normally could not be
+          published at all, and the only way out was Reopen (back to `live`)
+          then Confirm, which nothing documented and no link pointed at. */}
+      {isAdmin && canPublish && (
         <section className="border-t border-gray-200 pt-8 dark:border-zinc-700">
           {confirmError && (
             <p className="mb-3 text-sm text-red-700 dark:text-red-400">{confirmError}</p>
@@ -421,8 +443,8 @@ export default function DraftSummaryClient({
         </section>
       )}
 
-      {/* Reopen Draft — admin only, shown when draft is confirmed (phase === 'complete') */}
-      {isAdmin && draft.phase === 'complete' && (
+      {/* Reopen Draft — admin only, shown once the results have been published */}
+      {isAdmin && canReopen && (
         <section className="border-t border-gray-200 pt-8 dark:border-zinc-700">
           {reopenError && (
             <p className="mb-3 text-sm text-red-700 dark:text-red-400">{reopenError}</p>

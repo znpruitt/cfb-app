@@ -50,17 +50,19 @@ function runWithRevalidateContext<T>(fn: () => Promise<T>): Promise<T> {
   );
 }
 
-import { resetTestLeague, setTestLeagueStatus } from '../actions';
+import { autoCompleteDraft, resetTestLeague, setTestLeagueStatus } from '../actions';
 import { TEST_LEAGUE_SLUG, type League } from '../../../../lib/league.ts';
 import { TEST_LEAGUE_RESET_YEAR } from '../../../../lib/leagueRegistry.ts';
-import { draftScope } from '../../../../lib/draft.ts';
+import { draftScope, type DraftState } from '../../../../lib/draft.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateKeyLockFailureForTests,
   getAppState,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
 import type { ScheduleProbeState } from '../../../../lib/scheduleProbe.ts';
+import { isDraftPublished } from '../../../../lib/selectors/draftPublication.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-086F2H1T1 — the demo-league sandbox controls.
@@ -95,6 +97,30 @@ async function readRegistry(): Promise<League[]> {
 
 async function readLeague(slug: string): Promise<League | undefined> {
   return (await readRegistry()).find((l) => l.slug === slug);
+}
+
+/** A started demo draft with no picks, ready for `autoCompleteDraft`. */
+async function seedLiveDemoDraft(year: number): Promise<void> {
+  await setAppState(draftScope(TEST_LEAGUE_SLUG), String(year), {
+    leagueSlug: TEST_LEAGUE_SLUG,
+    year,
+    phase: 'live',
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+    picks: [],
+    currentPickIndex: 0,
+    timerState: 'off',
+    timerExpiresAt: null,
+    createdAt: '2025-01-01T00:00:00.000Z',
+    updatedAt: '2025-01-01T00:00:00.000Z',
+  });
 }
 
 /** Seed the demo-scoped records the controls are expected to clear. */
@@ -521,4 +547,49 @@ test('a reset whose revalidation fails reports the committed change as stale', a
     state: 'season',
     year: TEST_LEAGUE_RESET_YEAR,
   });
+});
+
+test('autoCompleteDraft publishes — it records the picks it wrote', async () => {
+  // PLATFORM-094. This demo control writes the owners CSV itself, so it IS a
+  // publication. Without the digest the demo league would drive itself into the
+  // state readiness refuses: a complete draft beside a roster nothing claims to
+  // have published, with Confirm hidden and no way forward.
+  await seed(makeLeague(TEST_LEAGUE_SLUG, 2025, { state: 'preseason', year: 2025 }));
+  await seedLiveDemoDraft(2025);
+
+  const outcome = await runWithRevalidateContext(() => autoCompleteDraft());
+  assert.equal(outcome.kind, 'completed', JSON.stringify(outcome));
+
+  const draft = (await getAppState<DraftState>(draftScope(TEST_LEAGUE_SLUG), '2025'))?.value;
+  const roster = await getAppState<string>(`owners:${TEST_LEAGUE_SLUG}:2025`, 'csv');
+
+  assert.equal(draft?.phase, 'complete');
+  assert.equal(isDraftPublished(draft), true, 'the demo draft records its publication');
+  assert.ok(typeof roster?.value === 'string' && roster.value.includes('Alice'));
+});
+
+test('a demo publication that cannot commit writes NOTHING', async () => {
+  // The draft and the roster it publishes were two independent writes, so a
+  // failure between them left the demo league recording a publication it never
+  // performed — and a retry then refused as already-complete.
+  //
+  // Failing lock acquisition is the observable form: under one transaction
+  // neither record moves. The test above is the positive control — the same
+  // reads see both records written on the success path.
+  await seed(makeLeague(TEST_LEAGUE_SLUG, 2025, { state: 'preseason', year: 2025 }));
+  await seedLiveDemoDraft(2025);
+
+  __setAppStateKeyLockFailureForTests(new Error('injected lock failure'));
+  try {
+    await assert.rejects(() => runWithRevalidateContext(() => autoCompleteDraft()));
+  } finally {
+    __setAppStateKeyLockFailureForTests(null);
+  }
+
+  const draft = (await getAppState<DraftState>(draftScope(TEST_LEAGUE_SLUG), '2025'))?.value;
+  const roster = await getAppState<string>(`owners:${TEST_LEAGUE_SLUG}:2025`, 'csv');
+
+  assert.equal(draft?.phase, 'live', 'the draft was not completed');
+  assert.equal(isDraftPublished(draft), false, 'no publication recorded');
+  assert.ok(!roster?.value, 'no roster written');
 });

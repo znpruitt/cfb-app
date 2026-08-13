@@ -10,12 +10,14 @@ import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage
 import { confirmPreseasonOwners, beginPreseason, completeSetup } from '../actions';
 import { __withAdminActionAuthorizerForTests } from '../../../../lib/auth/requireAdminAction.ts';
 import type { League } from '../../../../lib/league.ts';
+import { draftScope } from '../../../../lib/draft.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   getAppState,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
+import { draftPicksSignature } from '../../../../lib/selectors/draftPublication.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-071 — preseason lifecycle server actions must invalidate standings.
@@ -40,13 +42,21 @@ test.after(() => {
   MUTABLE_ENV.NODE_ENV = ORIGINAL_NODE_ENV;
 });
 
-function makeLeague(slug: string, status: League['status']): League {
+function makeLeague(
+  slug: string,
+  status: League['status'],
+  assignmentMethod: League['assignmentMethod'] | undefined = 'draft'
+): League {
+  // PLATFORM-094 — `completeSetup` asks how this league assigns teams, so a
+  // league with no method is refused before the draft is even consulted.
+  // Defaulted to 'draft' because that is what every case here models.
   return {
     slug,
     displayName: `League ${slug}`,
     year: 2025,
     createdAt: '2024-01-01T00:00:00.000Z',
     status,
+    ...(assignmentMethod !== undefined ? { assignmentMethod } : {}),
   };
 }
 
@@ -78,6 +88,73 @@ async function runCapturingTagsUnauthorized(fn: () => Promise<unknown>): Promise
     }
     return store.pendingRevalidatedTags;
   });
+}
+
+const SEED_AT = '2026-08-01T00:00:00.000Z';
+
+/**
+ * Seed a league whose teams ARE assigned: a complete draft that published, plus
+ * the roster it published. PLATFORM-094 — `phase: 'complete'` alone is the state
+ * a draft reaches on its final pick and assigns nothing, so the digest has to
+ * match the picks for `completeSetup` to accept it.
+ */
+const SEED_PICKS = [
+  {
+    pickNumber: 1,
+    round: 0,
+    roundPick: 0,
+    owner: 'Alice',
+    team: 'Texas',
+    pickedAt: SEED_AT,
+    autoSelected: false,
+  },
+  {
+    pickNumber: 2,
+    round: 0,
+    roundPick: 1,
+    owner: 'Bob',
+    team: 'Ohio State',
+    pickedAt: SEED_AT,
+    autoSelected: false,
+  },
+];
+
+async function seedAssignedTeams(slug: string, year: number): Promise<void> {
+  const picks = [
+    {
+      pickNumber: 1,
+      round: 0,
+      roundPick: 0,
+      owner: 'Alice',
+      team: 'Texas',
+      pickedAt: SEED_AT,
+      autoSelected: false,
+    },
+    {
+      pickNumber: 2,
+      round: 0,
+      roundPick: 1,
+      owner: 'Bob',
+      team: 'Ohio State',
+      pickedAt: SEED_AT,
+      autoSelected: false,
+    },
+  ];
+  await setAppState(draftScope(slug), String(year), {
+    phase: 'complete',
+    picks,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+    publishedPicks: draftPicksSignature(picks),
+  });
+  await setAppState(`owners:${slug}:${year}`, 'csv', 'team,owner\nTexas,Alice\nOhio State,Bob');
 }
 
 test('confirmPreseasonOwners invalidates the league standings for that year', async () => {
@@ -145,6 +222,7 @@ test('completeSetup writes one synchronized lifecycle record (no separate year w
   await setAppState('leagues', 'registry', [
     makeLeague('alpha', { state: 'preseason', year: 2026 }),
   ]);
+  await seedAssignedTeams('alpha', 2026);
 
   await runCapturingTags(() => completeSetup('alpha', 2026));
 
@@ -231,4 +309,130 @@ test('completeSetup preserves redirect behavior but logs and refuses a stale-yea
     leagueSlug: 'alpha',
     reason: 'year-mismatch',
   });
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-094 — completeSetup verifies team assignment itself.
+//
+// It previously trusted a `disabled` button, which is not a guard: this Server
+// Action is reachable without the form, and Server Action arguments cross HTTP
+// unvalidated (PLATFORM-086F2H1SB).
+// ---------------------------------------------------------------------------
+
+async function seedPreseasonLeague(): Promise<void> {
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }),
+  ]);
+}
+
+async function setupCompleteFlag(): Promise<boolean | undefined> {
+  const status = (await getAppState<League[]>('leagues', 'registry'))?.value?.[0]?.status;
+  return status?.state === 'preseason' ? status.setupComplete : undefined;
+}
+
+test('completeSetup refuses a draft that is complete but never published', async () => {
+  // The shape `draftPhase === 'complete'` alone admitted — and the state EVERY
+  // draft is in the moment its final pick lands.
+  await seedPreseasonLeague();
+  await setAppState(draftScope('alpha'), '2026', {
+    phase: 'complete',
+    picks: SEED_PICKS,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
+
+  await assert.rejects(
+    () => runCapturingTags(() => completeSetup('alpha', 2026)),
+    /draft-not-published/
+  );
+  assert.notEqual(await setupCompleteFlag(), true);
+});
+
+test('completeSetup refuses a pre-draft roster standing in for a published one', async () => {
+  // A repair CSV imported before the draft, plus a phase that flipped on the
+  // final pick, is not a publication — and a presence-only check would complete
+  // setup on ownership the draft never made.
+  await seedPreseasonLeague();
+  await setAppState('owners:alpha:2026', 'csv', 'team,owner\nTexas,Carol\nOhio State,Dave');
+  await setAppState(draftScope('alpha'), '2026', {
+    phase: 'complete',
+    picks: SEED_PICKS,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
+
+  await assert.rejects(
+    () => runCapturingTags(() => completeSetup('alpha', 2026)),
+    /draft-not-published/
+  );
+  assert.notEqual(await setupCompleteFlag(), true);
+});
+
+test('completeSetup refuses a draft whose picks changed after it published', async () => {
+  // Reset / Undo / a pick edit all land here: the digest no longer describes the
+  // picks, so the stored roster describes a draft that no longer exists.
+  await seedPreseasonLeague();
+  await seedAssignedTeams('alpha', 2026);
+  await setAppState(draftScope('alpha'), '2026', {
+    phase: 'complete',
+    picks: [{ ...SEED_PICKS[0]!, team: 'Michigan' }, SEED_PICKS[1]!],
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+    publishedPicks: draftPicksSignature(SEED_PICKS),
+  });
+
+  await assert.rejects(
+    () => runCapturingTags(() => completeSetup('alpha', 2026)),
+    /draft-not-published/
+  );
+  assert.notEqual(await setupCompleteFlag(), true);
+});
+
+test('completeSetup refuses a published draft whose roster was later blanked', async () => {
+  // `PUT /api/owners` can clear the CSV without touching the draft, so the
+  // publication record alone would outlive the data it points at.
+  await seedPreseasonLeague();
+  await seedAssignedTeams('alpha', 2026);
+  await setAppState('owners:alpha:2026', 'csv', null);
+
+  await assert.rejects(
+    () => runCapturingTags(() => completeSetup('alpha', 2026)),
+    /published-roster-missing/
+  );
+  assert.notEqual(await setupCompleteFlag(), true);
+});
+
+test('completeSetup refuses a league with no assignment method', async () => {
+  await setAppState('leagues', 'registry', [
+    // `null`, not `undefined` — a default parameter fires on undefined and
+    // would hand the league back the 'draft' method this case is removing.
+    makeLeague('alpha', { state: 'preseason', year: 2026 }, null),
+  ]);
+
+  await assert.rejects(
+    () => runCapturingTags(() => completeSetup('alpha', 2026)),
+    /no-assignment-method/
+  );
+  assert.notEqual(await setupCompleteFlag(), true);
 });

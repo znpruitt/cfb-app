@@ -52,6 +52,247 @@ Rules:
 
 This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
 
+### PLATFORM-094-DRAFT-PUBLICATION-AND-READINESS-v2
+
+- Purpose: make a draft's PUBLICATION a fact the app can ask about, and make setup readiness ask for
+  it. The preseason checklist and the Complete Setup action disagreed about "are teams assigned?",
+  and both were reading a phase that cannot answer it.
+- Scope: `DraftState.publishedPicks` + `draftPicksDigest` + `isDraftPublished`, the draft confirm
+  route (POST and DELETE), the post-confirm pick-edit resync, the demo `autoCompleteDraft`, the
+  draft summary UI, `selectors/teamAssignment.ts` + `server/teamAssignmentStore.ts` (both new), the
+  admin preseason page, and `completeSetup`. Storage gained one optional field; no migration
+  required — the owner confirmed there are no draft records in the app.
+- **Sizing: 23 files, +2925/-236 — OVER BOTH stop-and-reassess signals (>15 files, >1500 net
+  lines), with owner approval given and recorded here on 2026-08-13.** (Restated at closeout: the
+  figure recorded mid-branch was 22 files / +2267/-239 and drifted again over rounds 6–7 and the
+  PR. It drifted TWICE, the second time in the same entry that observes a diffstat is only useful
+  if re-checked when the branch moves — so it is now taken from the merge base at closeout rather
+  than carried forward.) The initial rebuild was 13
+  files / +900/-181 and genuinely within the signals; four review-driven remediation rounds grew it
+  by roughly 60% and **the recorded figure was not revised as that happened**, so this entry claimed
+  compliance it no longer had until Codex checked the real diff. Recording the diffstat is only
+  useful if it is re-checked when the branch moves.
+- What expanded, and why: the selector extraction demanded by invariant 9; the injective signature
+  replacing a demonstrably colliding hash; the pick-edit transaction restructure; the roster fact
+  threaded to the summary page; the checklist link target; and tests for each. All of it traces to
+  review findings rather than new scope. Kept as one PR under the "one end-to-end behavior"
+  exemption — a draft publishes its roster, and setup requires the published roster. Splitting them
+  ships a readiness gate against a publication path that cannot be reached, which is how v1 failed
+  review.
+- **`phase: 'complete'` is set by the FINAL PICK.** It says every selection has been taken and
+  nothing more; the roster is written separately, at confirmation. Conflating them produced three
+  defects that two independent reviewers found from different directions.
+- **The dead end.** `DraftSummaryClient` gated "Confirm Draft — Write Rosters to League" on
+  `phase !== 'complete'`, and that button is the app's ONLY caller of `POST .../confirm`. The publish
+  control therefore vanished at the exact moment a draft became publishable: a draft that ended
+  normally could not be published at all, and the only way out was Reopen → Confirm, which nothing
+  documented. The same screen meanwhile said "Ready to complete setup? → Continue Setup".
+- **A pre-existing roster is not evidence the draft published it.** `owners:{slug}:{year}` has
+  writers unrelated to any draft — the repair import at `/admin/{slug}/roster`, and the demo
+  year-migration that copies one season's roster onto the next — so a roster can predate the draft
+  and describe assignments it never made.
+- **Publication digests the PICKS, and that is the load-bearing decision.** v1 stored a boolean, then
+  a timestamp; both failed because `phase: 'complete'` is not a resting state — Undo last pick,
+  Reset, and the pick-timer control are all live on a completed draft. A boolean survived all three
+  (reset a published draft, run it again, and the checklist ticked against the PREVIOUS draft's
+  roster). A timestamp keyed to `updatedAt` fixed that but retracted publication on a pick-timer
+  change and compared equal for same-millisecond writes. Digesting the picks retracts exactly when
+  ownership changes and never otherwise, and no writer maintains the field.
+- **Roster repairs are deliberately invisible to it.** The digest covers the draft's picks, not the
+  roster's contents, so a post-publication correction through `PUT /api/owners` does not demand a
+  re-draft or a re-confirm — the owner's stated rule.
+- **The pick-edit resync is gated on publication**, which requires `complete`. A reopened draft is
+  `live`, and the reopen contract is that the previously confirmed roster stays in effect until the
+  commissioner confirms again; a looser gate rewrote live ownership mid-reopen. It re-stamps the
+  digest only when it actually carried the roster along.
+- **`completeSetup` checks against the LEAGUE'S year, not the submitted one**, so a stale form still
+  reaches the lifecycle authority's designed `year-mismatch` refusal instead of being converted into
+  a hard error about unassigned teams.
+- Deliberately NOT in scope: serializing every draft writer under one lock. Verified pre-existing —
+  on `main`, ZERO draft routes use transactions and each is a plain whole-record read-then-write, so
+  concurrent draft writers already clobber each other. Recorded as a follow-up rather than folded in.
+- **Remediation round 1 — both reviewers, one P1/HIGH, and it was the SAME dead end.** Reopen sets
+  `phase: 'live'` while preserving every pick, so a `canPublish` requiring `complete` withheld
+  Confirm while Reopen was withheld because publication had lapsed: a reopened draft rendered with
+  NEITHER control, on the only screen that calls `POST /confirm`. Verified by direct render before
+  accepting. `canPublish` now asks whether every configured pick is in. The test that should have
+  caught it seeded a `live` draft with a FULL pick set and asserted no controls — it described the
+  bug and passed.
+- **The signature was demonstrably NOT collision-free, and I had claimed it was.** Codex produced two
+  catalog-real pick sets — Alice/Bob/Carol drafting `App State, Buffalo, South Carolina` versus
+  `Arkansas, Bowling Green, Fresno State` — that both hashed to `3-5a8e6545` under the 32-bit FNV-1a
+  digest whose own comment said "practically collision-free for this domain". Reproduced locally
+  before accepting. A collision means publish-reset-rerun lands on a matching value, so readiness
+  passes against the OLD roster and Confirm stays hidden. Replaced with an INJECTIVE
+  `JSON.stringify` over ordered `[pickNumber, owner, team]` triples: no probability argument left to
+  get wrong, at the cost of a few KB on a record already holding every pick.
+- **AGENTS.md invariant 9 was broken, again.** The derivation sat in `src/lib/draft.ts` and the
+  control state was recombined inline in `DraftSummaryClient` — "any derivation found outside
+  `src/lib/selectors/` is an architecture violation". Now `src/lib/selectors/draftPublication.ts`,
+  which also owns `selectDraftPublicationControls`, so the component maps state to markup and makes
+  no decision. Same invariant broken in PLATFORM-086F2H3B1; reading the rule is not obeying it.
+- Also remediated: the pick-edit route read the draft OUTSIDE the transaction it wrote inside
+  (atomicity without isolation — a confirmation committing in between was overwritten, wiping the
+  publication it had just recorded); the re-stamp fired on `wasPublished` alone even when the CSV was
+  blank and no roster was patched, recording a publication of picks no roster described — **a guard
+  that existed on the abandoned branch and was lost in the rebuild**, which is what re-deriving
+  rather than cherry-picking costs; and an inserted doc block orphaned `selectConfirmedRoster`.
+- **Remediation round 2 (owner-approved, AGENTS.md rule 6) — round 1's own damage.** Both reviewers
+  independently reached the same defect: moving the pick-edit read inside the transaction without
+  moving the DERIVATIONS left the route mixing two snapshots. `previousTeam`, the replacement pick,
+  the duplicate-team check and the phase/index guards still came from the pre-transaction read while
+  the write came from the in-transaction read. Two edits racing on one pick patched the roster with
+  an `oldTeam` already replaced, so `patchConfirmedOwnersCsv` released an already-released row and
+  the first edit's team KEPT its owner — the stored roster silently crediting a team the draft did
+  not show. Two edits racing on one TEAM both passed their pre-lock conflict checks and serialized
+  into a draft holding it twice, which `POST /confirm` then refuses permanently. And a `/reset`
+  landing in between made the edit a silent no-op that still returned 200 with a pick it had not
+  persisted. **Before round 1 the route read once and wrote from that one snapshot — coherent if not
+  isolated — so round 1 made it less correct, not more.** Now only request-shaped work (body parse,
+  catalog resolution) happens outside; every draft-derived value and every guard is computed from
+  the record being written.
+- **The sequential-edit tests are labelled CONTRACT PINS, not regression tests, and mutation is why.**
+  Reverting `previousTeam` to a pre-transaction snapshot leaves them green: sequential awaits give
+  the second request a fresh outer read, so no staleness arises. The defect needs true interleaving,
+  and the handler exposes no seam to suspend between its read and its transaction. The invariant is
+  pinned STRUCTURALLY instead — nothing before the transaction may touch the stored draft, and each
+  derivation is asserted to come from `current`. That pin does fail under the stale-snapshot
+  mutation.
+- Not remediated, deliberately: `autoCompleteDraft` has the same read-outside-transaction shape
+  (demo league only), and the four non-transactional whole-record draft writers can still clobber
+  `publishedPicks` — both recorded as follow-ups rather than folded into an approved-narrow round.
+- **Remediation round 3 (owner-approved) — the confirming pass's three findings.** Codex's
+  confirming pass was clean; `/code-review` found one medium and two low, all accepted:
+  - the checklist's "Teams assigned" link pointed at the draft SETUP page. Harmless while the step
+    ticked at `phase === 'complete'` (it never rendered there), but requiring publication made the
+    normal post-draft state render it — so a commissioner whose draft had just finished was sent to
+    a settings screen with no Confirm control. **Not an edge case: every draft passes through that
+    state.** Now keyed on the blocker — `draft-not-published` / `published-roster-missing` point at
+    the summary page, anything else at setup.
+  - a published draft whose roster was cleared via `PUT /api/owners` offered only Reopen, so
+    `published-roster-missing` named a next step no control performed. `selectDraftPublicationControls`
+    now takes `publishedRosterExists`, supplied by the summary page.
+  - the stale `preseasonBanner` doc block, and the `next-tasks` entry repeating it. **Second fix lost
+    to re-deriving** (the first was the re-stamp guard) — worth weighing when reconstruction is next
+    chosen.
+- **A test insert silently no-opped and I nearly shipped the coverage claim.** The anchor string for
+  the link test did not exist in the file, so the suite count never moved and mutation showed the
+  fix unpinned. Anchors are now asserted before replacing. This is the same vacuous-coverage failure
+  as the `/✓[\s\S]{0,400}/` proximity regex earlier in this campaign, in a different disguise.
+- The summary page's roster read is a labelled STRUCTURAL pin: its admin controls are gated on a
+  session the harness has none of, so a real render shows no controls either way. The control
+  behavior itself is pinned behaviorally against the client component.
+- **Remediation round 4 (owner-approved) — the confirming pass.** Codex raised the sizing record
+  above and a P2 on reopened drafts; `/code-review` raised the same reopen issue plus a HIGH and
+  MEDIUM rooted in one thing: no backfill for records written before `publishedPicks` existed.
+  - **The resync gate is `phase === 'complete'` plus an existing roster, not publication.** Gating on
+    publication dropped every draft confirmed before the field existed — a pick edit returned 200
+    while the stored roster kept crediting the old team and standings were never invalidated, which
+    is PLATFORM-072's defect returning through the new field. The phase still keeps a REOPENED draft
+    out, and requiring an existing CSV still stops this route minting one. The edit then backfills
+    the signature truthfully, so no migration is needed — and the two earlier reviewers' split
+    verdict on whether "no draft records exist" made the legacy case moot is no longer load-bearing.
+  - **A reopened draft reads as `draft-not-published`, not `draft-incomplete`.** It keeps every pick,
+    so "incomplete" was false, and it routed the checklist to the setup screen while the only publish
+    control sits on the summary page — the dead end reached through the reopen door. The blocker now
+    defers to `selectDraftPublicationControls`, so one definition of "publishable" serves both.
+- **An END-TO-END walk was added, and it should have existed first.** Every other suite on this
+  campaign seeds its starting state, so each seam was verified against records written by hand and
+  the PATH between them never was — which is exactly how the original defect survived: the pieces
+  all passed while a finished draft had no reachable publish control.
+  `__tests__/preseason-to-setup-complete.test.ts` drives the real handlers in the order a
+  commissioner uses them (confirm owners → create → settings → live → every pick → confirm →
+  checklist → Complete Setup), asserting only on state the production code produced, with a
+  positive control that stops before publishing and must be refused. It caught a real gap on first
+  run: a draft is born in `setup` and the transition map is `setup → settings → live`, so starting
+  one is two steps, not one — a fact no seam test could surface. Mutation against this file ALONE
+  kills confirm-not-recording-publication, the checklist ticking unconditionally, the checklist link
+  reverting to setup, and `completeSetup` dropping its check.
+- **Remediation round 5 (owner-approved) — the stamp needed PROVENANCE, and round 4 had removed it.**
+  Both reviewers independently, P1/MEDIUM. Round 4 widened the re-stamp to "phase complete plus a
+  non-empty CSV" — exactly the pair this campaign's own selector doc calls insufficient, since
+  `owners:{slug}:{year}` has writers unrelated to any draft (the repair import, the demo
+  year-migration). A repair CSV beside a draft that reached `complete` without publishing meant ONE
+  edited row promoted the whole foreign roster to "the draft's output": checklist ticked, setup
+  completed on ownership the draft never assigned. **A one-row patch cannot license a whole-roster
+  claim.** Patch and stamp are now separate decisions — patch on `phase === 'complete'` + an existing
+  CSV (which keeps a pre-field draft's standings in step), stamp only when the draft was ALREADY
+  published.
+- **The "truthful backfill" claim from round 4 is withdrawn.** Its test seeded a roster genuinely
+  built from those picks and merely deleted the field, so the backfill was truthful there and
+  vacuous as evidence for the case that mattered. A draft confirmed before this field existed now
+  keeps its roster synced but must be confirmed once, deliberately, to be publishable — which
+  re-exposes the legacy question the round-4 note claimed to have closed. Moot in practice on the
+  owner's confirmation that no draft records exist, and the right trade regardless: better to depend
+  on a stated fact than to infer publication from a roster the draft did not write.
+- **Remediation round 6 (owner-approved) — the derivation is TOTAL, and a fourth vacuous assertion.**
+  Folding `selectDraftPublicationControls` into `selectTeamAssignment` in round 4 started
+  dereferencing `draft.settings.totalRounds` and `draft.owners.length`. `getAppState` performs no
+  runtime validation — which is precisely why this file types its roster input `unknown` and says so
+  — and the same discipline was not applied to the DRAFT record. A partial row threw `TypeError`:
+  swallowed on the checklist and silently read as "not assigned", uncaught in `completeSetup`, where
+  the commissioner got a raw crash instead of the refusal the derivation exists to produce. Every
+  degraded shape now answers with a blocker.
+- **The link test's third assertion passed THROUGH that throw**, not through the routing it claimed
+  to test: its seed omitted `settings`/`owners`, the page's catch left the blocker null, and the
+  href fell to setup — which is what it asserted. It could not have failed. That is the fourth
+  vacuous assertion in this campaign (a proximity regex matching the neighbouring row's tick; an
+  insert whose anchor silently did not match; sequential-edit tests nearly mislabelled as regression
+  tests; and this). **One habit in four disguises: writing the assertion expected to pass rather
+  than constructing the state that would make it fail.** Mutation caught three; a reviewer tracing
+  control flow caught this one.
+- Mutation also showed the new tolerance in `draftPicksSignature` was UNREACHED by the first version
+  of its own test — the malformed shapes never got past the publication type-guard to reach it — so
+  a shape carrying a stamp was added specifically to exercise it.
+- **Remediation round 7 (owner-approved, and the agreed LAST) — two conservative guards.**
+  - Codex P2: making `draftPicksSignature` total in round 6 was right, but the degraded value chosen
+    for it was `'[]'` — which is ALSO the honest signature of an empty pick list. A row of
+    `{ phase: 'complete', publishedPicks: '[]' }` with no picks therefore compared EQUAL and read as
+    published; with any usable roster present the league reported fully assigned and setup could be
+    completed. **Totality is not enough — the degraded value has to be unmistakable.**
+    `isDraftPublished` now requires a non-empty picks array before comparing, which excludes nothing
+    legitimate because `POST /confirm` refuses a zero-pick draft.
+  - `/code-review` medium: the two branches of `selectTeamAssignment` disagreed. Round 4 taught the
+    not-complete branch to consult publishability and left the complete branch assuming `complete`
+    implied a full pick set — but `PUT /api/draft/{slug}/{year}` allows `live → complete` without
+    validating any pick count. A complete draft holding a partial set answered
+    `draft-not-published`, the checklist routed to the summary, and that page offered NEITHER
+    control. Restructured so PUBLICATION settles it first and the pick count, not the phase, chooses
+    between `draft-incomplete` and `draft-not-published`. A reset or half-undone draft now names the
+    real next step — finish it — instead of pointing at a publish control with nothing to publish.
+- Several test seeds wrote partial draft rows (no `owners`/`settings`) that the app cannot produce;
+  they are now realistic records. That habit is what let an earlier assertion pass through a `catch`.
+- **Stopping criterion, agreed with the owner:** the findings converged from "the model is wrong"
+  (rounds 1–2) to "a hand-edited row yields the wrong blocker" (round 7), while every round has
+  introduced something of its own. From here anything that is not a P0, or not reachable on the
+  happy path through the UI, is filed rather than fixed. These two were taken because they are
+  monotonically CONSERVATIVE — they can only refuse more often, never publish something that should
+  not be.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3729/3729
+  (+57 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
+  — `completeSetup`'s refusal and the confirm route's atomicity — and coverage was added before they
+  failed. Atomicity on the confirm path is a labelled STRUCTURAL pin: the only injectable store
+  failure is lock acquisition, which aborts before either write and cannot distinguish a
+  transactional write from a plain one. The same property on the demo path IS behavioral, because
+  that path's roster write is reached only through the lock.
+
+### PLATFORM-094-TEAM-ASSIGNMENT-READINESS-v1
+
+- Status: **Superseded/unimplemented.** Branch `platform/094-team-assignment-readiness` abandoned at
+  `51c4beab` after two remediation rounds, per `AGENTS.md` → reconstruction over accumulation.
+  Rebuilt from clean `main` as `-v2` by re-deriving, not cherry-picking.
+- **Why it stopped.** Each round's fix relocated the defect into the next seam. Round 1 fixed the
+  dead end and moved the problem into a publication FLAG that every draft writer had to clear by
+  hand — nine write sites, two updated. Round 2 made it a timestamp, which retracted publication on
+  unrelated metadata edits and could compare equal within a millisecond, and its own change lost the
+  pick-edit resync's phase gate so an edit mid-reopen rewrote live ownership.
+- **The audit that should have come first, and did not.** Three commands established: the official
+  roster has six writers (not the two designed around); `phase: 'complete'` exposes Undo, Reset and
+  the pick timer, so it is not a resting state; and twenty sites read `phase === 'complete'` meaning
+  two different things. Every round of findings came from a seam that inventory would have listed.
+- Recorded rather than discarded: my stated reason for declining the writer-serialization finding in
+  round 2 was wrong — it considered only the ordering where the other writer lands last.
+
 ### PLATFORM-093-NEW-LEAGUE-PRESEASON-BIRTH-v1
 
 - Purpose: let a newly created league be set up. Every league was born `season`, and the whole

@@ -34,6 +34,41 @@ export type DraftState = {
   timerExpiresAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The canonical signature of the PICKS this draft published to the league as its official
+   * owner assignment, or `null`/absent if it never published.
+   *
+   * PLATFORM-094 — `phase` cannot answer "was this published". The final pick
+   * sets `phase: 'complete'` the instant the last selection is taken, which says
+   * every pick has been made and nothing more; the roster is written separately,
+   * when the commissioner reviews the results and confirms. Conflating them left
+   * a draft that was complete, unpublished, and had no button anywhere in the app
+   * that could publish it — the summary page hid Confirm at `complete`.
+   *
+   * **It records WHAT was published, not merely THAT something was.** A boolean
+   * has to be cleared by hand on every path that changes the picks it described,
+   * and `phase: 'complete'` is not a resting state: Undo last pick, Reset, and
+   * the pick-timer control are all live on a completed draft. A flag survived all
+   * three, so resetting a published draft and running it again restored
+   * `complete` beside a marker pointing at the PREVIOUS draft's roster.
+   *
+   * Deriving it from the picks makes retraction automatic — reset and unpick
+   * change the picks, so the signature stops matching and nobody has to
+   * remember — while a timer change leaves the picks alone and keeps the
+   * publication valid. A timestamp would have failed both halves: it retracts on
+   * metadata edits it should ignore, and two writes in the same millisecond
+   * compare equal.
+   *
+   * Written and read ONLY through `src/lib/selectors/draftPublication.ts`
+   * (`draftPicksSignature` / `isDraftPublished`) — the derivation belongs to the
+   * selector layer per AGENTS.md invariant 9, and this module holds the stored
+   * shape alone.
+   *
+   * It deliberately does NOT track the roster's own contents. Post-publication
+   * roster repairs through `PUT /api/owners` are a roster edit, not a draft edit,
+   * and must not demand a re-draft or a re-confirm.
+   */
+  publishedPicks?: string | null;
 };
 
 export function defaultDraftSettings(owners: string[] = []): DraftSettings {

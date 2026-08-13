@@ -4,10 +4,14 @@ import './_setup/installAsyncLocalStorage';
 import { workAsyncStorage } from 'next/dist/server/app-render/work-async-storage.external';
 
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import { PUT } from '../pick/[n]/route';
-import { POST as CONFIRM } from '../confirm/route';
+import { POST as CONFIRM, DELETE as REOPEN } from '../confirm/route';
+import { POST as RESET } from '../reset/route';
+import { POST as UNPICK } from '../unpick/route';
+import { PUT as PUT_DRAFT } from '../route';
 import { addLeague } from '@/lib/leagueRegistry';
 import {
   setAppState,
@@ -18,6 +22,7 @@ import {
 import { type DraftState, type DraftPick, draftScope, getDraftEligibleTeams } from '@/lib/draft';
 import type { TeamCatalogItem } from '@/lib/teamIdentity';
 import teamsData from '@/data/teams.json';
+import { draftPicksSignature, isDraftPublished } from '@/lib/selectors/draftPublication';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-072 — post-confirm draft pick edit ownership drift.
@@ -298,4 +303,384 @@ test('a failed edit (unknown team) mutates neither ownership nor standings', asy
     tags.filter((t) => t.startsWith('standings:')),
     []
   );
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-094 — publication digests the PICKS, and these are the paths that
+// proved a flag could not work. Each drives the real route handlers.
+// ---------------------------------------------------------------------------
+
+test('confirm records the picks it published', async () => {
+  await seedConfirmed();
+
+  const draft = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(draft?.phase, 'complete');
+  assert.equal(draft?.publishedPicks, draftPicksSignature(draft!.picks));
+  assert.equal(isDraftPublished(draft), true);
+});
+
+test('resetting a published draft retracts its publication', async () => {
+  // `phase: 'complete'` is not a resting state — Reset is offered there. Under a
+  // flag it survived, so running the draft again restored `complete` beside a
+  // marker pointing at the PREVIOUS draft's roster: the checklist ticked, setup
+  // completed, and Confirm hid itself. `/reset` still knows nothing about
+  // publication; clearing the picks is what retracts it.
+  await seedConfirmed();
+
+  const res = await RESET(
+    new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/reset`, {
+      method: 'POST',
+      headers: { 'x-admin-token': TOKEN },
+    }),
+    { params: confirmParams }
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(after?.phase, 'setup');
+  assert.equal(isDraftPublished(after), false, 'the old roster no longer speaks for it');
+});
+
+test('undoing the last pick of a published draft retracts its publication', async () => {
+  // Same class, second path — and Undo last pick is offered at `complete` too.
+  await seedConfirmed();
+
+  const res = await UNPICK(
+    new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/unpick`, {
+      method: 'POST',
+      headers: { 'x-admin-token': TOKEN },
+    }),
+    { params: confirmParams }
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(isDraftPublished(after), false);
+});
+
+test('changing the pick timer on a published draft does NOT retract it', async () => {
+  // The other direction, and why a draft-wide timestamp was wrong: the setup
+  // screen still offers the pick timer at `phase: 'complete'`. Keyed to
+  // `updatedAt`, that unticked "Teams assigned" and blocked Complete Setup until
+  // the commissioner confirmed the whole draft again. The roster describes the
+  // picks, and the picks did not move.
+  await seedConfirmed();
+
+  const res = await PUT_DRAFT(
+    new Request(`http://localhost/api/draft/${SLUG}/${YEAR}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
+      body: JSON.stringify({ settings: { pickTimerSeconds: 30 } }),
+    }),
+    { params: confirmParams }
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(after?.settings.pickTimerSeconds, 30, 'the timer change landed');
+  assert.equal(isDraftPublished(after), true, 'still published — the picks are unchanged');
+});
+
+test('editing a pick on a REOPENED draft does not rewrite live ownership', async () => {
+  // The reopen route's contract is that the previously confirmed roster stays in
+  // effect until the commissioner confirms again. Gating this resync on anything
+  // looser than publication broke that: an edit mid-reopen rewrote the official
+  // roster and invalidated standings with no re-confirmation.
+  await seedConfirmed();
+  const before = await readOwnerByTeam();
+
+  const { result: reopen } = await runCapturingTags(() =>
+    REOPEN(
+      new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/confirm`, {
+        method: 'DELETE',
+        headers: { 'x-admin-token': TOKEN },
+      }),
+      { params: confirmParams }
+    )
+  );
+  assert.equal(reopen.status, 200, await reopen.text());
+
+  const { result: res, tags } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  assert.deepEqual(await readOwnerByTeam(), before, 'the confirmed roster is untouched');
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    [],
+    'and standings were not invalidated'
+  );
+});
+
+test('editing a pick on a COMPLETE but unpublished draft mints no roster', async () => {
+  // The no-CSV fallback used to build a full roster from the picks, so editing
+  // one pick on a never-confirmed draft PUBLISHED the league's assignments as a
+  // side effect — from a route that is not the publication authority.
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), completeTwoOwnerDraft('complete'));
+
+  const { result: res, tags } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const draft = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(draft?.picks[0]?.team, TEAM_C, 'the edit itself still lands');
+  assert.equal(await readOwnerByTeam(), null, 'no roster published by an edit');
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    []
+  );
+});
+
+test('a published draft stays published when its edit carries the roster along', async () => {
+  // The one place a writer opts back IN, and only because it just made the
+  // roster match. Otherwise every post-confirm edit would demand a re-Confirm
+  // for a change the app had already propagated.
+  await seedConfirmed();
+
+  const { result: res } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(isDraftPublished(after), true, 'still describes the stored roster');
+  assert.equal(after?.publishedPicks, draftPicksSignature(after!.picks));
+  assert.equal((await readOwnerByTeam())?.get(TEAM_C.toLowerCase()), 'Owner1');
+});
+
+test('a draft confirmed before publication existed still syncs its roster', async () => {
+  // Review, HIGH. Records written before `publishedPicks` existed have no
+  // signature, so gating the resync on publication dropped them: a pick edit
+  // returned 200 while `owners:{slug}:{year}` kept crediting the old team and
+  // standings were never invalidated — PLATFORM-072's defect returning through
+  // the new field. The gate is `phase === 'complete'` plus an existing roster,
+  // which is what `main` covered.
+  await seedConfirmed();
+  const confirmed = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))!.value!;
+  const legacy = { ...confirmed };
+  delete (legacy as { publishedPicks?: string | null }).publishedPicks;
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), legacy);
+
+  const { result: res, tags } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const owners = await readOwnerByTeam();
+  assert.equal(owners?.get(TEAM_C.toLowerCase()), 'Owner1', 'the roster followed the edit');
+  assert.equal(owners?.get(TEAM_A.toLowerCase()), 'NoClaim', 'the old team was released');
+  assert.ok(
+    tags.some((t) => t.startsWith('standings:')),
+    'standings were invalidated'
+  );
+
+  // But it gains NO publication. The earlier cut stamped the signature here and
+  // called it a truthful backfill; both reviewers showed it is not, because the
+  // same conditions are reachable with a roster this draft never produced (see
+  // the next test). Keeping the roster in step is what standings need; claiming
+  // publication is a separate assertion that only `POST /confirm` may make.
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(isDraftPublished(after), false, 'synced, but not promoted to published');
+});
+
+test('a repair-imported roster is never promoted to the draft output by an edit', async () => {
+  // Codex P1 / code-review MEDIUM, and the campaign's core failure reached from a
+  // new direction. `owners:{slug}:{year}` has writers unrelated to any draft —
+  // the repair import at `/admin/{slug}/roster`, and the demo year-migration. A
+  // draft that reaches `complete` without publishing, beside one of those CSVs,
+  // met the old "phase complete + a CSV exists" stamp condition: editing ONE
+  // pick patched a single row and then declared the whole foreign roster to be
+  // this draft's output, so the checklist ticked and setup completed on
+  // ownership the draft never assigned.
+  const foreignCsv = [
+    'team,owner',
+    `${TEAM_A},Imported One`,
+    `${TEAM_B},Imported Two`,
+    `${TEAM_C},Imported Three`,
+  ].join('\n');
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', foreignCsv);
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), completeTwoOwnerDraft('complete'));
+
+  const { result: res } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(
+    isDraftPublished(after),
+    false,
+    'one patched row cannot license a whole-roster claim'
+  );
+
+  // The remaining rows still describe the import, which is exactly why the claim
+  // would have been false.
+  const owners = await readOwnerByTeam();
+  assert.equal(owners?.get(TEAM_B.toLowerCase()), 'Imported Two');
+});
+
+test('an edit does not claim publication when there was no roster to carry', async () => {
+  // `PUT /api/owners` can blank the CSV without touching the draft, so a
+  // published draft can have nothing left to patch. Re-stamping on
+  // `wasPublished` alone then recorded a publication of picks NO roster
+  // describes — which keeps Confirm hidden and lets a later unrelated repair
+  // import satisfy readiness against picks it never described.
+  //
+  // This guard existed on the abandoned branch and was lost in the rebuild;
+  // re-deriving rather than cherry-picking is required, and this is what it cost.
+  await seedConfirmed();
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', null);
+
+  const { result: res, tags } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(after?.picks[0]?.team, TEAM_C, 'the edit itself still lands');
+  assert.equal(isDraftPublished(after), false, 'no roster was carried, so no claim');
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    [],
+    'and nothing was invalidated'
+  );
+});
+
+test('every draft-derived value is computed INSIDE the pick-edit transaction', () => {
+  // Structural pin, and the only form available: the defect is an interleaving,
+  // and the handler exposes no seam to suspend between a read and its
+  // transaction. Both reviewers reached it independently — validation and
+  // derivation ran before the lock while the write happened after, so the route
+  // mixed two snapshots. Two edits racing on one pick then patched the roster
+  // with an `oldTeam` already replaced, leaving a team credited to an owner the
+  // draft did not show; two edits racing on one TEAM both passed their pre-lock
+  // conflict checks and serialized into a draft holding it twice, which
+  // `POST /confirm` refuses permanently.
+  //
+  // The invariant is therefore about WHERE values come from, which is exactly
+  // what a structural check can see: nothing before the transaction may touch
+  // the stored draft.
+  const source = readFileSync(new URL('../pick/[n]/route.ts', import.meta.url), 'utf8');
+  const body = source.slice(source.indexOf('export async function PUT'));
+  const txnAt = body.indexOf('withAppStateKeyTransaction');
+  assert.ok(txnAt > 0, 'the edit commits inside a transaction');
+
+  const before = body.slice(0, txnAt);
+  assert.ok(!before.includes('getAppState'), 'the draft is not read before the transaction');
+  assert.ok(!/\.picks\b/.test(before), 'no pick is inspected before the transaction');
+
+  const inside = body.slice(txnAt);
+  assert.match(inside, /await txn\.read<DraftState>\(\)/, 'the record is read from the txn');
+  for (const derivation of [
+    /const previousTeam = target\.team;/,
+    /const conflicting = current\.picks\.find\(/,
+    /const nextPicks = current\.picks\.map\(/,
+    /if \(pickIndex >= current\.picks\.length\)/,
+    /if \(current\.phase !== 'live'/,
+  ]) {
+    assert.match(inside, derivation, `derived inside the transaction: ${derivation}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-094 remediation round 2 — the edit derives EVERYTHING from the record
+// it writes. Both reviewers reached this independently.
+//
+// The gap these close is a TIME gap, and every test above exercises a single
+// operation against a fixed starting state. That is why none of them caught it.
+// ---------------------------------------------------------------------------
+
+test('two edits to the same pick leave exactly one team credited', async () => {
+  // CONTRACT PIN, not a regression test — stated precisely because mutation
+  // proved it. Reverting `previousTeam` to a pre-transaction snapshot leaves
+  // this green: sequential awaits give the second request a FRESH outer read, so
+  // no staleness arises. The defect needs true interleaving (an admin
+  // double-click), which this harness cannot produce deterministically — the
+  // handler exposes no seam to suspend between its read and its transaction.
+  // The cross-snapshot invariant is pinned structurally below instead.
+  //
+  // What this does pin: the patch logic itself moves ownership exactly once.
+  await seedConfirmed();
+
+  const first = await runCapturingTags(() => PUT(editRequest(TEAM_C), { params: pickParams(1) }));
+  assert.equal(first.result.status, 200, await first.result.text());
+
+  const second = await runCapturingTags(() => PUT(editRequest(TEAM_B), { params: pickParams(1) }));
+  assert.equal(second.result.status, 422, 'TEAM_B is already Owner2s pick');
+
+  const owners = await readOwnerByTeam();
+  assert.equal(owners?.get(TEAM_C.toLowerCase()), 'Owner1', 'the surviving edit holds');
+  assert.equal(owners?.get(TEAM_A.toLowerCase()), 'NoClaim', 'the original was released');
+
+  // Owner1 holds exactly one team in the persisted roster.
+  const held = [...(owners?.entries() ?? [])].filter(([, owner]) => owner === 'Owner1');
+  assert.equal(held.length, 1, `Owner1 credited ${held.length} teams: ${JSON.stringify(held)}`);
+});
+
+test('a second edit to the same pick releases the team the FIRST edit set', async () => {
+  // Contract pin, same limitation as above. Edit 1 → TEAM_C, edit 2 → an unheld
+  // team; the release must target TEAM_C, not the original TEAM_A.
+  await seedConfirmed();
+  const spare = ELIGIBLE[5]!.school;
+
+  await runCapturingTags(() => PUT(editRequest(TEAM_C), { params: pickParams(1) }));
+  const second = await runCapturingTags(() => PUT(editRequest(spare), { params: pickParams(1) }));
+  assert.equal(second.result.status, 200, await second.result.text());
+
+  const owners = await readOwnerByTeam();
+  assert.equal(owners?.get(spare.toLowerCase()), 'Owner1');
+  assert.equal(owners?.get(TEAM_C.toLowerCase()), 'NoClaim', 'the first edit was released');
+  const held = [...(owners?.entries() ?? [])].filter(([, owner]) => owner === 'Owner1');
+  assert.equal(held.length, 1, `Owner1 credited ${held.length} teams`);
+});
+
+test('an edit refuses rather than silently no-op when the draft was reset', async () => {
+  // `/reset` empties the picks. The guards used to run against a pre-transaction
+  // snapshot, so the mapped picks never reached `pickIndex`: the edit was
+  // dropped, the route returned 200 with a pick it had not persisted, and it
+  // wrote back a draft in `setup` — a phase it explicitly refuses to edit.
+  await seedConfirmed();
+  await runCapturingTags(() =>
+    RESET(
+      new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/reset`, {
+        method: 'POST',
+        headers: { 'x-admin-token': TOKEN },
+      }),
+      { params: confirmParams }
+    )
+  );
+
+  const { result: res } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(1) })
+  );
+  const resetBody = (await res.json()) as { error: string };
+  assert.equal(res.status, 422, resetBody.error);
+  assert.match(resetBody.error, /Cannot edit picks in phase: setup/);
+
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(after?.phase, 'setup', 'the reset stands');
+  assert.deepEqual(after?.picks, [], 'and no pick was resurrected');
+});
+
+test('an edit refuses when the pick it names was undone', async () => {
+  await seedConfirmed();
+  await runCapturingTags(() =>
+    UNPICK(
+      new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/unpick`, {
+        method: 'POST',
+        headers: { 'x-admin-token': TOKEN },
+      }),
+      { params: confirmParams }
+    )
+  );
+
+  // Pick #2 no longer exists after the undo.
+  const { result: res } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(2) })
+  );
+  const undoBody = (await res.json()) as { error: string };
+  assert.equal(res.status, 404, undoBody.error);
+  assert.match(undoBody.error, /has not been made yet/);
 });

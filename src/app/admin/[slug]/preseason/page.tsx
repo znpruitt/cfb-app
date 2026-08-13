@@ -5,9 +5,9 @@ import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import { getLeague } from '@/lib/leagueRegistry';
 import { describeLeagueLifecycle } from '@/lib/selectors/leagueLifecycle';
 import { TEST_LEAGUE_SLUG } from '@/lib/league';
-import { getAppState } from '@/lib/server/appStateStore';
 import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
-import { draftScope, type DraftPhase } from '@/lib/draft';
+import { getTeamAssignment } from '@/lib/server/teamAssignmentStore';
+import type { TeamAssignmentBlocker } from '@/lib/selectors/teamAssignment';
 import AssignmentMethodCard from '../components/AssignmentMethodCard';
 import { completeSetup } from '../actions';
 
@@ -29,27 +29,26 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   // Fetch checklist data for the preseason year
   let hasRoster = false;
   let teamsAssigned = false;
+  let assignmentBlocker: TeamAssignmentBlocker | null = null;
 
   try {
     // PLATFORM-092 — one derivation answers "is there a confirmed roster",
     // shared with the draft-setup page and the create-draft gate. This counted
     // CSV LINES, so a header plus two malformed rows read as a roster and this
     // checklist could show ✓ while the draft gate refused.
-    const [roster, draftRecord] = await Promise.all([
+    // PLATFORM-094 — team assignment is decided by ONE derivation, shared with
+    // the Complete Setup action, so the page a commissioner reads and the action
+    // that writes `setupComplete` cannot disagree. `draftPhase === 'complete'`
+    // alone was not evidence: it fires on the final pick, while the roster is
+    // written separately at confirmation.
+    const [roster, assignment] = await Promise.all([
       getConfirmedRoster(slug, year),
-      getAppState<{ phase: DraftPhase }>(draftScope(slug), String(year)),
+      getTeamAssignment(slug, year, league),
     ]);
 
     hasRoster = roster.isConfirmed;
-
-    const draftPhase = draftRecord?.value?.phase ?? null;
-    if (league.assignmentMethod === 'draft') {
-      teamsAssigned = draftPhase === 'complete';
-    } else if (league.assignmentMethod === 'manual') {
-      teamsAssigned = league.manualAssignmentComplete === true;
-    } else {
-      teamsAssigned = false;
-    }
+    teamsAssigned = assignment.isAssigned;
+    assignmentBlocker = assignment.blocker;
   } catch {
     // Storage unavailable — checklist shows incomplete
   }
@@ -57,13 +56,28 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   const canCompleteSetup = hasRoster && teamsAssigned;
   const isSetupComplete = league.status.setupComplete === true;
 
-  // Teams assigned link target depends on chosen assignment method
+  // Teams assigned link target depends on the chosen assignment method — and,
+  // for a draft, on how far along it is.
+  //
+  // PLATFORM-094: this always pointed at the draft SETUP page, which was
+  // harmless while the step ticked at `phase === 'complete'` (the link never
+  // rendered in that state). Now that the step requires publication, the normal
+  // post-draft state — every pick made, nothing confirmed — renders this link,
+  // and setup is a settings screen with no publish control. The commissioner was
+  // sent to configure a draft that had already finished. The summary page is
+  // where Confirm lives, so an existing draft points there and only a league
+  // with no draft yet is sent to setup.
+  // `draft-not-published` and `published-roster-missing` both mean the picks are
+  // in and the remaining step is Confirm, which lives on the summary page.
+  // Anything else — no draft yet, or one still running — belongs at setup.
+  const needsPublishing =
+    assignmentBlocker === 'draft-not-published' || assignmentBlocker === 'published-roster-missing';
   const teamsHref =
     league.assignmentMethod === 'draft'
-      ? `/league/${slug}/draft/setup`
-      : league.assignmentMethod === 'manual'
-        ? `/admin/${slug}/preseason`
-        : `/admin/${slug}/preseason`;
+      ? needsPublishing
+        ? `/league/${slug}/draft/summary`
+        : `/league/${slug}/draft/setup`
+      : `/admin/${slug}/preseason`;
 
   // Who starts this league's season, decided by the one lifecycle-ownership
   // authority. `league.status` is passed through as stored — the selector owns
