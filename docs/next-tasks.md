@@ -90,7 +90,10 @@ Supersedes: (none)
     clobber each other, and a confirmation overlapping a `/reset` can republish the pre-reset picks.
     PLATFORM-094 put the confirm and pick-edit paths on transactions; `/reset`, `/unpick`, the
     settings PUT and reopen are still unserialized. `PUT /api/owners` likewise writes the roster
-    outside any transaction.
+    outside any transaction. Two specifics found in review and left in place: `autoCompleteDraft`
+    commits in a transaction but derives its payload from a read taken before it (demo league only),
+    and a settings PUT whose read predates a `POST /confirm` commit writes back a draft WITHOUT
+    `publishedPicks`, silently retracting a valid publication — recovery is re-Confirming.
 13. **NEXT — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
 14. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup

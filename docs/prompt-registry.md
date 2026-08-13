@@ -124,8 +124,32 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   blank and no roster was patched, recording a publication of picks no roster described — **a guard
   that existed on the abandoned branch and was lost in the rebuild**, which is what re-deriving
   rather than cherry-picking costs; and an inserted doc block orphaned `selectConfirmedRoster`.
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3714/3714
-  (+42 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
+- **Remediation round 2 (owner-approved, AGENTS.md rule 6) — round 1's own damage.** Both reviewers
+  independently reached the same defect: moving the pick-edit read inside the transaction without
+  moving the DERIVATIONS left the route mixing two snapshots. `previousTeam`, the replacement pick,
+  the duplicate-team check and the phase/index guards still came from the pre-transaction read while
+  the write came from the in-transaction read. Two edits racing on one pick patched the roster with
+  an `oldTeam` already replaced, so `patchConfirmedOwnersCsv` released an already-released row and
+  the first edit's team KEPT its owner — the stored roster silently crediting a team the draft did
+  not show. Two edits racing on one TEAM both passed their pre-lock conflict checks and serialized
+  into a draft holding it twice, which `POST /confirm` then refuses permanently. And a `/reset`
+  landing in between made the edit a silent no-op that still returned 200 with a pick it had not
+  persisted. **Before round 1 the route read once and wrote from that one snapshot — coherent if not
+  isolated — so round 1 made it less correct, not more.** Now only request-shaped work (body parse,
+  catalog resolution) happens outside; every draft-derived value and every guard is computed from
+  the record being written.
+- **The sequential-edit tests are labelled CONTRACT PINS, not regression tests, and mutation is why.**
+  Reverting `previousTeam` to a pre-transaction snapshot leaves them green: sequential awaits give
+  the second request a fresh outer read, so no staleness arises. The defect needs true interleaving,
+  and the handler exposes no seam to suspend between its read and its transaction. The invariant is
+  pinned STRUCTURALLY instead — nothing before the transaction may touch the stored draft, and each
+  derivation is asserted to come from `current`. That pin does fail under the stale-snapshot
+  mutation.
+- Not remediated, deliberately: `autoCompleteDraft` has the same read-outside-transaction shape
+  (demo league only), and the four non-transactional whole-record draft writers can still clobber
+  `publishedPicks` — both recorded as follow-ups rather than folded into an approved-narrow round.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3718/3718
+  (+46 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
   — `completeSetup`'s refusal and the confirm route's atomicity — and coverage was added before they
   failed. Atomicity on the confirm path is a labelled STRUCTURAL pin: the only injectable store
   failure is lock acquisition, which aborts before either write and cannot distinguish a

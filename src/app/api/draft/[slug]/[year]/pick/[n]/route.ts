@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server';
 
 import { requireAdminRequest } from '@/lib/server/adminAuth';
-import { getAppState, withAppStateKeyTransaction } from '@/lib/server/appStateStore';
+import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import {
   type DraftState,
+  type DraftPick,
   draftScope,
   getDraftEligibleTeams,
   patchConfirmedOwnersCsv,
@@ -51,27 +52,20 @@ export async function PUT(
     return NextResponse.json({ error: `League "${slug}" not found` }, { status: 404 });
   }
 
-  const record = await getAppState<DraftState>(draftScope(slug), String(year));
-  if (!record?.value) {
-    return NextResponse.json({ error: `No draft found for ${slug} ${year}` }, { status: 404 });
-  }
-
-  const draft = { ...record.value };
-
-  if (draft.phase !== 'live' && draft.phase !== 'paused' && draft.phase !== 'complete') {
-    return NextResponse.json(
-      { error: `Cannot edit picks in phase: ${draft.phase}` },
-      { status: 422 }
-    );
-  }
-
+  // PLATFORM-094 remediation — everything derived from the DRAFT is derived
+  // inside the transaction below. Only request-shaped work happens out here:
+  // parsing the body and resolving the submitted team against the catalog, both
+  // of which depend on the request and the static catalog, not on stored state.
+  //
+  // The previous shape read the draft here, computed `previousTeam`, the
+  // replacement pick and the duplicate-team check from that snapshot, and then
+  // wrote from a SECOND read taken inside the transaction — mixing two
+  // snapshots. Two edits to the same pick in succession then patched the roster
+  // with an `oldTeam` that had already been replaced, so
+  // `patchConfirmedOwnersCsv` released a row that was already released and the
+  // first edit's team kept its owner: the stored roster silently credited
+  // someone a team the draft did not show.
   const pickIndex = pickNumber - 1;
-  if (pickIndex >= draft.picks.length) {
-    return NextResponse.json(
-      { error: `Pick ${pickNumber} has not been made yet` },
-      { status: 404 }
-    );
-  }
 
   let body: unknown;
   try {
@@ -114,27 +108,6 @@ export async function PUT(
 
   const canonicalTeam = resolution.canonicalName;
 
-  // Validate team not already picked at another position
-  const conflicting = draft.picks.find(
-    (p, idx) => idx !== pickIndex && p.team.toLowerCase() === canonicalTeam.toLowerCase()
-  );
-  if (conflicting) {
-    return NextResponse.json(
-      {
-        error: `"${canonicalTeam}" is already pick #${conflicting.pickNumber} by ${conflicting.owner}`,
-      },
-      { status: 422 }
-    );
-  }
-
-  const previousTeam = draft.picks[pickIndex]!.team;
-
-  const newPicks = draft.picks.map((p, idx) =>
-    idx === pickIndex
-      ? { ...p, team: canonicalTeam, pickedAt: new Date().toISOString(), autoSelected: false }
-      : p
-  );
-
   // PLATFORM-072: a PUBLISHED draft's persisted owner assignment
   // (owners:${slug}:${year} / 'csv') is the authoritative ownership source that
   // standings / gameOwnership consume, so editing a pick in draft state alone
@@ -164,19 +137,59 @@ export async function PUT(
   // publication it had just recorded and leaving a roster the draft no longer
   // claims. `confirm-eligibility.test.ts` pins the same rule for the publish
   // path; this route holds itself to it.
-  let updated: DraftState | null = null;
+  type Refusal = { error: string; status: number };
+  let outcome: Refusal | { ok: true; draft: DraftState; pick: DraftPick } | null = null;
   let rosterPatched = false;
 
   await withAppStateKeyTransaction(draftScope(slug), String(year), async (txn) => {
     await txn.lockKey(`owners:${slug}:${year}`, 'csv');
 
-    const current = (await txn.read<DraftState>())?.value ?? draft;
-    const currentPicks = current.picks.map((p, idx) =>
-      idx === pickIndex ? newPicks[pickIndex]! : p
-    );
-    const wasPublished = isDraftPublished(current);
+    const current = (await txn.read<DraftState>())?.value;
+    if (!current) {
+      outcome = { error: `No draft found for ${slug} ${year}`, status: 404 };
+      return;
+    }
 
-    if (wasPublished) {
+    // The phase and index guards run HERE, against the record actually being
+    // written. Held outside, a `/reset` or `/unpick` landing in between left the
+    // edit silently dropped — the mapped picks never reached `pickIndex` — while
+    // the route still returned 200 with a pick it had not persisted, and wrote
+    // back a draft in a phase it refuses to edit.
+    if (current.phase !== 'live' && current.phase !== 'paused' && current.phase !== 'complete') {
+      outcome = { error: `Cannot edit picks in phase: ${current.phase}`, status: 422 };
+      return;
+    }
+    if (pickIndex >= current.picks.length) {
+      outcome = { error: `Pick ${pickNumber} has not been made yet`, status: 404 };
+      return;
+    }
+
+    // Duplicate-team validation against the CURRENT picks. Held outside, two
+    // concurrent edits naming the same unclaimed team both passed their
+    // pre-lock checks and serialized into a draft holding that team twice —
+    // which `POST /confirm` then refuses permanently.
+    const conflicting = current.picks.find(
+      (p, idx) => idx !== pickIndex && p.team.toLowerCase() === canonicalTeam.toLowerCase()
+    );
+    if (conflicting) {
+      outcome = {
+        error: `"${canonicalTeam}" is already pick #${conflicting.pickNumber} by ${conflicting.owner}`,
+        status: 422,
+      };
+      return;
+    }
+
+    const target = current.picks[pickIndex]!;
+    const previousTeam = target.team;
+    const replacement: DraftPick = {
+      ...target,
+      team: canonicalTeam,
+      pickedAt: editedAt,
+      autoSelected: false,
+    };
+    const nextPicks = current.picks.map((p, idx) => (idx === pickIndex ? replacement : p));
+
+    if (isDraftPublished(current)) {
       const ownersRecord = await txn.readKey<string>(`owners:${slug}:${year}`, 'csv');
       const currentCsv = ownersRecord?.value;
       if (typeof currentCsv === 'string' && currentCsv.trim()) {
@@ -186,7 +199,7 @@ export async function PUT(
           patchConfirmedOwnersCsv(currentCsv, {
             oldTeam: previousTeam,
             newTeam: canonicalTeam,
-            fallbackOwner: newPicks[pickIndex]!.owner,
+            fallbackOwner: replacement.owner,
             // Match persisted rows through the same canonical resolver used to
             // validate the incoming team, so an alias/alt label stored via
             // /api/owners resolves to the same slot (no stale duplicate row).
@@ -197,20 +210,29 @@ export async function PUT(
       }
     }
 
-    // Re-stamp ONLY when a roster was actually patched. `wasPublished` alone is
-    // not enough: `PUT /api/owners` can blank the CSV, and then this route would
+    // Re-stamp ONLY when a roster was actually patched. Publication alone is not
+    // enough: `PUT /api/owners` can blank the CSV, and this route would then
     // record a publication of picks no roster describes — keeping Confirm hidden
     // and letting a later unrelated repair import satisfy readiness.
-    updated = {
+    const written: DraftState = {
       ...current,
-      picks: currentPicks,
-      publishedPicks: rosterPatched ? draftPicksSignature(currentPicks) : current.publishedPicks,
+      picks: nextPicks,
+      publishedPicks: rosterPatched ? draftPicksSignature(nextPicks) : current.publishedPicks,
       updatedAt: editedAt,
     };
-    await txn.write<DraftState>(updated);
+    await txn.write<DraftState>(written);
+    outcome = { ok: true, draft: written, pick: replacement };
   });
+
+  const settled = outcome as Refusal | { ok: true; draft: DraftState; pick: DraftPick } | null;
+  if (!settled) {
+    return NextResponse.json({ error: 'edit did not complete' }, { status: 500 });
+  }
+  if (!('ok' in settled)) {
+    return NextResponse.json({ error: settled.error }, { status: settled.status });
+  }
 
   if (rosterPatched) invalidateStandings(slug, year);
 
-  return NextResponse.json({ draft: updated, pick: newPicks[pickIndex] });
+  return NextResponse.json({ draft: settled.draft, pick: settled.pick });
 }

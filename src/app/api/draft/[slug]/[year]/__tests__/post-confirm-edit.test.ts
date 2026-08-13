@@ -477,20 +477,139 @@ test('an edit does not claim publication when there was no roster to carry', asy
   );
 });
 
-test('a pick edit reads the draft inside its own transaction', () => {
-  // Structural pin. The route writes inside a transaction but used to read from
-  // a snapshot taken before it — atomicity without isolation. A confirmation
-  // committing in between was then overwritten by this write, wiping the
-  // publication it had just recorded and leaving a roster the draft no longer
-  // claimed. `confirm-eligibility.test.ts` pins the same rule for the publish
-  // path; observing the interleaving directly needs two requests suspended
-  // mid-transaction, which the store exposes no seam for.
+test('every draft-derived value is computed INSIDE the pick-edit transaction', () => {
+  // Structural pin, and the only form available: the defect is an interleaving,
+  // and the handler exposes no seam to suspend between a read and its
+  // transaction. Both reviewers reached it independently — validation and
+  // derivation ran before the lock while the write happened after, so the route
+  // mixed two snapshots. Two edits racing on one pick then patched the roster
+  // with an `oldTeam` already replaced, leaving a team credited to an owner the
+  // draft did not show; two edits racing on one TEAM both passed their pre-lock
+  // conflict checks and serialized into a draft holding it twice, which
+  // `POST /confirm` refuses permanently.
+  //
+  // The invariant is therefore about WHERE values come from, which is exactly
+  // what a structural check can see: nothing before the transaction may touch
+  // the stored draft.
   const source = readFileSync(new URL('../pick/[n]/route.ts', import.meta.url), 'utf8');
-  const txnAt = source.indexOf('withAppStateKeyTransaction');
-  assert.ok(txnAt > 0);
-  assert.match(
-    source.slice(txnAt),
-    /await txn\.read<DraftState>\(\)/,
-    'the picks written must come from the transaction itself'
+  const body = source.slice(source.indexOf('export async function PUT'));
+  const txnAt = body.indexOf('withAppStateKeyTransaction');
+  assert.ok(txnAt > 0, 'the edit commits inside a transaction');
+
+  const before = body.slice(0, txnAt);
+  assert.ok(!before.includes('getAppState'), 'the draft is not read before the transaction');
+  assert.ok(!/\.picks\b/.test(before), 'no pick is inspected before the transaction');
+
+  const inside = body.slice(txnAt);
+  assert.match(inside, /await txn\.read<DraftState>\(\)/, 'the record is read from the txn');
+  for (const derivation of [
+    /const previousTeam = target\.team;/,
+    /const conflicting = current\.picks\.find\(/,
+    /const nextPicks = current\.picks\.map\(/,
+    /if \(pickIndex >= current\.picks\.length\)/,
+    /if \(current\.phase !== 'live'/,
+  ]) {
+    assert.match(inside, derivation, `derived inside the transaction: ${derivation}`);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-094 remediation round 2 — the edit derives EVERYTHING from the record
+// it writes. Both reviewers reached this independently.
+//
+// The gap these close is a TIME gap, and every test above exercises a single
+// operation against a fixed starting state. That is why none of them caught it.
+// ---------------------------------------------------------------------------
+
+test('two edits to the same pick leave exactly one team credited', async () => {
+  // CONTRACT PIN, not a regression test — stated precisely because mutation
+  // proved it. Reverting `previousTeam` to a pre-transaction snapshot leaves
+  // this green: sequential awaits give the second request a FRESH outer read, so
+  // no staleness arises. The defect needs true interleaving (an admin
+  // double-click), which this harness cannot produce deterministically — the
+  // handler exposes no seam to suspend between its read and its transaction.
+  // The cross-snapshot invariant is pinned structurally below instead.
+  //
+  // What this does pin: the patch logic itself moves ownership exactly once.
+  await seedConfirmed();
+
+  const first = await runCapturingTags(() => PUT(editRequest(TEAM_C), { params: pickParams(1) }));
+  assert.equal(first.result.status, 200, await first.result.text());
+
+  const second = await runCapturingTags(() => PUT(editRequest(TEAM_B), { params: pickParams(1) }));
+  assert.equal(second.result.status, 422, 'TEAM_B is already Owner2s pick');
+
+  const owners = await readOwnerByTeam();
+  assert.equal(owners?.get(TEAM_C.toLowerCase()), 'Owner1', 'the surviving edit holds');
+  assert.equal(owners?.get(TEAM_A.toLowerCase()), 'NoClaim', 'the original was released');
+
+  // Owner1 holds exactly one team in the persisted roster.
+  const held = [...(owners?.entries() ?? [])].filter(([, owner]) => owner === 'Owner1');
+  assert.equal(held.length, 1, `Owner1 credited ${held.length} teams: ${JSON.stringify(held)}`);
+});
+
+test('a second edit to the same pick releases the team the FIRST edit set', async () => {
+  // Contract pin, same limitation as above. Edit 1 → TEAM_C, edit 2 → an unheld
+  // team; the release must target TEAM_C, not the original TEAM_A.
+  await seedConfirmed();
+  const spare = ELIGIBLE[5]!.school;
+
+  await runCapturingTags(() => PUT(editRequest(TEAM_C), { params: pickParams(1) }));
+  const second = await runCapturingTags(() => PUT(editRequest(spare), { params: pickParams(1) }));
+  assert.equal(second.result.status, 200, await second.result.text());
+
+  const owners = await readOwnerByTeam();
+  assert.equal(owners?.get(spare.toLowerCase()), 'Owner1');
+  assert.equal(owners?.get(TEAM_C.toLowerCase()), 'NoClaim', 'the first edit was released');
+  const held = [...(owners?.entries() ?? [])].filter(([, owner]) => owner === 'Owner1');
+  assert.equal(held.length, 1, `Owner1 credited ${held.length} teams`);
+});
+
+test('an edit refuses rather than silently no-op when the draft was reset', async () => {
+  // `/reset` empties the picks. The guards used to run against a pre-transaction
+  // snapshot, so the mapped picks never reached `pickIndex`: the edit was
+  // dropped, the route returned 200 with a pick it had not persisted, and it
+  // wrote back a draft in `setup` — a phase it explicitly refuses to edit.
+  await seedConfirmed();
+  await runCapturingTags(() =>
+    RESET(
+      new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/reset`, {
+        method: 'POST',
+        headers: { 'x-admin-token': TOKEN },
+      }),
+      { params: confirmParams }
+    )
   );
+
+  const { result: res } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(1) })
+  );
+  const resetBody = (await res.json()) as { error: string };
+  assert.equal(res.status, 422, resetBody.error);
+  assert.match(resetBody.error, /Cannot edit picks in phase: setup/);
+
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(after?.phase, 'setup', 'the reset stands');
+  assert.deepEqual(after?.picks, [], 'and no pick was resurrected');
+});
+
+test('an edit refuses when the pick it names was undone', async () => {
+  await seedConfirmed();
+  await runCapturingTags(() =>
+    UNPICK(
+      new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/unpick`, {
+        method: 'POST',
+        headers: { 'x-admin-token': TOKEN },
+      }),
+      { params: confirmParams }
+    )
+  );
+
+  // Pick #2 no longer exists after the undo.
+  const { result: res } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(2) })
+  );
+  const undoBody = (await res.json()) as { error: string };
+  assert.equal(res.status, 404, undoBody.error);
+  assert.match(undoBody.error, /has not been made yet/);
 });
