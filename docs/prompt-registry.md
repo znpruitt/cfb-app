@@ -204,8 +204,25 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   one is two steps, not one — a fact no seam test could surface. Mutation against this file ALONE
   kills confirm-not-recording-publication, the checklist ticking unconditionally, the checklist link
   reverting to setup, and `completeSetup` dropping its check.
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3726/3726
-  (+54 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
+- **Remediation round 5 (owner-approved) — the stamp needed PROVENANCE, and round 4 had removed it.**
+  Both reviewers independently, P1/MEDIUM. Round 4 widened the re-stamp to "phase complete plus a
+  non-empty CSV" — exactly the pair this campaign's own selector doc calls insufficient, since
+  `owners:{slug}:{year}` has writers unrelated to any draft (the repair import, the demo
+  year-migration). A repair CSV beside a draft that reached `complete` without publishing meant ONE
+  edited row promoted the whole foreign roster to "the draft's output": checklist ticked, setup
+  completed on ownership the draft never assigned. **A one-row patch cannot license a whole-roster
+  claim.** Patch and stamp are now separate decisions — patch on `phase === 'complete'` + an existing
+  CSV (which keeps a pre-field draft's standings in step), stamp only when the draft was ALREADY
+  published.
+- **The "truthful backfill" claim from round 4 is withdrawn.** Its test seeded a roster genuinely
+  built from those picks and merely deleted the field, so the backfill was truthful there and
+  vacuous as evidence for the case that mattered. A draft confirmed before this field existed now
+  keeps its roster synced but must be confirmed once, deliberately, to be publishable — which
+  re-exposes the legacy question the round-4 note claimed to have closed. Moot in practice on the
+  owner's confirmation that no draft records exist, and the right trade regardless: better to depend
+  on a stated fact than to infer publication from a roster the draft did not write.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3727/3727
+  (+55 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
   — `completeSetup`'s refusal and the confirm route's atomicity — and coverage was added before they
   failed. Atomicity on the confirm path is a labelled STRUCTURAL pin: the only injectable store
   failure is lock acquisition, which aborts before either write and cannot distinguish a

@@ -476,10 +476,49 @@ test('a draft confirmed before publication existed still syncs its roster', asyn
     'standings were invalidated'
   );
 
-  // And the edit BACKFILLS the signature: the roster now describes these picks,
-  // so saying so is truthful and no migration is needed.
+  // But it gains NO publication. The earlier cut stamped the signature here and
+  // called it a truthful backfill; both reviewers showed it is not, because the
+  // same conditions are reachable with a roster this draft never produced (see
+  // the next test). Keeping the roster in step is what standings need; claiming
+  // publication is a separate assertion that only `POST /confirm` may make.
   const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
-  assert.equal(isDraftPublished(after), true);
+  assert.equal(isDraftPublished(after), false, 'synced, but not promoted to published');
+});
+
+test('a repair-imported roster is never promoted to the draft output by an edit', async () => {
+  // Codex P1 / code-review MEDIUM, and the campaign's core failure reached from a
+  // new direction. `owners:{slug}:{year}` has writers unrelated to any draft —
+  // the repair import at `/admin/{slug}/roster`, and the demo year-migration. A
+  // draft that reaches `complete` without publishing, beside one of those CSVs,
+  // met the old "phase complete + a CSV exists" stamp condition: editing ONE
+  // pick patched a single row and then declared the whole foreign roster to be
+  // this draft's output, so the checklist ticked and setup completed on
+  // ownership the draft never assigned.
+  const foreignCsv = [
+    'team,owner',
+    `${TEAM_A},Imported One`,
+    `${TEAM_B},Imported Two`,
+    `${TEAM_C},Imported Three`,
+  ].join('\n');
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', foreignCsv);
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), completeTwoOwnerDraft('complete'));
+
+  const { result: res } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(
+    isDraftPublished(after),
+    false,
+    'one patched row cannot license a whole-roster claim'
+  );
+
+  // The remaining rows still describe the import, which is exactly why the claim
+  // would have been false.
+  const owners = await readOwnerByTeam();
+  assert.equal(owners?.get(TEAM_B.toLowerCase()), 'Imported Two');
 });
 
 test('an edit does not claim publication when there was no roster to carry', async () => {

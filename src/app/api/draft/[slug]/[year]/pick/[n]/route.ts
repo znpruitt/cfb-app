@@ -14,7 +14,7 @@ import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIden
 import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import teamsData from '@/data/teams.json';
-import { draftPicksSignature } from '@/lib/selectors/draftPublication';
+import { draftPicksSignature, isDraftPublished } from '@/lib/selectors/draftPublication';
 
 type TeamsJson = { items: TeamCatalogItem[] };
 
@@ -189,6 +189,10 @@ export async function PUT(
     };
     const nextPicks = current.picks.map((p, idx) => (idx === pickIndex ? replacement : p));
 
+    // Whether the stored roster described THIS DRAFT before the edit. Publication
+    // provenance, kept separate from "a roster exists" — see the stamp below.
+    const wasPublished = isDraftPublished(current);
+
     // Sync the stored roster whenever the draft is COMPLETE and a roster exists
     // — not when it is "published".
     //
@@ -222,17 +226,29 @@ export async function PUT(
       }
     }
 
-    // Re-stamp ONLY when a roster was actually patched. Nothing else may claim
-    // publication: `PUT /api/owners` can blank the CSV, and this route would
-    // otherwise record a publication of picks no roster describes.
+    // Re-stamp ONLY a draft that was ALREADY published, and only when its roster
+    // was actually patched. Both halves are load-bearing:
     //
-    // For a draft confirmed before this field existed, the patch above just made
-    // the stored roster describe these picks — so stamping here BACKFILLS the
-    // signature truthfully, instead of needing a migration.
+    //   - `rosterPatched` — `PUT /api/owners` can blank the CSV, and this route
+    //     would otherwise record a publication of picks no roster describes.
+    //   - `wasPublished` — PROVENANCE. A previous cut stamped on "phase complete
+    //     plus a non-empty CSV", which is exactly the pair this campaign's own
+    //     selector doc calls insufficient: `owners:{slug}:{year}` has writers with
+    //     nothing to do with this draft (the repair import, the demo
+    //     year-migration). A repair CSV plus a draft that reached `complete`
+    //     without publishing meant ONE edited row promoted the whole foreign
+    //     roster to "the draft's output" — the checklist ticked and setup
+    //     completed on ownership the draft never assigned. A one-row patch cannot
+    //     license a whole-roster claim.
+    //
+    // A draft confirmed before this field existed therefore keeps its roster in
+    // step (that sync is what standings depend on) but gains no publication it
+    // never performed: it must be confirmed once, deliberately.
     const written: DraftState = {
       ...current,
       picks: nextPicks,
-      publishedPicks: rosterPatched ? draftPicksSignature(nextPicks) : current.publishedPicks,
+      publishedPicks:
+        rosterPatched && wasPublished ? draftPicksSignature(nextPicks) : current.publishedPicks,
       updatedAt: editedAt,
     };
     await txn.write<DraftState>(written);
