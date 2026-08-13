@@ -231,6 +231,38 @@ test('a manual league answers from its own flag, never from the roster', () => {
   );
 });
 
+test('a malformed draft record produces a blocker, never a crash', () => {
+  // `getAppState` performs no runtime validation — the reason the roster input is
+  // typed `unknown` here. The same had to apply to the DRAFT record and briefly
+  // did not: `allPicksAreIn` dereferenced `settings.totalRounds` and
+  // `owners.length`, so a partial row threw `TypeError`. On the checklist that
+  // was swallowed and read as "not assigned"; in `completeSetup` there is no
+  // catch, so the commissioner got a raw crash instead of the refusal.
+  const shapes: unknown[] = [
+    { phase: 'live', picks: [] },
+    { phase: 'complete', picks: [] },
+    { phase: 'complete' },
+    { phase: 'complete', picks: 'not-an-array', owners: 7, settings: null },
+    { phase: 'complete', picks: [null, undefined], owners: ['Alice'], settings: {} },
+    // Reaches `draftPicksSignature` specifically: a stamp is present, so the
+    // publication check gets past its type guard and tries to hash the picks.
+    // Mutation proved the shapes above never reach it.
+    {
+      phase: 'complete',
+      publishedPicks: 'a-stamp',
+      picks: 'not-an-array',
+      owners: ['Alice', 'Bob'],
+      settings: { totalRounds: 1 },
+    },
+    {},
+  ];
+  for (const shape of shapes) {
+    const result = selectTeamAssignment(input({ draft: shape as TeamAssignmentInput['draft'] }));
+    assert.equal(result.isAssigned, false, JSON.stringify(shape));
+    assert.ok(result.blocker, `a blocker, not a throw: ${JSON.stringify(shape)}`);
+  }
+});
+
 test('the blocker names the step the operator actually has to take', () => {
   // Three situations a single boolean would collapse into one dead end. The
   // ORDER matters: an unfinished draft must not be told to publish, and an

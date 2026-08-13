@@ -154,7 +154,24 @@ test('the Teams assigned link points where the publish control actually is', asy
   );
 
   // Still running — setup again; there is nothing to confirm yet.
-  await setAppState(draftScope(SLUG), String(YEAR), { phase: 'live', picks: picks.slice(0, 1) });
+  //
+  // Seeded as a COMPLETE record. The first version omitted `settings`/`owners`,
+  // which made the derivation throw, the page's catch swallow it, and the href
+  // fall through to setup — passing for a reason unrelated to routing. It could
+  // not have failed.
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'live',
+    picks: picks.slice(0, 1),
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
   assert.equal(await hrefFor(), `href="/league/${SLUG}/draft/setup"`);
 });
 

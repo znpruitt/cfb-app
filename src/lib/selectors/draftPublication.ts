@@ -43,7 +43,11 @@ type ControllableDraft = PublishableDraft & Pick<DraftState, 'owners' | 'setting
  * not retract a valid publication.
  */
 export function draftPicksSignature(picks: readonly DraftPick[]): string {
-  return JSON.stringify(picks.map((pick) => [pick.pickNumber, pick.owner, pick.team]));
+  // Tolerates a malformed stored row for the same reason `allPicksAreIn` does:
+  // nothing validates what comes back from the store, and a crash here would
+  // replace a refusal with a 500.
+  if (!Array.isArray(picks)) return JSON.stringify([]);
+  return JSON.stringify(picks.map((pick) => [pick?.pickNumber, pick?.owner, pick?.team]));
 }
 
 /**
@@ -66,9 +70,27 @@ export function isDraftPublished(draft: PublishableDraft | null | undefined): bo
   return published === draftPicksSignature(draft.picks);
 }
 
-/** Whether every configured pick has been made. */
+/**
+ * Whether every configured pick has been made.
+ *
+ * Reads defensively. `getAppState` performs no runtime validation, which is why
+ * `selectTeamAssignment` types its roster input `unknown` and says so — the same
+ * discipline has to apply to the DRAFT record, and briefly did not: this
+ * dereferenced `settings.totalRounds` and `owners.length` on a trusted typed
+ * slice, so a partial or hand-edited row threw `TypeError` instead of producing
+ * a blocker. On the checklist that throw was swallowed and silently read as
+ * "not assigned"; in `completeSetup` there is no catch, so a commissioner got a
+ * raw crash in place of the refusal this derivation exists to produce.
+ *
+ * An unreadable draft is not a publishable one, so every degraded shape answers
+ * `false`.
+ */
 function allPicksAreIn(draft: ControllableDraft): boolean {
-  const expected = draft.settings.totalRounds * draft.owners.length;
+  const rounds = draft.settings?.totalRounds;
+  const ownerCount = draft.owners?.length;
+  if (typeof rounds !== 'number' || typeof ownerCount !== 'number') return false;
+  if (!Array.isArray(draft.picks)) return false;
+  const expected = rounds * ownerCount;
   return expected > 0 && draft.picks.length === expected;
 }
 

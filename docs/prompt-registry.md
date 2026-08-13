@@ -221,8 +221,27 @@ This is a historical record of executed prompts — a ledger, not a backlog. Act
   re-exposes the legacy question the round-4 note claimed to have closed. Moot in practice on the
   owner's confirmation that no draft records exist, and the right trade regardless: better to depend
   on a stated fact than to infer publication from a roster the draft did not write.
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3727/3727
-  (+55 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
+- **Remediation round 6 (owner-approved) — the derivation is TOTAL, and a fourth vacuous assertion.**
+  Folding `selectDraftPublicationControls` into `selectTeamAssignment` in round 4 started
+  dereferencing `draft.settings.totalRounds` and `draft.owners.length`. `getAppState` performs no
+  runtime validation — which is precisely why this file types its roster input `unknown` and says so
+  — and the same discipline was not applied to the DRAFT record. A partial row threw `TypeError`:
+  swallowed on the checklist and silently read as "not assigned", uncaught in `completeSetup`, where
+  the commissioner got a raw crash instead of the refusal the derivation exists to produce. Every
+  degraded shape now answers with a blocker.
+- **The link test's third assertion passed THROUGH that throw**, not through the routing it claimed
+  to test: its seed omitted `settings`/`owners`, the page's catch left the blocker null, and the
+  href fell to setup — which is what it asserted. It could not have failed. That is the fourth
+  vacuous assertion in this campaign (a proximity regex matching the neighbouring row's tick; an
+  insert whose anchor silently did not match; sequential-edit tests nearly mislabelled as regression
+  tests; and this). **One habit in four disguises: writing the assertion expected to pass rather
+  than constructing the state that would make it fail.** Mutation caught three; a reviewer tracing
+  control flow caught this one.
+- Mutation also showed the new tolerance in `draftPicksSignature` was UNREACHED by the first version
+  of its own test — the malformed shapes never got past the publication type-guard to reach it — so
+  a shape carrying a stamp was added specifically to exercise it.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3728/3728
+  (+56 from 3672). Twelve mutations across every new guard. **Two killed nothing on the first pass**
   — `completeSetup`'s refusal and the confirm route's atomicity — and coverage was added before they
   failed. Atomicity on the confirm path is a labelled STRUCTURAL pin: the only injectable store
   failure is lock acquisition, which aborts before either write and cannot distinguish a

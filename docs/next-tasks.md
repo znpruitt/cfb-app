@@ -137,6 +137,14 @@ Supersedes: (none)
       the picks are visible; a write button on the checklist lets a commissioner publish every
       roster without seeing one.
 
+    - Also queued here (review, LOW): `publishedPicks` stores a full JSON encoding of every
+      `[pickNumber, owner, team]` triple inside `DraftState`, which `GET /api/draft/[slug]/[year]`
+      returns and the board polls every 5s (30s once complete) — roughly 10 KB of redundancy per
+      poll per viewer on a 12-owner × 10-round draft. The injectivity requirement is settled and
+      must not regress to the colliding 32-bit hash; a 128-bit multi-basis digest would hold
+      collisions negligible at ~32 characters, or the signature could live outside the polled
+      record.
+
     Read `DESIGN.md` first. Every touched surface carries its own tests, and the acceptance check is
     a walkthrough on the demo league — the two most valuable findings of PLATFORM-094 came from the
     owner clicking through, not from review.
