@@ -57,9 +57,11 @@ Rules:
   filtered out every team another owner held, so a draft where two owners ended up with each other's
   teams could not be fixed at all — there was no way to give Alice a team Bob was holding, and
   nothing could free one.
-- Sizing: **25 files, +990/-138 (852 net)** — derived at closeout from `git diff --stat main...HEAD`,
-  not carried forward. **The file count CROSSES the 15-file stop-and-reassess signal**; net lines do
-  not. What expanded, and the owner's approval for each, in order: the picker offering only unheld
+- Sizing: **code 23 files, +883/-137 (746 net); docs 2 files; 25 files total** — derived at closeout
+  from `git diff --shortstat main...HEAD -- src`, not carried forward. Stated as CODE because a
+  combined figure cannot be recorded accurately: writing the number into this entry changes it, and
+  the first attempt here was stale before it was pushed. **The file count CROSSES the 15-file
+  stop-and-reassess signal**; net lines do not. What expanded, and the owner's approval for each, in order: the picker offering only unheld
   teams was unfixable without a way to free one, so unassign came in; taking a held team followed
   from "what if the issue isn't just a direct swap of picks?"; conference search matched
   `DraftBoardClient`'s existing behaviour; "prior to confirmation editing on the summary page should
@@ -135,6 +137,7 @@ Rules:
   one table row reading "Unassigned". A state with no control and no explanation is the defect this
   whole campaign removes, and this one was created by the correction feature itself. My own recorded
   design called for that banner and I had not built it.
+
 - Also fixed: the preseason page still used the tightened predicate after the action moved off it, so
   the method card reappeared mid-correction offering a switch the action refuses; `autoCompleteDraft`
   counted a vacated slot as filled and published a roster one owner short while stamping
@@ -194,7 +197,7 @@ Rules:
   scroll. Label is exactly `Confirm draft` per the owner: the review IS the page, so a button asking
   the reader to review what they are looking at is noise. Tests pin the exact string.
 - **The checklist names the step, not the category.** `Complete team assignment before finishing
-  setup.` was generated from a blocker LIST and read identically whether the draft had not started,
+setup.` was generated from a blocker LIST and read identically whether the draft had not started,
   had finished unconfirmed, or had lost its roster — telling a commissioner who had just finished a
   draft to complete team assignment. `assignmentBlocker` already distinguished all four.
 - **Assignment-method switching was a CORRECTNESS item wearing an IA costume.**
@@ -2250,7 +2253,7 @@ Rules:
   `preseason` is PRESERVED, not newly created, and its test is a contract pin rather than a
   regression test (it passes with the exclusion removed). A
   registry whose only active leagues are the demo reports `skipped /
-  no-automatic-maintenance-target`; `no-maintenance-target` keeps its exact meaning (no active
+no-automatic-maintenance-target`; `no-maintenance-target` keeps its exact meaning (no active
   league at all). Such a year produces no per-year entry, provider request, settings read, probe or
   latch operation, presentation refresh, or receipt target. Unlike T2, no league-scoped duty transfers to the manual
   control — every durable key the route writes is year- or global-scoped. Two consequences of that
@@ -2570,7 +2573,7 @@ Rules:
   pause-vs-partial-disable, lifecycle-exempt Schedule) → round 3 (1 P2: distinct missing/invalid/
   unavailable receipt text) — all remediated (r3 fix user-authorized). Full suite 3140 green (+~50
   F2G tests: panels/freshness, operational-year, page, section renders, automation controls); `npx
-  tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean; fixture harness +
+tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean; fixture harness +
   bypasses fully removed (0 residual references). PR size: ~13 changed src files (mandated component
   split + 3 panel-retirement deletions), net ~+1.1k — file count over the soft signal, net under;
   surfaced to the user. No provider/scheduler/production/BotID-stash operation.
@@ -2822,7 +2825,7 @@ Rules:
   `MaintenanceActionDetails` disclosure, wired into all five maintenance panels;
   `/admin/data/cache` renamed/reorganized (URL stable) + `/admin` landing card;
   `SeasonRolloverPanel` relocated to `/admin/season` (its owner); `POST
-  /api/admin/cache-historical-scores` instrumented with scoped provider-refresh status (+ shared
+/api/admin/cache-historical-scores` instrumented with scoped provider-refresh status (+ shared
   empty/drift classification); new pure `src/lib/scores/historicalScoreWrites.ts`. No new
   endpoints, no Diagnostics relocation (F2D), no scheduler receipts, no rollover behavior change.
 - Outcome: Eight allowlisted descriptors (routine/recovery/emergency — only the full game-stats
@@ -2883,7 +2886,7 @@ Rules:
   invariant-wording correction, and the panel's misleading global rollover date all fixed; the
   legacy missing-status repair path dispositioned as spec-deferred (owned by F2H lifecycle
   recovery). Codex round 2: clean. 53 new focused tests; full suite 2846 green; `npx tsc
-  --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean. No provider, QStash,
+--noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean. No provider, QStash,
   Vercel, or production rollover operation performed.
 - Status: Merged (PR #431, `5658413`, 2026-07-30).
 
