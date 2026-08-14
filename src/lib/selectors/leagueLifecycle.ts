@@ -81,6 +81,30 @@ export function resolveDisplayLeagueStatus(
   return league.status ?? { state: 'season', year: league.year };
 }
 
+/**
+ * The season a league is OPERATING IN — PLATFORM-099.
+ *
+ * `preseason` and `season` carry the year on the status; `offseason` does not,
+ * so the registry's top-level `year` is the source there. `applyLifecycleStatus`
+ * projects one from the other for every non-offseason state, so the two agree
+ * for anything written through the lifecycle authority — but this module's own
+ * header records that a desynchronized top-level year is reachable on legacy
+ * records, and a surface that reads the wrong one edits the wrong season.
+ *
+ * Lives here rather than inline because it is derived league data (AGENTS.md
+ * invariant 9), and because `/league/[slug]/draft/*` already inline this exact
+ * ternary — the same divergence `resolveDisplayLeagueStatus` above was extracted
+ * to end.
+ */
+export function resolveLeagueOperatingYear(league: {
+  status?: LeagueStatus | null;
+  year: number;
+}): number {
+  const status = league.status;
+  if (status?.state === 'preseason' || status?.state === 'season') return status.year;
+  return league.year;
+}
+
 function stateLabelFor(status: LeagueStatus): string {
   switch (status.state) {
     case 'offseason':

@@ -14,7 +14,7 @@ type Props = {
   teams: TeamEntry[];
 };
 
-type SortKey = 'school' | 'conference';
+type SortKey = 'school' | 'conference' | 'owner';
 type SortDir = 'asc' | 'desc';
 
 function csvField(s: string): string {
@@ -95,6 +95,74 @@ function mapsEqual(a: Map<string, string>, b: Map<string, string>): boolean {
   return true;
 }
 
+/**
+ * The rows the table shows, filtered and ordered — PLATFORM-099.
+ *
+ * Sortable by OWNER, because the task that brings a commissioner to this page is
+ * "fix what this person holds", and by school or conference a person's teams are
+ * scattered down a 130-row table.
+ *
+ * Ordered by the COMMITTED owners, deliberately: ordering by the unsaved edit map
+ * re-sorts on every KEYSTROKE, so typing into an unowned team's field moves that
+ * row out of the unowned block mid-word and the input slides away under the
+ * cursor. A row settling into place on Save is the far smaller surprise.
+ *
+ * Exported so the ordering is testable directly. The component fetches on mount,
+ * so a rendered assertion would only ever see its loading state.
+ */
+export function selectRosterRows(
+  teams: readonly TeamEntry[],
+  opts: { search: string; sortKey: SortKey; sortDir: SortDir; savedOwners: Map<string, string> }
+): TeamEntry[] {
+  const { search, sortKey, sortDir, savedOwners } = opts;
+  const needle = search.toLowerCase();
+  return teams
+    .filter((t) => t.school.toLowerCase().includes(needle))
+    .sort((a, b) => {
+      if (sortKey === 'owner') {
+        const ao = savedOwners.get(a.school) ?? '';
+        const bo = savedOwners.get(b.school) ?? '';
+        // Unowned teams sort LAST in both directions rather than clumping at the
+        // top under descending: they are the backdrop to this task, not part of
+        // it, and an empty string sorts before every name.
+        if (ao === '' && bo !== '') return 1;
+        if (bo === '' && ao !== '') return -1;
+        const byOwner = ao.localeCompare(bo);
+        const cmp = byOwner !== 0 ? byOwner : a.school.localeCompare(b.school);
+        return sortDir === 'asc' ? cmp : -cmp;
+      }
+      const av = sortKey === 'school' ? a.school : a.conference;
+      const bv = sortKey === 'school' ? b.school : b.conference;
+      const cmp = av.localeCompare(bv);
+      return sortDir === 'asc' ? cmp : -cmp;
+    });
+}
+
+/**
+ * How many teams a save actually changes — what the confirmation reports.
+ *
+ * Counts rows the save DROPS as well as owners it changes. `buildCsv` emits rows
+ * only for teams present in the catalog, so a loaded roster row whose team is not
+ * in `teamsData` is deleted by saving while both maps hold it identically. A
+ * count that ignored those would understate a save that removes rows, and the
+ * count is the number the operator reads.
+ */
+export function countChangedTeams(
+  savedOwners: Map<string, string>,
+  draftOwners: Map<string, string>,
+  teams: readonly TeamEntry[]
+): number {
+  const catalogSchools = new Set(teams.map((t) => t.school));
+  const schools = new Set([...savedOwners.keys(), ...draftOwners.keys()]);
+  let n = 0;
+  for (const school of schools) {
+    const before = savedOwners.get(school) ?? '';
+    const after = catalogSchools.has(school) ? (draftOwners.get(school) ?? '') : '';
+    if (before !== after) n++;
+  }
+  return n;
+}
+
 export default function RosterEditorPanel({ slug, year, teams }: Props): React.ReactElement {
   const router = useRouter();
   const [savedOwners, setSavedOwners] = useState<Map<string, string>>(new Map());
@@ -118,6 +186,8 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
   const [bulkTo, setBulkTo] = useState('');
 
   const hasChanges = !mapsEqual(draftOwners, savedOwners);
+
+  const changedTeamCount = countChangedTeams(savedOwners, draftOwners, teams);
 
   const loadRoster = useCallback(async () => {
     setLoading(true);
@@ -232,14 +302,7 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
     }
   }
 
-  const filtered = teams
-    .filter((t) => t.school.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => {
-      const av = sortKey === 'school' ? a.school : a.conference;
-      const bv = sortKey === 'school' ? b.school : b.conference;
-      const cmp = av.localeCompare(bv);
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
+  const filtered = selectRosterRows(teams, { search, sortKey, sortDir, savedOwners });
 
   const SortIcon = ({ col }: { col: SortKey }) =>
     sortKey === col ? (
@@ -307,12 +370,21 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
       {needsOverrideConfirm && (
         <div className="rounded border border-amber-300/60 bg-amber-50 p-3 dark:border-amber-700/50 dark:bg-amber-950/30">
           <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
-            Overwrite the active-season owner roster?
+            Change the {year} rosters?
           </p>
+          {/* PLATFORM-099 — the COPY, not the guard.
+              This called current-season roster editing abnormal and asked for a
+              "platform-admin repair" override, which was true when this page was
+              repair-only. It is where a commissioner fixes an owner or a team
+              assignment after a draft, so the prompt now describes the edit.
+              The confirmation STAYS: the editor sends the whole roster on every
+              save, so one renamed owner and a wholesale clobber are the same
+              request to the API, and a mistake here rewrites a season of
+              ownership. */}
           <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-300/80">
-            This league already has a roster for the current season. Confirming writes the roster as
-            currently shown below. Current-season ownership is normally managed through the draft /
-            manual assignment flow — override is for platform-admin repair.
+            {changedTeamCount === 1 ? '1 team changes' : `${changedTeamCount} teams change`} owner.
+            This rewrites the whole {year} roster as shown below, and standings follow it
+            immediately.
           </p>
           <div className="mt-3 flex gap-2">
             <button
@@ -320,7 +392,7 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
               disabled={saving}
               className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {saving ? 'Saving…' : 'Confirm overwrite'}
+              {saving ? 'Saving…' : 'Confirm changes'}
             </button>
             <button
               onClick={() => setNeedsOverrideConfirm(false)}
@@ -359,7 +431,12 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
               >
                 Conference <SortIcon col="conference" />
               </th>
-              <th className="px-4 py-2.5 text-left">Owner</th>
+              <th
+                className="px-4 py-2.5 text-left cursor-pointer select-none hover:text-gray-800 dark:hover:text-zinc-200"
+                onClick={() => toggleSort('owner')}
+              >
+                Owner <SortIcon col="owner" />
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50 dark:divide-zinc-800">

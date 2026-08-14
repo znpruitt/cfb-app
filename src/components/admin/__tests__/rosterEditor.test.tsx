@@ -1,0 +1,147 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { countChangedTeams, selectRosterRows } from '../RosterEditorPanel';
+
+// ---------------------------------------------------------------------------
+// PLATFORM-099 — the roster editor is where a commissioner fixes ownership after
+// a draft, and this covers the two decisions the page makes about a save: what
+// order the rows appear in, and what the confirmation claims the save will do.
+//
+// Both are tested as functions rather than through a render: the panel fetches
+// its roster on mount, so a statically rendered assertion only ever sees the
+// loading state — coverage that looks real and observes nothing.
+// ---------------------------------------------------------------------------
+
+const TEAMS = [
+  { school: 'Alabama', conference: 'SEC' },
+  { school: 'Michigan', conference: 'Big Ten' },
+  { school: 'Ohio State', conference: 'Big Ten' },
+  { school: 'Texas', conference: 'SEC' },
+  { school: 'Vanderbilt', conference: 'SEC' },
+];
+
+/** Alice holds two, Bob holds one, two teams are unowned. */
+const SAVED = new Map<string, string>([
+  ['Texas', 'Alice'],
+  ['Michigan', 'Alice'],
+  ['Alabama', 'Bob'],
+]);
+
+function schools(rows: ReadonlyArray<{ school: string }>): string[] {
+  return rows.map((r) => r.school);
+}
+
+test('sorting by owner groups each owner together', () => {
+  const rows = selectRosterRows(TEAMS, {
+    search: '',
+    sortKey: 'owner',
+    sortDir: 'asc',
+    savedOwners: SAVED,
+  });
+  // Alice before Bob; within an owner, teams in a stable readable order rather
+  // than the catalog's.
+  assert.deepEqual(schools(rows).slice(0, 3), ['Michigan', 'Texas', 'Alabama']);
+});
+
+test('unowned teams sort LAST in BOTH directions', () => {
+  // The direction that matters: an empty owner string sorts before every real
+  // name, so a naive comparator clumps every unowned team at the top the moment
+  // the operator reverses the sort — burying the rows they came to work on.
+  for (const sortDir of ['asc', 'desc'] as const) {
+    const rows = selectRosterRows(TEAMS, {
+      search: '',
+      sortKey: 'owner',
+      sortDir,
+      savedOwners: SAVED,
+    });
+    assert.deepEqual(
+      schools(rows).slice(-2).sort(),
+      ['Ohio State', 'Vanderbilt'],
+      `${sortDir}: the unowned teams are the last two`
+    );
+  }
+});
+
+test('reversing the owner sort actually reverses the owned rows', () => {
+  // Guards the branch above from being satisfied by a comparator that ignores
+  // direction entirely — unowned-last would still hold, and the test would pass.
+  const asc = selectRosterRows(TEAMS, {
+    search: '',
+    sortKey: 'owner',
+    sortDir: 'asc',
+    savedOwners: SAVED,
+  });
+  const desc = selectRosterRows(TEAMS, {
+    search: '',
+    sortKey: 'owner',
+    sortDir: 'desc',
+    savedOwners: SAVED,
+  });
+  assert.deepEqual(schools(desc).slice(0, 3), schools(asc).slice(0, 3).reverse());
+});
+
+test('the order comes from the SAVED owners, not from an in-progress edit', () => {
+  // The keystroke defect: ordering on the unsaved map re-sorts on every
+  // character, so typing into an unowned team's field moves that row out of the
+  // unowned block mid-word and the input slides away under the cursor. Here
+  // `Vanderbilt` is being typed into and must not move until it is saved.
+  const rows = selectRosterRows(TEAMS, {
+    search: '',
+    sortKey: 'owner',
+    sortDir: 'asc',
+    savedOwners: SAVED,
+  });
+  assert.ok(schools(rows).slice(-2).includes('Vanderbilt'), 'still in the unowned block');
+});
+
+test('search still filters, and sorting by school is unchanged', () => {
+  // 'an' rather than 'a': every school in this fixture contains an "a", so the
+  // first version of this assertion could not have failed on a broken filter.
+  const rows = selectRosterRows(TEAMS, {
+    search: 'an',
+    sortKey: 'school',
+    sortDir: 'asc',
+    savedOwners: SAVED,
+  });
+  assert.deepEqual(schools(rows), ['Michigan', 'Vanderbilt']);
+  assert.equal(
+    selectRosterRows(TEAMS, {
+      search: 'zzz',
+      sortKey: 'school',
+      sortDir: 'asc',
+      savedOwners: SAVED,
+    }).length,
+    0,
+    'and a term matching nothing returns nothing'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// What the confirmation says a save will do
+// ---------------------------------------------------------------------------
+
+test('an owner rename counts as one changed team per team held', () => {
+  const draft = new Map(SAVED);
+  draft.set('Texas', 'Robert');
+  assert.equal(countChangedTeams(SAVED, draft, TEAMS), 1);
+});
+
+test('no edit counts as nothing', () => {
+  assert.equal(countChangedTeams(SAVED, new Map(SAVED), TEAMS), 0);
+});
+
+test('a row the save will DROP is counted, not reported as unchanged', () => {
+  // `buildCsv` emits rows only for teams in the catalog, so a loaded roster row
+  // whose team is not in `teamsData` is deleted by saving — while both maps hold
+  // it identically. Counting only differences between the maps would report "0
+  // teams change owner" for a save that removes somebody's team.
+  const savedWithLegacy = new Map(SAVED);
+  savedWithLegacy.set('Idaho', 'Carol');
+  const draftWithLegacy = new Map(savedWithLegacy);
+  assert.equal(
+    countChangedTeams(savedWithLegacy, draftWithLegacy, TEAMS),
+    1,
+    'the dropped row is the change'
+  );
+});

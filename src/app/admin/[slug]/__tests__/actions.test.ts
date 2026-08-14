@@ -560,12 +560,38 @@ test('the draft setup shell offers Reset for a finished but unconfirmed draft', 
     new URL('../../../../components/draft/DraftSetupShell.tsx', import.meta.url),
     'utf8'
   );
-  assert.match(
-    source,
-    /\{\(phase !== 'complete' \|\| !isPublished\) && \(/,
-    'Reset survives at `complete` until the draft is published'
+  // PLATFORM-099 split the control in two — the trigger button and the typed
+  // confirmation panel — so BOTH must carry the gate. COUNTED, not matched: an
+  // existence check passes just as happily on one as on two, and this branch's
+  // predecessor shipped a duplicated banner that every gate waved through for
+  // exactly that reason.
+  const gated = source.match(/\{\(phase !== 'complete' \|\| !isPublished\) &&/g) ?? [];
+  assert.equal(
+    gated.length,
+    2,
+    'Reset survives at `complete` until published — on the trigger AND the confirmation'
   );
   assert.match(source, /const isPublished = isDraftPublished\(draftState\);/);
+
+  // PLATFORM-099 — a second click on the same button was arming and confirming in
+  // one gesture, because the confirm button rendered where the first click left
+  // the cursor. This card also carries the pick timer, which is what brings
+  // anyone here mid-draft.
+  assert.match(
+    source,
+    /const resetPhraseMatches = resetTyped\.trim\(\) === slug;/,
+    'the reset confirmation is a typed phrase, not a second click'
+  );
+  assert.match(
+    source,
+    /if \(!resetPhraseMatches\) return;/,
+    'and the handler re-checks it, so a keyboard submit cannot pass a disabled attribute'
+  );
+  assert.equal(
+    (source.match(/Confirm reset — all picks will be lost/g) ?? []).length,
+    0,
+    'the one-button arm-and-confirm is gone, not merely bypassed'
+  );
 });
 
 test('a draft mid-correction still counts as run for the method guard', async () => {

@@ -44,6 +44,13 @@ export default function DraftSetupShell({
   const [autoAdvancing, setAutoAdvancing] = useState(false);
   const autoAdvancedRef = useRef(false);
   const [resetConfirm, setResetConfirm] = useState(false);
+  // PLATFORM-099 — Reset destroys every pick and is the one control on this page
+  // a commissioner can never take back. A second click was muscle memory: the
+  // confirm button rendered exactly where the first click left the cursor, so
+  // arming and confirming were one gesture. This card also carries the PICK
+  // TIMER, which is what brings anyone here mid-draft. Typing the league's slug
+  // cannot be done by accident.
+  const [resetTyped, setResetTyped] = useState('');
 
   // Whether this draft's results are the league's live roster. Reset stands down
   // once that is true — see the comment on the Reset control below.
@@ -178,12 +185,25 @@ export default function DraftSetupShell({
     }
   }
 
+  const pickCount = draftState?.picks?.length ?? 0;
+  const resetPhraseMatches = resetTyped.trim() === slug;
+
+  function cancelReset() {
+    setResetConfirm(false);
+    setResetTyped('');
+  }
+
   async function handleResetDraft() {
     if (!resetConfirm) {
       setResetConfirm(true);
+      setResetTyped('');
       return;
     }
+    // Re-checked here as well as on the button, so a keyboard submit cannot pass
+    // a `disabled` attribute.
+    if (!resetPhraseMatches) return;
     setResetConfirm(false);
+    setResetTyped('');
     setSettingsError(null);
     setSettingsLoading(true);
     try {
@@ -274,32 +294,70 @@ export default function DraftSetupShell({
                 Once confirmed there is no trap and nothing changes: Reopen is
                 offered, and Reset returns behind it. A confirmed draft is the
                 league's live roster and is not reached past. */}
-            {(phase !== 'complete' || !isPublished) && (
-              <>
+            {(phase !== 'complete' || !isPublished) && !resetConfirm && (
+              <button
+                type="button"
+                onClick={() => void handleResetDraft()}
+                disabled={settingsLoading}
+                className="rounded border border-red-300 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 disabled:opacity-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30"
+              >
+                Reset Draft
+              </button>
+            )}
+          </div>
+
+          {/* Deliberately NOT a second click on the same button — see the state
+              declaration above. Both this panel and the trigger carry the
+              published-draft gate: pinning only one would let the other be
+              reachable in a state the other refuses. */}
+          {(phase !== 'complete' || !isPublished) && resetConfirm && (
+            <div className="mt-4 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/30">
+              <p className="text-sm font-medium text-red-800 dark:text-red-300">
+                Reset this draft and discard {pickCount} {pickCount === 1 ? 'pick' : 'picks'}?
+              </p>
+              <ul className="mt-2 space-y-1 text-xs text-red-700 dark:text-red-400">
+                <li>Every pick is deleted. This cannot be undone.</li>
+                <li>The draft returns to setup and must be run again from the start.</li>
+                <li>The owner list is unchanged — you will not have to re-enter it.</li>
+              </ul>
+              <label
+                htmlFor="reset-confirm-slug"
+                className="mt-3 block text-xs text-red-700 dark:text-red-400"
+              >
+                Type <span className="font-mono font-semibold">{slug}</span> to confirm:
+              </label>
+              <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                <input
+                  id="reset-confirm-slug"
+                  type="text"
+                  value={resetTyped}
+                  onChange={(e) => setResetTyped(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="rounded border border-red-300 bg-white px-2.5 py-1.5 font-mono text-sm text-gray-900 focus:border-red-500 focus:outline-none dark:border-red-800 dark:bg-zinc-900 dark:text-zinc-100"
+                />
                 <button
                   type="button"
                   onClick={() => void handleResetDraft()}
-                  disabled={settingsLoading}
-                  className={`rounded border px-3 py-1.5 text-sm disabled:opacity-50 ${
-                    resetConfirm
-                      ? 'border-red-600 bg-red-600 font-medium text-white hover:bg-red-700'
-                      : 'border-red-300 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950/30'
-                  }`}
+                  disabled={!resetPhraseMatches || settingsLoading}
+                  className={
+                    resetPhraseMatches && !settingsLoading
+                      ? 'rounded border border-red-600 bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700'
+                      : 'cursor-not-allowed rounded border border-red-200 bg-red-100 px-3 py-1.5 text-sm text-red-400 dark:border-red-900 dark:bg-red-950/50 dark:text-red-700'
+                  }
                 >
-                  {resetConfirm ? 'Confirm reset — all picks will be lost' : 'Reset Draft'}
+                  Reset draft
                 </button>
-                {resetConfirm && (
-                  <button
-                    type="button"
-                    onClick={() => setResetConfirm(false)}
-                    className="text-xs text-gray-400 hover:text-gray-600 dark:text-zinc-500"
-                  >
-                    Cancel
-                  </button>
-                )}
-              </>
-            )}
-          </div>
+                <button
+                  type="button"
+                  onClick={cancelReset}
+                  className="text-xs text-gray-500 hover:text-gray-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
