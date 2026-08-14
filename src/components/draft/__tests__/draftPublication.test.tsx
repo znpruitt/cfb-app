@@ -249,7 +249,11 @@ test('the draft board banner offers Continue Setup only once published', () => {
   const unpublished = header(draftWith({ publishedPicks: null }));
   assert.doesNotMatch(unpublished, /Continue Setup/, 'the road to nowhere is closed');
   assert.match(unpublished, /View Draft Summary/, 'and the way forward is offered');
-  assert.match(unpublished, /not yet confirmed/, 'the banner says so plainly');
+  assert.match(
+    unpublished,
+    /Draft complete — confirm the results to assign teams/,
+    'the banner names the action, not a status qualifier'
+  );
 
   assert.match(header(published()), /Continue Setup/, 'published: setup is genuinely next');
 });

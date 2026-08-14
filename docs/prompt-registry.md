@@ -116,7 +116,27 @@ Rules:
   second read-modify-write onto the registry, and the direction fix makes its outcome recoverable
   rather than terminal. **The owner chose to ship these together rather than split the method switch
   into its own slice; I would have split it, and said so.**
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3742/3742
+- **Round 2 — both reviewers found the same P1: the recovery path had no UI.** `setAssignmentMethod`
+  was fixed to permit returning to `draft`, and its comment called the state "RECOVERABLE rather
+  than terminal" — but the card was hidden on the DRAFT's completeness alone, without looking at the
+  current method. A league switched to `manual` mid-draft still runs that draft to completion (the
+  pick route has no method gate), and then `manualAssignmentComplete` has no writer, the card is
+  hidden so `draft` cannot be re-selected, and `DraftSetupShell` hides Reset at `complete` — while
+  `DraftControls`, whose Reset survives there, **is imported by nothing**. No route out at all;
+  `DESIGN.md:91` calls that orphaned state. **I fixed one half of a route and asserted the whole
+  thing worked** — the disabled-button-is-not-a-guard mistake run in reverse.
+- **I recorded the owner's banner-copy ruling in this branch's own ledger and shipped the rejected
+  string**, with a test pinning it — so the ledger and the tests asserted opposite things. Both
+  reviewers caught it. Applied now.
+- Also: `manual-assignment-incomplete` linked to the page it was already on, so the row offered a
+  call-to-action whose destination was itself and whose feature has no implementation — now
+  unlinked. "Finish the draft →" pointed at the settings screen rather than the board, promising one
+  hop and delivering two. A swallowed storage error fell through to "Choose a method →", telling a
+  commissioner to do something already done.
+- **Two edits in a scripted batch were silently lost** when a later assertion in the same script
+  aborted before the file write — including the stranding fix itself. Caught by mutation, not by
+  reading. Multi-edit scripts now write per edit.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3744/3744
   (+8). Seven mutations across the five guards; **two killed nothing at first** — both
   `Continue Setup` gates had no coverage — and tests were added before they failed. One assertion
   was written vacuously (`/draftHasPicks|Change/i` matches "Change", always present), caught on

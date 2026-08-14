@@ -152,10 +152,10 @@ test('the Teams assigned link points where the publish control actually is', asy
   const picks = picksFor(['Texas', 'Ohio State']);
 
   const hrefFor = async (): Promise<string> =>
-    (await renderChecklist()).match(/href="[^"]*\/draft\/[^"]*"/)?.[0] ?? '(no draft link)';
+    (await renderChecklist()).match(/href="[^"]*\/draft[^"]*"/)?.[0] ?? '(no draft link)';
 
-  // No draft yet — setup is right, because there is a draft to create.
-  assert.equal(await hrefFor(), `href="/league/${SLUG}/draft/setup"`);
+  // No draft yet — the board is where a draft gets run.
+  assert.equal(await hrefFor(), `href="/league/${SLUG}/draft"`);
 
   // Finished but never published — the one remaining step is Confirm.
   await setAppState(draftScope(SLUG), String(YEAR), {
@@ -177,7 +177,7 @@ test('the Teams assigned link points where the publish control actually is', asy
     'a finished draft points at the page that can publish it'
   );
 
-  // Still running — setup again; there is nothing to confirm yet.
+  // Still running — the board again; there is nothing to confirm yet.
   //
   // Seeded as a COMPLETE record. The first version omitted `settings`/`owners`,
   // which made the derivation throw, the page's catch swallow it, and the href
@@ -196,7 +196,7 @@ test('the Teams assigned link points where the publish control actually is', asy
       scheduledAt: null,
     },
   });
-  assert.equal(await hrefFor(), `href="/league/${SLUG}/draft/setup"`);
+  assert.equal(await hrefFor(), `href="/league/${SLUG}/draft"`);
 });
 
 test('the summary page reads the published roster and passes it down', () => {
@@ -485,5 +485,67 @@ test('changing method mid-draft warns that it discards the draft', async () => {
     pageSource,
     /draftHasPicks = Array\.isArray\(draftRecord\?\.picks\) && draftRecord\.picks\.length > 0;/,
     'and the fact is derived from the stored draft'
+  );
+});
+
+test('a MANUAL league keeps the way back to a draft, even with a finished one', async () => {
+  // The stranding bug, found by review. Switching to `manual` mid-draft is
+  // allowed, the pick route has no method gate so the draft still finishes, and
+  // then: `manualAssignmentComplete` has no writer, so teams are never assigned;
+  // the method card was hidden by the draft's completeness alone, so `draft`
+  // could not be re-selected; and `DraftSetupShell` hides Reset at `complete`
+  // while `DraftControls` — the component with a Reset that survives there — is
+  // imported by nothing. Complete Setup blocked with no route out at all, which
+  // `DESIGN.md` calls orphaned state.
+  //
+  // `setAssignmentMethod` already permits returning to `draft`; the UI has to
+  // offer it.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Gate Surface League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'preseason', year: YEAR },
+    assignmentMethod: 'manual',
+  });
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
+
+  assert.match(await renderChecklist(), /Assignment method/i, 'the recovery path is offered');
+});
+
+test('a manual league is not told to take an action that does not exist', async () => {
+  // `manual-assignment-incomplete` linked to `/admin/{slug}/preseason` — the page
+  // it is already on. The row promised an action whose destination was itself,
+  // and manual assignment has no implementation behind it.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Gate Surface League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'preseason', year: YEAR },
+    assignmentMethod: 'manual',
+  });
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+
+  const html = await renderChecklist();
+  assert.doesNotMatch(html, /Assign teams →/, 'no call-to-action without a destination');
+  assert.doesNotMatch(
+    html,
+    new RegExp(`href="/admin/${SLUG}/preseason"[^>]*>\\s*[A-Za-z ]+→`),
+    'and no link back to this same page'
   );
 });

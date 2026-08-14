@@ -233,11 +233,36 @@ Supersedes: (none)
     Read `DESIGN.md` first. Every touched surface carries its own tests, and the acceptance check is
     a walkthrough on the demo league — the two most valuable findings of PLATFORM-094 came from the
     owner clicking through, not from review.
-15. **Then — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
-16. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+15. **PLATFORM-096 — pre-confirmation pick editing.** Owner-designed 2026-08-13, during the 095
+    walkthrough. The summary page IS the editing surface before confirmation, and today it cannot
+    express the corrections a commissioner actually needs.
+
+    - **List every team, including ones other owners hold**, each labelled with its holder. Today the
+      picker filters out every already-picked team, so a mix-up between two owners cannot be fixed
+      at all.
+    - **Taking a held team leaves the previous holder's pick UNASSIGNED** — deliberately not a swap.
+      The owner rejected swapping: "what if the issue isn't just a direct swap of picks?" A swap
+      cannot express "Alice should have Michigan, and Michigan's owner should get something else
+      entirely."
+    - **Confirmation is DISALLOWED while any pick is unassigned** (owner, explicit). That is what
+      makes an empty pick safe: it is a transient editing state that can never be published. The
+      publish control stays away and the banner says the draft is unfinished.
+    - **Search by conference**, matching `DraftBoardClient`, which already matches team name OR
+      conference. The summary editor matches the name only and already receives `conferenceMap`.
+
+    Model note: `draftPicksAreComplete` counts picks and would also need every pick to hold a real
+    team. The confirm route already rejects an empty team, but as a raw 422 rather than a clean
+    "unfinished" state — the two need to agree so the UI and the authority give the same answer.
+
+    **Scope boundary, from the owner's earlier ruling:** this is for corrections BEFORE publication.
+    Arbitrary reassignment afterwards belongs to the roster, not the draft — "we're not going to
+    rehold a draft if we change owners or reassign teams down the line" — and there is no roster
+    editing surface today beyond the CSV repair import. That remains a separate, unscoped campaign.
+16. **Then — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
+17. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
     later.
-17. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
+18. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
     PLATFORM-093** — a brand-new league had no path to confirm owners — new leagues are born `season`, `/admin/[slug]/preseason/owners`
     redirects away unless the league is in `preseason`, and only `beginPreseason` (offseason-only) or
     the rollover cron reach that state, leaving only the historical/repair CSV import, which asks the
@@ -257,7 +282,7 @@ Supersedes: (none)
     shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
     constant. Severity was overstated when first reported — three client components already import
     that module, so the graph is in the client bundle on every league page anyway.
-18. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
+19. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
     Verified 2026-08-12. `DELETE /api/admin/leagues/[slug]` calls `removeLeague`, which filters the
     slug out of the registry list and nothing else. Every keyed record survives: `owners:{slug}:{year}`
     (team→owner rosters carrying real names), `preseason-owners:{slug}`, `draft:{slug}` (picks and
@@ -287,12 +312,12 @@ Supersedes: (none)
     the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
     the honest options are a purge that removes the residue, an already-archived guard in the
     rollover path, or retiring adoption — all of which are this campaign's decisions.
-19. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+20. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
     once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
     retry.
-20. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+21. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -302,7 +327,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-21. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+22. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 

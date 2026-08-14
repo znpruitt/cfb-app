@@ -81,12 +81,17 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   // Anything else — no draft yet, or one still running — belongs at setup.
   const needsPublishing =
     assignmentBlocker === 'draft-not-published' || assignmentBlocker === 'published-roster-missing';
-  const teamsHref =
-    league.assignmentMethod === 'draft'
-      ? needsPublishing
-        ? `/league/${slug}/draft/summary`
-        : `/league/${slug}/draft/setup`
-      : `/admin/${slug}/preseason`;
+
+  // `manual-assignment-incomplete` deliberately gets NO destination: `teamsHref`
+  // used to resolve to this very page, so the row promised an action that
+  // re-rendered the same checklist — and manual assignment has no
+  // implementation to link to. `assignmentAction` is null there, so no link
+  // renders at all.
+  //
+  // "Finish the draft →" points at the BOARD, not setup: setup is a settings
+  // screen carrying a secondary link to the board, so the label promised one hop
+  // and delivered two.
+  const teamsHref = needsPublishing ? `/league/${slug}/draft/summary` : `/league/${slug}/draft`;
 
   // Who starts this league's season, decided by the one lifecycle-ownership
   // authority. `league.status` is passed through as stored — the selector owns
@@ -111,14 +116,22 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   // The bottom note is gone: each unsatisfied row carries its own action now.
   // One line could only ever describe one blocker, and sat far from the row it
   // was about.
+  // `manual-assignment-incomplete` gets NO action: its only destination was this
+  // very page, so the row promised something that re-rendered the same
+  // checklist, and manual assignment has no implementation behind it.
+  //
+  // A NULL blocker with `teamsAssigned` false means the reads above THREW and
+  // the catch swallowed it — not that a method is unchosen. Falling through to
+  // "Choose a method →" told a commissioner to do something already done, which
+  // is the exact copy defect this row exists to remove.
   const assignmentAction =
     assignmentBlocker === 'draft-not-published' || assignmentBlocker === 'published-roster-missing'
       ? 'Confirm draft results →'
       : assignmentBlocker === 'draft-incomplete'
         ? 'Finish the draft →'
-        : assignmentBlocker === 'manual-assignment-incomplete'
-          ? 'Assign teams →'
-          : 'Choose a method →';
+        : assignmentBlocker === 'no-assignment-method'
+          ? 'Choose a method →'
+          : null;
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
@@ -210,7 +223,7 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
                   View draft results →
                 </Link>
               ) : null
-            ) : league.assignmentMethod ? (
+            ) : league.assignmentMethod && assignmentAction ? (
               <Link
                 href={teamsHref}
                 className="text-sm text-blue-600 hover:underline dark:text-blue-400"
@@ -253,8 +266,17 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
           reached `manual-assignment-incomplete`, a state with no writer
           anywhere in the app, blocking Complete Setup until they switched back.
           `setAssignmentMethod` refuses the same case server-side; hiding the
-          control is presentation, and the action is the guard. */}
-      {!teamsAssigned && !draftPicksComplete && (
+          control is presentation, and the action is the guard.
+
+          The hide is METHOD-AWARE, and that is load-bearing. Hiding on the
+          draft's completeness alone stranded a league permanently: switch to
+          `manual` mid-draft (allowed), let the picks finish (the pick route has
+          no method gate), and then `manualAssignmentComplete` has no writer,
+          this card was hidden so `draft` could not be re-selected, and
+          `DraftSetupShell` hides Reset at `complete` — with `DraftControls`,
+          whose Reset survives there, imported by nothing. No route out at all,
+          which `DESIGN.md` calls orphaned state. */}
+      {!teamsAssigned && !(league.assignmentMethod === 'draft' && draftPicksComplete) && (
         <AssignmentMethodCard
           slug={slug}
           currentMethod={league.assignmentMethod ?? null}

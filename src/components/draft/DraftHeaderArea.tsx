@@ -140,9 +140,14 @@ export default function DraftHeaderArea({
     return (
       <div className="flex items-center justify-between rounded-xl border border-green-200 bg-green-50/60 px-4 py-3 dark:border-green-800/40 dark:bg-green-950/20">
         <p className="text-sm font-semibold text-green-800 dark:text-green-300">
+          {/* PLATFORM-095 — the unpublished line names the ACTION. "· not yet
+              confirmed" bolted a second thought onto a completion claim: the
+              same tell as PLATFORM-091's `· Date TBD`, where a qualifier existed
+              only to survive a fact the sentence had already overstated. The
+              pick count went with it — the board above shows every pick. */}
           {isPublished
             ? `Draft complete — all ${totalPicks} picks made`
-            : `Draft complete — all ${totalPicks} picks made · not yet confirmed`}
+            : 'Draft complete — confirm the results to assign teams'}
         </p>
         <div className="flex items-center gap-2">
           {/* PLATFORM-095 — "Continue Setup" only once the results are PUBLISHED.
