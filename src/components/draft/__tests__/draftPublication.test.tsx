@@ -381,7 +381,10 @@ test('an unassigned slot reads as unassigned, and blocks publication', () => {
   // The chip, not italics: `DESIGN.md` reserves amber for champion/podium and
   // blue for interactivity, and says to reach for type before pigment when a
   // surface reads flat. A bordered token among plain names carries the weight.
-  assert.match(html, /border-dashed[^"]*"[^>]*>\s*Unassigned/, 'the empty slot is a chip');
+  // Red, not grey: an empty slot is what BLOCKS confirmation, and red is this
+  // app's established "needs resolving" signal. Pinned on the colour so a revert
+  // to a neutral treatment fails rather than passing on the word alone.
+  assert.match(html, /border-red-300[^"]*"[^>]*>\s*Unassigned/, 'the empty slot is a red chip');
   assert.doesNotMatch(html, /Confirm draft/, 'and cannot be published');
 });
 

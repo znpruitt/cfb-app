@@ -322,11 +322,13 @@ export default function DraftSummaryClient({
           this campaign exists to remove, and this one is created by the
           correction feature itself. */}
       {isAdmin && hasUnassignedPicks && (
-        <section className="rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 dark:border-zinc-600 dark:bg-zinc-900">
-          {/* Two type registers rather than one long line — the guide's answer
-              when a surface reads flat is scale contrast, not pigment. */}
-          <p className="text-sm font-semibold text-gray-800 dark:text-zinc-200">Draft unfinished</p>
-          <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">
+        <section className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950/40">
+          {/* Red, matching the chip below it: this state BLOCKS confirmation, and
+              grey read the same as ordinary muted copy. Two type registers rather
+              than one long line — scale contrast carries the hierarchy, colour
+              says which kind of state it is. */}
+          <p className="text-sm font-semibold text-red-900 dark:text-red-100">Draft unfinished</p>
+          <p className="mt-0.5 text-xs text-red-800 dark:text-red-300">
             Every pick needs a team before this draft can be confirmed.
           </p>
         </section>
@@ -510,7 +512,7 @@ export default function DraftSummaryClient({
                               {pick.team ? (
                                 <span>{displayName}</span>
                               ) : (
-                                <span className="inline-flex items-center rounded border border-dashed border-gray-400 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-gray-500 dark:border-zinc-500 dark:text-zinc-400">
+                                <span className="inline-flex items-center rounded border border-red-300 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:border-red-800 dark:text-red-400">
                                   Unassigned
                                 </span>
                               )}
