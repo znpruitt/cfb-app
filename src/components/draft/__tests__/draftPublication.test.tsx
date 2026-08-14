@@ -378,7 +378,10 @@ test('an unassigned slot reads as unassigned, and blocks publication', () => {
   });
   const html = render(withHole);
 
-  assert.match(html, /Unassigned/, 'the empty slot says so');
+  // The chip, not italics: `DESIGN.md` reserves amber for champion/podium and
+  // blue for interactivity, and says to reach for type before pigment when a
+  // surface reads flat. A bordered token among plain names carries the weight.
+  assert.match(html, /border-dashed[^"]*"[^>]*>\s*Unassigned/, 'the empty slot is a chip');
   assert.doesNotMatch(html, /Confirm draft/, 'and cannot be published');
 });
 
@@ -399,6 +402,7 @@ test('a draft mid-correction says so, rather than showing nothing', () => {
   });
   const html = render(withHole);
 
-  assert.match(html, /Draft unfinished — every pick needs a team/);
+  assert.match(html, /Draft unfinished/);
+  assert.match(html, /Every pick needs a team before this draft can be confirmed/);
   assert.doesNotMatch(html, /Confirm draft/, 'and still cannot be published');
 });

@@ -321,8 +321,11 @@ export default function DraftSummaryClient({
           correction feature itself. */}
       {isAdmin && hasUnassignedPicks && (
         <section className="rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 dark:border-zinc-600 dark:bg-zinc-900">
-          <p className="text-sm font-semibold text-gray-800 dark:text-zinc-200">
-            Draft unfinished — every pick needs a team before this can be confirmed.
+          {/* Two type registers rather than one long line — the guide's answer
+              when a surface reads flat is scale contrast, not pigment. */}
+          <p className="text-sm font-semibold text-gray-800 dark:text-zinc-200">Draft unfinished</p>
+          <p className="mt-0.5 text-xs text-gray-500 dark:text-zinc-400">
+            Every pick needs a team before this draft can be confirmed.
           </p>
         </section>
       )}
@@ -496,13 +499,19 @@ export default function DraftSummaryClient({
                               className="py-1 pr-2 text-gray-800 dark:text-zinc-200"
                               title={pick.team ?? 'Unassigned'}
                             >
-                              <span
-                                className={
-                                  pick.team ? '' : 'italic text-gray-400 dark:text-zinc-500'
-                                }
-                              >
-                                {displayName}
-                              </span>
+                              {/* An outlined CHIP, not italics and not a colour.
+                                  `DESIGN.md` keeps amber for champion/podium and
+                                  blue for interactivity, and says to reach for
+                                  type before pigment when a page reads flat — a
+                                  bordered token among plain names is loud without
+                                  spending a colour that means something else. */}
+                              {pick.team ? (
+                                <span>{displayName}</span>
+                              ) : (
+                                <span className="inline-flex items-center rounded border border-dashed border-gray-400 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-gray-500 dark:border-zinc-500 dark:text-zinc-400">
+                                  Unassigned
+                                </span>
+                              )}
                               {pick.team !== null && pick.autoSelected && (
                                 <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
                                   (auto)
