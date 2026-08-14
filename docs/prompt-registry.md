@@ -136,7 +136,29 @@ Rules:
 - **Two edits in a scripted batch were silently lost** when a later assertion in the same script
   aborted before the file write — including the stranding fix itself. Caught by mutation, not by
   reading. Multi-edit scripts now write per edit.
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3744/3744
+- **Round 3 — the root was a MISSING CONTROL, and three findings were me routing around it.**
+  `DraftSetupShell` hides Reset at `phase === 'complete'`, and `DraftControls`, whose Reset survives
+  there, **is imported by nothing** — so a finished draft could not be reset at all. That produced
+  the only state with no exit: nothing published (so no Reopen) and no Reset, meaning a commissioner
+  who wanted to abandon a finished draft could only escape by CONFIRMING it. My round-2 fix closed
+  the "switch to manual" escape without noticing nothing stood behind it, and my refusal message
+  recommended a reset that did not exist. Reset now survives at `complete` until the draft is
+  published; after publication nothing changes, because Reopen is offered and the owner's rule holds
+  — a confirmed draft is the league's live roster and is not reached past.
+- **Codex found a hole in the guard's key.** It tested `assignmentMethod === 'draft'`, so a league
+  that never chose a method skipped the check — and draft creation has no method gate, so a draft can
+  be created and finished first, then switched to manual on top of. Now keyed on the REQUESTED
+  direction plus the draft's state, independent of what the league currently holds.
+- **I suppressed the one action a brand-new league needs**, and both reviewers found it from opposite
+  sides: the row rendered its link only when `league.assignmentMethod` was truthy, which is exactly
+  false for `no-assignment-method`. It anchors to the method card on the same page — the one case
+  where a same-page destination is honest.
+- Also: the top banner told a REOPENED commissioner their rosters were not the league's, contradicting
+  the reopen dialog two panels below it; that new copy rendered to SPECTATORS, who cannot act on it,
+  via `SpectatorBoardClient`; the owners row lost its explanation when the bottom note went; and the
+  refusal is now RETURNED rather than thrown, because Next.js redacts thrown Server Action errors in
+  production and the commissioner would have seen a digest instead of the sentence.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3751/3751
   (+8). Seven mutations across the five guards; **two killed nothing at first** — both
   `Continue Setup` gates had no coverage — and tests were added before they failed. One assertion
   was written vacuously (`/draftHasPicks|Change/i` matches "Change", always present), caught on

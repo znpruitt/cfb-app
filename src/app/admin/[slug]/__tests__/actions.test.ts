@@ -455,10 +455,14 @@ test('setAssignmentMethod refuses to leave a draft that has every pick', async (
   ]);
   await seedAssignedTeams('alpha', 2026);
 
-  await assert.rejects(
-    () => runCapturingTags(() => setAssignmentMethod('alpha', 'manual')),
-    /draft is finished/
-  );
+  // RETURNED, not thrown: Next.js redacts thrown Server Action errors in
+  // production, so a throw would reach the commissioner as an opaque digest.
+  let refused: Awaited<ReturnType<typeof setAssignmentMethod>> | undefined;
+  await runCapturingTags(async () => {
+    refused = await setAssignmentMethod('alpha', 'manual');
+  });
+  assert.equal(refused?.ok, false, 'the action refuses');
+  assert.match(refused?.ok === false ? refused.error : '', /draft is finished/);
 
   const league = (await getAppState<League[]>('leagues', 'registry'))?.value?.[0];
   assert.equal(league?.assignmentMethod, 'draft', 'the method is unchanged');
@@ -521,4 +525,45 @@ test('the destructive warning is offered only when LEAVING a draft', () => {
     /method !== currentMethod && method !== 'draft' && draftHasPicks/,
     'returning to `draft` must not warn about discarding it'
   );
+});
+
+test('a completed draft blocks manual even when NO method was ever chosen', async () => {
+  // Codex. The guard keyed on `assignmentMethod === 'draft'`, so a league that
+  // never chose one skipped the check entirely — and draft creation has no
+  // method gate, so a commissioner can create and finish a draft first, then
+  // switch to manual on top of it. The refusal keys on the REQUESTED direction
+  // and the draft's state, not on the method the league happens to hold.
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }, null),
+  ]);
+  await seedAssignedTeams('alpha', 2026);
+
+  let refused: Awaited<ReturnType<typeof setAssignmentMethod>> | undefined;
+  await runCapturingTags(async () => {
+    refused = await setAssignmentMethod('alpha', 'manual');
+  });
+  assert.equal(refused?.ok, false);
+
+  const league = (await getAppState<League[]>('leagues', 'registry'))?.value?.[0];
+  assert.notEqual(league?.assignmentMethod, 'manual', 'nothing was written');
+});
+
+test('the draft setup shell offers Reset for a finished but unconfirmed draft', () => {
+  // Structural. The only state with no exit at all: nothing published, so no
+  // Reopen, and Reset hidden at `complete`, so abandoning a finished draft meant
+  // CONFIRMING it first. `DraftControls` allowed a reset there and is mounted by
+  // nothing, so the affordance was lost rather than removed deliberately.
+  //
+  // Rendering the shell needs a router and live draft state this harness has
+  // none of, so the gate itself is pinned.
+  const source = readFileSync(
+    new URL('../../../../components/draft/DraftSetupShell.tsx', import.meta.url),
+    'utf8'
+  );
+  assert.match(
+    source,
+    /\{\(phase !== 'complete' \|\| !isPublished\) && \(/,
+    'Reset survives at `complete` until the draft is published'
+  );
+  assert.match(source, /const isPublished = isDraftPublished\(draftState\);/);
 });

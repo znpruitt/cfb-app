@@ -549,3 +549,33 @@ test('a manual league is not told to take an action that does not exist', async 
     'and no link back to this same page'
   );
 });
+
+test('a brand-new league is told to choose a method', async () => {
+  // Both reviewers, from opposite directions. The row rendered its action only
+  // when `league.assignmentMethod` was truthy — but `no-assignment-method` is
+  // exactly when it is falsy, so the one action a new league needs was
+  // suppressed by the condition describing it. The bottom note that used to
+  // cover that case had been removed in the same change.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Gate Surface League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'preseason', year: YEAR },
+  });
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+
+  const html = await renderChecklist();
+  assert.match(html, /Choose a method →/);
+  assert.match(html, /href="#assignment-method"/, 'and it points at the card on this page');
+});
+
+test('an unconfirmed owners row carries its own action', async () => {
+  // Both branches used to render the same link text, so an unsatisfied row
+  // looked like a satisfied one apart from colour — and when the bottom blocker
+  // note went, this row lost its only explanation of the disabled button.
+  await seedLeague();
+
+  const html = await renderChecklist();
+  assert.match(html, /Confirm owners →/);
+});

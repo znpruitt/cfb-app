@@ -144,8 +144,12 @@ export default function DraftHeaderArea({
               confirmed" bolted a second thought onto a completion claim: the
               same tell as PLATFORM-091's `· Date TBD`, where a qualifier existed
               only to survive a fact the sentence had already overstated. The
-              pick count went with it — the board above shows every pick. */}
-          {isPublished
+              pick count went with it — the board above shows every pick.
+
+              Gated on `isAdmin` because `SpectatorBoardClient` mounts this
+              header too: a spectator was being handed an instruction only a
+              commissioner can act on, and losing the pick count for it. */}
+          {isPublished || !isAdmin
             ? `Draft complete — all ${totalPicks} picks made`
             : 'Draft complete — confirm the results to assign teams'}
         </p>

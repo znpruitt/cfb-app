@@ -301,3 +301,51 @@ test('the pick editor renders on the row being edited', () => {
   assert.match(tbody, /editingPickNumber === pick\.pickNumber/, 'gated per row');
   assert.match(tbody, /renderPickEditor\(\)/, 'and rendered inside the table');
 });
+
+test('a reopened draft is not told its rosters are gone', () => {
+  // Reopen keeps the published CSV live until re-confirmation — the reopen
+  // dialog on this same page says so. The banner told the commissioner the
+  // opposite: "these results are not yet the league's rosters".
+  const reopened = { ...published(), phase: 'live' as const };
+  const html = render(reopened);
+
+  assert.match(html, /Draft reopened — confirm again to apply your changes/);
+  assert.doesNotMatch(html, /not yet the league/);
+});
+
+test('a never-published draft still says its results are not the rosters', () => {
+  // The control for the test above: the original copy has to survive where it
+  // is true, or the fix would just be a blanket rewrite.
+  assert.match(render(draftWith({ publishedPicks: null })), /not yet the league/);
+});
+
+test('a spectator is not handed a commissioner instruction', () => {
+  // `SpectatorBoardClient` mounts this header with no `isAdmin`, so the public
+  // was reading "confirm the results to assign teams" — an action they cannot
+  // take — and losing the pick count to get it.
+  const header = (isAdmin: boolean): string =>
+    renderToStaticMarkup(
+      <DraftHeaderArea
+        draft={draftWith({ publishedPicks: null })}
+        isAdmin={isAdmin}
+        slug="tsc"
+        leagueStatus={{ state: 'preseason', year: 2026 }}
+        localTimerStartRef={{ current: null }}
+        onPause={() => {}}
+        onResume={() => {}}
+        onUndo={() => {}}
+        onAutoPick={() => {}}
+        onSelectManually={() => {}}
+        onStartRound={() => {}}
+        summaryHref="/league/tsc/draft/summary"
+      />
+    );
+
+  assert.match(header(false), /all 2 picks made/, 'spectators keep the factual line');
+  assert.doesNotMatch(header(false), /confirm the results/);
+  assert.match(
+    header(true),
+    /confirm the results to assign teams/,
+    'the commissioner still gets it'
+  );
+});

@@ -91,7 +91,15 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   // "Finish the draft →" points at the BOARD, not setup: setup is a settings
   // screen carrying a secondary link to the board, so the label promised one hop
   // and delivered two.
-  const teamsHref = needsPublishing ? `/league/${slug}/draft/summary` : `/league/${slug}/draft`;
+  // `no-assignment-method` anchors to the method card, which sits on THIS page —
+  // the only case where a same-page destination is honest rather than a link to
+  // nowhere.
+  const teamsHref =
+    assignmentBlocker === 'no-assignment-method'
+      ? '#assignment-method'
+      : needsPublishing
+        ? `/league/${slug}/draft/summary`
+        : `/league/${slug}/draft`;
 
   // Who starts this league's season, decided by the one lifecycle-ownership
   // authority. `league.status` is passed through as stored — the selector owns
@@ -165,19 +173,19 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
             >
               {hasRoster ? '✓' : '○'}
             </span>
-            {hasRoster ? (
+            {/* PLATFORM-095 — same shape as the row below: the label states, a
+                separate action acts. Both branches used to render an identical
+                link, so an unsatisfied owners row looked exactly like a
+                satisfied one apart from its colour — and when the bottom
+                blocker note was removed, this row lost its only explanation of
+                why Complete Setup was disabled. */}
+            <span className="text-gray-700 dark:text-zinc-300">Owners confirmed</span>
+            {hasRoster ? null : (
               <Link
                 href={`/admin/${slug}/preseason/owners`}
-                className="text-gray-700 hover:underline dark:text-zinc-300"
+                className="text-sm text-blue-600 hover:underline dark:text-blue-400"
               >
-                Owners confirmed
-              </Link>
-            ) : (
-              <Link
-                href={`/admin/${slug}/preseason/owners`}
-                className="text-blue-600 hover:underline dark:text-blue-400"
-              >
-                Owners confirmed
+                Confirm owners →
               </Link>
             )}
           </li>
@@ -223,7 +231,11 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
                   View draft results →
                 </Link>
               ) : null
-            ) : league.assignmentMethod && assignmentAction ? (
+            ) : assignmentAction ? (
+              // No `league.assignmentMethod` requirement: `no-assignment-method`
+              // is precisely when it is falsy, so gating on it suppressed the one
+              // action a brand-new league needs — and the bottom note that used
+              // to cover that case is gone.
               <Link
                 href={teamsHref}
                 className="text-sm text-blue-600 hover:underline dark:text-blue-400"
@@ -276,6 +288,7 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
           `DraftSetupShell` hides Reset at `complete` — with `DraftControls`,
           whose Reset survives there, imported by nothing. No route out at all,
           which `DESIGN.md` calls orphaned state. */}
+      <div id="assignment-method" />
       {!teamsAssigned && !(league.assignmentMethod === 'draft' && draftPicksComplete) && (
         <AssignmentMethodCard
           slug={slug}

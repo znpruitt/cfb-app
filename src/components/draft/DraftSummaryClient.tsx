@@ -315,7 +315,14 @@ export default function DraftSummaryClient({
           ) : (
             <div className="flex items-center justify-between gap-4">
               <p className="text-sm font-semibold text-green-800 dark:text-green-300">
-                Draft complete — these results are not yet the league&rsquo;s rosters.
+                {/* A REOPENED draft is publishable but its previous rosters are
+                    STILL LIVE — the reopen dialog two panels down says exactly
+                    that. Telling the commissioner they have no rosters
+                    contradicts it. Distinguished by `publishedPicks` surviving
+                    the reopen: present means this draft published once. */}
+                {draft.publishedPicks
+                  ? 'Draft reopened — confirm again to apply your changes.'
+                  : 'Draft complete — these results are not yet the league\u2019s rosters.'}
               </p>
               <button
                 type="button"

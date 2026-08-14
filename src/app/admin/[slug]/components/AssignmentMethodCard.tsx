@@ -39,13 +39,17 @@ export default function AssignmentMethodCard({
   function commit(method: Method) {
     setError(null);
     startTransition(async () => {
-      try {
-        await setAssignmentMethod(slug, method);
+      // The action RETURNS its refusal rather than throwing: Next.js redacts
+      // thrown Server Action errors in production, so a throw would surface an
+      // opaque digest instead of the sentence the guard wrote.
+      const result = await setAssignmentMethod(slug, method);
+      if (!result.ok) {
+        setError(result.error);
         setConfirming(null);
-        setEditing(false);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not change the assignment method.');
+        return;
       }
+      setConfirming(null);
+      setEditing(false);
     });
   }
 

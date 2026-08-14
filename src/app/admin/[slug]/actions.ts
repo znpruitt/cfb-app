@@ -305,7 +305,12 @@ export async function beginPreseason(slug: string): Promise<void> {
 }
 
 /** Persist the commissioner's choice of how teams will be assigned this preseason. */
-export async function setAssignmentMethod(slug: string, method: 'draft' | 'manual'): Promise<void> {
+export type SetAssignmentMethodResult = { ok: true } | { ok: false; error: string };
+
+export async function setAssignmentMethod(
+  slug: string,
+  method: 'draft' | 'manual'
+): Promise<SetAssignmentMethodResult> {
   await requireAdminAction('setAssignmentMethod');
 
   // PLATFORM-095 — a finished draft's assignment cannot be thrown away by
@@ -341,17 +346,23 @@ export async function setAssignmentMethod(slug: string, method: 'draft' | 'manua
   //
   // Only moving AWAY from a draft that has every pick is refused. Returning to
   // `draft` is always allowed, and is the recovery path.
-  if (
-    league &&
-    typeof year === 'number' &&
-    league.assignmentMethod === 'draft' &&
-    method !== 'draft'
-  ) {
+  // Keyed on the REQUESTED direction and the draft's state, NOT on the method the
+  // league currently holds. Requiring `assignmentMethod === 'draft'` skipped the
+  // check entirely for a league with NO method chosen — and draft creation has no
+  // method gate, so a commissioner can create and finish a draft before choosing
+  // one, then switch to manual on top of it.
+  if (league && typeof year === 'number' && method !== 'draft') {
     const draft = (await getAppState<DraftState>(draftScope(slug), String(year)))?.value ?? null;
     if (draftPicksAreComplete(draft)) {
-      throw new Error(
-        'This season\u2019s draft is finished — switch back to a draft, or reset it, before changing how teams are assigned.'
-      );
+      // Returned, not thrown. Next.js redacts errors raised in a Server Action
+      // before they reach the client in production builds, replacing the message
+      // with an opaque digest — so a thrown refusal renders as a framework error
+      // rather than the sentence written here.
+      return {
+        ok: false,
+        error:
+          'This season\u2019s draft is finished. Reset it first if you want to assign teams manually.',
+      };
     }
   }
 
@@ -365,6 +376,7 @@ export async function setAssignmentMethod(slug: string, method: 'draft' | 'manua
 
   await updateLeague(slug, { assignmentMethod: method });
   revalidatePath(`/admin/${slug}/preseason`);
+  return { ok: true };
 }
 
 /** Persist the confirmed owner list for the preseason and redirect back to setup. */
