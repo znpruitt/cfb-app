@@ -52,7 +52,7 @@ Rules:
 
 ### PLATFORM-096-PRECONFIRMATION-PICK-EDITING-v1
 
-- Status: **Implemented — PR pending** (branch `platform/096-preconfirmation-pick-editing`).
+- Status: ✅ **MERGED** — PR #476 (`6b0b8eca`), 2026-08-14. Branch deleted.
 - Purpose: let a commissioner correct a mis-entered draft before confirming it. The summary editor
   filtered out every team another owner held, so a draft where two owners ended up with each other's
   teams could not be fixed at all — there was no way to give Alice a team Bob was holding, and

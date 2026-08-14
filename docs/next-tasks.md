@@ -163,12 +163,12 @@ Supersedes: (none)
     - The destructive confirmation must NOT be amber: `DESIGN.md:79` reserves amber/gold for
       champion and podium signals. Use a red/error palette. (The existing Confirm-draft box appears
       to break the same rule pre-existing.)
-    Reviews on `fc299a9f` found the assignment-method work carries a P1 and two P2s while the
-    wayfinding carries none — see the discussion pending after the walkthrough. Split out of PLATFORM-094 rather than folded
-    in: it is information-architecture work, and `AGENTS.md` keeps that out of correctness PRs.
-    Found by the owner walking a two-round draft on preview — the flow WORKS, but every surface
-    still treats "all picks made" as "done" and offers the after-you-are-finished action before the
-    commissioner has finished.
+      Reviews on `fc299a9f` found the assignment-method work carries a P1 and two P2s while the
+      wayfinding carries none — see the discussion pending after the walkthrough. Split out of PLATFORM-094 rather than folded
+      in: it is information-architecture work, and `AGENTS.md` keeps that out of correctness PRs.
+      Found by the owner walking a two-round draft on preview — the flow WORKS, but every surface
+      still treats "all picks made" as "done" and offers the after-you-are-finished action before the
+      commissioner has finished.
 
     **Prompt:** `PLATFORM-095-PUBLICATION-WAYFINDING-v1`. The rule: before publication every surface
     points at Confirm; after publication `Continue Setup` is correct and is the only place it
@@ -233,10 +233,10 @@ Supersedes: (none)
     Read `DESIGN.md` first. Every touched surface carries its own tests, and the acceptance check is
     a walkthrough on the demo league — the two most valuable findings of PLATFORM-094 came from the
     owner clicking through, not from review.
+
 15. **PLATFORM-097 — assignment-method and draft-recovery states.** Split out of PLATFORM-095 after
     four remediation rounds, each finding real defects in this area and each round's fix producing
-    the next round's finding. Recommended as a split at round 1 and again at round 4; taken at round
-    4. These want designing together, not patching individually:
+    the next round's finding. Recommended as a split at round 1 and again at round 4; taken at round 4. These want designing together, not patching individually:
     - **Re-selecting the CURRENT method is refused as if it were a change.** `setAssignmentMethod`
       keys on `method !== 'draft'` plus draft completeness, never on whether the write changes
       anything — so a `manual` league with a finished draft (the recovery state 095 added) clicking
@@ -268,13 +268,14 @@ Supersedes: (none)
       and the second read sits after the first assignments inside the same `try` — so a flake on it
       silently un-hides the method card for a league whose draft is complete. One selector fed from
       one read closes both.
-16. ⏳ **PLATFORM-096 — implemented, PR pending.** Owner-designed 2026-08-13, during the 095
-    walkthrough. The summary page IS the editing surface before confirmation, and today it cannot
-    express the corrections a commissioner actually needs.
-
-    - **List every team, including ones other owners hold**, each labelled with its holder. Today the
-      picker filters out every already-picked team, so a mix-up between two owners cannot be fixed
-      at all.
+16. ✅ **PLATFORM-096 — COMPLETE** (PR #476, `6b0b8eca`, 2026-08-14). Owner-designed 2026-08-13,
+    during the 095 walkthrough. The summary page IS the editing surface before confirmation, and it
+    could not express the corrections a commissioner actually needs. Shipped as designed below;
+    execution record, including the reviewer-proven correction to the safety claim, is in
+    `docs/prompt-registry.md`.
+    - **List every team, including ones other owners hold**, each labelled with its holder. The
+      picker had filtered out every already-picked team, so a mix-up between two owners could not be
+      fixed at all.
     - **Taking a held team leaves the previous holder's pick UNASSIGNED** — deliberately not a swap.
       The owner rejected swapping: "what if the issue isn't just a direct swap of picks?" A swap
       cannot express "Alice should have Michigan, and Michigan's owner should get something else
@@ -283,16 +284,20 @@ Supersedes: (none)
       makes an empty pick safe: it is a transient editing state that can never be published. The
       publish control stays away and the banner says the draft is unfinished.
     - **Search by conference**, matching `DraftBoardClient`, which already matches team name OR
-      conference. The summary editor matches the name only and already receives `conferenceMap`.
+      conference. The summary editor had matched the name only while already receiving
+      `conferenceMap`.
 
-    Model note: `draftPicksAreComplete` counts picks and would also need every pick to hold a real
-    team. The confirm route already rejects an empty team, but as a raw 422 rather than a clean
-    "unfinished" state — the two need to agree so the UI and the authority give the same answer.
+    Model note, as shipped: `draftPicksAreComplete` now requires every pick to HOLD a team, and
+    `draftPickCountIsComplete` was split off to keep answering "has this draft been run" — the
+    stricter predicate alone re-opened the `setAssignmentMethod` hole PLATFORM-095 closed. The
+    confirm route reports its own unfinished reason BEFORE the count check, since a hole leaves the
+    count unchanged and would otherwise surface as a confusing "unrecognized team".
 
     **Scope boundary, from the owner's earlier ruling:** this is for corrections BEFORE publication.
     Arbitrary reassignment afterwards belongs to the roster, not the draft — "we're not going to
     rehold a draft if we change owners or reassign teams down the line" — and there is no roster
     editing surface today beyond the CSV repair import. That remains a separate, unscoped campaign.
+
 17. **Then — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
 18. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
@@ -374,46 +379,46 @@ activation evidence lives in `docs/deployment-runbook.md`.
 
 All foundational phases are complete. Work is now organized into named workstream campaigns.
 
-| Workstream          | Campaign                                                                                | Status                |
-| ------------------- | ---------------------------------------------------------------------------------------- | --------------------- |
-| Data & Intelligence | Game Stats Pipeline                                                                     | ✅ Complete           |
-| Data & Intelligence | Insights Engine Foundation                                                              | ✅ Complete           |
-| Data & Intelligence | Insights Engine — Generators and Wiring                                                 | ✅ Complete           |
-| Data & Intelligence | Insights Engine — Context Extension                                                     | ✅ Complete           |
-| Data & Intelligence | Insights Engine — Generator Batch 2                                                     | ✅ Complete           |
-| Data & Intelligence | Copy Variation Architecture                                                             | ✅ Complete           |
-| Data & Intelligence | Insights Panel UI Redesign + Polish                                                     | ✅ Complete           |
-| Platform            | Season Launch Hardening (Draft Auth + Polling, Standings Preseason, Insights Lifecycle) | ✅ Complete           |
-| Platform            | Standings Ownership Model Redesign (Phases 0–5)                                         | ✅ Complete           |
-| Data & Intelligence | Insights Engine — Weekly In-Season Pulses (INSIGHTS-018)                                | Planned               |
-| Data & Intelligence | Insights Diagnostic Endpoint (INSIGHTS-019)                                             | Planned               |
-| Data & Intelligence | Insights Panel — Microlabel Palette (INSIGHTS-017-PALETTE)                              | Planned               |
-| Data & Intelligence | Insights Ranker — Priority Tuning (INSIGHTS-RANKER-TUNING)                              | Planned               |
-| Data & Intelligence | Insights — All Insights Page (ALL-INSIGHTS-PAGE)                                        | ✅ Complete           |
-| Data & Intelligence | Pairing Cards                                                                           | Planned               |
-| Data & Intelligence | Luck Score + Bounce-Back Generators                                                     | Planned               |
-| Platform            | Season Rollover UI and Cron                                                             | ✅ Complete           |
-| Platform            | AppStateStore Caching — Egress Optimization (APPSTATESTORE-CACHING)                     | ✅ Complete (082A+082B) |
-| Platform            | Server Fetch Architecture (SERVER-FETCH-ARCHITECTURE)                                   | Parked (audit done; fixes unscheduled) |
-| Polish              | History Page Polish                                                                     | ✅ Complete           |
-| Polish              | History Rework Foundation (HISTORY-REWORK-FOUNDATION)                                   | ✅ Complete           |
-| Polish              | History Records (HISTORY-RECORDS)                                                       | In progress           |
-| Polish              | Standings Page — Preseason State (STANDINGS-PRESEASON-STATE)                            | ✅ Complete           |
-| Polish              | Standings Page — Lifecycle Labeling Sweep (STANDINGS-PAGE-LIFECYCLE-LABELING)           | Planned               |
-| Polish              | Link Styling Audit (LINK-STYLING-AUDIT)                                                 | Planned               |
-| Draft               | Slow Draft Mode                                                                         | Planned               |
-| Draft               | Draft Difficulty Settings                                                               | Planned               |
-| Platform            | League State vs Season State separation                                                 | Planned — deliberate fork; see `docs/roadmap.md` |
+| Workstream          | Campaign                                                                                | Status                                                                  |
+| ------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Data & Intelligence | Game Stats Pipeline                                                                     | ✅ Complete                                                             |
+| Data & Intelligence | Insights Engine Foundation                                                              | ✅ Complete                                                             |
+| Data & Intelligence | Insights Engine — Generators and Wiring                                                 | ✅ Complete                                                             |
+| Data & Intelligence | Insights Engine — Context Extension                                                     | ✅ Complete                                                             |
+| Data & Intelligence | Insights Engine — Generator Batch 2                                                     | ✅ Complete                                                             |
+| Data & Intelligence | Copy Variation Architecture                                                             | ✅ Complete                                                             |
+| Data & Intelligence | Insights Panel UI Redesign + Polish                                                     | ✅ Complete                                                             |
+| Platform            | Season Launch Hardening (Draft Auth + Polling, Standings Preseason, Insights Lifecycle) | ✅ Complete                                                             |
+| Platform            | Standings Ownership Model Redesign (Phases 0–5)                                         | ✅ Complete                                                             |
+| Data & Intelligence | Insights Engine — Weekly In-Season Pulses (INSIGHTS-018)                                | Planned                                                                 |
+| Data & Intelligence | Insights Diagnostic Endpoint (INSIGHTS-019)                                             | Planned                                                                 |
+| Data & Intelligence | Insights Panel — Microlabel Palette (INSIGHTS-017-PALETTE)                              | Planned                                                                 |
+| Data & Intelligence | Insights Ranker — Priority Tuning (INSIGHTS-RANKER-TUNING)                              | Planned                                                                 |
+| Data & Intelligence | Insights — All Insights Page (ALL-INSIGHTS-PAGE)                                        | ✅ Complete                                                             |
+| Data & Intelligence | Pairing Cards                                                                           | Planned                                                                 |
+| Data & Intelligence | Luck Score + Bounce-Back Generators                                                     | Planned                                                                 |
+| Platform            | Season Rollover UI and Cron                                                             | ✅ Complete                                                             |
+| Platform            | AppStateStore Caching — Egress Optimization (APPSTATESTORE-CACHING)                     | ✅ Complete (082A+082B)                                                 |
+| Platform            | Server Fetch Architecture (SERVER-FETCH-ARCHITECTURE)                                   | Parked (audit done; fixes unscheduled)                                  |
+| Polish              | History Page Polish                                                                     | ✅ Complete                                                             |
+| Polish              | History Rework Foundation (HISTORY-REWORK-FOUNDATION)                                   | ✅ Complete                                                             |
+| Polish              | History Records (HISTORY-RECORDS)                                                       | In progress                                                             |
+| Polish              | Standings Page — Preseason State (STANDINGS-PRESEASON-STATE)                            | ✅ Complete                                                             |
+| Polish              | Standings Page — Lifecycle Labeling Sweep (STANDINGS-PAGE-LIFECYCLE-LABELING)           | Planned                                                                 |
+| Polish              | Link Styling Audit (LINK-STYLING-AUDIT)                                                 | Planned                                                                 |
+| Draft               | Slow Draft Mode                                                                         | Planned                                                                 |
+| Draft               | Draft Difficulty Settings                                                               | Planned                                                                 |
+| Platform            | League State vs Season State separation                                                 | Planned — deliberate fork; see `docs/roadmap.md`                        |
 | Platform            | Multi-tenant Commissioner Sign-up                                                       | Planned — carries the league-deletion/data-retention question (item 13) |
-| Platform            | Server Action Auth Hardening                                                            | Planned               |
-| Platform            | Provider Refresh Observability (PLATFORM-086A)                                          | ✅ Complete (PR #391) |
-| Platform            | Provider Automation & Correctness (PLATFORM-086B–I)                                     | ✅ Complete           |
-| Polish              | Design Audit (remaining pages)                                                          | Planned               |
-| Polish              | Copy / UX Writing Audit                                                                 | Planned               |
-| Polish              | Back Button Audit                                                                       | Planned               |
-| Polish              | Aliases Platform Migration                                                              | ✅ Complete           |
-| Polish              | History Page — Filter Former Owners                                                     | Planned               |
-| Polish              | Test Suite Baseline Cleanup (TEST-SUITE-BASELINE-CLEANUP)                               | ✅ Complete           |
+| Platform            | Server Action Auth Hardening                                                            | Planned                                                                 |
+| Platform            | Provider Refresh Observability (PLATFORM-086A)                                          | ✅ Complete (PR #391)                                                   |
+| Platform            | Provider Automation & Correctness (PLATFORM-086B–I)                                     | ✅ Complete                                                             |
+| Polish              | Design Audit (remaining pages)                                                          | Planned                                                                 |
+| Polish              | Copy / UX Writing Audit                                                                 | Planned                                                                 |
+| Polish              | Back Button Audit                                                                       | Planned                                                                 |
+| Polish              | Aliases Platform Migration                                                              | ✅ Complete                                                             |
+| Polish              | History Page — Filter Former Owners                                                     | Planned                                                                 |
+| Polish              | Test Suite Baseline Cleanup (TEST-SUITE-BASELINE-CLEANUP)                               | ✅ Complete                                                             |
 
 ## Active priorities
 
@@ -855,12 +860,12 @@ Execution order within F2 (each slice is one independently deployable PR):
           item in the campaign, arming three jobs including an archive-producing one. NOT to be
           confused with PLATFORM-087's salvage operation, which repairs a DIFFERENT condition
           (registry corruption) and exists because the writer gating creates the state it repairs.
-        The audit that produced this decision follows.
-        **AUDITED 2026-08-06 — read-only; the charter's central premise
-        does not hold, and the slice should be reduced.** The production registry was queried
-        (read-only Neon role) and contains exactly two league records, both structurally sound:
-        `tsc` preseason(2026) and `test` preseason(2027), both objects, both with valid integer
-        years and explicit lifecycle status.
+          The audit that produced this decision follows.
+          **AUDITED 2026-08-06 — read-only; the charter's central premise
+          does not hold, and the slice should be reduced.** The production registry was queried
+          (read-only Neon role) and contains exactly two league records, both structurally sound:
+          `tsc` preseason(2026) and `test` preseason(2027), both objects, both with valid integer
+          years and explicit lifecycle status.
         - **The confirmed missing-status recovery has ZERO targets.** No record lacks a status, and
           no current write path can produce one: creation validates the year and writes an explicit
           status (F2B), `updateLeague` throws on lifecycle fields, the per-league PATCH rejects
@@ -892,21 +897,21 @@ Execution order within F2 (each slice is one independently deployable PR):
           additionally has an explicit `already-in-target-season` + `healed` path for exactly this.
           The real defect it exposed is on the READ side and is now
           **INSIGHTS-CURRENT-YEAR-AUTHORITY** in the insights backlog.
-        Original charter text follows; the arming rationale still holds for whatever recovery, if
-        any, is eventually built. It lands last because it is the only slice that ARMS automation: a
-        status-less record is inert to every target selector today, and repairing it to `season(Y)`
-        makes it a rollover target (archive-producing, and now year-validated by R4), a
-        weekly-schedule `season` owner (the pause-exempt branch), and a rankings target within 24h.
-        Landing it after R1–R4 means every job it arms already refuses malformed containers and
-        unusable years — which was the whole reason the audit inverted the charter's implied order.
-        It also owns (i) `resolveOperationalSeasonYear` laundering an unusable year through the
-        clamp, and (n) per-RECORD validation inside an `ok` container, the one piece of container
-        truth R1–R4 deliberately left open.
-      This sequence owns the year-VALIDITY items every F2H1T slice deliberately refused: (a)
-      unvalidated `status.year` in cron target selection, (e) a fractional year reaching the rankings
-      cron's context-free CFP window and billing provider requests — note the hazard is NOT
-      fractional-only, since `Date.UTC('2026', …)` is not NaN, so a string year is equally due — and
-      (i) `resolveOperationalSeasonYear` laundering an unusable year through the clamp.
+          Original charter text follows; the arming rationale still holds for whatever recovery, if
+          any, is eventually built. It lands last because it is the only slice that ARMS automation: a
+          status-less record is inert to every target selector today, and repairing it to `season(Y)`
+          makes it a rollover target (archive-producing, and now year-validated by R4), a
+          weekly-schedule `season` owner (the pause-exempt branch), and a rankings target within 24h.
+          Landing it after R1–R4 means every job it arms already refuses malformed containers and
+          unusable years — which was the whole reason the audit inverted the charter's implied order.
+          It also owns (i) `resolveOperationalSeasonYear` laundering an unusable year through the
+          clamp, and (n) per-RECORD validation inside an `ok` container, the one piece of container
+          truth R1–R4 deliberately left open.
+          This sequence owns the year-VALIDITY items every F2H1T slice deliberately refused: (a)
+          unvalidated `status.year` in cron target selection, (e) a fractional year reaching the rankings
+          cron's context-free CFP window and billing provider requests — note the hazard is NOT
+          fractional-only, since `Date.UTC('2026', …)` is not NaN, so a string year is equally due — and
+          (i) `resolveOperationalSeasonYear` laundering an unusable year through the clamp.
       - **Recorded by the F2H1R1 audit and review, deliberately NOT fixed in that slice.**
         (l) **`isStructurallyValidSeasonYear` is structural, not a plausibility window.** An in-range
         but absurd year (`999999`, or `1900`) passes it, becomes a `byYear` key, and still drives a
@@ -1091,7 +1096,7 @@ Execution order within F2 (each slice is one independently deployable PR):
         jobs a `season-management` repair link on `scheduler-execution-failed`/`-partial`, and
         `/admin/season` has no lifecycle repair either. Same claim class as the decision above;
         deliberately left alone rather than widened into these slices.
-      **The two decisions taken during the F2H2 audit, both now discharged by F2H3A:**
+        **The two decisions taken during the F2H2 audit, both now discharged by F2H3A:**
       - **Retire manual rollover EXECUTION, keep PREVIEW** (decided 2026-08-07 — see the F2H2 entry
         above for the reasoning). Removes `POST /api/admin/rollover`'s `confirmed: true` path and
         the execute controls from both panels; the GET status/preview path stays. This must amend
@@ -1124,19 +1129,19 @@ Execution order within F2 (each slice is one independently deployable PR):
       receipt schema change and was kept out of a retirement slice on purpose.
       Note the compounding: F2H3A's year-disagreement WARNING lived on the deleted panel, so this
       abnormal state is now neither flagged nor explained on any surface. Season rollover is
-    automation-owned and, since F2H3A, has no operator-reachable execution and **no automation-pause
-    gate** — so the preview showed an irreversible write nobody could prevent: unactionable by
-    construction. `ArchiveListPanel` renders year badges with no `href` at all, and
-    `/league/[slug]/history` already navigates the same `listSeasonArchives` data per league.
-    Delete rather than relocate, both panels. Orphan set (the panel is the route's only caller):
-    the page, both panels, `/api/admin/rollover`, `src/lib/manualRollover.ts`, and
-    `diffSeasonArchives`. Capability survives — `rolloverTargeting`, `completeSeasonRollover`,
-    `buildSeasonArchive`, `saveSeasonArchive`, and `listSeasonArchives` all stay.
-    **Forces a recorded follow-up closed:** the `season-management` repair surface (emitted from
-    exactly one site, the lifecycle branch of `schedulerExecutionIssues`) is removed, so lifecycle
-    scheduler faults carry `repair: null` — matching what F2H3B2 established. **Verify before
-    deleting:** that a waiting-period skip reason is legible on the System Health scheduler row.
-    Filed under F2H rather than F2I because `/admin/season` IS Season Management.
+      automation-owned and, since F2H3A, has no operator-reachable execution and **no automation-pause
+      gate** — so the preview showed an irreversible write nobody could prevent: unactionable by
+      construction. `ArchiveListPanel` renders year badges with no `href` at all, and
+      `/league/[slug]/history` already navigates the same `listSeasonArchives` data per league.
+      Delete rather than relocate, both panels. Orphan set (the panel is the route's only caller):
+      the page, both panels, `/api/admin/rollover`, `src/lib/manualRollover.ts`, and
+      `diffSeasonArchives`. Capability survives — `rolloverTargeting`, `completeSeasonRollover`,
+      `buildSeasonArchive`, `saveSeasonArchive`, and `listSeasonArchives` all stay.
+      **Forces a recorded follow-up closed:** the `season-management` repair surface (emitted from
+      exactly one site, the lifecycle branch of `schedulerExecutionIssues`) is removed, so lifecycle
+      scheduler faults carry `repair: null` — matching what F2H3B2 established. **Verify before
+      deleting:** that a waiting-period skip reason is legible on the System Health scheduler row.
+      Filed under F2H rather than F2I because `/admin/season` IS Season Management.
 13. **F2I Platform Configuration / Team Identity** — ✅ MERGED (PR #462, `cbd3ed5`, 2026-08-08). Audited
     read-only first: two of the three chartered items were already done or overstated (Team
     Identity's global scope was settled by PLATFORM-064/067; the only real duplication was the
