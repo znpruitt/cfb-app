@@ -261,27 +261,12 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
             ) : null}
           </li>
 
-          {/* Setup complete — satisfied by Complete Setup action */}
-          <li className="flex items-center gap-2">
-            <span
-              className={
-                isSetupComplete
-                  ? 'text-green-600 dark:text-green-400'
-                  : 'text-gray-300 dark:text-zinc-600'
-              }
-            >
-              {isSetupComplete ? '✓' : '○'}
-            </span>
-            <span
-              className={
-                isSetupComplete
-                  ? 'text-gray-700 dark:text-zinc-300'
-                  : 'text-gray-400 dark:text-zinc-500'
-              }
-            >
-              Setup complete
-            </span>
-          </li>
+          {/* PLATFORM-096 — there is deliberately NO "Setup complete" row.
+              It stated the same fact as the control directly beneath the list,
+              in both directions: unticked beside the Complete Setup button, and
+              ticked beside the "Setup Complete ✓" badge that replaces it. The
+              button is the sign-off on every row above it, so the list holds the
+              PREREQUISITES and the button holds the act. */}
         </ol>
       </section>
 
