@@ -349,21 +349,27 @@ export default function DraftSummaryClient({
           {confirmError && (
             <p className="mb-3 text-sm text-red-700 dark:text-red-400">{confirmError}</p>
           )}
-          {confirmOpen ? (
-            /* An armed confirm, with no prose. The copy here said the write
-               "cannot be undone without starting a new draft or uploading a CSV
-               override" — verbose, internal, and FALSE now that Reopen exists
-               and keeps the roster live until re-confirmation. Amber is
-               reserved for champion/podium signals (DESIGN.md), so a
-               destructive confirm uses the error palette. */
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/40">
-              <p className="text-sm font-semibold text-red-900 dark:text-red-100">Confirm draft?</p>
-              <div className="flex shrink-0 gap-3">
+          {/* The banner stays GREEN through arming, and only the control swaps —
+              a compact Confirm/Cancel pair standing where the button was.
+              It previously opened a full-width red inset, which was wrong twice
+              over: red is this app's "needs resolving" signal and confirming a
+              draft is the happy path, not a destructive act; and a band of colour
+              across the whole banner is far more weight than a two-button choice
+              needs. Reopen and the manual-assignment switch keep the error
+              palette because those genuinely undo something. */}
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm font-semibold text-green-800 dark:text-green-300">
+              {draft.publishedPicks
+                ? 'Draft reopened — confirm again to apply your changes.'
+                : 'Draft complete — these results are not yet the league\u2019s rosters.'}
+            </p>
+            {confirmOpen ? (
+              <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
                   disabled={confirmLoading}
                   onClick={() => void handleConfirm()}
-                  className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                  className="rounded bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60"
                 >
                   {confirmLoading ? 'Confirming…' : 'Confirm'}
                 </button>
@@ -371,24 +377,12 @@ export default function DraftSummaryClient({
                   type="button"
                   disabled={confirmLoading}
                   onClick={() => setConfirmOpen(false)}
-                  className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                  className="rounded px-3 py-2 text-sm text-green-800 hover:underline disabled:opacity-60 dark:text-green-300"
                 >
                   Cancel
                 </button>
               </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-sm font-semibold text-green-800 dark:text-green-300">
-                {/* A REOPENED draft is publishable but its previous rosters are
-                    STILL LIVE — the reopen dialog two panels down says exactly
-                    that. Telling the commissioner they have no rosters
-                    contradicts it. Distinguished by `publishedPicks` surviving
-                    the reopen: present means this draft published once. */}
-                {draft.publishedPicks
-                  ? 'Draft reopened — confirm again to apply your changes.'
-                  : 'Draft complete — these results are not yet the league\u2019s rosters.'}
-              </p>
+            ) : (
               <button
                 type="button"
                 onClick={() => setConfirmOpen(true)}
@@ -396,8 +390,8 @@ export default function DraftSummaryClient({
               >
                 Confirm draft
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </section>
       )}
 

@@ -422,3 +422,29 @@ test('a draft that is both short and holed still says it is unfinished', () => {
 
   assert.match(render(short), /Draft unfinished/);
 });
+
+test('arming the confirm keeps the banner green and the message in place', () => {
+  // It opened a full-width RED inset, which was wrong twice: red is this app's
+  // "needs resolving" signal and confirming a draft is the happy path, not a
+  // destructive act; and a band of colour across the whole banner is far more
+  // weight than a two-button choice needs. Structural, because arming is client
+  // state this harness cannot click.
+  const source = readFileSync(new URL('../DraftSummaryClient.tsx', import.meta.url), 'utf8');
+  const publishBlock = source.slice(
+    source.indexOf('{isAdmin && canPublish && ('),
+    source.indexOf('{isAdmin && canReopen && (')
+  );
+
+  // Surfaces and buttons specifically — `confirmError` stays red, because a
+  // failed confirm IS an error.
+  assert.ok(!publishBlock.includes('bg-red-'), 'no red surface in the publish path');
+  assert.ok(!publishBlock.includes('border-red-'), 'and no red border');
+  assert.match(publishBlock, /confirmOpen \? \(/, 'arming swaps the control, not the banner');
+  // The ARMED branch specifically, not just the block containing it.
+  const armed = publishBlock.slice(
+    publishBlock.indexOf('confirmOpen ? ('),
+    publishBlock.indexOf(') : (')
+  );
+  assert.match(armed, /bg-green-600/, 'the armed confirm is green');
+  assert.match(armed, /Cancel/, 'and offers a way out');
+});
