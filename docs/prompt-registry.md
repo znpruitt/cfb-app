@@ -57,7 +57,18 @@ Rules:
   filtered out every team another owner held, so a draft where two owners ended up with each other's
   teams could not be fixed at all — there was no way to give Alice a team Bob was holding, and
   nothing could free one.
-- Sizing: 25 files, +894/-88 — within the stop-and-reassess signals. Derived at closeout.
+- Sizing: **25 files, +990/-138 (852 net)** — derived at closeout from `git diff --stat main...HEAD`,
+  not carried forward. **The file count CROSSES the 15-file stop-and-reassess signal**; net lines do
+  not. What expanded, and the owner's approval for each, in order: the picker offering only unheld
+  teams was unfixable without a way to free one, so unassign came in; taking a held team followed
+  from "what if the issue isn't just a direct swap of picks?"; conference search matched
+  `DraftBoardClient`'s existing behaviour; "prior to confirmation editing on the summary page should
+  be allowable" and "the draft confirmation should be disallowed if there are any unassigned holes in
+  the draft order" were both explicit directions; and the unassigned-chip and blocked-banner
+  treatment came out of the owner's walkthrough. Ten of the 25 files are the six draft components
+  and four test suites that `DraftPick.team` becoming nullable forced the compiler to name — the
+  seam audit's cost, paid once. The objective stayed one thing throughout: correct a draft before
+  publishing it.
 - **`DraftPick.team` is now nullable, and that choice was the seam audit.** An empty string would
   have compiled everywhere and misbehaved quietly in each of the eleven consumers — `''.toLowerCase()`
   works, the identity resolver returns nothing, the CSV builder writes a blank row. `null` made the
