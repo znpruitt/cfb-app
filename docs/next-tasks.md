@@ -113,7 +113,7 @@ Supersedes: (none)
     branch point, so preview databases still CONTAIN production data — they just cannot write back
     to it. That is the right trade for write safety, and it is a different question from the
     data-retention item below.
-14. ⏳ **PLATFORM-095 — implemented, in remediation.** Owner decisions taken during the preview
+14. ✅ **PLATFORM-095 — COMPLETE** (PR #475, `7d7b4c62`, 2026-08-13). Owner decisions taken during the preview
     walkthrough, to apply before the PR:
     - Draft-board banner copy: **"Draft complete — confirm the results to assign teams"** replaces
       "Draft complete — all N picks made · not yet confirmed". The qualifier bolted a second thought

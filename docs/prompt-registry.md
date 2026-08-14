@@ -52,7 +52,9 @@ Rules:
 
 ### PLATFORM-095-PUBLICATION-WAYFINDING-v1
 
-- Status: **Implemented — PR pending** (branch `platform/095-publication-wayfinding`).
+- Status: **Merged** (PR #475, `7d7b4c62`, 2026-08-13). Four remediation rounds; the remaining
+  findings were queued as PLATFORM-097 rather than patched, after each round's fix produced the
+  next round's finding.
 
 - Purpose: make every surface point at Confirm before publication, and offer `Continue Setup` only
   after it. Found by the owner walking a two-round draft on preview — PLATFORM-094 made the flow
