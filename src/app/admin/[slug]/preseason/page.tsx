@@ -180,14 +180,20 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
                 blocker note was removed, this row lost its only explanation of
                 why Complete Setup was disabled. */}
             <span className="text-gray-700 dark:text-zinc-300">Owners confirmed</span>
-            {hasRoster ? null : (
-              <Link
-                href={`/admin/${slug}/preseason/owners`}
-                className="text-sm text-blue-600 hover:underline dark:text-blue-400"
-              >
-                Confirm owners →
-              </Link>
-            )}
+            {/* The link SURVIVES confirmation. Replacing the satisfied branch
+                with `null` left NO generated link to
+                `/admin/{slug}/preseason/owners` once a roster existed — the only
+                other one renders solely while none does — so a commissioner
+                could not correct league membership between confirming owners and
+                running the draft. Same defect as the Teams assigned row going
+                inert, introduced in the very change that fixed that one, in the
+                row directly above it. */}
+            <Link
+              href={`/admin/${slug}/preseason/owners`}
+              className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+            >
+              {hasRoster ? 'Edit owners →' : 'Confirm owners →'}
+            </Link>
           </li>
 
           {/* Teams assigned */}

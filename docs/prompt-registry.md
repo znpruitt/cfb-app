@@ -59,7 +59,13 @@ Rules:
   correct, but the post-draft surfaces still treated "all picks made" as "done" and offered the
   after-you-are-finished action before the commissioner had finished.
 - Scope: `DraftHeaderArea`, `DraftSummaryClient`, the preseason checklist copy, `AssignmentMethodCard`,
-  and `setAssignmentMethod`. 8 files, +466/-80 — within the stop-and-reassess signals.
+  and `setAssignmentMethod`, plus `DraftSetupShell` and `AssignmentMethodCard`.
+- **Sizing: 11 files, +1315/-262 — within the stop-and-reassess signals.** Re-derived from the merge
+  base at closeout rather than carried forward: the figure recorded when the branch opened was
+  8 files / +466/-80 and went stale across four remediation rounds. **This is the third campaign
+  entry whose diffstat drifted** — twice in PLATFORM-094, once here — every time in an entry that
+  itself says a diffstat is only useful if re-checked when the branch moves. The lesson is not "try
+  harder": derive it at closeout, never in place mid-branch.
 - **The same conflation PLATFORM-094 fixed, one layer up.** `Continue Setup` rendered on
   `phase === 'complete'` regardless of publication, so following it landed on a checklist that could
   not proceed. Before PLATFORM-094 the checklist ticked at `complete` and the link was right; the
@@ -80,7 +86,8 @@ Rules:
   every pick is in. "Once complete" is `draftPicksAreComplete`, NOT `phase === 'complete'` — a
   reopened draft keeps every pick with its roster live in standings, so a phase test would call that
   "in progress" and let one click discard a finished draft and strand its rosters.
-- The confirmation is INLINE amber disclosure, not a modal: that is this codebase's established
+- The confirmation is INLINE disclosure in the ERROR palette, not a modal (amber was the first
+  choice and was corrected in round 1 — `DESIGN.md:79` reserves amber/gold for champion/podium): that is this codebase's established
   pattern for destructive admin actions (`DraftControls` arms its Reset; `DraftSummaryClient` opens
   an amber box before writing rosters), and there is no modal anywhere to be consistent with. The
   owner asked for a "pop-up"; the deviation was flagged before implementing.
@@ -159,7 +166,7 @@ Rules:
   refusal is now RETURNED rather than thrown, because Next.js redacts thrown Server Action errors in
   production and the commissioner would have seen a digest instead of the sentence.
 - Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3751/3751
-  (+8). Seven mutations across the five guards; **two killed nothing at first** — both
+  (+22 across four rounds, not the +8 recorded when the branch opened). Seven mutations; **two killed nothing at first** — both
   `Continue Setup` gates had no coverage — and tests were added before they failed. One assertion
   was written vacuously (`/draftHasPicks|Change/i` matches "Change", always present), caught on
   review of my own work and replaced with a labelled structural pin that a mutation does kill.

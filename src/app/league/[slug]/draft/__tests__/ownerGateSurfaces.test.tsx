@@ -579,3 +579,17 @@ test('an unconfirmed owners row carries its own action', async () => {
   const html = await renderChecklist();
   assert.match(html, /Confirm owners →/);
 });
+
+test('the owners editor stays reachable after owners are confirmed', async () => {
+  // A regression introduced while fixing the identical defect one row down.
+  // Replacing the satisfied branch with `null` left no generated link to
+  // `/admin/{slug}/preseason/owners` at all once a roster existed — the other
+  // one renders only while none does — so membership could not be corrected
+  // between confirming owners and running the draft.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+
+  const html = await renderChecklist();
+  assert.match(html, new RegExp(`href="/admin/${SLUG}/preseason/owners"`));
+  assert.match(html, /Edit owners →/);
+});

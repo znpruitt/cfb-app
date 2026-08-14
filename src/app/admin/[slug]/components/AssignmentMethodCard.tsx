@@ -56,7 +56,7 @@ export default function AssignmentMethodCard({
   // PLATFORM-095 — switching away from a draft that has already made picks
   // discards them, so it asks first. Inline disclosure rather than a modal:
   // that is this codebase's established pattern for a destructive admin action
-  // (`DraftControls` arms its Reset, `DraftSummaryClient` opens an amber box
+  // (`DraftControls` arms its Reset, `DraftSummaryClient` opens a disclosure box
   // before writing rosters), and there is no modal anywhere to be consistent
   // with.
   //
