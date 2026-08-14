@@ -92,9 +92,11 @@ export function resolveDisplayLeagueStatus(
  * records, and a surface that reads the wrong one edits the wrong season.
  *
  * Lives here rather than inline because it is derived league data (AGENTS.md
- * invariant 9), and because `/league/[slug]/draft/*` already inline this exact
+ * invariant 9), and the four `/league/[slug]/draft/*` routes plus
+ * `/admin/[slug]/roster` now all call it. They previously inlined this exact
  * ternary — the same divergence `resolveDisplayLeagueStatus` above was extracted
- * to end.
+ * to end, and review caught the first cut of this adding a FIFTH copy while its
+ * doc claimed to remove four.
  */
 export function resolveLeagueOperatingYear(league: {
   status?: LeagueStatus | null;

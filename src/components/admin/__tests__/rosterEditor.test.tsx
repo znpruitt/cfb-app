@@ -145,3 +145,16 @@ test('a row the save will DROP is counted, not reported as unchanged', () => {
     'the dropped row is the change'
   );
 });
+
+test('a typed-then-deleted owner is not a change', () => {
+  // `handleOwnerChange` writes unconditionally, so typing one character into an
+  // unowned team's field and deleting it leaves `school -> ''` that the saved map
+  // lacks. `mapsEqual` compares sizes and calls that "changed"; this count
+  // normalizes both sides. Save is gated on THIS number so the two cannot
+  // disagree — otherwise the operator saw "0 teams change owner" above a prompt
+  // warning that the whole roster is about to be rewritten, which is the kind of
+  // confirmation people learn to click through.
+  const draft = new Map(SAVED);
+  draft.set('Vanderbilt', '');
+  assert.equal(countChangedTeams(SAVED, draft, TEAMS), 0);
+});

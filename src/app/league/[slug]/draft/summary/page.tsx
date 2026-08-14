@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { getLeague } from '@/lib/leagueRegistry';
+import { resolveLeagueOperatingYear } from '@/lib/selectors/leagueLifecycle';
 import { getAppState } from '@/lib/server/appStateStore';
 import { hasUsableOfficialRoster } from '@/lib/selectors/confirmedRoster';
 import {
@@ -120,9 +121,7 @@ export default async function DraftSummaryPage({
   const league = await getLeague(slug);
   if (!league) notFound();
 
-  const status = league.status;
-  const year =
-    status?.state === 'preseason' || status?.state === 'season' ? status.year : league.year;
+  const year = resolveLeagueOperatingYear(league);
 
   // Load draft state, plus whether the roster it published is still stored —
   // the summary's publish controls need both (see `selectDraftPublicationControls`).

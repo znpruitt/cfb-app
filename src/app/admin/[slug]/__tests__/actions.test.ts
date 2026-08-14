@@ -579,9 +579,13 @@ test('the draft setup shell offers Reset for a finished but unconfirmed draft', 
   // anyone here mid-draft.
   assert.match(
     source,
-    /const resetPhraseMatches = resetTyped\.trim\(\) === slug;/,
+    /const resetPhraseMatches = resetTyped\.trim\(\)\.toLowerCase\(\) === slug\.toLowerCase\(\);/,
     'the reset confirmation is a typed phrase, not a second click'
   );
+  // Case-insensitive, and the input opts out of autocapitalise — mobile IMEs
+  // capitalise the first character, and draft night is the likeliest phone
+  // moment for a control that shares a card with the pick timer.
+  assert.match(source, /autoCapitalize="off"/, 'the confirmation input is typable on a phone');
   assert.match(
     source,
     /if \(!resetPhraseMatches\) return;/,

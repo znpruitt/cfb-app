@@ -186,7 +186,14 @@ export default function DraftSetupShell({
   }
 
   const pickCount = draftState?.picks?.length ?? 0;
-  const resetPhraseMatches = resetTyped.trim() === slug;
+  // Case-insensitive, and the input opts out of autocapitalise/autocorrect.
+  // iOS Safari and most Android IMEs capitalise the first character of a text
+  // input, so a case-sensitive compare left a commissioner on a phone typing the
+  // slug correctly and watching the button stay disabled with nothing explaining
+  // why. Draft night — the scenario this control exists for, on the same card as
+  // the pick timer — is the most likely mobile moment. Nothing is weakened: the
+  // point is deliberateness, not secrecy.
+  const resetPhraseMatches = resetTyped.trim().toLowerCase() === slug.toLowerCase();
 
   function cancelReset() {
     setResetConfirm(false);
@@ -333,6 +340,8 @@ export default function DraftSetupShell({
                   value={resetTyped}
                   onChange={(e) => setResetTyped(e.target.value)}
                   autoComplete="off"
+                  autoCapitalize="off"
+                  autoCorrect="off"
                   spellCheck={false}
                   className="rounded border border-red-300 bg-white px-2.5 py-1.5 font-mono text-sm text-gray-900 focus:border-red-500 focus:outline-none dark:border-red-800 dark:bg-zinc-900 dark:text-zinc-100"
                 />

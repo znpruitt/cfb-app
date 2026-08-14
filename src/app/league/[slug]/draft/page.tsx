@@ -3,6 +3,7 @@ import { notFound, redirect } from 'next/navigation';
 
 import ViewMoreLink from '@/components/navigation/ViewMoreLink';
 import { getLeague } from '@/lib/leagueRegistry';
+import { resolveLeagueOperatingYear } from '@/lib/selectors/leagueLifecycle';
 import { getAppState } from '@/lib/server/appStateStore';
 import { resolveDraftScheduleGames } from './draftSchedule';
 import { draftScope, type DraftState } from '@/lib/draft';
@@ -40,9 +41,7 @@ export default async function DraftBoardPage({
   const league = await getLeague(slug);
   if (!league) notFound();
 
-  const status = league.status;
-  const year =
-    status?.state === 'preseason' || status?.state === 'season' ? status.year : league.year;
+  const year = resolveLeagueOperatingYear(league);
 
   // Load draft state
   const draftRecord = await getAppState<DraftState>(draftScope(slug), String(year));

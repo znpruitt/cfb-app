@@ -17,6 +17,12 @@ type Props = {
 type SortKey = 'school' | 'conference' | 'owner';
 type SortDir = 'asc' | 'desc';
 
+const SORTABLE_COLUMNS: ReadonlyArray<{ key: SortKey; label: string }> = [
+  { key: 'school', label: 'Team' },
+  { key: 'conference', label: 'Conference' },
+  { key: 'owner', label: 'Owner' },
+];
+
 function csvField(s: string): string {
   if (s.includes(',') || s.includes('"') || s.includes('\n')) {
     return `"${s.replace(/"/g, '""')}"`;
@@ -188,6 +194,15 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
   const hasChanges = !mapsEqual(draftOwners, savedOwners);
 
   const changedTeamCount = countChangedTeams(savedOwners, draftOwners, teams);
+  // Save is gated on the SAME count the confirmation reports, so the two cannot
+  // disagree. `handleOwnerChange` writes an entry unconditionally, so typing a
+  // character into an unowned team's field and deleting it leaves `school -> ''`
+  // that `savedOwners` lacks: `mapsEqual` compares sizes and says "changed",
+  // while the count normalizes both sides and says zero. That combination put a
+  // destructive-sounding confirmation on screen — "0 teams change owner. This
+  // rewrites the whole 2026 roster…" — which is exactly what teaches an operator
+  // to click through the prompt.
+  const canSave = hasChanges && changedTeamCount > 0;
 
   const loadRoster = useCallback(async () => {
     setLoading(true);
@@ -351,14 +366,14 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
         <div className="flex gap-2" hidden={needsOverrideConfirm}>
           <button
             onClick={handleDiscard}
-            disabled={!hasChanges || saving}
+            disabled={!canSave || saving}
             className="rounded border border-gray-300 dark:border-zinc-600 bg-gray-50 dark:bg-zinc-800 px-3 py-1.5 text-sm text-gray-600 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Discard Changes
           </button>
           <button
             onClick={handleSave}
-            disabled={!hasChanges || saving}
+            disabled={!canSave || saving}
             className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-gray-900 dark:text-white hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {saving ? 'Saving…' : 'Save Changes'}
@@ -419,24 +434,30 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50 dark:bg-zinc-800 text-xs text-gray-500 dark:text-zinc-400">
             <tr>
-              <th
-                className="px-4 py-2.5 text-left cursor-pointer select-none hover:text-gray-800 dark:hover:text-zinc-200"
-                onClick={() => toggleSort('school')}
-              >
-                Team <SortIcon col="school" />
-              </th>
-              <th
-                className="px-4 py-2.5 text-left cursor-pointer select-none hover:text-gray-800 dark:hover:text-zinc-200"
-                onClick={() => toggleSort('conference')}
-              >
-                Conference <SortIcon col="conference" />
-              </th>
-              <th
-                className="px-4 py-2.5 text-left cursor-pointer select-none hover:text-gray-800 dark:hover:text-zinc-200"
-                onClick={() => toggleSort('owner')}
-              >
-                Owner <SortIcon col="owner" />
-              </th>
+              {/* PLATFORM-099 — a `<th>` carrying only an onClick is not
+                  focusable and has no keyboard handler, so sorting was
+                  pointer-only. Adding a third such header would have made this
+                  page's primary affordance unreachable for keyboard users in one
+                  more place, so all three become buttons and expose `aria-sort`
+                  rather than leaving the new one consistent with two defects. */}
+              {SORTABLE_COLUMNS.map(({ key, label }) => (
+                <th
+                  key={key}
+                  scope="col"
+                  aria-sort={
+                    sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'
+                  }
+                  className="px-4 py-2.5 text-left"
+                >
+                  <button
+                    type="button"
+                    onClick={() => toggleSort(key)}
+                    className="select-none hover:text-gray-800 dark:hover:text-zinc-200"
+                  >
+                    {label} <SortIcon col={key} />
+                  </button>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50 dark:divide-zinc-800">

@@ -2,6 +2,7 @@ import { getAppState, setAppState } from '../../../lib/server/appStateStore.ts';
 import { requireAdminRequest } from '../../../lib/server/adminAuth.ts';
 import { isAuthorizedForLeague } from '../../../lib/leagueAuth.ts';
 import { isValidSlug, getLeague } from '../../../lib/leagueRegistry.ts';
+import { resolveLeagueOperatingYear } from '../../../lib/selectors/leagueLifecycle.ts';
 import type { League } from '../../../lib/league.ts';
 import { OWNER_ROSTER_OVERWRITE_ERROR } from '../../../lib/ownerRosterGuard.ts';
 import { parseOwnersCsv } from '../../../lib/parseOwnersCsv.ts';
@@ -125,7 +126,17 @@ export async function PUT(req: Request): Promise<Response> {
   // protection for a single-operator admin surface, not a mutual-exclusion lock.
   async function overwriteGuardResponse(): Promise<Response | null> {
     if (!league || !registeredLeague) return null;
-    if (year < registeredLeague.year) return null; // historical / backfill
+    // PLATFORM-099 — classify "historical" by the season the league is OPERATING
+    // in, resolved by the same lifecycle authority every surface uses.
+    //
+    // This read `registeredLeague.year`, the registry's top-level field. The
+    // roster page now sends the lifecycle year, and on a legacy record where the
+    // two have drifted the other way (`status.year` BELOW `league.year`) every
+    // save from that page classified as historical backfill — so the 409 never
+    // fired and an accidental save silently clobbered a populated active-season
+    // roster, defeating the AGENTS.md invariant-12 guard entirely and
+    // contradicting the confirmation copy that promises it.
+    if (year < resolveLeagueOperatingYear(registeredLeague)) return null; // historical / backfill
     if (override) return null;
     const existing = await getAppState<string>(scope, 'csv');
     if (!existingRosterIsPopulated(existing?.value)) return null;
