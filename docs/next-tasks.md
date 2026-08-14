@@ -1264,7 +1264,44 @@ Execution order within F2 (each slice is one independently deployable PR):
     - **NOT done, remaining future account-system work:** commissioner roles, invitations,
       membership acceptance/removal, ownership and transfer, commissioner league deletion,
       reauthentication, audit history.
-15. **PARKED — CFBD team IDs for provider matching** (question raised 2026-08-07; investigated
+15. **PARKED — owner identity as an ID, not a name** (owner direction, 2026-08-14, during
+    PLATFORM-098). Recorded because it is the eventual RESOLUTION of a defect class this project has
+    now paid for four times, not a new idea to schedule.
+
+    **Ownership is stored as a display NAME, in three places that can disagree.** For one league-year
+    the same person is written independently into `preseason-owners:{slug}:{year}` (the confirmation
+    record), `owners:{slug}:{year}` (the roster, `team,owner`), and `DraftState` — both `owners[]`
+    and every `pick.owner`. Nothing reconciles them, because the raw string IS the identity:
+    `deriveStandings` keys on `row.owner`, and the only comparison in `standings.ts` is
+    `=== NO_CLAIM_OWNER`.
+
+    **Every defect below is the same fact wearing different clothes**, and each was found separately:
+    - PLATFORM-092 — `DraftState` kept a COPY of the roster and the only screen that edited owners
+      never updated it. Fixed by deleting that copy; the picks were left holding theirs.
+    - PLATFORM-098 — editing owners after publication changed one record while every visible surface
+      read another.
+    - PLATFORM-098 review — renaming an owner in the roster editor, then reopening and confirming,
+      rebuilds the roster from `pick.owner` and silently reverts the rename. Guarding it needs a
+      warning at two separate doors, and the comparison needs canonical team identity to avoid
+      firing on aliases.
+    - PLATFORM-098 review — a reset carries membership forward by asking the roster "who holds
+      teams", which cannot represent an owner holding none, and cannot distinguish "this owner was
+      removed" from "this owner was renamed" because both look like a name in one list and not the
+      other.
+
+    **The owner's direction:** when user accounts arrive, ownership ties to an internal user ID and
+    the display name becomes a presentation component. That does not merely fix these — it makes them
+    unrepresentable. A rename stops being a data migration across three records and becomes an edit
+    to one field nothing else keys on, and "is this the same person" stops being string equality.
+
+    **Consequence for scheduling:** guards written against name-equality are interim by construction.
+    Prefer refusing an ambiguous operation and telling the operator, over reconciling names — a
+    reconciliation that guesses is the failure mode this whole class produces. Sequence this with the
+    account system (item 14's "remaining future account-system work"), not before it; the identity
+    seam already surveyed in `docs/architecture/identity-and-ownership.md` is the starting point, and
+    item 16 below is about TEAM identity, which is a different problem with a different answer.
+
+16. **PARKED — CFBD team IDs for provider matching** (question raised 2026-08-07; investigated
     read-only, not scheduled). Framed on the way in as "aliases may be obsolete now that we use CFBD
     IDs". **Both halves of that turned out not to hold**, so it is recorded as what it actually is: a
     correctness improvement to PROVIDER matching, not a simplification.
@@ -1293,7 +1330,7 @@ Execution order within F2 (each slice is one independently deployable PR):
       preview and observe what breaks. Expect roster reconciliation and score attachment to start
       missing matches.
 
-16. **PARKED — cross-league league-setup superview** (owner idea, 2026-08-07). A table of leagues ×
+17. **PARKED — cross-league league-setup superview** (owner idea, 2026-08-07). A table of leagues ×
     setup milestones for a chosen year, so an operator can audit **how many created leagues actually
     finish setup** — an activation/funnel measure ahead of going public. It passes the surface test
     deliberately: it represents something a human measures and decides on, not machinery that merely
