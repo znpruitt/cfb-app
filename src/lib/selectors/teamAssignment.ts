@@ -1,10 +1,6 @@
 import { type DraftState } from '../draft.ts';
 import { hasUsableOfficialRoster } from './confirmedRoster.ts';
-import {
-  draftPickCountIsComplete,
-  draftPicksAreComplete,
-  isDraftPublished,
-} from './draftPublication.ts';
+import { draftPickCountIsComplete, isDraftPublished } from './draftPublication.ts';
 
 /**
  * PLATFORM-094 — the ONE answer to "have this league's teams been assigned?"
@@ -123,7 +119,7 @@ export function selectTeamAssignment(input: TeamAssignmentInput): TeamAssignment
     if (draft && Array.isArray(draft.picks) && draft.picks.some((p) => p?.team == null)) {
       return blocked('draft-has-unassigned-picks');
     }
-    if (!draftPicksAreComplete(draft)) return blocked('draft-incomplete');
+
     return blocked('draft-not-published');
   }
 

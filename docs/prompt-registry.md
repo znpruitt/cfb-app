@@ -57,7 +57,7 @@ Rules:
   filtered out every team another owner held, so a draft where two owners ended up with each other's
   teams could not be fixed at all — there was no way to give Alice a team Bob was holding, and
   nothing could free one.
-- Sizing: 24 files, +749/-69 — within the stop-and-reassess signals. Derived at closeout.
+- Sizing: 25 files, +894/-88 — within the stop-and-reassess signals. Derived at closeout.
 - **`DraftPick.team` is now nullable, and that choice was the seam audit.** An empty string would
   have compiled everywhere and misbehaved quietly in each of the eleven consumers — `''.toLowerCase()`
   works, the identity resolver returns nothing, the CSV builder writes a blank row. `null` made the
@@ -131,8 +131,29 @@ Rules:
   route's, leaving held teams enabled where the route 422s; `draftPickCountIsComplete` was named the
   opposite of what it computes; the blocker order sent a short-AND-holed draft to the summary; and
   `=== null` let a missing `team` field through to a 500.
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3768/3768
-  (+16). Fourteen mutations across the new guards, all caught; two needed a second attempt before
+- **Round 3 — both reviewers verified the model HOLDS, and the remainder was consistency.**
+  `/code-review` states it tried and could not break either invariant the feature rests on: the
+  vacate refusal and the roster-sync condition are exact complements, and the confirm guard runs
+  before every dereference. That is the first round on this campaign where the core was confirmed
+  rather than questioned — the model written down in round 2 is what changed.
+- `draftRosterIsLive` is now a SHARED selector. The component and the route each derived it, and they
+  had already drifted once (the component demanded two distinct owners while the route accepts any
+  non-blank record, so a degenerate roster left picker entries enabled and every click 422'd).
+  Invariant 9 exists for precisely that.
+- The unfinished banner is no longer gated on the pick COUNT: a draft both short and holed produced
+  no banner and no control — reachable by reopen → take a held team → unpick — which is the same
+  no-explanation state the banner was added to remove, one door over. The count gate belongs in
+  `selectTeamAssignment`, which uses it to choose a destination.
+- `autoCompleteDraft` looked for holes only AFTER refusing as already-complete, so it could not fill
+  the exact vacancy the vacancy-filling code was written for; its pool precheck covered only the tail
+  slots; and a filled vacancy was not counted as work, so the control reported zero.
+- **`=== null` was aligned to `== null` at four more sites** (`actions.ts` twice,
+  `buildConfirmedOwnersCsv`, `DraftBoardGrid`, `OwnerRosterPanel`). The confirm route had already
+  adopted the defensive form with a test explaining why; the others let a MISSING field reach
+  `undefined.includes()` — a 500 where the guard gives a 422. `PickNavigator` was the last board
+  consumer rendering an unguarded `team`.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3770/3770
+  (+18). Eighteen mutations across the new guards, all caught; two needed a second attempt before
   they discriminated.
 
 ### PLATFORM-095-PUBLICATION-WAYFINDING-v1

@@ -86,21 +86,6 @@ export function isDraftPublished(draft: PublishableDraft | null | undefined): bo
 }
 
 /**
- * Whether every configured pick has been made.
- *
- * Reads defensively. `getAppState` performs no runtime validation, which is why
- * `selectTeamAssignment` types its roster input `unknown` and says so — the same
- * discipline has to apply to the DRAFT record, and briefly did not: this
- * dereferenced `settings.totalRounds` and `owners.length` on a trusted typed
- * slice, so a partial or hand-edited row threw `TypeError` instead of producing
- * a blocker. On the checklist that throw was swallowed and silently read as
- * "not assigned"; in `completeSetup` there is no catch, so a commissioner got a
- * raw crash in place of the refusal this derivation exists to produce.
- *
- * An unreadable draft is not a publishable one, so every degraded shape answers
- * `false`.
- */
-/**
  * Whether the expected NUMBER of picks exists, ignoring whether each holds a
  * team. Named for the count deliberately: an earlier name said "slots are
  * filled", which is the opposite of what it checks, and a caller choosing it by
@@ -147,6 +132,27 @@ export function draftPicksAreComplete(draft: ControllableDraft | null | undefine
   // this the summary would offer Confirm for a draft the confirm route then
   // refuses, which is the publish control lying about what it can do.
   return draft.picks.every((pick) => pick?.team != null);
+}
+
+/**
+ * Whether this draft's results are currently serving as the league's roster.
+ *
+ * The condition `pick/[n]` uses to refuse moving a team between owners, and the
+ * one the summary picker must use to decide whether to offer the move. It lived
+ * in both places independently and DRIFTED once already — the component used
+ * `hasUsableOfficialRoster` (two distinct owners) while the route accepts any
+ * non-blank record, so a degenerate roster left entries enabled and every click
+ * 422'd. AGENTS.md invariant 9 puts derived league data here for exactly this
+ * reason.
+ *
+ * Deliberately weaker than publication: it is true for a draft confirmed before
+ * `publishedPicks` existed, and for one beside a repair-imported CSV.
+ */
+export function draftRosterIsLive(
+  draft: Pick<DraftState, 'phase'> | null | undefined,
+  rosterRecordIsPresent: boolean
+): boolean {
+  return draft?.phase === 'complete' && rosterRecordIsPresent;
 }
 
 export type DraftPublicationControls = {
@@ -208,10 +214,13 @@ export function selectDraftPublicationControls(
   // exists to remove. Treat a missing roster as unpublished FOR THE CONTROLS,
   // which puts Confirm back and withdraws a Reopen that would reopen nothing.
   const standing = isDraftPublished(draft) && facts.publishedRosterExists;
+  // NOT gated on the count. A draft that is both short and holed produced no
+  // banner and no control — reachable by reopening, taking a held team, then
+  // unpicking — which is the same no-explanation state this exists to remove.
+  // The count gate belongs in `selectTeamAssignment`, which uses it to decide
+  // WHERE to route; the banner's text is true either way.
   const hasUnassignedPicks =
-    Array.isArray(draft.picks) &&
-    draftPickCountIsComplete(draft) &&
-    draft.picks.some((pick) => pick?.team == null);
+    Array.isArray(draft.picks) && draft.picks.some((pick) => pick?.team == null);
 
   return {
     canPublish: !standing && draftPicksAreComplete(draft),

@@ -406,3 +406,16 @@ test('a draft mid-correction says so, rather than showing nothing', () => {
   assert.match(html, /Every pick needs a team before this draft can be confirmed/);
   assert.doesNotMatch(html, /Confirm draft/, 'and still cannot be published');
 });
+
+test('a draft that is both short and holed still says it is unfinished', () => {
+  // The banner was gated on the pick COUNT, so this state produced no banner and
+  // no control — reachable by reopening a published draft, taking a held team,
+  // then unpicking. The same no-explanation state the banner exists to remove,
+  // one door over. The count gate belongs in the routing selector, not here.
+  const short = draftWith({
+    publishedPicks: null,
+    picks: [{ ...picks()[0]!, team: null }],
+  });
+
+  assert.match(render(short), /Draft unfinished/);
+});

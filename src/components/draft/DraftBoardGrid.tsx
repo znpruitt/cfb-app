@@ -40,7 +40,7 @@ export default function DraftBoardGrid({
   // it exactly as it renders a pick not yet made.
   const pickByNumber = new Map<number, { team: string; autoSelected: boolean }>();
   for (const pick of draft.picks) {
-    if (pick.team === null) continue;
+    if (pick?.team == null) continue;
     pickByNumber.set(pick.pickNumber, { team: pick.team, autoSelected: pick.autoSelected });
   }
 

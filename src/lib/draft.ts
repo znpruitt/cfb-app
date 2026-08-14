@@ -173,7 +173,7 @@ export function buildConfirmedOwnersCsv(
   // state — dropping it keeps this builder total instead of writing a blank
   // team into the league's ownership CSV.
   const rows: OwnerRow[] = picks
-    .filter((pick): pick is DraftPick & { team: string } => pick.team !== null)
+    .filter((pick): pick is DraftPick & { team: string } => pick?.team != null)
     .map((pick) => ({ team: pick.team, owner: pick.owner }));
   const draftedTeamsLower = new Set(rows.map((r) => r.team.toLowerCase()));
   for (const team of eligibleTeams) {

@@ -6,7 +6,10 @@ import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import { type DraftState, type DraftPick } from '@/lib/draft';
 import type { LeagueStatus } from '@/lib/league';
 import InterestingFactsPanel from './InterestingFactsPanel';
-import { selectDraftPublicationControls } from '@/lib/selectors/draftPublication';
+import {
+  draftRosterIsLive,
+  selectDraftPublicationControls,
+} from '@/lib/selectors/draftPublication';
 
 type DraftSummaryClientProps = {
   slug: string;
@@ -220,11 +223,10 @@ export default function DraftSummaryClient({
   // Which publication control to offer. Derived in the selector layer, not
   // recombined here — AGENTS.md invariant 9, and the reason the previous inline
   // version could stand a reopened draft up with NEITHER button.
-  // Mirrors the pick route's refusal EXACTLY — `phase === 'complete'` with any
-  // non-blank roster record. It used `publishedRosterExists`, which additionally
-  // demands two distinct owners, so a degenerate roster left held teams enabled
-  // and every click 422'd.
-  const rostersAreLive = draft.phase === 'complete' && rosterRecordIsPresent;
+  // The SHARED predicate, not a local re-derivation. This drifted once already
+  // (it demanded two distinct owners while the route accepts any non-blank
+  // record), which is what invariant 9 exists to prevent.
+  const rostersAreLive = draftRosterIsLive(draft, rosterRecordIsPresent);
 
   const { canPublish, canReopen, hasUnassignedPicks } = selectDraftPublicationControls(draft, {
     publishedRosterExists,

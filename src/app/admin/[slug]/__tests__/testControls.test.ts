@@ -629,3 +629,52 @@ test('autoCompleteDraft fills a vacated slot rather than publishing without it',
   );
   assert.equal(isDraftPublished(draft), true);
 });
+
+test('autoCompleteDraft fills a hole in an already-complete draft', async () => {
+  // Codex. Taking a held team on a normal complete-but-unconfirmed draft leaves
+  // `phase: 'complete'` with a vacated slot — and the refusal ran BEFORE the
+  // vacancy check, so the control could not fill the exact hole the
+  // vacancy-filling code was written for.
+  await seed(makeLeague(TEST_LEAGUE_SLUG, 2025, { state: 'preseason', year: 2025 }));
+  await seedLiveDemoDraft(2025);
+  const started = (await getAppState<DraftState>(draftScope(TEST_LEAGUE_SLUG), '2025'))!.value!;
+  await setAppState(draftScope(TEST_LEAGUE_SLUG), '2025', {
+    ...started,
+    phase: 'complete',
+    picks: [
+      {
+        pickNumber: 1,
+        round: 0,
+        roundPick: 0,
+        owner: 'Alice',
+        team: 'Texas',
+        pickedAt: 'x',
+        autoSelected: false,
+      },
+      {
+        pickNumber: 2,
+        round: 0,
+        roundPick: 1,
+        owner: 'Bob',
+        team: null,
+        pickedAt: 'x',
+        autoSelected: false,
+      },
+    ],
+    currentPickIndex: 2,
+  });
+
+  const outcome = await runWithRevalidateContext(() => autoCompleteDraft());
+  assert.equal(outcome.kind, 'completed', JSON.stringify(outcome));
+  assert.equal(
+    outcome.kind === 'completed' ? outcome.picks : 0,
+    1,
+    'a filled vacancy counts as work — reporting only new picks said zero'
+  );
+
+  const draft = (await getAppState<DraftState>(draftScope(TEST_LEAGUE_SLUG), '2025'))?.value;
+  assert.ok(
+    draft?.picks.every((p) => p.team != null),
+    'the hole is filled'
+  );
+});

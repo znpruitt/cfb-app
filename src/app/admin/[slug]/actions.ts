@@ -482,7 +482,14 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   if (!record?.value) return { kind: 'refused', reason: 'no-draft' };
 
   const draft = record.value;
-  if (draft.phase === 'complete') return { kind: 'refused', reason: 'already-complete' };
+  // Holes are detected BEFORE the phase refusal. Taking a held team on a normal
+  // complete-but-unconfirmed draft leaves `phase: 'complete'` with a vacated
+  // slot, so refusing here first meant this control could not fill the exact
+  // vacancy the vacancy-filling code was written for.
+  const hasVacancy = draft.picks.some((p) => p?.team == null);
+  if (draft.phase === 'complete' && !hasVacancy) {
+    return { kind: 'refused', reason: 'already-complete' };
+  }
   if (!draft.settings.draftOrder.length) return { kind: 'refused', reason: 'no-draft-order' };
 
   // All FBS teams from the catalog (same filter as the main draft route)
@@ -497,7 +504,7 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   // breaking the invariant the whole feature rests on. The comment here used to
   // call a null "unreachable"; this feature is what made it reachable.
   const vacatedIndexes = draft.picks
-    .map((p, idx) => (p.team === null ? idx : -1))
+    .map((p, idx) => (p?.team == null ? idx : -1))
     .filter((idx) => idx !== -1);
 
   const pickedTeams = new Set(draft.picks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : [])));
@@ -517,11 +524,14 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   if (remainingSlots <= 0 && vacatedIndexes.length === 0) {
     return { kind: 'refused', reason: 'slots-filled' };
   }
-  if (available.length < remainingSlots) {
+  // The precheck must cover BOTH consumers of the pool: the tail slots and the
+  // vacancies filled below. Checking only `remainingSlots` let the fill loop bail
+  // mid-way and report a `needed` that undercounts the real requirement.
+  if (available.length < Math.max(remainingSlots, 0) + vacatedIndexes.length) {
     return {
       kind: 'refused-not-enough-teams',
       available: available.length,
-      needed: remainingSlots,
+      needed: Math.max(remainingSlots, 0) + vacatedIndexes.length,
     };
   }
 
@@ -581,7 +591,7 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   for (const pick of allPicks) {
     // Every slot is filled above, so this is unreachable — kept so a future
     // change cannot write a blank roster row.
-    if (pick.team === null) continue;
+    if (pick?.team == null) continue;
     const team =
       pick.team.includes(',') || pick.team.includes('"')
         ? `"${pick.team.replace(/"/g, '""')}"`
@@ -615,5 +625,7 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   });
 
   revalidatePath(TEST_LEAGUE_ADMIN_PATH);
-  return { kind: 'completed', picks: newPicks.length };
+  // Vacancies filled count as work done — reporting only `newPicks` said zero
+  // when the control had filled nothing but holes.
+  return { kind: 'completed', picks: newPicks.length + vacatedIndexes.length };
 }

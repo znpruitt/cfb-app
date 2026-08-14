@@ -14,7 +14,11 @@ import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIden
 import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import teamsData from '@/data/teams.json';
-import { draftPicksSignature, isDraftPublished } from '@/lib/selectors/draftPublication';
+import {
+  draftPicksSignature,
+  draftRosterIsLive,
+  isDraftPublished,
+} from '@/lib/selectors/draftPublication';
 
 type TeamsJson = { items: TeamCatalogItem[] };
 
@@ -212,10 +216,10 @@ export async function PUT(
     // pick edit into the roster. Vacating is only safe where no roster is being
     // maintained.
     const rosterRecord = await txn.readKey<string>(`owners:${slug}:${year}`, 'csv');
-    const liveRoster =
-      current.phase === 'complete' &&
-      typeof rosterRecord?.value === 'string' &&
-      rosterRecord.value.trim() !== '';
+    const liveRoster = draftRosterIsLive(
+      current,
+      typeof rosterRecord?.value === 'string' && rosterRecord.value.trim() !== ''
+    );
 
     if (displacedIndex !== -1 && liveRoster) {
       const conflicting = current.picks[displacedIndex]!;
