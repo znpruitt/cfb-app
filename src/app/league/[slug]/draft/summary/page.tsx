@@ -131,6 +131,12 @@ export default async function DraftSummaryPage({
     getAppState<unknown>(`owners:${slug}:${year}`, 'csv'),
   ]);
   const publishedRosterExists = hasUsableOfficialRoster(ownersCsvRecord?.value ?? null);
+  // The pick route treats ANY non-blank CSV as a live roster and refuses moves
+  // against it. `hasUsableOfficialRoster` is stricter (>= 2 distinct owners), so
+  // a degenerate roster left held teams enabled in the picker and every click
+  // 422'd. The client needs the route's fact, not a stronger one.
+  const rosterRecordIsPresent =
+    typeof ownersCsvRecord?.value === 'string' && ownersCsvRecord.value.trim() !== '';
   const draft = draftRecord?.value ?? null;
 
   if (!draft) {
@@ -203,6 +209,7 @@ export default async function DraftSummaryPage({
         facts={facts}
         leagueStatus={league.status}
         publishedRosterExists={publishedRosterExists}
+        rosterRecordIsPresent={rosterRecordIsPresent}
         isAdmin={isAdmin}
       />
     </main>

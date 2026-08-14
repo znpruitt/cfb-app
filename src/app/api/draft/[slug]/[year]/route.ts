@@ -659,7 +659,9 @@ export async function PUT(
         // Select a random available team
         const { items } = teamsData as TeamsJson;
         const fbsTeams = getDraftEligibleTeams(items);
-        const pickedLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
+        const pickedLower = new Set(
+          draft.picks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : []))
+        );
 
         const available = fbsTeams.filter((t) => !pickedLower.has(t.school.toLowerCase()));
 

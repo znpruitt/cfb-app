@@ -268,7 +268,7 @@ Supersedes: (none)
       and the second read sits after the first assignments inside the same `try` — so a flake on it
       silently un-hides the method card for a league whose draft is complete. One selector fed from
       one read closes both.
-16. **PLATFORM-096 — pre-confirmation pick editing.** Owner-designed 2026-08-13, during the 095
+16. ⏳ **PLATFORM-096 — implemented, PR pending.** Owner-designed 2026-08-13, during the 095
     walkthrough. The summary page IS the editing surface before confirmation, and today it cannot
     express the corrections a commissioner actually needs.
 

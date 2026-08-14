@@ -349,3 +349,102 @@ test('a spectator is not handed a commissioner instruction', () => {
     'the commissioner still gets it'
   );
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-096 — the editor can express the correction a commissioner needs.
+// ---------------------------------------------------------------------------
+
+test('the picker offers held teams, and names who holds them', () => {
+  // Structural: the picker renders only while a pick is being edited, which this
+  // static harness cannot trigger. What is checkable is that the candidate list
+  // is no longer filtered by who holds a team — the filter was what made a
+  // mis-entered draft uncorrectable — and that each entry carries its holder.
+  const source = readFileSync(new URL('../DraftSummaryClient.tsx', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(source, /pickedTeamsLower/, 'held teams are no longer filtered out');
+  assert.match(source, /holderByTeam\.get\(name\.toLowerCase\(\)\) \?\? null/);
+  assert.match(source, /\{heldBy\}\s*<\/span>/, 'and the holder is named');
+  assert.match(
+    source,
+    /\(conferenceMap\[lower\] \?\? ''\)\.toLowerCase\(\)\.includes\(searchLower\)/,
+    'search matches conference, as the draft board always has'
+  );
+});
+
+test('an unassigned slot reads as unassigned, and blocks publication', () => {
+  const withHole = draftWith({
+    publishedPicks: null,
+    picks: [picks()[0]!, { ...picks()[1]!, team: null }],
+  });
+  const html = render(withHole);
+
+  // The chip, not italics: `DESIGN.md` reserves amber for champion/podium and
+  // blue for interactivity, and says to reach for type before pigment when a
+  // surface reads flat. A bordered token among plain names carries the weight.
+  // Red, not grey: an empty slot is what BLOCKS confirmation, and red is this
+  // app's established "needs resolving" signal. Pinned on the colour so a revert
+  // to a neutral treatment fails rather than passing on the word alone.
+  assert.match(html, /border-red-300[^"]*"[^>]*>\s*Unassigned/, 'the empty slot is a red chip');
+  assert.doesNotMatch(html, /Confirm draft/, 'and cannot be published');
+});
+
+test('a full draft can still be published', () => {
+  // Control: the block above must come from the hole, not from the render.
+  assert.match(render(draftWith({ publishedPicks: null })), /Confirm draft/);
+});
+
+test('a draft mid-correction says so, rather than showing nothing', () => {
+  // The third state. `canPublish` is false because of the hole and `canReopen`
+  // false because it never published, so the page rendered NO banner — the only
+  // indication was one table row reading "Unassigned". A state with no control
+  // and no explanation is the defect this campaign removes, and this one is
+  // created by the correction feature itself.
+  const withHole = draftWith({
+    publishedPicks: null,
+    picks: [picks()[0]!, { ...picks()[1]!, team: null }],
+  });
+  const html = render(withHole);
+
+  assert.match(html, /Draft unfinished/);
+  assert.match(html, /Every pick needs a team before this draft can be confirmed/);
+  assert.doesNotMatch(html, /Confirm draft/, 'and still cannot be published');
+});
+
+test('a draft that is both short and holed still says it is unfinished', () => {
+  // The banner was gated on the pick COUNT, so this state produced no banner and
+  // no control — reachable by reopening a published draft, taking a held team,
+  // then unpicking. The same no-explanation state the banner exists to remove,
+  // one door over. The count gate belongs in the routing selector, not here.
+  const short = draftWith({
+    publishedPicks: null,
+    picks: [{ ...picks()[0]!, team: null }],
+  });
+
+  assert.match(render(short), /Draft unfinished/);
+});
+
+test('arming the confirm keeps the banner green and the message in place', () => {
+  // It opened a full-width RED inset, which was wrong twice: red is this app's
+  // "needs resolving" signal and confirming a draft is the happy path, not a
+  // destructive act; and a band of colour across the whole banner is far more
+  // weight than a two-button choice needs. Structural, because arming is client
+  // state this harness cannot click.
+  const source = readFileSync(new URL('../DraftSummaryClient.tsx', import.meta.url), 'utf8');
+  const publishBlock = source.slice(
+    source.indexOf('{isAdmin && canPublish && ('),
+    source.indexOf('{isAdmin && canReopen && (')
+  );
+
+  // Surfaces and buttons specifically — `confirmError` stays red, because a
+  // failed confirm IS an error.
+  assert.ok(!publishBlock.includes('bg-red-'), 'no red surface in the publish path');
+  assert.ok(!publishBlock.includes('border-red-'), 'and no red border');
+  assert.match(publishBlock, /confirmOpen \? \(/, 'arming swaps the control, not the banner');
+  // The ARMED branch specifically, not just the block containing it.
+  const armed = publishBlock.slice(
+    publishBlock.indexOf('confirmOpen ? ('),
+    publishBlock.indexOf(') : (')
+  );
+  assert.match(armed, /bg-green-600/, 'the armed confirm is green');
+  assert.match(armed, /Cancel/, 'and offers a way out');
+});

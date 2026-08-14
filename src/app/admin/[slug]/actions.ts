@@ -27,7 +27,7 @@ import { TEST_LEAGUE_SLUG, type LeagueStatus } from '@/lib/league';
 import type { AutoCompleteDraftResult, TestControlResult } from '@/lib/testLeagueControl';
 import { requireAdminAction } from '@/lib/auth/requireAdminAction';
 import teamsData from '@/data/teams.json';
-import { draftPicksAreComplete, draftPicksSignature } from '@/lib/selectors/draftPublication';
+import { draftPickCountIsComplete, draftPicksSignature } from '@/lib/selectors/draftPublication';
 
 /** The admin path the demo controls revalidate. */
 const TEST_LEAGUE_ADMIN_PATH = `/admin/${TEST_LEAGUE_SLUG}`;
@@ -322,8 +322,10 @@ export async function setAssignmentMethod(
   // published draft returns the phase to `live` while keeping every pick, with
   // its roster still live in standings — so a phase test would call that "in
   // progress" and let one click discard a completed draft AND strand the
-  // rosters it published. `draftPicksAreComplete` is the same predicate the
-  // publication controls use, so the two cannot drift apart.
+  // rosters it published. The predicate is `draftPickCountIsComplete`, which is
+  // DELIBERATELY not the publication predicate — see the note at the call below.
+  // PLATFORM-096 split them because a draft mid-correction has every slot but one
+  // temporarily empty, and must still count as run.
   //
   // The guard lives HERE and not only in the card. `AssignmentMethodCard` is a
   // client component calling a Server Action, which is reachable without the
@@ -353,7 +355,9 @@ export async function setAssignmentMethod(
   // one, then switch to manual on top of it.
   if (league && typeof year === 'number' && method !== 'draft') {
     const draft = (await getAppState<DraftState>(draftScope(slug), String(year)))?.value ?? null;
-    if (draftPicksAreComplete(draft)) {
+    // `draftPickCountIsComplete`, not `draftPicksAreComplete`: a draft mid-correction
+    // has every slot but one temporarily empty, and must still count as run.
+    if (draftPickCountIsComplete(draft)) {
       // Returned, not thrown. Next.js redacts errors raised in a Server Action
       // before they reach the client in production builds, replacing the message
       // with an opaque digest — so a thrown refusal renders as a framework error
@@ -480,7 +484,14 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   if (!record?.value) return { kind: 'refused', reason: 'no-draft' };
 
   const draft = record.value;
-  if (draft.phase === 'complete') return { kind: 'refused', reason: 'already-complete' };
+  // Holes are detected BEFORE the phase refusal. Taking a held team on a normal
+  // complete-but-unconfirmed draft leaves `phase: 'complete'` with a vacated
+  // slot, so refusing here first meant this control could not fill the exact
+  // vacancy the vacancy-filling code was written for.
+  const hasVacancy = draft.picks.some((p) => p?.team == null);
+  if (draft.phase === 'complete' && !hasVacancy) {
+    return { kind: 'refused', reason: 'already-complete' };
+  }
   if (!draft.settings.draftOrder.length) return { kind: 'refused', reason: 'no-draft-order' };
 
   // All FBS teams from the catalog (same filter as the main draft route)
@@ -488,7 +499,17 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
     .map((t) => t.school)
     .filter((s) => s !== 'NoClaim');
 
-  const pickedTeams = new Set(draft.picks.map((p) => p.team.toLowerCase()));
+  // PLATFORM-096 — a VACATED slot must be filled, not skipped. `remainingSlots`
+  // counts an empty slot as taken, and the CSV writer below dropped it, so
+  // auto-complete published a roster one owner short while stamping
+  // `publishedPicks` — bypassing the confirm route's unassigned guard and
+  // breaking the invariant the whole feature rests on. The comment here used to
+  // call a null "unreachable"; this feature is what made it reachable.
+  const vacatedIndexes = draft.picks
+    .map((p, idx) => (p?.team == null ? idx : -1))
+    .filter((idx) => idx !== -1);
+
+  const pickedTeams = new Set(draft.picks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : [])));
   const available = allTeams.filter((t) => !pickedTeams.has(t.toLowerCase()));
 
   // Shuffle available teams (Fisher-Yates)
@@ -502,12 +523,17 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   const totalPicks = draft.settings.totalRounds * n;
   const remainingSlots = totalPicks - draft.picks.length;
 
-  if (remainingSlots <= 0) return { kind: 'refused', reason: 'slots-filled' };
-  if (available.length < remainingSlots) {
+  if (remainingSlots <= 0 && vacatedIndexes.length === 0) {
+    return { kind: 'refused', reason: 'slots-filled' };
+  }
+  // The precheck must cover BOTH consumers of the pool: the tail slots and the
+  // vacancies filled below. Checking only `remainingSlots` let the fill loop bail
+  // mid-way and report a `needed` that undercounts the real requirement.
+  if (available.length < Math.max(remainingSlots, 0) + vacatedIndexes.length) {
     return {
       kind: 'refused-not-enough-teams',
       available: available.length,
-      needed: remainingSlots,
+      needed: Math.max(remainingSlots, 0) + vacatedIndexes.length,
     };
   }
 
@@ -532,7 +558,25 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
     });
   }
 
-  const allPicks = [...draft.picks, ...newPicks];
+  // Vacated slots are filled first, from the same shuffled pool, so the published
+  // roster is whole.
+  const filled = [...draft.picks];
+  let poolIndex = remainingSlots > 0 ? remainingSlots : 0;
+  for (const idx of vacatedIndexes) {
+    const team = available[poolIndex++];
+    if (!team) {
+      // The REQUIREMENT, not the loop's cursor. Unreachable given the precheck
+      // above, but a pool index would understate what is actually needed.
+      return {
+        kind: 'refused-not-enough-teams',
+        available: available.length,
+        needed: Math.max(remainingSlots, 0) + vacatedIndexes.length,
+      };
+    }
+    filled[idx] = { ...filled[idx]!, team, pickedAt: now, autoSelected: true };
+  }
+
+  const allPicks = [...filled, ...newPicks];
 
   // Write completed draft state.
   //
@@ -554,6 +598,9 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   // Write owners CSV (same format as confirm route)
   const csvLines = ['team,owner'];
   for (const pick of allPicks) {
+    // Every slot is filled above, so this is unreachable — kept so a future
+    // change cannot write a blank roster row.
+    if (pick?.team == null) continue;
     const team =
       pick.team.includes(',') || pick.team.includes('"')
         ? `"${pick.team.replace(/"/g, '""')}"`
@@ -566,7 +613,7 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   }
 
   // Append NoClaim rows for undrafted teams
-  const draftedLower = new Set(allPicks.map((p) => p.team.toLowerCase()));
+  const draftedLower = new Set(allPicks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : [])));
   for (const teamName of allTeams) {
     if (!draftedLower.has(teamName.toLowerCase())) {
       const field =
@@ -587,5 +634,7 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   });
 
   revalidatePath(TEST_LEAGUE_ADMIN_PATH);
-  return { kind: 'completed', picks: newPicks.length };
+  // Vacancies filled count as work done — reporting only `newPicks` said zero
+  // when the control had filled nothing but holes.
+  return { kind: 'completed', picks: newPicks.length + vacatedIndexes.length };
 }

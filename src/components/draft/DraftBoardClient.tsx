@@ -129,7 +129,9 @@ export default function DraftBoardClient({
   // Placed after all hooks so Rules of Hooks are satisfied.
   if (!isAdmin) return <></>;
 
-  const pickedTeamsLower = new Set(draft.picks.map((p: DraftPick) => p.team.toLowerCase()));
+  const pickedTeamsLower = new Set(
+    draft.picks.flatMap((p: DraftPick) => (p.team ? [p.team.toLowerCase()] : []))
+  );
 
   // Build lowercase teamId → color map for DraftBoardGrid completed-cell left bars.
   // Lowercase keys tolerate casing differences between the CFBD catalog (used for

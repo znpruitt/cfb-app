@@ -17,7 +17,27 @@ export type DraftPick = {
   round: number;
   roundPick: number;
   owner: string;
-  team: string;
+  /**
+   * The team this pick holds, or `null` while the slot is empty.
+   *
+   * PLATFORM-096 — a pick can be temporarily EMPTY before confirmation. The
+   * summary editor lists every team, including ones other owners hold, and
+   * taking a held team leaves its previous holder's slot open until the
+   * commissioner fills it. That is the only way to correct a draft where two
+   * owners ended up with each other's teams; a swap cannot express "Alice should
+   * have Michigan, and Michigan's owner should get something else entirely".
+   *
+   * **Nullable rather than an empty string, deliberately.** `''` would compile
+   * everywhere and quietly misbehave in each of the eleven places that read this
+   * field — `''.toLowerCase()` works, the identity resolver returns nothing, the
+   * CSV builder writes a blank row. `null` makes the compiler enumerate those
+   * consumers instead of leaving them to be found by reading.
+   *
+   * An empty slot is an EDITING state and can never be published: confirmation
+   * is refused while any pick is empty, and standings read the confirmed roster
+   * rather than the draft, so a half-edited draft cannot reach anyone's record.
+   */
+  team: string | null;
   pickedAt: string;
   autoSelected: boolean;
 };
@@ -148,8 +168,14 @@ export function buildConfirmedOwnersCsv(
   picks: readonly DraftPick[],
   eligibleTeams: readonly Pick<TeamCatalogItem, 'school'>[]
 ): { csv: string; rowCount: number } {
-  const rows: OwnerRow[] = picks.map((pick) => ({ team: pick.team, owner: pick.owner }));
-  const draftedTeamsLower = new Set(picks.map((p) => p.team.toLowerCase()));
+  // An unassigned pick is not a roster row. The confirm route refuses to publish
+  // a draft holding one, so reaching here with a hole is a bug rather than a
+  // state — dropping it keeps this builder total instead of writing a blank
+  // team into the league's ownership CSV.
+  const rows: OwnerRow[] = picks
+    .filter((pick): pick is DraftPick & { team: string } => pick?.team != null)
+    .map((pick) => ({ team: pick.team, owner: pick.owner }));
+  const draftedTeamsLower = new Set(rows.map((r) => r.team.toLowerCase()));
   for (const team of eligibleTeams) {
     if (!draftedTeamsLower.has(team.school.toLowerCase())) {
       rows.push({ team: team.school, owner: NO_CLAIM_OWNER });

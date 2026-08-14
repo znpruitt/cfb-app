@@ -98,6 +98,25 @@ export async function POST(
       const teamsPerOwner = draft.settings.totalRounds;
       const totalExpectedPicks = teamsPerOwner * ownerCount;
 
+      // PLATFORM-096 — an EMPTY slot blocks publication, and says so as its own
+      // reason. A pick may be temporarily unassigned while the commissioner
+      // corrects the draft; that is an editing state which must never reach the
+      // league's rosters. Reported before the count check because a draft with a
+      // hole has the right NUMBER of picks and would otherwise fail further down
+      // with a confusing "unrecognized team" error.
+      // `== null` catches a MISSING field as well as an explicit null. A
+      // hand-edited or partly migrated record would otherwise slip past this and
+      // hit `pick.team!.toLowerCase()` below, producing a 500 in place of the
+      // 422 this guard exists to give — the same defensive posture
+      // `draftPicksSignature` and `isDraftPublished` already take.
+      const unassigned = draft.picks.filter((p) => p?.team == null).map((p) => p?.pickNumber);
+      if (unassigned.length > 0) {
+        return {
+          error: `Draft has ${unassigned.length} unassigned pick${unassigned.length === 1 ? '' : 's'} (#${unassigned.join(', #')}) — every pick needs a team before confirming.`,
+          status: 422,
+        };
+      }
+
       if (draft.picks.length !== totalExpectedPicks) {
         return {
           error: `Draft is not complete — ${draft.picks.length} of ${totalExpectedPicks} picks have been made (${teamsPerOwner} teams per owner × ${ownerCount} owners)`,
@@ -121,14 +140,14 @@ export async function POST(
       // Validate no team appears in more than one pick.
       const teamToPicks = new Map<string, number[]>();
       for (const pick of draft.picks) {
-        const key = pick.team.toLowerCase();
+        const key = pick.team!.toLowerCase();
         const existing = teamToPicks.get(key) ?? [];
         existing.push(pick.pickNumber);
         teamToPicks.set(key, existing);
       }
       const duplicateTeams = Array.from(teamToPicks.entries())
         .filter(([, picks]) => picks.length > 1)
-        .map(([team]) => draft.picks.find((p) => p.team.toLowerCase() === team)?.team ?? team);
+        .map(([team]) => draft.picks.find((p) => p.team!.toLowerCase() === team)?.team ?? team);
       if (duplicateTeams.length > 0) {
         return {
           error: `Duplicate team assignments found — the following teams have been picked more than once: ${duplicateTeams.join(', ')}. Resolve before confirming.`,
@@ -139,7 +158,7 @@ export async function POST(
       // Validate all pick.team values resolve to a draft-eligible team in the catalog.
       const eligibleTeamNames = new Set(eligibleTeams.map((t) => t.school.toLowerCase()));
       const unrecognizedTeams = draft.picks
-        .filter((p) => !eligibleTeamNames.has(p.team.toLowerCase()))
+        .filter((p) => !eligibleTeamNames.has(p.team!.toLowerCase()))
         .map((p) => p.team);
       if (unrecognizedTeams.length > 0) {
         return {
@@ -151,7 +170,7 @@ export async function POST(
       // Build owner assignment CSV — same format as the CSV upload route (header
       // "team,owner" + one row per pick, then NoClaim for undrafted eligible teams).
       // Shared builder with the post-confirm pick-edit path so the two can't diverge.
-      const draftedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
+      const draftedTeamsLower = new Set(draft.picks.map((p) => p.team!.toLowerCase()));
       const undraftedEligibleCount = eligibleTeams.filter(
         (t) => !draftedTeamsLower.has(t.school.toLowerCase())
       ).length;

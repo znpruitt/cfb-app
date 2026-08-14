@@ -59,7 +59,7 @@ export default function PickNavigator({ draft }: PickNavigatorProps): React.Reac
             Previous Pick
           </p>
           <p className="mt-0.5 text-sm text-gray-700 dark:text-zinc-300">
-            <span className="font-semibold">{lastPick.team}</span>
+            <span className="font-semibold">{lastPick.team ?? '—'}</span>
             <span className="ml-1 text-gray-400 dark:text-zinc-500">— {lastPick.owner}</span>
             {lastPick.autoSelected && (
               <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">(auto)</span>

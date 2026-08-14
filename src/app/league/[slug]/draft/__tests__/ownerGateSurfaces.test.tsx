@@ -593,3 +593,31 @@ test('the owners editor stays reachable after owners are confirmed', async () =>
   assert.match(html, new RegExp(`href="/admin/${SLUG}/preseason/owners"`));
   assert.match(html, /Edit owners →/);
 });
+
+test('the method switcher stays hidden while a slot is being corrected', async () => {
+  // The presentation half of the hole PLATFORM-095 closed. Tightening
+  // `draftPicksAreComplete` to require every slot FILLED made this page read a
+  // mid-correction draft as in-progress, so the card reappeared on the very
+  // screen the commissioner is correcting on — offering a switch the action then
+  // refuses. The page now uses the same count predicate the action does.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks: [picks[0]!, { ...picks[1]!, team: null }],
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
+
+  const html = await renderChecklist();
+  assert.doesNotMatch(html, /Assignment method/i, 'no switch offered mid-correction');
+  assert.match(html, /Fill the empty picks →/, 'and the step names itself');
+});

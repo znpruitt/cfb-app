@@ -50,6 +50,126 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-096-PRECONFIRMATION-PICK-EDITING-v1
+
+- Status: **Implemented — PR pending** (branch `platform/096-preconfirmation-pick-editing`).
+- Purpose: let a commissioner correct a mis-entered draft before confirming it. The summary editor
+  filtered out every team another owner held, so a draft where two owners ended up with each other's
+  teams could not be fixed at all — there was no way to give Alice a team Bob was holding, and
+  nothing could free one.
+- Sizing: **code 23 files, +883/-137 (746 net); docs 2 files; 25 files total** — derived at closeout
+  from `git diff --shortstat main...HEAD -- src`, not carried forward. Stated as CODE because a
+  combined figure cannot be recorded accurately: writing the number into this entry changes it, and
+  the first attempt here was stale before it was pushed. **The file count CROSSES the 15-file
+  stop-and-reassess signal**; net lines do not. What expanded, and the owner's approval for each, in order: the picker offering only unheld
+  teams was unfixable without a way to free one, so unassign came in; taking a held team followed
+  from "what if the issue isn't just a direct swap of picks?"; conference search matched
+  `DraftBoardClient`'s existing behaviour; "prior to confirmation editing on the summary page should
+  be allowable" and "the draft confirmation should be disallowed if there are any unassigned holes in
+  the draft order" were both explicit directions; and the unassigned-chip and blocked-banner
+  treatment came out of the owner's walkthrough. Ten of the 25 files are the six draft components
+  and four test suites that `DraftPick.team` becoming nullable forced the compiler to name — the
+  seam audit's cost, paid once. The objective stayed one thing throughout: correct a draft before
+  publishing it.
+- **`DraftPick.team` is now nullable, and that choice was the seam audit.** An empty string would
+  have compiled everywhere and misbehaved quietly in each of the eleven consumers — `''.toLowerCase()`
+  works, the identity resolver returns nothing, the CSV builder writes a blank row. `null` made the
+  compiler enumerate all eleven instead of leaving them to be found by reading. Given how PLATFORM-094
+  and 095 went, "the compiler lists every place to look" was worth more than a smaller diff.
+- **That safety claim was WRONG as originally stated, and both reviewers proved it by running the
+  routes.** The audit found that `standings.ts`, `leagueStandings.ts` and `gameOwnership.ts` derive
+  ownership from the confirmed roster CSV rather than from picks — true, and I concluded from it that
+  an empty slot "cannot reach anyone's record. Blast radius is presentation, not data." **But
+  `pick/[n]` IS the writer that carries a pick edit into that CSV** — I wrote that sync in
+  PLATFORM-094 and tightened it in 095, then reasoned about picks as if they were isolated from the
+  roster. The vacate was gated on `isDraftPublished` while the sync fires on `phase === 'complete'`
+  plus an existing CSV: in the gap (a draft confirmed before `publishedPicks` existed, or one beside
+  a repair import) a correction left an owner holding NOTHING in live standings. Both predicates are
+  now the same condition — a move is refused wherever a roster is live.
+- The correct statement of the safety property: an empty slot cannot reach anyone's record **because
+  the route refuses to create one while a roster is live**, not because picks and standings are
+  unconnected. They are connected, by this route.
+- **Taking a held team MOVES it and vacates the previous holder's slot** — deliberately not a swap.
+  The owner rejected swapping: "what if the issue isn't just a direct swap of picks?" A swap cannot
+  express "Alice should have Michigan, and Michigan's owner should get something else entirely".
+- **An empty slot can never be published**, which is what makes it safe. The confirm route refuses
+  with its own reason (reported before the count check, since a hole leaves the count unchanged and
+  would otherwise fail further down as a confusing "unrecognized team"), and `draftPicksAreComplete`
+  requires every pick to HOLD a team so the summary does not offer a Confirm the route then refuses.
+  **My own new test caught that second half** — I had blocked publication server-side and left the
+  publish control still offering it.
+- **A PUBLISHED draft refuses the move instead.** Its picks describe the league's live rosters, and
+  vacating one would detach a roster from the draft that produced it; post-publication corrections
+  are a roster edit, per the owner's standing rule.
+- Search now matches team name OR conference, which `DraftBoardClient` has always done and this
+  picker never did.
+- **Remediation round 1 — six findings, and three came from my own changes.** Beyond the predicate
+  mismatch above: `oldTeam: previousTeam ?? canonicalTeam` claimed in its comment to skip the patch
+  for an empty slot but made it a SELF-MOVE, so the draft changed while the CSV silently did not;
+  requiring every slot filled made a hole read as `draft-incomplete`, routing the commissioner to the
+  board where a vacated slot renders exactly like a pick never made and `POST /pick` refuses (the
+  defect PLATFORM-095 closed, reappearing through this feature's own correction window); and the same
+  stricter predicate re-opened the `setAssignmentMethod` hole 095 closed, so `draftPickCountIsComplete`
+  now serves "has this draft been run" separately from "can it be published". Also: a vacated slot no
+  longer claims `(auto)` provenance, and held teams are not offered as actions while the rosters are
+  live, since the route refuses them.
+- **The self-move needed a discriminating observation, not an obvious one.** Its CSV output is
+  byte-identical to skipping, so the roster cannot tell them apart; what differs is that it counts as
+  a WRITE — invalidating standings and re-stamping publication for an edit that changed no ownership.
+  Two mutation attempts passed before the assertion moved to that.
+- **Round 2 — I stopped patching and wrote the model down, which is what should have come first.**
+  Twelve findings across two rounds clustered in two places I had never specified: what the roster
+  should become in each of the pick-edit route's FOUR situations, and what the summary page should
+  show in each of its THREE states. I had been fixing one case at a time, and each fix broke its
+  neighbour.
+
+  The roster table, once written, resolved it immediately — `patchConfirmedOwnersCsv` MOVES
+  ownership (new team takes the old row's owner, old team goes to `NoClaim`), so an ordinary edit and
+  taking a held team are the same call, and **filling an empty slot needs an `oldTeam` that matches
+  no row**: the release branch stays unreachable and `effectiveOwner` falls through to the pick's
+  owner. Two earlier attempts got this wrong in opposite directions — a self-move that rewrote a row
+  to the owner it already had, then a skip that left the draft and roster silently disagreeing. **The
+  test I wrote for the second attempt asserted the skip as correct**, locking the defect in until a
+  reviewer read it.
+
+  The page table produced the missing THIRD state: a draft mid-correction is neither publishable nor
+  reopenable, so both banners stayed away and the page showed no status at all — the only sign was
+  one table row reading "Unassigned". A state with no control and no explanation is the defect this
+  whole campaign removes, and this one was created by the correction feature itself. My own recorded
+  design called for that banner and I had not built it.
+
+- Also fixed: the preseason page still used the tightened predicate after the action moved off it, so
+  the method card reappeared mid-correction offering a switch the action refuses; `autoCompleteDraft`
+  counted a vacated slot as filled and published a roster one owner short while stamping
+  `publishedPicks`, bypassing the confirm guard; the client's roster-live test was stricter than the
+  route's, leaving held teams enabled where the route 422s; `draftPickCountIsComplete` was named the
+  opposite of what it computes; the blocker order sent a short-AND-holed draft to the summary; and
+  `=== null` let a missing `team` field through to a 500.
+- **Round 3 — both reviewers verified the model HOLDS, and the remainder was consistency.**
+  `/code-review` states it tried and could not break either invariant the feature rests on: the
+  vacate refusal and the roster-sync condition are exact complements, and the confirm guard runs
+  before every dereference. That is the first round on this campaign where the core was confirmed
+  rather than questioned — the model written down in round 2 is what changed.
+- `draftRosterIsLive` is now a SHARED selector. The component and the route each derived it, and they
+  had already drifted once (the component demanded two distinct owners while the route accepts any
+  non-blank record, so a degenerate roster left picker entries enabled and every click 422'd).
+  Invariant 9 exists for precisely that.
+- The unfinished banner is no longer gated on the pick COUNT: a draft both short and holed produced
+  no banner and no control — reachable by reopen → take a held team → unpick — which is the same
+  no-explanation state the banner was added to remove, one door over. The count gate belongs in
+  `selectTeamAssignment`, which uses it to choose a destination.
+- `autoCompleteDraft` looked for holes only AFTER refusing as already-complete, so it could not fill
+  the exact vacancy the vacancy-filling code was written for; its pool precheck covered only the tail
+  slots; and a filled vacancy was not counted as work, so the control reported zero.
+- **`=== null` was aligned to `== null` at four more sites** (`actions.ts` twice,
+  `buildConfirmedOwnersCsv`, `DraftBoardGrid`, `OwnerRosterPanel`). The confirm route had already
+  adopted the defensive form with a test explaining why; the others let a MISSING field reach
+  `undefined.includes()` — a 500 where the guard gives a 422. `PickNavigator` was the last board
+  consumer rendering an unguarded `team`.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3770/3770
+  (+18). Eighteen mutations across the new guards, all caught; two needed a second attempt before
+  they discriminated.
+
 ### PLATFORM-095-PUBLICATION-WAYFINDING-v1
 
 - Status: **Merged** (PR #475, `7d7b4c62`, 2026-08-13). Four remediation rounds; the remaining
@@ -77,7 +197,7 @@ Rules:
   scroll. Label is exactly `Confirm draft` per the owner: the review IS the page, so a button asking
   the reader to review what they are looking at is noise. Tests pin the exact string.
 - **The checklist names the step, not the category.** `Complete team assignment before finishing
-  setup.` was generated from a blocker LIST and read identically whether the draft had not started,
+setup.` was generated from a blocker LIST and read identically whether the draft had not started,
   had finished unconfirmed, or had lost its roster — telling a commissioner who had just finished a
   draft to complete team assignment. `assignmentBlocker` already distinguished all four.
 - **Assignment-method switching was a CORRECTNESS item wearing an IA costume.**
@@ -2133,7 +2253,7 @@ Rules:
   `preseason` is PRESERVED, not newly created, and its test is a contract pin rather than a
   regression test (it passes with the exclusion removed). A
   registry whose only active leagues are the demo reports `skipped /
-  no-automatic-maintenance-target`; `no-maintenance-target` keeps its exact meaning (no active
+no-automatic-maintenance-target`; `no-maintenance-target` keeps its exact meaning (no active
   league at all). Such a year produces no per-year entry, provider request, settings read, probe or
   latch operation, presentation refresh, or receipt target. Unlike T2, no league-scoped duty transfers to the manual
   control — every durable key the route writes is year- or global-scoped. Two consequences of that
@@ -2453,7 +2573,7 @@ Rules:
   pause-vs-partial-disable, lifecycle-exempt Schedule) → round 3 (1 P2: distinct missing/invalid/
   unavailable receipt text) — all remediated (r3 fix user-authorized). Full suite 3140 green (+~50
   F2G tests: panels/freshness, operational-year, page, section renders, automation controls); `npx
-  tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean; fixture harness +
+tsc --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean; fixture harness +
   bypasses fully removed (0 residual references). PR size: ~13 changed src files (mandated component
   split + 3 panel-retirement deletions), net ~+1.1k — file count over the soft signal, net under;
   surfaced to the user. No provider/scheduler/production/BotID-stash operation.
@@ -2705,7 +2825,7 @@ Rules:
   `MaintenanceActionDetails` disclosure, wired into all five maintenance panels;
   `/admin/data/cache` renamed/reorganized (URL stable) + `/admin` landing card;
   `SeasonRolloverPanel` relocated to `/admin/season` (its owner); `POST
-  /api/admin/cache-historical-scores` instrumented with scoped provider-refresh status (+ shared
+/api/admin/cache-historical-scores` instrumented with scoped provider-refresh status (+ shared
   empty/drift classification); new pure `src/lib/scores/historicalScoreWrites.ts`. No new
   endpoints, no Diagnostics relocation (F2D), no scheduler receipts, no rollover behavior change.
 - Outcome: Eight allowlisted descriptors (routine/recovery/emergency — only the full game-stats
@@ -2766,7 +2886,7 @@ Rules:
   invariant-wording correction, and the panel's misleading global rollover date all fixed; the
   legacy missing-status repair path dispositioned as spec-deferred (owned by F2H lifecycle
   recovery). Codex round 2: clean. 53 new focused tests; full suite 2846 green; `npx tsc
-  --noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean. No provider, QStash,
+--noEmit`, `npm run lint:all`, `npm run build`, `git diff --check` clean. No provider, QStash,
   Vercel, or production rollover operation performed.
 - Status: Merged (PR #431, `5658413`, 2026-07-30).
 

@@ -6,7 +6,10 @@ import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import { type DraftState, type DraftPick } from '@/lib/draft';
 import type { LeagueStatus } from '@/lib/league';
 import InterestingFactsPanel from './InterestingFactsPanel';
-import { selectDraftPublicationControls } from '@/lib/selectors/draftPublication';
+import {
+  draftRosterIsLive,
+  selectDraftPublicationControls,
+} from '@/lib/selectors/draftPublication';
 
 type DraftSummaryClientProps = {
   slug: string;
@@ -27,6 +30,12 @@ type DraftSummaryClientProps = {
    * because the client cannot see `owners:{slug}:{year}`.
    */
   publishedRosterExists?: boolean;
+  /**
+   * Whether ANY non-blank roster record is stored — the exact fact
+   * `pick/[n]` uses to refuse moving a held team. Deliberately weaker than
+   * `publishedRosterExists`, which additionally requires two distinct owners.
+   */
+  rosterRecordIsPresent?: boolean;
   /** Server-verified: true when the current session passed the canAccessDraftBoard gate. */
   isAdmin: boolean;
 };
@@ -41,6 +50,7 @@ export default function DraftSummaryClient({
   facts,
   leagueStatus,
   publishedRosterExists = true,
+  rosterRecordIsPresent = true,
   isAdmin,
 }: DraftSummaryClientProps): React.ReactElement {
   const [draft, setDraft] = useState(initialDraft);
@@ -83,24 +93,42 @@ export default function DraftSummaryClient({
     .sort((a, b) => a.localeCompare(b));
 
   // Compute unclaimed teams (not assigned in draft picks)
-  const draftedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
+  const draftedTeamsLower = new Set(
+    draft.picks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : []))
+  );
   const unclaimedTeams = allTeamNames
     .filter((name) => !draftedTeamsLower.has(name.toLowerCase()))
     .sort((a, b) => a.localeCompare(b));
 
-  // The pick currently being edited (if any)
-  // Teams already assigned to other picks (the replaced pick remains selectable)
-  const pickedTeamsLower = new Set(
-    draft.picks.filter((p) => p.pickNumber !== editingPickNumber).map((p) => p.team.toLowerCase())
-  );
+  // PLATFORM-096 — who holds what, so the picker can OFFER a held team and name
+  // its current owner. The editor used to filter these out entirely, which made
+  // a draft where two owners hold each other's teams impossible to correct: you
+  // could not give Alice a team Bob was holding, and there was no way to free
+  // one.
+  const holderByTeam = new Map<string, string>();
+  for (const p of draft.picks) {
+    if (p.team && p.pickNumber !== editingPickNumber) {
+      holderByTeam.set(p.team.toLowerCase(), p.owner);
+    }
+  }
 
-  // Available teams for the inline picker: not drafted by another pick, optionally filtered by search
-  const searchLower = editSearch.toLowerCase();
-  const availableForPicker = allTeamNames.filter((name) => {
-    if (pickedTeamsLower.has(name.toLowerCase())) return false;
-    if (searchLower && !name.toLowerCase().includes(searchLower)) return false;
-    return true;
-  });
+  // PLATFORM-096 — EVERY team is offered, each carrying its current holder.
+  // Filtering held teams out is what made a mis-entered draft uncorrectable: you
+  // could not give Alice a team Bob was holding, and nothing could free one.
+  //
+  // Search matches the team name OR its conference, which the draft board has
+  // always done (`DraftBoardClient`) and this picker never did.
+  const searchLower = editSearch.trim().toLowerCase();
+  const availableForPicker = allTeamNames
+    .filter((name) => {
+      if (!searchLower) return true;
+      const lower = name.toLowerCase();
+      return (
+        lower.includes(searchLower) ||
+        (conferenceMap[lower] ?? '').toLowerCase().includes(searchLower)
+      );
+    })
+    .map((name) => ({ name, heldBy: holderByTeam.get(name.toLowerCase()) ?? null }));
 
   // -------------------------------------------------------------------------
   // Handlers
@@ -195,7 +223,12 @@ export default function DraftSummaryClient({
   // Which publication control to offer. Derived in the selector layer, not
   // recombined here — AGENTS.md invariant 9, and the reason the previous inline
   // version could stand a reopened draft up with NEITHER button.
-  const { canPublish, canReopen } = selectDraftPublicationControls(draft, {
+  // The SHARED predicate, not a local re-derivation. This drifted once already
+  // (it demanded two distinct owners while the route accepts any non-blank
+  // record), which is what invariant 9 exists to prevent.
+  const rostersAreLive = draftRosterIsLive(draft, rosterRecordIsPresent);
+
+  const { canPublish, canReopen, hasUnassignedPicks } = selectDraftPublicationControls(draft, {
     publishedRosterExists,
   });
 
@@ -241,15 +274,28 @@ export default function DraftSummaryClient({
               {editSearch ? 'No teams match.' : 'No available teams.'}
             </p>
           ) : (
-            availableForPicker.map((teamName) => (
+            availableForPicker.map(({ name, heldBy }) => (
               <button
-                key={teamName}
+                key={name}
                 type="button"
-                disabled={editLoading}
-                onClick={() => void handleEdit(teamName)}
-                className="w-full px-3 py-1.5 text-left text-sm text-gray-800 hover:bg-blue-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-blue-900"
+                // A held team cannot be taken while the rosters are live — the
+                // route refuses it — so the entry is not offered as an action.
+                // Listing it disabled still answers "who has this team".
+                disabled={editLoading || (heldBy !== null && rostersAreLive)}
+                onClick={() => void handleEdit(name)}
+                className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm text-gray-800 hover:bg-blue-50 disabled:opacity-50 disabled:hover:bg-transparent dark:text-zinc-200 dark:hover:bg-blue-900"
               >
-                {teamName}
+                <span>{name}</span>
+                {/* The owner's name alone is the signal — in a list of teams, a
+                    muted name beside one reads as "this belongs to them" without
+                    "held by" spelling it out. Naming them at all is what makes
+                    taking a held team deliberate rather than a surprise; the slot
+                    it leaves behind is the commissioner's to fill. */}
+                {heldBy && (
+                  <span className="shrink-0 text-xs text-gray-500 dark:text-zinc-400">
+                    {heldBy}
+                  </span>
+                )}
               </button>
             ))
           )}
@@ -269,6 +315,25 @@ export default function DraftSummaryClient({
         </Link>
       </div>
 
+      {/* PLATFORM-096 — the THIRD state. A draft mid-correction is neither
+          publishable nor reopenable, so both banners below stayed away and the
+          page showed no status at all — the only sign was the word "Unassigned"
+          in one table row. A state with no control and no explanation is what
+          this campaign exists to remove, and this one is created by the
+          correction feature itself. */}
+      {isAdmin && hasUnassignedPicks && (
+        <section className="rounded-xl border border-red-300 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950/40">
+          {/* Red, matching the chip below it: this state BLOCKS confirmation, and
+              grey read the same as ordinary muted copy. Two type registers rather
+              than one long line — scale contrast carries the hierarchy, colour
+              says which kind of state it is. */}
+          <p className="text-sm font-semibold text-red-900 dark:text-red-100">Draft unfinished</p>
+          <p className="mt-0.5 text-xs text-red-800 dark:text-red-300">
+            Every pick needs a team before this draft can be confirmed.
+          </p>
+        </section>
+      )}
+
       {/* PLATFORM-095 — the publish control sits at the TOP, not below the pick
           table. It is the one outstanding action on this page for a finished
           draft, and it was the last thing on a long scroll: the owner walked the
@@ -284,21 +349,27 @@ export default function DraftSummaryClient({
           {confirmError && (
             <p className="mb-3 text-sm text-red-700 dark:text-red-400">{confirmError}</p>
           )}
-          {confirmOpen ? (
-            /* An armed confirm, with no prose. The copy here said the write
-               "cannot be undone without starting a new draft or uploading a CSV
-               override" — verbose, internal, and FALSE now that Reopen exists
-               and keeps the roster live until re-confirmation. Amber is
-               reserved for champion/podium signals (DESIGN.md), so a
-               destructive confirm uses the error palette. */
-            <div className="flex items-center justify-between gap-4 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/40">
-              <p className="text-sm font-semibold text-red-900 dark:text-red-100">Confirm draft?</p>
-              <div className="flex shrink-0 gap-3">
+          {/* The banner stays GREEN through arming, and only the control swaps —
+              a compact Confirm/Cancel pair standing where the button was.
+              It previously opened a full-width red inset, which was wrong twice
+              over: red is this app's "needs resolving" signal and confirming a
+              draft is the happy path, not a destructive act; and a band of colour
+              across the whole banner is far more weight than a two-button choice
+              needs. Reopen and the manual-assignment switch keep the error
+              palette because those genuinely undo something. */}
+          <div className="flex items-center justify-between gap-4">
+            <p className="text-sm font-semibold text-green-800 dark:text-green-300">
+              {draft.publishedPicks
+                ? 'Draft reopened — confirm again to apply your changes.'
+                : 'Draft complete — these results are not yet the league\u2019s rosters.'}
+            </p>
+            {confirmOpen ? (
+              <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
                   disabled={confirmLoading}
                   onClick={() => void handleConfirm()}
-                  className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                  className="rounded bg-green-600 px-4 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60"
                 >
                   {confirmLoading ? 'Confirming…' : 'Confirm'}
                 </button>
@@ -306,24 +377,12 @@ export default function DraftSummaryClient({
                   type="button"
                   disabled={confirmLoading}
                   onClick={() => setConfirmOpen(false)}
-                  className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                  className="rounded px-3 py-2 text-sm text-green-800 hover:underline disabled:opacity-60 dark:text-green-300"
                 >
                   Cancel
                 </button>
               </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-sm font-semibold text-green-800 dark:text-green-300">
-                {/* A REOPENED draft is publishable but its previous rosters are
-                    STILL LIVE — the reopen dialog two panels down says exactly
-                    that. Telling the commissioner they have no rosters
-                    contradicts it. Distinguished by `publishedPicks` surviving
-                    the reopen: present means this draft published once. */}
-                {draft.publishedPicks
-                  ? 'Draft reopened — confirm again to apply your changes.'
-                  : 'Draft complete — these results are not yet the league\u2019s rosters.'}
-              </p>
+            ) : (
               <button
                 type="button"
                 onClick={() => setConfirmOpen(true)}
@@ -331,8 +390,8 @@ export default function DraftSummaryClient({
               >
                 Confirm draft
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </section>
       )}
 
@@ -423,9 +482,11 @@ export default function DraftSummaryClient({
                   </thead>
                   <tbody>
                     {picks.map((pick) => {
-                      const teamLower = pick.team.toLowerCase();
-                      const conf = conferenceMap[teamLower] ?? '';
-                      const displayName = displayNameMap[teamLower] ?? pick.team;
+                      const teamLower = pick.team?.toLowerCase() ?? '';
+                      const conf = pick.team ? (conferenceMap[teamLower] ?? '') : '';
+                      const displayName = pick.team
+                        ? (displayNameMap[teamLower] ?? pick.team)
+                        : 'Unassigned';
                       return (
                         <React.Fragment key={pick.pickNumber}>
                           <tr className="border-b border-gray-50 last:border-0 dark:border-zinc-800/50">
@@ -434,10 +495,22 @@ export default function DraftSummaryClient({
                             </td>
                             <td
                               className="py-1 pr-2 text-gray-800 dark:text-zinc-200"
-                              title={pick.team}
+                              title={pick.team ?? 'Unassigned'}
                             >
-                              {displayName}
-                              {pick.autoSelected && (
+                              {/* An outlined CHIP, not italics and not a colour.
+                                  `DESIGN.md` keeps amber for champion/podium and
+                                  blue for interactivity, and says to reach for
+                                  type before pigment when a page reads flat — a
+                                  bordered token among plain names is loud without
+                                  spending a colour that means something else. */}
+                              {pick.team ? (
+                                <span>{displayName}</span>
+                              ) : (
+                                <span className="inline-flex items-center rounded border border-red-300 px-1.5 py-0.5 text-xs font-medium text-red-700 dark:border-red-800 dark:text-red-400">
+                                  Unassigned
+                                </span>
+                              )}
+                              {pick?.team != null && pick.autoSelected && (
                                 <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
                                   (auto)
                                 </span>

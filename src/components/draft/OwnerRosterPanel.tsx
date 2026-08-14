@@ -17,7 +17,8 @@ export default function OwnerRosterPanel({ draft }: OwnerRosterPanelProps): Reac
   }
   for (const pick of draft.picks) {
     const list = picksByOwner.get(pick.owner);
-    if (list) list.push(pick.team);
+    // An unassigned slot contributes no team to the owner's roster.
+    if (list && pick?.team != null) list.push(pick.team);
   }
 
   const currentOwnerIdx =

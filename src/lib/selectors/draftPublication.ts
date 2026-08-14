@@ -47,7 +47,10 @@ export function draftPicksSignature(picks: readonly DraftPick[]): string {
   // nothing validates what comes back from the store, and a crash here would
   // replace a refusal with a 500.
   if (!Array.isArray(picks)) return JSON.stringify([]);
-  return JSON.stringify(picks.map((pick) => [pick?.pickNumber, pick?.owner, pick?.team]));
+  // `team` may be null for an unassigned slot; JSON encodes that distinctly from
+  // any team name, so a draft with a hole can never share a signature with a
+  // filled one.
+  return JSON.stringify(picks.map((pick) => [pick?.pickNumber, pick?.owner, pick?.team ?? null]));
 }
 
 /**
@@ -83,21 +86,21 @@ export function isDraftPublished(draft: PublishableDraft | null | undefined): bo
 }
 
 /**
- * Whether every configured pick has been made.
+ * Whether the expected NUMBER of picks exists, ignoring whether each holds a
+ * team. Named for the count deliberately: an earlier name said "slots are
+ * filled", which is the opposite of what it checks, and a caller choosing it by
+ * name would have got the weaker predicate.
  *
- * Reads defensively. `getAppState` performs no runtime validation, which is why
- * `selectTeamAssignment` types its roster input `unknown` and says so — the same
- * discipline has to apply to the DRAFT record, and briefly did not: this
- * dereferenced `settings.totalRounds` and `owners.length` on a trusted typed
- * slice, so a partial or hand-edited row threw `TypeError` instead of producing
- * a blocker. On the checklist that throw was swallowed and silently read as
- * "not assigned"; in `completeSetup` there is no catch, so a commissioner got a
- * raw crash in place of the refusal this derivation exists to produce.
- *
- * An unreadable draft is not a publishable one, so every degraded shape answers
- * `false`.
+ * `draftPicksAreComplete` additionally requires each slot to be filled, which is
+ * right for "can this be published" and wrong for "has this draft been run" — a
+ * fully-drafted league with one slot temporarily vacated during a correction
+ * would otherwise read as in-progress, re-opening the hole PLATFORM-095 closed
+ * in `setAssignmentMethod`: switching to `manual` mid-correction would strand the
+ * whole draft.
  */
-export function draftPicksAreComplete(draft: ControllableDraft | null | undefined): boolean {
+export function draftPickCountIsComplete(
+  draft: Parameters<typeof draftPicksAreComplete>[0]
+): boolean {
   if (!draft) return false;
   const rounds = draft.settings?.totalRounds;
   const ownerCount = draft.owners?.length;
@@ -107,7 +110,64 @@ export function draftPicksAreComplete(draft: ControllableDraft | null | undefine
   return expected > 0 && draft.picks.length === expected;
 }
 
+/**
+ * Whether every configured pick has been made AND holds a team — the predicate
+ * for "can this be published".
+ *
+ * Reads defensively: `getAppState` performs no runtime validation, so a partial
+ * or hand-edited row must produce `false` rather than a `TypeError`.
+ */
+export function draftPicksAreComplete(draft: ControllableDraft | null | undefined): boolean {
+  if (!draft) return false;
+  const rounds = draft.settings?.totalRounds;
+  const ownerCount = draft.owners?.length;
+  if (typeof rounds !== 'number' || typeof ownerCount !== 'number') return false;
+  if (!Array.isArray(draft.picks)) return false;
+  const expected = rounds * ownerCount;
+  if (expected <= 0 || draft.picks.length !== expected) return false;
+
+  // PLATFORM-096 — every slot must HOLD a team, not merely exist. A pick can be
+  // temporarily unassigned while the commissioner corrects the draft, and the
+  // count alone cannot see that: the hole leaves the length unchanged. Without
+  // this the summary would offer Confirm for a draft the confirm route then
+  // refuses, which is the publish control lying about what it can do.
+  return draft.picks.every((pick) => pick?.team != null);
+}
+
+/**
+ * Whether this draft's results are currently serving as the league's roster.
+ *
+ * The condition `pick/[n]` uses to refuse moving a team between owners, and the
+ * one the summary picker must use to decide whether to offer the move. It lived
+ * in both places independently and DRIFTED once already — the component used
+ * `hasUsableOfficialRoster` (two distinct owners) while the route accepts any
+ * non-blank record, so a degenerate roster left entries enabled and every click
+ * 422'd. AGENTS.md invariant 9 puts derived league data here for exactly this
+ * reason.
+ *
+ * Deliberately weaker than publication: it is true for a draft confirmed before
+ * `publishedPicks` existed, and for one beside a repair-imported CSV.
+ */
+export function draftRosterIsLive(
+  draft: Pick<DraftState, 'phase'> | null | undefined,
+  rosterRecordIsPresent: boolean
+): boolean {
+  return draft?.phase === 'complete' && rosterRecordIsPresent;
+}
+
 export type DraftPublicationControls = {
+  /**
+   * Every configured pick exists but at least one slot is empty, so the draft is
+   * mid-correction: neither publishable nor reopenable.
+   *
+   * Without this the summary page rendered NO banner in that state — `canPublish`
+   * false because of the hole, `canReopen` false because it never published — so
+   * the only sign anything was outstanding was the word "Unassigned" in one table
+   * row. A state with no control and no explanation is the exact defect this
+   * campaign has been about, and this one is created by the correction feature
+   * itself.
+   */
+  hasUnassignedPicks: boolean;
   /** Offer "Confirm Draft — Write Rosters to League". */
   canPublish: boolean;
   /** Offer "Reopen Draft". */
@@ -144,7 +204,7 @@ export function selectDraftPublicationControls(
   draft: ControllableDraft | null | undefined,
   facts: DraftPublicationFacts = { publishedRosterExists: true }
 ): DraftPublicationControls {
-  if (!draft) return { canPublish: false, canReopen: false };
+  if (!draft) return { canPublish: false, canReopen: false, hasUnassignedPicks: false };
 
   // A published draft whose roster has since been cleared is published in name
   // only: `selectTeamAssignment` blocks setup with `published-roster-missing`,
@@ -154,8 +214,17 @@ export function selectDraftPublicationControls(
   // exists to remove. Treat a missing roster as unpublished FOR THE CONTROLS,
   // which puts Confirm back and withdraws a Reopen that would reopen nothing.
   const standing = isDraftPublished(draft) && facts.publishedRosterExists;
+  // NOT gated on the count. A draft that is both short and holed produced no
+  // banner and no control — reachable by reopening, taking a held team, then
+  // unpicking — which is the same no-explanation state this exists to remove.
+  // The count gate belongs in `selectTeamAssignment`, which uses it to decide
+  // WHERE to route; the banner's text is true either way.
+  const hasUnassignedPicks =
+    Array.isArray(draft.picks) && draft.picks.some((pick) => pick?.team == null);
+
   return {
     canPublish: !standing && draftPicksAreComplete(draft),
     canReopen: standing,
+    hasUnassignedPicks,
   };
 }

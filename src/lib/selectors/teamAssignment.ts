@@ -1,6 +1,6 @@
 import { type DraftState } from '../draft.ts';
 import { hasUsableOfficialRoster } from './confirmedRoster.ts';
-import { draftPicksAreComplete, isDraftPublished } from './draftPublication.ts';
+import { draftPickCountIsComplete, isDraftPublished } from './draftPublication.ts';
 
 /**
  * PLATFORM-094 — the ONE answer to "have this league's teams been assigned?"
@@ -60,6 +60,8 @@ export type TeamAssignmentInput = {
 export type TeamAssignmentBlocker =
   | 'no-assignment-method'
   | 'draft-incomplete'
+  /** Every pick exists but at least one slot is empty — only the summary can fix it. */
+  | 'draft-has-unassigned-picks'
   | 'draft-not-published'
   | 'published-roster-missing'
   | 'manual-assignment-incomplete';
@@ -105,7 +107,19 @@ export function selectTeamAssignment(input: TeamAssignmentInput): TeamAssignment
     //
     // A draft still `live` with every pick in is one that was REOPENED: not
     // incomplete, simply not published.
-    if (!draftPicksAreComplete(draft)) return blocked('draft-incomplete');
+    // A draft holding an UNASSIGNED slot is not "incomplete" in the sense that
+    // routes to the board — every pick exists, one is temporarily empty, and only
+    // the summary editor can show or fill it. Routing it to the board sent the
+    // commissioner somewhere the slot renders exactly like a pick never made and
+    // `POST /pick` refuses, which is the defect PLATFORM-095 existed to close.
+    // Order matters: a draft that is genuinely SHORT is incomplete even if it
+    // also holds a hole, and its outstanding work is on the board. Only a draft
+    // whose slots all exist is "mid-correction" and routed to the summary.
+    if (!draftPickCountIsComplete(draft)) return blocked('draft-incomplete');
+    if (draft && Array.isArray(draft.picks) && draft.picks.some((p) => p?.team == null)) {
+      return blocked('draft-has-unassigned-picks');
+    }
+
     return blocked('draft-not-published');
   }
 

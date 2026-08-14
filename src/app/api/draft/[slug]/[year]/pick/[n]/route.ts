@@ -14,7 +14,11 @@ import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIden
 import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import teamsData from '@/data/teams.json';
-import { draftPicksSignature, isDraftPublished } from '@/lib/selectors/draftPublication';
+import {
+  draftPicksSignature,
+  draftRosterIsLive,
+  isDraftPublished,
+} from '@/lib/selectors/draftPublication';
 
 type TeamsJson = { items: TeamCatalogItem[] };
 
@@ -179,12 +183,54 @@ export async function PUT(
     // concurrent edits naming the same unclaimed team both passed their
     // pre-lock checks and serialized into a draft holding that team twice —
     // which `POST /confirm` then refuses permanently.
-    const conflicting = current.picks.find(
-      (p, idx) => idx !== pickIndex && p.team.toLowerCase() === canonicalTeam.toLowerCase()
+    // PLATFORM-096 — a held team is MOVED, not refused.
+    //
+    // This used to 422, which is why a mis-entered draft could not be corrected:
+    // giving Alice a team Bob holds was impossible, and nothing could free one.
+    // The team now transfers and Bob's slot is left EMPTY for the commissioner
+    // to fill. Deliberately not a swap — the owner rejected that, because the
+    // fix is often not a clean exchange ("Alice should have Michigan, and
+    // Michigan's owner should get something else entirely").
+    //
+    // Safe because an empty slot cannot be published: `POST /confirm` refuses a
+    // draft holding one, and standings read the confirmed roster rather than the
+    // draft, so a half-corrected draft never reaches anyone's record.
+    //
+    // Only while UNPUBLISHED. Once a draft has published, its picks describe the
+    // league's live rosters and vacating one would detach a roster from the
+    // draft that produced it; post-publication corrections are a roster edit.
+    const displacedIndex = current.picks.findIndex(
+      (p, idx) => idx !== pickIndex && p.team?.toLowerCase() === canonicalTeam.toLowerCase()
     );
-    if (conflicting) {
+    // The refusal uses the SAME condition as the roster sync below, not
+    // `isDraftPublished`. Those are different predicates and the gap between them
+    // was reachable: a draft confirmed before `publishedPicks` existed, or one
+    // beside a repair-imported CSV, is `complete` with a live roster but reads as
+    // unpublished — so the move was permitted AND the CSV was patched, leaving an
+    // owner holding nothing in live standings mid-correction. Both reviewers
+    // reproduced it against the real routes.
+    //
+    // The design claim that motivated this feature — "standings never read draft
+    // picks, so an empty slot cannot reach anyone's record" — is true of
+    // `standings.ts` and false of THIS ROUTE, which is the writer that carries a
+    // pick edit into the roster.
+    //
+    // Precisely: this refusal is the exact complement of the roster-sync
+    // condition below, so a move can never both vacate a slot AND patch a live
+    // CSV. It does NOT mean no roster exists — after a Reopen the previously
+    // confirmed CSV is still serving standings, and a vacate there diverges the
+    // draft from it until re-confirmation. That is the documented reopen
+    // contract, which ordinary pick edits already follow.
+    const rosterRecord = await txn.readKey<string>(`owners:${slug}:${year}`, 'csv');
+    const liveRoster = draftRosterIsLive(
+      current,
+      typeof rosterRecord?.value === 'string' && rosterRecord.value.trim() !== ''
+    );
+
+    if (displacedIndex !== -1 && liveRoster) {
+      const conflicting = current.picks[displacedIndex]!;
       outcome = {
-        error: `"${canonicalTeam}" is already pick #${conflicting.pickNumber} by ${conflicting.owner}`,
+        error: `"${canonicalTeam}" is already pick #${conflicting.pickNumber} by ${conflicting.owner}. This draft's rosters are live — reopen it before moving a team between owners.`,
         status: 422,
       };
       return;
@@ -198,7 +244,12 @@ export async function PUT(
       pickedAt: editedAt,
       autoSelected: false,
     };
-    const nextPicks = current.picks.map((p, idx) => (idx === pickIndex ? replacement : p));
+    const nextPicks = current.picks.map((p, idx) => {
+      if (idx === pickIndex) return replacement;
+      // The displaced holder's slot is vacated, not reassigned.
+      if (idx === displacedIndex) return { ...p, team: null };
+      return p;
+    });
 
     // Whether the stored roster described THIS DRAFT before the edit. Publication
     // provenance, kept separate from "a roster exists" — see the stamp below.
@@ -217,14 +268,28 @@ export async function PUT(
     // commissioner confirms again — and requiring an existing CSV is what stops
     // this route minting one, since it is not the publication authority.
     if (current.phase === 'complete') {
-      const ownersRecord = await txn.readKey<string>(`owners:${slug}:${year}`, 'csv');
-      const currentCsv = ownersRecord?.value;
+      const currentCsv = rosterRecord?.value;
       if (typeof currentCsv === 'string' && currentCsv.trim()) {
         await txn.writeKey(
           `owners:${slug}:${year}`,
           'csv',
           patchConfirmedOwnersCsv(currentCsv, {
-            oldTeam: previousTeam,
+            // `patchConfirmedOwnersCsv` MOVES ownership: the new team takes the
+            // old row's owner, and the old team is released to NoClaim. What
+            // each of this route's cases needs:
+            //
+            //   ordinary edit / taking a held team — move, exactly as above.
+            //   FILLING AN EMPTY SLOT — the slot released nothing, so only the
+            //     new team's row should change. Passing an `oldTeam` that
+            //     matches no row leaves the release branch unreachable and makes
+            //     `effectiveOwner` fall through to `fallbackOwner`, which is this
+            //     pick's owner. That is exactly the wanted result.
+            //
+            // Two earlier attempts got this wrong in opposite directions:
+            // `?? canonicalTeam` made it a self-move that rewrote the row to the
+            // owner it already had, and skipping the patch outright left the
+            // draft and the roster silently disagreeing.
+            oldTeam: previousTeam ?? '\u0000none',
             newTeam: canonicalTeam,
             fallbackOwner: replacement.owner,
             // Match persisted rows through the same canonical resolver used to

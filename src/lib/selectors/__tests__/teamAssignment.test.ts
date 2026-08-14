@@ -420,3 +420,39 @@ test('the signature is unambiguous for names containing its own punctuation', ()
   ]);
   assert.notEqual(draftPicksSignature(left), draftPicksSignature(right));
 });
+
+test('a draft with an empty slot is not merely "incomplete"', () => {
+  // PLATFORM-096 round 1. Every pick EXISTS; one is temporarily empty, and only
+  // the summary editor can show or fill it. Reporting `draft-incomplete` routed
+  // the commissioner to the board, where a vacated slot renders exactly like a
+  // pick never made and `POST /pick` refuses — the defect PLATFORM-095 closed,
+  // reappearing through the correction window this feature opens.
+  const base = draft();
+  const withHole = { ...base, picks: [base.picks[0]!, { ...base.picks[1]!, team: null }] };
+
+  const result = selectTeamAssignment(input({ draft: withHole }));
+  assert.equal(result.isAssigned, false);
+  assert.equal(result.blocker, 'draft-has-unassigned-picks');
+});
+
+test('a genuinely short draft is still incomplete', () => {
+  // The control: the blocker above must come from the HOLE, not from any draft
+  // that fails the completeness check.
+  const base = draft();
+  assert.equal(
+    selectTeamAssignment(input({ draft: { ...base, picks: [base.picks[0]!] } })).blocker,
+    'draft-incomplete'
+  );
+});
+
+test('a draft that is BOTH short and holed is reported as short', () => {
+  // Order matters. A hole routes to the summary, which is right for a
+  // fully-slotted draft mid-correction — but a draft that is genuinely short has
+  // its outstanding work on the board, and reporting the hole first sent the
+  // commissioner to the wrong page and only surfaced "Finish the draft →" after a
+  // second round-trip.
+  const base = draft();
+  const shortAndHoled = { ...base, picks: [{ ...base.picks[0]!, team: null }] };
+
+  assert.equal(selectTeamAssignment(input({ draft: shortAndHoled })).blocker, 'draft-incomplete');
+});

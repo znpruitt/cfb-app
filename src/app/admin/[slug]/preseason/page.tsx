@@ -9,7 +9,7 @@ import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
 import { getTeamAssignment } from '@/lib/server/teamAssignmentStore';
 import { getAppState } from '@/lib/server/appStateStore';
 import { draftScope, type DraftState } from '@/lib/draft';
-import { draftPicksAreComplete } from '@/lib/selectors/draftPublication';
+import { draftPickCountIsComplete } from '@/lib/selectors/draftPublication';
 import type { TeamAssignmentBlocker } from '@/lib/selectors/teamAssignment';
 import AssignmentMethodCard from '../components/AssignmentMethodCard';
 import { completeSetup } from '../actions';
@@ -56,7 +56,11 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
     assignmentBlocker = assignment.blocker;
     const draftRecord =
       (await getAppState<DraftState>(draftScope(slug), String(year)))?.value ?? null;
-    draftPicksComplete = draftPicksAreComplete(draftRecord);
+    // `draftPickCountIsComplete`, matching `setAssignmentMethod`. The tightened
+    // predicate reads false while a slot is vacated, so this card reappeared on
+    // the very screen the commissioner is correcting on, offering a switch the
+    // action then refuses — the presentation half of the hole PLATFORM-095 closed.
+    draftPicksComplete = draftPickCountIsComplete(draftRecord);
     draftHasPicks = Array.isArray(draftRecord?.picks) && draftRecord.picks.length > 0;
   } catch {
     // Storage unavailable — checklist shows incomplete
@@ -79,8 +83,12 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   // `draft-not-published` and `published-roster-missing` both mean the picks are
   // in and the remaining step is Confirm, which lives on the summary page.
   // Anything else — no draft yet, or one still running — belongs at setup.
+  // `draft-has-unassigned-picks` routes to the SUMMARY too: only the summary
+  // editor can show or fill an empty slot.
   const needsPublishing =
-    assignmentBlocker === 'draft-not-published' || assignmentBlocker === 'published-roster-missing';
+    assignmentBlocker === 'draft-not-published' ||
+    assignmentBlocker === 'published-roster-missing' ||
+    assignmentBlocker === 'draft-has-unassigned-picks';
 
   // `manual-assignment-incomplete` deliberately gets NO destination: `teamsHref`
   // used to resolve to this very page, so the row promised an action that
@@ -135,11 +143,13 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   const assignmentAction =
     assignmentBlocker === 'draft-not-published' || assignmentBlocker === 'published-roster-missing'
       ? 'Confirm draft results →'
-      : assignmentBlocker === 'draft-incomplete'
-        ? 'Finish the draft →'
-        : assignmentBlocker === 'no-assignment-method'
-          ? 'Choose a method →'
-          : null;
+      : assignmentBlocker === 'draft-has-unassigned-picks'
+        ? 'Fill the empty picks →'
+        : assignmentBlocker === 'draft-incomplete'
+          ? 'Finish the draft →'
+          : assignmentBlocker === 'no-assignment-method'
+            ? 'Choose a method →'
+            : null;
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
@@ -251,27 +261,12 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
             ) : null}
           </li>
 
-          {/* Setup complete — satisfied by Complete Setup action */}
-          <li className="flex items-center gap-2">
-            <span
-              className={
-                isSetupComplete
-                  ? 'text-green-600 dark:text-green-400'
-                  : 'text-gray-300 dark:text-zinc-600'
-              }
-            >
-              {isSetupComplete ? '✓' : '○'}
-            </span>
-            <span
-              className={
-                isSetupComplete
-                  ? 'text-gray-700 dark:text-zinc-300'
-                  : 'text-gray-400 dark:text-zinc-500'
-              }
-            >
-              Setup complete
-            </span>
-          </li>
+          {/* PLATFORM-096 — there is deliberately NO "Setup complete" row.
+              It stated the same fact as the control directly beneath the list,
+              in both directions: unticked beside the Complete Setup button, and
+              ticked beside the "Setup Complete ✓" badge that replaces it. The
+              button is the sign-off on every row above it, so the list holds the
+              PREREQUISITES and the button holds the act. */}
         </ol>
       </section>
 
