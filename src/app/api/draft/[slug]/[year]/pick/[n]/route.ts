@@ -179,12 +179,29 @@ export async function PUT(
     // concurrent edits naming the same unclaimed team both passed their
     // pre-lock checks and serialized into a draft holding that team twice —
     // which `POST /confirm` then refuses permanently.
-    const conflicting = current.picks.find(
-      (p, idx) => idx !== pickIndex && p.team.toLowerCase() === canonicalTeam.toLowerCase()
+    // PLATFORM-096 — a held team is MOVED, not refused.
+    //
+    // This used to 422, which is why a mis-entered draft could not be corrected:
+    // giving Alice a team Bob holds was impossible, and nothing could free one.
+    // The team now transfers and Bob's slot is left EMPTY for the commissioner
+    // to fill. Deliberately not a swap — the owner rejected that, because the
+    // fix is often not a clean exchange ("Alice should have Michigan, and
+    // Michigan's owner should get something else entirely").
+    //
+    // Safe because an empty slot cannot be published: `POST /confirm` refuses a
+    // draft holding one, and standings read the confirmed roster rather than the
+    // draft, so a half-corrected draft never reaches anyone's record.
+    //
+    // Only while UNPUBLISHED. Once a draft has published, its picks describe the
+    // league's live rosters and vacating one would detach a roster from the
+    // draft that produced it; post-publication corrections are a roster edit.
+    const displacedIndex = current.picks.findIndex(
+      (p, idx) => idx !== pickIndex && p.team?.toLowerCase() === canonicalTeam.toLowerCase()
     );
-    if (conflicting) {
+    if (displacedIndex !== -1 && isDraftPublished(current)) {
+      const conflicting = current.picks[displacedIndex]!;
       outcome = {
-        error: `"${canonicalTeam}" is already pick #${conflicting.pickNumber} by ${conflicting.owner}`,
+        error: `"${canonicalTeam}" is already pick #${conflicting.pickNumber} by ${conflicting.owner} — reopen the draft before moving a team between owners.`,
         status: 422,
       };
       return;
@@ -198,7 +215,12 @@ export async function PUT(
       pickedAt: editedAt,
       autoSelected: false,
     };
-    const nextPicks = current.picks.map((p, idx) => (idx === pickIndex ? replacement : p));
+    const nextPicks = current.picks.map((p, idx) => {
+      if (idx === pickIndex) return replacement;
+      // The displaced holder's slot is vacated, not reassigned.
+      if (idx === displacedIndex) return { ...p, team: null };
+      return p;
+    });
 
     // Whether the stored roster described THIS DRAFT before the edit. Publication
     // provenance, kept separate from "a roster exists" — see the stamp below.
@@ -224,7 +246,9 @@ export async function PUT(
           `owners:${slug}:${year}`,
           'csv',
           patchConfirmedOwnersCsv(currentCsv, {
-            oldTeam: previousTeam,
+            // An unassigned slot has no row to move; the CSV patch is skipped
+            // for it, and `?? canonicalTeam` keeps the call total.
+            oldTeam: previousTeam ?? canonicalTeam,
             newTeam: canonicalTeam,
             fallbackOwner: replacement.owner,
             // Match persisted rows through the same canonical resolver used to

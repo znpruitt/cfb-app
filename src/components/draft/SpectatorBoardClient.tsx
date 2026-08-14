@@ -42,7 +42,9 @@ export default function SpectatorBoardClient({
     return () => clearInterval(id);
   }, [draft.phase, refresh]);
 
-  const pickedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
+  const pickedTeamsLower = new Set(
+    draft.picks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : []))
+  );
 
   // Build lowercase teamId → color map for DraftBoardGrid completed-cell left bars.
   // Lowercase keys tolerate casing differences between the CFBD catalog (insights)

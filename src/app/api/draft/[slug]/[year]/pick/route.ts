@@ -106,7 +106,7 @@ export async function POST(
 
   // Validate team not already picked
   const alreadyPicked = draft.picks.some(
-    (p) => p.team.toLowerCase() === canonicalTeam.toLowerCase()
+    (p) => p.team?.toLowerCase() === canonicalTeam.toLowerCase()
   );
   if (alreadyPicked) {
     return NextResponse.json(

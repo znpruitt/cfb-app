@@ -165,9 +165,13 @@ test('POST /pick accepts a valid alias that resolves to a catalog team', async (
 
   const persisted = await readPersisted();
   assert.equal(persisted.picks.length, 1);
+  // A pick made through `POST /pick` always holds a team; only the summary
+  // editor can vacate a slot (PLATFORM-096), so a null here is a real failure.
+  const resolved = persisted.picks[0]!.team;
+  assert.ok(resolved !== null, 'a made pick holds a team');
   assert.ok(
-    ELIGIBLE_SCHOOLS.has(persisted.picks[0]!.team.toLowerCase()),
-    `resolved team "${persisted.picks[0]!.team}" must be in the eligible catalog`
+    ELIGIBLE_SCHOOLS.has(resolved.toLowerCase()),
+    `resolved team "${resolved}" must be in the eligible catalog`
   );
 });
 

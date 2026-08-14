@@ -47,7 +47,10 @@ export function draftPicksSignature(picks: readonly DraftPick[]): string {
   // nothing validates what comes back from the store, and a crash here would
   // replace a refusal with a 500.
   if (!Array.isArray(picks)) return JSON.stringify([]);
-  return JSON.stringify(picks.map((pick) => [pick?.pickNumber, pick?.owner, pick?.team]));
+  // `team` may be null for an unassigned slot; JSON encodes that distinctly from
+  // any team name, so a draft with a hole can never share a signature with a
+  // filled one.
+  return JSON.stringify(picks.map((pick) => [pick?.pickNumber, pick?.owner, pick?.team ?? null]));
 }
 
 /**
@@ -104,7 +107,14 @@ export function draftPicksAreComplete(draft: ControllableDraft | null | undefine
   if (typeof rounds !== 'number' || typeof ownerCount !== 'number') return false;
   if (!Array.isArray(draft.picks)) return false;
   const expected = rounds * ownerCount;
-  return expected > 0 && draft.picks.length === expected;
+  if (expected <= 0 || draft.picks.length !== expected) return false;
+
+  // PLATFORM-096 — every slot must HOLD a team, not merely exist. A pick can be
+  // temporarily unassigned while the commissioner corrects the draft, and the
+  // count alone cannot see that: the hole leaves the length unchanged. Without
+  // this the summary would offer Confirm for a draft the confirm route then
+  // refuses, which is the publish control lying about what it can do.
+  return draft.picks.every((pick) => pick?.team != null);
 }
 
 export type DraftPublicationControls = {

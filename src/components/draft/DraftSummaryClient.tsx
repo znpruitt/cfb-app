@@ -83,24 +83,42 @@ export default function DraftSummaryClient({
     .sort((a, b) => a.localeCompare(b));
 
   // Compute unclaimed teams (not assigned in draft picks)
-  const draftedTeamsLower = new Set(draft.picks.map((p) => p.team.toLowerCase()));
+  const draftedTeamsLower = new Set(
+    draft.picks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : []))
+  );
   const unclaimedTeams = allTeamNames
     .filter((name) => !draftedTeamsLower.has(name.toLowerCase()))
     .sort((a, b) => a.localeCompare(b));
 
-  // The pick currently being edited (if any)
-  // Teams already assigned to other picks (the replaced pick remains selectable)
-  const pickedTeamsLower = new Set(
-    draft.picks.filter((p) => p.pickNumber !== editingPickNumber).map((p) => p.team.toLowerCase())
-  );
+  // PLATFORM-096 — who holds what, so the picker can OFFER a held team and name
+  // its current owner. The editor used to filter these out entirely, which made
+  // a draft where two owners hold each other's teams impossible to correct: you
+  // could not give Alice a team Bob was holding, and there was no way to free
+  // one.
+  const holderByTeam = new Map<string, string>();
+  for (const p of draft.picks) {
+    if (p.team && p.pickNumber !== editingPickNumber) {
+      holderByTeam.set(p.team.toLowerCase(), p.owner);
+    }
+  }
 
-  // Available teams for the inline picker: not drafted by another pick, optionally filtered by search
-  const searchLower = editSearch.toLowerCase();
-  const availableForPicker = allTeamNames.filter((name) => {
-    if (pickedTeamsLower.has(name.toLowerCase())) return false;
-    if (searchLower && !name.toLowerCase().includes(searchLower)) return false;
-    return true;
-  });
+  // PLATFORM-096 — EVERY team is offered, each carrying its current holder.
+  // Filtering held teams out is what made a mis-entered draft uncorrectable: you
+  // could not give Alice a team Bob was holding, and nothing could free one.
+  //
+  // Search matches the team name OR its conference, which the draft board has
+  // always done (`DraftBoardClient`) and this picker never did.
+  const searchLower = editSearch.trim().toLowerCase();
+  const availableForPicker = allTeamNames
+    .filter((name) => {
+      if (!searchLower) return true;
+      const lower = name.toLowerCase();
+      return (
+        lower.includes(searchLower) ||
+        (conferenceMap[lower] ?? '').toLowerCase().includes(searchLower)
+      );
+    })
+    .map((name) => ({ name, heldBy: holderByTeam.get(name.toLowerCase()) ?? null }));
 
   // -------------------------------------------------------------------------
   // Handlers
@@ -241,15 +259,23 @@ export default function DraftSummaryClient({
               {editSearch ? 'No teams match.' : 'No available teams.'}
             </p>
           ) : (
-            availableForPicker.map((teamName) => (
+            availableForPicker.map(({ name, heldBy }) => (
               <button
-                key={teamName}
+                key={name}
                 type="button"
                 disabled={editLoading}
-                onClick={() => void handleEdit(teamName)}
-                className="w-full px-3 py-1.5 text-left text-sm text-gray-800 hover:bg-blue-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-blue-900"
+                onClick={() => void handleEdit(name)}
+                className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm text-gray-800 hover:bg-blue-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-blue-900"
               >
-                {teamName}
+                <span>{name}</span>
+                {/* Naming the holder is what makes taking a held team a
+                    deliberate act rather than a surprise — the slot it leaves
+                    behind is the commissioner's to fill. */}
+                {heldBy && (
+                  <span className="shrink-0 text-xs text-gray-500 dark:text-zinc-400">
+                    held by {heldBy}
+                  </span>
+                )}
               </button>
             ))
           )}
@@ -423,9 +449,11 @@ export default function DraftSummaryClient({
                   </thead>
                   <tbody>
                     {picks.map((pick) => {
-                      const teamLower = pick.team.toLowerCase();
-                      const conf = conferenceMap[teamLower] ?? '';
-                      const displayName = displayNameMap[teamLower] ?? pick.team;
+                      const teamLower = pick.team?.toLowerCase() ?? '';
+                      const conf = pick.team ? (conferenceMap[teamLower] ?? '') : '';
+                      const displayName = pick.team
+                        ? (displayNameMap[teamLower] ?? pick.team)
+                        : 'Unassigned';
                       return (
                         <React.Fragment key={pick.pickNumber}>
                           <tr className="border-b border-gray-50 last:border-0 dark:border-zinc-800/50">
@@ -434,9 +462,15 @@ export default function DraftSummaryClient({
                             </td>
                             <td
                               className="py-1 pr-2 text-gray-800 dark:text-zinc-200"
-                              title={pick.team}
+                              title={pick.team ?? 'Unassigned'}
                             >
-                              {displayName}
+                              <span
+                                className={
+                                  pick.team ? '' : 'italic text-gray-400 dark:text-zinc-500'
+                                }
+                              >
+                                {displayName}
+                              </span>
                               {pick.autoSelected && (
                                 <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
                                   (auto)

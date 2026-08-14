@@ -50,6 +50,40 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-096-PRECONFIRMATION-PICK-EDITING-v1
+
+- Status: **Implemented — PR pending** (branch `platform/096-preconfirmation-pick-editing`).
+- Purpose: let a commissioner correct a mis-entered draft before confirming it. The summary editor
+  filtered out every team another owner held, so a draft where two owners ended up with each other's
+  teams could not be fixed at all — there was no way to give Alice a team Bob was holding, and
+  nothing could free one.
+- Sizing: 15 files, +270/-48 — within the stop-and-reassess signals. Derived at closeout.
+- **`DraftPick.team` is now nullable, and that choice was the seam audit.** An empty string would
+  have compiled everywhere and misbehaved quietly in each of the eleven consumers — `''.toLowerCase()`
+  works, the identity resolver returns nothing, the CSV builder writes a blank row. `null` made the
+  compiler enumerate all eleven instead of leaving them to be found by reading. Given how PLATFORM-094
+  and 095 went, "the compiler lists every place to look" was worth more than a smaller diff.
+- **The audit's key finding made the design safe: standings never read draft picks.** `standings.ts`,
+  `leagueStandings.ts` and `gameOwnership.ts` derive ownership from the confirmed roster CSV, so an
+  empty slot lives entirely inside the draft record and its display surfaces and cannot reach anyone's
+  record. Blast radius is presentation, not data.
+- **Taking a held team MOVES it and vacates the previous holder's slot** — deliberately not a swap.
+  The owner rejected swapping: "what if the issue isn't just a direct swap of picks?" A swap cannot
+  express "Alice should have Michigan, and Michigan's owner should get something else entirely".
+- **An empty slot can never be published**, which is what makes it safe. The confirm route refuses
+  with its own reason (reported before the count check, since a hole leaves the count unchanged and
+  would otherwise fail further down as a confusing "unrecognized team"), and `draftPicksAreComplete`
+  requires every pick to HOLD a team so the summary does not offer a Confirm the route then refuses.
+  **My own new test caught that second half** — I had blocked publication server-side and left the
+  publish control still offering it.
+- **A PUBLISHED draft refuses the move instead.** Its picks describe the league's live rosters, and
+  vacating one would detach a roster from the draft that produced it; post-publication corrections
+  are a roster edit, per the owner's standing rule.
+- Search now matches team name OR conference, which `DraftBoardClient` has always done and this
+  picker never did.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3758/3758
+  (+6). Five mutations across the new guards, all caught.
+
 ### PLATFORM-095-PUBLICATION-WAYFINDING-v1
 
 - Status: **Merged** (PR #475, `7d7b4c62`, 2026-08-13). Four remediation rounds; the remaining

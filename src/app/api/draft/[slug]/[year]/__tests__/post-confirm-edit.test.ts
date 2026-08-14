@@ -575,7 +575,7 @@ test('every draft-derived value is computed INSIDE the pick-edit transaction', (
   assert.match(inside, /await txn\.read<DraftState>\(\)/, 'the record is read from the txn');
   for (const derivation of [
     /const previousTeam = target\.team;/,
-    /const conflicting = current\.picks\.find\(/,
+    /const displacedIndex = current\.picks\.findIndex\(/,
     /const nextPicks = current\.picks\.map\(/,
     /if \(pickIndex >= current\.picks\.length\)/,
     /if \(current\.phase !== 'live'/,
@@ -683,4 +683,63 @@ test('an edit refuses when the pick it names was undone', async () => {
   const undoBody = (await res.json()) as { error: string };
   assert.equal(res.status, 404, undoBody.error);
   assert.match(undoBody.error, /has not been made yet/);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-096 — a mis-entered draft can be corrected before confirmation.
+// ---------------------------------------------------------------------------
+
+test('taking a team another owner holds moves it and vacates their slot', async () => {
+  // The gap this exists to close: the editor filtered out every held team, so a
+  // draft where two owners hold each other's teams could not be fixed at all.
+  // Deliberately NOT a swap — the displaced owner's slot is left empty for the
+  // commissioner to fill, because the correction is often not a clean exchange.
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), completeTwoOwnerDraft('complete'));
+
+  // Owner1 takes TEAM_B, which Owner2 holds as pick #2.
+  const { result: res } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_B), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const picks = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value?.picks ?? [];
+  assert.equal(picks[0]?.team, TEAM_B, 'the team moved');
+  assert.equal(picks[1]?.team, null, "and the previous holder's slot is empty");
+  assert.equal(picks[1]?.owner, 'Owner2', 'the slot still belongs to its owner');
+});
+
+test('a draft holding an empty slot cannot be confirmed', async () => {
+  // The property that makes an empty slot safe: it is an EDITING state that can
+  // never become the league's rosters.
+  const draft = completeTwoOwnerDraft('complete');
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), {
+    ...draft,
+    picks: [draft.picks[0]!, { ...draft.picks[1]!, team: null }],
+  });
+
+  const res = await runCapturingTags(() => CONFIRM(editConfirmReq(), { params: confirmParams }));
+  assert.equal(res.result.status, 422);
+  assert.match(
+    ((await res.result.json()) as { error: string }).error,
+    /unassigned pick/,
+    'the refusal names the real reason rather than an unrecognized team'
+  );
+
+  assert.equal(await readOwnerByTeam(), null, 'and nothing was written');
+});
+
+test('a PUBLISHED draft refuses the move instead of vacating a live roster', async () => {
+  // Once published, the picks describe the league's live rosters. Vacating one
+  // would detach a roster from the draft that produced it — post-publication
+  // corrections are a roster edit, per the owner's standing rule.
+  await seedConfirmed();
+
+  const { result: res } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_B), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 422);
+  assert.match(((await res.json()) as { error: string }).error, /reopen the draft/);
+
+  const picks = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value?.picks ?? [];
+  assert.equal(picks[1]?.team, TEAM_B, 'the live roster is untouched');
 });

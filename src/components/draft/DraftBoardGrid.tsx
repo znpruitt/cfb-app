@@ -35,8 +35,12 @@ export default function DraftBoardGrid({
   const cellFontSize = isMobile ? 11 : 12;
 
   // Index picks by pick number for quick lookup
+  // PLATFORM-096 — a pick may be temporarily unassigned while the commissioner
+  // corrects the draft. An empty slot is simply not entered, so the grid renders
+  // it exactly as it renders a pick not yet made.
   const pickByNumber = new Map<number, { team: string; autoSelected: boolean }>();
   for (const pick of draft.picks) {
+    if (pick.team === null) continue;
     pickByNumber.set(pick.pickNumber, { team: pick.team, autoSelected: pick.autoSelected });
   }
 

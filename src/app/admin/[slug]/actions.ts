@@ -488,7 +488,7 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
     .map((t) => t.school)
     .filter((s) => s !== 'NoClaim');
 
-  const pickedTeams = new Set(draft.picks.map((p) => p.team.toLowerCase()));
+  const pickedTeams = new Set(draft.picks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : [])));
   const available = allTeams.filter((t) => !pickedTeams.has(t.toLowerCase()));
 
   // Shuffle available teams (Fisher-Yates)
@@ -554,6 +554,9 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   // Write owners CSV (same format as confirm route)
   const csvLines = ['team,owner'];
   for (const pick of allPicks) {
+    // The demo control fills every slot, so a null here is unreachable — skipped
+    // rather than asserted so a future change cannot write a blank roster row.
+    if (pick.team === null) continue;
     const team =
       pick.team.includes(',') || pick.team.includes('"')
         ? `"${pick.team.replace(/"/g, '""')}"`
@@ -566,7 +569,7 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   }
 
   // Append NoClaim rows for undrafted teams
-  const draftedLower = new Set(allPicks.map((p) => p.team.toLowerCase()));
+  const draftedLower = new Set(allPicks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : [])));
   for (const teamName of allTeams) {
     if (!draftedLower.has(teamName.toLowerCase())) {
       const field =

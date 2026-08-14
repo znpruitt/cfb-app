@@ -349,3 +349,40 @@ test('a spectator is not handed a commissioner instruction', () => {
     'the commissioner still gets it'
   );
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-096 — the editor can express the correction a commissioner needs.
+// ---------------------------------------------------------------------------
+
+test('the picker offers held teams, and names who holds them', () => {
+  // Structural: the picker renders only while a pick is being edited, which this
+  // static harness cannot trigger. What is checkable is that the candidate list
+  // is no longer filtered by who holds a team — the filter was what made a
+  // mis-entered draft uncorrectable — and that each entry carries its holder.
+  const source = readFileSync(new URL('../DraftSummaryClient.tsx', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(source, /pickedTeamsLower/, 'held teams are no longer filtered out');
+  assert.match(source, /holderByTeam\.get\(name\.toLowerCase\(\)\) \?\? null/);
+  assert.match(source, /held by \{heldBy\}/, 'and the holder is named');
+  assert.match(
+    source,
+    /\(conferenceMap\[lower\] \?\? ''\)\.toLowerCase\(\)\.includes\(searchLower\)/,
+    'search matches conference, as the draft board always has'
+  );
+});
+
+test('an unassigned slot reads as unassigned, and blocks publication', () => {
+  const withHole = draftWith({
+    publishedPicks: null,
+    picks: [picks()[0]!, { ...picks()[1]!, team: null }],
+  });
+  const html = render(withHole);
+
+  assert.match(html, /Unassigned/, 'the empty slot says so');
+  assert.doesNotMatch(html, /Confirm draft/, 'and cannot be published');
+});
+
+test('a full draft can still be published', () => {
+  // Control: the block above must come from the hole, not from the render.
+  assert.match(render(draftWith({ publishedPicks: null })), /Confirm draft/);
+});
