@@ -89,11 +89,6 @@ export default function DraftSummaryClient({
     .sort((a, b) => a.localeCompare(b));
 
   // The pick currently being edited (if any)
-  const editingPick =
-    editingPickNumber !== null
-      ? (draft.picks.find((p) => p.pickNumber === editingPickNumber) ?? null)
-      : null;
-
   // Teams already assigned to other picks (the replaced pick remains selectable)
   const pickedTeamsLower = new Set(
     draft.picks.filter((p) => p.pickNumber !== editingPickNumber).map((p) => p.team.toLowerCase())
@@ -214,11 +209,12 @@ export default function DraftSummaryClient({
   function renderPickEditor() {
     return (
       <section className="rounded-lg border border-blue-300 bg-blue-50 p-4 dark:border-blue-700 dark:bg-blue-950">
-        <div className="mb-3 flex items-center justify-between">
-          <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-            Editing pick #{editingPickNumber}
-            {editingPick != null && ` — currently: ${editingPick.team}`}
-          </p>
+        {/* No heading. It read "Editing pick #23 — currently: Coastal Carolina"
+            back when this panel lived at the bottom of the page and had to say
+            which pick it belonged to. Inline, the row directly above shows both,
+            so the heading was the panel still behaving as if it were somewhere
+            else. */}
+        <div className="mb-2 flex items-center justify-end">
           <button
             type="button"
             onClick={() => {
