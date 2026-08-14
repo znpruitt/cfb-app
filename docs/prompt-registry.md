@@ -57,16 +57,25 @@ Rules:
   filtered out every team another owner held, so a draft where two owners ended up with each other's
   teams could not be fixed at all — there was no way to give Alice a team Bob was holding, and
   nothing could free one.
-- Sizing: 15 files, +270/-48 — within the stop-and-reassess signals. Derived at closeout.
+- Sizing: 21 files, +508/-62 — within the stop-and-reassess signals. Derived at closeout.
 - **`DraftPick.team` is now nullable, and that choice was the seam audit.** An empty string would
   have compiled everywhere and misbehaved quietly in each of the eleven consumers — `''.toLowerCase()`
   works, the identity resolver returns nothing, the CSV builder writes a blank row. `null` made the
   compiler enumerate all eleven instead of leaving them to be found by reading. Given how PLATFORM-094
   and 095 went, "the compiler lists every place to look" was worth more than a smaller diff.
-- **The audit's key finding made the design safe: standings never read draft picks.** `standings.ts`,
-  `leagueStandings.ts` and `gameOwnership.ts` derive ownership from the confirmed roster CSV, so an
-  empty slot lives entirely inside the draft record and its display surfaces and cannot reach anyone's
-  record. Blast radius is presentation, not data.
+- **That safety claim was WRONG as originally stated, and both reviewers proved it by running the
+  routes.** The audit found that `standings.ts`, `leagueStandings.ts` and `gameOwnership.ts` derive
+  ownership from the confirmed roster CSV rather than from picks — true, and I concluded from it that
+  an empty slot "cannot reach anyone's record. Blast radius is presentation, not data." **But
+  `pick/[n]` IS the writer that carries a pick edit into that CSV** — I wrote that sync in
+  PLATFORM-094 and tightened it in 095, then reasoned about picks as if they were isolated from the
+  roster. The vacate was gated on `isDraftPublished` while the sync fires on `phase === 'complete'`
+  plus an existing CSV: in the gap (a draft confirmed before `publishedPicks` existed, or one beside
+  a repair import) a correction left an owner holding NOTHING in live standings. Both predicates are
+  now the same condition — a move is refused wherever a roster is live.
+- The correct statement of the safety property: an empty slot cannot reach anyone's record **because
+  the route refuses to create one while a roster is live**, not because picks and standings are
+  unconnected. They are connected, by this route.
 - **Taking a held team MOVES it and vacates the previous holder's slot** — deliberately not a swap.
   The owner rejected swapping: "what if the issue isn't just a direct swap of picks?" A swap cannot
   express "Alice should have Michigan, and Michigan's owner should get something else entirely".
@@ -81,8 +90,22 @@ Rules:
   are a roster edit, per the owner's standing rule.
 - Search now matches team name OR conference, which `DraftBoardClient` has always done and this
   picker never did.
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3758/3758
-  (+6). Five mutations across the new guards, all caught.
+- **Remediation round 1 — six findings, and three came from my own changes.** Beyond the predicate
+  mismatch above: `oldTeam: previousTeam ?? canonicalTeam` claimed in its comment to skip the patch
+  for an empty slot but made it a SELF-MOVE, so the draft changed while the CSV silently did not;
+  requiring every slot filled made a hole read as `draft-incomplete`, routing the commissioner to the
+  board where a vacated slot renders exactly like a pick never made and `POST /pick` refuses (the
+  defect PLATFORM-095 closed, reappearing through this feature's own correction window); and the same
+  stricter predicate re-opened the `setAssignmentMethod` hole 095 closed, so `draftPickSlotsAreFilled`
+  now serves "has this draft been run" separately from "can it be published". Also: a vacated slot no
+  longer claims `(auto)` provenance, and held teams are not offered as actions while the rosters are
+  live, since the route refuses them.
+- **The self-move needed a discriminating observation, not an obvious one.** Its CSV output is
+  byte-identical to skipping, so the roster cannot tell them apart; what differs is that it counts as
+  a WRITE — invalidating standings and re-stamping publication for an edit that changed no ownership.
+  Two mutation attempts passed before the assertion moved to that.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3763/3763
+  (+11). Nine mutations across the new guards, all caught.
 
 ### PLATFORM-095-PUBLICATION-WAYFINDING-v1
 

@@ -728,6 +728,34 @@ test('a draft holding an empty slot cannot be confirmed', async () => {
   assert.equal(await readOwnerByTeam(), null, 'and nothing was written');
 });
 
+test('a draft with a LIVE ROSTER but no publication stamp also refuses the move', async () => {
+  // The HIGH, found by both reviewers and reproduced against the real routes.
+  // The vacate was gated on `isDraftPublished` while the roster sync 40 lines
+  // below fires on `phase === 'complete'` plus an existing CSV — deliberately, so
+  // drafts confirmed before `publishedPicks` existed keep their rosters in step.
+  // In that gap the move was ALLOWED and the CSV patched, leaving an owner with
+  // nothing in live standings mid-correction.
+  //
+  // The design claim this feature rested on — "standings never read draft picks"
+  // — is true of `standings.ts` and false of THIS ROUTE, which is the writer that
+  // carries a pick edit into the roster.
+  await seedConfirmed();
+  const confirmed = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))!.value!;
+  const legacy = { ...confirmed };
+  delete (legacy as { publishedPicks?: string | null }).publishedPicks;
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), legacy);
+  const before = await readOwnerByTeam();
+
+  const { result: res } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_B), { params: pickParams(1) })
+  );
+  assert.equal(res.status, 422, await res.text());
+
+  assert.deepEqual(await readOwnerByTeam(), before, 'the live roster is untouched');
+  const picks = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value?.picks ?? [];
+  assert.equal(picks[1]?.team, TEAM_B, 'and nobody was vacated');
+});
+
 test('a PUBLISHED draft refuses the move instead of vacating a live roster', async () => {
   // Once published, the picks describe the league's live rosters. Vacating one
   // would detach a roster from the draft that produced it — post-publication
@@ -738,8 +766,52 @@ test('a PUBLISHED draft refuses the move instead of vacating a live roster', asy
     PUT(editRequest(TEAM_B), { params: pickParams(1) })
   );
   assert.equal(res.status, 422);
-  assert.match(((await res.json()) as { error: string }).error, /reopen the draft/);
+  assert.match(((await res.json()) as { error: string }).error, /rosters are live/);
 
   const picks = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value?.picks ?? [];
   assert.equal(picks[1]?.team, TEAM_B, 'the live roster is untouched');
+});
+
+test('filling an EMPTY slot never rewrites a roster row', async () => {
+  // The self-move defect. `oldTeam: previousTeam ?? canonicalTeam` read as a
+  // skip but was not: with `oldCanon === newCanon`, `patchConfirmedOwnersCsv`
+  // takes the target team's OWN row, the release branch is unreachable, and the
+  // row is rewritten to the owner it already had — so the draft changed and the
+  // CSV silently did not, leaving the two disagreeing with no error.
+  //
+  // Reached by vacating while no roster exists, then a repair import arriving
+  // before the slot is filled.
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), completeTwoOwnerDraft('complete'));
+  await runCapturingTags(() => PUT(editRequest(TEAM_B), { params: pickParams(1) }));
+  const vacated = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value?.picks;
+  assert.equal(vacated?.[1]?.team, null, 'precondition: slot #2 is empty');
+
+  // A repair roster arrives, crediting TEAM_C to somebody else entirely.
+  const repair = ['team,owner', `${TEAM_A},Imported`, `${TEAM_C},Imported`].join('\n');
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', repair);
+
+  // Owner2 fills the empty slot with TEAM_C.
+  const { result: res, tags } = await runCapturingTags(() =>
+    PUT(editRequest(TEAM_C), { params: pickParams(2) })
+  );
+  assert.equal(res.status, 200, await res.text());
+
+  const owners = await readOwnerByTeam();
+  assert.equal(
+    owners?.get(TEAM_C.toLowerCase()),
+    'Imported',
+    'the roster row is left exactly as it was — an empty slot had no row to move'
+  );
+
+  // The self-move produced the SAME CSV bytes, so the roster alone cannot tell
+  // the two apart. What it did do was count as a WRITE: standings were
+  // invalidated and publication re-stamped for an edit that changed no
+  // ownership. That is the discriminating observation.
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings:')),
+    [],
+    'no ownership changed, so nothing is invalidated'
+  );
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(isDraftPublished(after), false, 'and no publication is claimed');
 });

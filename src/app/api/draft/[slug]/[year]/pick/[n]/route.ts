@@ -198,10 +198,29 @@ export async function PUT(
     const displacedIndex = current.picks.findIndex(
       (p, idx) => idx !== pickIndex && p.team?.toLowerCase() === canonicalTeam.toLowerCase()
     );
-    if (displacedIndex !== -1 && isDraftPublished(current)) {
+    // The refusal uses the SAME condition as the roster sync below, not
+    // `isDraftPublished`. Those are different predicates and the gap between them
+    // was reachable: a draft confirmed before `publishedPicks` existed, or one
+    // beside a repair-imported CSV, is `complete` with a live roster but reads as
+    // unpublished — so the move was permitted AND the CSV was patched, leaving an
+    // owner holding nothing in live standings mid-correction. Both reviewers
+    // reproduced it against the real routes.
+    //
+    // The design claim that motivated this feature — "standings never read draft
+    // picks, so an empty slot cannot reach anyone's record" — is true of
+    // `standings.ts` and false of THIS ROUTE, which is the writer that carries a
+    // pick edit into the roster. Vacating is only safe where no roster is being
+    // maintained.
+    const rosterRecord = await txn.readKey<string>(`owners:${slug}:${year}`, 'csv');
+    const liveRoster =
+      current.phase === 'complete' &&
+      typeof rosterRecord?.value === 'string' &&
+      rosterRecord.value.trim() !== '';
+
+    if (displacedIndex !== -1 && liveRoster) {
       const conflicting = current.picks[displacedIndex]!;
       outcome = {
-        error: `"${canonicalTeam}" is already pick #${conflicting.pickNumber} by ${conflicting.owner} — reopen the draft before moving a team between owners.`,
+        error: `"${canonicalTeam}" is already pick #${conflicting.pickNumber} by ${conflicting.owner}. This draft's rosters are live — reopen it before moving a team between owners.`,
         status: 422,
       };
       return;
@@ -239,16 +258,18 @@ export async function PUT(
     // commissioner confirms again — and requiring an existing CSV is what stops
     // this route minting one, since it is not the publication authority.
     if (current.phase === 'complete') {
-      const ownersRecord = await txn.readKey<string>(`owners:${slug}:${year}`, 'csv');
-      const currentCsv = ownersRecord?.value;
-      if (typeof currentCsv === 'string' && currentCsv.trim()) {
+      const currentCsv = rosterRecord?.value;
+      // `previousTeam === null` means the slot held nothing, so there is no row
+      // to move. This used to pass `oldTeam: previousTeam ?? canonicalTeam`,
+      // which is not a skip: `oldCanon === newCanon` makes the release branch
+      // unreachable and rewrites the row to the owner it already had, so the
+      // draft changed and the CSV silently did not.
+      if (previousTeam !== null && typeof currentCsv === 'string' && currentCsv.trim()) {
         await txn.writeKey(
           `owners:${slug}:${year}`,
           'csv',
           patchConfirmedOwnersCsv(currentCsv, {
-            // An unassigned slot has no row to move; the CSV patch is skipped
-            // for it, and `?? canonicalTeam` keeps the call total.
-            oldTeam: previousTeam ?? canonicalTeam,
+            oldTeam: previousTeam,
             newTeam: canonicalTeam,
             fallbackOwner: replacement.owner,
             // Match persisted rows through the same canonical resolver used to

@@ -60,6 +60,8 @@ export type TeamAssignmentInput = {
 export type TeamAssignmentBlocker =
   | 'no-assignment-method'
   | 'draft-incomplete'
+  /** Every pick exists but at least one slot is empty — only the summary can fix it. */
+  | 'draft-has-unassigned-picks'
   | 'draft-not-published'
   | 'published-roster-missing'
   | 'manual-assignment-incomplete';
@@ -105,6 +107,14 @@ export function selectTeamAssignment(input: TeamAssignmentInput): TeamAssignment
     //
     // A draft still `live` with every pick in is one that was REOPENED: not
     // incomplete, simply not published.
+    // A draft holding an UNASSIGNED slot is not "incomplete" in the sense that
+    // routes to the board — every pick exists, one is temporarily empty, and only
+    // the summary editor can show or fill it. Routing it to the board sent the
+    // commissioner somewhere the slot renders exactly like a pick never made and
+    // `POST /pick` refuses, which is the defect PLATFORM-095 existed to close.
+    if (draft && Array.isArray(draft.picks) && draft.picks.some((p) => p?.team == null)) {
+      return blocked('draft-has-unassigned-picks');
+    }
     if (!draftPicksAreComplete(draft)) return blocked('draft-incomplete');
     return blocked('draft-not-published');
   }

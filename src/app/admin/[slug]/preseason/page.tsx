@@ -79,8 +79,12 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   // `draft-not-published` and `published-roster-missing` both mean the picks are
   // in and the remaining step is Confirm, which lives on the summary page.
   // Anything else — no draft yet, or one still running — belongs at setup.
+  // `draft-has-unassigned-picks` routes to the SUMMARY too: only the summary
+  // editor can show or fill an empty slot.
   const needsPublishing =
-    assignmentBlocker === 'draft-not-published' || assignmentBlocker === 'published-roster-missing';
+    assignmentBlocker === 'draft-not-published' ||
+    assignmentBlocker === 'published-roster-missing' ||
+    assignmentBlocker === 'draft-has-unassigned-picks';
 
   // `manual-assignment-incomplete` deliberately gets NO destination: `teamsHref`
   // used to resolve to this very page, so the row promised an action that
@@ -135,11 +139,13 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   const assignmentAction =
     assignmentBlocker === 'draft-not-published' || assignmentBlocker === 'published-roster-missing'
       ? 'Confirm draft results →'
-      : assignmentBlocker === 'draft-incomplete'
-        ? 'Finish the draft →'
-        : assignmentBlocker === 'no-assignment-method'
-          ? 'Choose a method →'
-          : null;
+      : assignmentBlocker === 'draft-has-unassigned-picks'
+        ? 'Fill the empty picks →'
+        : assignmentBlocker === 'draft-incomplete'
+          ? 'Finish the draft →'
+          : assignmentBlocker === 'no-assignment-method'
+            ? 'Choose a method →'
+            : null;
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">

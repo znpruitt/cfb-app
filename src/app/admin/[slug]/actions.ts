@@ -27,7 +27,7 @@ import { TEST_LEAGUE_SLUG, type LeagueStatus } from '@/lib/league';
 import type { AutoCompleteDraftResult, TestControlResult } from '@/lib/testLeagueControl';
 import { requireAdminAction } from '@/lib/auth/requireAdminAction';
 import teamsData from '@/data/teams.json';
-import { draftPicksAreComplete, draftPicksSignature } from '@/lib/selectors/draftPublication';
+import { draftPickSlotsAreFilled, draftPicksSignature } from '@/lib/selectors/draftPublication';
 
 /** The admin path the demo controls revalidate. */
 const TEST_LEAGUE_ADMIN_PATH = `/admin/${TEST_LEAGUE_SLUG}`;
@@ -353,7 +353,9 @@ export async function setAssignmentMethod(
   // one, then switch to manual on top of it.
   if (league && typeof year === 'number' && method !== 'draft') {
     const draft = (await getAppState<DraftState>(draftScope(slug), String(year)))?.value ?? null;
-    if (draftPicksAreComplete(draft)) {
+    // `draftPickSlotsAreFilled`, not `draftPicksAreComplete`: a draft mid-correction
+    // has every slot but one temporarily empty, and must still count as run.
+    if (draftPickSlotsAreFilled(draft)) {
       // Returned, not thrown. Next.js redacts errors raised in a Server Action
       // before they reach the client in production builds, replacing the message
       // with an opaque digest — so a thrown refusal renders as a framework error

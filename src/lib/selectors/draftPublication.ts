@@ -100,6 +100,28 @@ export function isDraftPublished(draft: PublishableDraft | null | undefined): bo
  * An unreadable draft is not a publishable one, so every degraded shape answers
  * `false`.
  */
+/**
+ * Whether every configured pick EXISTS, ignoring whether each holds a team.
+ *
+ * `draftPicksAreComplete` additionally requires each slot to be filled, which is
+ * right for "can this be published" and wrong for "has this draft been run" — a
+ * fully-drafted league with one slot temporarily vacated during a correction
+ * would otherwise read as in-progress, re-opening the hole PLATFORM-095 closed
+ * in `setAssignmentMethod`: switching to `manual` mid-correction would strand the
+ * whole draft.
+ */
+export function draftPickSlotsAreFilled(
+  draft: Parameters<typeof draftPicksAreComplete>[0]
+): boolean {
+  if (!draft) return false;
+  const rounds = draft.settings?.totalRounds;
+  const ownerCount = draft.owners?.length;
+  if (typeof rounds !== 'number' || typeof ownerCount !== 'number') return false;
+  if (!Array.isArray(draft.picks)) return false;
+  const expected = rounds * ownerCount;
+  return expected > 0 && draft.picks.length === expected;
+}
+
 export function draftPicksAreComplete(draft: ControllableDraft | null | undefined): boolean {
   if (!draft) return false;
   const rounds = draft.settings?.totalRounds;

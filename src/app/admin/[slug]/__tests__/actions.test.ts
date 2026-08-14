@@ -16,7 +16,7 @@ import {
 } from '../actions';
 import { __withAdminActionAuthorizerForTests } from '../../../../lib/auth/requireAdminAction.ts';
 import type { League } from '../../../../lib/league.ts';
-import { draftScope } from '../../../../lib/draft.ts';
+import { draftScope, type DraftState } from '../../../../lib/draft.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -566,4 +566,26 @@ test('the draft setup shell offers Reset for a finished but unconfirmed draft', 
     'Reset survives at `complete` until the draft is published'
   );
   assert.match(source, /const isPublished = isDraftPublished\(draftState\);/);
+});
+
+test('a draft mid-correction still counts as run for the method guard', async () => {
+  // PLATFORM-096 round 1. Requiring every slot FILLED made a fully-drafted league
+  // with one temporarily empty slot read as in-progress, so switching to `manual`
+  // was permitted and the whole draft stranded — one click during the correction
+  // window this feature introduces, re-opening the hole PLATFORM-095 closed.
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }),
+  ]);
+  await seedAssignedTeams('alpha', 2026);
+  const draft = (await getAppState<DraftState>(draftScope('alpha'), '2026'))?.value as DraftState;
+  await setAppState(draftScope('alpha'), '2026', {
+    ...draft,
+    picks: [draft.picks[0]!, { ...draft.picks[1]!, team: null }],
+  });
+
+  let refused: Awaited<ReturnType<typeof setAssignmentMethod>> | undefined;
+  await runCapturingTags(async () => {
+    refused = await setAssignmentMethod('alpha', 'manual');
+  });
+  assert.equal(refused?.ok, false, 'a run draft cannot be discarded mid-correction');
 });

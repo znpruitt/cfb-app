@@ -213,6 +213,12 @@ export default function DraftSummaryClient({
   // Which publication control to offer. Derived in the selector layer, not
   // recombined here — AGENTS.md invariant 9, and the reason the previous inline
   // version could stand a reopened draft up with NEITHER button.
+  // Mirrors the pick route's refusal EXACTLY — `phase === 'complete'` with a
+  // stored roster — rather than approximating it with `canReopen`. The route's
+  // condition deliberately includes drafts confirmed before `publishedPicks`
+  // existed, which `isDraftPublished` reports as unpublished.
+  const rostersAreLive = draft.phase === 'complete' && publishedRosterExists;
+
   const { canPublish, canReopen } = selectDraftPublicationControls(draft, {
     publishedRosterExists,
   });
@@ -263,9 +269,12 @@ export default function DraftSummaryClient({
               <button
                 key={name}
                 type="button"
-                disabled={editLoading}
+                // A held team cannot be taken while the rosters are live — the
+                // route refuses it — so the entry is not offered as an action.
+                // Listing it disabled still answers "who has this team".
+                disabled={editLoading || (heldBy !== null && rostersAreLive)}
                 onClick={() => void handleEdit(name)}
-                className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm text-gray-800 hover:bg-blue-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-blue-900"
+                className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm text-gray-800 hover:bg-blue-50 disabled:opacity-50 disabled:hover:bg-transparent dark:text-zinc-200 dark:hover:bg-blue-900"
               >
                 <span>{name}</span>
                 {/* The owner's name alone is the signal — in a list of teams, a
@@ -473,7 +482,7 @@ export default function DraftSummaryClient({
                               >
                                 {displayName}
                               </span>
-                              {pick.autoSelected && (
+                              {pick.team !== null && pick.autoSelected && (
                                 <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
                                   (auto)
                                 </span>
