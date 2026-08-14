@@ -386,3 +386,19 @@ test('a full draft can still be published', () => {
   // Control: the block above must come from the hole, not from the render.
   assert.match(render(draftWith({ publishedPicks: null })), /Confirm draft/);
 });
+
+test('a draft mid-correction says so, rather than showing nothing', () => {
+  // The third state. `canPublish` is false because of the hole and `canReopen`
+  // false because it never published, so the page rendered NO banner — the only
+  // indication was one table row reading "Unassigned". A state with no control
+  // and no explanation is the defect this campaign removes, and this one is
+  // created by the correction feature itself.
+  const withHole = draftWith({
+    publishedPicks: null,
+    picks: [picks()[0]!, { ...picks()[1]!, team: null }],
+  });
+  const html = render(withHole);
+
+  assert.match(html, /Draft unfinished — every pick needs a team/);
+  assert.doesNotMatch(html, /Confirm draft/, 'and still cannot be published');
+});

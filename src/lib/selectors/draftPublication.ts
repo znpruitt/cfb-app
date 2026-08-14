@@ -101,7 +101,10 @@ export function isDraftPublished(draft: PublishableDraft | null | undefined): bo
  * `false`.
  */
 /**
- * Whether every configured pick EXISTS, ignoring whether each holds a team.
+ * Whether the expected NUMBER of picks exists, ignoring whether each holds a
+ * team. Named for the count deliberately: an earlier name said "slots are
+ * filled", which is the opposite of what it checks, and a caller choosing it by
+ * name would have got the weaker predicate.
  *
  * `draftPicksAreComplete` additionally requires each slot to be filled, which is
  * right for "can this be published" and wrong for "has this draft been run" — a
@@ -110,7 +113,7 @@ export function isDraftPublished(draft: PublishableDraft | null | undefined): bo
  * in `setAssignmentMethod`: switching to `manual` mid-correction would strand the
  * whole draft.
  */
-export function draftPickSlotsAreFilled(
+export function draftPickCountIsComplete(
   draft: Parameters<typeof draftPicksAreComplete>[0]
 ): boolean {
   if (!draft) return false;
@@ -122,6 +125,13 @@ export function draftPickSlotsAreFilled(
   return expected > 0 && draft.picks.length === expected;
 }
 
+/**
+ * Whether every configured pick has been made AND holds a team — the predicate
+ * for "can this be published".
+ *
+ * Reads defensively: `getAppState` performs no runtime validation, so a partial
+ * or hand-edited row must produce `false` rather than a `TypeError`.
+ */
 export function draftPicksAreComplete(draft: ControllableDraft | null | undefined): boolean {
   if (!draft) return false;
   const rounds = draft.settings?.totalRounds;
@@ -140,6 +150,18 @@ export function draftPicksAreComplete(draft: ControllableDraft | null | undefine
 }
 
 export type DraftPublicationControls = {
+  /**
+   * Every configured pick exists but at least one slot is empty, so the draft is
+   * mid-correction: neither publishable nor reopenable.
+   *
+   * Without this the summary page rendered NO banner in that state — `canPublish`
+   * false because of the hole, `canReopen` false because it never published — so
+   * the only sign anything was outstanding was the word "Unassigned" in one table
+   * row. A state with no control and no explanation is the exact defect this
+   * campaign has been about, and this one is created by the correction feature
+   * itself.
+   */
+  hasUnassignedPicks: boolean;
   /** Offer "Confirm Draft — Write Rosters to League". */
   canPublish: boolean;
   /** Offer "Reopen Draft". */
@@ -176,7 +198,7 @@ export function selectDraftPublicationControls(
   draft: ControllableDraft | null | undefined,
   facts: DraftPublicationFacts = { publishedRosterExists: true }
 ): DraftPublicationControls {
-  if (!draft) return { canPublish: false, canReopen: false };
+  if (!draft) return { canPublish: false, canReopen: false, hasUnassignedPicks: false };
 
   // A published draft whose roster has since been cleared is published in name
   // only: `selectTeamAssignment` blocks setup with `published-roster-missing`,
@@ -186,8 +208,14 @@ export function selectDraftPublicationControls(
   // exists to remove. Treat a missing roster as unpublished FOR THE CONTROLS,
   // which puts Confirm back and withdraws a Reopen that would reopen nothing.
   const standing = isDraftPublished(draft) && facts.publishedRosterExists;
+  const hasUnassignedPicks =
+    Array.isArray(draft.picks) &&
+    draftPickCountIsComplete(draft) &&
+    draft.picks.some((pick) => pick?.team == null);
+
   return {
     canPublish: !standing && draftPicksAreComplete(draft),
     canReopen: standing,
+    hasUnassignedPicks,
   };
 }

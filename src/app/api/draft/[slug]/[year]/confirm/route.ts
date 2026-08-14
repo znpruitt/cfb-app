@@ -104,7 +104,12 @@ export async function POST(
       // league's rosters. Reported before the count check because a draft with a
       // hole has the right NUMBER of picks and would otherwise fail further down
       // with a confusing "unrecognized team" error.
-      const unassigned = draft.picks.filter((p) => p.team === null).map((p) => p.pickNumber);
+      // `== null` catches a MISSING field as well as an explicit null. A
+      // hand-edited or partly migrated record would otherwise slip past this and
+      // hit `pick.team!.toLowerCase()` below, producing a 500 in place of the
+      // 422 this guard exists to give — the same defensive posture
+      // `draftPicksSignature` and `isDraftPublished` already take.
+      const unassigned = draft.picks.filter((p) => p?.team == null).map((p) => p?.pickNumber);
       if (unassigned.length > 0) {
         return {
           error: `Draft has ${unassigned.length} unassigned pick${unassigned.length === 1 ? '' : 's'} (#${unassigned.join(', #')}) — every pick needs a team before confirming.`,

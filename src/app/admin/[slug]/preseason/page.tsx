@@ -9,7 +9,7 @@ import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
 import { getTeamAssignment } from '@/lib/server/teamAssignmentStore';
 import { getAppState } from '@/lib/server/appStateStore';
 import { draftScope, type DraftState } from '@/lib/draft';
-import { draftPicksAreComplete } from '@/lib/selectors/draftPublication';
+import { draftPickCountIsComplete } from '@/lib/selectors/draftPublication';
 import type { TeamAssignmentBlocker } from '@/lib/selectors/teamAssignment';
 import AssignmentMethodCard from '../components/AssignmentMethodCard';
 import { completeSetup } from '../actions';
@@ -56,7 +56,11 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
     assignmentBlocker = assignment.blocker;
     const draftRecord =
       (await getAppState<DraftState>(draftScope(slug), String(year)))?.value ?? null;
-    draftPicksComplete = draftPicksAreComplete(draftRecord);
+    // `draftPickCountIsComplete`, matching `setAssignmentMethod`. The tightened
+    // predicate reads false while a slot is vacated, so this card reappeared on
+    // the very screen the commissioner is correcting on, offering a switch the
+    // action then refuses — the presentation half of the hole PLATFORM-095 closed.
+    draftPicksComplete = draftPickCountIsComplete(draftRecord);
     draftHasPicks = Array.isArray(draftRecord?.picks) && draftRecord.picks.length > 0;
   } catch {
     // Storage unavailable — checklist shows incomplete

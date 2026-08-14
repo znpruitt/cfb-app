@@ -57,7 +57,7 @@ Rules:
   filtered out every team another owner held, so a draft where two owners ended up with each other's
   teams could not be fixed at all — there was no way to give Alice a team Bob was holding, and
   nothing could free one.
-- Sizing: 21 files, +508/-62 — within the stop-and-reassess signals. Derived at closeout.
+- Sizing: 24 files, +749/-69 — within the stop-and-reassess signals. Derived at closeout.
 - **`DraftPick.team` is now nullable, and that choice was the seam audit.** An empty string would
   have compiled everywhere and misbehaved quietly in each of the eleven consumers — `''.toLowerCase()`
   works, the identity resolver returns nothing, the CSV builder writes a blank row. `null` made the
@@ -104,8 +104,36 @@ Rules:
   byte-identical to skipping, so the roster cannot tell them apart; what differs is that it counts as
   a WRITE — invalidating standings and re-stamping publication for an edit that changed no ownership.
   Two mutation attempts passed before the assertion moved to that.
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3763/3763
-  (+11). Nine mutations across the new guards, all caught.
+- **Round 2 — I stopped patching and wrote the model down, which is what should have come first.**
+  Twelve findings across two rounds clustered in two places I had never specified: what the roster
+  should become in each of the pick-edit route's FOUR situations, and what the summary page should
+  show in each of its THREE states. I had been fixing one case at a time, and each fix broke its
+  neighbour.
+
+  The roster table, once written, resolved it immediately — `patchConfirmedOwnersCsv` MOVES
+  ownership (new team takes the old row's owner, old team goes to `NoClaim`), so an ordinary edit and
+  taking a held team are the same call, and **filling an empty slot needs an `oldTeam` that matches
+  no row**: the release branch stays unreachable and `effectiveOwner` falls through to the pick's
+  owner. Two earlier attempts got this wrong in opposite directions — a self-move that rewrote a row
+  to the owner it already had, then a skip that left the draft and roster silently disagreeing. **The
+  test I wrote for the second attempt asserted the skip as correct**, locking the defect in until a
+  reviewer read it.
+
+  The page table produced the missing THIRD state: a draft mid-correction is neither publishable nor
+  reopenable, so both banners stayed away and the page showed no status at all — the only sign was
+  one table row reading "Unassigned". A state with no control and no explanation is the defect this
+  whole campaign removes, and this one was created by the correction feature itself. My own recorded
+  design called for that banner and I had not built it.
+- Also fixed: the preseason page still used the tightened predicate after the action moved off it, so
+  the method card reappeared mid-correction offering a switch the action refuses; `autoCompleteDraft`
+  counted a vacated slot as filled and published a roster one owner short while stamping
+  `publishedPicks`, bypassing the confirm guard; the client's roster-live test was stricter than the
+  route's, leaving held teams enabled where the route 422s; `draftPickCountIsComplete` was named the
+  opposite of what it computes; the blocker order sent a short-AND-holed draft to the summary; and
+  `=== null` let a missing `team` field through to a 500.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3768/3768
+  (+16). Fourteen mutations across the new guards, all caught; two needed a second attempt before
+  they discriminated.
 
 ### PLATFORM-095-PUBLICATION-WAYFINDING-v1
 

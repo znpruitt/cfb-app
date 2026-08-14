@@ -27,7 +27,7 @@ import { TEST_LEAGUE_SLUG, type LeagueStatus } from '@/lib/league';
 import type { AutoCompleteDraftResult, TestControlResult } from '@/lib/testLeagueControl';
 import { requireAdminAction } from '@/lib/auth/requireAdminAction';
 import teamsData from '@/data/teams.json';
-import { draftPickSlotsAreFilled, draftPicksSignature } from '@/lib/selectors/draftPublication';
+import { draftPickCountIsComplete, draftPicksSignature } from '@/lib/selectors/draftPublication';
 
 /** The admin path the demo controls revalidate. */
 const TEST_LEAGUE_ADMIN_PATH = `/admin/${TEST_LEAGUE_SLUG}`;
@@ -353,9 +353,9 @@ export async function setAssignmentMethod(
   // one, then switch to manual on top of it.
   if (league && typeof year === 'number' && method !== 'draft') {
     const draft = (await getAppState<DraftState>(draftScope(slug), String(year)))?.value ?? null;
-    // `draftPickSlotsAreFilled`, not `draftPicksAreComplete`: a draft mid-correction
+    // `draftPickCountIsComplete`, not `draftPicksAreComplete`: a draft mid-correction
     // has every slot but one temporarily empty, and must still count as run.
-    if (draftPickSlotsAreFilled(draft)) {
+    if (draftPickCountIsComplete(draft)) {
       // Returned, not thrown. Next.js redacts errors raised in a Server Action
       // before they reach the client in production builds, replacing the message
       // with an opaque digest — so a thrown refusal renders as a framework error
@@ -490,6 +490,16 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
     .map((t) => t.school)
     .filter((s) => s !== 'NoClaim');
 
+  // PLATFORM-096 — a VACATED slot must be filled, not skipped. `remainingSlots`
+  // counts an empty slot as taken, and the CSV writer below dropped it, so
+  // auto-complete published a roster one owner short while stamping
+  // `publishedPicks` — bypassing the confirm route's unassigned guard and
+  // breaking the invariant the whole feature rests on. The comment here used to
+  // call a null "unreachable"; this feature is what made it reachable.
+  const vacatedIndexes = draft.picks
+    .map((p, idx) => (p.team === null ? idx : -1))
+    .filter((idx) => idx !== -1);
+
   const pickedTeams = new Set(draft.picks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : [])));
   const available = allTeams.filter((t) => !pickedTeams.has(t.toLowerCase()));
 
@@ -504,7 +514,9 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   const totalPicks = draft.settings.totalRounds * n;
   const remainingSlots = totalPicks - draft.picks.length;
 
-  if (remainingSlots <= 0) return { kind: 'refused', reason: 'slots-filled' };
+  if (remainingSlots <= 0 && vacatedIndexes.length === 0) {
+    return { kind: 'refused', reason: 'slots-filled' };
+  }
   if (available.length < remainingSlots) {
     return {
       kind: 'refused-not-enough-teams',
@@ -534,7 +546,18 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
     });
   }
 
-  const allPicks = [...draft.picks, ...newPicks];
+  // Vacated slots are filled first, from the same shuffled pool, so the published
+  // roster is whole.
+  const filled = [...draft.picks];
+  let poolIndex = remainingSlots > 0 ? remainingSlots : 0;
+  for (const idx of vacatedIndexes) {
+    const team = available[poolIndex++];
+    if (!team)
+      return { kind: 'refused-not-enough-teams', available: available.length, needed: poolIndex };
+    filled[idx] = { ...filled[idx]!, team, pickedAt: now, autoSelected: true };
+  }
+
+  const allPicks = [...filled, ...newPicks];
 
   // Write completed draft state.
   //
@@ -556,8 +579,8 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   // Write owners CSV (same format as confirm route)
   const csvLines = ['team,owner'];
   for (const pick of allPicks) {
-    // The demo control fills every slot, so a null here is unreachable — skipped
-    // rather than asserted so a future change cannot write a blank roster row.
+    // Every slot is filled above, so this is unreachable — kept so a future
+    // change cannot write a blank roster row.
     if (pick.team === null) continue;
     const team =
       pick.team.includes(',') || pick.team.includes('"')

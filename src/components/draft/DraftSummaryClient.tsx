@@ -27,6 +27,12 @@ type DraftSummaryClientProps = {
    * because the client cannot see `owners:{slug}:{year}`.
    */
   publishedRosterExists?: boolean;
+  /**
+   * Whether ANY non-blank roster record is stored — the exact fact
+   * `pick/[n]` uses to refuse moving a held team. Deliberately weaker than
+   * `publishedRosterExists`, which additionally requires two distinct owners.
+   */
+  rosterRecordIsPresent?: boolean;
   /** Server-verified: true when the current session passed the canAccessDraftBoard gate. */
   isAdmin: boolean;
 };
@@ -41,6 +47,7 @@ export default function DraftSummaryClient({
   facts,
   leagueStatus,
   publishedRosterExists = true,
+  rosterRecordIsPresent = true,
   isAdmin,
 }: DraftSummaryClientProps): React.ReactElement {
   const [draft, setDraft] = useState(initialDraft);
@@ -213,13 +220,13 @@ export default function DraftSummaryClient({
   // Which publication control to offer. Derived in the selector layer, not
   // recombined here — AGENTS.md invariant 9, and the reason the previous inline
   // version could stand a reopened draft up with NEITHER button.
-  // Mirrors the pick route's refusal EXACTLY — `phase === 'complete'` with a
-  // stored roster — rather than approximating it with `canReopen`. The route's
-  // condition deliberately includes drafts confirmed before `publishedPicks`
-  // existed, which `isDraftPublished` reports as unpublished.
-  const rostersAreLive = draft.phase === 'complete' && publishedRosterExists;
+  // Mirrors the pick route's refusal EXACTLY — `phase === 'complete'` with any
+  // non-blank roster record. It used `publishedRosterExists`, which additionally
+  // demands two distinct owners, so a degenerate roster left held teams enabled
+  // and every click 422'd.
+  const rostersAreLive = draft.phase === 'complete' && rosterRecordIsPresent;
 
-  const { canPublish, canReopen } = selectDraftPublicationControls(draft, {
+  const { canPublish, canReopen, hasUnassignedPicks } = selectDraftPublicationControls(draft, {
     publishedRosterExists,
   });
 
@@ -305,6 +312,20 @@ export default function DraftSummaryClient({
           ← Draft Board
         </Link>
       </div>
+
+      {/* PLATFORM-096 — the THIRD state. A draft mid-correction is neither
+          publishable nor reopenable, so both banners below stayed away and the
+          page showed no status at all — the only sign was the word "Unassigned"
+          in one table row. A state with no control and no explanation is what
+          this campaign exists to remove, and this one is created by the
+          correction feature itself. */}
+      {isAdmin && hasUnassignedPicks && (
+        <section className="rounded-xl border border-gray-300 bg-gray-50 px-4 py-3 dark:border-zinc-600 dark:bg-zinc-900">
+          <p className="text-sm font-semibold text-gray-800 dark:text-zinc-200">
+            Draft unfinished — every pick needs a team before this can be confirmed.
+          </p>
+        </section>
+      )}
 
       {/* PLATFORM-095 — the publish control sits at the TOP, not below the pick
           table. It is the one outstanding action on this page for a finished

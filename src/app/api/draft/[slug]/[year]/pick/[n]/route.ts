@@ -259,17 +259,27 @@ export async function PUT(
     // this route minting one, since it is not the publication authority.
     if (current.phase === 'complete') {
       const currentCsv = rosterRecord?.value;
-      // `previousTeam === null` means the slot held nothing, so there is no row
-      // to move. This used to pass `oldTeam: previousTeam ?? canonicalTeam`,
-      // which is not a skip: `oldCanon === newCanon` makes the release branch
-      // unreachable and rewrites the row to the owner it already had, so the
-      // draft changed and the CSV silently did not.
-      if (previousTeam !== null && typeof currentCsv === 'string' && currentCsv.trim()) {
+      if (typeof currentCsv === 'string' && currentCsv.trim()) {
         await txn.writeKey(
           `owners:${slug}:${year}`,
           'csv',
           patchConfirmedOwnersCsv(currentCsv, {
-            oldTeam: previousTeam,
+            // `patchConfirmedOwnersCsv` MOVES ownership: the new team takes the
+            // old row's owner, and the old team is released to NoClaim. What
+            // each of this route's cases needs:
+            //
+            //   ordinary edit / taking a held team — move, exactly as above.
+            //   FILLING AN EMPTY SLOT — the slot released nothing, so only the
+            //     new team's row should change. Passing an `oldTeam` that
+            //     matches no row leaves the release branch unreachable and makes
+            //     `effectiveOwner` fall through to `fallbackOwner`, which is this
+            //     pick's owner. That is exactly the wanted result.
+            //
+            // Two earlier attempts got this wrong in opposite directions:
+            // `?? canonicalTeam` made it a self-move that rewrote the row to the
+            // owner it already had, and skipping the patch outright left the
+            // draft and the roster silently disagreeing.
+            oldTeam: previousTeam ?? '\u0000none',
             newTeam: canonicalTeam,
             fallbackOwner: replacement.owner,
             // Match persisted rows through the same canonical resolver used to

@@ -772,46 +772,59 @@ test('a PUBLISHED draft refuses the move instead of vacating a live roster', asy
   assert.equal(picks[1]?.team, TEAM_B, 'the live roster is untouched');
 });
 
-test('filling an EMPTY slot never rewrites a roster row', async () => {
-  // The self-move defect. `oldTeam: previousTeam ?? canonicalTeam` read as a
-  // skip but was not: with `oldCanon === newCanon`, `patchConfirmedOwnersCsv`
-  // takes the target team's OWN row, the release branch is unreachable, and the
-  // row is rewritten to the owner it already had — so the draft changed and the
-  // CSV silently did not, leaving the two disagreeing with no error.
+test('filling an empty slot gives the team to that owner, releasing nothing', async () => {
+  // Three attempts at this, and the first two were wrong in opposite directions.
   //
-  // Reached by vacating while no roster exists, then a repair import arriving
-  // before the slot is filled.
+  //   `oldTeam: previousTeam ?? canonicalTeam` made it a SELF-MOVE:
+  //   `oldCanon === newCanon` makes the release branch unreachable and rewrites
+  //   the row to the owner it already had — a write that changed nothing while
+  //   invalidating standings.
+  //
+  //   Skipping the patch outright left the draft saying this owner holds the
+  //   team while the roster still credited someone else — the PLATFORM-072
+  //   silent-divergence class. **The test I wrote for that round asserted the
+  //   skip as correct**, locking the defect in.
+  //
+  // The slot released nothing, so only the new team's row changes.
   await setAppState<DraftState>(draftScope(SLUG), String(YEAR), completeTwoOwnerDraft('complete'));
   await runCapturingTags(() => PUT(editRequest(TEAM_B), { params: pickParams(1) }));
   const vacated = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value?.picks;
   assert.equal(vacated?.[1]?.team, null, 'precondition: slot #2 is empty');
 
-  // A repair roster arrives, crediting TEAM_C to somebody else entirely.
+  // A repair roster arrives while the slot is still open.
   const repair = ['team,owner', `${TEAM_A},Imported`, `${TEAM_C},Imported`].join('\n');
   await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', repair);
 
   // Owner2 fills the empty slot with TEAM_C.
-  const { result: res, tags } = await runCapturingTags(() =>
+  const { result: res } = await runCapturingTags(() =>
     PUT(editRequest(TEAM_C), { params: pickParams(2) })
   );
   assert.equal(res.status, 200, await res.text());
 
   const owners = await readOwnerByTeam();
+  assert.equal(owners?.get(TEAM_C.toLowerCase()), 'Owner2', 'the team is credited to this owner');
   assert.equal(
-    owners?.get(TEAM_C.toLowerCase()),
+    owners?.get(TEAM_A.toLowerCase()),
     'Imported',
-    'the roster row is left exactly as it was — an empty slot had no row to move'
+    'and nothing else is released — the empty slot held nothing to give up'
   );
+});
 
-  // The self-move produced the SAME CSV bytes, so the roster alone cannot tell
-  // the two apart. What it did do was count as a WRITE: standings were
-  // invalidated and publication re-stamped for an edit that changed no
-  // ownership. That is the discriminating observation.
-  assert.deepEqual(
-    tags.filter((t) => t.startsWith('standings:')),
-    [],
-    'no ownership changed, so nothing is invalidated'
-  );
-  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
-  assert.equal(isDraftPublished(after), false, 'and no publication is claimed');
+test('a pick with a MISSING team is refused, not crashed on', async () => {
+  // The guard tested `=== null`, so a hand-edited or partly migrated record whose
+  // `team` field is absent slipped past it and reached `pick.team!.toLowerCase()`
+  // below — a 500 in place of the 422 the guard exists to give. Its neighbours
+  // (`draftPicksSignature`, `isDraftPublished`) already defend against exactly
+  // that shape.
+  const draft = completeTwoOwnerDraft('complete');
+  const missing = { ...draft.picks[1]! } as Partial<DraftPick>;
+  delete missing.team;
+  await setAppState<DraftState>(draftScope(SLUG), String(YEAR), {
+    ...draft,
+    picks: [draft.picks[0]!, missing as DraftPick],
+  });
+
+  const res = await runCapturingTags(() => CONFIRM(editConfirmReq(), { params: confirmParams }));
+  assert.equal(res.result.status, 422, 'a refusal, not a crash');
+  assert.match(((await res.result.json()) as { error: string }).error, /unassigned pick/);
 });

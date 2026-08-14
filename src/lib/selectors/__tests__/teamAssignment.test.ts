@@ -444,3 +444,15 @@ test('a genuinely short draft is still incomplete', () => {
     'draft-incomplete'
   );
 });
+
+test('a draft that is BOTH short and holed is reported as short', () => {
+  // Order matters. A hole routes to the summary, which is right for a
+  // fully-slotted draft mid-correction — but a draft that is genuinely short has
+  // its outstanding work on the board, and reporting the hole first sent the
+  // commissioner to the wrong page and only surfaced "Finish the draft →" after a
+  // second round-trip.
+  const base = draft();
+  const shortAndHoled = { ...base, picks: [{ ...base.picks[0]!, team: null }] };
+
+  assert.equal(selectTeamAssignment(input({ draft: shortAndHoled })).blocker, 'draft-incomplete');
+});

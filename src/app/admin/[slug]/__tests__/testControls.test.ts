@@ -593,3 +593,39 @@ test('a demo publication that cannot commit writes NOTHING', async () => {
   assert.equal(isDraftPublished(draft), false, 'no publication recorded');
   assert.ok(!roster?.value, 'no roster written');
 });
+
+test('autoCompleteDraft fills a vacated slot rather than publishing without it', async () => {
+  // PLATFORM-096. `remainingSlots` counts an empty slot as taken and the CSV
+  // writer dropped it, so auto-complete published a roster one owner short while
+  // stamping `publishedPicks` — bypassing the confirm route's unassigned guard
+  // and breaking the invariant the whole feature rests on. The comment here used
+  // to call a null unreachable; this feature is what made it reachable.
+  await seed(makeLeague(TEST_LEAGUE_SLUG, 2025, { state: 'preseason', year: 2025 }));
+  await seedLiveDemoDraft(2025);
+  const started = (await getAppState<DraftState>(draftScope(TEST_LEAGUE_SLUG), '2025'))!.value!;
+  await setAppState(draftScope(TEST_LEAGUE_SLUG), '2025', {
+    ...started,
+    picks: [
+      {
+        pickNumber: 1,
+        round: 0,
+        roundPick: 0,
+        owner: 'Alice',
+        team: null,
+        pickedAt: '2025-01-01T00:00:00.000Z',
+        autoSelected: false,
+      },
+    ],
+    currentPickIndex: 1,
+  });
+
+  const outcome = await runWithRevalidateContext(() => autoCompleteDraft());
+  assert.equal(outcome.kind, 'completed', JSON.stringify(outcome));
+
+  const draft = (await getAppState<DraftState>(draftScope(TEST_LEAGUE_SLUG), '2025'))?.value;
+  assert.ok(
+    draft?.picks.every((p) => p.team !== null),
+    'every slot is filled before publishing'
+  );
+  assert.equal(isDraftPublished(draft), true);
+});
