@@ -268,12 +268,14 @@ export default function DraftSummaryClient({
                 className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm text-gray-800 hover:bg-blue-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-blue-900"
               >
                 <span>{name}</span>
-                {/* Naming the holder is what makes taking a held team a
-                    deliberate act rather than a surprise — the slot it leaves
-                    behind is the commissioner's to fill. */}
+                {/* The owner's name alone is the signal — in a list of teams, a
+                    muted name beside one reads as "this belongs to them" without
+                    "held by" spelling it out. Naming them at all is what makes
+                    taking a held team deliberate rather than a surprise; the slot
+                    it leaves behind is the commissioner's to fill. */}
                 {heldBy && (
                   <span className="shrink-0 text-xs text-gray-500 dark:text-zinc-400">
-                    held by {heldBy}
+                    {heldBy}
                   </span>
                 )}
               </button>

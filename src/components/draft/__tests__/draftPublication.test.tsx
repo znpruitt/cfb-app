@@ -363,7 +363,7 @@ test('the picker offers held teams, and names who holds them', () => {
 
   assert.doesNotMatch(source, /pickedTeamsLower/, 'held teams are no longer filtered out');
   assert.match(source, /holderByTeam\.get\(name\.toLowerCase\(\)\) \?\? null/);
-  assert.match(source, /held by \{heldBy\}/, 'and the holder is named');
+  assert.match(source, /\{heldBy\}\s*<\/span>/, 'and the holder is named');
   assert.match(
     source,
     /\(conferenceMap\[lower\] \?\? ''\)\.toLowerCase\(\)\.includes\(searchLower\)/,
