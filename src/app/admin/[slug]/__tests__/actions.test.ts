@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 
 // Install the global AsyncLocalStorage before the Next storage module loads so
@@ -442,7 +443,7 @@ test('completeSetup refuses a league with no assignment method', async () => {
   assert.notEqual(await setupCompleteFlag(), true);
 });
 
-test('setAssignmentMethod refuses to discard a draft that has every pick', async () => {
+test('setAssignmentMethod refuses to leave a draft that has every pick', async () => {
   // PLATFORM-095, owner's ruling. Switching is fine mid-draft; once the picks are
   // all in, the draft's assignment must not be thrown away by changing method.
   //
@@ -456,11 +457,27 @@ test('setAssignmentMethod refuses to discard a draft that has every pick', async
 
   await assert.rejects(
     () => runCapturingTags(() => setAssignmentMethod('alpha', 'manual')),
-    /cannot be discarded/
+    /draft is finished/
   );
 
   const league = (await getAppState<League[]>('leagues', 'registry'))?.value?.[0];
   assert.equal(league?.assignmentMethod, 'draft', 'the method is unchanged');
+});
+
+test('setAssignmentMethod always allows switching BACK to draft', async () => {
+  // The direction fix. Refusing every change once the picks were in also blocked
+  // the return journey, and a league on `manual` with a finished draft had no
+  // route out: `manual-assignment-incomplete` has no writer, the card is hidden,
+  // and Complete Setup is blocked with only a draft Reset to escape.
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }, 'manual'),
+  ]);
+  await seedAssignedTeams('alpha', 2026);
+
+  await runCapturingTags(() => setAssignmentMethod('alpha', 'draft'));
+
+  const back = (await getAppState<League[]>('leagues', 'registry'))?.value?.[0];
+  assert.equal(back?.assignmentMethod, 'draft', 'the recovery path is open');
 });
 
 test('setAssignmentMethod still allows a switch mid-draft', async () => {
@@ -487,4 +504,21 @@ test('setAssignmentMethod still allows a switch mid-draft', async () => {
 
   const league = (await getAppState<League[]>('leagues', 'registry'))?.value?.[0];
   assert.equal(league?.assignmentMethod, 'manual');
+});
+
+test('the destructive warning is offered only when LEAVING a draft', () => {
+  // Structural. The confirmation is client state raised by a click, which the
+  // server-render harness cannot fire — but the DIRECTION is checkable, and it
+  // was wrong: `draftHasPicks` stays true after switching to manual (the draft
+  // record is deliberately retained), so selecting "Run a Draft" also raised
+  // "this discards the draft", which is the opposite of what returning does.
+  const source = readFileSync(
+    new URL('../components/AssignmentMethodCard.tsx', import.meta.url),
+    'utf8'
+  );
+  assert.match(
+    source,
+    /method !== currentMethod && method !== 'draft' && draftHasPicks/,
+    'returning to `draft` must not warn about discarding it'
+  );
 });

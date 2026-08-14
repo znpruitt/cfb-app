@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync, existsSync } from 'node:fs';
 import test from 'node:test';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -97,13 +98,13 @@ test('a draft that finished its last pick can still be published', () => {
   const html = render(draftWith({ publishedPicks: null }));
 
   assert.match(html, /Confirm draft/, 'the publish button is reachable');
-  assert.doesNotMatch(html, /Reopen Draft/, 'nothing to reopen — it never published');
+  assert.doesNotMatch(html, /Reopen draft/, 'nothing to reopen — it never published');
 });
 
 test('a published draft offers Reopen instead of Confirm', () => {
   const html = render(published());
 
-  assert.match(html, /Reopen Draft/);
+  assert.match(html, /Reopen draft/);
   assert.doesNotMatch(html, /Confirm draft/, 'already published — no second publish');
 });
 
@@ -116,7 +117,7 @@ test('a draft whose picks changed since publishing can be published again', () =
   const html = render({ ...stale, picks: picks(['Michigan', 'Ohio State']) });
 
   assert.match(html, /Confirm draft/, 'the changed draft can be published again');
-  assert.doesNotMatch(html, /Reopen Draft/);
+  assert.doesNotMatch(html, /Reopen draft/);
 });
 
 test('a draft with picks still outstanding offers neither control', () => {
@@ -142,7 +143,7 @@ test('a draft with picks still outstanding offers neither control', () => {
   );
 
   assert.doesNotMatch(html, /Confirm draft/, '1 of 2 picks made');
-  assert.doesNotMatch(html, /Reopen Draft/);
+  assert.doesNotMatch(html, /Reopen draft/);
 });
 
 test('a REOPENED draft can still be published', () => {
@@ -155,7 +156,7 @@ test('a REOPENED draft can still be published', () => {
   const html = render(reopened);
 
   assert.match(html, /Confirm draft/, 'the way back to publication is open');
-  assert.doesNotMatch(html, /Reopen Draft/, 'already reopened');
+  assert.doesNotMatch(html, /Reopen draft/, 'already reopened');
 });
 
 test('a reopened draft whose picks were then edited can still be published', () => {
@@ -174,7 +175,7 @@ test('neither control is offered to a non-admin', () => {
   const html = render(draftWith({ publishedPicks: null }), false);
 
   assert.doesNotMatch(html, /Confirm draft/);
-  assert.doesNotMatch(html, /Reopen Draft/);
+  assert.doesNotMatch(html, /Reopen draft/);
 });
 
 test('a published draft whose roster was cleared can be published again', () => {
@@ -187,7 +188,7 @@ test('a published draft whose roster was cleared can be published again', () => 
   const html = render(published(), true, { publishedRosterExists: false });
 
   assert.match(html, /Confirm draft/, 'the way to restore the roster is offered');
-  assert.doesNotMatch(html, /Reopen Draft/, 'there is nothing to reopen');
+  assert.doesNotMatch(html, /Reopen draft/, 'there is nothing to reopen');
 });
 
 test('a published draft with its roster intact still offers only Reopen', () => {
@@ -195,7 +196,7 @@ test('a published draft with its roster intact still offers only Reopen', () => 
   // so the test above is pinning the roster fact rather than passing vacuously.
   const html = render(published(), true, { publishedRosterExists: true });
 
-  assert.match(html, /Reopen Draft/);
+  assert.match(html, /Reopen draft/);
   assert.doesNotMatch(html, /Confirm draft/);
 });
 
@@ -251,4 +252,48 @@ test('the draft board banner offers Continue Setup only once published', () => {
   assert.match(unpublished, /not yet confirmed/, 'the banner says so plainly');
 
   assert.match(header(published()), /Continue Setup/, 'published: setup is genuinely next');
+});
+
+test('confirming redirects somewhere that EXISTS', () => {
+  // The bug the owner found in ~90 seconds of clicking, live since long before
+  // this campaign: `handleConfirm` sent the browser to `/league/{slug}/overview`,
+  // and there is no `overview` route — the league root is `/league/{slug}`. So
+  // the final step of publishing always landed on a 404. Nobody hit it because
+  // until PLATFORM-094 the Confirm button was unreachable, so the dead end hid
+  // the broken landing behind it.
+  //
+  // Structural, because the redirect is a `window.location` assignment inside an
+  // async handler that this static harness cannot fire. Pinned against the ROUTE
+  // TREE so it fails if either the target or the routes move.
+  const source = readFileSync(new URL('../DraftSummaryClient.tsx', import.meta.url), 'utf8');
+  const targets = [...source.matchAll(/window\.location\.href =\s*([^;]+);/g)].map((m) => m[1]!);
+  assert.ok(targets.length > 0, 'the confirm handler navigates somewhere');
+
+  assert.ok(
+    !targets.some((t) => t.includes('/overview')),
+    'no route named `overview` exists under /league/[slug]'
+  );
+  for (const dir of ['admin/[slug]/preseason', 'league/[slug]']) {
+    assert.ok(
+      existsSync(new URL(`../../../app/${dir}/page.tsx`, import.meta.url)),
+      `redirect target /${dir} must exist as a route`
+    );
+  }
+  assert.match(
+    targets.join(' '),
+    /admin\/\$\{slug\}\/preseason/,
+    'preseason returns to the checklist'
+  );
+});
+
+test('the pick editor renders on the row being edited', () => {
+  // Structural. The editor was a section near the page bottom, so clicking Edit
+  // on a pick near the top answered off-screen — reported as "the edit button
+  // does nothing". Firing the click needs a DOM harness this suite does not
+  // have, so what is pinned is that the editor is rendered from inside the pick
+  // table rather than as a sibling of it.
+  const source = readFileSync(new URL('../DraftSummaryClient.tsx', import.meta.url), 'utf8');
+  const tbody = source.slice(source.indexOf('<tbody>'), source.indexOf('</tbody>'));
+  assert.match(tbody, /editingPickNumber === pick\.pickNumber/, 'gated per row');
+  assert.match(tbody, /renderPickEditor\(\)/, 'and rendered inside the table');
 });

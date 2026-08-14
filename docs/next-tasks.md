@@ -113,7 +113,58 @@ Supersedes: (none)
     branch point, so preview databases still CONTAIN production data — they just cannot write back
     to it. That is the right trade for write safety, and it is a different question from the
     data-retention item below.
-14. ⏳ **PLATFORM-095 — implemented, PR pending.** Split out of PLATFORM-094 rather than folded
+14. ⏳ **PLATFORM-095 — implemented, in remediation.** Owner decisions taken during the preview
+    walkthrough, to apply before the PR:
+    - Draft-board banner copy: **"Draft complete — confirm the results to assign teams"** replaces
+      "Draft complete — all N picks made · not yet confirmed". The qualifier bolted a second thought
+      onto a completion claim — the same tell as PLATFORM-091's `· Date TBD` — and the pick count
+      was redundant beside a board showing every pick.
+    - Checklist: **option A** — the row keeps its stable item and the action hangs off it
+      (`○ Teams assigned — Confirm draft results →`), and the bottom blocker note is REMOVED. That
+      note was one line trying to speak for several unsatisfied rows, sitting far from the row it
+      described; per-row actions dissolve it. Rejected option B (relabelling the row itself) so the
+      commissioner sees the same three items every visit.
+    - **BUG, pre-existing and live: confirming a draft 404s.** `handleConfirm` redirects to
+      `/league/{slug}/overview`, and that route does not exist — the league root is
+      `/league/{slug}`, with no `overview` segment. Present on `main` and on the merge base, so the
+      final step of publishing has always landed on a 404; nobody hit it because until
+      PLATFORM-094 the Confirm button was unreachable, so the dead end hid it. **Both reviewers read
+      that line and reasoned about what the overview page shows without checking it exists, and the
+      end-to-end test drives the route handlers so it stops exactly where the browser continues.**
+      Found by the owner in ~90 seconds of clicking. Owner's ruling: redirect to
+      `/admin/{slug}/preseason` for a preseason league — the checklist that now ticks and offers
+      Complete Setup — and `/league/{slug}` otherwise. This also closes the review finding that the
+      newly-gated `Continue Setup` prompt is unreachable: it is not needed if confirming lands where
+      it pointed.
+    - Checklist row stays LINKED after publication (owner, found walking preview). Today
+      `teamsHref` renders only while `!teamsAssigned`, so the row goes inert the moment the draft
+      publishes and the preseason page offers no route to the draft at all. A link exists on the
+      league overview — the owner found it — but not on the admin side, which is where a
+      commissioner mid-setup looks: he first guessed `/admin/{slug}/preseason/draft`, because during
+      preseason the draft IS a setup step even though it lives under `/league/{slug}`. Keep the row
+      linked, labelled for what it then is (`View draft results →`).
+    - Published state gets the SAME banner shape (owner). Confirm moved to the top while Reopen
+      stayed at the bottom, so the page's main action jumps position with state. A published draft
+      gets a top banner too — "Draft confirmed — these are the league's {year} rosters" — with
+      Reopen beside it and the bottom section removed. Reopen's current muted grey reads as
+      DISABLED; it should be visibly secondary without looking inactive.
+    - Pick editing renders INLINE on the row (owner). The editor is a block section near the page
+      bottom, below the whole roster table and the facts panel, so clicking Edit on a pick near the
+      top produces a response off-screen — indistinguishable from a dead button, and the owner
+      reported it as "the edit button does nothing". Pre-existing (same arrangement on `main`), and
+      the same defect class as the rest of this slice: the app responds correctly somewhere the
+      commissioner is not looking. Scroll-to was the cheap alternative; inline was chosen because
+      this page's layout is being reworked anyway.
+    - Confirm-draft box: **no explanatory text at all** (owner). The current copy is verbose AND
+      inaccurate — "This cannot be undone without starting a new draft or uploading a CSV override"
+      is false now that Reopen exists and keeps the roster live until re-confirmation, and "CSV
+      override" is internal plumbing. It becomes an armed confirm (`Confirm draft?` + Confirm /
+      Cancel), matching `DraftControls`' Reset.
+    - The destructive confirmation must NOT be amber: `DESIGN.md:79` reserves amber/gold for
+      champion and podium signals. Use a red/error palette. (The existing Confirm-draft box appears
+      to break the same rule pre-existing.)
+    Reviews on `fc299a9f` found the assignment-method work carries a P1 and two P2s while the
+    wayfinding carries none — see the discussion pending after the walkthrough. Split out of PLATFORM-094 rather than folded
     in: it is information-architecture work, and `AGENTS.md` keeps that out of correctness PRs.
     Found by the owner walking a two-round draft on preview — the flow WORKS, but every surface
     still treats "all picks made" as "done" and offers the after-you-are-finished action before the

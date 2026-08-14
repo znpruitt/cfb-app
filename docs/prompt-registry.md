@@ -52,6 +52,8 @@ Rules:
 
 ### PLATFORM-095-PUBLICATION-WAYFINDING-v1
 
+- Status: **Implemented — PR pending** (branch `platform/095-publication-wayfinding`).
+
 - Purpose: make every surface point at Confirm before publication, and offer `Continue Setup` only
   after it. Found by the owner walking a two-round draft on preview — PLATFORM-094 made the flow
   correct, but the post-draft surfaces still treated "all picks made" as "done" and offered the
@@ -86,7 +88,35 @@ Rules:
   a THIRD `Continue Setup` — on the admin league page — which is correct as-is: it is the admin
   home's entry point into the checklist, gated on setup being incomplete, and the checklist now
   routes onward properly. Auditing it took one grep and prevented a wrong "fix".
-- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3737/3737
+- **The owner's walkthrough found nine items, and one was a live bug nothing else caught.**
+  Confirming a draft redirected to `/league/{slug}/overview`, **a route that does not exist** — the
+  league root is `/league/{slug}`. Present on `main` and the merge base, so publishing has always
+  ended on a 404; it stayed hidden because until PLATFORM-094 the Confirm button was unreachable, so
+  the dead end concealed the broken landing behind it. **Both reviewers read that line and reasoned
+  about what the destination page shows without checking it exists, and the end-to-end test drives
+  the route handlers so it stops exactly where the browser keeps going.** Found in ~90 seconds of
+  clicking. Now returns to `/admin/{slug}/preseason` in preseason — which also closes the review
+  finding that the newly-gated `Continue Setup` prompt was unreachable, since confirming now lands
+  where it pointed.
+- Also from the walkthrough: the banner qualifier bolted a second thought onto a completion claim
+  (the `· Date TBD` tell again); the checklist's bottom note was one line trying to speak for
+  several rows, replaced by per-row actions (owner chose the stable-row option so the checklist does
+  not rewrite itself); the confirm box lost its prose entirely — it was verbose AND false, since
+  "cannot be undone" stopped being true when Reopen arrived; amber went to red per `DESIGN.md:79`
+  (amber is champion/podium only — I read `DESIGN.md` before starting but never opened the colour
+  section); the published state gained the same banner shape so the primary action stops moving; and
+  **the pick editor now renders inline on its row** — it was a section near the page bottom, so
+  clicking Edit answered off-screen and was reported as "the edit button does nothing".
+- **Reviewer findings, all on the assignment-method switch.** The guard ignored DIRECTION, so it also
+  blocked switching back to `draft` — a league moved to `manual` mid-draft still runs that draft to
+  completion, and then `manual-assignment-incomplete` has no writer, the card is hidden, and setup is
+  blocked with only a Reset to escape. Now only leaving a complete draft is refused. The warning also
+  fired in both directions and described a discard that does not happen — the draft record is
+  retained deliberately. The final-pick race is accepted and documented: serializing would need a
+  second read-modify-write onto the registry, and the direction fix makes its outcome recoverable
+  rather than terminal. **The owner chose to ship these together rather than split the method switch
+  into its own slice; I would have split it, and said so.**
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3742/3742
   (+8). Seven mutations across the five guards; **two killed nothing at first** — both
   `Continue Setup` gates had no coverage — and tests were added before they failed. One assertion
   was written vacuously (`/draftHasPicks|Change/i` matches "Change", always present), caught on

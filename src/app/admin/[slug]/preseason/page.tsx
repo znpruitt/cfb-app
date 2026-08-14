@@ -108,24 +108,17 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   // had lost its roster — and in the finished-but-unconfirmed case it told the
   // commissioner to do the one thing they had just done. `assignmentBlocker`
   // already distinguishes all four, so say the true thing and name the action.
-  const assignmentText =
-    assignmentBlocker === 'draft-not-published'
-      ? 'Your draft is complete. Confirm the results to assign teams.'
+  // The bottom note is gone: each unsatisfied row carries its own action now.
+  // One line could only ever describe one blocker, and sat far from the row it
+  // was about.
+  const assignmentAction =
+    assignmentBlocker === 'draft-not-published' || assignmentBlocker === 'published-roster-missing'
+      ? 'Confirm draft results →'
       : assignmentBlocker === 'draft-incomplete'
-        ? 'Finish the draft to assign teams.'
-        : assignmentBlocker === 'published-roster-missing'
-          ? 'The published roster is missing. Confirm the draft again.'
-          : assignmentBlocker === 'manual-assignment-incomplete'
-            ? 'Assign every team to an owner to finish setup.'
-            : 'Choose how teams are assigned.';
-
-  const blockerText = !hasRoster
-    ? teamsAssigned
-      ? 'Confirm the owners before finishing setup.'
-      : `Confirm the owners before finishing setup. ${assignmentText}`
-    : teamsAssigned
-      ? ''
-      : assignmentText;
+        ? 'Finish the draft →'
+        : assignmentBlocker === 'manual-assignment-incomplete'
+          ? 'Assign teams →'
+          : 'Choose a method →';
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
@@ -187,15 +180,44 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
             >
               {teamsAssigned ? '✓' : '○'}
             </span>
+            {/* PLATFORM-095 — the row is the STATE; the action hangs off it.
+                The label used to BE the link, so "Teams assigned" was
+                simultaneously a status and a button, and the only explanation
+                sat in a small note at the bottom of the page trying to speak
+                for whichever row was blocking. Each row now carries its own
+                next step, and that note is gone.
+
+                The link survives once assigned, too: it used to go inert on
+                publication, leaving the preseason page with no route to the
+                draft at all — and that is where a commissioner looks for it. */}
+            <span
+              className={
+                teamsAssigned
+                  ? 'text-gray-700 dark:text-zinc-300'
+                  : league.assignmentMethod
+                    ? 'text-gray-700 dark:text-zinc-300'
+                    : 'text-gray-400 dark:text-zinc-500'
+              }
+            >
+              Teams assigned
+            </span>
             {teamsAssigned ? (
-              <span className="text-gray-700 dark:text-zinc-300">Teams assigned</span>
+              draftHasPicks ? (
+                <Link
+                  href={`/league/${slug}/draft/summary`}
+                  className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  View draft results →
+                </Link>
+              ) : null
             ) : league.assignmentMethod ? (
-              <Link href={teamsHref} className="text-blue-600 hover:underline dark:text-blue-400">
-                Teams assigned
+              <Link
+                href={teamsHref}
+                className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+              >
+                {assignmentAction}
               </Link>
-            ) : (
-              <span className="text-gray-400 dark:text-zinc-500">Teams assigned</span>
-            )}
+            ) : null}
           </li>
 
           {/* Setup complete — satisfied by Complete Setup action */}
@@ -287,9 +309,6 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
                 Complete Setup
               </button>
             </form>
-            {!canCompleteSetup && blockerText && (
-              <p className="text-xs text-gray-400 dark:text-zinc-500">{blockerText}</p>
-            )}
           </>
         )}
       </div>

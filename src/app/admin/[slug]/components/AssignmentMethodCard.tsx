@@ -59,7 +59,10 @@ export default function AssignmentMethodCard({
   // This is the courtesy, NOT the guard. `setAssignmentMethod` refuses a draft
   // whose picks are all in regardless of what the client sends.
   function select(method: Method) {
-    if (method !== currentMethod && draftHasPicks) {
+    // Only warn when moving AWAY from a draft that has picks. Returning TO
+    // `draft` reactivates those same picks — warning "this discards the draft"
+    // there said the opposite of what happens.
+    if (method !== currentMethod && method !== 'draft' && draftHasPicks) {
       setConfirming(method);
       return;
     }
@@ -95,19 +98,20 @@ export default function AssignmentMethodCard({
       {error && <p className="text-sm text-red-700 dark:text-red-400">{error}</p>}
 
       {confirming && (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950">
-          <p className="mb-3 text-sm text-amber-900 dark:text-amber-100">
-            This season&rsquo;s draft has already made picks. Changing the assignment method
-            discards that draft — the picks made so far will no longer assign teams to owners.
+        <div className="rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/40">
+          <p className="mb-3 text-sm text-red-900 dark:text-red-100">
+            This season&rsquo;s draft has already made picks. While teams are assigned manually that
+            draft will not assign anyone — its picks are kept, and switching back to a draft
+            restores them.
           </p>
           <div className="flex gap-3">
             <button
               type="button"
               disabled={pending}
               onClick={() => commit(confirming)}
-              className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+              className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
             >
-              {pending ? 'Changing…' : 'Discard the draft and change'}
+              {pending ? 'Changing…' : 'Assign manually'}
             </button>
             <button
               type="button"
@@ -115,7 +119,7 @@ export default function AssignmentMethodCard({
               onClick={() => setConfirming(null)}
               className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
             >
-              Keep the draft
+              Cancel
             </button>
           </div>
         </div>

@@ -331,14 +331,37 @@ export async function setAssignmentMethod(slug: string, method: 'draft' | 'manua
       ? league.status.year
       : league?.year;
 
-  if (league && typeof year === 'number') {
+  // DIRECTION matters. The first cut refused whenever the draft was complete,
+  // without looking at what was being set — which also blocked switching BACK to
+  // `draft` and could strand a league permanently: a league moved to `manual`
+  // mid-draft still runs its draft to completion (the pick route has no
+  // assignment-method gate), and then `manual-assignment-incomplete` has no
+  // writer anywhere in the app, the card is hidden, and Complete Setup is
+  // blocked with no route out but a draft Reset.
+  //
+  // Only moving AWAY from a draft that has every pick is refused. Returning to
+  // `draft` is always allowed, and is the recovery path.
+  if (
+    league &&
+    typeof year === 'number' &&
+    league.assignmentMethod === 'draft' &&
+    method !== 'draft'
+  ) {
     const draft = (await getAppState<DraftState>(draftScope(slug), String(year)))?.value ?? null;
     if (draftPicksAreComplete(draft)) {
       throw new Error(
-        'The draft for this season is finished — its team assignments cannot be discarded by changing the assignment method.'
+        'This season\u2019s draft is finished — switch back to a draft, or reset it, before changing how teams are assigned.'
       );
     }
   }
+
+  // Known, accepted race: the final `/pick` can commit between the read above
+  // and this write, so `manual` can land on a draft that just completed. The
+  // pick route shares no transaction with this action, and serializing them
+  // would mean a second read-modify-write path onto the registry, which
+  // AGENTS.md forbids. The consequence is now RECOVERABLE rather than terminal —
+  // switching back to `draft` is permitted — which is why the direction fix
+  // above matters more than the window.
 
   await updateLeague(slug, { assignmentMethod: method });
   revalidatePath(`/admin/${slug}/preseason`);

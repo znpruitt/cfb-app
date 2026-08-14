@@ -369,12 +369,12 @@ test('the checklist names the actual outstanding step, not the category', async 
   };
 
   // No draft yet.
-  assert.match(await renderChecklist(), /Finish the draft to assign teams\./);
+  assert.match(await renderChecklist(), /Finish the draft →/);
 
   // Finished, never confirmed — the case the old copy got exactly backwards.
   await setAppState(draftScope(SLUG), String(YEAR), { phase: 'complete', picks, ...full });
   const finished = await renderChecklist();
-  assert.match(finished, /Your draft is complete\. Confirm the results to assign teams\./);
+  assert.match(finished, /Confirm draft results →/);
   assert.doesNotMatch(finished, /Complete team assignment/);
 
   // Published, then the roster was blanked.
@@ -385,10 +385,34 @@ test('the checklist names the actual outstanding step, not the category', async 
     publishedPicks: draftPicksSignature(picks),
   });
   await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', null);
-  assert.match(
-    await renderChecklist(),
-    /The published roster is missing\. Confirm the draft again\./
-  );
+  assert.match(await renderChecklist(), /Confirm draft results →/);
+});
+
+test('the Teams assigned row keeps a link to the draft after publication', async () => {
+  // It went inert on publication, leaving the preseason page with no route to
+  // the draft at all — and that is where a commissioner looks for it.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+    publishedPicks: draftPicksSignature(picks),
+  });
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', 'team,owner\nTexas,Alice\nOhio State,Bob');
+
+  const html = await renderChecklist();
+  assert.match(html, /View draft results →/);
+  assert.match(html, new RegExp(`href="/league/${SLUG}/draft/summary"`));
 });
 
 test('the assignment-method switcher disappears once every pick is in', async () => {
