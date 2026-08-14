@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
+import { isDraftPublished } from '@/lib/selectors/draftPublication';
 import type { DraftState } from '@/lib/draft';
 import type { LeagueStatus } from '@/lib/league';
 import { computeTimerSecondsLeft } from './draftTimer';
@@ -135,13 +136,32 @@ export default function DraftHeaderArea({
 
   // Complete state
   if (draft.phase === 'complete') {
+    const isPublished = isDraftPublished(draft);
     return (
       <div className="flex items-center justify-between rounded-xl border border-green-200 bg-green-50/60 px-4 py-3 dark:border-green-800/40 dark:bg-green-950/20">
         <p className="text-sm font-semibold text-green-800 dark:text-green-300">
-          Draft complete — all {totalPicks} picks made
+          {/* PLATFORM-095 — the unpublished line names the ACTION. "· not yet
+              confirmed" bolted a second thought onto a completion claim: the
+              same tell as PLATFORM-091's `· Date TBD`, where a qualifier existed
+              only to survive a fact the sentence had already overstated. The
+              pick count went with it — the board above shows every pick.
+
+              Gated on `isAdmin` because `SpectatorBoardClient` mounts this
+              header too: a spectator was being handed an instruction only a
+              commissioner can act on, and losing the pick count for it. */}
+          {isPublished || !isAdmin
+            ? `Draft complete — all ${totalPicks} picks made`
+            : 'Draft complete — confirm the results to assign teams'}
         </p>
         <div className="flex items-center gap-2">
-          {isAdmin && slug && leagueStatus?.state === 'preseason' && (
+          {/* PLATFORM-095 — "Continue Setup" only once the results are PUBLISHED.
+              Offered on `phase === 'complete'` it was the wrong primary: the
+              final pick leaves a draft complete and unpublished, so following it
+              landed on a checklist that could not proceed, with no mention of
+              Confirm. Before PLATFORM-094 the checklist ticked at `complete`, so
+              the link used to be right; the new semantics made it a detour. What
+              a finished, unpublished draft needs is the summary page. */}
+          {isAdmin && slug && leagueStatus?.state === 'preseason' && isPublished && (
             <a
               href={`/admin/${slug}/preseason`}
               className="rounded border border-green-300 bg-green-100 px-2.5 py-1 text-xs font-medium text-green-800 transition hover:bg-green-200 dark:border-green-700 dark:bg-green-900/50 dark:text-green-100 dark:hover:bg-green-900"

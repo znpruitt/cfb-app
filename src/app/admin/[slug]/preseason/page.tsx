@@ -7,6 +7,9 @@ import { describeLeagueLifecycle } from '@/lib/selectors/leagueLifecycle';
 import { TEST_LEAGUE_SLUG } from '@/lib/league';
 import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
 import { getTeamAssignment } from '@/lib/server/teamAssignmentStore';
+import { getAppState } from '@/lib/server/appStateStore';
+import { draftScope, type DraftState } from '@/lib/draft';
+import { draftPicksAreComplete } from '@/lib/selectors/draftPublication';
 import type { TeamAssignmentBlocker } from '@/lib/selectors/teamAssignment';
 import AssignmentMethodCard from '../components/AssignmentMethodCard';
 import { completeSetup } from '../actions';
@@ -30,6 +33,8 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   let hasRoster = false;
   let teamsAssigned = false;
   let assignmentBlocker: TeamAssignmentBlocker | null = null;
+  let draftPicksComplete = false;
+  let draftHasPicks = false;
 
   try {
     // PLATFORM-092 — one derivation answers "is there a confirmed roster",
@@ -49,6 +54,10 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
     hasRoster = roster.isConfirmed;
     teamsAssigned = assignment.isAssigned;
     assignmentBlocker = assignment.blocker;
+    const draftRecord =
+      (await getAppState<DraftState>(draftScope(slug), String(year)))?.value ?? null;
+    draftPicksComplete = draftPicksAreComplete(draftRecord);
+    draftHasPicks = Array.isArray(draftRecord?.picks) && draftRecord.picks.length > 0;
   } catch {
     // Storage unavailable — checklist shows incomplete
   }
@@ -72,12 +81,25 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
   // Anything else — no draft yet, or one still running — belongs at setup.
   const needsPublishing =
     assignmentBlocker === 'draft-not-published' || assignmentBlocker === 'published-roster-missing';
+
+  // `manual-assignment-incomplete` deliberately gets NO destination: `teamsHref`
+  // used to resolve to this very page, so the row promised an action that
+  // re-rendered the same checklist — and manual assignment has no
+  // implementation to link to. `assignmentAction` is null there, so no link
+  // renders at all.
+  //
+  // "Finish the draft →" points at the BOARD, not setup: setup is a settings
+  // screen carrying a secondary link to the board, so the label promised one hop
+  // and delivered two.
+  // `no-assignment-method` anchors to the method card, which sits on THIS page —
+  // the only case where a same-page destination is honest rather than a link to
+  // nowhere.
   const teamsHref =
-    league.assignmentMethod === 'draft'
-      ? needsPublishing
+    assignmentBlocker === 'no-assignment-method'
+      ? '#assignment-method'
+      : needsPublishing
         ? `/league/${slug}/draft/summary`
-        : `/league/${slug}/draft/setup`
-      : `/admin/${slug}/preseason`;
+        : `/league/${slug}/draft`;
 
   // Who starts this league's season, decided by the one lifecycle-ownership
   // authority. `league.status` is passed through as stored — the selector owns
@@ -91,14 +113,33 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
 
   const completeSetupAction = completeSetup.bind(null, slug, year);
 
-  // Helper text for disabled Complete Setup button
-  const blockers = [!hasRoster && 'owners', !teamsAssigned && 'team assignment'].filter(Boolean);
-  const blockerText =
-    blockers.length === 2
-      ? 'Complete owners and team assignment before finishing setup.'
-      : blockers.length === 1
-        ? `Complete ${blockers[0]} before finishing setup.`
-        : '';
+  // Helper text for the disabled Complete Setup button.
+  //
+  // PLATFORM-095 — this named the CATEGORY that was unfinished and never the
+  // step. "Complete team assignment before finishing setup." read identically
+  // whether the draft had not started, had finished without being confirmed, or
+  // had lost its roster — and in the finished-but-unconfirmed case it told the
+  // commissioner to do the one thing they had just done. `assignmentBlocker`
+  // already distinguishes all four, so say the true thing and name the action.
+  // The bottom note is gone: each unsatisfied row carries its own action now.
+  // One line could only ever describe one blocker, and sat far from the row it
+  // was about.
+  // `manual-assignment-incomplete` gets NO action: its only destination was this
+  // very page, so the row promised something that re-rendered the same
+  // checklist, and manual assignment has no implementation behind it.
+  //
+  // A NULL blocker with `teamsAssigned` false means the reads above THREW and
+  // the catch swallowed it — not that a method is unchosen. Falling through to
+  // "Choose a method →" told a commissioner to do something already done, which
+  // is the exact copy defect this row exists to remove.
+  const assignmentAction =
+    assignmentBlocker === 'draft-not-published' || assignmentBlocker === 'published-roster-missing'
+      ? 'Confirm draft results →'
+      : assignmentBlocker === 'draft-incomplete'
+        ? 'Finish the draft →'
+        : assignmentBlocker === 'no-assignment-method'
+          ? 'Choose a method →'
+          : null;
 
   return (
     <main className="mx-auto max-w-3xl px-6 py-8 space-y-8">
@@ -132,21 +173,27 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
             >
               {hasRoster ? '✓' : '○'}
             </span>
-            {hasRoster ? (
-              <Link
-                href={`/admin/${slug}/preseason/owners`}
-                className="text-gray-700 hover:underline dark:text-zinc-300"
-              >
-                Owners confirmed
-              </Link>
-            ) : (
-              <Link
-                href={`/admin/${slug}/preseason/owners`}
-                className="text-blue-600 hover:underline dark:text-blue-400"
-              >
-                Owners confirmed
-              </Link>
-            )}
+            {/* PLATFORM-095 — same shape as the row below: the label states, a
+                separate action acts. Both branches used to render an identical
+                link, so an unsatisfied owners row looked exactly like a
+                satisfied one apart from its colour — and when the bottom
+                blocker note was removed, this row lost its only explanation of
+                why Complete Setup was disabled. */}
+            <span className="text-gray-700 dark:text-zinc-300">Owners confirmed</span>
+            {/* The link SURVIVES confirmation. Replacing the satisfied branch
+                with `null` left NO generated link to
+                `/admin/{slug}/preseason/owners` once a roster existed — the only
+                other one renders solely while none does — so a commissioner
+                could not correct league membership between confirming owners and
+                running the draft. Same defect as the Teams assigned row going
+                inert, introduced in the very change that fixed that one, in the
+                row directly above it. */}
+            <Link
+              href={`/admin/${slug}/preseason/owners`}
+              className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+            >
+              {hasRoster ? 'Edit owners →' : 'Confirm owners →'}
+            </Link>
           </li>
 
           {/* Teams assigned */}
@@ -160,15 +207,48 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
             >
               {teamsAssigned ? '✓' : '○'}
             </span>
+            {/* PLATFORM-095 — the row is the STATE; the action hangs off it.
+                The label used to BE the link, so "Teams assigned" was
+                simultaneously a status and a button, and the only explanation
+                sat in a small note at the bottom of the page trying to speak
+                for whichever row was blocking. Each row now carries its own
+                next step, and that note is gone.
+
+                The link survives once assigned, too: it used to go inert on
+                publication, leaving the preseason page with no route to the
+                draft at all — and that is where a commissioner looks for it. */}
+            <span
+              className={
+                teamsAssigned
+                  ? 'text-gray-700 dark:text-zinc-300'
+                  : league.assignmentMethod
+                    ? 'text-gray-700 dark:text-zinc-300'
+                    : 'text-gray-400 dark:text-zinc-500'
+              }
+            >
+              Teams assigned
+            </span>
             {teamsAssigned ? (
-              <span className="text-gray-700 dark:text-zinc-300">Teams assigned</span>
-            ) : league.assignmentMethod ? (
-              <Link href={teamsHref} className="text-blue-600 hover:underline dark:text-blue-400">
-                Teams assigned
+              draftHasPicks ? (
+                <Link
+                  href={`/league/${slug}/draft/summary`}
+                  className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  View draft results →
+                </Link>
+              ) : null
+            ) : assignmentAction ? (
+              // No `league.assignmentMethod` requirement: `no-assignment-method`
+              // is precisely when it is falsy, so gating on it suppressed the one
+              // action a brand-new league needs — and the bottom note that used
+              // to cover that case is gone.
+              <Link
+                href={teamsHref}
+                className="text-sm text-blue-600 hover:underline dark:text-blue-400"
+              >
+                {assignmentAction}
               </Link>
-            ) : (
-              <span className="text-gray-400 dark:text-zinc-500">Teams assigned</span>
-            )}
+            ) : null}
           </li>
 
           {/* Setup complete — satisfied by Complete Setup action */}
@@ -195,9 +275,32 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
         </ol>
       </section>
 
-      {/* Assignment method — hidden once teams are assigned */}
-      {!teamsAssigned && (
-        <AssignmentMethodCard slug={slug} currentMethod={league.assignmentMethod ?? null} />
+      {/* Assignment method — hidden once teams are assigned, AND once the draft
+          has every pick in.
+
+          PLATFORM-095: tightening `teamsAssigned` left this visible through the
+          whole finished-but-unpublished window — the very screen the
+          commissioner is on to go and publish. One click on "Assign Manually"
+          reached `manual-assignment-incomplete`, a state with no writer
+          anywhere in the app, blocking Complete Setup until they switched back.
+          `setAssignmentMethod` refuses the same case server-side; hiding the
+          control is presentation, and the action is the guard.
+
+          The hide is METHOD-AWARE, and that is load-bearing. Hiding on the
+          draft's completeness alone stranded a league permanently: switch to
+          `manual` mid-draft (allowed), let the picks finish (the pick route has
+          no method gate), and then `manualAssignmentComplete` has no writer,
+          this card was hidden so `draft` could not be re-selected, and
+          `DraftSetupShell` hides Reset at `complete` — with `DraftControls`,
+          whose Reset survives there, imported by nothing. No route out at all,
+          which `DESIGN.md` calls orphaned state. */}
+      <div id="assignment-method" />
+      {!teamsAssigned && !(league.assignmentMethod === 'draft' && draftPicksComplete) && (
+        <AssignmentMethodCard
+          slug={slug}
+          currentMethod={league.assignmentMethod ?? null}
+          draftHasPicks={draftHasPicks}
+        />
       )}
 
       {/* Manual assignment coming soon notice */}
@@ -247,9 +350,6 @@ export default async function PreseasonPage({ params }: { params: Promise<{ slug
                 Complete Setup
               </button>
             </form>
-            {!canCompleteSetup && blockerText && (
-              <p className="text-xs text-gray-400 dark:text-zinc-500">{blockerText}</p>
-            )}
           </>
         )}
       </div>

@@ -152,10 +152,10 @@ test('the Teams assigned link points where the publish control actually is', asy
   const picks = picksFor(['Texas', 'Ohio State']);
 
   const hrefFor = async (): Promise<string> =>
-    (await renderChecklist()).match(/href="[^"]*\/draft\/[^"]*"/)?.[0] ?? '(no draft link)';
+    (await renderChecklist()).match(/href="[^"]*\/draft[^"]*"/)?.[0] ?? '(no draft link)';
 
-  // No draft yet — setup is right, because there is a draft to create.
-  assert.equal(await hrefFor(), `href="/league/${SLUG}/draft/setup"`);
+  // No draft yet — the board is where a draft gets run.
+  assert.equal(await hrefFor(), `href="/league/${SLUG}/draft"`);
 
   // Finished but never published — the one remaining step is Confirm.
   await setAppState(draftScope(SLUG), String(YEAR), {
@@ -177,7 +177,7 @@ test('the Teams assigned link points where the publish control actually is', asy
     'a finished draft points at the page that can publish it'
   );
 
-  // Still running — setup again; there is nothing to confirm yet.
+  // Still running — the board again; there is nothing to confirm yet.
   //
   // Seeded as a COMPLETE record. The first version omitted `settings`/`owners`,
   // which made the derivation throw, the page's catch swallow it, and the href
@@ -196,7 +196,7 @@ test('the Teams assigned link points where the publish control actually is', asy
       scheduledAt: null,
     },
   });
-  assert.equal(await hrefFor(), `href="/league/${SLUG}/draft/setup"`);
+  assert.equal(await hrefFor(), `href="/league/${SLUG}/draft"`);
 });
 
 test('the summary page reads the published roster and passes it down', () => {
@@ -341,4 +341,255 @@ test('a RUNNING or finished draft is never blocked, even with no confirmed roste
       draftPhase
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-095 — wayfinding. Every surface points at Confirm before publication;
+// `Continue Setup` appears only after it, and only there.
+// ---------------------------------------------------------------------------
+
+test('the checklist names the actual outstanding step, not the category', async () => {
+  // The old copy was generated from a blocker LIST and read identically whether
+  // the draft had not started, had finished without being confirmed, or had lost
+  // its roster — telling a commissioner who had just finished a draft to
+  // "complete team assignment".
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+  const full = {
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake' as const,
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt' as const,
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  };
+
+  // No draft yet.
+  assert.match(await renderChecklist(), /Finish the draft →/);
+
+  // Finished, never confirmed — the case the old copy got exactly backwards.
+  await setAppState(draftScope(SLUG), String(YEAR), { phase: 'complete', picks, ...full });
+  const finished = await renderChecklist();
+  assert.match(finished, /Confirm draft results →/);
+  assert.doesNotMatch(finished, /Complete team assignment/);
+
+  // Published, then the roster was blanked.
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks,
+    ...full,
+    publishedPicks: draftPicksSignature(picks),
+  });
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', null);
+  assert.match(await renderChecklist(), /Confirm draft results →/);
+});
+
+test('the Teams assigned row keeps a link to the draft after publication', async () => {
+  // It went inert on publication, leaving the preseason page with no route to
+  // the draft at all — and that is where a commissioner looks for it.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+    publishedPicks: draftPicksSignature(picks),
+  });
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', 'team,owner\nTexas,Alice\nOhio State,Bob');
+
+  const html = await renderChecklist();
+  assert.match(html, /View draft results →/);
+  assert.match(html, new RegExp(`href="/league/${SLUG}/draft/summary"`));
+});
+
+test('the assignment-method switcher disappears once every pick is in', async () => {
+  // It stayed visible through the finished-but-unpublished window — the screen
+  // the commissioner is on to go and publish — and switching to manual reached a
+  // blocker with no writer.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+  const full = {
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake' as const,
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt' as const,
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  };
+
+  // Mid-draft the commissioner may still change their mind.
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'live',
+    picks: picks.slice(0, 1),
+    ...full,
+  });
+  assert.match(await renderChecklist(), /Assignment method/i);
+
+  // Every pick in — the draft's assignment must not be discardable by a click.
+  await setAppState(draftScope(SLUG), String(YEAR), { phase: 'complete', picks, ...full });
+  assert.doesNotMatch(await renderChecklist(), /Assignment method/i);
+});
+
+test('changing method mid-draft warns that it discards the draft', async () => {
+  // Owner's ruling: switching IS allowed while a draft is in progress, but only
+  // behind a warning that says what it costs. The card asks; the action enforces.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'live',
+    picks: picksFor(['Texas']),
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
+
+  // The card is still offered — a half-run draft may be abandoned.
+  assert.match(await renderChecklist(), /Assignment method/i);
+
+  // The WARNING itself is client state raised by a click, which a static render
+  // cannot reach, so it is pinned two ways instead — neither of them by matching
+  // page text, which would pass on the word "Change" alone:
+  //   1. the page passes the fact (structural, below);
+  //   2. the ACTION refuses a finished draft outright, covered behaviorally in
+  //      `admin/[slug]/__tests__/actions.test.ts`. That is the guard; the dialog
+  //      is the courtesy.
+  const pageSource = readFileSync(
+    new URL('../../../../admin/[slug]/preseason/page.tsx', import.meta.url),
+    'utf8'
+  );
+  assert.match(pageSource, /draftHasPicks=\{draftHasPicks\}/, 'the card is told what is at stake');
+  assert.match(
+    pageSource,
+    /draftHasPicks = Array\.isArray\(draftRecord\?\.picks\) && draftRecord\.picks\.length > 0;/,
+    'and the fact is derived from the stored draft'
+  );
+});
+
+test('a MANUAL league keeps the way back to a draft, even with a finished one', async () => {
+  // The stranding bug, found by review. Switching to `manual` mid-draft is
+  // allowed, the pick route has no method gate so the draft still finishes, and
+  // then: `manualAssignmentComplete` has no writer, so teams are never assigned;
+  // the method card was hidden by the draft's completeness alone, so `draft`
+  // could not be re-selected; and `DraftSetupShell` hides Reset at `complete`
+  // while `DraftControls` — the component with a Reset that survives there — is
+  // imported by nothing. Complete Setup blocked with no route out at all, which
+  // `DESIGN.md` calls orphaned state.
+  //
+  // `setAssignmentMethod` already permits returning to `draft`; the UI has to
+  // offer it.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Gate Surface League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'preseason', year: YEAR },
+    assignmentMethod: 'manual',
+  });
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+  const picks = picksFor(['Texas', 'Ohio State']);
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    phase: 'complete',
+    picks,
+    owners: ['Alice', 'Bob'],
+    settings: {
+      style: 'snake',
+      draftOrder: ['Alice', 'Bob'],
+      pickTimerSeconds: null,
+      timerExpiryBehavior: 'pause-and-prompt',
+      totalRounds: 1,
+      scheduledAt: null,
+    },
+  });
+
+  assert.match(await renderChecklist(), /Assignment method/i, 'the recovery path is offered');
+});
+
+test('a manual league is not told to take an action that does not exist', async () => {
+  // `manual-assignment-incomplete` linked to `/admin/{slug}/preseason` — the page
+  // it is already on. The row promised an action whose destination was itself,
+  // and manual assignment has no implementation behind it.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Gate Surface League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'preseason', year: YEAR },
+    assignmentMethod: 'manual',
+  });
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+
+  const html = await renderChecklist();
+  assert.doesNotMatch(html, /Assign teams →/, 'no call-to-action without a destination');
+  assert.doesNotMatch(
+    html,
+    new RegExp(`href="/admin/${SLUG}/preseason"[^>]*>\\s*[A-Za-z ]+→`),
+    'and no link back to this same page'
+  );
+});
+
+test('a brand-new league is told to choose a method', async () => {
+  // Both reviewers, from opposite directions. The row rendered its action only
+  // when `league.assignmentMethod` was truthy — but `no-assignment-method` is
+  // exactly when it is falsy, so the one action a new league needs was
+  // suppressed by the condition describing it. The bottom note that used to
+  // cover that case had been removed in the same change.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Gate Surface League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'preseason', year: YEAR },
+  });
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+
+  const html = await renderChecklist();
+  assert.match(html, /Choose a method →/);
+  assert.match(html, /href="#assignment-method"/, 'and it points at the card on this page');
+});
+
+test('an unconfirmed owners row carries its own action', async () => {
+  // Both branches used to render the same link text, so an unsatisfied row
+  // looked like a satisfied one apart from colour — and when the bottom blocker
+  // note went, this row lost its only explanation of the disabled button.
+  await seedLeague();
+
+  const html = await renderChecklist();
+  assert.match(html, /Confirm owners →/);
+});
+
+test('the owners editor stays reachable after owners are confirmed', async () => {
+  // A regression introduced while fixing the identical defect one row down.
+  // Replacing the satisfied branch with `null` left no generated link to
+  // `/admin/{slug}/preseason/owners` at all once a roster existed — the other
+  // one renders only while none does — so membership could not be corrected
+  // between confirming owners and running the draft.
+  await seedLeague();
+  await savePreseasonOwners(SLUG, YEAR, ['Alice', 'Bob']);
+
+  const html = await renderChecklist();
+  assert.match(html, new RegExp(`href="/admin/${SLUG}/preseason/owners"`));
+  assert.match(html, /Edit owners →/);
 });

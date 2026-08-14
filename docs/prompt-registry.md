@@ -50,7 +50,126 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
-This is a historical record of executed prompts — a ledger, not a backlog. Active/queued work lives in `docs/next-tasks.md`; entries here describe work that has shipped, or that is implemented and in final pre-merge review when the entry explicitly says so.
+### PLATFORM-095-PUBLICATION-WAYFINDING-v1
+
+- Status: **Implemented — PR pending** (branch `platform/095-publication-wayfinding`).
+
+- Purpose: make every surface point at Confirm before publication, and offer `Continue Setup` only
+  after it. Found by the owner walking a two-round draft on preview — PLATFORM-094 made the flow
+  correct, but the post-draft surfaces still treated "all picks made" as "done" and offered the
+  after-you-are-finished action before the commissioner had finished.
+- Scope: `DraftHeaderArea`, `DraftSummaryClient`, the preseason checklist copy, `AssignmentMethodCard`,
+  and `setAssignmentMethod`, plus `DraftSetupShell` and `AssignmentMethodCard`.
+- **Sizing: 11 files, +1315/-262 — within the stop-and-reassess signals.** Re-derived from the merge
+  base at closeout rather than carried forward: the figure recorded when the branch opened was
+  8 files / +466/-80 and went stale across four remediation rounds. **This is the third campaign
+  entry whose diffstat drifted** — twice in PLATFORM-094, once here — every time in an entry that
+  itself says a diffstat is only useful if re-checked when the branch moves. The lesson is not "try
+  harder": derive it at closeout, never in place mid-branch.
+- **The same conflation PLATFORM-094 fixed, one layer up.** `Continue Setup` rendered on
+  `phase === 'complete'` regardless of publication, so following it landed on a checklist that could
+  not proceed. Before PLATFORM-094 the checklist ticked at `complete` and the link was right; the
+  new semantics turned it into a detour. Both offending surfaces now gate on publication.
+- **The publish control moved to the top of the summary page** and says why it is there — "Draft
+  complete — these results are not yet the league's rosters." It was the last thing on a long
+  scroll. Label is exactly `Confirm draft` per the owner: the review IS the page, so a button asking
+  the reader to review what they are looking at is noise. Tests pin the exact string.
+- **The checklist names the step, not the category.** `Complete team assignment before finishing
+  setup.` was generated from a blocker LIST and read identically whether the draft had not started,
+  had finished unconfirmed, or had lost its roster — telling a commissioner who had just finished a
+  draft to complete team assignment. `assignmentBlocker` already distinguished all four.
+- **Assignment-method switching was a CORRECTNESS item wearing an IA costume.**
+  `setAssignmentMethod` had no guard of any kind, so a hidden card was the only thing preventing a
+  drafted league from being switched to `manual` — a state with no writer anywhere in the app. That
+  is the "a disabled control is not a guard" defect PLATFORM-094 already fixed for `completeSetup`.
+  Owner's ruling: allowed mid-draft behind a warning that says it discards the draft; refused once
+  every pick is in. "Once complete" is `draftPicksAreComplete`, NOT `phase === 'complete'` — a
+  reopened draft keeps every pick with its roster live in standings, so a phase test would call that
+  "in progress" and let one click discard a finished draft and strand its rosters.
+- The confirmation is INLINE disclosure in the ERROR palette, not a modal (amber was the first
+  choice and was corrected in round 1 — `DESIGN.md:79` reserves amber/gold for champion/podium): that is this codebase's established
+  pattern for destructive admin actions (`DraftControls` arms its Reset; `DraftSummaryClient` opens
+  an amber box before writing rosters), and there is no modal anywhere to be consistent with. The
+  owner asked for a "pop-up"; the deviation was flagged before implementing.
+- The seam audit ran FIRST this time ([[feedback_audit_seams_before_writing]]) and immediately found
+  a THIRD `Continue Setup` — on the admin league page — which is correct as-is: it is the admin
+  home's entry point into the checklist, gated on setup being incomplete, and the checklist now
+  routes onward properly. Auditing it took one grep and prevented a wrong "fix".
+- **The owner's walkthrough found nine items, and one was a live bug nothing else caught.**
+  Confirming a draft redirected to `/league/{slug}/overview`, **a route that does not exist** — the
+  league root is `/league/{slug}`. Present on `main` and the merge base, so publishing has always
+  ended on a 404; it stayed hidden because until PLATFORM-094 the Confirm button was unreachable, so
+  the dead end concealed the broken landing behind it. **Both reviewers read that line and reasoned
+  about what the destination page shows without checking it exists, and the end-to-end test drives
+  the route handlers so it stops exactly where the browser keeps going.** Found in ~90 seconds of
+  clicking. Now returns to `/admin/{slug}/preseason` in preseason — which also closes the review
+  finding that the newly-gated `Continue Setup` prompt was unreachable, since confirming now lands
+  where it pointed.
+- Also from the walkthrough: the banner qualifier bolted a second thought onto a completion claim
+  (the `· Date TBD` tell again); the checklist's bottom note was one line trying to speak for
+  several rows, replaced by per-row actions (owner chose the stable-row option so the checklist does
+  not rewrite itself); the confirm box lost its prose entirely — it was verbose AND false, since
+  "cannot be undone" stopped being true when Reopen arrived; amber went to red per `DESIGN.md:79`
+  (amber is champion/podium only — I read `DESIGN.md` before starting but never opened the colour
+  section); the published state gained the same banner shape so the primary action stops moving; and
+  **the pick editor now renders inline on its row** — it was a section near the page bottom, so
+  clicking Edit answered off-screen and was reported as "the edit button does nothing".
+- **Reviewer findings, all on the assignment-method switch.** The guard ignored DIRECTION, so it also
+  blocked switching back to `draft` — a league moved to `manual` mid-draft still runs that draft to
+  completion, and then `manual-assignment-incomplete` has no writer, the card is hidden, and setup is
+  blocked with only a Reset to escape. Now only leaving a complete draft is refused. The warning also
+  fired in both directions and described a discard that does not happen — the draft record is
+  retained deliberately. The final-pick race is accepted and documented: serializing would need a
+  second read-modify-write onto the registry, and the direction fix makes its outcome recoverable
+  rather than terminal. **The owner chose to ship these together rather than split the method switch
+  into its own slice; I would have split it, and said so.**
+- **Round 2 — both reviewers found the same P1: the recovery path had no UI.** `setAssignmentMethod`
+  was fixed to permit returning to `draft`, and its comment called the state "RECOVERABLE rather
+  than terminal" — but the card was hidden on the DRAFT's completeness alone, without looking at the
+  current method. A league switched to `manual` mid-draft still runs that draft to completion (the
+  pick route has no method gate), and then `manualAssignmentComplete` has no writer, the card is
+  hidden so `draft` cannot be re-selected, and `DraftSetupShell` hides Reset at `complete` — while
+  `DraftControls`, whose Reset survives there, **is imported by nothing**. No route out at all;
+  `DESIGN.md:91` calls that orphaned state. **I fixed one half of a route and asserted the whole
+  thing worked** — the disabled-button-is-not-a-guard mistake run in reverse.
+- **I recorded the owner's banner-copy ruling in this branch's own ledger and shipped the rejected
+  string**, with a test pinning it — so the ledger and the tests asserted opposite things. Both
+  reviewers caught it. Applied now.
+- Also: `manual-assignment-incomplete` linked to the page it was already on, so the row offered a
+  call-to-action whose destination was itself and whose feature has no implementation — now
+  unlinked. "Finish the draft →" pointed at the settings screen rather than the board, promising one
+  hop and delivering two. A swallowed storage error fell through to "Choose a method →", telling a
+  commissioner to do something already done.
+- **Two edits in a scripted batch were silently lost** when a later assertion in the same script
+  aborted before the file write — including the stranding fix itself. Caught by mutation, not by
+  reading. Multi-edit scripts now write per edit.
+- **Round 3 — the root was a MISSING CONTROL, and three findings were me routing around it.**
+  `DraftSetupShell` hides Reset at `phase === 'complete'`, and `DraftControls`, whose Reset survives
+  there, **is imported by nothing** — so a finished draft could not be reset at all. That produced
+  the only state with no exit: nothing published (so no Reopen) and no Reset, meaning a commissioner
+  who wanted to abandon a finished draft could only escape by CONFIRMING it. My round-2 fix closed
+  the "switch to manual" escape without noticing nothing stood behind it, and my refusal message
+  recommended a reset that did not exist. Reset now survives at `complete` until the draft is
+  published; after publication nothing changes, because Reopen is offered and the owner's rule holds
+  — a confirmed draft is the league's live roster and is not reached past.
+- **Codex found a hole in the guard's key.** It tested `assignmentMethod === 'draft'`, so a league
+  that never chose a method skipped the check — and draft creation has no method gate, so a draft can
+  be created and finished first, then switched to manual on top of. Now keyed on the REQUESTED
+  direction plus the draft's state, independent of what the league currently holds.
+- **I suppressed the one action a brand-new league needs**, and both reviewers found it from opposite
+  sides: the row rendered its link only when `league.assignmentMethod` was truthy, which is exactly
+  false for `no-assignment-method`. It anchors to the method card on the same page — the one case
+  where a same-page destination is honest.
+- Also: the top banner told a REOPENED commissioner their rosters were not the league's, contradicting
+  the reopen dialog two panels below it; that new copy rendered to SPECTATORS, who cannot act on it,
+  via `SpectatorBoardClient`; the owners row lost its explanation when the bottom note went; and the
+  refusal is now RETURNED rather than thrown, because Next.js redacts thrown Server Action errors in
+  production and the commissioner would have seen a digest instead of the sentence.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, `npm run build` clean; `npm test` 3751/3751
+  (+22 across four rounds, not the +8 recorded when the branch opened). Seven mutations; **two killed nothing at first** — both
+  `Continue Setup` gates had no coverage — and tests were added before they failed. One assertion
+  was written vacuously (`/draftHasPicks|Change/i` matches "Change", always present), caught on
+  review of my own work and replaced with a labelled structural pin that a mutation does kill.
 
 ### PLATFORM-094-DRAFT-PUBLICATION-AND-READINESS-v2
 

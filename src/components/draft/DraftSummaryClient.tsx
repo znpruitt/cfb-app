@@ -89,11 +89,6 @@ export default function DraftSummaryClient({
     .sort((a, b) => a.localeCompare(b));
 
   // The pick currently being edited (if any)
-  const editingPick =
-    editingPickNumber !== null
-      ? (draft.picks.find((p) => p.pickNumber === editingPickNumber) ?? null)
-      : null;
-
   // Teams already assigned to other picks (the replaced pick remains selectable)
   const pickedTeamsLower = new Set(
     draft.picks.filter((p) => p.pickNumber !== editingPickNumber).map((p) => p.team.toLowerCase())
@@ -155,7 +150,13 @@ export default function DraftSummaryClient({
         setConfirmLoading(false);
         return;
       }
-      window.location.href = `/league/${slug}/overview`;
+      // PLATFORM-095 — `/league/{slug}/overview` DOES NOT EXIST. Confirming a
+      // draft has always landed on a 404; nobody hit it because until
+      // PLATFORM-094 the Confirm button was unreachable, so the dead end hid the
+      // broken landing behind it. A preseason commissioner belongs back on the
+      // checklist that now ticks and offers Complete Setup.
+      window.location.href =
+        leagueStatus?.state === 'preseason' ? `/admin/${slug}/preseason` : `/league/${slug}`;
     } catch (err) {
       setConfirmError((err as Error).message);
       setConfirmLoading(false);
@@ -198,6 +199,65 @@ export default function DraftSummaryClient({
     publishedRosterExists,
   });
 
+  // PLATFORM-095 — the editor renders INLINE, on the row being edited.
+  //
+  // It used to be a section near the page bottom, below the whole roster table
+  // and the facts panel, so clicking Edit on a pick near the top produced a
+  // response off-screen with nothing changing where the commissioner was
+  // looking. Reported as "the edit button does nothing" — it worked perfectly,
+  // somewhere you could not see. Same defect class as the rest of this slice.
+  function renderPickEditor() {
+    return (
+      <section className="rounded-lg border border-blue-300 bg-blue-50 p-4 dark:border-blue-700 dark:bg-blue-950">
+        {/* No heading. It read "Editing pick #23 — currently: Coastal Carolina"
+            back when this panel lived at the bottom of the page and had to say
+            which pick it belonged to. Inline, the row directly above shows both,
+            so the heading was the panel still behaving as if it were somewhere
+            else. */}
+        <div className="mb-2 flex items-center justify-end">
+          <button
+            type="button"
+            onClick={() => {
+              setEditingPickNumber(null);
+              setEditSearch('');
+              setEditError(null);
+            }}
+            className="text-xs text-blue-700 hover:underline dark:text-blue-300"
+          >
+            Cancel
+          </button>
+        </div>
+        <input
+          type="search"
+          placeholder="Search teams…"
+          value={editSearch}
+          onChange={(e) => setEditSearch(e.target.value)}
+          className="mb-3 w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
+        />
+        {editError && <p className="mb-2 text-sm text-red-700 dark:text-red-400">{editError}</p>}
+        <div className="max-h-52 overflow-y-auto rounded border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
+          {availableForPicker.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-gray-400 dark:text-zinc-500">
+              {editSearch ? 'No teams match.' : 'No available teams.'}
+            </p>
+          ) : (
+            availableForPicker.map((teamName) => (
+              <button
+                key={teamName}
+                type="button"
+                disabled={editLoading}
+                onClick={() => void handleEdit(teamName)}
+                className="w-full px-3 py-1.5 text-left text-sm text-gray-800 hover:bg-blue-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-blue-900"
+              >
+                {teamName}
+              </button>
+            ))
+          )}
+        </div>
+      </section>
+    );
+  }
+
   return (
     <div className="space-y-10">
       <div>
@@ -208,6 +268,124 @@ export default function DraftSummaryClient({
           ← Draft Board
         </Link>
       </div>
+
+      {/* PLATFORM-095 — the publish control sits at the TOP, not below the pick
+          table. It is the one outstanding action on this page for a finished
+          draft, and it was the last thing on a long scroll: the owner walked the
+          flow and found the page's most prominent affordances pointed anywhere
+          but here. The review IS the page, so the button says "Confirm draft" —
+          it does not ask to review something the reader is already looking at.
+
+          Gated on `canPublish` (PLATFORM-094): this was `phase !== 'complete'`,
+          and this is the app's ONLY caller of POST /confirm, so the control
+          vanished at the exact moment a draft became publishable. */}
+      {isAdmin && canPublish && (
+        <section className="rounded-xl border border-green-200 bg-green-50/60 px-4 py-3 dark:border-green-800/40 dark:bg-green-950/20">
+          {confirmError && (
+            <p className="mb-3 text-sm text-red-700 dark:text-red-400">{confirmError}</p>
+          )}
+          {confirmOpen ? (
+            /* An armed confirm, with no prose. The copy here said the write
+               "cannot be undone without starting a new draft or uploading a CSV
+               override" — verbose, internal, and FALSE now that Reopen exists
+               and keeps the roster live until re-confirmation. Amber is
+               reserved for champion/podium signals (DESIGN.md), so a
+               destructive confirm uses the error palette. */
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/40">
+              <p className="text-sm font-semibold text-red-900 dark:text-red-100">Confirm draft?</p>
+              <div className="flex shrink-0 gap-3">
+                <button
+                  type="button"
+                  disabled={confirmLoading}
+                  onClick={() => void handleConfirm()}
+                  className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                >
+                  {confirmLoading ? 'Confirming…' : 'Confirm'}
+                </button>
+                <button
+                  type="button"
+                  disabled={confirmLoading}
+                  onClick={() => setConfirmOpen(false)}
+                  className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm font-semibold text-green-800 dark:text-green-300">
+                {/* A REOPENED draft is publishable but its previous rosters are
+                    STILL LIVE — the reopen dialog two panels down says exactly
+                    that. Telling the commissioner they have no rosters
+                    contradicts it. Distinguished by `publishedPicks` surviving
+                    the reopen: present means this draft published once. */}
+                {draft.publishedPicks
+                  ? 'Draft reopened — confirm again to apply your changes.'
+                  : 'Draft complete — these results are not yet the league\u2019s rosters.'}
+              </p>
+              <button
+                type="button"
+                onClick={() => setConfirmOpen(true)}
+                className="shrink-0 rounded bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
+              >
+                Confirm draft
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* PLATFORM-095 — the published state gets the SAME banner shape as the
+          unpublished one. Confirm moved to the top of the page while Reopen
+          stayed at the bottom, so the page's main action jumped position
+          depending on state. Reopen is deliberately secondary — it retracts a
+          publication — but its old muted grey read as DISABLED. */}
+      {isAdmin && canReopen && (
+        <section className="rounded-xl border border-green-200 bg-green-50/60 px-4 py-3 dark:border-green-800/40 dark:bg-green-950/20">
+          {reopenError && (
+            <p className="mb-3 text-sm text-red-700 dark:text-red-400">{reopenError}</p>
+          )}
+          {reopenOpen ? (
+            <div className="flex items-center justify-between gap-4 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/40">
+              <p className="text-sm text-red-900 dark:text-red-100">
+                Reopen for editing? These rosters stay in effect until you confirm again.
+              </p>
+              <div className="flex shrink-0 gap-3">
+                <button
+                  type="button"
+                  disabled={reopenLoading}
+                  onClick={() => void handleReopen()}
+                  className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-60"
+                >
+                  {reopenLoading ? 'Reopening…' : 'Reopen'}
+                </button>
+                <button
+                  type="button"
+                  disabled={reopenLoading}
+                  onClick={() => setReopenOpen(false)}
+                  className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-4">
+              <p className="text-sm font-semibold text-green-800 dark:text-green-300">
+                Draft confirmed — these are the league&rsquo;s {year} rosters.
+              </p>
+              <button
+                type="button"
+                onClick={() => setReopenOpen(true)}
+                className="shrink-0 rounded border border-green-700 bg-white px-4 py-2 text-sm font-medium text-green-800 hover:bg-green-100 dark:border-green-500 dark:bg-transparent dark:text-green-200 dark:hover:bg-green-900/40"
+              >
+                Reopen draft
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Owner Roster Cards */}
       <section>
@@ -249,41 +427,49 @@ export default function DraftSummaryClient({
                       const conf = conferenceMap[teamLower] ?? '';
                       const displayName = displayNameMap[teamLower] ?? pick.team;
                       return (
-                        <tr
-                          key={pick.pickNumber}
-                          className="border-b border-gray-50 last:border-0 dark:border-zinc-800/50"
-                        >
-                          <td className="py-1 pr-2 text-xs text-gray-400 dark:text-zinc-500">
-                            #{pick.pickNumber}
-                          </td>
-                          <td
-                            className="py-1 pr-2 text-gray-800 dark:text-zinc-200"
-                            title={pick.team}
-                          >
-                            {displayName}
-                            {pick.autoSelected && (
-                              <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
-                                (auto)
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-1 text-xs text-gray-500 dark:text-zinc-400">{conf}</td>
-                          {isAdmin && (
-                            <td className="py-1 text-right">
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setEditingPickNumber(pick.pickNumber);
-                                  setEditSearch('');
-                                  setEditError(null);
-                                }}
-                                className="text-xs text-blue-600 hover:underline dark:text-blue-400"
-                              >
-                                Edit
-                              </button>
+                        <React.Fragment key={pick.pickNumber}>
+                          <tr className="border-b border-gray-50 last:border-0 dark:border-zinc-800/50">
+                            <td className="py-1 pr-2 text-xs text-gray-400 dark:text-zinc-500">
+                              #{pick.pickNumber}
                             </td>
+                            <td
+                              className="py-1 pr-2 text-gray-800 dark:text-zinc-200"
+                              title={pick.team}
+                            >
+                              {displayName}
+                              {pick.autoSelected && (
+                                <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
+                                  (auto)
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-1 text-xs text-gray-500 dark:text-zinc-400">
+                              {conf}
+                            </td>
+                            {isAdmin && (
+                              <td className="py-1 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingPickNumber(pick.pickNumber);
+                                    setEditSearch('');
+                                    setEditError(null);
+                                  }}
+                                  className="text-xs text-blue-600 hover:underline dark:text-blue-400"
+                                >
+                                  Edit
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                          {isAdmin && editingPickNumber === pick.pickNumber && (
+                            <tr>
+                              <td colSpan={isAdmin ? 4 : 3} className="pb-3 pt-1">
+                                {renderPickEditor()}
+                              </td>
+                            </tr>
                           )}
-                        </tr>
+                        </React.Fragment>
                       );
                     })}
                   </tbody>
@@ -340,154 +526,15 @@ export default function DraftSummaryClient({
       </section>
 
       {/* Inline Team Picker (admin only) */}
-      {isAdmin && editingPickNumber !== null && (
-        <section className="rounded-lg border border-blue-300 bg-blue-50 p-4 dark:border-blue-700 dark:bg-blue-950">
-          <div className="mb-3 flex items-center justify-between">
-            <p className="text-sm font-medium text-blue-900 dark:text-blue-100">
-              Editing pick #{editingPickNumber}
-              {editingPick != null && ` — currently: ${editingPick.team}`}
-            </p>
-            <button
-              type="button"
-              onClick={() => {
-                setEditingPickNumber(null);
-                setEditSearch('');
-                setEditError(null);
-              }}
-              className="text-xs text-blue-700 hover:underline dark:text-blue-300"
-            >
-              Cancel
-            </button>
-          </div>
-          <input
-            type="search"
-            placeholder="Search teams…"
-            value={editSearch}
-            onChange={(e) => setEditSearch(e.target.value)}
-            className="mb-3 w-full rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-900 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100"
-          />
-          {editError && <p className="mb-2 text-sm text-red-700 dark:text-red-400">{editError}</p>}
-          <div className="max-h-52 overflow-y-auto rounded border border-gray-200 bg-white dark:border-zinc-700 dark:bg-zinc-900">
-            {availableForPicker.length === 0 ? (
-              <p className="px-3 py-2 text-sm text-gray-400 dark:text-zinc-500">
-                {editSearch ? 'No teams match.' : 'No available teams.'}
-              </p>
-            ) : (
-              availableForPicker.map((teamName) => (
-                <button
-                  key={teamName}
-                  type="button"
-                  disabled={editLoading}
-                  onClick={() => void handleEdit(teamName)}
-                  className="w-full px-3 py-1.5 text-left text-sm text-gray-800 hover:bg-blue-50 disabled:opacity-50 dark:text-zinc-200 dark:hover:bg-blue-900"
-                >
-                  {teamName}
-                </button>
-              ))
-            )}
-          </div>
-        </section>
-      )}
 
       {/* Interesting Facts */}
       <InterestingFactsPanel facts={facts} />
 
-      {/* Confirm Draft — admin only, shown once the picks are in and until they
-          have been published.
-
-          PLATFORM-094: this was `phase !== 'complete'`, and this button is the
-          app's ONLY caller of POST /confirm. `complete` is set by the final
-          pick, so the publish control disappeared at the exact moment a draft
-          became publishable — a draft that ended normally could not be
-          published at all, and the only way out was Reopen (back to `live`)
-          then Confirm, which nothing documented and no link pointed at. */}
-      {isAdmin && canPublish && (
-        <section className="border-t border-gray-200 pt-8 dark:border-zinc-700">
-          {confirmError && (
-            <p className="mb-3 text-sm text-red-700 dark:text-red-400">{confirmError}</p>
-          )}
-          {confirmOpen ? (
-            <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-700 dark:bg-amber-950">
-              <p className="mb-3 text-sm text-amber-900 dark:text-amber-100">
-                This will write all owner rosters to the league for the {year} season. This cannot
-                be undone without starting a new draft or uploading a CSV override.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  disabled={confirmLoading}
-                  onClick={() => void handleConfirm()}
-                  className="rounded bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-700 disabled:opacity-60"
-                >
-                  {confirmLoading ? 'Confirming…' : 'Confirm'}
-                </button>
-                <button
-                  type="button"
-                  disabled={confirmLoading}
-                  onClick={() => setConfirmOpen(false)}
-                  className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setConfirmOpen(true)}
-              className="rounded bg-green-600 px-6 py-2.5 text-sm font-semibold text-white hover:bg-green-700"
-            >
-              Confirm Draft — Write Rosters to League
-            </button>
-          )}
-        </section>
-      )}
-
-      {/* Reopen Draft — admin only, shown once the results have been published */}
-      {isAdmin && canReopen && (
-        <section className="border-t border-gray-200 pt-8 dark:border-zinc-700">
-          {reopenError && (
-            <p className="mb-3 text-sm text-red-700 dark:text-red-400">{reopenError}</p>
-          )}
-          {reopenOpen ? (
-            <div className="rounded-lg border border-gray-300 bg-gray-50 p-4 dark:border-zinc-600 dark:bg-zinc-800">
-              <p className="mb-3 text-sm text-gray-700 dark:text-zinc-300">
-                Reopen this draft for editing? The previously confirmed rosters will remain in
-                effect until you confirm again.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  disabled={reopenLoading}
-                  onClick={() => void handleReopen()}
-                  className="rounded border border-gray-400 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-100 disabled:opacity-60 dark:border-zinc-500 dark:bg-zinc-700 dark:text-zinc-100 dark:hover:bg-zinc-600"
-                >
-                  {reopenLoading ? 'Reopening…' : 'Reopen Draft'}
-                </button>
-                <button
-                  type="button"
-                  disabled={reopenLoading}
-                  onClick={() => setReopenOpen(false)}
-                  className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setReopenOpen(true)}
-              className="rounded border border-gray-300 bg-white px-4 py-2 text-sm text-gray-600 hover:bg-gray-50 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700"
-            >
-              Reopen Draft
-            </button>
-          )}
-        </section>
-      )}
-
-      {/* Continue Setup prompt — commissioner only, preseason only */}
-      {isAdmin && leagueStatus?.state === 'preseason' && (
+      {/* Continue Setup prompt — commissioner only, preseason only, and only
+          once the results have been PUBLISHED. Shown while unpublished it sat
+          directly beneath the Confirm button and pointed away from it, at a
+          checklist that could not proceed. */}
+      {isAdmin && leagueStatus?.state === 'preseason' && canReopen && (
         <section className="border-t border-gray-200 pt-6 dark:border-zinc-700">
           <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50/60 px-4 py-3 dark:border-zinc-700 dark:bg-zinc-800/40">
             <span className="text-sm text-gray-600 dark:text-zinc-400">

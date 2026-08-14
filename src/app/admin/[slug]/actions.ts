@@ -27,7 +27,7 @@ import { TEST_LEAGUE_SLUG, type LeagueStatus } from '@/lib/league';
 import type { AutoCompleteDraftResult, TestControlResult } from '@/lib/testLeagueControl';
 import { requireAdminAction } from '@/lib/auth/requireAdminAction';
 import teamsData from '@/data/teams.json';
-import { draftPicksSignature } from '@/lib/selectors/draftPublication';
+import { draftPicksAreComplete, draftPicksSignature } from '@/lib/selectors/draftPublication';
 
 /** The admin path the demo controls revalidate. */
 const TEST_LEAGUE_ADMIN_PATH = `/admin/${TEST_LEAGUE_SLUG}`;
@@ -305,10 +305,78 @@ export async function beginPreseason(slug: string): Promise<void> {
 }
 
 /** Persist the commissioner's choice of how teams will be assigned this preseason. */
-export async function setAssignmentMethod(slug: string, method: 'draft' | 'manual'): Promise<void> {
+export type SetAssignmentMethodResult = { ok: true } | { ok: false; error: string };
+
+export async function setAssignmentMethod(
+  slug: string,
+  method: 'draft' | 'manual'
+): Promise<SetAssignmentMethodResult> {
   await requireAdminAction('setAssignmentMethod');
+
+  // PLATFORM-095 — a finished draft's assignment cannot be thrown away by
+  // switching method. Owner's ruling: switching is fine while a draft is IN
+  // PROGRESS (behind a confirmation that says it discards that draft), and is
+  // not an option once the draft is finished.
+  //
+  // "Finished" means EVERY PICK IS IN, not `phase === 'complete'`. Reopening a
+  // published draft returns the phase to `live` while keeping every pick, with
+  // its roster still live in standings — so a phase test would call that "in
+  // progress" and let one click discard a completed draft AND strand the
+  // rosters it published. `draftPicksAreComplete` is the same predicate the
+  // publication controls use, so the two cannot drift apart.
+  //
+  // The guard lives HERE and not only in the card. `AssignmentMethodCard` is a
+  // client component calling a Server Action, which is reachable without the
+  // form and whose arguments cross HTTP unvalidated — hiding the control is
+  // presentation, not enforcement (PLATFORM-086F2H1SB, and PLATFORM-094's
+  // `completeSetup` for the same reason).
+  const league = await getLeague(slug);
+  const year =
+    league?.status?.state === 'preseason' || league?.status?.state === 'season'
+      ? league.status.year
+      : league?.year;
+
+  // DIRECTION matters. The first cut refused whenever the draft was complete,
+  // without looking at what was being set — which also blocked switching BACK to
+  // `draft` and could strand a league permanently: a league moved to `manual`
+  // mid-draft still runs its draft to completion (the pick route has no
+  // assignment-method gate), and then `manual-assignment-incomplete` has no
+  // writer anywhere in the app, the card is hidden, and Complete Setup is
+  // blocked with no route out but a draft Reset.
+  //
+  // Only moving AWAY from a draft that has every pick is refused. Returning to
+  // `draft` is always allowed, and is the recovery path.
+  // Keyed on the REQUESTED direction and the draft's state, NOT on the method the
+  // league currently holds. Requiring `assignmentMethod === 'draft'` skipped the
+  // check entirely for a league with NO method chosen — and draft creation has no
+  // method gate, so a commissioner can create and finish a draft before choosing
+  // one, then switch to manual on top of it.
+  if (league && typeof year === 'number' && method !== 'draft') {
+    const draft = (await getAppState<DraftState>(draftScope(slug), String(year)))?.value ?? null;
+    if (draftPicksAreComplete(draft)) {
+      // Returned, not thrown. Next.js redacts errors raised in a Server Action
+      // before they reach the client in production builds, replacing the message
+      // with an opaque digest — so a thrown refusal renders as a framework error
+      // rather than the sentence written here.
+      return {
+        ok: false,
+        error:
+          'This season\u2019s draft is finished. Reset it first if you want to assign teams manually.',
+      };
+    }
+  }
+
+  // Known, accepted race: the final `/pick` can commit between the read above
+  // and this write, so `manual` can land on a draft that just completed. The
+  // pick route shares no transaction with this action, and serializing them
+  // would mean a second read-modify-write path onto the registry, which
+  // AGENTS.md forbids. The consequence is now RECOVERABLE rather than terminal —
+  // switching back to `draft` is permitted — which is why the direction fix
+  // above matters more than the window.
+
   await updateLeague(slug, { assignmentMethod: method });
   revalidatePath(`/admin/${slug}/preseason`);
+  return { ok: true };
 }
 
 /** Persist the confirmed owner list for the preseason and redirect back to setup. */

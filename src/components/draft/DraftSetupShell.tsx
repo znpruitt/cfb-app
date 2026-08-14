@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { requireAdminAuthHeaders } from '@/lib/adminAuth';
+import { isDraftPublished } from '@/lib/selectors/draftPublication';
 import type { DraftState } from '@/lib/draft';
 import DraftSettingsPanel from './DraftSettingsPanel';
 
@@ -43,6 +44,10 @@ export default function DraftSetupShell({
   const [autoAdvancing, setAutoAdvancing] = useState(false);
   const autoAdvancedRef = useRef(false);
   const [resetConfirm, setResetConfirm] = useState(false);
+
+  // Whether this draft's results are the league's live roster. Reset stands down
+  // once that is true — see the comment on the Reset control below.
+  const isPublished = isDraftPublished(draftState);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
 
@@ -258,7 +263,18 @@ export default function DraftSetupShell({
             >
               Go to Draft Board
             </a>
-            {phase !== 'complete' && (
+            {/* PLATFORM-095 — Reset survives at `complete` while the draft is
+                UNCONFIRMED. Hiding it there left the only state with no exit at
+                all: nothing published, so no Reopen, and no Reset, so a
+                commissioner who wanted to abandon a finished draft could only
+                escape by CONFIRMING it. `DraftControls` allowed a reset there
+                and is imported by nothing, so that affordance was lost rather
+                than removed on purpose.
+
+                Once confirmed there is no trap and nothing changes: Reopen is
+                offered, and Reset returns behind it. A confirmed draft is the
+                league's live roster and is not reached past. */}
+            {(phase !== 'complete' || !isPublished) && (
               <>
                 <button
                   type="button"
