@@ -296,13 +296,63 @@ Supersedes: (none)
 
     **Scope boundary, from the owner's earlier ruling:** this is for corrections BEFORE publication.
     Arbitrary reassignment afterwards belongs to the roster, not the draft — "we're not going to
-    rehold a draft if we change owners or reassign teams down the line" — and there is no roster
-    editing surface today beyond the CSV repair import. That remains a separate, unscoped campaign.
-17. **Then — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
-18. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+    rehold a draft if we change owners or reassign teams down the line". **The claim previously
+    recorded here — "there is no roster editing surface today beyond the repair import" — was WRONG,
+    and the PLATFORM-098 audit disproved it:** `/admin/{slug}/roster` has carried an inline
+    team-owner editor with a bulk owner-rename box the whole time. It is unreachable by any generated
+    link after publication, which is why it read as absent. See item 17.
+17. **PLATFORM-098 — the owner roster is the membership authority after publication.** Owner
+    decision, 2026-08-14, from a preview test: after confirming a draft he opened **Edit owners**,
+    changed the list, and "as far as I can tell, it does nothing."
+
+    **It is not inert — it silently diverges.** Two durable records answer "who is in this league",
+    and the two readers disagree about which one wins:
+    - `owners:{slug}:{year}` / `csv` — **the owner roster**. A stored `team,owner` string, written by
+      the app. Not a user-uploaded file; the repair-import panel is a separate path onto the same
+      record.
+    - `preseason-owners:{slug}:{year}` — **the preseason owner list**. Names only.
+
+    `selectConfirmedRoster` prefers the preseason list; `deriveStandings`' preseason path prefers the
+    owner roster (`leagueStandings.ts:527`, "Prefer CSV (draft complete)"). So editing owners after
+    publication changes league MEMBERSHIP while every visible surface keeps showing the draft's
+    output — and editing the roster editor changes the visible surfaces while membership stays stale.
+    Same defect, both directions. This is the PLATFORM-092 defect class (two copies of one fact, one
+    screen writing only one of them) between two different records.
+
+    **Owner's decision: after publication the OWNER ROSTER is the authority.** The preseason list is
+    a pre-assignment input only.
+
+    **Seam audit (run 2026-08-14, before any implementation):**
+    - **Writers of the owner roster — seven.** `POST /confirm`; `POST /pick/{n}` (the edit sync);
+      `PUT /api/owners` (roster editor AND repair import); `DELETE /api/owners` (writes null);
+      test-league reset; the demo year-migration; demo autocomplete.
+    - **Writer of the preseason owner list — one.** `confirmPreseasonOwners`. (Plus two deleters:
+      test-league reset, league-deletion residual cleanup.)
+    - **Readers of `getConfirmedRoster` and what they MEAN** — all three mean "who may participate":
+      the preseason checklist, `/league/{slug}/draft/setup`, and `POST /api/draft` (which builds the
+      draft's owner list from it). The third is why precedence must be conditional on publication and
+      not merely on the roster EXISTING: **`/reset` clears picks and phase but leaves the owner roster
+      in place**, so an unconditional flip would build a re-run draft from a stale roster and ignore
+      the list the commissioner just edited. Gate on `isDraftPublished`, which reset already falsifies.
+    - **Controls live per state.** Pre-assignment: preseason owners screen writes, roster editor
+      reachable only from the pre-draft gate. Published: BOTH screens write, disagreeing. Reopened:
+      both write, roster still serving standings. Reset-after-publication: the roster editor still
+      edits a roster no draft produced.
+
+    **Scope as understood:** flip `selectConfirmedRoster`'s precedence when the draft is published;
+    make the preseason owners screen read-only in that state with a link to the roster editor; give
+    the roster editor a generated entry point after publication — today `draftSetupGate.ts:67` is the
+    only link to it in the app, and it renders only BEFORE a draft. **No new editing capability is
+    needed** — the inline editor and its bulk owner-rename already cover typo fixes and transfers.
+
+    Sequencing against PLATFORM-097 is undecided; they are adjacent (both are draft-recovery states)
+    but distinct seams, and 097 already carries seven findings.
+
+18. **Then — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
+19. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
     later.
-19. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
+20. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
     PLATFORM-093** — a brand-new league had no path to confirm owners — new leagues are born `season`, `/admin/[slug]/preseason/owners`
     redirects away unless the league is in `preseason`, and only `beginPreseason` (offseason-only) or
     the rollover cron reach that state, leaving only the historical/repair CSV import, which asks the
@@ -322,7 +372,7 @@ Supersedes: (none)
     shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
     constant. Severity was overstated when first reported — three client components already import
     that module, so the graph is in the client bundle on every league page anyway.
-20. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
+21. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
     Verified 2026-08-12. `DELETE /api/admin/leagues/[slug]` calls `removeLeague`, which filters the
     slug out of the registry list and nothing else. Every keyed record survives: `owners:{slug}:{year}`
     (team→owner rosters carrying real names), `preseason-owners:{slug}`, `draft:{slug}` (picks and
@@ -352,12 +402,12 @@ Supersedes: (none)
     the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
     the honest options are a purge that removes the residue, an already-archived guard in the
     rollover path, or retiring adoption — all of which are this campaign's decisions.
-21. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+22. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
     once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
     retry.
-22. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+23. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -367,7 +417,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-23. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+24. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 
