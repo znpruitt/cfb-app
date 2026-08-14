@@ -96,7 +96,7 @@ Rules:
   requiring every slot filled made a hole read as `draft-incomplete`, routing the commissioner to the
   board where a vacated slot renders exactly like a pick never made and `POST /pick` refuses (the
   defect PLATFORM-095 closed, reappearing through this feature's own correction window); and the same
-  stricter predicate re-opened the `setAssignmentMethod` hole 095 closed, so `draftPickSlotsAreFilled`
+  stricter predicate re-opened the `setAssignmentMethod` hole 095 closed, so `draftPickCountIsComplete`
   now serves "has this draft been run" separately from "can it be published". Also: a vacated slot no
   longer claims `(auto)` provenance, and held teams are not offered as actions while the rosters are
   live, since the route refuses them.

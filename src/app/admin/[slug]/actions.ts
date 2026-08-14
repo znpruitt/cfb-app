@@ -322,8 +322,10 @@ export async function setAssignmentMethod(
   // published draft returns the phase to `live` while keeping every pick, with
   // its roster still live in standings — so a phase test would call that "in
   // progress" and let one click discard a completed draft AND strand the
-  // rosters it published. `draftPicksAreComplete` is the same predicate the
-  // publication controls use, so the two cannot drift apart.
+  // rosters it published. The predicate is `draftPickCountIsComplete`, which is
+  // DELIBERATELY not the publication predicate — see the note at the call below.
+  // PLATFORM-096 split them because a draft mid-correction has every slot but one
+  // temporarily empty, and must still count as run.
   //
   // The guard lives HERE and not only in the card. `AssignmentMethodCard` is a
   // client component calling a Server Action, which is reachable without the
@@ -562,8 +564,15 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   let poolIndex = remainingSlots > 0 ? remainingSlots : 0;
   for (const idx of vacatedIndexes) {
     const team = available[poolIndex++];
-    if (!team)
-      return { kind: 'refused-not-enough-teams', available: available.length, needed: poolIndex };
+    if (!team) {
+      // The REQUIREMENT, not the loop's cursor. Unreachable given the precheck
+      // above, but a pool index would understate what is actually needed.
+      return {
+        kind: 'refused-not-enough-teams',
+        available: available.length,
+        needed: Math.max(remainingSlots, 0) + vacatedIndexes.length,
+      };
+    }
     filled[idx] = { ...filled[idx]!, team, pickedAt: now, autoSelected: true };
   }
 

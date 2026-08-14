@@ -213,8 +213,14 @@ export async function PUT(
     // The design claim that motivated this feature — "standings never read draft
     // picks, so an empty slot cannot reach anyone's record" — is true of
     // `standings.ts` and false of THIS ROUTE, which is the writer that carries a
-    // pick edit into the roster. Vacating is only safe where no roster is being
-    // maintained.
+    // pick edit into the roster.
+    //
+    // Precisely: this refusal is the exact complement of the roster-sync
+    // condition below, so a move can never both vacate a slot AND patch a live
+    // CSV. It does NOT mean no roster exists — after a Reopen the previously
+    // confirmed CSV is still serving standings, and a vacate there diverges the
+    // draft from it until re-confirmation. That is the documented reopen
+    // contract, which ordinary pick edits already follow.
     const rosterRecord = await txn.readKey<string>(`owners:${slug}:${year}`, 'csv');
     const liveRoster = draftRosterIsLive(
       current,

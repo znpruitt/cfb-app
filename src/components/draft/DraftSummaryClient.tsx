@@ -510,7 +510,7 @@ export default function DraftSummaryClient({
                                   Unassigned
                                 </span>
                               )}
-                              {pick.team !== null && pick.autoSelected && (
+                              {pick?.team != null && pick.autoSelected && (
                                 <span className="ml-1 text-xs text-amber-600 dark:text-amber-400">
                                   (auto)
                                 </span>
