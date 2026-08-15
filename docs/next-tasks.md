@@ -93,8 +93,13 @@ Supersedes: (none)
     `expire`, the second only timer-only requests, and review found each boundary wrong about what
     clients actually send — `DraftBoardClient` bundles `{ phase: 'live', timerAction: 'start' }` from
     the round-boundary resume, Resume, and Start round, so the button pressed at every round boundary
-    could still erase a pick. Converting the whole handler removed the prediction. **Still
-    unserialized: `/reset`, `/unpick`, and `PUT /api/owners`.** `PUT /api/owners` likewise writes the roster
+    could still erase a pick. Converting the whole handler removed the prediction. **Round 3 added `/unpick` and `/reset`** — Undo is a
+    button on the draft board during the draft, so the "pressed deliberately, nothing else in
+    flight" reasoning that scoped them out was wrong. **Still unserialized: `PUT /api/owners`, and
+    draft CREATION (`POST`), whose "already exists" 409 check is its own read-then-write — a much
+    smaller concern, since it cannot lose picks.** A source guard in
+    `writer-serialization.test.ts` now fails if any draft-record writer regains a plain
+    `setAppState`. `PUT /api/owners` likewise writes the roster
     outside any transaction. Two specifics found in review and left in place: `autoCompleteDraft`
     commits in a transaction but derives its payload from a read taken before it (demo league only),
     and a settings PUT whose read predates a `POST /confirm` commit writes back a draft WITHOUT
@@ -110,7 +115,17 @@ Supersedes: (none)
     `expectedPickIndex`, and refuse a mismatch** — the server guard already exists and simply is
     never given the input it needs.
 
-14. ✅ **CLOSED 2026-08-13 — preview now gets its own database.** The owner configured the
+14. **The database connection pool never gives up waiting** (raised by review during PLATFORM-102,
+    2026-08-15; pre-existing, app-wide, deliberately not changed there). `getPool()`
+    (`appStateStore.ts`) sets `max: 3` with no `connectionTimeoutMillis`, so `pool.connect()` queues
+    indefinitely rather than failing. PLATFORM-102 widened the serialized sections, so a draft writer
+    now holds one of the three while it waits on its advisory lock — three concurrent same-draft
+    writers can drain the pool and every unrelated route then queues behind them until one commits.
+    The critical sections are short (one read, one write, pure computation in between), so this
+    drains rather than deadlocks. **Fix: a bounded `connectionTimeoutMillis`, so exhaustion surfaces
+    as an error instead of a hang.** Touches every store consumer, hence its own slice.
+
+15. ✅ **CLOSED 2026-08-13 — preview now gets its own database.** The owner configured the
     Vercel/Neon integration to create a CHILD BRANCH per preview deployment, so each preview runs
     against its own isolated copy rather than production. Stronger than the preview-scoped
     `DATABASE_URL` originally proposed, which would still have had concurrent WIP branches sharing
@@ -129,7 +144,7 @@ Supersedes: (none)
     branch point, so preview databases still CONTAIN production data — they just cannot write back
     to it. That is the right trade for write safety, and it is a different question from the
     data-retention item below.
-15. ✅ **PLATFORM-095 — COMPLETE** (PR #475, `7d7b4c62`, 2026-08-13). Owner decisions taken during the preview
+16. ✅ **PLATFORM-095 — COMPLETE** (PR #475, `7d7b4c62`, 2026-08-13). Owner decisions taken during the preview
     walkthrough, to apply before the PR:
     - Draft-board banner copy: **"Draft complete — confirm the results to assign teams"** replaces
       "Draft complete — all N picks made · not yet confirmed". The qualifier bolted a second thought
@@ -249,7 +264,7 @@ Supersedes: (none)
     Read `DESIGN.md` first. Every touched surface carries its own tests, and the acceptance check is
     a walkthrough on the demo league — the two most valuable findings of PLATFORM-094 came from the
     owner clicking through, not from review.
-16. **PLATFORM-097 — assignment-method and draft-recovery states.** Split out of PLATFORM-095 after
+17. **PLATFORM-097 — assignment-method and draft-recovery states.** Split out of PLATFORM-095 after
     four remediation rounds, each finding real defects in this area and each round's fix producing
     the next round's finding. Recommended as a split at round 1 and again at round 4; taken at round
     4. These want designing together, not patching individually:
@@ -284,7 +299,7 @@ Supersedes: (none)
       and the second read sits after the first assignments inside the same `try` — so a flake on it
       silently un-hides the method card for a league whose draft is complete. One selector fed from
       one read closes both.
-17. ✅ **PLATFORM-096 — COMPLETE** (PR #476, `6b0b8eca`, 2026-08-14). Owner-designed 2026-08-13,
+18. ✅ **PLATFORM-096 — COMPLETE** (PR #476, `6b0b8eca`, 2026-08-14). Owner-designed 2026-08-13,
     during the 095 walkthrough. The summary page IS the editing surface before confirmation, and it
     could not express the corrections a commissioner actually needs. Shipped as designed below;
     execution record, including the reviewer-proven correction to the safety claim, is in
@@ -316,8 +331,8 @@ Supersedes: (none)
     recorded here — "there is no roster editing surface today beyond the repair import" — was WRONG,
     and the PLATFORM-098 audit disproved it:** `/admin/{slug}/roster` has carried an inline
     team-owner editor with a bulk owner-rename box the whole time. It is unreachable by any generated
-    link after publication, which is why it read as absent. See item 17.
-18. **PLATFORM-098 — the owner roster is the membership authority after publication.** Owner
+    link after publication, which is why it read as absent. See item 19.
+19. **PLATFORM-098 — the owner roster is the membership authority after publication.** Owner
     decision, 2026-08-14, from a preview test: after confirming a draft he opened **Edit owners**,
     changed the list, and "as far as I can tell, it does nothing."
 
@@ -406,7 +421,7 @@ Supersedes: (none)
     Sequencing against PLATFORM-097 is undecided; they are adjacent (both are draft-recovery states)
     but distinct seams, and 097 already carries seven findings.
 
-19. ✅ **PLATFORM-099 — COMPLETE** (PR #477, `9537f7e8`, 2026-08-14). Re-derived from clean `main`
+20. ✅ **PLATFORM-099 — COMPLETE** (PR #477, `9537f7e8`, 2026-08-14). Re-derived from clean `main`
     after PLATFORM-098 stopped, carrying nothing from that branch. Cut to the items that never touch the membership
     predicate, so a commissioner drafting the week of 2026-08-21 is not exposed to the hazard below.
 
@@ -432,13 +447,13 @@ Supersedes: (none)
     `docs/prompt-registry.md`, which owns it (`AGENTS.md` → documentation ownership: this file must
     not carry review histories).
 
-20. ✅ **PLATFORM-100 — COMPLETE** (PR #478, `c5293a14`, 2026-08-14). A confirmed roster spells
+21. ✅ **PLATFORM-100 — COMPLETE** (PR #478, `c5293a14`, 2026-08-14). A confirmed roster spells
     "unowned" as the literal owner `NoClaim`; the roster editor's owner sort recognised only an empty
     string, so ~120 teams clumped at one end after any confirmed draft. **Found by the owner in one
     click on a demo dry run, on code merged the same day** — the PLATFORM-099 fixture used the
     pre-confirmation shape and its assertion generalised to both.
 
-21. **Findings from the 2026-08-14 demo dry run** (main line held end to end; recorded so they are
+22. **Findings from the 2026-08-14 demo dry run** (main line held end to end; recorded so they are
     not rediscovered). None blocks a draft; all are wayfinding or stale-claim defects of the class
     PLATFORM-095 exists to close.
     - **Nothing points to draft setup from the summary after a Reopen.** Reset lives on the setup
@@ -463,7 +478,7 @@ Supersedes: (none)
       confirmed live in production: the preseason list changes, standings keep the old name, nothing
       on screen indicates the two disagree.
 
-22. ✅ **INSIGHTS-029 — stop suppression draining the feed. MERGED** via PR #479 (`49c76ee9`,
+23. ✅ **INSIGHTS-029 — stop suppression draining the feed. MERGED** via PR #479 (`49c76ee9`,
     2026-08-15). The un-draining, split out of INSIGHTS-018 and
     shipped alone: `applySuppression` is no longer consulted when serving, so the feed is a plain
     priority sort and cap. `suppression.ts` is untouched — its records age out under their own TTL
@@ -471,7 +486,7 @@ Supersedes: (none)
     now reports pre-029 residue only and says so in its response. Retiring the suppression store
     outright is a separate decision, deferred to INSIGHTS-023. Review history is in the registry.
 
-    **Known gap this leaves open, owned by items 23–24 below.** The loader serves up to
+    **Known gap this leaves open, owned by items 24–25 below.** The loader serves up to
     `MAX_INSIGHTS` (10) while the Overview renders 5, so ranks 6–10 never surface and anything past
     10 never leaves the loader. **`/league/[slug]/insights` is affected too** (missed in the original
     gap analysis, caught by post-merge review): it is titled as the complete list and is capped at
@@ -481,14 +496,14 @@ Supersedes: (none)
     insights than the feed holds, and it stops being acceptable exactly when INSIGHTS-023 widens the
     pool — which is the trigger for INSIGHTS-018.
 
-23. ⏸️ **INSIGHTS-018 — rotation and the NEW tag. DEFERRED, with an explicit trigger.** Branch
+24. ⏸️ **INSIGHTS-018 — rotation and the NEW tag. DEFERRED, with an explicit trigger.** Branch
     `insights/018-rotation-and-new-tag` abandoned at `7b4b7664`, not merged; the review history is
     recorded in `docs/prompt-registry.md`. **Rotation does nothing until the pool exceeds the feed**,
     and the live league had fewer insights than it had slots — building it first meant four review
     rounds against machinery with no job to do yet.
 
-    **Trigger: take this once INSIGHTS-023 (item 24) has widened the pool past the feed limit.** Not
-    a vague "later" — 023 is what creates the tail that rotation exists to serve, and item 22's gap
+    **Trigger: take this once INSIGHTS-023 (item 25) has widened the pool past the feed limit.** Not
+    a vague "later" — 023 is what creates the tail that rotation exists to serve, and item 23's gap
     has no other owner.
 
     **The design correction that survives — TWO properties per type, not one.** The existing
@@ -534,7 +549,7 @@ Supersedes: (none)
     - Weekly rotation boundaries must be CHOSEN. `floor(days / 7)` puts them on Thursday because the
       epoch was a Thursday — ten hours from the Thursday pulse INSIGHTS-026 plans.
 
-24. **INSIGHTS-023 — preseason breadth. Now BEFORE rotation, not after** (reordered 2026-08-15 when
+25. **INSIGHTS-023 — preseason breadth. Now BEFORE rotation, not after** (reordered 2026-08-15 when
     INSIGHTS-018 was deferred). The old note here read "after rotation, not before" on the reasoning
     that switching on the dark families would add ~7 types that each fire once and vanish — a
     suppression symptom, which INSIGHTS-029 removed. With nothing draining the feed, breadth is now
@@ -567,7 +582,7 @@ Supersedes: (none)
     size on TSC before deciding whether it needs a bound** — the acceptance bar of ">10" spans a page
     and a wall.
 
-25. **INSIGHTS-024 — active-owner scoping.** After breadth. Correctness, not volume: on its own it
+26. **INSIGHTS-024 — active-owner scoping.** After breadth. Correctness, not volume: on its own it
     REDUCES the feed, because it drops departed owners and a brand-new owner has no history to draw on.
 
     **The gap, visible on the live TSC Overview:** standings and insights disagree on the same page.
@@ -597,7 +612,7 @@ Supersedes: (none)
     of the 13 `currentRoster` consumers need the MAP and which only need the owner SET, and who else
     reads `usingArchivedRoster`.
 
-26. **INSIGHTS-025 — rookie/returning claims (owner decision required, invariant amendment).**
+27. **INSIGHTS-025 — rookie/returning claims (owner decision required, invariant amendment).**
     Deliberately last, and deliberately separate.
 
     AGENTS.md Insights invariant 5 currently says naming who is genuinely returning "requires
@@ -609,11 +624,11 @@ Supersedes: (none)
 
     **The question the amendment turns on, for the owner:** is a confirmed preseason owner list
     "finalized" enough to license rookie/returning claims? It stays freely editable, and per
-    PLATFORM-098 (item 17) editing it after assignment silently diverges from the roster. The stronger
+    PLATFORM-098 (item 19) editing it after assignment silently diverges from the roster. The stronger
     trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
     For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
 
-27. **INSIGHTS-026 — the pulse: a scheduled digest, and the insights stream's EVENT SOURCE.**
+28. **INSIGHTS-026 — the pulse: a scheduled digest, and the insights stream's EVENT SOURCE.**
     **ID split out 2026-08-14: this campaign was filed under INSIGHTS-018**, which the backlog also
     used for the NEW-tag mechanism, so a content campaign was hiding behind a mechanical one. Owner
     confirmed it is still wanted — _"it helps make the app feel alive"_. Design detail stays in
@@ -675,7 +690,7 @@ Supersedes: (none)
 
     In-season only, so it does nothing for the preseason feed; sequence after 018/023/024.
 
-28. **INSIGHTS-027 — preseason content generators (NEW content, not re-enabled content).** Also
+29. **INSIGHTS-027 — preseason content generators (NEW content, not re-enabled content).** Also
     recovered from the roadmap entry above, and distinct from INSIGHTS-023: that one switches on
     generators that already exist, this one writes generators that do not.
 
@@ -694,12 +709,12 @@ Supersedes: (none)
       is the whole point of the panel: _"Every insight must tell the user something they couldn't
       figure out just by reading the table. No restating visible data without a compelling angle."_
 
-29. **Then, in order: INSIGHTS-019** (diagnostic endpoint — worth taking FIRST, ahead of 023: it is
+30. **Then, in order: INSIGHTS-019** (diagnostic endpoint — worth taking FIRST, ahead of 023: it is
     how the generated-vs-served pool becomes observable, which is precisely the question breadth and
     rotation both turn on), INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
     later.
-30. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
+31. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
     PLATFORM-093** — a brand-new league had no path to confirm owners — new leagues are born `season`, `/admin/[slug]/preseason/owners`
     redirects away unless the league is in `preseason`, and only `beginPreseason` (offseason-only) or
     the rollover cron reach that state, leaving only the historical/repair CSV import, which asks the
@@ -719,7 +734,7 @@ Supersedes: (none)
     shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
     constant. Severity was overstated when first reported — three client components already import
     that module, so the graph is in the client bundle on every league page anyway.
-31. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
+32. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
     Verified 2026-08-12. `DELETE /api/admin/leagues/[slug]` calls `removeLeague`, which filters the
     slug out of the registry list and nothing else. Every keyed record survives: `owners:{slug}:{year}`
     (team→owner rosters carrying real names), `preseason-owners:{slug}`, `draft:{slug}` (picks and
@@ -749,7 +764,7 @@ Supersedes: (none)
     the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
     the honest options are a purge that removes the residue, an already-archived guard in the
     rollover path, or retiring adoption — all of which are this campaign's decisions.
-32. 🟡 **PLATFORM-101 — `?bypassSuppression=1` is an uncached, invariant-skipping flag with no admin
+33. 🟡 **PLATFORM-101 — `?bypassSuppression=1` is an uncached, invariant-skipping flag with no admin
     check.** Raised by review during INSIGHTS-029 (2026-08-15); **pre-existing, NOT introduced
     there** — the bypass block in `loadInsights.ts` is byte-identical to `main` and the route file
     was untouched. Recorded here rather than fixed in-branch because the fix is an auth change.
@@ -781,17 +796,17 @@ Supersedes: (none)
       must be suppressed COMPLETELY because the claim is unsound on a borrowed roster.
 
     **The product question to settle first:** should the flag require platform admin, or should it be
-    deleted from the public route and kept only on an admin/debug surface? INSIGHTS-019 (item 29) is
+    deleted from the public route and kept only on an admin/debug surface? INSIGHTS-019 (item 30) is
     building a diagnostic endpoint that wants exactly this capability — if that lands admin-gated,
     the public flag has no remaining reason to exist and deletion is the smaller change. Sequence
     accordingly rather than bolting an admin check onto a route that may not keep the flag.
 
-33. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+34. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
     once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
     retry.
-34. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+35. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -801,7 +816,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-35. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+36. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 

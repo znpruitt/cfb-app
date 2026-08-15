@@ -3,6 +3,8 @@ import test from 'node:test';
 
 import { PUT } from '../route';
 import { POST as PICK } from '../pick/route';
+import { POST as UNPICK } from '../unpick/route';
+import { POST as RESET } from '../reset/route';
 import { addLeague } from '@/lib/leagueRegistry';
 import {
   setAppState,
@@ -376,4 +378,126 @@ test('a null JSON body is refused by the draft-state guards, not a crash', async
   );
 
   assert.ok(res.status < 500, `expected a controlled refusal, got ${res.status}`);
+});
+
+// ---------------------------------------------------------------------------
+// Round 3 — the last two buttons on the draft board.
+//
+// Undo and Reset were scoped out of rounds 1 and 2 on the reasoning that they
+// are pressed deliberately, when nothing else is in flight. Review disagreed and
+// was right: `DraftBoardClient.handleUndo` is a button on the board DURING the
+// draft, so a pick landing as it is pressed hit the exact failure this slice
+// exists to close. No unserialized draft-record writer remains behind a button
+// on that screen.
+// ---------------------------------------------------------------------------
+
+function postRequest(path: string): Request {
+  return new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/${path}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
+    body: JSON.stringify({}),
+  });
+}
+
+test('STRUCTURAL: Undo goes through the draft key lock', async () => {
+  await seedDraft(
+    liveExpiredDraft({
+      picks: [
+        {
+          pickNumber: 1,
+          round: 0,
+          roundPick: 0,
+          owner: 'Alice',
+          team: 'Georgia',
+          pickedAt: '2026-08-01T00:00:30.000Z',
+          autoSelected: false,
+        },
+      ],
+      currentPickIndex: 1,
+    })
+  );
+
+  __setAppStateKeyLockFailureForTests(new Error('injected lock failure'), draftScope(SLUG));
+
+  await assert.rejects(
+    () => UNPICK(postRequest('unpick'), { params }),
+    'Undo must NOT proceed to a write without the lock'
+  );
+
+  __setAppStateKeyLockFailureForTests(null);
+  const persisted = await readPersisted();
+  assert.equal(persisted.picks.length, 1, 'the pick is still there');
+});
+
+test('STRUCTURAL: Reset goes through the draft key lock', async () => {
+  await seedDraft(liveExpiredDraft());
+
+  __setAppStateKeyLockFailureForTests(new Error('injected lock failure'), draftScope(SLUG));
+
+  await assert.rejects(
+    () => RESET(postRequest('reset'), { params }),
+    'Reset must NOT proceed to a write without the lock'
+  );
+
+  __setAppStateKeyLockFailureForTests(null);
+  const persisted = await readPersisted();
+  assert.equal(persisted.phase, 'live', 'the draft was not reset');
+});
+
+test('GUARD: no draft-record writer bypasses the transaction', () => {
+  // The whole point of round 3. Every route that writes the draft record must go
+  // through a key transaction — a plain `setAppState` on the draft scope is the
+  // shape that loses picks, and it is what three rounds of carve-outs kept
+  // leaving behind somewhere.
+  for (const route of ['../pick/route.ts', '../unpick/route.ts', '../reset/route.ts']) {
+    const src = sourceOf(route);
+    assert.ok(
+      src.includes('withAppStateKeyTransaction'),
+      `${route} must serialize its draft-record write`
+    );
+    assert.ok(
+      !src.includes('await setAppState<DraftState>'),
+      `${route} still writes the draft record outside a transaction`
+    );
+  }
+
+  // The PUT only — draft CREATION (`POST`) lives in the same file and is
+  // deliberately excluded. It builds a fresh record rather than reading one and
+  // writing it back, so it cannot lose a pick; its own read-then-write on the
+  // "already exists" 409 check is a separate, much smaller concern and is not in
+  // this slice's scope.
+  const routeSrc = sourceOf('../route.ts');
+  const putOnly = routeSrc.slice(routeSrc.indexOf('export async function PUT('));
+  assert.ok(putOnly.includes('withAppStateKeyTransaction'), 'the PUT must serialize');
+  assert.ok(
+    !putOnly.includes('await setAppState<DraftState>'),
+    'the PUT still writes the draft record outside a transaction'
+  );
+});
+
+test('Undo still behaves correctly through the serialized path', async () => {
+  await seedDraft(
+    liveExpiredDraft({
+      picks: [
+        {
+          pickNumber: 1,
+          round: 0,
+          roundPick: 0,
+          owner: 'Alice',
+          team: 'Georgia',
+          pickedAt: '2026-08-01T00:00:30.000Z',
+          autoSelected: false,
+        },
+      ],
+      currentPickIndex: 1,
+    })
+  );
+
+  const res = await UNPICK(postRequest('unpick'), { params });
+  assert.equal(res.status, 200);
+
+  const persisted = await readPersisted();
+  assert.equal(persisted.picks.length, 0, 'the pick was undone');
+  assert.equal(persisted.currentPickIndex, 0);
+  assert.equal(persisted.phase, 'live');
 });

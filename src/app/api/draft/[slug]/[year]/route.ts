@@ -5,7 +5,12 @@ import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState, withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
-import { draftOwnersMatchRoster, type ConfirmedRoster } from '@/lib/selectors/confirmedRoster';
+import {
+  draftOwnersMatchRoster,
+  selectConfirmedRoster,
+  type ConfirmedRoster,
+} from '@/lib/selectors/confirmedRoster';
+import { preseasonOwnerScope } from '@/lib/preseasonOwnerStore';
 import {
   type DraftState,
   type DraftSettings,
@@ -62,14 +67,12 @@ type PutRefusal = { body: Record<string, unknown>; status: number };
 type PutOutcome = PutRefusal | { ok: true; draft: DraftState };
 
 /**
- * PLATFORM-102 — the timer state machine, extracted so the SERIALIZED
- * timer-only path and the legacy mixed-request path share one implementation
- * rather than two copies that must be kept in agreement.
+ * PLATFORM-102 — the timer state machine, named and lifted out of the handler.
  *
- * Covers every action, not just `expire`: review pointed out that `start`,
- * `pause` and `resume` are ALSO sent alone by `DraftControls` and
- * `DraftBoardClient`, take the same whole-record write, and can therefore erase a
- * concurrently-committed pick exactly as expiry could.
+ * Covers every action, not just `expire`. It was extracted while there were two
+ * call sites (a serialized fast path and a legacy one) to stop them drifting; the
+ * whole handler is serialized now, so there is a single call site and this exists
+ * for readability — the state machine is worth naming on its own.
  *
  * Pure: takes a draft, returns either a refusal or the next draft. It does not
  * stamp `updatedAt` — the caller does that immediately before its write, as
@@ -494,15 +497,6 @@ export async function PUT(
     timerAction?: unknown;
   };
 
-  // PLATFORM-092 — ONE roster read per request, shared by the owners branch and
-  // the start transition. Reading twice let a confirmation landing between them
-  // 422 a draft the same request had just reconciled. Hoisted above the lock for
-  // pool safety, and taken only when a branch could need it.
-  const mayNeedRoster = owners !== undefined || phase === 'live';
-  const preReadRoster: ConfirmedRoster | null = mayNeedRoster
-    ? await getConfirmedRoster(slug, year)
-    : null;
-
   const outcome = await withAppStateKeyTransaction<PutOutcome>(
     draftScope(slug),
     String(year),
@@ -513,6 +507,39 @@ export async function PUT(
       }
 
       const original = record.value;
+
+      // PLATFORM-102 round 3 — the confirmed roster is read INSIDE the lock.
+      //
+      // Round 2 hoisted this above the transaction on the belief that any read
+      // there would need a second pooled connection and deadlock. That was wrong:
+      // `txn.readKey` runs on the transaction's OWN client and takes no extra
+      // connection, which is exactly what `confirm/route.ts` already relies on.
+      // The hoist widened a real window — the roster was read BEFORE an unbounded
+      // wait for the lock, and this handler both writes that owner set into the
+      // draft and freezes it at go-live, while the staleness gate compared stale
+      // against stale and therefore passed.
+      //
+      // Locking both roster keys closes it. Order is ascending as the store
+      // requires (`draft:` < `owners:` < `preseason-owners:`), so no cycle.
+      //
+      // PLATFORM-092 — still ONE read per request, shared by the owners branch and
+      // the start transition; reading twice let a confirmation landing between them
+      // 422 a draft the same request had just reconciled. Lazy, so a PUT touching
+      // neither branch pays nothing — and unlike the round-2 version there is no
+      // "which branches might need it" prediction to get wrong.
+      let rosterMemo: ConfirmedRoster | null = null;
+      const loadRoster = async (): Promise<ConfirmedRoster> => {
+        if (rosterMemo) return rosterMemo;
+        await txn.lockKey(`owners:${slug}:${year}`, 'csv');
+        await txn.lockKey(preseasonOwnerScope(slug), String(year));
+        const confirmedRecord = await txn.readKey<unknown>(preseasonOwnerScope(slug), String(year));
+        const ownersCsvRecord = await txn.readKey<unknown>(`owners:${slug}:${year}`, 'csv');
+        rosterMemo = selectConfirmedRoster({
+          confirmedOwnersRecord: confirmedRecord?.value ?? null,
+          ownersCsvRecord: ownersCsvRecord?.value ?? null,
+        });
+        return rosterMemo;
+      };
 
       // Once the draft has started, the owner set/order and configured round count are
       // locked: confirmation derives its expected pick count and per-owner counts from
@@ -570,7 +597,7 @@ export async function PUT(
           }
           // Identical to what is stored — nothing to do.
         } else {
-          const roster = preReadRoster!; // pre-read above; mayNeedRoster covers both branches
+          const roster = await loadRoster();
           if (!roster.isConfirmed) {
             return {
               body: {
@@ -739,7 +766,7 @@ export async function PUT(
         // `paused → live` is exempt: that draft is already running with picks against
         // a frozen owner set, and re-checking would strand it mid-draft.
         if (targetPhase === 'live' && draft.phase !== 'paused') {
-          const roster = preReadRoster!; // pre-read above; mayNeedRoster covers both branches
+          const roster = await loadRoster();
           // Two different causes, two different remedies. An unconfirmed roster is
           // not a roster that CHANGED — telling the operator to go pick up a change
           // that never happened points them at the wrong screen. This ordering also
@@ -790,10 +817,11 @@ export async function PUT(
         }
         const action = timerAction as 'start' | 'pause' | 'resume' | 'expire';
 
-        // PLATFORM-102 — shared with the serialized timer-only path above, so the two
-        // cannot drift. A timer action arriving ALONGSIDE settings/owners/phase still
-        // takes this unserialized route; no client sends that combination, and
-        // converting the remaining handler is its own slice.
+        // PLATFORM-102 — this runs INSIDE the handler's transaction, like every
+        // other branch. An earlier version of this comment claimed a bundled
+        // request took a separate unserialized route; that was the v2 design and
+        // it was wrong — `DraftBoardClient` sends `{ phase: 'live', timerAction:
+        // 'start' }` from three call sites. There is no second path now.
         const next = applyTimerAction(draft, action);
         if ('error' in next) {
           return { body: { error: next.error }, status: next.status };

@@ -54,9 +54,9 @@ Rules:
 
 - Purpose: Stop the two draft writers that can append a pick from erasing each other, before the
   league's first real draft.
-- Scope: `src/app/api/draft/[slug]/[year]/pick/route.ts`, the WHOLE `PUT` in the sibling
-  `route.ts`, and a new serialization suite. `/reset`, `/unpick` and `PUT /api/owners` deliberately
-  untouched — see `docs/next-tasks.md` item 12.
+- Scope: every draft-record MUTATION — `pick`, `unpick`, `reset`, and the whole `PUT` — plus a
+  serialization suite. Draft CREATION (`POST`) and `PUT /api/owners` deliberately untouched; see
+  `docs/next-tasks.md` item 12.
 - **The failure.** `DraftBoardClient` fires `PUT { timerAction: 'expire' }` automatically at
   countdown zero. A pick submitted as the clock ran out committed, then expiry wrote its stale
   whole-record snapshot back — the pick vanished while its caller got a 200, and the board then
@@ -96,6 +96,17 @@ Rules:
   whole-record write, so the serialized path was widened from expire-only to every timer-only
   request; and a test fixture hardcoded a `timerExpiresAt` that was in the FUTURE when written and
   only became "expired" through wall-clock drift.
+- **Round 3 reversed two of my own scope calls, both times because a reviewer was right about how
+  the app is USED rather than how it is written.** (a) I had argued Undo and Reset were low risk
+  because they are pressed deliberately with nothing else in flight — but Undo is a button on the
+  draft board DURING the draft, which is precisely when picks are landing. (b) I had hoisted the
+  confirmed-roster read above the lock believing any read inside would need a second pooled
+  connection; `txn.readKey` runs on the transaction's own client and takes none, which
+  `confirm/route.ts` already relied on. The hoist widened a real staleness window on a value this
+  handler writes INTO the draft, with a gate that compared stale against stale and therefore passed.
+  Both are now inside the lock, with the roster's two keys locked in ascending order.
+- A source guard now fails if any draft-record writer regains a plain `setAppState` — the class of
+  regression three rounds of carve-outs kept leaving somewhere.
 - Deferred, recorded as `docs/next-tasks.md` item 13: a double-submitted pick is now credited to the
   NEXT owner, because the expected-owner guard only fires when the client sends `owner` and it does
   not. Server-side guard exists; the fix is client-side.

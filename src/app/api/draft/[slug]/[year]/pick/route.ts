@@ -93,7 +93,13 @@ export async function POST(
     bodyParseFailed = true;
   }
 
-  const { team, owner } = (bodyParseFailed ? {} : body) as { team?: unknown; owner?: unknown };
+  // `JSON.parse('null')` succeeds, so a literal `null` body arrives as null and
+  // would throw on destructuring — a 500 where the draft-state guards should
+  // answer. The sibling PUT got this fix in the same slice; this line did not.
+  const { team, owner } = (bodyParseFailed ? {} : (body ?? {})) as {
+    team?: unknown;
+    owner?: unknown;
+  };
   const teamName = typeof team === 'string' ? team.trim() : '';
 
   // Resolve team via canonical teamIdentity resolver (handles aliases, normalization).
