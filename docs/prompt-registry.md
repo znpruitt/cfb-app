@@ -71,7 +71,9 @@ Rules:
 
 ### INSIGHTS-029-STOP-DRAINING-THE-FEED-v1
 
-- Merged: PR #479 (`49c76ee9`), 2026-08-15. Two remediation rounds; both reviews gathered before
+- Merged: PR #479 (`49c76ee9`), 2026-08-15. **Follow-up PR #480 (`8333e773`)** corrected the drain
+  accounting below, derived the debug `status` from its own data, and recorded the All-Insights page
+  cap — all three from #479's post-merge review. Two remediation rounds; both reviews gathered before
   each. Gates at `59f75aa0`: tsc 0, `lint:all` 0, tests 3796/3796.
 - Purpose: Stop per-insight suppression from emptying a league's Insights feed. Split out of
   INSIGHTS-018 and shipped alone.
