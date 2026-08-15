@@ -50,6 +50,63 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-018-ROTATION-AND-NEW-TAG-v1 (ABANDONED — not merged)
+
+- Purpose: Rotate the Insights feed on a weekly boundary and badge genuinely-changed items NEW.
+- Outcome: **Stopped after four review rounds at `7b4b7664`; the branch was abandoned, not merged.**
+  The un-draining half was cut out and shipped alone as INSIGHTS-029.
+- **The SCOPE was the defect, not any single finding.** Rotation does nothing until the pool exceeds
+  the feed, and the live league had fewer insights than it had slots. Building it first meant four
+  rounds of findings against machinery with no job to do yet. Deferred behind INSIGHTS-023 (which
+  widens the pool) rather than cancelled — the requirements worth reusing are recorded in
+  `docs/next-tasks.md`, which is canonical for what is queued.
+- **Rotation must not order by anything the write path advances.** Two attempts ordered by "least
+  recently shown"; both failed, and the second failed BECAUSE of the first — showing an insight
+  changed the next selection's input, so the feed churned within a bucket and then pinned the same
+  set forever.
+- **Every defect that reached a commit was one the tests could not observe.** A control comparing
+  arrays where only the SET mattered; badge assertions passing on a still-open window rather than on
+  the thing under test; a coverage guarantee asserted only under the conditions where it holds.
+  Mutation testing caught several — but only because it was run after the tests already passed.
+
+### INSIGHTS-029-STOP-DRAINING-THE-FEED-v1
+
+- Purpose: Stop per-insight suppression from emptying a league's Insights feed. Split out of
+  INSIGHTS-018 and shipped alone.
+- Scope: `src/lib/insights/engine.ts` (new `selectServedInsights`), the serving seam in
+  `src/lib/insights/loadInsights.ts`, the suppression debug route's response, `AGENTS.md` Insights
+  invariant 4, `docs/architecture/storage-and-caching.md`, `docs/roadmap.md`, and the insights
+  suites. No generator, priority, storage-schema, or UI changes.
+- **The feed was not thin, it was DRAINED.** Suppression is keyed per insight TYPE and almost every
+  type carried `{ kind: 'unchanged' }` — suppress while the stat value is identical. Out of season
+  no stat value can move, so "fire once, then fade" degenerated into "show each insight once, ever".
+  A live league's Overview showed exactly two cards and both were on `NEVER_SUPPRESS_TYPES`; those
+  three types were the only reason anything rendered. The fix is a pure sort-and-cap.
+- **Both reviewers found the same HIGH, and they were right twice over.** The regression test
+  exercised `selectServedInsights` and `applySuppression` separately, so reverting the production
+  line left all 39 neighbouring tests passing. The repair took THREE fixtures: the first went
+  through `loadInsightsForLeague` but generated zero insights (empty compared to empty); the second
+  generated only `champion_margin`/`toilet_bowl`, neither of which appears in `TYPE_THRESHOLDS`, so
+  it could not drain either. Only a fixture seeding three archived seasons reaches the
+  career/historical generators whose types are `{ kind: 'unchanged' }`. The test now carries an
+  in-test positive control asserting the fixture IS suppressible — without it the assertion passes
+  for a fixture that could never fail. **Reverting the production line now fails the test**;
+  that was verified, not assumed. Same failure mode as the vacuous tests in PLATFORM-094 and
+  PLATFORM-093: a test structurally incapable of observing the defect it names.
+- Consequence recorded deliberately: `applySuppression` now has NO production caller (the sole
+  `runInsightsEngine` call site passes `bypassSuppression: true`), so nothing writes suppression
+  records. The debug endpoint says so in its own response rather than letting an empty tally read as
+  "nothing fired". Retiring `suppression.ts` is a separate decision, deferred to INSIGHTS-023.
+- Deferred out of scope, recorded as **PLATFORM-101**: review found `?bypassSuppression=1` is
+  reachable by any caller on a passwordless league, bypasses `unstable_cache` entirely, and skips the
+  invariant-5 `rookie_benchmark` gate. Verified pre-existing — the bypass block is byte-identical to
+  `main` and the route file was never touched by this slice — so it was queued rather than folded
+  into an insights change. AGENTS.md invariant 4 was corrected to stop calling the flag admin-gated.
+- Follow-on: the loader serves up to `MAX_INSIGHTS` (10) while the Overview renders 5, so ranks 6–10
+  never surface. Suppression used to churn the tail into view as a side effect; nothing does now.
+  That is the pool/rotation question, and it belongs to INSIGHTS-023 then INSIGHTS-018 — see
+  `docs/next-tasks.md`.
+
 ### PLATFORM-100-NOCLAIM-SORTS-UNOWNED-v1
 
 - Purpose: a confirmed roster spells "unowned" as the literal owner `NoClaim`, and the roster

@@ -54,10 +54,10 @@ export type RunInsightsEngineOptions = {
  * Pure, deterministic generation half of the engine: run every lifecycle-
  * matching generator (with the cross-cutting `shouldSuppressGenerator` gate,
  * itself skipped under `bypassSuppression`) and keep the positively-scored
- * insights. NO suppression, NO sort/slice, NO I/O — the result is a function of
- * `context` alone, which is what makes it safe to cache upstream
- * (`loadInsightsForLeague` caches this output; suppression is applied per
- * request against the cached set).
+ * insights. NO per-insight suppression, NO sort/slice, NO I/O — the result is a
+ * function of `context` alone, which is what makes it safe to cache upstream
+ * (`loadInsightsForLeague` caches this output and applies `selectServedInsights`
+ * per request against the cached set).
  */
 export function generateRawInsights(
   context: InsightContext,
@@ -109,6 +109,50 @@ export async function applySuppression(
   return top;
 }
 
+/**
+ * INSIGHTS-029 — the serving selection, replacing `applySuppression`.
+ *
+ * **The feed was not thin, it was DRAINED.** Suppression is per insight TYPE and
+ * almost every type carried `{ kind: 'unchanged' }` — suppress while the stat
+ * value is identical. In preseason no games are played, so no stat value can
+ * ever change: each insight fired once and was hidden for the rest of the
+ * preseason. A live league's Overview showed exactly two cards, and both were on
+ * `NEVER_SUPPRESS_TYPES`; those three types were the only reason anything
+ * rendered at all.
+ *
+ * "Fire once, then fade" only makes sense while something is moving. Out of
+ * season nothing is, so the rule degenerated into "show each insight once, ever".
+ *
+ * Deliberately just a sort and a slice — no store reads, no writes, no
+ * per-request state. Repetition across loads is not a problem worth machinery
+ * while a league has fewer insights than the feed holds; when INSIGHTS-023
+ * widens the pool past the feed, rotation earns its keep and gets built against a
+ * real pool (INSIGHTS-018).
+ *
+ * `suppression.ts` is left in place and simply not consulted here: its records
+ * age out under their own TTL and the rollover clear that already exists, so
+ * nothing is destructively migrated.
+ *
+ * Consequence worth stating plainly: `applySuppression` below now has NO
+ * production caller. The only remaining `runInsightsEngine` call site passes
+ * `bypassSuppression: true` and returns before reaching it. Nothing writes
+ * suppression records any more, so the debug endpoint reports pre-029 residue
+ * only — it says so in its own response rather than letting an empty tally read
+ * as "nothing fired". Both are kept, not deleted, because retiring the store is
+ * a separate decision from stopping the drain; INSIGHTS-023 is the point at
+ * which the pool question gets settled and the retirement can be made properly.
+ */
+export function selectServedInsights(rawInsights: Insight[]): Insight[] {
+  return [...rawInsights].sort((a, b) => b.priorityScore - a.priorityScore).slice(0, MAX_INSIGHTS);
+}
+
+/**
+ * INSIGHTS-029 — production reaches this ONLY with `bypassSuppression: true`
+ * (the admin/diagnostic path in `loadInsights.ts`); the served path calls
+ * `selectServedInsights` directly. The suppression branch below is therefore
+ * exercised by tests alone. Kept so the retired behaviour stays observable and
+ * pinned rather than deleted piecemeal — see `selectServedInsights`.
+ */
 export async function runInsightsEngine(
   context: InsightContext,
   options: RunInsightsEngineOptions = {}
