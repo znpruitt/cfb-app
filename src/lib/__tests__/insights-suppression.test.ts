@@ -10,6 +10,7 @@ import {
   yardsPerWinGenerator,
 } from '../insights/generators/stats';
 import {
+  describeSuppressionStore,
   isSuppressed,
   isSuppressionRecordExpired,
   SUPPRESSION_RECORD_TTL_DAYS,
@@ -372,4 +373,42 @@ test('ballSecurityGenerator + isSuppressed: leader change fires; same leader+sta
     false,
     'leader change must fire even with prior week-5 record present'
   );
+});
+
+// ---------------------------------------------------------------------------
+// INSIGHTS-029 follow-up — the debug endpoint's status line must be DERIVED.
+// Its first version hardcoded "no new records are written". That was true the
+// day it shipped and nothing kept it true, so a later slice reintroducing a
+// suppression write would leave the operator's only window on the store
+// asserting the opposite of reality.
+// ---------------------------------------------------------------------------
+
+const RETIRED = '2026-08-15T00:00:00.000Z';
+
+test('describeSuppressionStore: an empty store reads as retired, not as silence', () => {
+  const msg = describeSuppressionStore([], RETIRED);
+  assert.match(msg, /retired/);
+  assert.match(msg, /no records remain/);
+  assert.doesNotMatch(msg, /UNEXPECTED/);
+});
+
+test('describeSuppressionStore: pre-029 records are named as residue', () => {
+  const msg = describeSuppressionStore(
+    [{ firedAt: '2026-08-01T00:00:00.000Z' }, { firedAt: '2026-08-10T00:00:00.000Z' }],
+    RETIRED
+  );
+  assert.match(msg, /2 record\(s\) below are pre-029 residue/);
+  assert.match(msg, /2026-08-10T00:00:00\.000Z/, 'reports the newest record');
+  assert.doesNotMatch(msg, /UNEXPECTED/);
+});
+
+test('describeSuppressionStore: a record written AFTER retirement is flagged loudly', () => {
+  // THE case this helper exists for. A hardcoded string cannot express it.
+  const msg = describeSuppressionStore(
+    [{ firedAt: '2026-08-01T00:00:00.000Z' }, { firedAt: '2026-09-20T00:00:00.000Z' }],
+    RETIRED
+  );
+  assert.match(msg, /UNEXPECTED/);
+  assert.match(msg, /1 of 2 record\(s\) were written AFTER/);
+  assert.match(msg, /may be draining/);
 });

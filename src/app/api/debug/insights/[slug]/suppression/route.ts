@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import {
+  describeSuppressionStore,
   isSuppressionRecordExpired,
   loadSuppressionRecords,
   SUPPRESSION_RECORD_TTL_DAYS,
@@ -92,11 +93,11 @@ type DebugResponse = {
   slug: string;
   season: number;
   /**
-   * INSIGHTS-029 retired per-insight suppression from the served path, so
-   * NOTHING writes suppression records any more. Everything below is residue
-   * from before that change, aging out under `SUPPRESSION_RECORD_TTL_DAYS`.
-   * Without this an operator reads an empty tally as "no insights have fired"
-   * rather than "this mechanism is retired".
+   * INSIGHTS-029 retired per-insight suppression from the served path. Without
+   * this field an operator reads an empty tally as "no insights have fired"
+   * rather than "this mechanism is retired". DERIVED from the records (see
+   * `describeSuppressionStore`), not hardcoded — so if anything starts writing
+   * records again, this says so instead of asserting the opposite.
    */
   status: string;
   totalRecords: number;
@@ -160,9 +161,7 @@ export async function GET(
   const response: DebugResponse = {
     slug,
     season,
-    status:
-      'retired: INSIGHTS-029 removed per-insight suppression from the served path. ' +
-      'No new records are written; these are pre-029 residue aging out under the TTL.',
+    status: describeSuppressionStore(debugRecords),
     totalRecords: debugRecords.length,
     ttlDays: SUPPRESSION_RECORD_TTL_DAYS,
     expiredCount,
