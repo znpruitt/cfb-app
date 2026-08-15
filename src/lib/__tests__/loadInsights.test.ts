@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test, { beforeEach } from 'node:test';
 
 import { addLeague } from '@/lib/leagueRegistry';
@@ -149,5 +150,24 @@ test('PLATFORM-077: loadInsightsForLeague sources schedule/games in-process and 
     fetchCalls,
     [],
     `insights must not self-fetch app routes; saw: ${fetchCalls.join(', ')}`
+  );
+});
+
+test('the serving path uses ROTATION, not suppression', async () => {
+  // INSIGHTS-018 — a STRUCTURAL pin, and it exists because the wiring was
+  // silently reverted once during development (a `git checkout --` on an
+  // unstaged file restored the pre-change version from the index) and the ENTIRE
+  // SUITE still passed: the rotation tests call `applyRotation` directly, so
+  // nothing observed which selector the serving path actually calls.
+  //
+  // Asserting the ABSENCE of the old call is the point. An existence check on
+  // `applyRotation` alone would pass with both present, and both present means
+  // whichever runs last wins.
+  const source = readFileSync(new URL('../insights/loadInsights.ts', import.meta.url), 'utf8');
+  assert.match(source, /applyRotation\(/, 'rotation is the serving selector');
+  assert.doesNotMatch(
+    source,
+    /applySuppression/,
+    'suppression is retired from serving — its records age out, they are not consulted'
   );
 });

@@ -5,7 +5,16 @@ import {
   saveSuppressionRecord,
   toSuppressionRecord,
 } from './suppression';
-import type { InsightContext, InsightGenerator } from './types';
+import { insightSignature, isNewInsight } from './freshness';
+import {
+  loadObservations,
+  nextObservation,
+  observationKey,
+  saveObservation,
+  type InsightObservation,
+} from './observationStore';
+import { selectRotatedInsights } from './rotation';
+import type { InsightContext, InsightGenerator, LifecycleState } from './types';
 
 const MAX_INSIGHTS = 10;
 
@@ -107,6 +116,64 @@ export async function applySuppression(
   );
 
   return top;
+}
+
+/**
+ * INSIGHTS-018 — the serving half, replacing `applySuppression`.
+ *
+ * Selects the feed by rotation rather than by hiding what has already fired,
+ * marks what CHANGED as new, and records the observation. `applySuppression`
+ * and its store are left in place but no longer consulted when serving: the
+ * records age out under their own TTL and the rollover clear that already
+ * exists, so nothing is destructively migrated.
+ *
+ * Observation writes are best-effort and individually caught, matching the
+ * behaviour they replace — a storage failure degrades freshness, it must not
+ * stop insights being served.
+ */
+export async function applyRotation(
+  rawInsights: Insight[],
+  leagueSlug: string,
+  season: number,
+  lifecycleState: LifecycleState,
+  now: Date = new Date()
+): Promise<Insight[]> {
+  const observations = await loadObservations(leagueSlug, season, now.getTime()).catch(
+    () => new Map<string, InsightObservation>()
+  );
+
+  const { selected, signatures } = selectRotatedInsights({
+    insights: rawInsights,
+    observations,
+    lifecycleState,
+    now,
+    limit: MAX_INSIGHTS,
+  });
+
+  const served = selected.map((insight) => {
+    const key = observationKey(insight.id, insight.newsHook);
+    const prior = observations.get(key);
+    const signature = signatures.get(insight.id) ?? insightSignature(insight);
+    // NEW is decided against the PRIOR observation, before this one is written —
+    // otherwise every insight would compare equal to the record just created and
+    // nothing would ever be new.
+    const changedAt = prior && prior.signature === signature ? prior.lastChangedAt : null;
+    return { ...insight, isNew: isNewInsight(changedAt, lifecycleState, now) };
+  });
+
+  await Promise.all(
+    selected.map((insight) => {
+      const key = observationKey(insight.id, insight.newsHook);
+      const signature = signatures.get(insight.id) ?? insightSignature(insight);
+      return saveObservation(
+        nextObservation(observations.get(key), key, signature, now),
+        leagueSlug,
+        season
+      ).catch(() => undefined);
+    })
+  );
+
+  return served;
 }
 
 export async function runInsightsEngine(

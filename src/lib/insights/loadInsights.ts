@@ -2,7 +2,7 @@ import { unstable_cache } from 'next/cache';
 import { cache } from 'react';
 
 import { buildInsightContext } from '@/lib/insights/context';
-import { applySuppression, generateRawInsights, runInsightsEngine } from '@/lib/insights/engine';
+import { applyRotation, generateRawInsights, runInsightsEngine } from '@/lib/insights/engine';
 import '@/lib/insights/generators';
 import { getLeague } from '@/lib/leagueRegistry';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
@@ -304,10 +304,21 @@ export async function loadInsightsForLeague(
       resolvedYear,
       currentDate
     );
-    // Per-request suppression against the cached raw set. Season matches the
-    // engine's historical scoping (league.year, via context.currentYear), so
-    // fire/fade behavior is byte-for-byte unchanged by the cache split.
-    const insights = await applySuppression(rawInsights, slug, league.year);
+    // INSIGHTS-018 — per-request ROTATION against the cached raw set, replacing
+    // per-request suppression. Season matches the engine's historical scoping
+    // (league.year, via context.currentYear), so observation records are scoped
+    // exactly as suppression records were.
+    //
+    // Stays outside the cache for the same reason suppression did: it reads and
+    // writes durable state and its output depends on what the league has already
+    // been shown. Caching it would freeze one bucket's ordering forever.
+    const insights = await applyRotation(
+      rawInsights,
+      slug,
+      league.year,
+      lifecycleState,
+      currentDate
+    );
     return { insights, lifecycleState, generatedAt };
   } catch (err) {
     // A genuine store/database failure escaped the cached callback (nothing was

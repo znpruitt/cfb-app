@@ -56,6 +56,18 @@ export type Insight = {
   // The numeric stat the suppression gate tracks for this insight. Meaning is
   // generator-specific (e.g. career points, streak length, win differential).
   statValue: number;
+  /**
+   * INSIGHTS-018 — whether this insight CHANGED recently enough to be badged.
+   *
+   * Set by the serving half of the engine, not by generators: a generator has no
+   * idea what the league was told last time. Optional because `generateRawInsights`
+   * produces insights before any observation is consulted, and the raw set is
+   * cached — baking a freshness answer into the cache would freeze it.
+   *
+   * NEW means CHANGED. A standing fact that rotates back into view is NOT new; it
+   * did not change, it merely resurfaced.
+   */
+  isNew?: boolean;
   // Backward-compatible aliases used by existing tests/UI until full migration.
   score?: number;
   owners?: string[];
