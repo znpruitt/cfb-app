@@ -91,6 +91,14 @@ type DebugRecord = {
 type DebugResponse = {
   slug: string;
   season: number;
+  /**
+   * INSIGHTS-029 retired per-insight suppression from the served path, so
+   * NOTHING writes suppression records any more. Everything below is residue
+   * from before that change, aging out under `SUPPRESSION_RECORD_TTL_DAYS`.
+   * Without this an operator reads an empty tally as "no insights have fired"
+   * rather than "this mechanism is retired".
+   */
+  status: string;
   totalRecords: number;
   ttlDays: number;
   expiredCount: number;
@@ -152,6 +160,9 @@ export async function GET(
   const response: DebugResponse = {
     slug,
     season,
+    status:
+      'retired: INSIGHTS-029 removed per-insight suppression from the served path. ' +
+      'No new records are written; these are pre-029 residue aging out under the TTL.',
     totalRecords: debugRecords.length,
     ttlDays: SUPPRESSION_RECORD_TTL_DAYS,
     expiredCount,

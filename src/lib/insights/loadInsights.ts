@@ -216,9 +216,12 @@ async function buildLeagueInsightContext(
 
 /**
  * The expensive, cacheable half of `loadInsightsForLeague`: build context and
- * run the generators to the raw (pre-suppression) insight set. Suppression is
- * NOT applied here — it is stateful and runs per request in
- * `loadInsightsForLeague` so the fire-once-then-fade behavior is preserved.
+ * run the generators to the raw insight set. Selection (sort + cap) is NOT
+ * applied here; `loadInsightsForLeague` does that per request via
+ * `selectServedInsights`, which is pure, so the cached raw set stays reusable.
+ *
+ * INSIGHTS-029 retired per-request suppression from this path entirely — see
+ * the seam in `loadInsightsForLeague`.
  */
 async function computeRawInsights(
   slug: string,
@@ -267,10 +270,12 @@ const cachedRawInsights = cache(
  * perform authorization — callers must gate via `isAuthorizedForLeague` (API
  * route) or `renderLeagueGateIfBlocked` (RSC page) before invoking.
  *
- * The expensive context build + generation is cached cross-request; suppression
- * is applied per request against the cached raw set. `bypassSuppression` (admin/
- * diagnostic) runs a different generator set and writes no records, so it is not
- * cached.
+ * The expensive context build + generation is cached cross-request; selection
+ * (sort by priority, cap at MAX_INSIGHTS) runs per request against the cached
+ * raw set. Since INSIGHTS-029 the served path applies NO suppression, so a
+ * league sees the same feed on every load. `bypassSuppression` (admin/
+ * diagnostic) still runs a different GENERATOR set — the generator-level gate,
+ * not the retired per-insight one — and is not cached.
  */
 export async function loadInsightsForLeague(
   slug: string,

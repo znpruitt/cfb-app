@@ -1461,6 +1461,15 @@ export default function OverviewPanel({
       })
     );
 
+    // INSIGHTS-029 — the loader serves up to MAX_INSIGHTS (10); this panel shows
+    // 5, so ranks 6-10 are dropped here and never render. Suppression used to
+    // churn that tail into view as a side effect of hiding what it had already
+    // shown; nothing does now. Rotation is the real answer and is deferred
+    // behind INSIGHTS-023 (see docs/next-tasks.md items 21-23).
+    //
+    // The `existing` filler below is NOT dead: it still fires whenever the
+    // engine returns fewer than 5, which a young league does. Before 029 the
+    // drained feed made it the main source; now it is a genuine fallback.
     const ranked = [...engineInsights].sort((a, b) => b.priorityScore - a.priorityScore);
     const seen = new Set(ranked.map((i) => i.id));
     const merged: Insight[] = [...ranked];

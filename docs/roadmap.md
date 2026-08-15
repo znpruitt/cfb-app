@@ -317,7 +317,7 @@ Enforce commissioner role on all mutating server actions. Remove `ADMIN_API_TOKE
 
 #### AppStateStore Caching — Egress Optimization ✓ Complete
 
-Server-side caching for insights panel output and archive reads to cut repeated Postgres reads (and egress) on the hot history/insights paths. **Shipped** as the `APPSTATESTORE-CACHING` campaign, split into PLATFORM-082A (archive read cache — `React.cache` over `unstable_cache` with tag-only invalidation centralized in `saveSeasonArchive`) + PLATFORM-082B (insights output cache — `loadInsightsForLeague` caches the context-build + raw generation, suppression runs per-request to preserve fire-once). Both merged; failures are never cached (extended to the standings selector by PLATFORM-084A). See `docs/architecture/storage-and-caching.md`.
+Server-side caching for insights panel output and archive reads to cut repeated Postgres reads (and egress) on the hot history/insights paths. **Shipped** as the `APPSTATESTORE-CACHING` campaign, split into PLATFORM-082A (archive read cache — `React.cache` over `unstable_cache` with tag-only invalidation centralized in `saveSeasonArchive`) + PLATFORM-082B (insights output cache — `loadInsightsForLeague` caches the context-build + raw generation, with the serving step run per-request; at the time that step was suppression, preserving fire-once — INSIGHTS-029 later replaced it with a pure sort-and-cap, see `AGENTS.md` Insights invariant 4). Both merged; failures are never cached (extended to the standings selector by PLATFORM-084A). See `docs/architecture/storage-and-caching.md`.
 
 - **Slug:** `APPSTATESTORE-CACHING` (082A + 082B) — complete.
 
