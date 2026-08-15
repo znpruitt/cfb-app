@@ -1063,17 +1063,26 @@ function InsightRow({
           style={{ letterSpacing: '0.08em', color: categoryColor }}
         >
           {categoryConfig.label}
-          {/* INSIGHTS-018 — NEW rides the existing microlabel row and earns its
-              prominence from CONTRAST, not a new hue. `DESIGN.md`: amber/gold is
-              reserved for champion/podium, blue means interactivity, no colour is
-              decorative, and "when this page reads flat, reach for type before
-              pigment". A chip would also be card chrome, which is reserved for a
-              meaningful border signal.
+          {/* INSIGHTS-018 — a RINGED badge, matching `FormerOwnerBadge`, because
+              the category label and this are different kinds of information and
+              must not be styled alike.
+              The first cut set them apart by colour alone, in the same size,
+              weight and tracking — so `HISTORICAL NEW` read as one taxonomy
+              rather than a category plus a state. The ring makes the distinction
+              STRUCTURAL: a reader learns "outlined = state" once and it carries
+              to the former-owner badge elsewhere.
 
-              Real text, not an icon or a dot, so it is announced by a screen
-              reader without needing a label bolted on. */}
+              No colour is spent. `DESIGN.md` reserves amber/gold for
+              champion/podium and treats blue as interactivity, so a louder
+              treatment would have to take meaning from one of those. Whether NEW
+              earns a hue is a separate decision.
+
+              Real text rather than an icon or a dot, so a screen reader announces
+              it without a bolted-on label. */}
           {insight.isNew ? (
-            <span className="ml-1.5 text-gray-950 dark:text-zinc-50">New</span>
+            <span className="ml-1.5 inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium normal-case tracking-wide text-gray-500 ring-1 ring-gray-300 dark:text-zinc-400 dark:ring-zinc-600">
+              New
+            </span>
           ) : null}
         </p>
         <p className="text-[14px] font-medium text-gray-950 dark:text-zinc-50">{insight.title}</p>
