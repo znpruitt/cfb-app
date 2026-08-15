@@ -473,9 +473,12 @@ Supersedes: (none)
     Owner's acceptance test: _a drought from three seasons ago should come back around; last
     October's week-7 result should not._
 
-    Rotation selects the feed; CHANGE still earns the NEW label, for both kinds. Retire suppression as
-    a visibility gate without destructively migrating existing records; an observation-store failure
-    falls back to stable priority order and never empties the feed.
+    Rotation selects the feed; CHANGE still earns the NEW label, for both kinds. **The NEW-tag half is
+    unchanged from the original spec and is NOT superseded** — per-league-global (not per-user),
+    **48-hour active-season window, 7-day preseason/offseason window**, signature-based detection so a
+    hook/owner/statValue change reads as fresh while a semantically identical re-render does not.
+    Retire suppression as a visibility gate without destructively migrating existing records; an
+    observation-store failure falls back to stable priority order and never empties the feed.
 
     **Sequencing is load-bearing: this comes BEFORE the breadth work below.** Switching on the dark
     families first would add ~7 insight types that each fire once and vanish, spending the entire
@@ -548,11 +551,41 @@ Supersedes: (none)
     trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
     For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
 
-25. **Then, in order: INSIGHTS-019** (diagnostic endpoint — worth taking straight after 018, since it
+25. **INSIGHTS-026 — two weekly in-season pulses.** **ID split out 2026-08-14: this campaign was
+    filed under INSIGHTS-018**, which the backlog also used for the NEW-tag mechanism, so a full
+    content campaign was hiding behind a mechanical one. Owner confirmed 2026-08-14 that it is still
+    wanted — _"it helps make the app feel alive"_. Design detail stays in `docs/roadmap.md` →
+    "Insights Engine — Two Weekly In-Season Pulses"; this entry exists so the queue can see it.
+
+    - **Monday 6am ET — Look Back**: weekend recap, standings movement, owner-vs-owner outcomes,
+      trash-talk fodder. **Thursday 6am ET — Forward Look**: games to watch, collisions ahead,
+      rivalry implications, who needs a win.
+    - **Scheduled, which nothing in the current insights model contemplates** — the engine is
+      request-time and stateless apart from suppression. Cadence means cron, and cron on this project
+      means a receipt and a runtime event (`PLATFORM-086F2E1`), plus the year-validity and
+      demo-exclusion rules every other job carries.
+    - **Placement:** 2–3 highlights on Overview, full pulse on a dedicated tab.
+    - In-season only, so it does nothing for the preseason feed; sequence it after 018/023/024.
+
+26. **INSIGHTS-027 — preseason content generators (NEW content, not re-enabled content).** Also
+    recovered from the roadmap entry above, and distinct from INSIGHTS-023: that one switches on
+    generators that already exist, this one writes generators that do not.
+
+    - **Draft-based**: conference concentration across an owner's roster, roster diversity, AP poll
+      rankings per owner. Depends on a published draft, so it is live for a league only after
+      confirmation.
+    - **Schedule-strength projections**: ranked-opponent count, aggregate SP+ per owner.
+    - The roadmap's "August onward" data tier — AP poll per owner, preseason projections — is
+      available NOW, which makes this the largest genuinely-new preseason content lever.
+    - **Standing rule for any generator written here**, carried verbatim from the roadmap because it
+      is the whole point of the panel: _"Every insight must tell the user something they couldn't
+      figure out just by reading the table. No restating visible data without a compelling angle."_
+
+27. **Then, in order: INSIGHTS-019** (diagnostic endpoint — worth taking straight after 018, since it
     is how rotation and NEW state become observable), INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
     later.
-26. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
+28. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
     PLATFORM-093** — a brand-new league had no path to confirm owners — new leagues are born `season`, `/admin/[slug]/preseason/owners`
     redirects away unless the league is in `preseason`, and only `beginPreseason` (offseason-only) or
     the rollover cron reach that state, leaving only the historical/repair CSV import, which asks the
@@ -572,7 +605,7 @@ Supersedes: (none)
     shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
     constant. Severity was overstated when first reported — three client components already import
     that module, so the graph is in the client bundle on every league page anyway.
-27. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
+29. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
     Verified 2026-08-12. `DELETE /api/admin/leagues/[slug]` calls `removeLeague`, which filters the
     slug out of the registry list and nothing else. Every keyed record survives: `owners:{slug}:{year}`
     (team→owner rosters carrying real names), `preseason-owners:{slug}`, `draft:{slug}` (picks and
@@ -602,12 +635,12 @@ Supersedes: (none)
     the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
     the honest options are a purge that removes the residue, an already-archived guard in the
     rollover path, or retiring adoption — all of which are this campaign's decisions.
-28. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+30. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
     once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
     retry.
-29. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+31. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -617,7 +650,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-30. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+32. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 
@@ -640,7 +673,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Data & Intelligence | Insights Panel UI Redesign + Polish                                                     | ✅ Complete           |
 | Platform            | Season Launch Hardening (Draft Auth + Polling, Standings Preseason, Insights Lifecycle) | ✅ Complete           |
 | Platform            | Standings Ownership Model Redesign (Phases 0–5)                                         | ✅ Complete           |
-| Data & Intelligence | Insights Engine — Weekly In-Season Pulses (INSIGHTS-018)                                | Planned               |
+| Data & Intelligence | Insights Engine — Weekly In-Season Pulses (INSIGHTS-026)                                | Planned               |
 | Data & Intelligence | Insights Diagnostic Endpoint (INSIGHTS-019)                                             | Planned               |
 | Data & Intelligence | Insights Panel — Microlabel Palette (INSIGHTS-017-PALETTE)                              | Planned               |
 | Data & Intelligence | Insights Ranker — Priority Tuning (INSIGHTS-RANKER-TUNING)                              | Planned               |

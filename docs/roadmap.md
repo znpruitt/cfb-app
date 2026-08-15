@@ -167,7 +167,13 @@ Identifies owners trending down who historically recover — combines Volatility
 
 Full-page view of all insights for a league, accessible via "See all →" from the overview panel. Grouped by category, full descriptions, lifecycle filtering.
 
-#### Insights Engine — Two Weekly In-Season Pulses (planned)
+#### Insights Engine — Two Weekly In-Season Pulses (planned — INSIGHTS-026)
+
+> **ID note (2026-08-14):** this campaign was filed under `INSIGHTS-018`, which the backlog also used
+> for the NEW-tag mechanism. Split to `INSIGHTS-026` so a content campaign stops hiding behind a
+> mechanical one. The preseason content ideas below — draft-based insights and schedule-strength
+> projections — were split again to `INSIGHTS-027`, because they are new generators rather than the
+> weekly cadence. See `docs/next-tasks.md` for queue position.
 
 Enrich the existing insights panel on the overview page with contextual, data-driven narrative content. The panel structure is already built — this campaign populates it with meaningful insights that adapt automatically based on lifecycle state (offseason / preseason / in-season / postseason).
 
