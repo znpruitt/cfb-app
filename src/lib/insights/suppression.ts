@@ -198,3 +198,42 @@ export function toSuppressionRecord(insight: Insight): SuppressionRecord {
     statValue: insight.statValue,
   };
 }
+
+/**
+ * The date INSIGHTS-029 retired per-insight suppression from the served path.
+ * Records older than this are residue; records NEWER than it mean something
+ * started writing again, which is the case worth shouting about.
+ */
+export const SUPPRESSION_RETIRED_AT = '2026-08-15T00:00:00.000Z';
+
+/**
+ * Describes the state of the suppression store for the debug endpoint.
+ *
+ * Derived from the records themselves rather than hardcoded. The first version
+ * of this message unconditionally asserted "no new records are written" — true
+ * the day it shipped, and nothing kept it true. If a later slice reintroduces a
+ * suppression write, a fixed string reports the opposite of reality on the one
+ * surface an operator uses to check, which is strictly worse than the ambiguous
+ * empty tally it was added to disambiguate.
+ */
+export function describeSuppressionStore(
+  records: ReadonlyArray<{ firedAt: string }>,
+  retiredAt: string = SUPPRESSION_RETIRED_AT
+): string {
+  const base = 'retired: INSIGHTS-029 removed per-insight suppression from the served path';
+  if (records.length === 0) return `${base}; no records remain.`;
+
+  const newest = records.reduce((a, b) => (a.firedAt >= b.firedAt ? a : b)).firedAt;
+  if (newest > retiredAt) {
+    const written = records.filter((r) => r.firedAt > retiredAt).length;
+    return (
+      `UNEXPECTED — ${base}, but ${written} of ${records.length} record(s) were ` +
+      `written AFTER that date (newest ${newest}). Something is writing suppression ` +
+      `records again; the served feed may be draining.`
+    );
+  }
+  return (
+    `${base}. The ${records.length} record(s) below are pre-029 residue, aging out ` +
+    `under the TTL (newest ${newest}).`
+  );
+}

@@ -67,8 +67,12 @@ test('SUPPRESSION drained the same feed to its never-suppress types — the defe
   // `drought` and `dynasty` carry `{ kind: 'unchanged' }` — suppress while the
   // stat value is identical — and out of season no stat value can move, so the
   // gate never releases. `perfect_against` is on `NEVER_SUPPRESS_TYPES` and
-  // survives, which is why a live league's Overview showed exactly the two cards
-  // it did: both were on that list, and it was the only reason anything rendered.
+  // survives.
+  //
+  // That list is NOT the whole set of survivors, and this fixture is chosen to
+  // isolate the thresholded case. 8 further types appear in neither table and
+  // are never suppressed either (`isSuppressed` returns false with no rule) —
+  // see `selectServedInsights` in engine.ts for the full accounting.
   const raw = [
     insight('drought-1', 'drought', 90),
     insight('dynasty-1', 'dynasty', 80),

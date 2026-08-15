@@ -82,8 +82,12 @@ Rules:
 - **The feed was not thin, it was DRAINED.** Suppression is keyed per insight TYPE and almost every
   type carried `{ kind: 'unchanged' }` — suppress while the stat value is identical. Out of season
   no stat value can move, so "fire once, then fade" degenerated into "show each insight once, ever".
-  A live league's Overview showed exactly two cards and both were on `NEVER_SUPPRESS_TYPES`; those
-  three types were the only reason anything rendered. The fix is a pure sort-and-cap.
+  The fix is a pure sort-and-cap. **Correction (2026-08-15, post-merge review):** this entry
+  originally said the three `NEVER_SUPPRESS_TYPES` were the only reason anything rendered. That is
+  wrong, and the disproof was already two bullets below — `isSuppressed` returns false for a type
+  with no threshold entry, so the 8 unthresholded types survived too. 11 of 32 types were unaffected;
+  the drain hit the other 21. The false version was carried into five places including a binding
+  invariant, and would have understated the pre-029 pool for INSIGHTS-023/018.
 - **Both reviewers found the same HIGH, and they were right twice over.** The regression test
   exercised `selectServedInsights` and `applySuppression` separately, so reverting the production
   line left all 39 neighbouring tests passing. The repair took THREE fixtures: the first went

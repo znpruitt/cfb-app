@@ -457,7 +457,10 @@ Supersedes: (none)
 
     **Known gap this leaves open, owned by items 22–23 below.** The loader serves up to
     `MAX_INSIGHTS` (10) while the Overview renders 5, so ranks 6–10 never surface and anything past
-    10 never leaves the loader. Suppression used to churn the tail into view as a side effect of
+    10 never leaves the loader. **`/league/[slug]/insights` is affected too** (missed in the original
+    gap analysis, caught by post-merge review): it is titled as the complete list and is capped at
+    the same 10, with no pagination and no indication anything was withheld. Before 029, suppression
+    filtered before slicing, so repeat visits did rotate ranks 11+ in. Suppression used to churn the tail into view as a side effect of
     hiding what it had already shown; nothing does now. That is acceptable while a league has fewer
     insights than the feed holds, and it stops being acceptable exactly when INSIGHTS-023 widens the
     pool — which is the trigger for INSIGHTS-018.

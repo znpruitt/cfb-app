@@ -112,13 +112,19 @@ export async function applySuppression(
 /**
  * INSIGHTS-029 — the serving selection, replacing `applySuppression`.
  *
- * **The feed was not thin, it was DRAINED.** Suppression is per insight TYPE and
- * almost every type carried `{ kind: 'unchanged' }` — suppress while the stat
- * value is identical. In preseason no games are played, so no stat value can
- * ever change: each insight fired once and was hidden for the rest of the
- * preseason. A live league's Overview showed exactly two cards, and both were on
- * `NEVER_SUPPRESS_TYPES`; those three types were the only reason anything
- * rendered at all.
+ * **The feed was not thin, it was DRAINED.** Suppression is per insight TYPE,
+ * and 21 of the 32 types carried a `TYPE_THRESHOLDS` rule — almost all
+ * `{ kind: 'unchanged' }`, suppress while the stat value is identical. In
+ * preseason no games are played, so no stat value can ever change: each of those
+ * fired once and was hidden for the rest of the preseason.
+ *
+ * Be precise about what survived, because the pool work (INSIGHTS-023/018) sizes
+ * itself from this: NOT just the three `NEVER_SUPPRESS_TYPES`. `isSuppressed`
+ * returns false for a type with no threshold entry, and 8 types are in neither
+ * table (`champion_margin`, `collapse`, `failed_chase`, `movement`, `race`,
+ * `surge`, `tight_cluster`, `toilet_bowl`), so they survived as well — except
+ * when carrying a `snapshot` newsHook, which is checked before the rule lookup.
+ * 11 of 32 types were unaffected; the drain hit the other 21.
  *
  * "Fire once, then fade" only makes sense while something is moving. Out of
  * season nothing is, so the rule degenerated into "show each insight once, ever".
