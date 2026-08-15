@@ -11,10 +11,17 @@ import { applySuppression, selectServedInsights } from '../engine.ts';
 // ---------------------------------------------------------------------------
 // INSIGHTS-029 — the feed must survive being looked at.
 //
-// This file exists because NOTHING had ever exercised the serving path twice.
-// The behaviour the change is about — fire once, then fade — had no end-to-end
-// test in the whole suite, which is why a live league's Overview could drain to
-// two cards without a single test failing.
+// **These are UNIT tests, and they are NOT the regression guard.** The guard is
+// `INSIGHTS-029: the feed survives repeated loads through the real loader` in
+// `src/lib/__tests__/loadInsights.test.ts` — it is the only test that runs the
+// actual serving seam, and it is mutation-proven to fail when that seam is
+// reverted. If that test is ever weakened or moved, the coverage goes with it;
+// nothing in THIS file would notice.
+//
+// What lives here: the purity/ordering/cap properties of `selectServedInsights`
+// (which cannot fail for any correct sort-and-slice, and are not meant to), plus
+// a control that pins the retired suppression behaviour so the drain stays
+// observable.
 // ---------------------------------------------------------------------------
 
 function insight(id: string, type: InsightType, priorityScore = 50): Insight {

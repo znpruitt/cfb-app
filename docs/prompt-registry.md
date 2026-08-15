@@ -97,6 +97,11 @@ Rules:
   `runInsightsEngine` call site passes `bypassSuppression: true`), so nothing writes suppression
   records. The debug endpoint says so in its own response rather than letting an empty tally read as
   "nothing fired". Retiring `suppression.ts` is a separate decision, deferred to INSIGHTS-023.
+- Deferred out of scope, recorded as **PLATFORM-101**: review found `?bypassSuppression=1` is
+  reachable by any caller on a passwordless league, bypasses `unstable_cache` entirely, and skips the
+  invariant-5 `rookie_benchmark` gate. Verified pre-existing — the bypass block is byte-identical to
+  `main` and the route file was never touched by this slice — so it was queued rather than folded
+  into an insights change. AGENTS.md invariant 4 was corrected to stop calling the flag admin-gated.
 - Follow-on: the loader serves up to `MAX_INSIGHTS` (10) while the Overview renders 5, so ranks 6–10
   never surface. Suppression used to churn the tail into view as a side effect; nothing does now.
   That is the pool/rotation question, and it belongs to INSIGHTS-023 then INSIGHTS-018 — see

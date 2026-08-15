@@ -64,9 +64,15 @@ test('insights cache tags do not leak across leagues or years', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Engine split — generation (pure, cacheable) is separate from suppression
-// (stateful, per-request). This is what lets the raw set be cached while the
-// fire-once-then-fade behavior is preserved.
+// Engine split — generation (pure, cacheable) is separate from the per-request
+// serving step, which is what lets the raw set be cached at all.
+//
+// INSIGHTS-029 REPLACED that serving step. It was `applySuppression`
+// ("fire once, then fade"); it is now `selectServedInsights`, a pure sort and
+// cap. **The tests below pin the RETIRED behaviour**, which is deliberate — the
+// function is still exported — but nothing on the serving path does this any
+// more, and per AGENTS.md Insights invariant 4 it must not be restored there.
+// The live serving guarantee is pinned in `loadInsights.test.ts`.
 // ---------------------------------------------------------------------------
 
 function makeInsight(overrides: Partial<Insight> & { id: string }): Insight {

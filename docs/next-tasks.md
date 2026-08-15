@@ -730,12 +730,39 @@ Supersedes: (none)
     the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
     the honest options are a purge that removes the residue, an already-archived guard in the
     rollover path, or retiring adoption — all of which are this campaign's decisions.
-31. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+31. 🔴 **PLATFORM-101 — `?bypassSuppression=1` is a public, uncached, invariant-skipping flag.**
+    Raised by review during INSIGHTS-029 (2026-08-15); **pre-existing, NOT introduced there** — the
+    bypass block in `loadInsights.ts` is byte-identical to `main` and the route file was untouched.
+    Recorded here rather than fixed in-branch because the fix is an auth change on a public route.
+
+    `/api/insights/[slug]/route.ts:29` reads the flag straight off the query string. The only gate
+    ahead of it is `isAuthorizedForLeague`, which returns `true` for ANY caller when the league has
+    no password (`leagueAuth.ts:220`). There is no admin check anywhere on the path, despite the
+    "admin/diagnostic" wording in the code, the docstrings, and (until this was corrected) AGENTS.md
+    Insights invariant 4. Two consequences, both verified by reading the path rather than inferred:
+    - **It bypasses `unstable_cache` entirely.** `loadInsightsForLeague` takes the
+      `options.bypassSuppression === true` branch and calls `buildLeagueInsightContext` directly, so
+      every request rebuilds canonical standings, every season archive, the team DB, aliases,
+      schedule and rankings, then runs all 26 generators. That is precisely the per-visit
+      Postgres/egress cost the APPSTATESTORE-CACHING campaign existed to remove, and a loop over the
+      URL is an uncapped amplification of it.
+    - **It skips `shouldSuppressGenerator`**, whose only rule is the invariant-5 one: suppress
+      `career:rookie_benchmark` while `usingArchivedRoster`. During a rollover window a caller
+      therefore receives rookie claims about returning owners — the case AGENTS.md invariant 5 says
+      must be suppressed COMPLETELY because the claim is unsound on a borrowed roster.
+
+    **The product question to settle first:** should the flag require platform admin, or should it be
+    deleted from the public route and kept only on an admin/debug surface? INSIGHTS-019 (item 28) is
+    building a diagnostic endpoint that wants exactly this capability — if that lands admin-gated,
+    the public flag has no remaining reason to exist and deletion is the smaller change. Sequence
+    accordingly rather than bolting an admin check onto a route that may not keep the flag.
+
+32. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
     once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
     retry.
-32. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+33. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -745,7 +772,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-33. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+34. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 
