@@ -50,13 +50,18 @@ const NEVER_SUPPRESS_TYPES: ReadonlySet<InsightType> = new Set<InsightType>([
 // 'pct': suppress if |curr - prev| / |prev| <= threshold (e.g. 0.05 = 5%)
 // 'unchanged': suppress if statValue is identical
 // 'snapshot': suppress after first fire (used for pure current-state insights)
-type ThresholdRule =
+export type ThresholdRule =
   | { kind: 'abs'; value: number }
   | { kind: 'pct'; value: number }
   | { kind: 'unchanged' }
   | { kind: 'snapshot' };
 
-const TYPE_THRESHOLDS: Partial<Record<InsightType, ThresholdRule>> = {
+/**
+ * Exported for INSIGHTS-018's `statMovedEnough`. These tolerances outlive
+ * suppression-as-a-gate: rotation was always meant to sit ABOVE this machinery,
+ * and re-deriving them elsewhere would let the two drift.
+ */
+export const TYPE_THRESHOLDS: Partial<Record<InsightType, ThresholdRule>> = {
   career_points_leader: { kind: 'pct', value: 0.05 },
   career_turnover_margin: { kind: 'abs', value: 10 },
   lopsided_rivalry: { kind: 'unchanged' },

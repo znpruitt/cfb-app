@@ -28,7 +28,13 @@ export default async function LeagueInsightsPage({
   }
 
   const response = await loadInsightsForLeague(slug, league.year);
-  const insights = response.insights.slice().sort((a, b) => b.priorityScore - a.priorityScore);
+  // INSIGHTS-018 — rotation's order is preserved, NOT re-sorted by priority.
+  // Re-sorting here discarded the whole ordering contract: changed insights are
+  // meant to come before rotated ones regardless of priority, and a priority sort
+  // put a high-scoring fact the reader has seen many times above actual news.
+  // Review found the tested contract had no rendered consumer because both
+  // callers re-sorted.
+  const insights = response.insights;
 
   return (
     <main>

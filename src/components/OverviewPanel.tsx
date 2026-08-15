@@ -1482,7 +1482,13 @@ export default function OverviewPanel({
       })
     );
 
-    const ranked = [...engineInsights].sort((a, b) => b.priorityScore - a.priorityScore);
+    // INSIGHTS-018 — engine insights arrive in ROTATION order and keep it. Sorting
+    // by priorityScore here discarded that ordering entirely: changed insights are
+    // meant to precede rotated ones regardless of priority, and with more
+    // rotatable facts than feed slots the same high-priority rows rendered every
+    // bucket, so rotation never reached a reader at all. Locally derived insights
+    // (INSIGHTS-028) still append after them.
+    const ranked = [...engineInsights];
     const seen = new Set(ranked.map((i) => i.id));
     const merged: Insight[] = [...ranked];
     for (const insight of existing) {

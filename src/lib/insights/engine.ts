@@ -5,7 +5,7 @@ import {
   saveSuppressionRecord,
   toSuppressionRecord,
 } from './suppression';
-import { insightSignature, isNewInsight } from './freshness';
+import { INSIGHT_KIND, insightSignature, isNewInsight, statMovedEnough } from './freshness';
 import {
   loadObservations,
   nextObservation,
@@ -13,10 +13,17 @@ import {
   saveObservation,
   type InsightObservation,
 } from './observationStore';
-import { selectRotatedInsights } from './rotation';
+import { rotationBucket, selectRotatedInsights } from './rotation';
 import type { InsightContext, InsightGenerator, LifecycleState } from './types';
 
 const MAX_INSIGHTS = 10;
+
+/**
+ * What the FEED serves. `MAX_INSIGHTS` remains the engine's ceiling for callers
+ * that want a wider set (the diagnostic bypass); rotation must select at feed
+ * size or the consumer's own priority sort silently discards the ordering.
+ */
+const FEED_INSIGHTS = 5;
 
 const generators: InsightGenerator[] = [];
 
@@ -131,42 +138,72 @@ export async function applySuppression(
  * behaviour they replace — a storage failure degrades freshness, it must not
  * stop insights being served.
  */
+/**
+ * Whether an insight differs enough from its last observation to count as news.
+ *
+ * Exact signature equality for everything except `standing-moving`, which gets
+ * the per-type tolerance `suppression.ts` already defined — the classification's
+ * own doc promised rotation would sit above that machinery rather than discard
+ * it, and the first cut discarded it.
+ */
+function insightChanged(insight: Insight, prior: InsightObservation, signature: string): boolean {
+  if (INSIGHT_KIND[insight.type] === 'standing-moving') {
+    return statMovedEnough(insight.type, prior.statValue, insight.statValue);
+  }
+  return prior.signature !== signature;
+}
+
 export async function applyRotation(
   rawInsights: Insight[],
   leagueSlug: string,
   season: number,
   lifecycleState: LifecycleState,
-  now: Date = new Date()
+  now: Date = new Date(),
+  feedLimit: number = FEED_INSIGHTS
 ): Promise<Insight[]> {
   const observations = await loadObservations(leagueSlug, season, now.getTime()).catch(
     () => new Map<string, InsightObservation>()
   );
+
+  const bucket = rotationBucket(now, lifecycleState);
 
   const { selected, signatures } = selectRotatedInsights({
     insights: rawInsights,
     observations,
     lifecycleState,
     now,
-    limit: MAX_INSIGHTS,
+    // FEED-sized, not engine-sized. Returning 10 let `OverviewPanel` re-sort by
+    // priorityScore and slice to five, so with 6–10 rotatable facts the same five
+    // rendered every bucket and rotation never reached a reader. Both reviewers
+    // found this independently; the tested ordering contract had no consumer.
+    limit: feedLimit,
   });
 
   const served = selected.map((insight) => {
-    const key = observationKey(insight.id, insight.newsHook);
+    const key = observationKey(insight.id);
     const prior = observations.get(key);
-    const signature = signatures.get(insight.id) ?? insightSignature(insight);
+    const signature = signatures.get(key) ?? insightSignature(insight);
     // NEW is decided against the PRIOR observation, before this one is written —
     // otherwise every insight would compare equal to the record just created and
     // nothing would ever be new.
-    const changedAt = prior && prior.signature === signature ? prior.lastChangedAt : null;
+    //
+    // A `standing-moving` type uses its per-type TOLERANCE rather than exact
+    // equality: career points move every week, and treating a one-unit drift as
+    // news put all nine such types permanently at the head of the feed, crowding
+    // out the static facts rotation exists to bring back.
+    const changed = prior ? insightChanged(insight, prior, signature) : true;
+    const changedAt = changed ? null : prior!.lastChangedAt;
     return { ...insight, isNew: isNewInsight(changedAt, lifecycleState, now) };
   });
 
   await Promise.all(
     selected.map((insight) => {
-      const key = observationKey(insight.id, insight.newsHook);
-      const signature = signatures.get(insight.id) ?? insightSignature(insight);
+      const key = observationKey(insight.id);
+      const signature = signatures.get(key) ?? insightSignature(insight);
+      const prior = observations.get(key);
+      const changed = prior ? insightChanged(insight, prior, signature) : true;
       return saveObservation(
-        nextObservation(observations.get(key), key, signature, now),
+        nextObservation(prior, key, signature, insight.statValue, changed, now, bucket),
         leagueSlug,
         season
       ).catch(() => undefined);

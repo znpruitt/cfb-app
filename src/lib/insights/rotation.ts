@@ -1,6 +1,7 @@
 import type { Insight } from '../selectors/insights.ts';
-import { INSIGHT_KIND, insightSignature } from './freshness.ts';
+import { INSIGHT_KIND, insightSignature, statMovedEnough } from './freshness.ts';
 import { observationKey, type InsightObservation } from './observationStore.ts';
+import { IN_SEASON_LIFECYCLES } from './freshness.ts';
 import type { LifecycleState } from './types.ts';
 
 /**
@@ -32,13 +33,6 @@ import type { LifecycleState } from './types.ts';
  * changes for months and a daily shuffle would be motion without information —
  * and would make it impossible to point someone at a card you saw yesterday.
  */
-const IN_SEASON_LIFECYCLES: ReadonlySet<LifecycleState> = new Set<LifecycleState>([
-  'early_season',
-  'mid_season',
-  'late_season',
-  'postseason',
-]);
-
 export function rotationBucket(now: Date, lifecycleState: LifecycleState): string {
   const days = Math.floor(now.getTime() / (24 * 60 * 60 * 1000));
   return IN_SEASON_LIFECYCLES.has(lifecycleState) ? `d${days}` : `w${Math.floor(days / 7)}`;
@@ -64,8 +58,14 @@ function hasChanged(
   insight: Insight,
   observations: ReadonlyMap<string, InsightObservation>
 ): boolean {
-  const prior = observations.get(observationKey(insight.id, insight.newsHook));
+  const prior = observations.get(observationKey(insight.id));
   if (!prior) return true;
+  // The SAME tolerance the badge uses. If selection said "changed" on a one-unit
+  // move while the badge said "unchanged", an insight would head the feed wearing
+  // no label — the two decisions must not be able to disagree.
+  if (INSIGHT_KIND[insight.type] === 'standing-moving') {
+    return statMovedEnough(insight.type, prior.statValue, insight.statValue);
+  }
   return prior.signature !== insightSignature(insight);
 }
 
@@ -95,8 +95,12 @@ export function selectRotatedInsights(input: RotationInput): RotationSelection {
   const { insights, observations, lifecycleState, now, limit } = input;
   const bucket = rotationBucket(now, lifecycleState);
 
+  // Keyed by `observationKey`, matching the store. Keying by raw id meant two
+  // insights sharing an id under different hooks silently overwrote one another's
+  // signature, making the NEW decision and the persisted record wrong for one.
   const signatures = new Map<string, string>();
-  for (const insight of insights) signatures.set(insight.id, insightSignature(insight));
+  for (const insight of insights)
+    signatures.set(observationKey(insight.id), insightSignature(insight));
 
   const changed: Insight[] = [];
   const rotatable: Insight[] = [];
@@ -118,7 +122,7 @@ export function selectRotatedInsights(input: RotationInput): RotationSelection {
   // means produced-but-never-shown (the pulse writes those), which should surface
   // ahead of anything already seen.
   const shownAt = (insight: Insight): number => {
-    const prior = observations.get(observationKey(insight.id, insight.newsHook));
+    const prior = observations.get(observationKey(insight.id));
     if (!prior?.lastShownAt) return 0;
     const ms = new Date(prior.lastShownAt).getTime();
     return Number.isFinite(ms) ? ms : 0;

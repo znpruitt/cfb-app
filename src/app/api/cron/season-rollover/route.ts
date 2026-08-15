@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { clearAllSuppressionRecords } from '@/lib/insights/suppression';
+import { clearAllObservations } from '@/lib/insights/observationStore';
 import { completeSeasonRollover, readLeagueRegistry } from '@/lib/leagueRegistry';
 import { saveSeasonArchive } from '@/lib/seasonArchive';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
@@ -391,6 +392,12 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         // Non-blocking — a failure here does not fail the rollover.
         try {
           await clearAllSuppressionRecords(league.slug, year);
+          // INSIGHTS-018 — the observation scope needs the same clear. Without it
+          // every past season's records persisted in `app_state` forever and
+          // `loadObservations` kept paying a `listAppStateKeys` plus one read per
+          // dead key on every league page load. The store's own comment claimed
+          // this clear existed before it did.
+          await clearAllObservations(league.slug, year);
           yearResult.suppressionClearedFor.push(league.slug);
           suppressionClearedFor.push(league.slug);
         } catch {

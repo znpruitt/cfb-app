@@ -27,16 +27,18 @@ function insight(id: string, type: InsightType, priorityScore = 50): Insight {
 }
 
 /** An observation saying "seen at this time, unchanged since". */
-function seen(i: Insight, at: string): [string, InsightObservation] {
-  const key = observationKey(i.id, i.newsHook);
+function seen(i: Insight, at: string, bucket = 'w0'): [string, InsightObservation] {
+  const key = observationKey(i.id);
   return [
     key,
     {
       key,
       signature: insightSignature(i),
+      statValue: i.statValue,
       firstSeenAt: at,
       lastChangedAt: at,
       lastShownAt: at,
+      lastShownBucket: bucket,
     },
   ];
 }
@@ -98,15 +100,17 @@ test('a produced-but-never-shown insight outranks everything already seen', () =
   // Reachable by design: INSIGHTS-026's pulse writes an observation when it
   // PRODUCES an item, before any reader has seen it.
   const pulseItem = insight('pulse-week-8', 'drought');
-  const key = observationKey(pulseItem.id, pulseItem.newsHook);
+  const key = observationKey(pulseItem.id);
   const produced: [string, InsightObservation] = [
     key,
     {
       key,
       signature: insightSignature(pulseItem),
+      statValue: pulseItem.statValue,
       firstSeenAt: '2026-08-14T00:00:00.000Z',
       lastChangedAt: '2026-08-14T00:00:00.000Z',
       lastShownAt: null,
+      lastShownBucket: null,
     },
   ];
   const old = insight('old', 'dynasty');
@@ -225,4 +229,135 @@ test('a CHANGED insight is re-badged on the next load', async () => {
   const after = [{ ...before[0]!, statValue: 7 }];
   const changed = await applyRotation(after, 'chg-league', 2026, 'preseason', later);
   assert.equal(changed[0]?.isNew, true, 'a moved stat is news again');
+});
+
+test('the served SET is stable across repeated loads in one bucket', async () => {
+  // THE defect both reviewers reproduced, and the one my own stability test
+  // could not see: it held the observation map FIXED across buckets, so it
+  // asserted stability under conditions where instability was unreachable.
+  //
+  // `nextObservation` advanced `lastShownAt` on every request, so after the first
+  // load every record held a distinct timestamp, the bucket tiebreak never fired,
+  // and the served set flipped on each page load. Navigating Overview → All
+  // Insights → back advanced it three times.
+  const { applyRotation } = await import('../engine.ts');
+  const { __deleteAppStateFileForTests, __resetAppStateForTests } = await import(
+    '../../server/appStateStore.ts'
+  );
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+
+  // More candidates than the feed holds — the condition that exposes it.
+  const raw = Array.from({ length: 14 }, (_, i) => insight(`drought-${i}`, 'drought', 50));
+
+  const load = async (at: Date) =>
+    (await applyRotation(raw, 'stable-league', 2026, 'preseason', at)).map((i) => i.id);
+
+  // WARM UP first. An insight the league has never seen is genuinely news and
+  // outranks anything merely rotating, so with 14 candidates and 5 slots the feed
+  // legitimately churns until everything has been seen once. That is a transient
+  // property of a COLD store, not the defect — the defect was that it never
+  // settled at all, because `lastShownAt` advanced on every request and handed
+  // the sort a total order it should not have had.
+  for (let i = 0; i < 3; i++) await load(new Date(NOW.getTime() + i * 1000));
+
+  const settled = await load(new Date(NOW.getTime() + 3000));
+  const again = await load(new Date(NOW.getTime() + 4000));
+  const third = await load(new Date(NOW.getTime() + 5000));
+
+  assert.deepEqual(again, settled, 'once warm, a second load in the same bucket is identical');
+  assert.deepEqual(third, settled, 'and a third — a reader can find a card twice');
+});
+
+test('a LATER bucket serves a different set — rotation still rotates', async () => {
+  // The positive control. Stability within a bucket must not be achieved by
+  // never advancing at all, which would freeze the feed permanently — a
+  // different failure with the same symptom on a single page load.
+  const { applyRotation } = await import('../engine.ts');
+  const { __deleteAppStateFileForTests, __resetAppStateForTests } = await import(
+    '../../server/appStateStore.ts'
+  );
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+
+  const raw = Array.from({ length: 14 }, (_, i) => insight(`drought-${i}`, 'drought', 50));
+  // Warm the store, so this compares rotation against rotation rather than
+  // against "never seen".
+  for (let i = 0; i < 3; i++) {
+    await applyRotation(
+      raw,
+      'rotate-league',
+      2026,
+      'preseason',
+      new Date(NOW.getTime() + i * 1000)
+    );
+  }
+  const first = (
+    await applyRotation(raw, 'rotate-league', 2026, 'preseason', new Date(NOW.getTime() + 3000))
+  ).map((i) => i.id);
+  const nextWeek = new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1000);
+  const later = (await applyRotation(raw, 'rotate-league', 2026, 'preseason', nextWeek)).map(
+    (i) => i.id
+  );
+
+  assert.notDeepEqual(later, first, 'the next bucket brings different facts forward');
+});
+
+test('a standing-moving insight needs a MEANINGFUL move to be news again', async () => {
+  // Review: the signature embeds an exact statValue, so a one-unit drift marked
+  // these changed, put them at the head of the feed and badged them. In season
+  // these move weekly, so all nine such types sat permanently in the changed
+  // bucket and squeezed static standing facts out of rotation entirely.
+  // `career_points_leader` carries a 5% tolerance in `suppression.ts`.
+  const { applyRotation } = await import('../engine.ts');
+  const { __deleteAppStateFileForTests, __resetAppStateForTests } = await import(
+    '../../server/appStateStore.ts'
+  );
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+
+  const base = { ...insight('points-leader', 'career_points_leader'), statValue: 10_000 };
+  await applyRotation([base], 'thr-league', 2026, 'mid_season', NOW);
+
+  const later = new Date(NOW.getTime() + 30 * 24 * 60 * 60 * 1000);
+  const nudged = await applyRotation(
+    [{ ...base, statValue: 10_100 }],
+    'thr-league',
+    2026,
+    'mid_season',
+    later
+  );
+  assert.equal(nudged[0]?.isNew, false, '1% is inside the 5% tolerance — not news');
+
+  const moved = await applyRotation(
+    [{ ...base, statValue: 12_000 }],
+    'thr-league',
+    2026,
+    'mid_season',
+    later
+  );
+  assert.equal(moved[0]?.isNew, true, '20% is a real move');
+});
+
+test('milestone_watch survives being seen — it is not an event', async () => {
+  // Review, HIGH: it was on NEVER_SUPPRESS_TYPES, and classifying it as an event
+  // dropped it from candidacy once seen. Its statValue is the milestone TARGET,
+  // not the running total, so its signature cannot change while an owner closes
+  // on the mark — "Alice is 40 points from 5,000" would have shown once and died
+  // for the season.
+  const { applyRotation } = await import('../engine.ts');
+  const { __deleteAppStateFileForTests, __resetAppStateForTests } = await import(
+    '../../server/appStateStore.ts'
+  );
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+
+  const watch = [insight('milestone-approaching-alice', 'milestone_watch')];
+  assert.equal((await applyRotation(watch, 'ms-league', 2026, 'preseason', NOW)).length, 1);
+  const nextWeek = new Date(NOW.getTime() + 7 * 24 * 60 * 60 * 1000);
+  assert.equal(
+    (await applyRotation(watch, 'ms-league', 2026, 'preseason', nextWeek)).length,
+    1,
+    'still served after being seen'
+  );
 });

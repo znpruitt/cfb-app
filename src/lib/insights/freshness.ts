@@ -1,4 +1,5 @@
 import type { Insight, InsightType } from '../selectors/insights.ts';
+import { TYPE_THRESHOLDS } from './suppression.ts';
 import type { LifecycleState } from './types.ts';
 
 /**
@@ -68,7 +69,16 @@ export const INSIGHT_KIND: Record<InsightType, InsightKind> = {
   // A single-season record. Notable when set; not interesting on repeat. Its
   // cumulative cousin, `career_points_leader`, is the standing fact.
   greatest_season: 'event',
-  milestone_watch: 'event',
+  // NOT an event, and this is a correction. It was on `NEVER_SUPPRESS_TYPES`
+  // ("always newsworthy"), and classifying it as an event dropped it from
+  // candidacy the moment it had been seen once. Two things make that fatal
+  // rather than merely wrong: the type covers BOTH "approaching" and
+  // "just_crossed" (the status is in the id, not the type), and its `statValue`
+  // is the milestone TARGET rather than the owner's running total — so its
+  // signature cannot change while an owner closes on the mark. "Alice is 40
+  // points from 5,000" would have shown once and died for the season, which is
+  // the drain-to-nothing failure this campaign exists to fix.
+  milestone_watch: 'standing',
   trending_up: 'event',
   trending_down: 'event',
 
@@ -129,7 +139,12 @@ export function insightSignature(insight: Insight): string {
 export const NEW_WINDOW_IN_SEASON_MS = 48 * 60 * 60 * 1000;
 export const NEW_WINDOW_OUT_OF_SEASON_MS = 7 * 24 * 60 * 60 * 1000;
 
-const IN_SEASON_LIFECYCLES: ReadonlySet<LifecycleState> = new Set<LifecycleState>([
+/**
+ * Exported and shared with `rotation.ts`. It was duplicated verbatim in both, so
+ * adding a lifecycle state to one and not the other would silently decouple the
+ * NEW window from the rotation cadence with no type error.
+ */
+export const IN_SEASON_LIFECYCLES: ReadonlySet<LifecycleState> = new Set<LifecycleState>([
   'early_season',
   'mid_season',
   'late_season',
@@ -140,6 +155,35 @@ export function newWindowMs(lifecycleState: LifecycleState): number {
   return IN_SEASON_LIFECYCLES.has(lifecycleState)
     ? NEW_WINDOW_IN_SEASON_MS
     : NEW_WINDOW_OUT_OF_SEASON_MS;
+}
+
+/**
+/**
+ * Whether a stat has moved ENOUGH to count as a change, for the kinds whose value
+ * drifts.
+ *
+ * `standing-moving`'s doc promised NEW is re-earned "past its existing per-type
+ * threshold", and the implementation compared exact `statValue` equality inside
+ * the signature — so a one-unit move re-badged. Both reviewers found the
+ * consequence: in season these values move weekly, so all nine such types sat
+ * permanently in the changed bucket, headed the feed, and squeezed static
+ * standing facts out of rotation entirely.
+ *
+ * The thresholds are the ones `suppression.ts` already carried. Reusing them is
+ * the point — this classification was always meant to sit ABOVE that machinery.
+ */
+export function statMovedEnough(type: InsightType, before: number, after: number): boolean {
+  if (before === after) return false;
+  const rule = TYPE_THRESHOLDS[type];
+  if (!rule) return true;
+  const delta = Math.abs(after - before);
+  if (rule.kind === 'abs') return delta > rule.value;
+  if (rule.kind === 'pct') {
+    if (before === 0) return true;
+    return delta / Math.abs(before) > rule.value;
+  }
+  // 'unchanged' and 'snapshot' carry no tolerance: any movement is a change.
+  return true;
 }
 
 /**

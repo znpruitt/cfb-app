@@ -42,6 +42,15 @@ export default function AllInsightsRow({
           style={{ letterSpacing: '0.08em', color: categoryColor }}
         >
           {config.label}
+          {/* INSIGHTS-018 — the same ringed badge as the Overview row. Review
+              found this page had none: it is the destination of "See all" and the
+              only surface rendering the full feed, so the feature's headline
+              label was missing from the one place the whole feed is visible. */}
+          {insight.isNew ? (
+            <span className="ml-1.5 inline-flex items-center rounded px-1 py-0.5 text-[10px] font-medium normal-case tracking-wide text-gray-500 ring-1 ring-gray-300 dark:text-zinc-400 dark:ring-zinc-600">
+              New
+            </span>
+          ) : null}
         </p>
         <p className="text-[15px] font-medium text-gray-950 dark:text-zinc-50">{insight.title}</p>
         <p className="mt-0.5 text-[13px] text-gray-500 dark:text-zinc-400">{insight.description}</p>
