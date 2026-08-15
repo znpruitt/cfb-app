@@ -733,10 +733,20 @@ Supersedes: (none)
     the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
     the honest options are a purge that removes the residue, an already-archived guard in the
     rollover path, or retiring adoption — all of which are this campaign's decisions.
-31. 🔴 **PLATFORM-101 — `?bypassSuppression=1` is a public, uncached, invariant-skipping flag.**
-    Raised by review during INSIGHTS-029 (2026-08-15); **pre-existing, NOT introduced there** — the
-    bypass block in `loadInsights.ts` is byte-identical to `main` and the route file was untouched.
-    Recorded here rather than fixed in-branch because the fix is an auth change on a public route.
+31. 🟡 **PLATFORM-101 — `?bypassSuppression=1` is an uncached, invariant-skipping flag with no admin
+    check.** Raised by review during INSIGHTS-029 (2026-08-15); **pre-existing, NOT introduced
+    there** — the bypass block in `loadInsights.ts` is byte-identical to `main` and the route file
+    was untouched. Recorded here rather than fixed in-branch because the fix is an auth change.
+
+    **Exposure depends on whether the league has a password, so state it precisely.** On a
+    PASSWORDED league (TSC has one, owner-confirmed 2026-08-15) the flag is reachable by anyone
+    holding the league password or a platform-admin session — i.e. your own members, not the open
+    internet. On a PASSWORDLESS league it is reachable by anyone at all. **Passwordless is a
+    supported, reachable state, not an edge case:** the password fields are optional on `League`, so
+    a league is public from creation until one is set, and `clearLeaguePassword`
+    (`leagueRegistry.ts:618`) exists to revert a league to public deliberately. So this is not a live
+    hole in TSC today, and it IS the default state of any league created for someone else — which is
+    what the multi-tenant direction implies. Downgraded from 🔴 on that basis; not dismissed.
 
     `/api/insights/[slug]/route.ts:29` reads the flag straight off the query string. The only gate
     ahead of it is `isAuthorizedForLeague`, which returns `true` for ANY caller when the league has
