@@ -494,6 +494,13 @@ Supersedes: (none)
     regardless of who plays this year, which is what makes them safe under AGENTS.md Insights
     invariant 5 via neutral copy or last-season framing.
 
+    **Also extend `toilet_bowl` into preseason** (owner, 2026-08-15). It is the league's name for the
+    weekly last-place finisher, and the generator counts how many times an owner won it in a season —
+    a season-wrap retrospective currently gated to `['postseason','fresh_offseason']`. Last season's
+    toilet-bowl champion is legitimate preseason content; per the owner's rule a single-season extreme
+    is news once and history afterwards, so it must NOT rotate indefinitely — see the classification
+    in INSIGHTS-018.
+
     Audit, 2026-08-14: **8 of 21 registered generators are preseason-eligible** — career volatility,
     never-finished-last, title-chaser, rookie-benchmark, trending; stats team-identity; milestone
     watch and perfect-against. Everything else is off, and most of it correctly so (trajectory,
@@ -603,6 +610,14 @@ Supersedes: (none)
     Forward Look is not insights at all — it is a preview built from schedule and rankings, which is
     further reason the pulse is its own thing rather than an insights feature.
 
+    **WEEKLY ACCOLADES ARE A CATEGORY, not a special case** (owner, 2026-08-15). The league already
+    calls out two every week in its email: the **toilet bowl** (weekly last-place finisher) and the
+    **weekly winner** (most wins that week). Neither exists as an insight — `deriveToiletBowlInsight`
+    walks `standingsHistory.byWeek` and takes each week's last row, then aggregates the weekly winners
+    away into a season total, so the weekly data is already there and is discarded. Build the pulse's
+    accolade slot as an extensible SET seeded with those two; the owner expects to add more. A weekly
+    accolade is the archetypal pulse item — recurring, timely, decays, and nobody needs telling twice.
+
     In-season only, so it does nothing for the preseason feed; sequence after 018/023/024.
 
 26. **INSIGHTS-027 — preseason content generators (NEW content, not re-enabled content).** Also
@@ -613,6 +628,11 @@ Supersedes: (none)
       rankings per owner. Depends on a published draft, so it is live for a league only after
       confirmation.
     - **Schedule-strength projections**: ranked-opponent count, aggregate SP+ per owner.
+    - **All-time toilet-bowl record** (owner, 2026-08-15): how many times each owner has won the
+      league's weekly last-place accolade ACROSS seasons. Nothing counts this — `never_last` is only
+      the inverse ("never finished in the bottom three"), and `toilet_bowl` is single-season. Under
+      the owner's rule this is the tier worth rotating into a preseason feed, because cumulative
+      records stay interesting while a single season's does not.
     - The roadmap's "August onward" data tier — AP poll per owner, preseason projections — is
       available NOW, which makes this the largest genuinely-new preseason content lever.
     - **Standing rule for any generator written here**, carried verbatim from the roadmap because it
