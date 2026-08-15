@@ -92,6 +92,18 @@ Rules:
 - **That fix shipped UNTESTED in the first attempt.** The mutant restoring the old comparison
   survived the entire suite. It is pinned in both directions now — the drifted record 409s, and a
   genuinely past season stays unguarded so the fix cannot have started guarding backfills.
+- **The guard change is ASYMMETRIC, and the loosening is deliberate.** Review flagged that only the
+  tightening was pinned. Verified at the HTTP surface, both servers on the same seed, `main` on a
+  second port:
+  - `league.year` ABOVE `status.year`, write to the operating season — `main` **200** (silently
+    overwrote a populated roster), branch **409**. The regression this fixes.
+  - `league.year` BELOW `status.year`, write to that past season — `main` **409**, branch **200**.
+    The loosening, and it is the correct classification: that year is genuinely past for a league
+    operating in the later one.
+  - Same record, write to its OPERATING season — **409** on the branch. So the loosening reaches
+    past seasons only; it is not a blanket hole.
+  Now pinned by `the OPPOSITE drift loosens only genuinely past seasons`, and both cases die under
+  the mutant that restores the registry-year comparison.
 - Also from review round 1: a confirmation reading "0 teams change owner" above a warning that the
   whole roster is about to be rewritten; a typed slug unenterable on a phone (mobile IMEs capitalise,
   the compare was case-sensitive); sorting that was pointer-only on all three headers; and a doc
