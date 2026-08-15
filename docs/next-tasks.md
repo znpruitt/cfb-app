@@ -397,9 +397,10 @@ Supersedes: (none)
 
     - **Reset costs a TYPED SLUG.** It was arm-then-confirm on the SAME button, in the same place —
       and that card also carries the pick timer, which is what brings anyone to the page mid-draft.
-      One mis-click destroyed a live draft, with no undo. The panel states the live pick count and
-      requires the slug typed; the handler re-checks it so a keyboard submit cannot pass a `disabled`
-      attribute; both the trigger and the panel carry the published-draft gate.
+      One mis-click destroyed a live draft, with no undo. The panel requires the slug typed and the
+      handler re-checks it, so a keyboard submit cannot pass a `disabled` attribute; both the trigger
+      and the panel carry the published-draft gate. It deliberately states NO pick count — the shell
+      does not poll, so a figure it cannot guarantee is worse than none.
     - **The roster editor sorts by OWNER**, on the COMMITTED map — ordering by the unsaved map
       re-sorts on every keystroke and slides the field out from under the cursor. Unowned teams sort
       last in both directions.
