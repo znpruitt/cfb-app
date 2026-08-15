@@ -72,7 +72,8 @@ Rules:
 - Review / verification: two reviewers, one remediation round. `npx tsc --noEmit` clean,
   `npm run lint:all` clean, `npm test` 3791. Each behaviour dies under its own mutant: the gate's
   unification, the sort's unowned-block ordering, and the dropped-owner filter.
-- Status: **Implemented — PR #478 pending** (branch `platform/100-noclaim-sorts-unowned`).
+- Status: ✅ **MERGED** — PR #478 (`c5293a14`), 2026-08-14. Branch deleted. Sizing: 3 source/test
+  files, +178/-12 — reproduce with `git diff --shortstat c5293a14^1 c5293a14 -- src`.
 
 ### PLATFORM-099-DRAFT-NIGHT-SAFETY-v1
 
