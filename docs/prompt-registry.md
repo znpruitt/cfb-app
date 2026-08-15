@@ -50,6 +50,30 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-100-NOCLAIM-SORTS-UNOWNED-v1
+
+- Purpose: a confirmed roster spells "unowned" as the literal owner `NoClaim`, and the roster
+  editor recognised only an empty string — so after any confirmed draft ~120 teams sorted
+  alphabetically among real owners and clumped at one end, burying the rows a commissioner came to
+  work on, on the page they are sent to in order to fix ownership.
+- Scope: `src/lib/rosterEditing.ts` (an `isUnowned` predicate shared by the sort, the Save gate and
+  the dropped-owner count), the confirmation sentence in `src/components/admin/RosterEditorPanel.tsx`,
+  and `src/lib/__tests__/rosterEditing.test.ts`.
+- Outcome: **TWO representations of one fact, and the tests only ever saw one.** Before confirmation
+  an unowned team is absent from the roster and reads as `''`; `buildConfirmedOwnersCsv` then writes
+  `NoClaim` for every undrafted team. PLATFORM-099's fixture used the first shape and its assertion —
+  "unowned teams sort LAST in both directions" — generalised to both. It was true for the shape it
+  tested and false for the shape production writes. A `SAVED_CONFIRMED` fixture now matches what the
+  confirm route emits. Review then found the predicate applied to the sort and the dropped-owner
+  count but NOT to the gate between them, so clearing a `NoClaim` field still counted as an ownership
+  change — one Bulk Reassign (From `NoClaim`, To blank, which the field advertises) reported "120
+  teams change owner" for a save that changed nobody's. The dropped-owner figure also stopped being a
+  row count, so the sentence describing it was corrected to say what it now means.
+- Review / verification: two reviewers, one remediation round. `npx tsc --noEmit` clean,
+  `npm run lint:all` clean, `npm test` 3791. Each behaviour dies under its own mutant: the gate's
+  unification, the sort's unowned-block ordering, and the dropped-owner filter.
+- Status: **Implemented — PR #478 pending** (branch `platform/100-noclaim-sorts-unowned`).
+
 ### PLATFORM-099-DRAFT-NIGHT-SAFETY-v1
 
 - Status: ✅ **MERGED** — PR #477 (`9537f7e8`), 2026-08-14. Branch deleted.
