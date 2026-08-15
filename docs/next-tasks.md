@@ -447,8 +447,8 @@ Supersedes: (none)
       confirmed live in production: the preseason list changes, standings keep the old name, nothing
       on screen indicates the two disagree.
 
-21. ⏳ **INSIGHTS-029 — stop suppression draining the feed. IMPLEMENTED, PR pending**
-    (branch `insights/029-stop-draining-the-feed`). The un-draining, split out of INSIGHTS-018 and
+21. ✅ **INSIGHTS-029 — stop suppression draining the feed. MERGED** via PR #479 (`49c76ee9`,
+    2026-08-15). The un-draining, split out of INSIGHTS-018 and
     shipped alone: `applySuppression` is no longer consulted when serving, so the feed is a plain
     priority sort and cap. `suppression.ts` is untouched — its records age out under their own TTL
     and the existing rollover clear — but nothing writes new records any more, so the debug endpoint
