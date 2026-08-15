@@ -50,6 +50,44 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-018-ROTATION-AND-NEW-TAG-v1
+
+- Purpose: the insights feed was not thin, it was **drained**. Suppression is per insight TYPE and
+  almost every type carried `{ kind: 'unchanged' }` — suppress while the stat value is identical —
+  and in preseason no games are played, so no stat value can ever change. Each insight fired once and
+  was hidden for the rest of the preseason. A live league's Overview showed exactly two cards, and
+  both were on `NEVER_SUPPRESS_TYPES`; those three types were the only reason anything rendered.
+- Scope: `src/lib/insights/` — new `freshness.ts` (classification, signature, NEW windows),
+  `observationStore.ts`, `rotation.ts`; `engine.ts` gains `applyRotation`; `loadInsights.ts` serves
+  through it; `Insight` gains `isNew`; the label renders in `OverviewPanel`. Suppression is retired
+  from serving WITHOUT destructive migration — records are no longer consulted and age out under
+  their own TTL and the existing rollover clear.
+- Outcome: **two questions the old model conflated into one.** "Has this CHANGED?" earns the NEW
+  label; "is this still worth SAYING?" decides whether it can return. A drought from 2019 answers no
+  and yes forever — the case suppression could not express, and which a freshness-only design would
+  bury just as permanently, since its stat never moves either. The classification is the owner's
+  rule: **a single-season extreme is news once and history afterwards; the durable version is
+  cumulative.** Three kinds as `Record<InsightType, InsightKind>`, so the compiler refuses an
+  unclassified type: `event` (fires once, never rotates back), `standing` (rotates, never badged for
+  rotating), `standing-moving` (rotates AND re-earns NEW past its existing abs/pct threshold, so
+  rotation sits above that machinery rather than replacing it). **NEW means CHANGED** — owner
+  decision; a fact that rotates back did not change, and badging it would train a reader to distrust
+  the badge. Selection is deterministic within a bucket (daily in season, weekly outside), because
+  raw insights are cached while selection runs per request and anything stochastic would reshuffle
+  the feed on every page load. Forward-compatible with the INSIGHTS-026 pulse: observations are keyed
+  by insight identity rather than "a generator ran this request", and a record with `lastShownAt`
+  null is valid and sorts FIRST — that is a pulse item, produced before any reader has seen it.
+- Review / verification: `npx tsc --noEmit` clean, `npm run lint:all` clean, `npm test` **3825**
+  (+37). Every rule dies under its own mutant, in both directions where a direction exists. Sizing:
+  **code 12 files, +1152/-6** — reproduce with `git diff --shortstat main...eaf004c2 -- src`.
+  **Process finding:** the serving-path wiring was silently reverted mid-build by a `git checkout --`
+  on an unstaged file and the FULL SUITE STILL PASSED, because the rotation tests call `applyRotation`
+  directly and **nothing had ever exercised the serving path twice**. There is now an acceptance test
+  that loads three times (fresh / settled / a month on) plus a structural pin asserting
+  `applyRotation` is present AND `applySuppression` is absent — an existence check alone passes with
+  both.
+- Status: **Implemented — PR pending** (branch `insights/018-rotation-and-new-tag`).
+
 ### PLATFORM-100-NOCLAIM-SORTS-UNOWNED-v1
 
 - Purpose: a confirmed roster spells "unowned" as the literal owner `NoClaim`, and the roster
