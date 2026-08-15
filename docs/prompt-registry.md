@@ -50,6 +50,74 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-099-DRAFT-NIGHT-SAFETY-v1
+
+- Status: **Implemented — PR pending** (branch `platform/099-draft-night-safety`).
+- Purpose: remove the ways the draft and roster surfaces could destroy or misreport work on draft
+  night, without touching the membership-authority predicate that stopped PLATFORM-098.
+- Sizing: **code 13 files, +570/-75 (495 net)** — derived at closeout from
+  `git diff --shortstat main...HEAD -- src`. Stated as CODE because a combined figure cannot be
+  recorded accurately: writing the number into this entry changes it. Within the stop-and-reassess
+  signals. Four of the thirteen are the `/league/[slug]/draft/*` conversions review required.
+- **Re-derived from clean `main`, carrying nothing from the stopped branch** — `AGENTS.md`
+  reconstruction. See the PLATFORM-098 entry below for what stopped and what remains open.
+- **Reset costs a typed slug.** It was arm-then-confirm on the SAME button, in the same place, and
+  that card also carries the pick timer — the one thing that brings a commissioner to the page
+  mid-draft. One mis-click destroyed a live draft with no undo. The handler re-checks the phrase, so
+  a keyboard submit cannot pass a `disabled` attribute, and the structural pin **counts** the
+  published-draft gate on both the trigger and the panel rather than matching one: a duplicated
+  banner slipped past every gate on the stopped branch for exactly that reason.
+- **The roster editor sorts by owner**, ordered by the COMMITTED map. Ordering by the unsaved map
+  re-sorts on every keystroke and slides the field out from under the cursor.
+- **The roster page stops contradicting itself.** It headlined "Historical / repair roster CSV
+  import" while the overwrite prompt asked for a "platform-admin repair" override — true when the
+  page was repair-only. The confirmation STAYS, because the editor sends the whole roster on every
+  save; it now reports what is changing, counting rows the save DROPS as well as owners it changes.
+- **`resolveLeagueOperatingYear`** joins `resolveDisplayLeagueStatus` in the lifecycle selector. The
+  page read the registry's top-level `year` while every lifecycle-aware surface reads `status.year`,
+  and displayed no year at all.
+- **Review caught a regression this introduced, and both reviewers found it independently.** Sending
+  the lifecycle year to `/api/owners` moved the save off the year the PLATFORM-083 guard classifies
+  by (`year < registeredLeague.year`), so on a drifted record every save from this page read as
+  historical backfill: the 409 never fired and an accidental save silently clobbered a populated
+  roster — defeating invariant 12 and contradicting the copy this branch added promising the
+  confirmation stays. The route now classifies with the same lifecycle authority.
+- **That fix shipped UNTESTED in the first attempt.** The mutant restoring the old comparison
+  survived the entire suite. It is pinned in both directions now — the drifted record 409s, and a
+  genuinely past season stays unguarded so the fix cannot have started guarding backfills.
+- Also from review: a confirmation reading "0 teams change owner" above a warning that the whole
+  roster is about to be rewritten (Save is gated on the same count the prompt reports now); a typed
+  slug unenterable on a phone (mobile IMEs capitalise, the compare was case-sensitive); sorting that
+  was pointer-only on all three headers; and a doc block claiming to replace four inlined ternaries
+  while converting none of them.
+
+### PLATFORM-098-MEMBERSHIP-AUTHORITY-AFTER-PUBLICATION-v1
+
+- Status: ⛔ **STOPPED — branch `platform/098-membership-authority-after-publication` abandoned at
+  `e83ae718`, not merged.** Superseded in part by PLATFORM-099. The remaining behaviour is
+  unimplemented and recorded in `docs/next-tasks.md` item 17, which is canonical for it.
+- Purpose (unachieved): make the owner roster the authority for league membership once a draft has
+  published, so editing owners after confirmation stops writing a record nothing visible reads.
+- **Why it stopped:** three remediation rounds; the fourth still produced credible P1s from both
+  reviewers. `AGENTS.md` rule 7 (report and stop) and the reconstruction rule.
+- **The predicate failed three times, each on a different edge** — which is the signal that its INPUT
+  was wrong rather than its clauses. Roster-plus-picks broke reopen-then-undo; marker-presence broke
+  legacy rows whose marker no path cleared; adding the pre-draft phases still let a legacy row
+  capture membership at the re-run draft's first pick, after which a reset wrote the discarded
+  roster's owners over the commissioner's list.
+- **Two of the failures were MINE, not the design's**, and both are process lessons:
+  - A scripted removal sliced on `</section>` and matched the wrong occurrence, **duplicating the
+    entire publish banner**. `tsc`, `lint:all` and 3791 tests all passed, because the assertions ask
+    whether the markup CONTAINS "Confirm draft" — which two copies satisfy as happily as one.
+  - The repair for that ran `git checkout <commit> -- <file>`, which **stages** that version; a later
+    `git checkout -- <file>` after a mutation test restored from the index and silently reverted
+    every removal, and `git add -A` committed it. The committed file was byte-identical to the
+    pre-cut version. Both reviewers found it; I did not. Verify a removal by grepping for what should
+    be ABSENT, and restore from the scratchpad, never from git.
+- Everything a re-derivation must carry is enumerated in `docs/next-tasks.md` item 17 — including
+  that `PUT /api/owners` writes the owner-roster key through plain `setAppState`, outside the locking
+  protocol, so any authority reading that record transactionally is unsound until that changes.
+
 ### PLATFORM-096-PRECONFIRMATION-PICK-EDITING-v1
 
 - Status: ✅ **MERGED** — PR #476 (`6b0b8eca`), 2026-08-14. Branch deleted.
