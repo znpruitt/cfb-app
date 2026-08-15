@@ -49,33 +49,34 @@ export type InsightObservation = {
   /** `insightSignature` output at the last observation. */
   signature: string;
   /**
-   * The stat value at the last observation, so a threshold-aware comparison is
-   * possible. The signature alone cannot serve: it is exact by design, and
-   * `standing-moving` types need tolerance rather than equality.
+   * `insightIdentity` — the insight without its stat value — at the last
+   * RECORDED CHANGE. Lets a `standing-moving` type distinguish "the number
+   * drifted" from "the hook changed", which whole-signature comparison cannot.
+   */
+  identity: string;
+  /**
+   * The stat value at the last RECORDED CHANGE — deliberately not at the last
+   * observation.
+   *
+   * Rewriting it on every observation made the comparison "since the previous
+   * request" rather than "since the league was last told", so a value drifting
+   * 2% a week never crossed a 5% threshold no matter how far it moved. Holding
+   * the baseline until a change is recorded is what lets small moves accumulate.
    */
   statValue: number;
   /** When this signature was first recorded — never rewritten. Display only. */
   firstSeenAt: string;
   /**
-   * The rotation bucket this was last SELECTED in.
+   * When this record was last written. Used ONLY for expiry.
    *
-   * Rotation was advancing on every request: `lastShownAt` was rewritten each
-   * time, so after the first load every record held a distinct timestamp, the
-   * bucket tiebreak never fired, and the served set flipped on every page load —
-   * the precise failure the design says it avoids. Both reviewers reproduced it.
-   * Recording the bucket is what makes "everything within one bucket sees the
-   * same order" true rather than merely asserted.
+   * Rotation deliberately does not read it. Ordering by "least recently shown"
+   * was the defect behind two failed attempts: selection advanced the timestamp
+   * it ordered by, so the act of showing an insight changed the next selection's
+   * input. Bucket-indexed rotation reads nothing the write path touches.
    */
-  lastShownBucket: string | null;
+  lastObservedAt: string;
   /** When the signature last DIFFERED from the stored one. Drives NEW. */
   lastChangedAt: string;
-  /**
-   * When this insight was last selected into a served feed. Drives rotation.
-   *
-   * Null means recorded but never shown, which is reachable: the pulse writes an
-   * observation when it produces an item, before any reader has seen it.
-   */
-  lastShownAt: string | null;
 };
 
 function scopeFor(leagueSlug: string, season: number): string {
@@ -97,8 +98,7 @@ export function observationKey(insightId: string): string {
  * classification exists to prevent.
  */
 export function isObservationExpired(record: InsightObservation, now = Date.now()): boolean {
-  const activity = record.lastShownAt ?? record.lastChangedAt;
-  const activityMs = new Date(activity).getTime();
+  const activityMs = new Date(record.lastObservedAt).getTime();
   if (!Number.isFinite(activityMs)) return false;
   return now - activityMs > OBSERVATION_RECORD_TTL_MS;
 }
@@ -116,23 +116,24 @@ function toObservation(value: unknown): InsightObservation | null {
   if (typeof v.signature !== 'string') return null;
   if (typeof v.statValue !== 'number' || !Number.isFinite(v.statValue)) return null;
   if (typeof v.firstSeenAt !== 'string' || typeof v.lastChangedAt !== 'string') return null;
-  if (v.lastShownAt !== null && typeof v.lastShownAt !== 'string') return null;
-  if (v.lastShownBucket !== null && typeof v.lastShownBucket !== 'string') return null;
+  if (typeof v.identity !== 'string') return null;
+  if (typeof v.lastObservedAt !== 'string') return null;
   // Timestamps are validated HERE, not in the expiry predicate. A record with a
   // corrupt date was accepted and then never expired, pinning a stale signature
   // and rotation position forever — this guard's own doc says a malformed record
   // must read as absent, and it did not.
   const parsable = (value: string): boolean => Number.isFinite(new Date(value).getTime());
-  if (!parsable(v.firstSeenAt) || !parsable(v.lastChangedAt)) return null;
-  if (typeof v.lastShownAt === 'string' && !parsable(v.lastShownAt)) return null;
+  if (!parsable(v.firstSeenAt) || !parsable(v.lastChangedAt) || !parsable(v.lastObservedAt)) {
+    return null;
+  }
   return {
     key: v.key,
     signature: v.signature,
+    identity: v.identity,
     statValue: v.statValue,
     firstSeenAt: v.firstSeenAt,
     lastChangedAt: v.lastChangedAt,
-    lastShownAt: v.lastShownAt,
-    lastShownBucket: (v.lastShownBucket as string | null) ?? null,
+    lastObservedAt: v.lastObservedAt,
   };
 }
 
@@ -174,38 +175,40 @@ export async function loadObservations(
  */
 export function nextObservation(
   prior: InsightObservation | undefined,
-  key: string,
-  signature: string,
-  statValue: number,
-  changed: boolean,
-  now: Date,
-  bucket: string
+  next: {
+    key: string;
+    signature: string;
+    identity: string;
+    statValue: number;
+    changed: boolean;
+    now: Date;
+  }
 ): InsightObservation {
+  const { key, signature, identity, statValue, changed, now } = next;
   const nowIso = now.toISOString();
   if (!prior) {
     return {
       key,
       signature,
+      identity,
       statValue,
       firstSeenAt: nowIso,
       lastChangedAt: nowIso,
-      lastShownAt: nowIso,
-      lastShownBucket: bucket,
+      lastObservedAt: nowIso,
     };
   }
-  // `lastShownAt` advances ONLY on a new bucket. Advancing per request made every
-  // record's timestamp distinct after the first load, so the rotation sort had a
-  // total order it should not have had and the served set flipped every time the
-  // page was opened.
-  const newBucket = prior.lastShownBucket !== bucket;
+  // Signature always advances — it is the record of what was last seen. The
+  // BASELINE fields (`identity`, `statValue`, `lastChangedAt`) move only on a
+  // recorded change, so a sequence of sub-threshold drifts accumulates toward
+  // the threshold instead of resetting it on every page load.
   return {
     key,
     signature,
-    statValue,
+    identity: changed ? identity : prior.identity,
+    statValue: changed ? statValue : prior.statValue,
     firstSeenAt: prior.firstSeenAt,
     lastChangedAt: changed ? nowIso : prior.lastChangedAt,
-    lastShownAt: newBucket ? nowIso : prior.lastShownAt,
-    lastShownBucket: bucket,
+    lastObservedAt: nowIso,
   };
 }
 

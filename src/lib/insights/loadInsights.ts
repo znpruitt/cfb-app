@@ -37,6 +37,16 @@ export type InsightsResponse = {
 
 export type LoadInsightsOptions = {
   bypassSuppression?: boolean;
+  /**
+   * How many insights the caller wants. Defaults to the compact FEED.
+   *
+   * Review found the default silently truncating the "See all" page: rotation
+   * selects at feed size so a consumer's own sort cannot discard the ordering,
+   * but applying five everywhere meant the full-page surface returned the same
+   * five rows the reader had just left. The Overview and the All Insights page
+   * want different amounts, so the caller says which.
+   */
+  limit?: number;
 };
 
 /**
@@ -315,9 +325,14 @@ export async function loadInsightsForLeague(
     const insights = await applyRotation(
       rawInsights,
       slug,
-      league.year,
+      // The season the insights were BUILT for. Passing `league.year` while the
+      // raw set came from `resolvedYear` meant `?year=2024` wrote 2024's stat
+      // values as the baseline for year-agnostic ids in the CURRENT season's
+      // scope, corrupting the live feed's freshness on the next real page load.
+      resolvedYear,
       lifecycleState,
-      currentDate
+      currentDate,
+      options.limit
     );
     return { insights, lifecycleState, generatedAt };
   } catch (err) {

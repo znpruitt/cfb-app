@@ -5,7 +5,13 @@ import {
   saveSuppressionRecord,
   toSuppressionRecord,
 } from './suppression';
-import { INSIGHT_KIND, insightSignature, isNewInsight, statMovedEnough } from './freshness';
+import {
+  insightIdentity,
+  insightKind,
+  insightSignature,
+  isNewInsight,
+  statMovedEnough,
+} from './freshness';
 import {
   loadObservations,
   nextObservation,
@@ -13,7 +19,7 @@ import {
   saveObservation,
   type InsightObservation,
 } from './observationStore';
-import { rotationBucket, selectRotatedInsights } from './rotation';
+import { selectRotatedInsights } from './rotation';
 import type { InsightContext, InsightGenerator, LifecycleState } from './types';
 
 const MAX_INSIGHTS = 10;
@@ -147,10 +153,21 @@ export async function applySuppression(
  * it, and the first cut discarded it.
  */
 function insightChanged(insight: Insight, prior: InsightObservation, signature: string): boolean {
-  if (INSIGHT_KIND[insight.type] === 'standing-moving') {
+  if (prior.signature === signature) return false;
+
+  if (insightKind(insight) === 'standing-moving') {
+    // IDENTITY first, tolerance second. Comparing whole signatures made a 1%
+    // drift read as news; comparing only stat values made a hook transition
+    // invisible — and "Alice crosses 5,000 career points" is both the most
+    // newsworthy thing these types produce and, by nature, a tiny delta.
+    if (insightIdentity(insight) !== prior.identity) return true;
+    // The baseline is the value at the last RECORDED change, not the last
+    // request, so a series of sub-threshold moves accumulates toward the
+    // threshold instead of resetting it each time the page is loaded.
     return statMovedEnough(insight.type, prior.statValue, insight.statValue);
   }
-  return prior.signature !== signature;
+
+  return true;
 }
 
 export async function applyRotation(
@@ -161,22 +178,24 @@ export async function applyRotation(
   now: Date = new Date(),
   feedLimit: number = FEED_INSIGHTS
 ): Promise<Insight[]> {
+  const limit = Math.max(1, Math.min(feedLimit, MAX_INSIGHTS));
   const observations = await loadObservations(leagueSlug, season, now.getTime()).catch(
     () => new Map<string, InsightObservation>()
   );
-
-  const bucket = rotationBucket(now, lifecycleState);
+  const coldStore = observations.size === 0;
+  const signatureFor = (insight: Insight): string => insightSignature(insight);
 
   const { selected, signatures } = selectRotatedInsights({
     insights: rawInsights,
     observations,
     lifecycleState,
     now,
+    hasChanged: (insight, prior) => insightChanged(insight, prior, signatureFor(insight)),
     // FEED-sized, not engine-sized. Returning 10 let `OverviewPanel` re-sort by
     // priorityScore and slice to five, so with 6–10 rotatable facts the same five
     // rendered every bucket and rotation never reached a reader. Both reviewers
     // found this independently; the tested ordering contract had no consumer.
-    limit: feedLimit,
+    limit,
   });
 
   const served = selected.map((insight) => {
@@ -193,7 +212,13 @@ export async function applyRotation(
     // out the static facts rotation exists to bring back.
     const changed = prior ? insightChanged(insight, prior, signature) : true;
     const changedAt = changed ? null : prior!.lastChangedAt;
-    return { ...insight, isNew: isNewInsight(changedAt, lifecycleState, now) };
+    // A COLD store badges nothing. With no observations at all the league has no
+    // history to compare against, so "changed" is unknowable — and after a
+    // season rollover clears the scope, badging the entire feed would be exactly
+    // the "train a reader to distrust the badge" outcome this module argues
+    // against. The first genuine change after that earns its label normally.
+    const isNew = coldStore ? false : isNewInsight(changedAt, lifecycleState, now);
+    return { ...insight, isNew };
   });
 
   await Promise.all(
@@ -203,7 +228,14 @@ export async function applyRotation(
       const prior = observations.get(key);
       const changed = prior ? insightChanged(insight, prior, signature) : true;
       return saveObservation(
-        nextObservation(prior, key, signature, insight.statValue, changed, now, bucket),
+        nextObservation(prior, {
+          key,
+          signature,
+          identity: insightIdentity(insight),
+          statValue: insight.statValue,
+          changed,
+          now,
+        }),
         leagueSlug,
         season
       ).catch(() => undefined);

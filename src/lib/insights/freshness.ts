@@ -78,6 +78,9 @@ export const INSIGHT_KIND: Record<InsightType, InsightKind> = {
   // signature cannot change while an owner closes on the mark. "Alice is 40
   // points from 5,000" would have shown once and died for the season, which is
   // the drain-to-nothing failure this campaign exists to fix.
+  // The TYPE covers both an approaching watch and a crossing, so no single value
+  // is right — see `insightKind`, which decides per insight. This entry is the
+  // default for the approaching case.
   milestone_watch: 'standing',
   trending_up: 'event',
   trending_down: 'event',
@@ -108,6 +111,43 @@ export const INSIGHT_KIND: Record<InsightType, InsightKind> = {
   clock_crusher: 'standing-moving',
   third_down: 'standing-moving',
 };
+
+/**
+ * How this PARTICULAR insight behaves over time.
+ *
+ * Per insight rather than per type, because `milestone_watch` is both: the same
+ * type carries "Alice is 40 points from 5,000" (a standing fact that should keep
+ * coming back while it remains true) and "Alice crossed 5,000" (news exactly
+ * once). Classifying the type either way is wrong for half its output — the first
+ * cut made it an event and killed the watch; making it standing made a crossing
+ * rotate for months.
+ *
+ * The status is in the id, which `milestones.ts` builds as
+ * `milestone-{kind}-{target}-{owner}-{status}`.
+ */
+export function insightKind(insight: Insight): InsightKind {
+  if (insight.type === 'milestone_watch') {
+    return insight.id.endsWith('-just_crossed') ? 'event' : 'standing';
+  }
+  return INSIGHT_KIND[insight.type];
+}
+
+/**
+ * The insight's identity WITHOUT its stat value — id, hook and owners.
+ *
+ * Split out because a `standing-moving` type needs numeric tolerance on the stat
+ * and NO tolerance on anything else. Comparing whole signatures made every 1%
+ * drift read as news; comparing only stat values made a hook transition
+ * invisible, so "Alice crosses 5,000 career points" — the single most newsworthy
+ * thing these types produce, and by nature a small delta — was classified
+ * unchanged.
+ */
+export function insightIdentity(insight: Insight): string {
+  const owners = [insight.owner ?? '', ...(insight.relatedOwners ?? insight.owners ?? [])]
+    .filter((name) => name !== '')
+    .sort();
+  return JSON.stringify([insight.id, insight.newsHook, owners]);
+}
 
 /**
  * The semantic identity of an insight — what has to change for it to be NEW.

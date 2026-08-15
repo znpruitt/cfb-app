@@ -27,7 +27,10 @@ export default async function LeagueInsightsPage({
     );
   }
 
-  const response = await loadInsightsForLeague(slug, league.year);
+  // The FULL surface asks for the full set. Rotation selects at the limit it is
+  // given, so leaving this at the compact feed default served the same five rows
+  // the reader had just left on the Overview.
+  const response = await loadInsightsForLeague(slug, league.year, { limit: 10 });
   // INSIGHTS-018 — rotation's order is preserved, NOT re-sorted by priority.
   // Re-sorting here discarded the whole ordering contract: changed insights are
   // meant to come before rotated ones regardless of priority, and a priority sort
