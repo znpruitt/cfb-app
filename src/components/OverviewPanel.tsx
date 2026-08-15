@@ -1063,6 +1063,18 @@ function InsightRow({
           style={{ letterSpacing: '0.08em', color: categoryColor }}
         >
           {categoryConfig.label}
+          {/* INSIGHTS-018 — NEW rides the existing microlabel row and earns its
+              prominence from CONTRAST, not a new hue. `DESIGN.md`: amber/gold is
+              reserved for champion/podium, blue means interactivity, no colour is
+              decorative, and "when this page reads flat, reach for type before
+              pigment". A chip would also be card chrome, which is reserved for a
+              meaningful border signal.
+
+              Real text, not an icon or a dot, so it is announced by a screen
+              reader without needing a label bolted on. */}
+          {insight.isNew ? (
+            <span className="ml-1.5 text-gray-950 dark:text-zinc-50">New</span>
+          ) : null}
         </p>
         <p className="text-[14px] font-medium text-gray-950 dark:text-zinc-50">{insight.title}</p>
         <p className="mt-0.5 text-[13px] text-gray-500 dark:text-zinc-400">{insight.description}</p>

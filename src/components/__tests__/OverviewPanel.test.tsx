@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import OverviewPanel from '../OverviewPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
+import type { Insight } from '../../lib/selectors/insights';
 import { selectSeasonContext } from '../../lib/selectors/seasonContext';
 import type { LiveDelta } from '../../lib/selectors/liveDelta';
 import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
@@ -2093,4 +2094,48 @@ test('overview panel renders date plus Time TBD instead of the placeholder clock
 
   assert.match(html, /Tue, Sep 1 · Time TBD/);
   assert.doesNotMatch(html, /12:00 AM/);
+});
+
+test('INSIGHTS-018: a changed insight is labelled New, and an unchanged one is not', () => {
+  // The badge rides the existing category microlabel row and takes its
+  // prominence from CONTRAST, not a new hue — DESIGN.md reserves amber/gold for
+  // champion/podium, treats blue as interactivity, forbids decorative colour, and
+  // says to reach for type before pigment. It is real TEXT rather than an icon or
+  // a dot, so a screen reader announces it without a bolted-on label.
+  const engineInsight = (id: string, isNew: boolean): Insight => ({
+    id,
+    type: 'drought',
+    title: `Insight ${id}`,
+    description: `${id} description`,
+    owner: 'Alice',
+    priorityScore: 90,
+    newsHook: 'streak_extended',
+    statValue: 4,
+    category: 'historical',
+    isNew,
+  });
+
+  const render = (isNew: boolean) =>
+    renderToStaticMarkup(
+      <OverviewPanel
+        standingsLeaders={standingsLeaders}
+        standingsCoverage={coverage}
+        matchupMatrix={matchupMatrix}
+        liveItems={[]}
+        keyMatchups={[]}
+        context={defaultContext}
+        displayTimeZone="UTC"
+        engineInsights={[engineInsight('drought-alice', isNew)]}
+      />
+    );
+
+  const badged = render(true);
+  assert.match(badged, /Insight drought-alice/, 'precondition: the insight renders');
+  assert.match(badged, />New</, 'a changed insight is labelled');
+
+  // The negative control. Without it the assertion above would pass on markup
+  // that labels EVERY insight, which is the same as labelling none.
+  const plain = render(false);
+  assert.match(plain, /Insight drought-alice/);
+  assert.doesNotMatch(plain, />New</, 'an unchanged insight carries no label');
 });
