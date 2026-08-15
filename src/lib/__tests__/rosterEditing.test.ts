@@ -21,11 +21,28 @@ const TEAMS = [
   { school: 'Vanderbilt', conference: 'SEC' },
 ];
 
-/** Alice holds two, Bob holds one, two teams are unowned. */
+/**
+ * Alice holds two, Bob holds one, two teams are unowned — the shape BEFORE a
+ * draft is confirmed, where an unowned team is simply absent from the roster.
+ */
 const SAVED = new Map<string, string>([
   ['Texas', 'Alice'],
   ['Michigan', 'Alice'],
   ['Alabama', 'Bob'],
+]);
+
+/**
+ * The same league AFTER confirmation — and the fixture whose absence caused
+ * PLATFORM-100. `buildConfirmedOwnersCsv` writes `NoClaim` as a real owner
+ * string for every undrafted team, so a confirmed roster spells "unowned" the
+ * second way and the tests only ever saw the first.
+ */
+const SAVED_CONFIRMED = new Map<string, string>([
+  ['Texas', 'Alice'],
+  ['Michigan', 'Alice'],
+  ['Alabama', 'Bob'],
+  ['Ohio State', 'NoClaim'],
+  ['Vanderbilt', 'NoClaim'],
 ]);
 
 function schools(rows: ReadonlyArray<{ school: string }>): string[] {
@@ -179,4 +196,57 @@ test('a typed-then-deleted owner is not a change', () => {
   const draft = new Map(SAVED);
   draft.set('Vanderbilt', '');
   assert.equal(countEditedTeams(SAVED, draft, TEAMS), 0);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-100 — a CONFIRMED roster spells "unowned" as `NoClaim`.
+// ---------------------------------------------------------------------------
+
+test('NoClaim teams sort LAST in both directions, like any other unowned team', () => {
+  // The defect, found by the owner in one click on a confirmed league: `NoClaim`
+  // is a real owner STRING, so it sorted alphabetically among real owners and
+  // clumped at the top under one direction — burying the rows a commissioner
+  // came to work on, on the page they are sent to in order to fix ownership.
+  for (const sortDir of ['asc', 'desc'] as const) {
+    const rows = selectRosterRows(TEAMS, {
+      search: '',
+      sortKey: 'owner',
+      sortDir,
+      savedOwners: SAVED_CONFIRMED,
+    });
+    assert.deepEqual(
+      schools(rows).slice(-2).sort(),
+      ['Ohio State', 'Vanderbilt'],
+      `${sortDir}: the NoClaim teams are the last two`
+    );
+  }
+});
+
+test('the owned rows still reverse on a confirmed roster', () => {
+  // Guards the case above from a comparator that forces everything to one end.
+  const asc = selectRosterRows(TEAMS, {
+    search: '',
+    sortKey: 'owner',
+    sortDir: 'asc',
+    savedOwners: SAVED_CONFIRMED,
+  });
+  const desc = selectRosterRows(TEAMS, {
+    search: '',
+    sortKey: 'owner',
+    sortDir: 'desc',
+    savedOwners: SAVED_CONFIRMED,
+  });
+  assert.deepEqual(schools(desc).slice(0, 3), schools(asc).slice(0, 3).reverse());
+});
+
+test('a NoClaim row for a departed team is not reported as a removed row', () => {
+  // It IS dropped by the save, but nobody held it — counting it inflates
+  // "N rows will be removed" with a row whose loss means nothing. The figure
+  // exists to warn about losing someone's team.
+  const saved = new Map(SAVED_CONFIRMED);
+  saved.set('Idaho', 'NoClaim');
+  assert.equal(countDroppedRows(saved, TEAMS), 0);
+
+  saved.set('Idaho', 'Carol');
+  assert.equal(countDroppedRows(saved, TEAMS), 1, 'a real owner losing a team still counts');
 });

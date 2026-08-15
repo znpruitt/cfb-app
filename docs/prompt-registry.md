@@ -50,6 +50,24 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-100-NOCLAIM-SORTS-UNOWNED-v1
+
+- Status: **Implemented — PR pending** (branch `platform/100-noclaim-sorts-unowned`).
+- Purpose: a confirmed roster spells "unowned" as the literal owner `NoClaim`, and the roster
+  editor's owner sort only recognised an empty string — so after any confirmed draft ~120 teams
+  sorted alphabetically among real owners and clumped at one end, burying the rows a commissioner
+  came to work on, on the page they are sent to in order to fix ownership.
+- **Found by the owner in one click**, on a demo-league dry run, on code merged the same day.
+- **TWO representations of the same fact, and the tests only ever saw one.** Before confirmation an
+  unowned team is absent from the roster and reads as `''`; `buildConfirmedOwnersCsv` then writes
+  `NoClaim` for every undrafted team. The PLATFORM-099 fixture used the first shape and the assertion
+  ("unowned teams sort LAST in both directions") generalised to both. The fix adds `isUnowned` and a
+  `SAVED_CONFIRMED` fixture built to match what the confirm route actually writes.
+- Same root corrected in `countDroppedRows`: a `NoClaim` row for a departed team IS removed by a
+  save, but nobody held it, so counting it inflated "N rows will be removed" with a row whose loss
+  means nothing.
+- Sizing: 2 files (1 source, 1 test). Both behaviours die under their own mutant.
+
 ### PLATFORM-099-DRAFT-NIGHT-SAFETY-v1
 
 - Status: ✅ **MERGED** — PR #477 (`9537f7e8`), 2026-08-14. Branch deleted.

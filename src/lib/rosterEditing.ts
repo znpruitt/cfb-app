@@ -11,7 +11,29 @@
  * coverage that looks real and observes nothing.
  */
 
+import { NO_CLAIM_OWNER } from './standings.ts';
+
 export type TeamEntry = { school: string; conference: string };
+
+/**
+ * Whether a stored owner value means "nobody holds this team" — PLATFORM-100.
+ *
+ * TWO representations, and missing the second is the defect this closes.
+ * Before a draft is confirmed an unowned team is simply absent from the roster,
+ * so it reads as `''`. `buildConfirmedOwnersCsv` then writes `NoClaim` as a real
+ * owner string for EVERY undrafted team, so after confirmation ~120 rows carry
+ * it. Treating only `''` as unowned sorted those alphabetically among real
+ * owners, which under descending order clumped them at the top — burying the
+ * rows a commissioner came to work on, on the page they are sent to in order to
+ * fix ownership.
+ *
+ * Found by the owner in one click on a confirmed league. It survived the tests
+ * because the fixture represented unowned teams the FIRST way and the assertion
+ * generalised to both.
+ */
+function isUnowned(owner: string): boolean {
+  return owner === '' || owner === NO_CLAIM_OWNER;
+}
 
 export type SortKey = 'school' | 'conference' | 'owner';
 export type SortDir = 'asc' | 'desc';
@@ -49,11 +71,14 @@ export function selectRosterRows(
       if (sortKey === 'owner') {
         const ao = savedOwners.get(a.school) ?? '';
         const bo = savedOwners.get(b.school) ?? '';
-        // Unowned teams sort LAST in both directions rather than clumping at the
-        // top under descending: they are the backdrop to this task, not part of
-        // it, and an empty string sorts before every name.
-        if (ao === '' && bo !== '') return 1;
-        if (bo === '' && ao !== '') return -1;
+        // Unowned teams sort LAST in both directions rather than clumping at one
+        // end: they are the backdrop to this task, not part of it. `isUnowned`
+        // rather than an emptiness check, because a confirmed roster spells this
+        // `NoClaim`.
+        const aUnowned = isUnowned(ao);
+        const bUnowned = isUnowned(bo);
+        if (aUnowned && !bUnowned) return 1;
+        if (bUnowned && !aUnowned) return -1;
         const byOwner = ao.localeCompare(bo);
         const cmp = byOwner !== 0 ? byOwner : a.school.localeCompare(b.school);
         return sortDir === 'asc' ? cmp : -cmp;
@@ -107,7 +132,11 @@ export function countDroppedRows(
   const catalogSchools = new Set(teams.map((t) => t.school));
   let n = 0;
   for (const [school, owner] of savedOwners) {
-    if (owner !== '' && !catalogSchools.has(school)) n++;
+    // `isUnowned`, not an emptiness check — PLATFORM-100. A `NoClaim` row for a
+    // team that has left the catalog IS removed by the save, but nobody held it,
+    // so counting it inflates "N rows will be removed" with a row whose loss
+    // means nothing. The figure exists to warn about losing someone's team.
+    if (!isUnowned(owner) && !catalogSchools.has(school)) n++;
   }
   return n;
 }
