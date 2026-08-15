@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { countDroppedRows, countEditedTeams, selectRosterRows } from '../RosterEditorPanel';
+import { countDroppedRows, countEditedTeams, selectRosterRows } from '../rosterEditing.ts';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-099 — the roster editor is where a commissioner fixes ownership after
