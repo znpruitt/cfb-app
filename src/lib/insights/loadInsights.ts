@@ -2,7 +2,11 @@ import { unstable_cache } from 'next/cache';
 import { cache } from 'react';
 
 import { buildInsightContext } from '@/lib/insights/context';
-import { applySuppression, generateRawInsights, runInsightsEngine } from '@/lib/insights/engine';
+import {
+  generateRawInsights,
+  runInsightsEngine,
+  selectServedInsights,
+} from '@/lib/insights/engine';
 import '@/lib/insights/generators';
 import { getLeague } from '@/lib/leagueRegistry';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
@@ -304,10 +308,13 @@ export async function loadInsightsForLeague(
       resolvedYear,
       currentDate
     );
-    // Per-request suppression against the cached raw set. Season matches the
-    // engine's historical scoping (league.year, via context.currentYear), so
-    // fire/fade behavior is byte-for-byte unchanged by the cache split.
-    const insights = await applySuppression(rawInsights, slug, league.year);
+    // INSIGHTS-029 — no suppression. Out of season nothing moves, so "fire once,
+    // then fade" degenerated into "show each insight once, ever" and drained a
+    // live league's feed to the three types on the never-suppress list.
+    //
+    // Pure, so unlike `applySuppression` it needs no per-request escape from the
+    // cache: the output is a function of the raw set alone.
+    const insights = selectServedInsights(rawInsights);
     return { insights, lifecycleState, generatedAt };
   } catch (err) {
     // A genuine store/database failure escaped the cached callback (nothing was

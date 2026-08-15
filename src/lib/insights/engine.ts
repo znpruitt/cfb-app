@@ -109,6 +109,34 @@ export async function applySuppression(
   return top;
 }
 
+/**
+ * INSIGHTS-029 — the serving selection, replacing `applySuppression`.
+ *
+ * **The feed was not thin, it was DRAINED.** Suppression is per insight TYPE and
+ * almost every type carried `{ kind: 'unchanged' }` — suppress while the stat
+ * value is identical. In preseason no games are played, so no stat value can
+ * ever change: each insight fired once and was hidden for the rest of the
+ * preseason. A live league's Overview showed exactly two cards, and both were on
+ * `NEVER_SUPPRESS_TYPES`; those three types were the only reason anything
+ * rendered at all.
+ *
+ * "Fire once, then fade" only makes sense while something is moving. Out of
+ * season nothing is, so the rule degenerated into "show each insight once, ever".
+ *
+ * Deliberately just a sort and a slice — no store reads, no writes, no
+ * per-request state. Repetition across loads is not a problem worth machinery
+ * while a league has fewer insights than the feed holds; when INSIGHTS-023
+ * widens the pool past the feed, rotation earns its keep and gets built against a
+ * real pool (INSIGHTS-018).
+ *
+ * `suppression.ts` is left in place and simply not consulted here: its records
+ * age out under their own TTL and the rollover clear that already exists, so
+ * nothing is destructively migrated and the debug endpoint keeps working.
+ */
+export function selectServedInsights(rawInsights: Insight[]): Insight[] {
+  return [...rawInsights].sort((a, b) => b.priorityScore - a.priorityScore).slice(0, MAX_INSIGHTS);
+}
+
 export async function runInsightsEngine(
   context: InsightContext,
   options: RunInsightsEngineOptions = {}

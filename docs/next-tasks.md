@@ -447,7 +447,52 @@ Supersedes: (none)
       confirmed live in production: the preseason list changes, standings keep the old name, nothing
       on screen indicates the two disagree.
 
-21. **INSIGHTS-018 — insight rotation and the NEW tag. START HERE for Insights.** Reframed
+21. ⏳ **INSIGHTS-029 — stop suppression draining the feed. IMPLEMENTED, PR pending**
+    (branch `insights/029-stop-draining-the-feed`). The un-draining, split out of INSIGHTS-018 and
+    shipped alone: `applySuppression` is no longer consulted when serving, so the feed is a plain
+    priority sort. Two source files. `suppression.ts` is untouched — its records age out under their
+    own TTL and the existing rollover clear, and the debug endpoint keeps working.
+
+22. ⛔ **INSIGHTS-018 — rotation and the NEW tag. STOPPED, deferred until after INSIGHTS-023.**
+    Branch `insights/018-rotation-and-new-tag` abandoned at `7b4b7664`, not merged. **Four review
+    rounds, and the SCOPE was the problem rather than any single defect: rotation does nothing until
+    the pool exceeds the feed, and TSC has four insights for five slots.** Building it first meant
+    four rounds of findings against machinery with no job to do yet.
+
+    **What is worth reusing when it IS built** — all of it survives in the abandoned branch's
+    history:
+    - The three-way classification (`event` / `standing` / `standing-moving`) and the owner's rule
+      behind it: a single-season extreme is news once and history afterwards; the durable version is
+      cumulative. Decide kind PER INSIGHT — `milestone_watch` carries both an approaching watch and a
+      crossing, so no per-type value is right for it.
+    - **Rotation must not order by anything the write path advances.** Two attempts used "least
+      recently shown" and both failed, the second BECAUSE of the first: showing an insight changed
+      the next selection's input, so the feed churned within a bucket and then pinned the same set
+      forever. Bucket-indexed selection reads nothing the write path touches — but the window must
+      advance by the slots CONSUMED, not by the feed limit, or anything sitting in the changed bucket
+      permanently starves the tail.
+    - The signature must be INJECTIVE (a 32-bit hash collided on real catalog data in PLATFORM-094)
+      and must EXCLUDE template wording, or a copy edit lights up a whole league's feed as new.
+    - Identity must be compared BEFORE numeric tolerance, or a hook transition — the most newsworthy
+      thing a moving type produces, and by nature a tiny delta — reads as unchanged.
+    - The stat baseline must hold until a change is RECORDED, or sub-threshold drift never
+      accumulates toward its threshold.
+    - **A store read failure must be distinguishable from a cold store.** Swallowing it reset every
+      baseline and badged the whole feed on the next healthy load.
+    - Register any new durable scope with `findResidualLeagueScopes` AND the demo-league cleanup
+      (`AGENTS.md` shared-policy consumer rule) — missed on the first attempt.
+    - NEW means CHANGED (owner decision): a fact that rotates back into view did not change, it
+      resurfaced, and badging it trains a reader to distrust the badge.
+    - Weekly rotation boundaries must be CHOSEN. `floor(days / 7)` puts them on Thursday because the
+      epoch was a Thursday — ten hours from the Thursday pulse INSIGHTS-026 plans.
+
+    **The process lesson, which cost more than the feature.** Every defect that reached a commit was
+    one the tests were structurally incapable of observing: a control comparing arrays where only the
+    SET mattered, badge assertions passing on a still-open window rather than on the thing under
+    test, a coverage guarantee asserted only under the conditions where it holds. Mutation testing
+    caught several — but only because it was run after the tests already passed.
+
+23. **INSIGHTS-018 was reframed 2026-08-14 before being stopped.** Reframed
     2026-08-14 after an audit of the live TSC preseason; the backlog spec below (§2) is superseded on
     one point — freshness alone is not enough, see the standing-fact/event split.
 
@@ -484,7 +529,7 @@ Supersedes: (none)
     families first would add ~7 insight types that each fire once and vanish, spending the entire
     breadth gain in one or two page loads — and making the cause harder to see, not easier.
 
-22. **INSIGHTS-023 — preseason breadth.** After rotation, not before.
+24. **INSIGHTS-023 — preseason breadth.** After rotation, not before.
 
     **Two generators are dark in preseason and they are the whole gap:** `historicalGenerator`
     (`HISTORICAL_LIFECYCLES`) and `rivalryGenerator` (`RIVALRY_LIFECYCLES`) list every lifecycle state
@@ -512,7 +557,7 @@ Supersedes: (none)
     size on TSC before deciding whether it needs a bound** — the acceptance bar of ">10" spans a page
     and a wall.
 
-23. **INSIGHTS-024 — active-owner scoping.** After breadth. Correctness, not volume: on its own it
+25. **INSIGHTS-024 — active-owner scoping.** After breadth. Correctness, not volume: on its own it
     REDUCES the feed, because it drops departed owners and a brand-new owner has no history to draw on.
 
     **The gap, visible on the live TSC Overview:** standings and insights disagree on the same page.
@@ -542,7 +587,7 @@ Supersedes: (none)
     of the 13 `currentRoster` consumers need the MAP and which only need the owner SET, and who else
     reads `usingArchivedRoster`.
 
-24. **INSIGHTS-025 — rookie/returning claims (owner decision required, invariant amendment).**
+26. **INSIGHTS-025 — rookie/returning claims (owner decision required, invariant amendment).**
     Deliberately last, and deliberately separate.
 
     AGENTS.md Insights invariant 5 currently says naming who is genuinely returning "requires
@@ -558,7 +603,7 @@ Supersedes: (none)
     trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
     For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
 
-25. **INSIGHTS-026 — the pulse: a scheduled digest, and the insights stream's EVENT SOURCE.**
+27. **INSIGHTS-026 — the pulse: a scheduled digest, and the insights stream's EVENT SOURCE.**
     **ID split out 2026-08-14: this campaign was filed under INSIGHTS-018**, which the backlog also
     used for the NEW-tag mechanism, so a content campaign was hiding behind a mechanical one. Owner
     confirmed it is still wanted — _"it helps make the app feel alive"_. Design detail stays in
@@ -620,7 +665,7 @@ Supersedes: (none)
 
     In-season only, so it does nothing for the preseason feed; sequence after 018/023/024.
 
-26. **INSIGHTS-027 — preseason content generators (NEW content, not re-enabled content).** Also
+28. **INSIGHTS-027 — preseason content generators (NEW content, not re-enabled content).** Also
     recovered from the roadmap entry above, and distinct from INSIGHTS-023: that one switches on
     generators that already exist, this one writes generators that do not.
 
@@ -639,11 +684,11 @@ Supersedes: (none)
       is the whole point of the panel: _"Every insight must tell the user something they couldn't
       figure out just by reading the table. No restating visible data without a compelling angle."_
 
-27. **Then, in order: INSIGHTS-019** (diagnostic endpoint — worth taking straight after 018, since it
+29. **Then, in order: INSIGHTS-019** (diagnostic endpoint — worth taking straight after 018, since it
     is how rotation and NEW state become observable), INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
     later.
-28. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
+30. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
     PLATFORM-093** — a brand-new league had no path to confirm owners — new leagues are born `season`, `/admin/[slug]/preseason/owners`
     redirects away unless the league is in `preseason`, and only `beginPreseason` (offseason-only) or
     the rollover cron reach that state, leaving only the historical/repair CSV import, which asks the
@@ -663,7 +708,7 @@ Supersedes: (none)
     shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
     constant. Severity was overstated when first reported — three client components already import
     that module, so the graph is in the client bundle on every league page anyway.
-29. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
+31. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
     Verified 2026-08-12. `DELETE /api/admin/leagues/[slug]` calls `removeLeague`, which filters the
     slug out of the registry list and nothing else. Every keyed record survives: `owners:{slug}:{year}`
     (team→owner rosters carrying real names), `preseason-owners:{slug}`, `draft:{slug}` (picks and
@@ -693,12 +738,12 @@ Supersedes: (none)
     the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
     the honest options are a purge that removes the residue, an already-archived guard in the
     rollover path, or retiring adoption — all of which are this campaign's decisions.
-30. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+32. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
     once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
     retry.
-31. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+33. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -708,7 +753,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-32. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+34. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 
