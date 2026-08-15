@@ -145,26 +145,48 @@ export function selectRosterRows(
 }
 
 /**
- * How many teams a save actually changes — what the confirmation reports.
+ * How many teams the OPERATOR has edited — the Save gate.
  *
- * Counts rows the save DROPS as well as owners it changes. `buildCsv` emits rows
- * only for teams present in the catalog, so a loaded roster row whose team is not
- * in `teamsData` is deleted by saving while both maps hold it identically. A
- * count that ignored those would understate a save that removes rows, and the
- * count is the number the operator reads.
+ * Iterates the catalog rather than the maps, so it can only ever count rows the
+ * table actually shows. `handleOwnerChange` writes unconditionally, so typing a
+ * character into an unowned field and deleting it leaves `school -> ''` that the
+ * saved map lacks; normalizing both sides to `''` makes that the non-change it
+ * is.
  */
-export function countChangedTeams(
+export function countEditedTeams(
   savedOwners: Map<string, string>,
   draftOwners: Map<string, string>,
   teams: readonly TeamEntry[]
 ): number {
-  const catalogSchools = new Set(teams.map((t) => t.school));
-  const schools = new Set([...savedOwners.keys(), ...draftOwners.keys()]);
   let n = 0;
-  for (const school of schools) {
-    const before = savedOwners.get(school) ?? '';
-    const after = catalogSchools.has(school) ? (draftOwners.get(school) ?? '') : '';
-    if (before !== after) n++;
+  for (const { school } of teams) {
+    if ((savedOwners.get(school) ?? '') !== (draftOwners.get(school) ?? '')) n++;
+  }
+  return n;
+}
+
+/**
+ * Rows the save will DELETE because their team is not in the catalog.
+ *
+ * `buildCsv` emits rows only for teams present in `teams`, so a stored roster row
+ * whose school is absent from it disappears on save while both maps hold it
+ * identically. Reported separately rather than folded into the edit count, and
+ * that separation is a correction: one number served as both the Save gate and
+ * the confirmation's headline, and `teams` is the STATIC `teams.json` import
+ * while the stored CSV was validated against the mutable team database seeded
+ * from it. A school present in one and not the other pinned the count at >= 1
+ * permanently — which collapsed the gate back to `hasChanges` and inflated every
+ * real edit by a number the operator cannot see, since those rows are not in the
+ * table.
+ */
+export function countDroppedRows(
+  savedOwners: Map<string, string>,
+  teams: readonly TeamEntry[]
+): number {
+  const catalogSchools = new Set(teams.map((t) => t.school));
+  let n = 0;
+  for (const [school, owner] of savedOwners) {
+    if (owner !== '' && !catalogSchools.has(school)) n++;
   }
   return n;
 }
@@ -193,7 +215,8 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
 
   const hasChanges = !mapsEqual(draftOwners, savedOwners);
 
-  const changedTeamCount = countChangedTeams(savedOwners, draftOwners, teams);
+  const editedTeamCount = countEditedTeams(savedOwners, draftOwners, teams);
+  const droppedRowCount = countDroppedRows(savedOwners, teams);
   // Save is gated on the SAME count the confirmation reports, so the two cannot
   // disagree. `handleOwnerChange` writes an entry unconditionally, so typing a
   // character into an unowned team's field and deleting it leaves `school -> ''`
@@ -202,7 +225,10 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
   // destructive-sounding confirmation on screen — "0 teams change owner. This
   // rewrites the whole 2026 roster…" — which is exactly what teaches an operator
   // to click through the prompt.
-  const canSave = hasChanges && changedTeamCount > 0;
+  // Gated on the EDIT count alone. Dropped rows are a consequence of saving, not
+  // a request to save: gating on them would let a click the operator never
+  // intended delete roster rows they cannot see.
+  const canSave = hasChanges && editedTeamCount > 0;
 
   const loadRoster = useCallback(async () => {
     setLoading(true);
@@ -366,7 +392,12 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
         <div className="flex gap-2" hidden={needsOverrideConfirm}>
           <button
             onClick={handleDiscard}
-            disabled={!canSave || saving}
+            // Deliberately NOT `canSave`. Discard is the escape from the exact
+            // state where the two disagree — an entry that leaves `hasChanges`
+            // true with nothing actually edited — and gating it there left the
+            // "Unsaved changes" badge on screen with no control that clears it
+            // and reload as the only way out.
+            disabled={!hasChanges || saving}
             className="rounded border border-gray-300 dark:border-zinc-600 bg-gray-50 dark:bg-zinc-800 px-3 py-1.5 text-sm text-gray-600 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Discard Changes
@@ -397,14 +428,23 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
               request to the API, and a mistake here rewrites a season of
               ownership. */}
           <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-300/80">
-            {changedTeamCount === 1 ? '1 team changes' : `${changedTeamCount} teams change`} owner.
+            {editedTeamCount === 1 ? '1 team changes' : `${editedTeamCount} teams change`} owner.
             This rewrites the whole {year} roster as shown below, and standings follow it
             immediately.
+            {droppedRowCount > 0 &&
+              ` ${droppedRowCount} stored ${droppedRowCount === 1 ? 'row is' : 'rows are'} for teams no longer in the catalog and will be removed.`}
           </p>
           <div className="mt-3 flex gap-2">
             <button
-              onClick={() => void doSave(buildCsv(teams, draftOwners), true)}
-              disabled={saving}
+              // Re-checked, and disabled: the fields stay editable while this
+              // confirmation is open, so reverting the last edit here left an
+              // enabled button that still sent `override=1` while the prompt
+              // above it read zero.
+              onClick={() => {
+                if (!canSave) return;
+                void doSave(buildCsv(teams, draftOwners), true);
+              }}
+              disabled={!canSave || saving}
               className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {saving ? 'Saving…' : 'Confirm changes'}
@@ -447,12 +487,17 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
                   aria-sort={
                     sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'
                   }
-                  className="px-4 py-2.5 text-left"
+                  className="text-left"
                 >
+                  {/* The button FILLS the cell and carries its padding: moving
+                      the handler off the `th` shrank the hit area so a click in
+                      the header's padding no longer sorted. `cursor-pointer` is
+                      explicit because Tailwind v4's Preflight sets buttons to
+                      `cursor: default`. */}
                   <button
                     type="button"
                     onClick={() => toggleSort(key)}
-                    className="select-none hover:text-gray-800 dark:hover:text-zinc-200"
+                    className="w-full cursor-pointer select-none px-4 py-2.5 text-left hover:text-gray-800 dark:hover:text-zinc-200"
                   >
                     {label} <SortIcon col={key} />
                   </button>

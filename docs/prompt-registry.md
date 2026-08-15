@@ -85,11 +85,35 @@ Rules:
 - **That fix shipped UNTESTED in the first attempt.** The mutant restoring the old comparison
   survived the entire suite. It is pinned in both directions now — the drifted record 409s, and a
   genuinely past season stays unguarded so the fix cannot have started guarding backfills.
-- Also from review: a confirmation reading "0 teams change owner" above a warning that the whole
-  roster is about to be rewritten (Save is gated on the same count the prompt reports now); a typed
-  slug unenterable on a phone (mobile IMEs capitalise, the compare was case-sensitive); sorting that
-  was pointer-only on all three headers; and a doc block claiming to replace four inlined ternaries
-  while converting none of them.
+- Also from review round 1: a confirmation reading "0 teams change owner" above a warning that the
+  whole roster is about to be rewritten; a typed slug unenterable on a phone (mobile IMEs capitalise,
+  the compare was case-sensitive); sorting that was pointer-only on all three headers; and a doc
+  block claiming to replace four inlined ternaries while converting none of them.
+- **Round 2 (owner-approved, `AGENTS.md` rule 6 — narrow defects caused by round 1).** The Save gate
+  from round 1 caused three of them:
+  - The gate was applied with an unbounded `.replace()` that hit **Discard Changes** too, disabling
+    the escape hatch in exactly the state it exists for — "Unsaved changes" on screen with no control
+    that clears it. Discard is back on `hasChanges`.
+  - **One number cannot be both the gate and the report.** Counting rows the save drops was right for
+    the confirmation and wrong for the gate: `teams` is the STATIC `teams.json` import while the
+    stored CSV was validated against the mutable team database seeded from it, so a school in one and
+    not the other pinned the count at >= 1 permanently — collapsing the gate back to `hasChanges` and
+    inflating every real edit by a figure the operator cannot see. Split into `countEditedTeams` (the
+    gate, catalog-iterating) and `countDroppedRows` (reported separately).
+  - After a 409 the fields stay editable, so reverting the last edit left "Confirm changes" enabled
+    and still sending `override=1` while the prompt above it read zero. Disabled and re-checked.
+  - The sort button lost the header's padding and, under Tailwind v4's Preflight, its pointer cursor.
+- **Two claims removed from the reset confirmation because they could not be kept** — the class this
+  campaign kept producing. The pick COUNT: the shell does not poll, so picks made in another tab are
+  absent from the state it holds while `POST /reset` deletes the latest stored draft, and a figure it
+  cannot guarantee is worse than none. And "you will not have to re-enter it": reset is also the
+  documented recovery for a draft whose roster records are missing, and there `resolveDraftSetupGate`
+  routes to owner confirmation, which does not reuse `DraftState.owners`.
+- **Process:** three defects on this campaign traced to bulk edits whose blast radius was never
+  measured — index slicing that duplicated a banner, a `git checkout --` restore that reverted a
+  whole cut, and the unbounded `.replace()` above. Every one passed `tsc`, `lint:all` and the full
+  suite, and every one was caught by a reviewer. Assert the match count before writing; verify a
+  removal by grepping for what should be ABSENT.
 
 ### PLATFORM-098-MEMBERSHIP-AUTHORITY-AFTER-PUBLICATION-v1
 

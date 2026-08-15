@@ -185,7 +185,6 @@ export default function DraftSetupShell({
     }
   }
 
-  const pickCount = draftState?.picks?.length ?? 0;
   // Case-insensitive, and the input opts out of autocapitalise/autocorrect.
   // iOS Safari and most Android IMEs capitalise the first character of a text
   // input, so a case-sensitive compare left a commissioner on a phone typing the
@@ -319,13 +318,27 @@ export default function DraftSetupShell({
               reachable in a state the other refuses. */}
           {(phase !== 'complete' || !isPublished) && resetConfirm && (
             <div className="mt-4 rounded-lg border border-red-300 bg-red-50 p-4 dark:border-red-900 dark:bg-red-950/30">
+              {/* No pick COUNT. This shell does not poll, so picks made in
+                  another tab after the page loaded are absent from the state it
+                  holds, while `POST /reset` deletes the latest stored draft — a
+                  number here could understate what is about to be destroyed. A
+                  confirmation that states a figure it cannot guarantee is worse
+                  than one that does not. */}
               <p className="text-sm font-medium text-red-800 dark:text-red-300">
-                Reset this draft and discard {pickCount} {pickCount === 1 ? 'pick' : 'picks'}?
+                Reset this draft and discard every pick?
               </p>
               <ul className="mt-2 space-y-1 text-xs text-red-700 dark:text-red-400">
                 <li>Every pick is deleted. This cannot be undone.</li>
                 <li>The draft returns to setup and must be run again from the start.</li>
-                <li>The owner list is unchanged — you will not have to re-enter it.</li>
+                {/* Not "you will not have to re-enter it". Reset is also the
+                    documented recovery for a running draft whose confirmed
+                    roster records are missing, and in THAT case
+                    `resolveDraftSetupGate` sends the operator to owner
+                    confirmation or upload — flows that do not reuse
+                    `DraftState.owners`. The reset itself does not delete the
+                    list; promising the operator will not retype it is a claim
+                    this control cannot keep. */}
+                <li>This does not delete the league&rsquo;s owner list.</li>
               </ul>
               <label
                 htmlFor="reset-confirm-slug"

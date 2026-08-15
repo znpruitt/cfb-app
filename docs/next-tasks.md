@@ -412,12 +412,9 @@ Supersedes: (none)
       `resolveDisplayLeagueStatus` in the lifecycle selector, and the four `/league/[slug]/draft/*`
       routes that inlined the same ternary now call it. The season is in the heading.
 
-    **Review found a regression this introduced:** sending the lifecycle year to `/api/owners` moved
-    the save off the year the PLATFORM-083 guard classified by, so on a drifted record every save
-    read as historical backfill and the 409 never fired — silently clobbering a populated roster and
-    defeating invariant 12. The route now classifies with the same lifecycle authority. **That fix
-    shipped untested in the first attempt; the mutant restoring the old comparison survived the whole
-    suite.**
+    Review record — including the guard regression this introduced and its remediation — is in
+    `docs/prompt-registry.md`, which owns it (`AGENTS.md` → documentation ownership: this file must
+    not carry review histories).
 
 19. **Then — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
 20. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),

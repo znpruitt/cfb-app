@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { countChangedTeams, selectRosterRows } from '../RosterEditorPanel';
+import { countDroppedRows, countEditedTeams, selectRosterRows } from '../RosterEditorPanel';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-099 — the roster editor is where a commissioner fixes ownership after
@@ -121,29 +121,51 @@ test('search still filters, and sorting by school is unchanged', () => {
 // What the confirmation says a save will do
 // ---------------------------------------------------------------------------
 
-test('an owner rename counts as one changed team per team held', () => {
+test('an owner rename counts as one edited team per team held', () => {
   const draft = new Map(SAVED);
   draft.set('Texas', 'Robert');
-  assert.equal(countChangedTeams(SAVED, draft, TEAMS), 1);
+  assert.equal(countEditedTeams(SAVED, draft, TEAMS), 1);
 });
 
 test('no edit counts as nothing', () => {
-  assert.equal(countChangedTeams(SAVED, new Map(SAVED), TEAMS), 0);
+  assert.equal(countEditedTeams(SAVED, new Map(SAVED), TEAMS), 0);
 });
 
-test('a row the save will DROP is counted, not reported as unchanged', () => {
-  // `buildCsv` emits rows only for teams in the catalog, so a loaded roster row
-  // whose team is not in `teamsData` is deleted by saving — while both maps hold
-  // it identically. Counting only differences between the maps would report "0
-  // teams change owner" for a save that removes somebody's team.
+test('a non-catalog row is a DROPPED row, never an edit', () => {
+  // These were one number serving as both the Save gate and the confirmation's
+  // headline, and that could not work: `teams` is the STATIC `teams.json` import
+  // while the stored CSV was validated against the mutable team database seeded
+  // from it. A school in one and not the other pinned the count at >= 1 forever,
+  // which collapsed the gate back to `hasChanges` — re-enabling the very
+  // no-op-save case the gate exists to block — and inflated every real edit by a
+  // number the operator cannot see, since those rows are not in the table.
   const savedWithLegacy = new Map(SAVED);
   savedWithLegacy.set('Idaho', 'Carol');
   const draftWithLegacy = new Map(savedWithLegacy);
+
   assert.equal(
-    countChangedTeams(savedWithLegacy, draftWithLegacy, TEAMS),
-    1,
-    'the dropped row is the change'
+    countEditedTeams(savedWithLegacy, draftWithLegacy, TEAMS),
+    0,
+    'the gate sees no edit, so Save stays disabled'
   );
+  assert.equal(
+    countDroppedRows(savedWithLegacy, TEAMS),
+    1,
+    'and the confirmation can still report the row the save will remove'
+  );
+});
+
+test('an unowned non-catalog row is not reported as a dropped row', () => {
+  // `buildCsv` filters falsy owners, so a blank row is not something the save
+  // removes — reporting it would inflate the figure with a row that never
+  // existed in the stored CSV.
+  const saved = new Map(SAVED);
+  saved.set('Idaho', '');
+  assert.equal(countDroppedRows(saved, TEAMS), 0);
+});
+
+test('nothing outside the catalog is dropped when the roster is clean', () => {
+  assert.equal(countDroppedRows(SAVED, TEAMS), 0);
 });
 
 test('a typed-then-deleted owner is not a change', () => {
@@ -156,5 +178,5 @@ test('a typed-then-deleted owner is not a change', () => {
   // confirmation people learn to click through.
   const draft = new Map(SAVED);
   draft.set('Vanderbilt', '');
-  assert.equal(countChangedTeams(SAVED, draft, TEAMS), 0);
+  assert.equal(countEditedTeams(SAVED, draft, TEAMS), 0);
 });
