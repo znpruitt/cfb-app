@@ -85,15 +85,29 @@ Supersedes: (none)
     pre-draft repair roster as the draft's output, and HID the app's only publish button at the exact
     moment a draft became publishable. v1 was abandoned after two remediation rounds and rebuilt from
     clean `main`; both post-mortems are in `docs/prompt-registry.md`.
-12. **Draft-writer serialization** (follow-up, pre-existing). On `main` no draft route uses a
-    transaction — every one is a plain whole-record read-then-write — so two concurrent draft writers
-    clobber each other, and a confirmation overlapping a `/reset` can republish the pre-reset picks.
-    PLATFORM-094 put the confirm and pick-edit paths on transactions; `/reset`, `/unpick`, the
-    settings PUT and reopen are still unserialized. `PUT /api/owners` likewise writes the roster
+12. **Draft-writer serialization** (follow-up, pre-existing). Draft routes were plain whole-record
+    read-then-writes, so two concurrent writers clobber each other and a confirmation overlapping a
+    `/reset` can republish the pre-reset picks. PLATFORM-094 put confirm and pick-edit on
+    transactions. **PLATFORM-102 (2026-08-15) added `POST /pick` and every timer-only
+    `PUT { timerAction }`** — the pair that could lose a pick on draft night, since
+    `DraftBoardClient` fires expiry automatically at countdown zero and `DraftControls` sends
+    start/pause/resume alone. **Still unserialized: `/reset`, `/unpick`, reopen, the general settings
+    PUT (any request carrying `owners`/`settings`/`phase`), and `PUT /api/owners`.** `PUT /api/owners` likewise writes the roster
     outside any transaction. Two specifics found in review and left in place: `autoCompleteDraft`
     commits in a transaction but derives its payload from a read taken before it (demo league only),
     and a settings PUT whose read predates a `POST /confirm` commit writes back a draft WITHOUT
     `publishedPicks`, silently retracting a valid publication — recovery is re-Confirming.
+12a. **A double-submitted pick is credited to the NEXT owner** (found by review during
+    PLATFORM-102, 2026-08-15; not fixed there because the fix is client-side). The route's
+    expected-owner guard only fires when the body carries `owner`, and
+    `DraftBoardClient.handlePick` sends `{ team }` alone. Serialization means two concurrent picks of
+    DIFFERENT teams now both commit — the second is credited to whoever is next in the snake order
+    and advances `currentPickIndex` by two. Strictly better than the pre-102 behaviour (which lost
+    one silently), but it assigns a team to an owner who never chose it. Realistic trigger: two admin
+    tabs or devices on one commissioner token. **Fix: have the client send the expected `owner` or an
+    `expectedPickIndex`, and refuse a mismatch** — the server guard already exists and simply is
+    never given the input it needs.
+
 13. ✅ **CLOSED 2026-08-13 — preview now gets its own database.** The owner configured the
     Vercel/Neon integration to create a CHILD BRANCH per preview deployment, so each preview runs
     against its own isolated copy rather than production. Stronger than the preview-scoped

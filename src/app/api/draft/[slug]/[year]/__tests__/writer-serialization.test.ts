@@ -12,6 +12,8 @@ import {
   __setAppStateKeyLockFailureForTests,
 } from '@/lib/server/appStateStore';
 import { type DraftState, type DraftSettings, draftScope } from '@/lib/draft';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-102 — the two draft writers that can append a pick must serialize.
@@ -74,8 +76,11 @@ function liveExpiredDraft(overrides: Partial<DraftState> = {}): DraftState {
     picks: [],
     currentPickIndex: 0,
     timerState: 'running',
-    // In the past relative to any real clock, so `expire` is legitimately due.
-    timerExpiresAt: '2026-08-01T00:01:00.000Z',
+    // Computed, not hardcoded. A literal here ('2026-08-01T00:01:00.000Z') was
+    // in the FUTURE when this suite was written and only became "expired" through
+    // wall-clock drift — so the tests that depend on the timer having elapsed
+    // would have silently inverted depending on when they ran.
+    timerExpiresAt: new Date(Date.now() - 60_000).toISOString(),
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -196,4 +201,108 @@ test('the expire-only path and the mixed-request path agree (shared applyTimerEx
   assert.equal(persisted.phase, 'paused', 'natural expiry pauses');
   assert.equal(persisted.timerState, 'expired', 'and prompts');
   assert.equal(persisted.picks.length, 0, 'natural expiry never auto-picks');
+});
+
+// ---------------------------------------------------------------------------
+// The deadlock guard.
+//
+// Review found a P1 in the first version of this slice: `getScopedAliasMap` (two
+// `getAppState` reads) and `await req.json()` were moved INSIDE the pick
+// transaction. `withAppStateKeyTransaction` holds one of only three pooled
+// clients (`appStateStore.ts` → `max: 3`, no `connectionTimeoutMillis`) for the
+// whole callback, and same-key waiters hold a client each while blocked on the
+// advisory lock — so a nested pool read needs a client that can never be freed.
+// Two concurrent picks would have deadlocked the pool process-wide.
+//
+// Tests cannot observe this: the suite runs the file-backed store, which has no
+// pool. A SOURCE guard is therefore the honest pin, and it is mutation-proof —
+// moving either call back inside the callback fails it.
+// ---------------------------------------------------------------------------
+
+function sourceOf(relative: string): string {
+  return readFileSync(fileURLToPath(new URL(relative, import.meta.url)), 'utf8');
+}
+
+test('GUARD: the pick route does no pool-backed I/O inside the transaction', () => {
+  const src = sourceOf('../pick/route.ts');
+
+  // Anchor on the CALL, not the import at the top of the file — matching the
+  // import made this guard pass vacuously for everything below it.
+  const txnAt = src.indexOf('await withAppStateKeyTransaction');
+  assert.ok(txnAt > 0, 'the pick route must open a key transaction');
+
+  for (const call of ['getScopedAliasMap(', 'req.json(']) {
+    const at = src.indexOf(call);
+    assert.ok(at > 0, `expected ${call} in the pick route`);
+    assert.ok(
+      at < txnAt,
+      `${call} must run BEFORE withAppStateKeyTransaction — a pooled read inside ` +
+        'the callback deadlocks the 3-client pool under concurrent same-draft requests'
+    );
+  }
+
+  // Nothing else may reach the pool from inside either.
+  const callback = src.slice(txnAt);
+  assert.ok(
+    !callback.includes('getAppState('),
+    'no getAppState inside the transaction callback — use txn.read'
+  );
+  assert.ok(
+    !callback.includes('setAppState('),
+    'no setAppState inside the transaction callback — use txn.write'
+  );
+});
+
+test('GUARD: the timer-only fast path does no pool-backed I/O inside the transaction', () => {
+  const src = sourceOf('../route.ts');
+  const fastPath = src.indexOf('const outcome = await withAppStateKeyTransaction');
+  assert.ok(fastPath > 0, 'the timer-only fast path must open a key transaction');
+
+  // The callback ends where the outcome is mapped back to a response.
+  const end = src.indexOf("if (!('ok' in outcome))", fastPath);
+  assert.ok(end > fastPath, 'expected the outcome mapping after the callback');
+  const callback = src.slice(fastPath, end);
+
+  for (const banned of [
+    'getAppState(',
+    'setAppState(',
+    'getScopedAliasMap(',
+    'getConfirmedRoster(',
+  ]) {
+    assert.ok(
+      !callback.includes(banned),
+      `${banned} must not run inside the timer transaction callback (pool deadlock)`
+    );
+  }
+});
+
+test('STRUCTURAL: PUT { timerAction: pause } also goes through the draft key lock', async () => {
+  // Review finding: `start`, `pause` and `resume` are sent ALONE by DraftControls
+  // and DraftBoardClient too, take the same whole-record write, and could erase a
+  // concurrently-committed pick exactly as expiry could. They are now serialized
+  // by the same fast path.
+  await seedDraft(liveExpiredDraft());
+
+  __setAppStateKeyLockFailureForTests(new Error('injected lock failure'), draftScope(SLUG));
+
+  await assert.rejects(
+    () => PUT(putRequest({ timerAction: 'pause' }), { params }),
+    'a pause that cannot take the lock must NOT proceed to a write'
+  );
+
+  __setAppStateKeyLockFailureForTests(null);
+  const persisted = await readPersisted();
+  assert.equal(persisted.timerState, 'running', 'timer state untouched');
+});
+
+test('a timer-only pause still behaves correctly through the serialized path', async () => {
+  await seedDraft(liveExpiredDraft());
+
+  const res = await PUT(putRequest({ timerAction: 'pause' }), { params });
+  assert.equal(res.status, 200);
+
+  const persisted = await readPersisted();
+  assert.equal(persisted.timerState, 'paused');
+  assert.equal(persisted.timerExpiresAt, null);
+  assert.equal(persisted.phase, 'live', 'pause does not change phase');
 });

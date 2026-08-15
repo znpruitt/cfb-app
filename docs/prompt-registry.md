@@ -50,6 +50,43 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-102-SERIALIZE-PICK-AND-EXPIRE-v1
+
+- Purpose: Stop the two draft writers that can append a pick from erasing each other, before the
+  league's first real draft.
+- Scope: `src/app/api/draft/[slug]/[year]/pick/route.ts`, the timer path in the sibling `route.ts`,
+  and a new serialization suite. `/reset`, `/unpick`, reopen, the general settings PUT and
+  `PUT /api/owners` deliberately untouched — see `docs/next-tasks.md` item 12.
+- **The failure.** `DraftBoardClient` fires `PUT { timerAction: 'expire' }` automatically at
+  countdown zero. A pick submitted as the clock ran out committed, then expiry wrote its stale
+  whole-record snapshot back — the pick vanished while its caller got a 200, and the board then
+  prompted for an auto-pick on a slot that was already filled. Accepting that prompt assigned a
+  RANDOM team. Under the lock the pick refreshes `timerExpiresAt`, so the late expiry is refused
+  with "Timer has not expired yet": the buzzer-beater wins, which is the right answer.
+- **I introduced a P1 fixing it, and both reviewers caught it independently.** The first version
+  moved `getScopedAliasMap` (two `getAppState` reads) and `await req.json()` INSIDE the transaction.
+  `withAppStateKeyTransaction` holds one of three pooled clients (`max: 3`, no
+  `connectionTimeoutMillis`) for the whole callback while same-key waiters hold one each blocking on
+  the advisory lock — so a nested pooled read needs a client that can never be freed. Two concurrent
+  picks would have deadlocked DB access process-wide, in the exact scenario the slice existed to
+  protect. `pick/[n]/route.ts` already had the correct shape and I had read it. Fixed by hoisting
+  the I/O above the transaction while leaving every refusal at its original position, so error
+  precedence is unchanged.
+- **Tests cannot see a pool deadlock** (the suite runs the file-backed store), so the pin is a
+  SOURCE guard asserting no pooled call appears inside either callback — mutation-proven by moving
+  the alias read back in. The lock-participation tests are mutation-proven too; a first mutation
+  attempt survived because it changed the read inside the transaction rather than removing the lock,
+  which is recorded in the suite so the next reader does not repeat it. The buzzer-beater test is
+  labelled in its own header as NOT evidence of serialization, since it drives the routes
+  sequentially and passes without the fix.
+- Also from review: `start`/`pause`/`resume` are sent alone by the same clients and take the same
+  whole-record write, so the serialized path was widened from expire-only to every timer-only
+  request; and a test fixture hardcoded a `timerExpiresAt` that was in the FUTURE when written and
+  only became "expired" through wall-clock drift.
+- Deferred, recorded as `docs/next-tasks.md` item 12a: a double-submitted pick is now credited to the
+  NEXT owner, because the expected-owner guard only fires when the client sends `owner` and it does
+  not. Server-side guard exists; the fix is client-side.
+
 ### INSIGHTS-018-ROTATION-AND-NEW-TAG-v1 (ABANDONED — not merged)
 
 - Purpose: Rotate the Insights feed on a weekly boundary and badge genuinely-changed items NEW.

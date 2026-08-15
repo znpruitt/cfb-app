@@ -50,15 +50,46 @@ export const dynamic = 'force-dynamic';
 type ExpiryRefusal = { error: string; status: number };
 
 /**
- * PLATFORM-102 — the timer-expiry state machine, extracted so the SERIALIZED
- * expire-only path and the legacy mixed-request path share one implementation
+ * PLATFORM-102 — the timer state machine, extracted so the SERIALIZED
+ * timer-only path and the legacy mixed-request path share one implementation
  * rather than two copies that must be kept in agreement.
+ *
+ * Covers every action, not just `expire`: review pointed out that `start`,
+ * `pause` and `resume` are ALSO sent alone by `DraftControls` and
+ * `DraftBoardClient`, take the same whole-record write, and can therefore erase a
+ * concurrently-committed pick exactly as expiry could.
  *
  * Pure: takes a draft, returns either a refusal or the next draft. It does not
  * stamp `updatedAt` — the caller does that immediately before its write, as
  * before.
  */
-function applyTimerExpiry(draft: DraftState): ExpiryRefusal | DraftState {
+function applyTimerAction(
+  draft: DraftState,
+  action: 'start' | 'pause' | 'resume' | 'expire'
+): ExpiryRefusal | DraftState {
+  if (action === 'start' || action === 'resume') {
+    if (draft.phase !== 'live') {
+      return { error: 'Timer can only be started/resumed when draft is live', status: 422 };
+    }
+    const { pickTimerSeconds } = draft.settings;
+    if (!pickTimerSeconds) {
+      return { error: 'No pick timer configured', status: 422 };
+    }
+    return {
+      ...draft,
+      timerState: 'running',
+      timerExpiresAt: new Date(Date.now() + pickTimerSeconds * 1000).toISOString(),
+    };
+  }
+
+  if (action === 'pause') {
+    return { ...draft, timerState: 'paused', timerExpiresAt: null };
+  }
+
+  if (action !== 'expire') {
+    return { error: `Unknown timerAction: "${action}"`, status: 400 };
+  }
+
   // Accept expire from live phase (normal expiry) or paused+expired phase (commissioner
   // clicked auto-pick in the pause-and-prompt overlay)
   const isLiveExpire = draft.phase === 'live';
@@ -449,7 +480,7 @@ export async function PUT(
   // path below — no client sends that combination, and converting the whole
   // handler is deferred to its own slice.
   if (
-    timerAction === 'expire' &&
+    typeof timerAction === 'string' &&
     owners === undefined &&
     settings === undefined &&
     phase === undefined
@@ -461,10 +492,13 @@ export async function PUT(
       if (!fresh?.value) {
         return { error: `No draft found for ${slug} ${year}`, status: 404 };
       }
-      const expired = applyTimerExpiry(fresh.value);
-      if ('error' in expired) return expired;
+      const next = applyTimerAction(
+        fresh.value,
+        timerAction as 'start' | 'pause' | 'resume' | 'expire'
+      );
+      if ('error' in next) return next;
 
-      const stamped: DraftState = { ...expired, updatedAt: new Date().toISOString() };
+      const stamped: DraftState = { ...next, updatedAt: new Date().toISOString() };
       await txn.write<DraftState>(stamped);
       return { ok: true, draft: stamped };
     });
@@ -762,41 +796,15 @@ export async function PUT(
     }
     const action = timerAction as 'start' | 'pause' | 'resume' | 'expire';
 
-    if (action === 'start' || action === 'resume') {
-      if (draft.phase !== 'live') {
-        return NextResponse.json(
-          { error: 'Timer can only be started/resumed when draft is live' },
-          { status: 422 }
-        );
-      }
-      const { pickTimerSeconds } = draft.settings;
-      if (!pickTimerSeconds) {
-        return NextResponse.json({ error: 'No pick timer configured' }, { status: 422 });
-      }
-      draft = {
-        ...draft,
-        timerState: 'running',
-        timerExpiresAt: new Date(Date.now() + pickTimerSeconds * 1000).toISOString(),
-      };
-    } else if (action === 'pause') {
-      draft = {
-        ...draft,
-        timerState: 'paused',
-        timerExpiresAt: null,
-      };
-    } else if (action === 'expire') {
-      // PLATFORM-102 — shared with the serialized expire-only path above. An
-      // expire arriving ALONGSIDE settings/owners/phase still takes this
-      // unserialized route; that combination is not something any client sends,
-      // and converting the whole handler is deferred (see docs/next-tasks.md).
-      const expired = applyTimerExpiry(draft);
-      if ('error' in expired) {
-        return NextResponse.json({ error: expired.error }, { status: expired.status });
-      }
-      draft = expired;
-    } else {
-      return NextResponse.json({ error: `Unknown timerAction: "${action}"` }, { status: 400 });
+    // PLATFORM-102 — shared with the serialized timer-only path above, so the two
+    // cannot drift. A timer action arriving ALONGSIDE settings/owners/phase still
+    // takes this unserialized route; no client sends that combination, and
+    // converting the remaining handler is its own slice.
+    const next = applyTimerAction(draft, action);
+    if ('error' in next) {
+      return NextResponse.json({ error: next.error }, { status: next.status });
     }
+    draft = next;
   }
 
   draft = { ...draft, updatedAt: new Date().toISOString() };

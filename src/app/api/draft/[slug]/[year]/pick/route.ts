@@ -66,10 +66,60 @@ export async function POST(
   // first one's pick and refuses it (already-picked / wrong expected owner)
   // instead of overwriting it.
   //
-  // Validation ORDER is unchanged from the pre-transaction version, deliberately:
-  // several tests pin which error wins when a request is invalid in more than one
-  // way, and reordering (e.g. parsing the body before checking the phase) would
-  // change the response for an invalid-JSON POST to a non-live draft.
+  // NOTHING POOL-BACKED MAY RUN INSIDE THE CALLBACK. `withAppStateKeyTransaction`
+  // checks out one of only THREE pooled clients (`appStateStore.ts` → `max: 3`,
+  // no `connectionTimeoutMillis`, so `connect()` queues forever) and holds it for
+  // the whole callback, and same-key waiters hold their own client while blocked
+  // on the advisory lock. A nested `getAppState` inside the callback therefore
+  // needs a fourth client that the waiters cannot release until the owner
+  // commits — a permanent deadlock that starves DB access process-wide.
+  //
+  // The first version of this handler moved `getScopedAliasMap` (two `getAppState`
+  // reads) inside the transaction and would have deadlocked on two concurrent
+  // picks. `pick/[n]/route.ts` already had it right: resolve the alias map BEFORE
+  // opening the transaction. Same for `req.json()` — a slow or stalled request
+  // body must never pin a client and the draft lock.
+  //
+  // Validation ORDER is preserved by splitting fetch from decision: the reads and
+  // the resolve happen here, and every refusal is still returned from its original
+  // position inside the callback. Tests pin which error wins when a request is
+  // invalid in more than one way, so an invalid-JSON POST to a non-live draft must
+  // still answer "not live", not "invalid JSON".
+  let body: unknown;
+  let bodyParseFailed = false;
+  try {
+    body = await req.json();
+  } catch {
+    bodyParseFailed = true;
+  }
+
+  const { team, owner } = (bodyParseFailed ? {} : body) as { team?: unknown; owner?: unknown };
+  const teamName = typeof team === 'string' ? team.trim() : '';
+
+  // Resolve team via canonical teamIdentity resolver (handles aliases, normalization).
+  // Use the shared scoped alias source so stored global aliases are honored
+  // (precedence: stored global > year > SEED_ALIASES) — the same map canonical
+  // runtime resolution sees. Building it locally from year+seed here silently
+  // bypassed stored global aliases (PLATFORM-069).
+  const { items } = teamsData as TeamsJson;
+  const eligibleTeamNames = new Set(
+    getDraftEligibleTeams(items).map((t) => t.school.toLowerCase())
+  );
+  let canonicalTeam: string | null = null;
+  if (teamName) {
+    const aliasMap = await getScopedAliasMap('', year);
+    const resolver = createTeamIdentityResolver({ aliasMap, teams: items });
+    const resolution = resolver.resolveName(teamName);
+    // The resolved name must be a real draft-eligible catalog team. Checking
+    // membership in the eligible school set (not just `!= NoClaim`) keeps pick
+    // acceptance consistent with the confirm route — otherwise an alias that
+    // resolves to a non-catalog name (e.g. an FCS school) would be accepted here
+    // but rejected at confirmation, leaving an unconfirmable draft.
+    if (resolution.canonicalName && eligibleTeamNames.has(resolution.canonicalName.toLowerCase())) {
+      canonicalTeam = resolution.canonicalName;
+    }
+  }
+
   const outcome = await withAppStateKeyTransaction<PickOutcome>(
     draftScope(slug),
     String(year),
@@ -90,46 +140,17 @@ export async function POST(
         return { error: 'Draft is complete — no more picks', status: 422 };
       }
 
-      let body: unknown;
-      try {
-        body = await req.json();
-      } catch {
+      if (bodyParseFailed) {
         return { error: 'request body must be valid JSON', status: 400 };
       }
 
-      const { team, owner } = body as { team?: unknown; owner?: unknown };
-      if (typeof team !== 'string' || !team.trim()) {
+      if (!teamName) {
         return { error: 'team is required', status: 400 };
       }
 
-      const teamName = team.trim();
-
-      // Resolve team via canonical teamIdentity resolver (handles aliases, normalization).
-      // Use the shared scoped alias source so stored global aliases are honored
-      // (precedence: stored global > year > SEED_ALIASES) — the same map canonical
-      // runtime resolution sees. Building it locally from year+seed here silently
-      // bypassed stored global aliases (PLATFORM-069).
-      const { items } = teamsData as TeamsJson;
-      const aliasMap = await getScopedAliasMap('', year);
-      const resolver = createTeamIdentityResolver({ aliasMap, teams: items });
-      const resolution = resolver.resolveName(teamName);
-
-      // The resolved name must be a real draft-eligible catalog team. Checking
-      // membership in the eligible school set (not just `!= NoClaim`) keeps pick
-      // acceptance consistent with the confirm route — otherwise an alias that
-      // resolves to a non-catalog name (e.g. an FCS school) would be accepted here
-      // but rejected at confirmation, leaving an unconfirmable draft.
-      const eligibleTeamNames = new Set(
-        getDraftEligibleTeams(items).map((t) => t.school.toLowerCase())
-      );
-      if (
-        !resolution.canonicalName ||
-        !eligibleTeamNames.has(resolution.canonicalName.toLowerCase())
-      ) {
+      if (!canonicalTeam) {
         return { error: `Team "${teamName}" not found in FBS catalog`, status: 400 };
       }
-
-      const canonicalTeam = resolution.canonicalName;
 
       // Validate team not already picked. This now reads the list UNDER the lock,
       // which is what makes it a real guard: previously it checked a snapshot a
