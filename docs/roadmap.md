@@ -145,7 +145,9 @@ Future polish work (grouping by category, lifecycle filtering, pagination for lo
 
 #### Insights Ranker — Priority Tuning (planned)
 
-Audit base priority weights across all 26 generators. Add sample-depth awareness (e.g. "perfect record at 6 games" should not rank as high as "perfect record at 20 games"). Foundation for restoring row-1 visual prominence once the ranker earns it. Revisit when priority decay ships — defined as INSIGHTS-PRIORITY-DECAY in `docs/next-tasks.md` (previously a dangling reference).
+Audit base priority weights across all **21** registered generators (the "26" recorded here was
+never right — counted 2026-08-14 from `InsightGenerator` declarations; note several generators emit
+MORE THAN ONE insight type, which is likely where the higher number came from). Add sample-depth awareness (e.g. "perfect record at 6 games" should not rank as high as "perfect record at 20 games"). Foundation for restoring row-1 visual prominence once the ranker earns it. Revisit when priority decay ships — defined as INSIGHTS-PRIORITY-DECAY in `docs/next-tasks.md` (previously a dangling reference).
 
 - **Backlog slug (provisional):** `INSIGHTS-RANKER-TUNING-v1`
 
@@ -163,7 +165,14 @@ Points scored vs points allowed differential — "lucky" or "unlucky" based on o
 
 Identifies owners trending down who historically recover — combines Volatility + Trending Down signals.
 
-#### Insights — "See All" Dedicated Page (planned)
+#### Insights — "See All" Dedicated Page ✓ Complete (shipped as ALL-INSIGHTS-PAGE)
+
+**Status corrected 2026-08-14:** this shipped under a different name and the entry was never
+updated — the route is live at `src/app/league/[slug]/insights/` and `docs/next-tasks.md` records
+`Insights — All Insights Page (ALL-INSIGHTS-PAGE)` as complete. Left in place rather than deleted
+because the original wording is what INSIGHTS-023 builds ON: that campaign points this existing page
+at an uncapped `catalog` surface so "See all" means all of it, rather than the same five the Overview
+shows.
 
 Full-page view of all insights for a league, accessible via "See all →" from the overview panel. Grouped by category, full descriptions, lifecycle filtering.
 
