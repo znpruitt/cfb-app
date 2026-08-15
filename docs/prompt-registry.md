@@ -52,11 +52,12 @@ Rules:
 
 ### PLATFORM-099-DRAFT-NIGHT-SAFETY-v1
 
-- Status: **Implemented — PR pending** (branch `platform/099-draft-night-safety`).
+- Status: ✅ **MERGED** — PR #477 (`9537f7e8`), 2026-08-14. Branch deleted.
 - Purpose: remove the ways the draft and roster surfaces could destroy or misreport work on draft
   night, without touching the membership-authority predicate that stopped PLATFORM-098.
-- Sizing: **code 14 files, +676/-80 (596 net)** — reproduce with
-  `git diff --shortstat main...9358b4cb -- src`. Within the
+- Sizing: **code 14 files, +719/-80 (639 net)** — reproduce with
+  `git diff --shortstat 9537f7e8^1 9537f7e8 -- src`, the merge itself. Named at the merge commit
+  because that is the only reference that cannot go stale afterwards. Within the
   stop-and-reassess signals. Four of the fourteen are the `/league/[slug]/draft/*` conversions review
   required; a fifth is `src/lib/rosterEditing.ts`, the extraction Codex's confirming pass required.
 - **The sizing record drifted FIVE times before it held, and the fixes kept missing the cause.**

@@ -390,9 +390,8 @@ Supersedes: (none)
     Sequencing against PLATFORM-097 is undecided; they are adjacent (both are draft-recovery states)
     but distinct seams, and 097 already carries seven findings.
 
-18. ⏳ **PLATFORM-099 — draft-night safety.** Implemented, PR pending
-    (branch `platform/099-draft-night-safety`). Re-derived from clean `main` after PLATFORM-098
-    stopped, carrying nothing from that branch. Cut to the items that never touch the membership
+18. ✅ **PLATFORM-099 — COMPLETE** (PR #477, `9537f7e8`, 2026-08-14). Re-derived from clean `main`
+    after PLATFORM-098 stopped, carrying nothing from that branch. Cut to the items that never touch the membership
     predicate, so a commissioner drafting the week of 2026-08-21 is not exposed to the hazard below.
 
     - **Reset costs a TYPED SLUG.** It was arm-then-confirm on the SAME button, in the same place —
