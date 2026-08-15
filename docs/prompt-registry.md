@@ -55,12 +55,17 @@ Rules:
 - Status: **Implemented — PR pending** (branch `platform/099-draft-night-safety`).
 - Purpose: remove the ways the draft and roster surfaces could destroy or misreport work on draft
   night, without touching the membership-authority predicate that stopped PLATFORM-098.
-- Sizing: **code 13 files, +651/-76 (575 net)** — `git diff --shortstat main...HEAD -- src` **at
-  `38c85119`**, the last commit touching `src/`. Named commit AND code-only, because neither alone
-  was enough: a combined figure changes when this entry is written, and a code-only figure recorded
-  before the final source commit goes stale anyway — which is exactly how it drifted here, for the
-  fourth time on this project. Both reviewers caught it. Within the stop-and-reassess signals. Four
-  of the thirteen are the `/league/[slug]/draft/*` conversions review required.
+- Sizing: **code 14 files, +676/-80 (596 net)** — reproduce with
+  `git diff --shortstat main...9358b4cb -- src`. Within the
+  stop-and-reassess signals. Four of the fourteen are the `/league/[slug]/draft/*` conversions review
+  required; a fifth is `src/lib/rosterEditing.ts`, the extraction Codex's confirming pass required.
+- **The sizing record drifted FIVE times before it held, and the fixes kept missing the cause.**
+  Code-only was supposed to solve it — a combined figure changes the moment you write it into this
+  entry — but a code-only figure still goes stale when a later commit touches `src/`, which
+  remediation rounds do. Naming the commit was closer, and I then invalidated my own claim by calling
+  `38c85119` "the last commit touching `src/`" and immediately landing another. **The rule that
+  actually works: state the figure, name the commit it came from, and claim nothing about what
+  follows it.**
 - **Re-derived from clean `main`, carrying nothing from the stopped branch** — `AGENTS.md`
   reconstruction. See the PLATFORM-098 entry below for what stopped and what remains open.
 - **Reset costs a typed slug.** It was arm-then-confirm on the SAME button, in the same place, and
