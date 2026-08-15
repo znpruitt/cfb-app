@@ -79,7 +79,13 @@ export function selectRosterRows(
         const bUnowned = isUnowned(bo);
         if (aUnowned && !bUnowned) return 1;
         if (bUnowned && !aUnowned) return -1;
-        const byOwner = ao.localeCompare(bo);
+        // Two unowned rows are EQUAL on owner and fall to the school tiebreaker.
+        // Comparing the raw strings left `''` and `NoClaim` as sub-groups inside
+        // the trailing block that swapped ends whenever the direction toggled —
+        // reachable on any confirmed league that also has catalog teams with no
+        // stored row, a state this panel itself produces. If these rows are the
+        // backdrop rather than the task, they should not move at all.
+        const byOwner = aUnowned && bUnowned ? 0 : ao.localeCompare(bo);
         const cmp = byOwner !== 0 ? byOwner : a.school.localeCompare(b.school);
         return sortDir === 'asc' ? cmp : -cmp;
       }
@@ -106,17 +112,34 @@ export function countEditedTeams(
 ): number {
   let n = 0;
   for (const { school } of teams) {
-    if ((savedOwners.get(school) ?? '') !== (draftOwners.get(school) ?? '')) n++;
+    const before = savedOwners.get(school) ?? '';
+    const after = draftOwners.get(school) ?? '';
+    // `isUnowned` on BOTH sides — review caught this function sitting between two
+    // that were unified and still comparing raw strings. `NoClaim` and `''` are
+    // the same fact, so clearing a `NoClaim` field changes nothing about
+    // ownership. Bulk Reassign makes that a one-click mass action (From
+    // `NoClaim`, To blank — which the field's own placeholder advertises), and it
+    // reported "120 teams change owner" for a save that changed nobody's.
+    if (isUnowned(before) && isUnowned(after)) continue;
+    if (before !== after) n++;
   }
   return n;
 }
 
 /**
- * Rows the save will DELETE because their team is not in the catalog.
+ * Owner claims the save will DROP because the team is not in the catalog.
  *
  * `buildCsv` emits rows only for teams present in `teams`, so a stored roster row
  * whose school is absent from it disappears on save while both maps hold it
- * identically. Reported separately rather than folded into the edit count, and
+ * identically.
+ *
+ * Deliberately NOT an exact count of rows deleted: a `NoClaim` orphan row is
+ * deleted too, and nobody held it. The figure exists to warn about losing
+ * SOMEONE'S TEAM, so the UI says exactly that — review found the number and the
+ * sentence describing it had drifted apart, leaving the prompt claiming to count
+ * rows while counting owner claims.
+ *
+ * Reported separately rather than folded into the edit count, and
  * that separation is a correction: one number served as both the Save gate and
  * the confirmation's headline, and `teams` is the STATIC `teams.json` import
  * while the stored CSV was validated against the mutable team database seeded

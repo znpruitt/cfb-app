@@ -340,7 +340,7 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
             This rewrites the whole {year} roster as shown below, and standings follow it
             immediately.
             {droppedRowCount > 0 &&
-              ` ${droppedRowCount} stored ${droppedRowCount === 1 ? 'row is' : 'rows are'} for teams no longer in the catalog and will be removed.`}
+              ` ${droppedRowCount} owned ${droppedRowCount === 1 ? 'team is' : 'teams are'} no longer in the catalog and will lose ${droppedRowCount === 1 ? 'its owner' : 'their owners'}.`}
           </p>
           <div className="mt-3 flex gap-2">
             <button
