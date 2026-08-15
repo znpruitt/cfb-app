@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { describeLeagueLifecycle } from '../leagueLifecycle.ts';
+import { describeLeagueLifecycle, resolveLeagueOperatingYear } from '../leagueLifecycle.ts';
 import type { LeagueStatus } from '../../league.ts';
 
 // ---------------------------------------------------------------------------
@@ -178,4 +178,37 @@ test('ownership distinguishes automatic, operator-owned, and unowned', () => {
   assert.equal(ownership({ ...PRODUCTION, storedStatus: { state: 'offseason' } }), 'operator');
   assert.equal(ownership({ storedStatus: null, fallbackYear: 2025, isDemo: true }), 'operator');
   assert.equal(ownership({ ...PRODUCTION, storedStatus: null }), 'unowned');
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-099 — which season a league is operating in.
+// ---------------------------------------------------------------------------
+
+test('the operating year comes from the STATUS in preseason and season', () => {
+  // The case this exists for: a legacy record whose top-level year has drifted
+  // from its lifecycle year. `/admin/{slug}/roster` read the top-level one and
+  // therefore edited `owners:{slug}:{wrong year}` — silently, since the page
+  // displayed no season at all.
+  assert.equal(
+    resolveLeagueOperatingYear({ year: 2025, status: { state: 'preseason', year: 2026 } }),
+    2026
+  );
+  assert.equal(
+    resolveLeagueOperatingYear({ year: 2025, status: { state: 'season', year: 2026 } }),
+    2026
+  );
+});
+
+test('the operating year falls back to the registry year in offseason', () => {
+  // The boundary. `offseason` carries no year, so the top-level one is correct
+  // there — without this, reading `status.year` unconditionally would be
+  // undefined and nothing else in the suite would notice.
+  assert.equal(resolveLeagueOperatingYear({ year: 2026, status: { state: 'offseason' } }), 2026);
+});
+
+test('the operating year survives a missing status', () => {
+  // `getAppState` performs no runtime validation and legacy records predate the
+  // status field entirely.
+  assert.equal(resolveLeagueOperatingYear({ year: 2026 }), 2026);
+  assert.equal(resolveLeagueOperatingYear({ year: 2026, status: null }), 2026);
 });

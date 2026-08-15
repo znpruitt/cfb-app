@@ -4,6 +4,7 @@ import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import RosterEditorPanel from '@/components/admin/RosterEditorPanel';
 import RosterUploadPanel from '@/components/admin/RosterUploadPanel';
 import { getLeague } from '@/lib/leagueRegistry';
+import { resolveLeagueOperatingYear } from '@/lib/selectors/leagueLifecycle';
 import { sanitizeLeague } from '@/lib/leagueSanitize';
 import teamsData from '@/data/teams.json';
 
@@ -21,7 +22,13 @@ export default async function AdminLeagueRosterPage({
   // notFound() throws — league is non-null below this point
   const definedLeague = league!;
 
-  const year = definedLeague.year;
+  // PLATFORM-099 — resolve the season the way every lifecycle-aware surface does.
+  // This page keyed off the top-level `year`. `applyLifecycleStatus` projects one
+  // from the other for every non-offseason state, so they agree for anything
+  // written through the lifecycle authority — but `leagueRegistry` explicitly
+  // contemplates a desynchronized top-level year on legacy records, and this page
+  // displayed no year at all, which is what would let the mismatch hide.
+  const year = resolveLeagueOperatingYear(definedLeague);
   const teams = (teamsData.items as { school: string; conference: string }[]).map((t) => ({
     school: t.school,
     conference: t.conference,
@@ -37,7 +44,9 @@ export default async function AdminLeagueRosterPage({
           { label: 'Roster' },
         ]}
       />
-      <h1 className="text-xl font-bold">{definedLeague.displayName} — Roster</h1>
+      <h1 className="text-xl font-bold">
+        {definedLeague.displayName} — {year} Roster
+      </h1>
 
       {/* ---- Upload Roster CSV ---- */}
       <section className="space-y-3">
@@ -46,12 +55,16 @@ export default async function AdminLeagueRosterPage({
             Historical / repair roster CSV import
           </h2>
           <p className="mt-1 text-xs text-gray-400 dark:text-zinc-600">
-            Platform-admin historical/backfill import and roster repair with fuzzy team name
-            matching. Current-season ownership is normally managed through the draft / manual
-            assignment flow.
+            Bulk import for a past season, or repair from a file, with fuzzy team name matching. To
+            change who owns a team this season, use the editor below.
           </p>
         </div>
-        <RosterUploadPanel leagues={[sanitizeLeague(definedLeague)]} />
+        {/* The resolved year reaches the import panel too. Passing the league
+            untouched left its year selector defaulting to the top-level `year`,
+            so on precisely the desynchronized record this resolution handles the
+            page would show one season in the heading and pre-select another in
+            the importer beneath it. */}
+        <RosterUploadPanel leagues={[{ ...sanitizeLeague(definedLeague), year }]} />
       </section>
 
       {/* ---- Edit Roster Directly ---- */}
@@ -61,8 +74,8 @@ export default async function AdminLeagueRosterPage({
             Edit Roster Directly
           </h2>
           <p className="mt-1 text-xs text-gray-400 dark:text-zinc-600">
-            Inline editor for team-owner assignments. Use for fixes, mid-season transfers, or
-            leagues without a formal draft.
+            Who owns each team this season. Use it for fixes, mid-season transfers, or leagues
+            without a formal draft — standings follow it immediately.
           </p>
         </div>
         <RosterEditorPanel slug={slug} year={year} teams={teams} />

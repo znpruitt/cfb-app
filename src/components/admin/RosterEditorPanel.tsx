@@ -5,17 +5,21 @@ import { useRouter } from 'next/navigation';
 
 import { getAdminAuthHeaders } from '@/lib/adminAuth';
 import { OWNER_ROSTER_OVERWRITE_ERROR } from '@/lib/ownerRosterGuard';
-
-type TeamEntry = { school: string; conference: string };
+import {
+  SORTABLE_COLUMNS,
+  countDroppedRows,
+  countEditedTeams,
+  selectRosterRows,
+  type SortDir,
+  type SortKey,
+  type TeamEntry,
+} from '@/lib/rosterEditing';
 
 type Props = {
   slug: string;
   year: number;
   teams: TeamEntry[];
 };
-
-type SortKey = 'school' | 'conference';
-type SortDir = 'asc' | 'desc';
 
 function csvField(s: string): string {
   if (s.includes(',') || s.includes('"') || s.includes('\n')) {
@@ -118,6 +122,21 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
   const [bulkTo, setBulkTo] = useState('');
 
   const hasChanges = !mapsEqual(draftOwners, savedOwners);
+
+  const editedTeamCount = countEditedTeams(savedOwners, draftOwners, teams);
+  const droppedRowCount = countDroppedRows(savedOwners, teams);
+  // Save is gated on the SAME count the confirmation reports, so the two cannot
+  // disagree. `handleOwnerChange` writes an entry unconditionally, so typing a
+  // character into an unowned team's field and deleting it leaves `school -> ''`
+  // that `savedOwners` lacks: `mapsEqual` compares sizes and says "changed",
+  // while the count normalizes both sides and says zero. That combination put a
+  // destructive-sounding confirmation on screen — "0 teams change owner. This
+  // rewrites the whole 2026 roster…" — which is exactly what teaches an operator
+  // to click through the prompt.
+  // Gated on the EDIT count alone. Dropped rows are a consequence of saving, not
+  // a request to save: gating on them would let a click the operator never
+  // intended delete roster rows they cannot see.
+  const canSave = hasChanges && editedTeamCount > 0;
 
   const loadRoster = useCallback(async () => {
     setLoading(true);
@@ -232,14 +251,7 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
     }
   }
 
-  const filtered = teams
-    .filter((t) => t.school.toLowerCase().includes(search.toLowerCase()))
-    .sort((a, b) => {
-      const av = sortKey === 'school' ? a.school : a.conference;
-      const bv = sortKey === 'school' ? b.school : b.conference;
-      const cmp = av.localeCompare(bv);
-      return sortDir === 'asc' ? cmp : -cmp;
-    });
+  const filtered = selectRosterRows(teams, { search, sortKey, sortDir, savedOwners });
 
   const SortIcon = ({ col }: { col: SortKey }) =>
     sortKey === col ? (
@@ -288,6 +300,11 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
         <div className="flex gap-2" hidden={needsOverrideConfirm}>
           <button
             onClick={handleDiscard}
+            // Deliberately NOT `canSave`. Discard is the escape from the exact
+            // state where the two disagree — an entry that leaves `hasChanges`
+            // true with nothing actually edited — and gating it there left the
+            // "Unsaved changes" badge on screen with no control that clears it
+            // and reload as the only way out.
             disabled={!hasChanges || saving}
             className="rounded border border-gray-300 dark:border-zinc-600 bg-gray-50 dark:bg-zinc-800 px-3 py-1.5 text-sm text-gray-600 dark:text-zinc-300 hover:bg-gray-100 dark:hover:bg-zinc-700 disabled:opacity-40 disabled:cursor-not-allowed"
           >
@@ -295,7 +312,7 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
           </button>
           <button
             onClick={handleSave}
-            disabled={!hasChanges || saving}
+            disabled={!canSave || saving}
             className="rounded bg-blue-600 px-4 py-1.5 text-sm font-medium text-gray-900 dark:text-white hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {saving ? 'Saving…' : 'Save Changes'}
@@ -307,20 +324,38 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
       {needsOverrideConfirm && (
         <div className="rounded border border-amber-300/60 bg-amber-50 p-3 dark:border-amber-700/50 dark:bg-amber-950/30">
           <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
-            Overwrite the active-season owner roster?
+            Change the {year} rosters?
           </p>
+          {/* PLATFORM-099 — the COPY, not the guard.
+              This called current-season roster editing abnormal and asked for a
+              "platform-admin repair" override, which was true when this page was
+              repair-only. It is where a commissioner fixes an owner or a team
+              assignment after a draft, so the prompt now describes the edit.
+              The confirmation STAYS: the editor sends the whole roster on every
+              save, so one renamed owner and a wholesale clobber are the same
+              request to the API, and a mistake here rewrites a season of
+              ownership. */}
           <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-300/80">
-            This league already has a roster for the current season. Confirming writes the roster as
-            currently shown below. Current-season ownership is normally managed through the draft /
-            manual assignment flow — override is for platform-admin repair.
+            {editedTeamCount === 1 ? '1 team changes' : `${editedTeamCount} teams change`} owner.
+            This rewrites the whole {year} roster as shown below, and standings follow it
+            immediately.
+            {droppedRowCount > 0 &&
+              ` ${droppedRowCount} stored ${droppedRowCount === 1 ? 'row is' : 'rows are'} for teams no longer in the catalog and will be removed.`}
           </p>
           <div className="mt-3 flex gap-2">
             <button
-              onClick={() => void doSave(buildCsv(teams, draftOwners), true)}
-              disabled={saving}
+              // Re-checked, and disabled: the fields stay editable while this
+              // confirmation is open, so reverting the last edit here left an
+              // enabled button that still sent `override=1` while the prompt
+              // above it read zero.
+              onClick={() => {
+                if (!canSave) return;
+                void doSave(buildCsv(teams, draftOwners), true);
+              }}
+              disabled={!canSave || saving}
               className="rounded bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed"
             >
-              {saving ? 'Saving…' : 'Confirm overwrite'}
+              {saving ? 'Saving…' : 'Confirm changes'}
             </button>
             <button
               onClick={() => setNeedsOverrideConfirm(false)}
@@ -347,19 +382,35 @@ export default function RosterEditorPanel({ slug, year, teams }: Props): React.R
         <table className="min-w-full text-sm">
           <thead className="bg-gray-50 dark:bg-zinc-800 text-xs text-gray-500 dark:text-zinc-400">
             <tr>
-              <th
-                className="px-4 py-2.5 text-left cursor-pointer select-none hover:text-gray-800 dark:hover:text-zinc-200"
-                onClick={() => toggleSort('school')}
-              >
-                Team <SortIcon col="school" />
-              </th>
-              <th
-                className="px-4 py-2.5 text-left cursor-pointer select-none hover:text-gray-800 dark:hover:text-zinc-200"
-                onClick={() => toggleSort('conference')}
-              >
-                Conference <SortIcon col="conference" />
-              </th>
-              <th className="px-4 py-2.5 text-left">Owner</th>
+              {/* PLATFORM-099 — a `<th>` carrying only an onClick is not
+                  focusable and has no keyboard handler, so sorting was
+                  pointer-only. Adding a third such header would have made this
+                  page's primary affordance unreachable for keyboard users in one
+                  more place, so all three become buttons and expose `aria-sort`
+                  rather than leaving the new one consistent with two defects. */}
+              {SORTABLE_COLUMNS.map(({ key, label }) => (
+                <th
+                  key={key}
+                  scope="col"
+                  aria-sort={
+                    sortKey === key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'
+                  }
+                  className="text-left"
+                >
+                  {/* The button FILLS the cell and carries its padding: moving
+                      the handler off the `th` shrank the hit area so a click in
+                      the header's padding no longer sorted. `cursor-pointer` is
+                      explicit because Tailwind v4's Preflight sets buttons to
+                      `cursor: default`. */}
+                  <button
+                    type="button"
+                    onClick={() => toggleSort(key)}
+                    className="w-full cursor-pointer select-none px-4 py-2.5 text-left hover:text-gray-800 dark:hover:text-zinc-200"
+                  >
+                    {label} <SortIcon col={key} />
+                  </button>
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-50 dark:divide-zinc-800">

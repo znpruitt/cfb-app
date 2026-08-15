@@ -202,3 +202,107 @@ test('active-season league-scoped write still requires admin auth', async () => 
   );
   assert.equal(res.status, 401);
 });
+
+test('the overwrite guard follows the LIFECYCLE year, not the registry year', async () => {
+  // PLATFORM-099. `/admin/{slug}/roster` resolves the season it edits with
+  // `resolveLeagueOperatingYear` (status.year), while this guard classified
+  // "historical" by the registry's top-level `year`. On a legacy record where
+  // the two have drifted with `status.year` BELOW `league.year`, every save from
+  // that page fell into the `year < league.year` historical/backfill branch — so
+  // the 409 never fired and an accidental save silently clobbered a populated
+  // active-season roster, defeating AGENTS.md invariant 12.
+  const desynchronized: League = {
+    slug: GUARD_SLUG,
+    displayName: 'Turf War',
+    // The drift the registry warns is reachable on legacy records: a stale
+    // top-level year ABOVE the lifecycle year.
+    year: 2026,
+    createdAt: '2025-01-01T00:00:00.000Z',
+    status: { state: 'season', year: 2025 },
+  };
+  await setAppState('leagues', 'registry', [desynchronized]);
+
+  const first = await ownersPut(`league=${GUARD_SLUG}&year=2025`, 'Team,Owner\nTexas,Alice');
+  assert.equal(first.status, 200, 'initial creation is unguarded');
+
+  const second = await ownersPut(`league=${GUARD_SLUG}&year=2025`, 'Team,Owner\nAlabama,Bob');
+  const payload = (await second.json()) as { error?: string };
+  assert.equal(second.status, 409, 'the season the league is OPERATING in is guarded');
+  assert.equal(payload.error, OWNER_ROSTER_OVERWRITE_ERROR);
+
+  // The roster the rejected write targeted is untouched.
+  const getRes = await GET(
+    new Request(`http://localhost/api/owners?league=${GUARD_SLUG}&year=2025`, {
+      headers: { 'x-admin-token': 'test-admin-token' },
+    })
+  );
+  const body = (await getRes.json()) as { csvText: string | null };
+  assert.match(body.csvText ?? '', /Alice/);
+  assert.doesNotMatch(body.csvText ?? '', /Bob/);
+});
+
+test('a genuinely PAST season stays unguarded on the same record', async () => {
+  // The positive control. If the guard now fired on every year the test above
+  // would pass for the wrong reason, and historical/backfill imports — which
+  // AGENTS.md invariant 12 keeps deliberately unguarded — would start 409ing.
+  const desynchronized: League = {
+    slug: GUARD_SLUG,
+    displayName: 'Turf War',
+    year: 2026,
+    createdAt: '2025-01-01T00:00:00.000Z',
+    status: { state: 'season', year: 2025 },
+  };
+  await setAppState('leagues', 'registry', [desynchronized]);
+
+  assert.equal(
+    (await ownersPut(`league=${GUARD_SLUG}&year=2024`, 'Team,Owner\nTexas,Alice')).status,
+    200
+  );
+  assert.equal(
+    (await ownersPut(`league=${GUARD_SLUG}&year=2024`, 'Team,Owner\nAlabama,Bob')).status,
+    200
+  );
+});
+
+test('the OPPOSITE drift loosens only genuinely past seasons', async () => {
+  // PLATFORM-099, code-review finding: the guard fix is asymmetric, and only the
+  // tightening direction was pinned. When `league.year` sits BELOW `status.year`,
+  // a write to `league.year` previously evaluated `2025 < 2025` -> guarded and
+  // now evaluates `2025 < 2026` -> historical, so the 409 stops firing.
+  //
+  // That is the CORRECT classification — 2025 is genuinely past for a league
+  // operating in 2026 — but it is a behaviour change on legacy records, and an
+  // unstated loosening is how a guard quietly stops guarding. Verified at the
+  // HTTP surface against `main` before being written down: `main` returns 409
+  // here and 200 for the operating season; this branch is the reverse.
+  const drifted: League = {
+    slug: GUARD_SLUG,
+    displayName: 'Turf War',
+    year: 2025,
+    createdAt: '2025-01-01T00:00:00.000Z',
+    status: { state: 'preseason', year: 2026 },
+  };
+  await setAppState('leagues', 'registry', [drifted]);
+
+  // The season the league is OPERATING in stays guarded.
+  assert.equal(
+    (await ownersPut(`league=${GUARD_SLUG}&year=2026`, 'Team,Owner\nTexas,Alice')).status,
+    200
+  );
+  assert.equal(
+    (await ownersPut(`league=${GUARD_SLUG}&year=2026`, 'Team,Owner\nAlabama,Bob')).status,
+    409,
+    'the operating season is protected regardless of the stale top-level year'
+  );
+
+  // A genuinely past season is not — and this is the branch that changed.
+  assert.equal(
+    (await ownersPut(`league=${GUARD_SLUG}&year=2025`, 'Team,Owner\nTexas,Alice')).status,
+    200
+  );
+  assert.equal(
+    (await ownersPut(`league=${GUARD_SLUG}&year=2025`, 'Team,Owner\nAlabama,Bob')).status,
+    200,
+    'past-season backfill stays unguarded, as AGENTS.md invariant 12 intends'
+  );
+});

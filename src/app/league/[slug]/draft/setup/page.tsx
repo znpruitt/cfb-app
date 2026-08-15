@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 import { getLeague } from '@/lib/leagueRegistry';
+import { resolveLeagueOperatingYear } from '@/lib/selectors/leagueLifecycle';
 import { getAppState } from '@/lib/server/appStateStore';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
 import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
@@ -31,10 +32,8 @@ export default async function DraftSetupPage({
   const league = await getLeague(slug);
   if (!league) notFound();
 
-  // Derive year from lifecycle status — preseason/season use status.year, offseason falls back to league.year
   const status = league.status;
-  const year =
-    status?.state === 'preseason' || status?.state === 'season' ? status.year : league.year;
+  const year = resolveLeagueOperatingYear(league);
 
   // Load existing draft state if any
   const draftRecord = await getAppState<DraftState>(draftScope(slug), String(year));

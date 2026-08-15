@@ -345,14 +345,83 @@ Supersedes: (none)
     only link to it in the app, and it renders only BEFORE a draft. **No new editing capability is
     needed** — the inline editor and its bulk owner-rename already cover typo fixes and transfers.
 
+    **⛔ STOPPED 2026-08-14 — branch `platform/098-membership-authority-after-publication`
+    abandoned at `e83ae718`, NOT merged.** Three remediation rounds; the fourth still produced
+    credible P1s from both reviewers. `AGENTS.md` → Review and remediation limits rule 7 and the
+    reconstruction rule both apply. The draft-night safety subset was re-derived from clean `main`
+    as **PLATFORM-099**; everything below remains unimplemented.
+
+    **The membership predicate failed THREE times, each on a different edge — which is the signal
+    that its INPUT is wrong, not its clauses:**
+    - `usable roster && draft still holds picks` → broke reopen-then-undo-every-pick: authority
+      reverted while the roster was still serving standings.
+    - `usable roster && publishedPicks present` → broke LEGACY rows. The pre-098 reset paths never
+      cleared the marker (they relied on the digest ceasing to match, which is enough for
+      `isDraftPublished` because it recomputes). Those rows read as standing on deploy.
+    - `+ pre-draft phases with no picks` → the legacy row still captured membership at the re-run
+      draft's FIRST PICK, and a later reset then wrote the discarded roster's owners into
+      `preseason-owners`, durably clobbering the commissioner's list.
+
+    **What a re-derivation must carry (all reviewer-confirmed, none fixed):**
+    - **Reopen → Confirm reverts direct roster edits.** `POST /confirm` rebuilds the roster from
+      `pick.owner`, which the roster editor never touches. A guard needs checks at BOTH Reopen and
+      Confirm — refusing only at Confirm strands a commissioner mid-correction with the old roster
+      still live.
+    - **The comparison needs CANONICAL TEAM IDENTITY.** `PUT /api/owners` validates aliases but
+      stores the submitted text, so `Ohio St.` vs a pick for `Ohio State` reads as an edit and 409s a
+      legitimate reopen (`AGENTS.md` requires the shared resolver). It must also compare roster rows
+      OUTSIDE the picks: `buildConfirmedOwnersCsv` writes `NoClaim` for every undrafted team, so
+      assigning one in the editor is invisible to a picks-only comparison and silently reverted.
+    - **`owners:{slug}:{year}` has a writer outside the locking protocol.** `PUT /api/owners` uses
+      plain `setAppState`, so it does not participate in the reset transaction's locks. Any authority
+      that depends on reading that record transactionally is unsound until this is addressed.
+    - **`confirmPreseasonOwners` check-then-write is not atomic** — a confirm landing between them
+      writes the superseded list and redirects as success.
+    - **A one-owner roster drops authority.** `hasUsableOfficialRoster` requires two distinct owners,
+      so moving every team to one owner falls back to stale preseason names while standings keep
+      using the roster.
+    - **A "Reset the draft" pointer must account for `published-roster-missing`.** The summary's
+      `canPublish` is true there while `DraftSetupShell` gates Reset on `isDraftPublished` alone, so
+      a naive link points at a page with no Reset control.
+
+    **Sequence this with the owner-ID work (item 15), not before it.** Every failure above is the
+    same fact — ownership stored as a display NAME in three records that can disagree.
+
     Sequencing against PLATFORM-097 is undecided; they are adjacent (both are draft-recovery states)
     but distinct seams, and 097 already carries seven findings.
 
-18. **Then — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
-19. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+18. ⏳ **PLATFORM-099 — draft-night safety.** Implemented, PR pending
+    (branch `platform/099-draft-night-safety`). Re-derived from clean `main` after PLATFORM-098
+    stopped, carrying nothing from that branch. Cut to the items that never touch the membership
+    predicate, so a commissioner drafting the week of 2026-08-21 is not exposed to the hazard below.
+
+    - **Reset costs a TYPED SLUG.** It was arm-then-confirm on the SAME button, in the same place —
+      and that card also carries the pick timer, which is what brings anyone to the page mid-draft.
+      One mis-click destroyed a live draft, with no undo. The panel requires the slug typed and the
+      handler re-checks it, so a keyboard submit cannot pass a `disabled` attribute; both the trigger
+      and the panel carry the published-draft gate. It deliberately states NO pick count — the shell
+      does not poll, so a figure it cannot guarantee is worse than none.
+    - **The roster editor sorts by OWNER**, on the COMMITTED map — ordering by the unsaved map
+      re-sorts on every keystroke and slides the field out from under the cursor. Unowned teams sort
+      last in both directions.
+    - **The roster page stops contradicting itself.** It headlined "Historical / repair roster CSV
+      import" and called current-season ownership a draft-flow concern, while the overwrite prompt
+      asked for a "platform-admin repair" override. The confirmation STAYS — the editor sends the
+      whole roster on every save — but now reports what is changing, counting rows the save DROPS as
+      well as owners it changes.
+    - **And it edits the right season.** `resolveLeagueOperatingYear` joins
+      `resolveDisplayLeagueStatus` in the lifecycle selector, and the four `/league/[slug]/draft/*`
+      routes that inlined the same ternary now call it. The season is in the heading.
+
+    Review record — including the guard regression this introduced and its remediation — is in
+    `docs/prompt-registry.md`, which owns it (`AGENTS.md` → documentation ownership: this file must
+    not carry review histories).
+
+19. **Then — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
+20. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
     later.
-20. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
+21. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
     PLATFORM-093** — a brand-new league had no path to confirm owners — new leagues are born `season`, `/admin/[slug]/preseason/owners`
     redirects away unless the league is in `preseason`, and only `beginPreseason` (offseason-only) or
     the rollover cron reach that state, leaving only the historical/repair CSV import, which asks the
@@ -372,7 +441,7 @@ Supersedes: (none)
     shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
     constant. Severity was overstated when first reported — three client components already import
     that module, so the graph is in the client bundle on every league page anyway.
-21. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
+22. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
     Verified 2026-08-12. `DELETE /api/admin/leagues/[slug]` calls `removeLeague`, which filters the
     slug out of the registry list and nothing else. Every keyed record survives: `owners:{slug}:{year}`
     (team→owner rosters carrying real names), `preseason-owners:{slug}`, `draft:{slug}` (picks and
@@ -402,12 +471,12 @@ Supersedes: (none)
     the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
     the honest options are a purge that removes the residue, an already-archived guard in the
     rollover path, or retiring adoption — all of which are this campaign's decisions.
-22. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+23. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
     once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
     retry.
-23. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+24. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -417,7 +486,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-24. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+25. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 
