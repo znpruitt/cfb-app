@@ -174,6 +174,14 @@ Full-page view of all insights for a league, accessible via "See all →" from t
 > mechanical one. The preseason content ideas below — draft-based insights and schedule-strength
 > projections — were split again to `INSIGHTS-027`, because they are new generators rather than the
 > weekly cadence. See `docs/next-tasks.md` for queue position.
+>
+> **Reframed 2026-08-14 (owner):** the pulse is ONE artifact with two renderings — a compact card on
+> the league home and the full pulse on its tab — and it is also the **event source** for the insights
+> stream, which today produces only standing facts. It composes from standings movement, odds-vs-result
+> upsets, head-to-head shifts and record changes, not only from generated insights. **"Monday 6am ET
+> (11am UTC)" below is wrong for most of the season** — football runs mostly in EDT, where 6am ET is
+> 10am UTC. Express the intent in ET. See `docs/next-tasks.md` INSIGHTS-026 for the framework's open
+> questions.
 
 Enrich the existing insights panel on the overview page with contextual, data-driven narrative content. The panel structure is already built — this campaign populates it with meaningful insights that adapt automatically based on lifecycle state (offseason / preseason / in-season / postseason).
 

@@ -551,21 +551,59 @@ Supersedes: (none)
     trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
     For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
 
-25. **INSIGHTS-026 — two weekly in-season pulses.** **ID split out 2026-08-14: this campaign was
-    filed under INSIGHTS-018**, which the backlog also used for the NEW-tag mechanism, so a full
-    content campaign was hiding behind a mechanical one. Owner confirmed 2026-08-14 that it is still
-    wanted — _"it helps make the app feel alive"_. Design detail stays in `docs/roadmap.md` →
-    "Insights Engine — Two Weekly In-Season Pulses"; this entry exists so the queue can see it.
+25. **INSIGHTS-026 — the pulse: a scheduled digest, and the insights stream's EVENT SOURCE.**
+    **ID split out 2026-08-14: this campaign was filed under INSIGHTS-018**, which the backlog also
+    used for the NEW-tag mechanism, so a content campaign was hiding behind a mechanical one. Owner
+    confirmed it is still wanted — _"it helps make the app feel alive"_. Design detail stays in
+    `docs/roadmap.md` → "Insights Engine — Two Weekly In-Season Pulses"; this entry is the queue's
+    view and the record of the 2026-08-14 design conversation.
 
-    - **Monday 6am ET — Look Back**: weekend recap, standings movement, owner-vs-owner outcomes,
-      trash-talk fodder. **Thursday 6am ET — Forward Look**: games to watch, collisions ahead,
-      rivalry implications, who needs a win.
-    - **Scheduled, which nothing in the current insights model contemplates** — the engine is
-      request-time and stateless apart from suppression. Cadence means cron, and cron on this project
-      means a receipt and a runtime event (`PLATFORM-086F2E1`), plus the year-validity and
-      demo-exclusion rules every other job carries.
-    - **Placement:** 2–3 highlights on Overview, full pulse on a dedicated tab.
-    - In-season only, so it does nothing for the preseason feed; sequence it after 018/023/024.
+    **ONE artifact, two renderings, and it is also a producer.** The owner's framing: the pulse and a
+    "Week X Highlights" card are the same thing, not two products. It renders compactly on the league
+    home and in full on its own tab — the relationship Overview already has with "See all" — and its
+    findings ALSO seed the insights stream as timely items.
+
+    **This is the missing half of the INSIGHTS-018 rotation model.** The feed has two kinds of item:
+    - **Standing facts** — droughts, dynasties, a 6–0 head-to-head. Request-time generators, always
+      true, rotate back into view.
+    - **Events** — this happened, it decays. **Nothing produces these today**, which is exactly why
+      the preseason feed is all standing facts and why suppression drains it.
+    The pulse is the event producer. NEW is earned by both kinds.
+
+    **FORWARD-COMPAT NOTE FOR INSIGHTS-018, WHICH SHIPS FIRST.** Every item in the current model is
+    produced at request time by a generator carrying `supportedLifecycles`. A pulse item is STORED,
+    arrives from a scheduled job, and has no generator behind it. If 018's observation/rotation store
+    assumes "every item came from a generator this request just ran", it will need reworking when the
+    pulse lands. Cheap to accommodate now, annoying to retrofit.
+
+    **Composes from sources that already exist** — only the composition layer and the cadence are
+    missing: `StandingsHistory` (`weeks`/`byWeek`/`byOwner`) for movement, the odds pipeline for
+    line-vs-result upsets, `OwnerCareerHeadToHead` for h2h shifts, and `RecordEntry.recentChange` —
+    which is DECLARED AND NEVER POPULATED, so **INSIGHTS-020 becomes a contributor to this rather
+    than a standalone feature**.
+
+    **What the FRAMEWORK owns, and the open questions it must answer:**
+    - **A defined period.** "The prior week" needs a boundary — since the last successful fire, or a
+      fixed weekday window? They diverge the moment a run is missed.
+    - **Idempotency.** A cron firing twice must not produce two digests. `PLATFORM-086F2E1` receipts
+      give the shape.
+    - **Catch-up.** If Monday's run fails, does Thursday cover both weeks or is that week lost?
+      Silent loss is the failure mode.
+    - **A stored artifact.** The card renders what the pulse PRODUCED; recomputing on request means
+      "Week 8 Highlights" quietly changes as data backfills.
+    - Year validity and demo exclusion, which every scheduled job here carries.
+
+    **Cadence correction:** the roadmap says "Monday 6am ET (11am UTC)". That parenthetical is only
+    right in winter. College football runs late August to early January, so most of the season is
+    EDT, where 6am ET is **10am UTC** — a cron pinned to 11am UTC drifts to 7am ET for the bulk of the
+    season. State the intent in ET and derive the UTC hour.
+
+    Monday **Look Back** (weekend recap, standings movement, owner-vs-owner outcomes, trash-talk
+    fodder) and Thursday **Forward Look** (games to watch, collisions ahead, who needs a win). The
+    Forward Look is not insights at all — it is a preview built from schedule and rankings, which is
+    further reason the pulse is its own thing rather than an insights feature.
+
+    In-season only, so it does nothing for the preseason feed; sequence after 018/023/024.
 
 26. **INSIGHTS-027 — preseason content generators (NEW content, not re-enabled content).** Also
     recovered from the roadmap entry above, and distinct from INSIGHTS-023: that one switches on
@@ -1650,6 +1688,12 @@ of NEW tag behavior and suppression correctness without reading logs.
 - **Backlog slug (provisional):** `INSIGHTS-019-DIAGNOSTIC-v1`
 
 ### 4. INSIGHTS-020 — Record-change insights
+
+**Reframed 2026-08-14 — becomes a CONTRIBUTOR to the INSIGHTS-026 pulse rather than a standalone
+feature.** A record change is an EVENT, not a standing observation, and the pulse is where events
+belong. `RecordEntry.recentChange` is still the dormant field to populate; what changes is that its
+output feeds the digest rather than being minted as a free-standing insight with its own signature
+and suppression.
 
 Surface recently changed records as insights. Wires up the dormant `RecordEntry.recentChange` field
 (declared in Phase 1, never populated). Pairs with INSIGHTS-018 (NEW tag) and INSIGHTS-019
