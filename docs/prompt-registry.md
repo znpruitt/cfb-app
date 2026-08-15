@@ -54,9 +54,9 @@ Rules:
 
 - Purpose: Stop the two draft writers that can append a pick from erasing each other, before the
   league's first real draft.
-- Scope: `src/app/api/draft/[slug]/[year]/pick/route.ts`, the timer path in the sibling `route.ts`,
-  and a new serialization suite. `/reset`, `/unpick`, reopen, the general settings PUT and
-  `PUT /api/owners` deliberately untouched — see `docs/next-tasks.md` item 12.
+- Scope: `src/app/api/draft/[slug]/[year]/pick/route.ts`, the WHOLE `PUT` in the sibling
+  `route.ts`, and a new serialization suite. `/reset`, `/unpick` and `PUT /api/owners` deliberately
+  untouched — see `docs/next-tasks.md` item 12.
 - **The failure.** `DraftBoardClient` fires `PUT { timerAction: 'expire' }` automatically at
   countdown zero. A pick submitted as the clock ran out committed, then expiry wrote its stale
   whole-record snapshot back — the pick vanished while its caller got a 200, and the board then
@@ -72,9 +72,22 @@ Rules:
   protect. `pick/[n]/route.ts` already had the correct shape and I had read it. Fixed by hoisting
   the I/O above the transaction while leaving every refusal at its original position, so error
   precedence is unchanged.
+- **Three attempts at the boundary, and the third stopped drawing one.** v1 serialized `expire`
+  only; review found `start`/`pause`/`resume` are sent alone too. v2 serialized every timer-only
+  request; review found `DraftBoardClient` BUNDLES `{ phase: 'live', timerAction: 'start' }` from
+  three call sites including Start round — the round-boundary button — so the hottest path was still
+  unlocked. Each carve-out required correctly predicting real client behaviour and each prediction
+  was wrong. v3 converts the entire handler (16 early returns to refusal objects, all pooled I/O
+  hoisted above the lock), which deletes the question. **The lesson is the rhyme, not any one
+  finding: when successive review rounds keep falsifying the same KIND of assumption, the approach
+  is wrong, not the details.**
 - **Tests cannot see a pool deadlock** (the suite runs the file-backed store), so the pin is a
-  SOURCE guard asserting no pooled call appears inside either callback — mutation-proven by moving
-  the alias read back in. The lock-participation tests are mutation-proven too; a first mutation
+  SOURCE guard asserting no pooled call appears inside either callback. **That guard was itself
+  vacuous twice, and my "mutation-proven" claim here was an overclaim the first time**: I mutated the
+  alias-map half only. `indexOf('withAppStateKeyTransaction')` first matched the IMPORT line; after
+  fixing that, `indexOf('req.json(')` matched a COMMENT in the route that mentions `req.json()`, so
+  review moved the real call inside the callback and watched the guard stay green. It now anchors on
+  the awaited call and uses `lastIndexOf`, and BOTH halves are mutation-proven. The lock-participation tests are mutation-proven too; a first mutation
   attempt survived because it changed the read inside the transaction rather than removing the lock,
   which is recorded in the suite so the next reader does not repeat it. The buzzer-beater test is
   labelled in its own header as NOT evidence of serialization, since it drives the routes
@@ -83,7 +96,7 @@ Rules:
   whole-record write, so the serialized path was widened from expire-only to every timer-only
   request; and a test fixture hardcoded a `timerExpiresAt` that was in the FUTURE when written and
   only became "expired" through wall-clock drift.
-- Deferred, recorded as `docs/next-tasks.md` item 12a: a double-submitted pick is now credited to the
+- Deferred, recorded as `docs/next-tasks.md` item 13: a double-submitted pick is now credited to the
   NEXT owner, because the expected-owner guard only fires when the client sends `owner` and it does
   not. Server-side guard exists; the fix is client-side.
 

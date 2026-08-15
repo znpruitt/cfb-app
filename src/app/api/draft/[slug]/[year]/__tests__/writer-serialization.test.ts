@@ -228,11 +228,19 @@ test('GUARD: the pick route does no pool-backed I/O inside the transaction', () 
 
   // Anchor on the CALL, not the import at the top of the file — matching the
   // import made this guard pass vacuously for everything below it.
-  const txnAt = src.indexOf('await withAppStateKeyTransaction');
+  const txnAt = src.lastIndexOf('await withAppStateKeyTransaction');
   assert.ok(txnAt > 0, 'the pick route must open a key transaction');
 
-  for (const call of ['getScopedAliasMap(', 'req.json(']) {
-    const at = src.indexOf(call);
+  // Anchor on the AWAITED CALL, and assert on the LAST occurrence.
+  //
+  // This guard has now been vacuous twice, both times by matching prose instead
+  // of code: first `withAppStateKeyTransaction` matched the import line, then
+  // `req.json(` matched a COMMENT in the route that says "Same for `req.json()`".
+  // Review caught the second by moving the real call inside the callback and
+  // watching this test stay green. `lastIndexOf` plus the `await` prefix means a
+  // mention in prose can no longer satisfy it.
+  for (const call of ['await getScopedAliasMap(', 'await req.json(']) {
+    const at = src.lastIndexOf(call);
     assert.ok(at > 0, `expected ${call} in the pick route`);
     assert.ok(
       at < txnAt,
@@ -305,4 +313,67 @@ test('a timer-only pause still behaves correctly through the serialized path', a
   assert.equal(persisted.timerState, 'paused');
   assert.equal(persisted.timerExpiresAt, null);
   assert.equal(persisted.phase, 'live', 'pause does not change phase');
+});
+
+// ---------------------------------------------------------------------------
+// The gap that carve-outs kept leaving open.
+//
+// Two earlier versions serialized only a narrow slice of the PUT, on the
+// reasoning that clients never bundle a timer action with anything else. Review
+// found three call sites that do exactly that: `DraftBoardClient` sends
+// `{ phase: 'live', timerAction: 'start' }` from the round-boundary resume
+// inside handlePick, from handleResume, and from handleStartRound. All three
+// fell through to the unlocked path — so "Start round", the button pressed at
+// every round boundary, could still erase a pick that committed while it ran.
+//
+// The whole handler is now transactional, so there is no combination left to
+// predict. These tests pin that.
+// ---------------------------------------------------------------------------
+
+test('STRUCTURAL: a bundled { phase, timerAction } PUT goes through the draft key lock', async () => {
+  // The exact body DraftBoardClient sends from Start round / Resume.
+  await seedDraft(liveExpiredDraft({ phase: 'paused', timerState: 'paused' }));
+
+  __setAppStateKeyLockFailureForTests(new Error('injected lock failure'), draftScope(SLUG));
+
+  await assert.rejects(
+    () => PUT(putRequest({ phase: 'live', timerAction: 'start' }), { params }),
+    'Start round must NOT proceed to a write without the lock'
+  );
+
+  __setAppStateKeyLockFailureForTests(null);
+  const persisted = await readPersisted();
+  assert.equal(persisted.phase, 'paused', 'the draft was not moved to live');
+});
+
+test('STRUCTURAL: an owners/settings PUT goes through the draft key lock', async () => {
+  await seedDraft(liveExpiredDraft({ phase: 'settings', picks: [], timerState: 'off' }));
+
+  __setAppStateKeyLockFailureForTests(new Error('injected lock failure'), draftScope(SLUG));
+
+  await assert.rejects(
+    () => PUT(putRequest({ settings: { pickTimerSeconds: 90 } }), { params }),
+    'a settings write must NOT proceed without the lock'
+  );
+
+  __setAppStateKeyLockFailureForTests(null);
+  const persisted = await readPersisted();
+  assert.equal(persisted.settings.pickTimerSeconds, 60, 'settings untouched');
+});
+
+test('a null JSON body is refused by the draft-state guards, not a crash', async () => {
+  // `JSON.parse('null')` succeeds, so the body arrives as null. Destructuring it
+  // threw a TypeError (a 500) where the state guards should answer.
+  await seedDraft(liveExpiredDraft({ phase: 'complete' }));
+
+  const res = await PUT(
+    new Request(`http://localhost/api/draft/${SLUG}/${YEAR}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
+      body: 'null',
+    }),
+    { params }
+  );
+
+  assert.ok(res.status < 500, `expected a controlled refusal, got ${res.status}`);
 });
