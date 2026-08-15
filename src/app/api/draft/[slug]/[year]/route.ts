@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { isAuthorizedForLeague } from '@/lib/leagueAuth';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
-import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { getAppState, setAppState, withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
 import { draftOwnersMatchRoster, type ConfirmedRoster } from '@/lib/selectors/confirmedRoster';
@@ -45,6 +45,129 @@ function isDraftOrderPermutationOfOwners(draftOrder: string[], owners: string[])
 }
 
 export const dynamic = 'force-dynamic';
+
+/** A refusal decided inside a transaction — see `applyTimerExpiry`. */
+type ExpiryRefusal = { error: string; status: number };
+
+/**
+ * PLATFORM-102 — the timer-expiry state machine, extracted so the SERIALIZED
+ * expire-only path and the legacy mixed-request path share one implementation
+ * rather than two copies that must be kept in agreement.
+ *
+ * Pure: takes a draft, returns either a refusal or the next draft. It does not
+ * stamp `updatedAt` — the caller does that immediately before its write, as
+ * before.
+ */
+function applyTimerExpiry(draft: DraftState): ExpiryRefusal | DraftState {
+  // Accept expire from live phase (normal expiry) or paused+expired phase (commissioner
+  // clicked auto-pick in the pause-and-prompt overlay)
+  const isLiveExpire = draft.phase === 'live';
+  const isPausedExpire = draft.phase === 'paused' && draft.timerState === 'expired';
+
+  if (!isLiveExpire && !isPausedExpire) {
+    return {
+      error: `Timer expire only valid when draft is live or paused-expired (phase: ${draft.phase})`,
+      status: 422,
+    };
+  }
+
+  // For live phase, validate the timer was actually running and has elapsed.
+  //
+  // Under the transaction this is also what makes a buzzer-beater pick win
+  // correctly: a manual pick that commits first refreshes `timerExpiresAt`, so
+  // this read (now taken under the lock) sees a future expiry and refuses with
+  // "Timer has not expired yet" instead of overwriting the pick.
+  if (isLiveExpire) {
+    if (!draft.timerExpiresAt) {
+      return { error: 'No active timer — timerExpiresAt is null', status: 422 };
+    }
+    if (new Date(draft.timerExpiresAt) > new Date()) {
+      return { error: 'Timer has not expired yet', status: 422 };
+    }
+  }
+
+  // Paused-expired phase means the commissioner is explicitly requesting auto-pick
+  // from the pause-and-prompt overlay. Live phase means the timer expired naturally.
+  // Natural expiry always pauses and prompts — no automatic auto-pick.
+  if (isLiveExpire) {
+    // Timer expired naturally — always pause and prompt the commissioner
+    return {
+      ...draft,
+      phase: 'paused',
+      timerState: 'expired',
+      timerExpiresAt: null,
+    };
+  }
+
+  // isPausedExpire — commissioner clicked "Auto-pick" from prompt overlay.
+  // Select a random available team.
+  const { items } = teamsData as TeamsJson;
+  const fbsTeams = getDraftEligibleTeams(items);
+  const pickedLower = new Set(draft.picks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : [])));
+
+  const available = fbsTeams.filter((t) => !pickedLower.has(t.school.toLowerCase()));
+
+  const bestTeam =
+    available.length > 0 ? available[Math.floor(Math.random() * available.length)] : undefined;
+  if (!bestTeam) {
+    return { error: 'No teams available for auto-pick', status: 422 };
+  }
+
+  const totalPicks = draft.settings.totalRounds * draft.owners.length;
+  const n = draft.owners.length;
+  const round = Math.floor(draft.currentPickIndex / n);
+  const roundPick = draft.currentPickIndex % n;
+  const owner = getPickOwner(draft.settings.draftOrder, draft.currentPickIndex);
+
+  const pick: DraftPick = {
+    pickNumber: draft.currentPickIndex + 1,
+    round,
+    roundPick,
+    owner,
+    team: bestTeam.school,
+    pickedAt: new Date().toISOString(),
+    autoSelected: true,
+  };
+
+  const newPickIndex = draft.currentPickIndex + 1;
+  const isComplete = newPickIndex >= totalPicks;
+  const { pickTimerSeconds } = draft.settings;
+
+  // Honor the same server-authoritative round-boundary pause as the manual
+  // pick route: an auto-pick that completes a round pauses for the next one.
+  const atRoundBoundary = !isComplete && newPickIndex > 0 && newPickIndex % n === 0;
+
+  if (isComplete) {
+    return {
+      ...draft,
+      picks: [...draft.picks, pick],
+      currentPickIndex: newPickIndex,
+      phase: 'complete',
+      timerState: 'off',
+      timerExpiresAt: null,
+    };
+  }
+  if (atRoundBoundary) {
+    return {
+      ...draft,
+      picks: [...draft.picks, pick],
+      currentPickIndex: newPickIndex,
+      phase: 'paused',
+      timerState: pickTimerSeconds ? 'paused' : 'off',
+      timerExpiresAt: null,
+    };
+  }
+  return {
+    ...draft,
+    picks: [...draft.picks, pick],
+    currentPickIndex: newPickIndex,
+    phase: 'live',
+    timerState: pickTimerSeconds ? 'running' : 'off',
+    timerExpiresAt: pickTimerSeconds
+      ? new Date(Date.now() + pickTimerSeconds * 1000).toISOString()
+      : null,
+  };
+}
 
 const VALID_PHASE_TRANSITIONS: Partial<Record<DraftPhase, DraftPhase[]>> = {
   setup: ['settings'],
@@ -304,6 +427,53 @@ export async function PUT(
     phase?: unknown;
     timerAction?: unknown;
   };
+
+  // PLATFORM-102 — a timer expiry arriving on its OWN runs inside a key
+  // transaction, reading the draft under the lock instead of reusing the read
+  // above. This is the shape every client actually sends: `DraftBoardClient`
+  // fires `{ timerAction: 'expire' }` automatically when the countdown reaches
+  // zero, and `DraftControls` sends it alone too.
+  //
+  // What it closes: a pick submitted as the clock ran out. Both requests read
+  // the same state, the pick appended and committed, then expiry wrote the whole
+  // record back from its stale snapshot — erasing the pick while its caller got
+  // a 200, and leaving the board prompting for an auto-pick on a slot that had
+  // already been filled. Accepting that prompt then assigned a RANDOM team.
+  //
+  // Reading under the lock makes the outcome correct instead: the pick refreshes
+  // `timerExpiresAt`, so expiry now sees a future expiry and refuses with
+  // "Timer has not expired yet". The buzzer-beater wins, which is the right
+  // answer.
+  //
+  // A mixed request (expire PLUS settings/owners/phase) still takes the legacy
+  // path below — no client sends that combination, and converting the whole
+  // handler is deferred to its own slice.
+  if (
+    timerAction === 'expire' &&
+    owners === undefined &&
+    settings === undefined &&
+    phase === undefined
+  ) {
+    const outcome = await withAppStateKeyTransaction<
+      ExpiryRefusal | { ok: true; draft: DraftState }
+    >(draftScope(slug), String(year), async (txn) => {
+      const fresh = await txn.read<DraftState>();
+      if (!fresh?.value) {
+        return { error: `No draft found for ${slug} ${year}`, status: 404 };
+      }
+      const expired = applyTimerExpiry(fresh.value);
+      if ('error' in expired) return expired;
+
+      const stamped: DraftState = { ...expired, updatedAt: new Date().toISOString() };
+      await txn.write<DraftState>(stamped);
+      return { ok: true, draft: stamped };
+    });
+
+    if (!('ok' in outcome)) {
+      return NextResponse.json({ error: outcome.error }, { status: outcome.status });
+    }
+    return NextResponse.json({ draft: outcome.draft });
+  }
 
   const original = record.value;
 
@@ -615,119 +785,15 @@ export async function PUT(
         timerExpiresAt: null,
       };
     } else if (action === 'expire') {
-      // Accept expire from live phase (normal expiry) or paused+expired phase (commissioner
-      // clicked auto-pick in the pause-and-prompt overlay)
-      const isLiveExpire = draft.phase === 'live';
-      const isPausedExpire = draft.phase === 'paused' && draft.timerState === 'expired';
-
-      if (!isLiveExpire && !isPausedExpire) {
-        return NextResponse.json(
-          {
-            error: `Timer expire only valid when draft is live or paused-expired (phase: ${draft.phase})`,
-          },
-          { status: 422 }
-        );
+      // PLATFORM-102 — shared with the serialized expire-only path above. An
+      // expire arriving ALONGSIDE settings/owners/phase still takes this
+      // unserialized route; that combination is not something any client sends,
+      // and converting the whole handler is deferred (see docs/next-tasks.md).
+      const expired = applyTimerExpiry(draft);
+      if ('error' in expired) {
+        return NextResponse.json({ error: expired.error }, { status: expired.status });
       }
-
-      // For live phase, validate the timer was actually running and has elapsed
-      if (isLiveExpire) {
-        if (!draft.timerExpiresAt) {
-          return NextResponse.json(
-            { error: 'No active timer — timerExpiresAt is null' },
-            { status: 422 }
-          );
-        }
-        if (new Date(draft.timerExpiresAt) > new Date()) {
-          return NextResponse.json({ error: 'Timer has not expired yet' }, { status: 422 });
-        }
-      }
-
-      // Paused-expired phase means the commissioner is explicitly requesting auto-pick
-      // from the pause-and-prompt overlay. Live phase means the timer expired naturally.
-      // Natural expiry always pauses and prompts — no automatic auto-pick.
-
-      if (isLiveExpire) {
-        // Timer expired naturally — always pause and prompt the commissioner
-        draft = {
-          ...draft,
-          phase: 'paused',
-          timerState: 'expired',
-          timerExpiresAt: null,
-        };
-      } else {
-        // isPausedExpire — commissioner clicked "Auto-pick" from prompt overlay
-        // Select a random available team
-        const { items } = teamsData as TeamsJson;
-        const fbsTeams = getDraftEligibleTeams(items);
-        const pickedLower = new Set(
-          draft.picks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : []))
-        );
-
-        const available = fbsTeams.filter((t) => !pickedLower.has(t.school.toLowerCase()));
-
-        const bestTeam =
-          available.length > 0
-            ? available[Math.floor(Math.random() * available.length)]
-            : undefined;
-        if (!bestTeam) {
-          return NextResponse.json({ error: 'No teams available for auto-pick' }, { status: 422 });
-        }
-
-        const totalPicks = draft.settings.totalRounds * draft.owners.length;
-        const n = draft.owners.length;
-        const round = Math.floor(draft.currentPickIndex / n);
-        const roundPick = draft.currentPickIndex % n;
-        const owner = getPickOwner(draft.settings.draftOrder, draft.currentPickIndex);
-
-        const pick: DraftPick = {
-          pickNumber: draft.currentPickIndex + 1,
-          round,
-          roundPick,
-          owner,
-          team: bestTeam.school,
-          pickedAt: new Date().toISOString(),
-          autoSelected: true,
-        };
-
-        const newPickIndex = draft.currentPickIndex + 1;
-        const isComplete = newPickIndex >= totalPicks;
-        const { pickTimerSeconds } = draft.settings;
-
-        // Honor the same server-authoritative round-boundary pause as the manual
-        // pick route: an auto-pick that completes a round pauses for the next one.
-        const atRoundBoundary = !isComplete && newPickIndex > 0 && newPickIndex % n === 0;
-
-        if (isComplete) {
-          draft = {
-            ...draft,
-            picks: [...draft.picks, pick],
-            currentPickIndex: newPickIndex,
-            phase: 'complete',
-            timerState: 'off',
-            timerExpiresAt: null,
-          };
-        } else if (atRoundBoundary) {
-          draft = {
-            ...draft,
-            picks: [...draft.picks, pick],
-            currentPickIndex: newPickIndex,
-            phase: 'paused',
-            timerState: pickTimerSeconds ? 'paused' : 'off',
-            timerExpiresAt: null,
-          };
-        } else {
-          draft = {
-            ...draft,
-            picks: [...draft.picks, pick],
-            currentPickIndex: newPickIndex,
-            phase: 'live',
-            timerState: pickTimerSeconds ? 'running' : 'off',
-            timerExpiresAt: pickTimerSeconds
-              ? new Date(Date.now() + pickTimerSeconds * 1000).toISOString()
-              : null,
-          };
-        }
-      }
+      draft = expired;
     } else {
       return NextResponse.json({ error: `Unknown timerAction: "${action}"` }, { status: 400 });
     }
