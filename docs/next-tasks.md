@@ -447,11 +447,112 @@ Supersedes: (none)
       confirmed live in production: the preseason list changes, standings keep the old name, nothing
       on screen indicates the two disagree.
 
-21. **Then — INSIGHTS-018** (NEW tag + signatures). Ready to start as written.
-22. Then, in order: INSIGHTS-019 (diagnostic endpoint), INSIGHTS-020 (record-change insights),
+21. **INSIGHTS-018 — insight rotation and the NEW tag. START HERE for Insights.** Reframed
+    2026-08-14 after an audit of the live TSC preseason; the backlog spec below (§2) is superseded on
+    one point — freshness alone is not enough, see the standing-fact/event split.
+
+    **The feed is not thin, it is DRAINED.** Suppression policy is per insight TYPE, and almost every
+    type carries `{ kind: 'unchanged' }` — suppress while the stat value is identical. **In preseason
+    no games are played, so no stat value can ever change**, and every such insight fires once on some
+    page load and is suppressed for the rest of the preseason. TSC's Overview currently shows exactly
+    two cards, and both are on `NEVER_SUPPRESS_TYPES` (`milestone_watch`, `perfect_against`); the
+    third member of that set, `rookie_benchmark`, is separately suppressed by `usingArchivedRoster`.
+    **Those three are the only reason anything renders at all.**
+
+    Reset paths exist and neither helps: records are season-scoped and cleared by the rollover cron,
+    with a 180-day TTL as a backstop. Both are far coarser than a preseason.
+
+    **The design correction — TWO properties per type, not one.** The existing thresholds
+    (`unchanged` / `abs` / `pct` / `snapshot`) all answer "has this CHANGED?". The question the feed
+    actually needs is "is this still worth SAYING?", and the two come apart:
+    - **Standing facts** — a drought, a dynasty, a 6–0 head-to-head. Still true a month later, still
+      interesting, and they should rotate back into the feed. Their stat value never moves, so a
+      freshness-only model buries them exactly as permanently as today's does.
+    - **Events** — a game result, a milestone crossing. News once; re-showing it in November is noise.
+
+    Owner's acceptance test: _a drought from three seasons ago should come back around; last
+    October's week-7 result should not._
+
+    Rotation selects the feed; CHANGE still earns the NEW label, for both kinds. Retire suppression as
+    a visibility gate without destructively migrating existing records; an observation-store failure
+    falls back to stable priority order and never empties the feed.
+
+    **Sequencing is load-bearing: this comes BEFORE the breadth work below.** Switching on the dark
+    families first would add ~7 insight types that each fire once and vanish, spending the entire
+    breadth gain in one or two page loads — and making the cause harder to see, not easier.
+
+22. **INSIGHTS-023 — preseason breadth.** After rotation, not before.
+
+    **Two generators are dark in preseason and they are the whole gap:** `historicalGenerator`
+    (`HISTORICAL_LIFECYCLES`) and `rivalryGenerator` (`RIVALRY_LIFECYCLES`) list every lifecycle state
+    EXCEPT `preseason`. Each is one generator producing several insight types — drought, dynasty,
+    improvement, consistency; lopsided, even, dominance streak — so the two constants cost roughly
+    seven types, not two. Both are archive-backed: their claims are historical facts that stay true
+    regardless of who plays this year, which is what makes them safe under AGENTS.md Insights
+    invariant 5 via neutral copy or last-season framing.
+
+    Audit, 2026-08-14: **8 of 21 registered generators are preseason-eligible** — career volatility,
+    never-finished-last, title-chaser, rookie-benchmark, trending; stats team-identity; milestone
+    watch and perfect-against. Everything else is off, and most of it correctly so (trajectory,
+    championship race, season wrap and the live stat leaders all need season evidence).
+
+    Also split loading into `feed` (compact Overview selection, five cards) and `catalog` (every
+    eligible insight, priority-sorted, no suppression reads or writes), and point
+    `/league/[slug]/insights` at `catalog` so "See all" means all of it. **Measure the real catalog
+    size on TSC before deciding whether it needs a bound** — the acceptance bar of ">10" spans a page
+    and a wall.
+
+23. **INSIGHTS-024 — active-owner scoping.** After breadth. Correctness, not volume: on its own it
+    REDUCES the feed, because it drops departed owners and a brand-new owner has no history to draw on.
+
+    **The gap, visible on the live TSC Overview:** standings and insights disagree on the same page.
+    `leagueStandings` synthesizes preseason rows from the confirmed owner list, so Standings shows the
+    2026 owners. Insights needs a team→owner MAP, has none until teams are assigned, and so
+    `computeRosterFallback` reaches back to the most recent archive — meaning every insight is about
+    LAST season's roster. For TSC that means two departed owners are still written about, and a
+    returning owner who sat out last season is invisible no matter how many families are switched on.
+
+    **It is far smaller than it looks, and needs no new store read.** `loadInsights` already calls
+    `getCanonicalStandings` and passes `canonical.rows` into the context; in preseason those rows ARE
+    the confirmed owners. `CanonicalStandings` also already carries **`ownersRosterSource`**
+    (`'archive' | 'csv' | 'preseason-owners' | 'none'`) — the exact provenance field this work would
+    otherwise invent. So the owner scope and its source are both already in the loader's hands, and
+    reusing them means Insights inherits the app's existing precedence instead of creating a second
+    answer to "who is in this league".
+
+    **AUDIT FINDING — do NOT conflate `usingArchivedRoster` with `ownersRosterSource`.** They are
+    different facts and the conflation is silent: for TSC right now `usingArchivedRoster` is TRUE (the
+    team→owner MAP is borrowed) while `ownersRosterSource` is `'preseason-owners'` (the owner NAMES
+    are confirmed). Deriving one from the other flips `usingArchivedRoster` to false and **unlocks
+    rookie claims as a side effect** — the invariant-5 change happening by accident rather than by
+    decision. Keep `activeOwners` (names, from canonical) separate from `usingArchivedRoster` (map
+    provenance, unchanged).
+
+    Keep `currentRoster` strictly the team→owner map. **Remaining audit before implementation:** which
+    of the 13 `currentRoster` consumers need the MAP and which only need the owner SET, and who else
+    reads `usingArchivedRoster`.
+
+24. **INSIGHTS-025 — rookie/returning claims (owner decision required, invariant amendment).**
+    Deliberately last, and deliberately separate.
+
+    AGENTS.md Insights invariant 5 currently says naming who is genuinely returning "requires
+    comparing a FINALIZED upcoming roster against league history, which no generator has; **until such
+    a feature exists** the career generators rely on (b)". INSIGHTS-024 builds that feature, so this
+    work must **amend invariant 5 in the same PR** — INSIGHTS-022's recorded lesson was a false premise
+    pulling an engine change into scope and breaking two binding invariants because AGENTS.md was not
+    opened first.
+
+    **The question the amendment turns on, for the owner:** is a confirmed preseason owner list
+    "finalized" enough to license rookie/returning claims? It stays freely editable, and per
+    PLATFORM-098 (item 17) editing it after assignment silently diverges from the roster. The stronger
+    trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
+    For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
+
+25. **Then, in order: INSIGHTS-019** (diagnostic endpoint — worth taking straight after 018, since it
+    is how rotation and NEW state become observable), INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
     later.
-23. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
+26. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
     PLATFORM-093** — a brand-new league had no path to confirm owners — new leagues are born `season`, `/admin/[slug]/preseason/owners`
     redirects away unless the league is in `preseason`, and only `beginPreseason` (offseason-only) or
     the rollover cron reach that state, leaving only the historical/repair CSV import, which asks the
@@ -471,7 +572,7 @@ Supersedes: (none)
     shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
     constant. Severity was overstated when first reported — three client components already import
     that module, so the graph is in the client bundle on every league page anyway.
-24. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
+27. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
     Verified 2026-08-12. `DELETE /api/admin/leagues/[slug]` calls `removeLeague`, which filters the
     slug out of the registry list and nothing else. Every keyed record survives: `owners:{slug}:{year}`
     (team→owner rosters carrying real names), `preseason-owners:{slug}`, `draft:{slug}` (picks and
@@ -501,12 +602,12 @@ Supersedes: (none)
     the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
     the honest options are a purge that removes the residue, an already-archived guard in the
     rollover path, or retiring adoption — all of which are this campaign's decisions.
-25. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+28. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
     once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
     retry.
-26. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+29. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -516,7 +617,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-27. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+30. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 
@@ -1494,6 +1595,12 @@ family's implementation PR; conferences remain manual by design (no automation t
 PLATFORM-086D was absorbed into 086A and retired — do not reuse that ID.
 
 ### 2. INSIGHTS-018 — NEW tag + signature system
+
+**Superseded in part — see the execution-order entry, which is canonical for this work.** A
+2026-08-14 audit of the live TSC preseason found the NEW tag is the smaller half: the feed is DRAINED
+by per-type suppression (`{ kind: 'unchanged' }` cannot release while no games are played), and a
+signature/freshness model alone would leave standing facts buried exactly as permanently, since their
+stat values never move either. Rotation must key on standing-fact vs event as well as on change.
 
 Per-league global (not per-user) NEW-tag system for the insights panel. 48-hour active-season
 window, 7-day offseason window. Signature-based detection so that hook/owner/statValue changes
