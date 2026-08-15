@@ -361,3 +361,20 @@ test('milestone_watch survives being seen — it is not an event', async () => {
     'still served after being seen'
   );
 });
+
+test('the weekly bucket turns over on MONDAY, not on an epoch artifact', () => {
+  // `floor(days / 7)` counts weeks from 1 Jan 1970, a Thursday, so the boundary
+  // landed on Thursday 00:00 UTC — about ten hours before the Thursday pulse
+  // INSIGHTS-026 plans. Two mechanisms moving the feed within half a day of each
+  // other, neither deliberately.
+  const at = (iso: string) => rotationBucket(new Date(iso), 'preseason');
+
+  // 2026-08-17 is a Monday.
+  assert.equal(at('2026-08-16T23:59:59.000Z'), at('2026-08-13T00:00:00.000Z'), 'Sun sits with Thu');
+  assert.notEqual(at('2026-08-17T00:00:00.000Z'), at('2026-08-16T23:59:59.000Z'), 'Mon turns over');
+  assert.equal(
+    at('2026-08-17T00:00:00.000Z'),
+    at('2026-08-23T23:59:59.000Z'),
+    'Mon-Sun is one bucket'
+  );
+});

@@ -33,9 +33,31 @@ import type { LifecycleState } from './types.ts';
  * changes for months and a daily shuffle would be motion without information —
  * and would make it impossible to point someone at a card you saw yesterday.
  */
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * The weekday a weekly bucket turns over, as `Date.getUTCDay()` — 1 = Monday.
+ *
+ * CHOSEN, not inherited. `floor(days / 7)` counts weeks from 1 January 1970,
+ * which was a Thursday, so the boundary silently landed on Thursday 00:00 UTC —
+ * about ten hours before the Thursday pulse INSIGHTS-026 plans. Two unrelated
+ * mechanisms moving the feed within half a day of each other, neither of them
+ * deliberately.
+ *
+ * Monday puts the turnover at the start of the week, next to the Look Back pulse
+ * rather than colliding with the Forward Look.
+ */
+const WEEKLY_BUCKET_ROLLS_ON = 1;
+
 export function rotationBucket(now: Date, lifecycleState: LifecycleState): string {
-  const days = Math.floor(now.getTime() / (24 * 60 * 60 * 1000));
-  return IN_SEASON_LIFECYCLES.has(lifecycleState) ? `d${days}` : `w${Math.floor(days / 7)}`;
+  const days = Math.floor(now.getTime() / MS_PER_DAY);
+  if (IN_SEASON_LIFECYCLES.has(lifecycleState)) return `d${days}`;
+
+  // Days since the most recent turnover weekday, so the bucket changes ON that
+  // day rather than on an epoch-derived offset. `+ 7` keeps the modulo positive
+  // for every weekday.
+  const sinceRollover = (now.getUTCDay() - WEEKLY_BUCKET_ROLLS_ON + 7) % 7;
+  return `w${days - sinceRollover}`;
 }
 
 export type RotationInput = {
