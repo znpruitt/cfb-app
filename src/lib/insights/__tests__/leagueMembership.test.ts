@@ -330,3 +330,100 @@ test('the membership SOURCE is reported, not just the members', async () => {
   assert.equal(none.leagueMembersSource, 'none');
   assert.equal(none.leagueMembers.size, 0);
 });
+
+// ---------------------------------------------------------------------------
+// The other half of the fix — ADDING a returning owner, not just removing a
+// departed one. Codex flagged this as a P1: career history was seeded from the
+// roster map before membership was ever consulted, so a confirmed member who sat
+// out a season had no stats built and no downstream filter could restore them.
+// ---------------------------------------------------------------------------
+
+test('a RETURNING owner gets career history built, not just permission to appear', async () => {
+  // Erin played 2023 and 2024, sat out 2025, and is confirmed for 2026. Last
+  // season's roster — the old membership source — does not contain her.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Members League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    foundedYear: 2022,
+    status: { state: 'preseason', year: YEAR },
+  });
+  await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob', 'Erin']);
+
+  const seasons: [number, string[]][] = [
+    [2023, ['Alice', 'Bob', 'Erin']],
+    [2024, ['Alice', 'Bob', 'Erin']],
+    [2025, ['Alice', 'Bob', 'Carol']], // Erin sat out
+  ];
+  for (const [year, owners] of seasons) {
+    const csv =
+      'team,owner\n' +
+      owners.map((o, i) => `${['Georgia', 'Clemson', 'Alabama'][i]},${o}`).join('\n');
+    await setAppState(`standings-archive:${SLUG}`, String(year), {
+      leagueSlug: SLUG,
+      year,
+      archivedAt: '2026-01-01T00:00:00.000Z',
+      ownerRosterSnapshot: csv,
+      standingsHistory: { weeks: [], byWeek: {}, byOwner: {} },
+      finalStandings: owners.map((owner, i) => ({
+        owner,
+        wins: 10 - i * 3,
+        losses: 3 + i * 3,
+        ties: 0,
+        winPct: (10 - i * 3) / 13,
+        pointsFor: 340 - i * 20,
+        pointsAgainst: 300,
+        pointDifferential: 40 - i * 20,
+        gamesBack: 0,
+        finalGames: 13,
+      })),
+      games: [],
+      scoresByKey: {},
+    });
+  }
+
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+
+  assert.ok(context.leagueMembers.has('Erin'), 'she is a member');
+  assert.ok(
+    ![...context.currentRoster.values()].includes('Erin'),
+    'and NOT in the borrowed roster — the state that used to erase her history'
+  );
+
+  const erin = context.ownerCareerStats.find((s) => s.owner === 'Erin');
+  assert.ok(erin, 'her career stats must be BUILT, not just permitted');
+  assert.equal(erin!.seasons, 2, 'the two seasons she actually played');
+});
+
+test('a mid-season roster repair reaches Insights, and is not frozen by preseason', async () => {
+  // The regression I introduced: `selectConfirmedRoster` prefers
+  // `preseason-owners`, and the screen that writes it only opens in preseason.
+  // So an owner replaced mid-season could be fixed in the roster and never in
+  // Insights, for the rest of the season. A live roster now wins.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Members League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'season', year: YEAR },
+  });
+
+  // Confirmed back in preseason — now stale, and uneditable.
+  await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob', 'Carol']);
+  // The live roster, repaired through `PUT /api/owners`: Carol out, Erin in.
+  await setAppState(
+    `owners:${SLUG}:${YEAR}`,
+    'csv',
+    'team,owner\nGeorgia,Alice\nClemson,Bob\nAlabama,Erin'
+  );
+
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+
+  assert.equal(context.leagueMembersSource, 'current-roster', 'the live roster is authoritative');
+  assert.ok(context.leagueMembers.has('Erin'), 'the replacement owner is a member');
+  assert.ok(
+    !context.leagueMembers.has('Carol'),
+    'and the replaced owner is not — the stale confirmed list must not win'
+  );
+});

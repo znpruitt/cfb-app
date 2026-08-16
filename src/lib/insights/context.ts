@@ -224,12 +224,34 @@ export async function buildOwnerCareerStats(params: {
   archives: SeasonArchive[];
   historicalRosters: Record<number, Map<string, string>>;
   currentRoster: Map<string, string>;
+  /**
+   * INSIGHTS-023a — the league's membership. Career history is accumulated for
+   * THESE owners.
+   *
+   * Review (Codex, P1) found the first version of that slice was only half a
+   * fix: it filtered departed owners downstream, but this function had already
+   * seeded and filtered its accumulators from `currentRoster` — which before a
+   * draft is last season's borrowed roster. So a confirmed member who sat out a
+   * season had no career stats built at all, and no downstream membership check
+   * could restore them. Removing departed owners worked; ADDING returning ones
+   * did not.
+   *
+   * Optional so the debug route and any other caller keep their prior behaviour
+   * by falling back to the roster map.
+   */
+  leagueMembers?: ReadonlySet<string>;
 }): Promise<CareerStatsBuildResult> {
   const { leagueSlug, currentYear, archives, historicalRosters, currentRoster } = params;
 
   const activeOwners = new Set<string>();
-  for (const owner of currentRoster.values()) {
-    if (owner && owner !== NO_CLAIM_OWNER) activeOwners.add(owner);
+  if (params.leagueMembers && params.leagueMembers.size > 0) {
+    for (const owner of params.leagueMembers) {
+      if (owner && owner !== NO_CLAIM_OWNER) activeOwners.add(owner);
+    }
+  } else {
+    for (const owner of currentRoster.values()) {
+      if (owner && owner !== NO_CLAIM_OWNER) activeOwners.add(owner);
+    }
   }
 
   const accumulators = new Map<string, CareerAccumulator>();
@@ -329,18 +351,40 @@ export async function buildOwnerCareerStats(params: {
  *
  * Exported for testing. Pure.
  */
-export function resolveLeagueMembers(
-  confirmedOwners: readonly string[],
-  resolvedRoster: Map<string, string>
-): { members: ReadonlySet<string>; source: LeagueMembersSource } {
-  const fromConfirmed = confirmedOwners.filter((o) => o && o !== NO_CLAIM_OWNER);
+export function resolveLeagueMembers(params: {
+  confirmedOwners: readonly string[];
+  resolvedRoster: Map<string, string>;
+  usingArchivedRoster: boolean;
+}): { members: ReadonlySet<string>; source: LeagueMembersSource } {
+  const { confirmedOwners, resolvedRoster, usingArchivedRoster } = params;
+  const clean = (names: Iterable<string>): string[] =>
+    [...names].filter((o) => o && o !== NO_CLAIM_OWNER);
+
+  // A REAL current-year roster wins. It is the live answer to "who is in the
+  // league", it is what `PUT /api/owners` repairs, and it exists both in-season
+  // and in offseason (where `league.year` is the completed season).
+  //
+  // This ordering also closes a freeze I introduced by preferring the confirmed
+  // list unconditionally: that list is only editable during preseason, so an
+  // owner replaced mid-season could be repaired in the roster and never in
+  // Insights, for the rest of the season. Previously membership tracked the CSV
+  // and self-corrected; now it does again.
+  if (!usingArchivedRoster) {
+    const fromCurrent = clean(resolvedRoster.values());
+    if (fromCurrent.length > 0) return { members: new Set(fromCurrent), source: 'current-roster' };
+  }
+
+  // No current roster: preseason, after owners are confirmed but before a draft
+  // assigns teams. The confirmed list is the league.
+  const fromConfirmed = clean(confirmedOwners);
   if (fromConfirmed.length > 0) return { members: new Set(fromConfirmed), source: 'confirmed' };
 
-  // No new roster named yet: the league is still last season's league.
-  const fromRoster = [...resolvedRoster.values()].filter((o) => o && o !== NO_CLAIM_OWNER);
+  // No new roster named yet, so last season's owners are still the league
+  // (owner framing: nobody has left until preseason names a new roster).
+  const fromPrevious = clean(resolvedRoster.values());
   return {
-    members: new Set(fromRoster),
-    source: fromRoster.length > 0 ? 'previous-roster' : 'none',
+    members: new Set(fromPrevious),
+    source: fromPrevious.length > 0 ? 'previous-roster' : 'none',
   };
 }
 
@@ -403,12 +447,21 @@ export async function buildInsightContext(
     ownerGameStats = load.status === 'available' ? load.stats : null;
   }
 
+  // Resolved BEFORE career stats, which are seeded from it — see the P1 note on
+  // `buildOwnerCareerStats`.
+  const { members: leagueMembers, source: leagueMembersSource } = resolveLeagueMembers({
+    confirmedOwners,
+    resolvedRoster,
+    usingArchivedRoster,
+  });
+
   const { ownerCareerStats } = await buildOwnerCareerStats({
     leagueSlug,
     currentYear: league.year,
     archives,
     historicalRosters,
     currentRoster: resolvedRoster,
+    leagueMembers,
   });
 
   const records = selectAllRecords({
@@ -448,10 +501,8 @@ export async function buildInsightContext(
     // NoClaim is filtered on both paths: `selectConfirmedRoster` drops it from
     // the CSV, but not from a legacy typed `preseason-owners` record, and the
     // roster map carries it as the absorber for unowned teams.
-    ...(() => {
-      const { members, source } = resolveLeagueMembers(confirmedOwners, resolvedRoster);
-      return { leagueMembers: members, leagueMembersSource: source };
-    })(),
+    leagueMembers,
+    leagueMembersSource,
     records,
   };
 }

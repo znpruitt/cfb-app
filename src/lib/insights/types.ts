@@ -96,7 +96,14 @@ export type OwnerCareerStats = {
  *   league (owner framing: nobody has left until preseason names a new roster).
  * `none` — neither exists.
  */
-export type LeagueMembersSource = 'confirmed' | 'previous-roster' | 'none';
+export type LeagueMembersSource =
+  /** A real current-year roster exists — the live answer, and what `PUT /api/owners` repairs. */
+  | 'current-roster'
+  /** No roster yet, but a new season's owners have been confirmed. */
+  | 'confirmed'
+  /** No new roster named, so last season's owners are still the league. */
+  | 'previous-roster'
+  | 'none';
 
 export type InsightContext = {
   leagueSlug: string;

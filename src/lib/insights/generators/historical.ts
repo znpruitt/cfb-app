@@ -59,20 +59,6 @@ function isEligibleOwner(owner: string): boolean {
   return owner !== NO_CLAIM_OWNER;
 }
 
-/**
- * INSIGHTS-023a — who is in the league this season.
- *
- * Was `new Set(currentRoster.values())` minus NoClaim, copied identically into
- * four generator files plus one inline. That reconstructs MEMBERSHIP from TEAM
- * ASSIGNMENTS, and before a draft there are none — `currentRoster` falls back to
- * the most recent archive — so every member filter was running against LAST
- * season's owners. The confirmed owner list answers the question directly, and
- * already drops NoClaim on the CSV path.
- */
-function leagueMembers(context: InsightContext): ReadonlySet<string> {
-  return context.leagueMembers;
-}
-
 const TIE_SUPPRESSION_THRESHOLD = 4;
 
 function formatOwnerList(owners: string[]): string {
@@ -473,7 +459,7 @@ export const historicalGenerator: InsightGenerator = {
     const archives = context.archives;
     if (archives.length === 0) return [];
 
-    const activeOwners = leagueMembers(context);
+    const activeOwners = context.leagueMembers;
 
     const insights: Insight[] = [];
     const drought = deriveDroughtInsight(archives, activeOwners, HISTORICAL_LIFECYCLES);

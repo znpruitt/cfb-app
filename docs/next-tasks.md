@@ -627,6 +627,22 @@ Supersedes: (none)
     zero slots are covered by fallback, and every generated insight reaches a reader. A synthetic
     league with 8 owners and 5 archived seasons generated 9.
 
+    **THE SHARPER MEASUREMENT: 14 members, 4 named.** TSC's confirmed roster has fourteen owners —
+    BHooper, Ballard, Ciprys, Gladney, Jackson, Jordan, LHooper, Maleski, Pruitt, Schmitt,
+    Shambaugh, Stevens, Surowiec, Whited — and the five insights name **four** of them (Ciprys,
+    Maleski ×2, BHooper, Whited). Ten owners get no content at all.
+
+    That reframes the goal. The problem is not only that the feed is thin; it is that **most of the
+    league is invisible in it**, and someone who is not one of those four never sees themselves.
+
+    **And it explains why more categories alone will not fix it.** Nearly every current generator
+    emits a SUPERLATIVE — most volatile, title chaser, never finished last — so it names exactly one
+    winner however many owners exist. Switching on more superlative generators adds insights but
+    concentrates them on the same handful of standout owners. Breadth in CATEGORIES and breadth in
+    WHO GETS TALKED ABOUT are different axes; 023b delivers the first, and the second needs
+    generators that are per-owner or comparative rather than superlative. Related to INSIGHTS-024
+    (active-owner scoping), which reduces volume and does not address this.
+
     **The pool has never exceeded the Overview feed**, which is the empirical reason 018 kept
     producing findings when it was attempted first. Note the comparison is against the OVERVIEW cap
     (5), not the serving cap (10): the loader keeps ten and `/league/[slug]/insights` shows all ten,

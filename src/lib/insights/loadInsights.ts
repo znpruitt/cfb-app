@@ -106,6 +106,19 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  */
 const INSIGHT_COPY_POLICY_VERSION = 'insights022-neutral-career-copy-v1';
 
+/**
+ * Membership policy version (INSIGHTS-023a). Same shape and same reason as the
+ * two above: generator output changed with no runtime invalidation signal.
+ *
+ * Membership now comes from the league's roster/confirmed list rather than being
+ * reconstructed from the team→owner map, so a warm entry computed under the old
+ * rule keeps serving cards naming DEPARTED owners — the exact thing the slice
+ * fixes — until the 300s TTL lapses or a standings tag fires. Deployment fires
+ * neither. This file's other two constants exist for precisely this class of
+ * change and say so; this one qualifies.
+ */
+const INSIGHT_MEMBERSHIP_POLICY_VERSION = 'insights023a-league-membership-v1';
+
 export function insightsCacheKeyParts(slug: string, resolvedYear: number): string[] {
   // `alias-overrides:` mirrors canonical standings: the curated catalog-alias
   // policy is applied at read time and feeds identity resolution here, so it is
@@ -118,6 +131,7 @@ export function insightsCacheKeyParts(slug: string, resolvedYear: number): strin
     `alias-overrides:${ALIAS_OVERRIDES_HASH}`,
     `analytics:${ANALYTICS_PROJECTION_VERSION}`,
     `copy:${INSIGHT_COPY_POLICY_VERSION}`,
+    `membership:${INSIGHT_MEMBERSHIP_POLICY_VERSION}`,
   ];
 }
 

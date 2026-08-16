@@ -56,20 +56,6 @@ function ownerSlug(owner: string): string {
   return owner.trim().toLowerCase().replace(/\s+/gu, '-');
 }
 
-/**
- * INSIGHTS-023a — who is in the league this season.
- *
- * Was `new Set(currentRoster.values())` minus NoClaim, copied identically into
- * four generator files plus one inline. That reconstructs MEMBERSHIP from TEAM
- * ASSIGNMENTS, and before a draft there are none — `currentRoster` falls back to
- * the most recent archive — so every member filter was running against LAST
- * season's owners. The confirmed owner list answers the question directly, and
- * already drops NoClaim on the CSV path.
- */
-function leagueMembers(context: InsightContext): ReadonlySet<string> {
-  return context.leagueMembers;
-}
-
 function formatOwnerList(owners: string[]): string {
   if (owners.length === 0) return '';
   if (owners.length === 1) return owners[0]!;
@@ -149,7 +135,7 @@ function priorLeaderByTurnoverMargin(
 ): { owner: string; margin: number } | null {
   // Approximation: subtract this season's single-season stats from current career
   // totals for each owner that played this year.
-  const active = leagueMembers(context);
+  const active = context.leagueMembers;
   const currentYearStats = context.ownerGameStats ?? [];
   const currentByOwner = new Map(currentYearStats.map((s) => [s.owner, s]));
 
@@ -166,7 +152,7 @@ function priorLeaderByTurnoverMargin(
 }
 
 function activeCareerStats(context: InsightContext, minSeasons = 0): OwnerCareerStats[] {
-  const active = leagueMembers(context);
+  const active = context.leagueMembers;
   return context.ownerCareerStats.filter((s) => active.has(s.owner) && s.seasons >= minSeasons);
 }
 
@@ -581,7 +567,7 @@ function deriveTitleChaser(context: InsightContext): Insight | null {
 // === F. Rookie Owner Benchmark ===
 
 function deriveRookieBenchmark(context: InsightContext): Insight | null {
-  const active = leagueMembers(context);
+  const active = context.leagueMembers;
   const rookies = context.ownerCareerStats.filter(
     (s) => active.has(s.owner) && s.isRookie && s.finishHistory.length >= 1
   );
@@ -638,7 +624,7 @@ function deriveRookieBenchmark(context: InsightContext): Insight | null {
 function deriveGreatestSingleSeason(context: InsightContext): Insight | null {
   type Candidate = { owner: string; year: number; winPct: number; games: number };
   const candidates: Candidate[] = [];
-  const activeOwners = leagueMembers(context);
+  const activeOwners = context.leagueMembers;
 
   for (const archive of context.archives) {
     for (const row of archive.finalStandings) {

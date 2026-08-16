@@ -31,20 +31,6 @@ function ownerSlug(owner: string): string {
   return owner.trim().toLowerCase().replace(/\s+/gu, '-');
 }
 
-/**
- * INSIGHTS-023a — who is in the league this season.
- *
- * Was `new Set(currentRoster.values())` minus NoClaim, copied identically into
- * four generator files plus one inline. That reconstructs MEMBERSHIP from TEAM
- * ASSIGNMENTS, and before a draft there are none — `currentRoster` falls back to
- * the most recent archive — so every member filter was running against LAST
- * season's owners. The confirmed owner list answers the question directly, and
- * already drops NoClaim on the CSV path.
- */
-function leagueMembers(context: InsightContext): ReadonlySet<string> {
-  return context.leagueMembers;
-}
-
 function formatNumber(n: number): string {
   return new Intl.NumberFormat('en-US').format(Math.round(n));
 }
@@ -120,7 +106,7 @@ function evaluateMilestones(
 // === A. Career Milestone Watch ===
 
 function deriveMilestoneWatch(context: InsightContext): Insight | null {
-  const active = leagueMembers(context);
+  const active = context.leagueMembers;
   const activeStats = context.ownerCareerStats.filter((s) => active.has(s.owner));
   if (activeStats.length === 0) return null;
 
@@ -196,7 +182,7 @@ function countWins(results: HeadToHeadResult[]): Map<string, number> {
 function derivePerfectAgainst(context: InsightContext): Insight | null {
   if (context.archives.length === 0) return null;
   const pairs = collectHeadToHead(context.archives, context.historicalRosters);
-  const active = leagueMembers(context);
+  const active = context.leagueMembers;
 
   type Entry = { dominant: string; loser: string; wins: number; meetings: number };
   const entries: Entry[] = [];
