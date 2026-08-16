@@ -117,7 +117,8 @@ Rules:
   number into an enum is the whole bug, and the fix is a deletion, not a fourth pass. Filed with the
   remaining non-behavioural items rather than taken here, per the owner's call: none of it is
   user-visible, and this branch unblocks INSIGHTS-023 three days before a real draft.
-- Status: Implemented — PR open, not merged.
+- Status: MERGED — PR #483 (`084dec88`), 2026-08-16. Four remediation rounds; a fifth was gathered
+  and deferred, filed as INSIGHTS-031.
 - **Two claims in this slice's own comments were corrected by review before merge:** that the
   widening was "pinned by the guard test" (the guard greps `currentRoster.values(`, which an
   unfiltered superlative passes untouched — `trending` was the live proof), and a source field that
