@@ -496,3 +496,87 @@ test('confirmed-first precedence is restored', async () => {
   assert.ok(context.leagueMembers.has('Erin'), 'a newly confirmed owner takes effect immediately');
   assert.ok(!context.leagueMembers.has('Carol'), 'and the CSV does not override it');
 });
+
+test('a plain owners CSV is reported as the ROSTER, not as a confirmed list', async () => {
+  // `getConfirmedRoster` falls back to the CSV and says so via its own `source`.
+  // Re-inferring from a non-empty array told the page "a new roster has been
+  // named for this season" for any league with an ordinary roster and no
+  // confirmation record — the false claim the source field exists to prevent.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Members League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'season', year: YEAR },
+  });
+  await setAppState(
+    `owners:${SLUG}:${YEAR}`,
+    'csv',
+    'team,owner\nGeorgia,Alice\nClemson,Bob\nAlabama,Carol'
+  );
+
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+
+  assert.equal(context.leagueMembersSource, 'current-roster', 'no confirmation record exists');
+  assert.deepEqual([...context.leagueMembers].sort(), ['Alice', 'Bob', 'Carol']);
+});
+
+test('a departed record holder still sets the bar for a trend superlative', async () => {
+  // THE regression this round fixes. `trending` runs in preseason — exactly
+  // where membership changed — and judged "steepest decline in league history"
+  // against members only, promoting the best remaining owner.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Members League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    foundedYear: 2022,
+    status: { state: 'preseason', year: YEAR },
+  });
+  await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob', 'Carol']);
+
+  const owners = ['Alice', 'Bob', 'Carol', 'Dave'];
+  const csv = 'team,owner\nGeorgia,Alice\nClemson,Bob\nAlabama,Carol\nOhio State,Dave';
+  // Dave slid 1st → 2nd → 4th (net +3); Alice slid 2nd → 3rd → 3rd (net +1).
+  const ranks: Record<number, number[]> = {
+    2023: [2, 3, 4, 1],
+    2024: [3, 2, 4, 2],
+    2025: [3, 1, 2, 4],
+  };
+  for (const year of [2023, 2024, 2025]) {
+    const r = ranks[year]!;
+    await setAppState(`standings-archive:${SLUG}`, String(year), {
+      leagueSlug: SLUG,
+      year,
+      archivedAt: '2026-01-01T00:00:00.000Z',
+      ownerRosterSnapshot: csv,
+      standingsHistory: { weeks: [], byWeek: {}, byOwner: {} },
+      finalStandings: owners
+        .map((owner, i) => ({
+          owner,
+          wins: 14 - r[i]! * 2,
+          losses: r[i]! * 2,
+          ties: 0,
+          winPct: (14 - r[i]! * 2) / 14,
+          pointsFor: 400 - r[i]! * 30,
+          pointsAgainst: 300,
+          pointDifferential: 100 - r[i]! * 30,
+          gamesBack: r[i]! - 1,
+          finalGames: 14,
+        }))
+        .sort((a, b) => b.wins - a.wins),
+      games: [],
+      scoresByKey: {},
+    });
+  }
+
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  const trending = generateRawInsights(context).filter((i) => i.type === 'trending_down');
+
+  for (const insight of trending) {
+    assert.ok(
+      !/steepest decline in league history/.test(insight.description),
+      `a member must not claim the league record while a departed owner holds it — got: ${insight.description}`
+    );
+  }
+});

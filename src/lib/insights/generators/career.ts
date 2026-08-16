@@ -687,34 +687,54 @@ function deriveTrending(context: InsightContext, direction: 'up' | 'down'): Insi
     history: { year: number; rank: number }[];
     netChange: number;
   };
-  const entries: Entry[] = eligible
-    .map((stats) => {
-      const history = [...stats.finishHistory].sort((a, b) => a.year - b.year);
-      if (history.length < MIN_TRENDING_SEASONS) return null;
 
-      let consistent = true;
-      for (let i = 1; i < history.length; i++) {
-        const prev = history[i - 1]!.rank;
-        const curr = history[i]!.rank;
-        if (direction === 'up' && curr > prev) {
-          consistent = false;
-          break;
-        }
-        if (direction === 'down' && curr < prev) {
-          consistent = false;
-          break;
-        }
+  // INSIGHTS-023a — "the steepest decline in league history" has to be judged
+  // against league history, not against the current roster.
+  //
+  // This generator runs in PRESEASON, which is exactly where this slice changed
+  // membership: before it, the preseason population was the borrowed last-season
+  // roster and a departed record-holder was still in the comparison. Narrowing
+  // to members promoted the best remaining owner and kept the superlative
+  // wording, which is false. Same defect the slice fixed in `volatility` and
+  // `milestones` — applied here too, rather than to the two sites a reviewer
+  // happened to name.
+  const buildEntry = (stats: OwnerCareerStats): Entry | null => {
+    const history = [...stats.finishHistory].sort((a, b) => a.year - b.year);
+    if (history.length < MIN_TRENDING_SEASONS) return null;
+
+    let consistent = true;
+    for (let i = 1; i < history.length; i++) {
+      const prev = history[i - 1]!.rank;
+      const curr = history[i]!.rank;
+      if (direction === 'up' && curr > prev) {
+        consistent = false;
+        break;
       }
-      if (!consistent) return null;
+      if (direction === 'down' && curr < prev) {
+        consistent = false;
+        break;
+      }
+    }
+    if (!consistent) return null;
 
-      const netChange = history[history.length - 1]!.rank - history[0]!.rank;
-      if (netChange === 0) return null;
+    const netChange = history[history.length - 1]!.rank - history[0]!.rank;
+    if (netChange === 0) return null;
 
-      return { stats, history, netChange } as Entry;
-    })
-    .filter((e): e is Entry => e !== null);
+    return { stats, history, netChange } as Entry;
+  };
+
+  const entries: Entry[] = eligible.map(buildEntry).filter((e): e is Entry => e !== null);
 
   if (entries.length === 0) return null;
+
+  // The record across EVERY owner in league history, members or not.
+  const allEntries: Entry[] = context.ownerCareerStats
+    .map(buildEntry)
+    .filter((e): e is Entry => e !== null);
+  const recordChange = allEntries.reduce(
+    (acc, e) => (direction === 'up' ? Math.min(acc, e.netChange) : Math.max(acc, e.netChange)),
+    direction === 'up' ? 0 : 0
+  );
 
   // Sort by magnitude of net change: trending up wants most negative netChange
   // (largest improvement); trending down wants most positive netChange.
@@ -730,16 +750,26 @@ function deriveTrending(context: InsightContext, direction: 'up' | 'down'): Insi
   const arrow = renderFinishArrow(best.history);
   const span = best.history.length;
 
+  // The superlative fires ONLY when this member actually holds the league record.
+  // When a departed owner's run was steeper, the copy states the run without
+  // claiming a record — the fact is still worth saying, the ranking is not ours
+  // to assert.
+  const holdsRecord = targetChange === recordChange;
+
   let description: string;
   if (direction === 'up') {
     description =
       tied.length === 1
-        ? `${best.stats.owner} has climbed from ${arrow} — the league's steadiest ascent.`
+        ? holdsRecord
+          ? `${best.stats.owner} has climbed from ${arrow} — the league's steadiest ascent.`
+          : `${best.stats.owner} has climbed from ${arrow}, improving every season.`
         : `${formatOwnerList(ownerNames)} have each climbed the standings every season over ${span} seasons.`;
   } else {
     description =
       tied.length === 1
-        ? `${best.stats.owner} has fallen from ${arrow} — the steepest decline in league history.`
+        ? holdsRecord
+          ? `${best.stats.owner} has fallen from ${arrow} — the steepest decline in league history.`
+          : `${best.stats.owner} has fallen from ${arrow}, slipping every season.`
         : `${formatOwnerList(ownerNames)} have each slipped every season over ${span} seasons.`;
   }
 

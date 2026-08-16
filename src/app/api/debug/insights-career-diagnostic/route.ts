@@ -83,7 +83,13 @@ export async function GET(req: Request): Promise<Response> {
     leagueSlug,
     currentYear: league.year,
     archiveYears,
-    activeOwnerCount: owners.length,
+    // INSIGHTS-023a — renamed, not just re-scoped. `buildOwnerCareerStats` now
+    // accumulates over every owner in the archives (membership decides who may
+    // be NAMED, not who the comparison spans), so this number is the league's
+    // all-time owner count. Still calling it "active" made this route disagree
+    // with the membership section of /admin/[slug]/insights — the exact
+    // disagreement the note above says it closes.
+    historicalOwnerCount: owners.length,
     diagnosticsByYear: result.diagnosticsByYear,
     owners,
   });

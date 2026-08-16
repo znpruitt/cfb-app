@@ -50,6 +50,42 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-023a-LEAGUE-MEMBERSHIP-v1
+
+- Purpose: Give the insights engine the league's actual membership. Every generator answered "who is
+  in this league" from `context.currentRoster` — the team→owner CSV written at draft confirmation —
+  which does not exist before a draft, so in preseason the engine either named last season's roster
+  or named nobody.
+- Scope: `src/lib/insights/context.ts` (`resolveLeagueMembers`, membership on the context),
+  `types.ts`, `loadInsights.ts` (reads the confirmed roster, adds a membership policy version to the
+  cache key), the five generators that each hand-rolled `activeOwnerSet(currentRoster)`, the
+  diagnostic page's membership section, and a 14-test membership suite. No lifecycle gate was
+  touched — that is INSIGHTS-023, which this unblocks.
+- Outcome: membership resolves confirmed list → current roster → previous roster, with the source
+  carried through to the diagnostic page. **The precedence was ruled by the owner and it inverted my
+  first fix.** I had made the team→owner CSV win over the confirmed list; `confirmedRoster.ts`
+  documents the opposite, because a confirmed list is an owner DECISION and a CSV is a derived
+  artefact. The framing that settled it: _"no one has left the league until we've entered preseason
+  and have a new roster of owners — offseason is the rear-looking component, preseason the
+  forward-looking one."_ So borrowing the previous roster in offseason is correct, not a fallback
+  hack.
+- Review / verification: tsc 0, `lint:all` 0, full suite green (3879). Three rounds.
+  (1) My first membership rule produced an EMPTY feed — measured on the diagnostic page as 6 → 0
+  insights, not the "fewer and right" I had claimed. (2) **The 14-versus-4 finding**, read off the
+  live page by the owner: 14 confirmed members reached the engine and the insights named 4 of them.
+  Membership was never the constraint the lifecycle gates were — recorded, and the reason
+  INSIGHTS-023 stays a separate slice. (3) Widening `buildOwnerCareerStats` to span every archived
+  owner (membership filters who may be NAMED, not what a record is measured against) exposed
+  `career:trending` crowning a member with "the steepest decline in league history" while a departed
+  owner held it; fixed here, and the four pre-existing instances of the same shape are filed as
+  INSIGHTS-030 rather than fixed in this slice.
+- Status: Implemented — PR open, not merged.
+- **Two claims in this slice's own comments were corrected by review before merge:** that the
+  widening was "pinned by the guard test" (the guard greps `currentRoster.values(`, which an
+  unfiltered superlative passes untouched — `trending` was the live proof), and a source field that
+  reported `confirmed` for any league with an ordinary owners CSV. Both were assertions about
+  coverage rather than measurements of it.
+
 ### INSIGHTS-019-DIAGNOSTIC-PAGE-v1
 
 - Purpose: Make the Insights funnel observable — "why is my feed thin, and would rotation have

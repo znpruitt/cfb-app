@@ -7,6 +7,7 @@ import {
 import type { AnalyticsGameStats, SeasonRelation } from '../gameStats/contract';
 import { aggregateOwnerSeasonStats } from '../gameStats/ownerStats';
 import { projectAnalyticsPartition } from '../gameStats/publicProjection';
+import type { ConfirmedRosterSource } from '../selectors/confirmedRoster';
 import type { League } from '../league';
 import { parseOwnersCsv } from '../parseOwnersCsv';
 import type { RankingsResponse } from '../rankings';
@@ -256,7 +257,13 @@ export async function buildOwnerCareerStats(params: {
   // career history because she PLAYED, not because anyone threaded her through.
   //
   // Safe only because every consumer filters by `context.leagueMembers` before
-  // naming anyone — verified, not assumed, and pinned by the guard test.
+  // naming anyone — verified by reading each call site.
+  //
+  // NOT pinned by the guard test, and an earlier version of this comment claimed
+  // it was. That guard greps for `currentRoster.values(`, so an unfiltered
+  // superlative over the now-wider stats passes it untouched — `trending` was
+  // the live example. Superlative claims computed over a member-filtered subset
+  // are a documented open class; see docs/next-tasks.md.
   const activeOwners = new Set<string>();
   for (const archive of archives) {
     for (const row of archive.finalStandings) {
@@ -366,10 +373,20 @@ export async function buildOwnerCareerStats(params: {
  */
 export function resolveLeagueMembers(params: {
   confirmedOwners: readonly string[];
+  /**
+   * Where `confirmedOwners` came from, straight from `selectConfirmedRoster`.
+   *
+   * Re-inferring it from a non-empty array reported `confirmed` for any league
+   * with a plain owners CSV and no confirmation record — so the diagnostics page
+   * said "a new roster has been named for this season" when none had been, and
+   * `current-roster` was unreachable for an ordinary roster. The selector is the
+   * authority on its own answer; take it rather than reconstruct it.
+   */
+  confirmedSource: ConfirmedRosterSource;
   resolvedRoster: Map<string, string>;
   usingArchivedRoster: boolean;
 }): { members: ReadonlySet<string>; source: LeagueMembersSource } {
-  const { confirmedOwners, resolvedRoster, usingArchivedRoster } = params;
+  const { confirmedOwners, confirmedSource, resolvedRoster, usingArchivedRoster } = params;
   const clean = (names: Iterable<string>): string[] =>
     [...names].filter((o) => o && o !== NO_CLAIM_OWNER);
 
@@ -386,7 +403,15 @@ export function resolveLeagueMembers(params: {
   // its own fix (make the confirmation list writable in-season); it is not this
   // function's to work around.
   const fromConfirmed = clean(confirmedOwners);
-  if (fromConfirmed.length > 0) return { members: new Set(fromConfirmed), source: 'confirmed' };
+  if (fromConfirmed.length > 0) {
+    return {
+      members: new Set(fromConfirmed),
+      // `owners-csv` IS the current roster — the selector fell back to it
+      // because no confirmation record exists. Saying "confirmed" there is the
+      // false claim this field was added to prevent.
+      source: confirmedSource === 'preseason-owners' ? 'confirmed' : 'current-roster',
+    };
+  }
 
   // No confirmation record: the current-year roster is the live answer.
   if (!usingArchivedRoster) {
@@ -435,7 +460,8 @@ export async function buildInsightContext(
    * The league's confirmed owner names. Passed in rather than read here so this
    * module keeps doing no store access of its own.
    */
-  confirmedOwners: readonly string[] = []
+  confirmedOwners: readonly string[] = [],
+  confirmedSource: ConfirmedRosterSource = 'none'
 ): Promise<InsightContext> {
   const regularWeeks = deriveRegularWeeks(games);
   const currentWeek = chooseDefaultWeek({ games, regularWeeks });
@@ -466,6 +492,7 @@ export async function buildInsightContext(
   // `buildOwnerCareerStats`.
   const { members: leagueMembers, source: leagueMembersSource } = resolveLeagueMembers({
     confirmedOwners,
+    confirmedSource,
     resolvedRoster,
     usingArchivedRoster,
   });

@@ -814,8 +814,17 @@ Supersedes: (none)
     of it. **Measure the real catalog size on TSC before deciding whether it needs a bound** — the
     acceptance bar of ">10" spans a page and a wall.
 
-32. **INSIGHTS-024 — active-owner scoping.** After breadth. Correctness, not volume: on its own it
-    REDUCES the feed, because it drops departed owners and a brand-new owner has no history to draw on.
+32. **INSIGHTS-024 — active-owner scoping. LARGELY DELIVERED by INSIGHTS-023a** (2026-08-16); what
+    is left is recorded at the end of this item. Read the rest as the record of why, not as work.
+
+    023a took the membership half: `resolveLeagueMembers` now sources the league from the confirmed
+    owner list, `context.leagueMembers` carries it with a provenance field, and the five duplicated
+    `activeOwnerSet(currentRoster)` derivations in the generators were deleted in favour of it. The
+    audit below ("which of the 13 `currentRoster` consumers need the MAP and which only need the owner
+    SET") was run, and its answer is what 023a implemented.
+
+    **STILL OPEN after 023a:** the gate changes themselves (INSIGHTS-023 above — membership was only
+    the blocker), and the superlative-population defect 023a exposed, filed separately as item 33.
 
     **The gap, visible on the live TSC Overview:** standings and insights disagree on the same page.
     `leagueStandings` synthesizes preseason rows from the confirmed owner list, so Standings shows the
@@ -844,7 +853,55 @@ Supersedes: (none)
     of the 13 `currentRoster` consumers need the MAP and which only need the owner SET, and who else
     reads `usingArchivedRoster`.
 
-33. **INSIGHTS-025 — rookie/returning claims (owner decision required, invariant amendment).**
+33. **INSIGHTS-030 — league-record superlatives computed over the wrong population** (found while
+    fixing the one instance INSIGHTS-023a caused, 2026-08-16; the rest PREDATE 023a and are live on
+    `main`).
+
+    **The defect in one sentence:** several generators say "in league history" / "all-time" / "on
+    record" about a maximum computed over the CURRENT MEMBERS only, so when the true record holder is
+    not a current member, the best remaining member is crowned with a claim that is false.
+
+    Membership is the right filter for **who may be NAMED** — that is invariant 5, and it is correct.
+    It is the wrong filter for **what a record is measured against**, because a record is a fact about
+    the league's history and history includes people who left. The two uses were never distinguished,
+    and 023a's widening of `buildOwnerCareerStats` made the distinction visible rather than creating
+    it.
+
+    **Confirmed defective (population verified by reading each call site, 2026-08-16):**
+    - `career:points_leader` — `activeCareerStats` filters to members, then the copy says "leads
+      all-time", "the all-time scoring lead", "the closest it's ever been" (`career.ts` ~239–266).
+    - `career:turnover_margin` — leader loop skips non-members (`career.ts` ~138–148); copy says
+      "the largest career turnover margin on record" (~330).
+    - `career:greatest_season` — candidates skip non-members (`career.ts` ~627–632); copy says
+      "remains the best single-season performance on record" (~647).
+    - `historical:dynasty` — `maxCount` loops `activeOwners` (`historical.ts` ~196–207); copy says
+      "the most in league history", "the most ever" (~225).
+    - `rivalry:lopsided` — `allTimeMaxDiff` skips any pair with a non-member (`rivalry.ts` ~200–206);
+      copy says "the most lopsided rivalry on record" (~215).
+
+    **Verified CORRECT — do not change these, and note the pattern they already use:** each names a
+    member but measures against the full population. `historical:consistency` (`allTimeMax` over
+    `topThreeCounts`, filtered only by `NO_CLAIM_OWNER`), `historical:improvement` (`allTimeBest` over
+    every archived row), `rivalry:dominance_streak` (`allTimeMaxStreak` over every pair),
+    `career:rookie_benchmark` (percentile against every owner's debut rank), `career:volatility`,
+    `milestones:watch` (023a made `isFirst` judge against `allStats`), and `career:trending` (fixed in
+    023a — it was the one instance the widening caused).
+
+    `historical:drought` says "the longest **active** drought", which is a claim about current members
+    and is therefore consistent with a member-scoped maximum. Check the copy rather than the code.
+
+    **Why this is its own slice and not a 023a round:** four of the five predate 023a, each is a
+    separate copy/population decision, and the fix has two shapes — widen the population, or narrow
+    the claim ("the most of anyone still playing"). Which shape applies is a per-insight editorial
+    call, not a mechanical edit. The owner should rule on whether a departed owner's record should
+    still be quotable at all.
+
+    **The structural fix worth considering over five point fixes:** a superlative helper that takes
+    the claim population and the naming population as separate arguments, so the distinction cannot be
+    collapsed again by the next generator anyone writes. Every one of the seven correct sites hand-
+    rolls the same two loops.
+
+34. **INSIGHTS-025 — rookie/returning claims (owner decision required, invariant amendment).**
     Deliberately last, and deliberately separate.
 
     AGENTS.md Insights invariant 5 currently says naming who is genuinely returning "requires
@@ -860,7 +917,7 @@ Supersedes: (none)
     trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
     For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
 
-34. **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left
+35. **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left
     is news — and it is the inverse of the trade 023a was agonising over: instead of losing content
     when someone leaves, leaving becomes content.
 
@@ -899,7 +956,7 @@ Supersedes: (none)
     **Blocked on the same owner ruling as INSIGHTS-025**: is a confirmed preseason owner list
     "finalized" enough to license these claims, or is Setup Complete the trigger?
 
-35. **INSIGHTS-026 — the pulse: a scheduled digest, and the insights stream's EVENT SOURCE.**
+36. **INSIGHTS-026 — the pulse: a scheduled digest, and the insights stream's EVENT SOURCE.**
     **ID split out 2026-08-14: this campaign was filed under INSIGHTS-018**, which the backlog also
     used for the NEW-tag mechanism, so a content campaign was hiding behind a mechanical one. Owner
     confirmed it is still wanted — _"it helps make the app feel alive"_. Design detail stays in
@@ -961,7 +1018,7 @@ Supersedes: (none)
 
     In-season only, so it does nothing for the preseason feed; sequence after 018/023/024.
 
-36. **INSIGHTS-027 — preseason content generators (NEW content, not re-enabled content).** Also
+37. **INSIGHTS-027 — preseason content generators (NEW content, not re-enabled content).** Also
     recovered from the roadmap entry above, and distinct from INSIGHTS-023: that one switches on
     generators that already exist, this one writes generators that do not.
 
@@ -980,10 +1037,10 @@ Supersedes: (none)
       is the whole point of the panel: _"Every insight must tell the user something they couldn't
       figure out just by reading the table. No restating visible data without a compelling angle."_
 
-37. **Then, in order:** INSIGHTS-020 (record-change insights),
+38. **Then, in order:** INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
     later.
-38. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
+39. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
     PLATFORM-093** — a brand-new league had no path to confirm owners — new leagues are born `season`, `/admin/[slug]/preseason/owners`
     redirects away unless the league is in `preseason`, and only `beginPreseason` (offseason-only) or
     the rollover cron reach that state, leaving only the historical/repair CSV import, which asks the
@@ -1003,7 +1060,7 @@ Supersedes: (none)
     shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
     constant. Severity was overstated when first reported — three client components already import
     that module, so the graph is in the client bundle on every league page anyway.
-39. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
+40. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
     Verified 2026-08-12. `DELETE /api/admin/leagues/[slug]` calls `removeLeague`, which filters the
     slug out of the registry list and nothing else. Every keyed record survives: `owners:{slug}:{year}`
     (team→owner rosters carrying real names), `preseason-owners:{slug}`, `draft:{slug}` (picks and
@@ -1033,7 +1090,7 @@ Supersedes: (none)
     the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
     the honest options are a purge that removes the residue, an already-archived guard in the
     rollover path, or retiring adoption — all of which are this campaign's decisions.
-40. 🟡 **PLATFORM-101 — `?bypassSuppression=1` is an uncached, invariant-skipping flag with no admin
+41. 🟡 **PLATFORM-101 — `?bypassSuppression=1` is an uncached, invariant-skipping flag with no admin
     check.** Raised by review during INSIGHTS-029 (2026-08-15); **pre-existing, NOT introduced
     there** — the bypass block in `loadInsights.ts` is byte-identical to `main` and the route file
     was untouched. Recorded here rather than fixed in-branch because the fix is an auth change.
@@ -1070,12 +1127,12 @@ Supersedes: (none)
     the public flag has no remaining reason to exist and deletion is the smaller change. Sequence
     accordingly rather than bolting an admin check onto a route that may not keep the flag.
 
-41. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+42. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
     once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
     retry.
-42. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+43. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -1085,7 +1142,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-43. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+44. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 

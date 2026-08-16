@@ -250,7 +250,8 @@ export async function buildLeagueInsightContext(
     // INSIGHTS-023a — the league's MEMBERSHIP, which is a different question
     // from who owns which team. Read here rather than in `context.ts` so that
     // module keeps doing no store access of its own.
-    confirmedRoster.owners
+    confirmedRoster.owners,
+    confirmedRoster.source
   );
 }
 
