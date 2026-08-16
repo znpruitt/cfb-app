@@ -3,6 +3,7 @@ import type { AppGame } from '../../schedule';
 import type { ScorePack } from '../../scores';
 import type { SeasonArchive } from '../../seasonArchive';
 import { registerGenerator } from '../engine';
+import { resolveSuperlative } from '../superlative';
 import type { InsightContext, InsightGenerator, LifecycleState, NewsHook } from '../types';
 
 const RIVALRY_LIFECYCLES: LifecycleState[] = [
@@ -197,22 +198,45 @@ function deriveLopsidedInsight(
     LOPSIDED_BASE_PRIORITY + LOPSIDED_PER_WIN_DIFF_BONUS * bestDiff
   );
 
-  // Compute all-time max win differential across every qualifying pair.
-  let allTimeMaxDiff = 0;
+  // INSIGHTS-030 — the league's most lopsided series, across EVERY qualifying
+  // pair. The member filter that used to sit in this loop made the record mean
+  // "most lopsided among pairs still playing", so the copy called a member's
+  // series the most lopsided on record while a departed pair's was worse.
+  //
+  // Pair-shaped rather than owner-shaped, so the record holder is two names and
+  // a scoreline. `resolveSuperlative` decides WHETHER the named pair holds it;
+  // the entry itself carries what the citation needs.
+  type PairRecord = { dominant: string; loser: string; diff: number; wins: number; losses: number };
+  const qualifying: PairRecord[] = [];
   for (const [key, results] of pairs) {
     if (results.length < MIN_LOPSIDED_MEETINGS) continue;
     const [a, b] = pairOwners(key);
-    if (!activeOwners.has(a) || !activeOwners.has(b)) continue;
     const wins = countWins(results);
-    const diff = Math.abs((wins.get(a) ?? 0) - (wins.get(b) ?? 0));
-    if (diff > allTimeMaxDiff) allTimeMaxDiff = diff;
+    const aWins = wins.get(a) ?? 0;
+    const bWins = wins.get(b) ?? 0;
+    qualifying.push(
+      aWins >= bWins
+        ? { dominant: a, loser: b, diff: aWins - bWins, wins: aWins, losses: bWins }
+        : { dominant: b, loser: a, diff: bWins - aWins, wins: bWins, losses: aWins }
+    );
   }
-  const hook: NewsHook = bestDiff >= allTimeMaxDiff ? 'new_record' : 'streak_extended';
 
-  const description =
-    hook === 'new_record'
-      ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry on record.`
-      : `${bestDominant} extends the all-time series lead over ${bestLoser} to ${bestDominantWins}–${bestLoserWins}.`;
+  const lopsidedStanding = resolveSuperlative({
+    nameable: qualifying.filter((p) => activeOwners.has(p.dominant) && activeOwners.has(p.loser)),
+    population: qualifying,
+    value: (p) => p.diff,
+    owner: (p) => p.dominant,
+  });
+  const recordPair =
+    lopsidedStanding && !lopsidedStanding.holdsLeagueRecord
+      ? qualifying.reduce((max, p) => (p.diff > max.diff ? p : max), qualifying[0]!)
+      : null;
+
+  const hook: NewsHook = recordPair ? 'streak_extended' : 'new_record';
+
+  const description = recordPair
+    ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry among active owners. ${recordPair.dominant}'s ${recordPair.wins}–${recordPair.losses} over ${recordPair.loser} remains the league record.`
+    : `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry on record.`;
 
   return toInsight({
     id: `rivalry-lopsided-${ownerSlug(bestDominant)}-${ownerSlug(bestLoser)}`,

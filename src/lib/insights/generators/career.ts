@@ -1,5 +1,6 @@
 import type { Insight } from '../../selectors/insights';
 import { registerGenerator } from '../engine';
+import { resolveSuperlative } from '../superlative';
 import type {
   InsightContext,
   InsightGenerator,
@@ -190,6 +191,17 @@ function deriveCareerPointsLeader(context: InsightContext): Insight | null {
   const leaderPoints = tied[0]!.totalPoints;
   const ownerNames = tied.map((s) => s.owner);
   const leaderOwner = ownerNames[0]!;
+
+  // INSIGHTS-030 — every "all-time" phrase below was measured against MEMBERS.
+  // When the real leader has left, the copy crowned whoever remained. The record
+  // spans `context.ownerCareerStats`, which after 023a holds every archived
+  // owner; `eligible` stays the naming filter.
+  const standing = resolveSuperlative({
+    nameable: eligible,
+    population: context.ownerCareerStats.filter((s) => s.totalPoints > 0),
+    value: (s) => s.totalPoints,
+    owner: (s) => s.owner,
+  });
   const others = eligible
     .filter((s) => !ownerNames.includes(s.owner))
     .sort((a, b) => b.totalPoints - a.totalPoints);
@@ -235,7 +247,19 @@ function deriveCareerPointsLeader(context: InsightContext): Insight | null {
   }
 
   let description: string;
-  if (tied.length > 1) {
+  const pointsRecord = standing?.recordHolder ?? null;
+  if (pointsRecord) {
+    // The five movement hooks below all narrate the ALL-TIME race — "extends the
+    // lead", "reclaims", "the closest it's ever been". Every one of them is
+    // false when the all-time leader is not in this comparison, so this case
+    // gets a single sentence rather than a rephrasing of each. It names the
+    // departed record holder per the owner's ruling, in the past-fact register
+    // invariant 5 clause (b) requires.
+    description =
+      tied.length > 1
+        ? `${formatOwnerList(ownerNames)} lead active owners with ${formatNumber(leaderPoints)} career league points each — ${pointsRecord.owner}'s ${formatNumber(pointsRecord.value)} still stands as the league record.`
+        : `${leaderOwner} leads active owners with ${formatNumber(leaderPoints)} career league points — ${pointsRecord.owner}'s ${formatNumber(pointsRecord.value)} still stands as the league record.`;
+  } else if (tied.length > 1) {
     description = `${formatOwnerList(ownerNames)} are tied for the all-time lead with ${formatNumber(leaderPoints)} career league points each.`;
   } else {
     switch (hook) {
@@ -301,6 +325,22 @@ function deriveCareerTurnoverMarginLeader(context: InsightContext): Insight | nu
   const marginText = leaderMargin > 0 ? `+${leaderMargin}` : String(leaderMargin);
   const ownerNames = tied.map((s) => s.owner);
   const leaderOwner = ownerNames[0]!;
+
+  // INSIGHTS-030 — "on record" measured against members only. Population is
+  // unfiltered by membership but keeps the same MIN_TURNOVER_MARGIN floor, so
+  // the record is the best real margin rather than the best of anyone at all.
+  const marginStanding = resolveSuperlative({
+    nameable: eligible,
+    population: context.ownerCareerStats.filter(
+      (s) => s.totalTurnoverMargin >= MIN_TURNOVER_MARGIN
+    ),
+    value: (s) => s.totalTurnoverMargin,
+    owner: (s) => s.owner,
+  });
+  const marginRecord = marginStanding?.recordHolder ?? null;
+  const marginRecordText = marginRecord
+    ? ` — ${marginRecord.owner}'s ${marginRecord.value > 0 ? `+${marginRecord.value}` : String(marginRecord.value)} still stands as the league record.`
+    : '';
   const others = eligible
     .filter((s) => !ownerNames.includes(s.owner))
     .sort((a, b) => b.totalTurnoverMargin - a.totalTurnoverMargin);
@@ -326,7 +366,16 @@ function deriveCareerTurnoverMarginLeader(context: InsightContext): Insight | nu
   }
 
   let description: string;
-  if (tied.length > 1) {
+  if (marginRecord) {
+    // One sentence for the whole not-holding case, as with the points leader:
+    // three of the five hooks below assert "the largest on record", and the
+    // other two narrate a gap between two active owners that reads as the
+    // league lead. Rephrasing each would leave five chances to miss one.
+    description =
+      tied.length > 1
+        ? `${formatOwnerList(ownerNames)} share the largest career turnover margin among active owners at ${marginText}${marginRecordText}`
+        : `${leaderOwner} leads active owners in career turnover margin at ${marginText}${marginRecordText}`;
+  } else if (tied.length > 1) {
     description = `${formatOwnerList(ownerNames)} share the largest career turnover margin on record at ${marginText}.`;
   } else {
     switch (hook) {
@@ -626,14 +675,19 @@ function deriveGreatestSingleSeason(context: InsightContext): Insight | null {
   const candidates: Candidate[] = [];
   const activeOwners = context.leagueMembers;
 
+  // INSIGHTS-030 — `population` collects the SAME rows without the membership
+  // filter, so "the best single-season performance on record" is measured
+  // against every season anyone ever played.
+  const population: Candidate[] = [];
   for (const archive of context.archives) {
     for (const row of archive.finalStandings) {
       if (!row.owner || row.owner === NO_CLAIM_OWNER) continue;
-      if (!activeOwners.has(row.owner)) continue;
       const games = row.wins + row.losses + row.ties;
       if (games < MIN_GAMES_GREATEST_SEASON) continue;
       const winPct = games > 0 ? row.wins / games : 0;
-      candidates.push({ owner: row.owner, year: archive.year, winPct, games });
+      const candidate = { owner: row.owner, year: archive.year, winPct, games };
+      population.push(candidate);
+      if (activeOwners.has(row.owner)) candidates.push(candidate);
     }
   }
 
@@ -644,12 +698,29 @@ function deriveGreatestSingleSeason(context: InsightContext): Insight | null {
   );
   const best = candidates[0]!;
 
-  const description = `${best.owner}'s ${best.year} season (.${Math.round(best.winPct * 1000)
-    .toString()
-    .padStart(
-      3,
-      '0'
-    )} win rate across ${best.games} games) remains the best single-season performance on record.`;
+  const seasonStanding = resolveSuperlative({
+    nameable: candidates,
+    population,
+    value: (c) => c.winPct,
+    owner: (c) => c.owner,
+  });
+  const seasonRecord = seasonStanding?.recordHolder ?? null;
+  const recordSeason = seasonRecord
+    ? population.find((c) => c.owner === seasonRecord.owner && c.winPct === seasonRecord.value)
+    : null;
+
+  const winRate = (pct: number): string =>
+    `.${Math.round(pct * 1000)
+      .toString()
+      .padStart(3, '0')}`;
+
+  // Ties keep the ORIGINAL claim: `resolveSuperlative` treats an equal value as
+  // holding the record, so a member who matches the best season ever still
+  // "remains the best on record" rather than being told someone else beat them.
+  const description =
+    seasonRecord && recordSeason
+      ? `${best.owner}'s ${best.year} season (${winRate(best.winPct)} win rate across ${best.games} games) is the best by any active owner — ${recordSeason.owner}'s ${winRate(recordSeason.winPct)} in ${recordSeason.year} remains the league record.`
+      : `${best.owner}'s ${best.year} season (${winRate(best.winPct)} win rate across ${best.games} games) remains the best single-season performance on record.`;
 
   return toInsight({
     id: `greatest-season-${ownerSlug(best.owner)}-${best.year}`,

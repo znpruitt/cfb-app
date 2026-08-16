@@ -1,6 +1,7 @@
 import type { Insight } from '../../selectors/insights';
 import type { SeasonArchive } from '../../seasonArchive';
 import { registerGenerator } from '../engine';
+import { resolveSuperlative } from '../superlative';
 import type { InsightContext, InsightGenerator, LifecycleState, NewsHook } from '../types';
 
 const HISTORICAL_LIFECYCLES: LifecycleState[] = [
@@ -193,7 +194,10 @@ function deriveDynastyInsight(
     lastTitleYear.set(champion, archive.year);
   }
 
-  // Find max title count among active owners only
+  // Find max title count among active owners only. Correct — this decides who
+  // may be NAMED. The league record is resolved separately below (INSIGHTS-030);
+  // taking the max over members and then calling it "the most in league history"
+  // is the defect.
   let maxCount = 0;
   for (const owner of activeOwners) {
     const count = titleCounts.get(owner) ?? 0;
@@ -217,11 +221,27 @@ function deriveDynastyInsight(
   // Did the current leader(s) add a title this year?
   const wonThisYear = tied.some((owner) => lastTitleYear.get(owner) === latestYear);
 
+  // INSIGHTS-030 — the title record spans everyone who ever won one, including
+  // champions who have since left the league. `titleCounts` is already that
+  // population; only the naming list is filtered.
+  const titleEntries = [...titleCounts].map(([owner, count]) => ({ owner, count }));
+  const dynastyStanding = resolveSuperlative({
+    nameable: titleEntries.filter((e) => tied.includes(e.owner)),
+    population: titleEntries,
+    value: (e) => e.count,
+    owner: (e) => e.owner,
+  });
+  const titleRecord = dynastyStanding?.recordHolder ?? null;
+  const titleRecordText = titleRecord
+    ? ` ${titleRecord.owner}'s ${titleRecord.value} remains the league record.`
+    : '';
+
   if (tied.length === 1) {
     const topOwner = tied[0]!;
     const hook: NewsHook = wonThisYear ? 'streak_extended' : 'new_leader';
-    const description =
-      hook === 'streak_extended'
+    const description = titleRecord
+      ? `${topOwner} has ${maxCount} titles — the most of anyone still playing.${titleRecordText}`
+      : hook === 'streak_extended'
         ? `${topOwner} adds another title — now ${maxCount} in league history, the most ever.`
         : `${topOwner} now leads all-time with ${maxCount} titles — the most in league history.`;
     return toInsight({
@@ -247,7 +267,9 @@ function deriveDynastyInsight(
   // Shared top honors: returning_leader when somebody ties a prior dynasty.
   const hook: NewsHook = 'returning_leader';
   let description: string;
-  if (othersAtSameYear.length > 1) {
+  if (titleRecord) {
+    description = `${allNames} each own ${maxCount} league titles — the most of anyone still playing.${titleRecordText}`;
+  } else if (othersAtSameYear.length > 1) {
     description = `${allNames} each own ${maxCount} league titles — the most in league history.`;
   } else {
     const others = tied.filter((o) => o !== mostRecent);
