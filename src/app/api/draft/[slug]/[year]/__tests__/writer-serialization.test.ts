@@ -501,3 +501,72 @@ test('Undo still behaves correctly through the serialized path', async () => {
   assert.equal(persisted.currentPickIndex, 0);
   assert.equal(persisted.phase, 'live');
 });
+
+test('Undo works in a LIVE draft with the timer running, mid-round', async () => {
+  // Owner requirement (2026-08-15): Undo must remain usable during a live draft.
+  // The serialization round must not have made it refuse or stall in the state it
+  // is actually used in — timer running, several picks down, mid-round.
+  await seedDraft(
+    liveExpiredDraft({
+      phase: 'live',
+      timerState: 'running',
+      timerExpiresAt: new Date(Date.now() + 45_000).toISOString(),
+      picks: [
+        {
+          pickNumber: 1,
+          round: 0,
+          roundPick: 0,
+          owner: 'Alice',
+          team: 'Georgia',
+          pickedAt: '2026-08-01T00:00:10.000Z',
+          autoSelected: false,
+        },
+        {
+          pickNumber: 2,
+          round: 0,
+          roundPick: 1,
+          owner: 'Bob',
+          team: 'Clemson',
+          pickedAt: '2026-08-01T00:00:20.000Z',
+          autoSelected: false,
+        },
+      ],
+      currentPickIndex: 2,
+    })
+  );
+
+  const res = await UNPICK(postRequest('unpick'), { params });
+  assert.equal(res.status, 200, 'Undo must succeed in a live draft');
+
+  const persisted = await readPersisted();
+  assert.equal(persisted.picks.length, 1, 'the last pick was removed');
+  assert.equal(persisted.picks[0]?.team, 'Georgia', 'and the earlier pick is untouched');
+  assert.equal(persisted.currentPickIndex, 1, 'the clock is back on Bob');
+  assert.equal(persisted.phase, 'live', 'the draft is still live');
+  assert.equal(persisted.timerState, 'running', 'and the timer restarted');
+});
+
+test('Undo works repeatedly, and after a pick lands through the same lock', async () => {
+  // The realistic draft-night sequence: pick, undo, pick again, undo again.
+  await seedDraft(
+    liveExpiredDraft({
+      phase: 'live',
+      timerState: 'running',
+      timerExpiresAt: new Date(Date.now() + 45_000).toISOString(),
+    })
+  );
+
+  assert.equal((await PICK(pickRequest('Georgia'), { params })).status, 200, 'first pick');
+  assert.equal((await UNPICK(postRequest('unpick'), { params })).status, 200, 'undo it');
+  assert.equal((await PICK(pickRequest('Clemson'), { params })).status, 200, 'pick again');
+  assert.equal((await UNPICK(postRequest('unpick'), { params })).status, 200, 'undo again');
+
+  const persisted = await readPersisted();
+  assert.equal(persisted.picks.length, 0);
+  assert.equal(persisted.currentPickIndex, 0);
+  assert.equal(persisted.phase, 'live', 'still live and usable');
+
+  // And the undone team is selectable again — an Undo that left the team locked
+  // out would be useless in a live draft.
+  assert.equal((await PICK(pickRequest('Georgia'), { params })).status, 200, 'reselectable');
+});
