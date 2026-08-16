@@ -73,14 +73,22 @@ export default function InsightsDiagnosticsView({
   if (model.contextError) {
     return (
       <div className="space-y-4">
+        {/* Light base, dark variant — the repo's admin error pattern
+            (AssignmentMethodCard, ScoreAttachmentRecoveryPanel). The first
+            version was dark-only, copied from a draft surface that is always
+            dark: in light mode `bg-red-950/30` over white sits at roughly the
+            same luminance as `text-red-300`, making the ONE message this page
+            exists to deliver in a failure state effectively invisible. */}
         <p
           role="alert"
-          className="rounded-lg border border-red-800/40 bg-red-950/30 px-4 py-3 text-sm text-red-300"
+          className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-950/40 dark:text-red-100"
         >
           The insights context could not be built for {model.slug} {model.year}, so there is nothing
           to diagnose — and the league&apos;s feed is empty for the same reason.
         </p>
-        <p className="font-mono text-xs text-gray-500 dark:text-zinc-400">{model.contextError}</p>
+        <p className="font-mono text-xs break-all text-gray-600 dark:text-zinc-400">
+          {model.contextError}
+        </p>
         <p className="text-sm text-gray-500 dark:text-zinc-400">
           This is a store read failure (owners, standings or archives), not an absence of content.
           The public feed degrades quietly to empty in this state; this page is where it is supposed

@@ -8,11 +8,13 @@ import {
   setAppState,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
+  __setAppStateReadFailureForTests,
 } from '@/lib/server/appStateStore';
 import {
   buildInsightsDiagnostics,
   classifyInsightFunnel,
   runGeneratorForDiagnostics,
+  redactConnectionDetails,
 } from '@/lib/server/insightsDiagnostics';
 import type { Insight } from '@/lib/selectors/insights';
 import type { InsightGenerator } from '@/lib/insights/types';
@@ -522,4 +524,65 @@ test('a healthy league carries no context error', async () => {
     null,
     'or the error state would be indistinguishable from health'
   );
+});
+
+// ---------------------------------------------------------------------------
+// Round 3 — the failure view must be readable and must not leak.
+// ---------------------------------------------------------------------------
+
+test('a connection string is redacted out of the reported failure', () => {
+  const leaked =
+    'connect ECONNREFUSED postgres://appuser:hunter2@db.internal.example:5432/cfb — check config';
+  const safe = redactConnectionDetails(leaked);
+
+  assert.ok(!safe.includes('hunter2'), 'credentials must not reach the page');
+  assert.ok(!safe.includes('db.internal.example'), 'nor the host');
+  assert.ok(
+    safe.includes('ECONNREFUSED'),
+    'while the diagnostic part survives — it is the payload'
+  );
+});
+
+test('an ordinary message is left intact', () => {
+  const plain = "League 'nope' not found";
+  assert.equal(redactConnectionDetails(plain), plain, 'redaction must not eat useful text');
+});
+
+test('the failure alert has a LIGHT palette, not dark-only', () => {
+  // The first version was copied from an always-dark draft surface. On this
+  // themed admin page that made the one message the page exists to deliver in a
+  // failure state near-invisible in light mode.
+  const src = readFileSync(
+    fileURLToPath(new URL('../../../components/admin/InsightsDiagnostics.tsx', import.meta.url)),
+    'utf8'
+  );
+  const alert = src.slice(src.indexOf('role="alert"'), src.indexOf('role="alert"') + 400);
+
+  assert.match(alert, /bg-red-50\b/, 'a light background layer');
+  assert.match(alert, /text-red-900\b/, 'and readable light-mode text');
+  assert.match(alert, /dark:bg-red-950/, 'with the dark variant layered on top');
+});
+
+test('WIRING: a leaky store failure reaches the page redacted', async () => {
+  // Testing `redactConnectionDetails` alone proved nothing about the model:
+  // a mutation removing the call from `buildInsightsDiagnostics` passed every
+  // test. This drives a real store failure through the real path.
+  await seedLeagueWithHistory();
+
+  __setAppStateReadFailureForTests(
+    new Error('connect ECONNREFUSED postgres://appuser:hunter2@db.internal.example:5432/cfb')
+  );
+  try {
+    const model = await buildInsightsDiagnostics(SLUG, YEAR);
+
+    assert.ok(model.contextError, 'the failure is reported rather than thrown');
+    assert.ok(!String(model.contextError).includes('hunter2'), 'credentials redacted end to end');
+    assert.ok(
+      !String(model.contextError).includes('db.internal.example'),
+      'and the host with them'
+    );
+    assert.match(String(model.contextError), /ECONNREFUSED/, 'the diagnosis survives');
+  } finally {
+    __setAppStateReadFailureForTests(null);
+  }
 });

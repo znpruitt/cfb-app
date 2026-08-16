@@ -26,7 +26,13 @@ import type { Insight } from '../selectors/insights.ts';
  * exactly why 018 was stopped once already.
  *
  * Derivation lives here rather than in the page, per AGENTS.md: the server builds
- * a view model and React maps it to markup. Same shape as `systemHealth.ts`.
+ * a view model and React maps it to markup — the `systemHealth.ts` shape.
+ *
+ * It does NOT inherit systemHealth's "never leak a raw error" contract wholesale,
+ * and saying it did was wrong: this page's entire job is diagnosis, so the
+ * failure message is the payload. It is redacted instead — see
+ * `redactConnectionDetails` — so a `DATABASE_URL` misconfiguration cannot render
+ * a host or credentials into the page body.
  */
 
 /**
@@ -166,6 +172,25 @@ export function classifyInsightFunnel(
  * cross-cutting gate, then positive scores), so this page cannot disagree with
  * production about which generators ran.
  */
+/**
+ * Strip anything credential-shaped out of an error message before it reaches the
+ * page.
+ *
+ * The message itself is the diagnostic payload — removing it would gut the
+ * failure view — but a `pg` connection error carries the host, and sometimes the
+ * user, in its text. Admin-gated, so the exposure is bounded; redacting is still
+ * cheap and removes the obvious case.
+ */
+export function redactConnectionDetails(message: string): string {
+  return (
+    message
+      // postgres://user:pass@host:5432/db  → scheme + [redacted]
+      .replace(/\b([a-z+]+):\/\/[^\s]*/gi, '$1://[redacted]')
+      // bare user:pass@host forms
+      .replace(/\b[\w.-]+:[^\s@]+@[\w.-]+/g, '[redacted]')
+  );
+}
+
 export function runGeneratorForDiagnostics(
   g: InsightGenerator,
   context: InsightContext
@@ -200,7 +225,7 @@ export async function buildInsightsDiagnostics(
       year,
       lifecycleState: 'offseason',
       generatedAt: currentDate.toISOString(),
-      contextError: err instanceof Error ? err.message : 'unknown error',
+      contextError: redactConnectionDetails(err instanceof Error ? err.message : 'unknown error'),
       counts: {
         generated: 0,
         served: 0,
