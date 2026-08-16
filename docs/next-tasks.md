@@ -655,7 +655,42 @@ Supersedes: (none)
     Generators reaching for the second when they mean the first is the root cause, and fixing it
     makes the post-draft feed correct rather than accidentally correct.
 
-    ### Audit to run FIRST, before any gate changes
+    ### AUDIT COMPLETE (2026-08-16) — split into 023a and 023b
+
+    **`usingArchivedRoster` is answering two different questions, and only one of them is wrong.**
+
+    - **Membership (WRONG, 5 sites).** `career.ts`, `historical.ts`, `milestones.ts`, `stats.ts` each
+      define a byte-identical `activeOwnerSet(currentRoster)` — distinct owners out of the team→owner
+      map, minus `NoClaim` — and `rivalry.ts` does it inline. Every use is a filter: only speak about
+      owners still in the league. Before a draft that map is LAST season's, so membership is too.
+    - **Content safety (CORRECT, 3 sites, keep).** `existing.ts` applies last-season framing to season
+      wrap, `stats.ts` does the same in fresh_offseason, and `career:rookie_benchmark` suppresses
+      entirely because no framing is honest for it. This is invariant 5 working, and it must survive.
+
+    **The authoritative answer exists and was never given to the engine.** `ConfirmedRoster.owners`
+    (`preseason-owners:{slug}`, via `getConfirmedRoster`) is the league's membership in the order the
+    commissioner entered it — literally what those five copies reconstruct from team assignments.
+    `InsightContext` carries `currentRoster`, `historicalRosters` and `usingArchivedRoster`, and no
+    confirmed-owner field.
+
+    **Bonus finding:** season wrap ALREADY applies last-season framing under a borrowed roster
+    (`existing.ts`), so extending it into preseason is invariant-5 safe by construction — it was the
+    generator most at risk and turns out to be the least.
+
+    **Split, per this entry's own stop-and-report condition** — the membership fix (context type,
+    context builder, loader, five generators, tests ≈ 9 files) is larger than the four gate constants
+    it enables:
+
+    - **INSIGHTS-023a — give the engine the league's membership.** Add the confirmed owner list to
+      `InsightContext`, replace the five duplicated derivations with it, and narrow
+      `usingArchivedRoster` to its content-safety meaning. **No gate changes and no new content: the
+      served feed must be IDENTICAL afterwards**, which the INSIGHTS-019 page makes verifiable rather
+      than asserted. Fall back to the existing `currentRoster` derivation when no confirmed list
+      exists, so legacy leagues are unaffected.
+    - **INSIGHTS-023b — the gates.** Apply the two-question rule above once membership is correct.
+      Measure generated/served/shown before and after.
+
+    ### Original audit plan (executed 2026-08-16; kept for the method)
 
     1. **Enumerate by searching, not from memory** — every generator reading `context.currentRoster`,
        `context.usingArchivedRoster`, or historical rosters, and what each uses it FOR (membership,
