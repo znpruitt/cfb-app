@@ -595,37 +595,94 @@ Supersedes: (none)
       epoch was a Thursday — ten hours from the Thursday pulse INSIGHTS-026 plans.
 
 28. **INSIGHTS-023 — preseason breadth. Now BEFORE rotation, not after** (reordered 2026-08-15 when
-    INSIGHTS-018 was deferred). The old note here read "after rotation, not before" on the reasoning
-    that switching on the dark families would add ~7 types that each fire once and vanish — a
-    suppression symptom, which INSIGHTS-029 removed. With nothing draining the feed, breadth is now
-    the prerequisite: it is what creates a pool larger than the five rendered slots, and rotation has
-    no job until it exists.
+    INSIGHTS-018 was deferred). Breadth is the prerequisite: it creates a pool larger than the feed,
+    and rotation has no job until it exists.
 
-    **Two generators are dark in preseason and they are the whole gap:** `historicalGenerator`
-    (`HISTORICAL_LIFECYCLES`) and `rivalryGenerator` (`RIVALRY_LIFECYCLES`) list every lifecycle state
-    EXCEPT `preseason`. Each is one generator producing several insight types — drought, dynasty,
-    improvement, consistency; lopsided, even, dominance streak — so the two constants cost roughly
-    seven types, not two. Both are archive-backed: their claims are historical facts that stay true
-    regardless of who plays this year, which is what makes them safe under AGENTS.md Insights
-    invariant 5 via neutral copy or last-season framing.
+    **Measured baseline** (INSIGHTS-019 diagnostic page, TSC preseason, 2026-08-16): **5 generated,
+    5 served, 5 shown**, against a serving cap of 10 and 5 Overview slots. A synthetic league with 8
+    owners and 5 archived seasons generated 9. The pool has never exceeded the feed, which is the
+    empirical reason 018 kept producing findings when it was attempted first.
 
-    **Also extend `toilet_bowl` into preseason** (owner, 2026-08-15). It is the league's name for the
-    weekly last-place finisher, and the generator counts how many times an owner won it in a season —
-    a season-wrap retrospective currently gated to `['postseason','fresh_offseason']`. Last season's
-    toilet-bowl champion is legitimate preseason content; per the owner's rule a single-season extreme
+    ### The rule this slice exists to establish
+
+    Every preseason lifecycle gate in the engine was set ad hoc, and they disagree with each other —
+    `career:volatility` runs in preseason while `career:points_leader` does not, though both are
+    career facts over the same archives. Flipping constants one at a time moves the drift rather than
+    ending it. **Decide eligibility by asking two questions, and write the answer into the gate:**
+
+    1. **Does it need current-season evidence?** Games played, a live standings race, week-over-week
+       movement, game stats. If yes it genuinely cannot run in preseason.
+    2. **Otherwise: is it a fact about a COMPLETED season, or an accumulated record?** Then it is as
+       true in August as in January, and preseason is when readers re-engage with it. It should run.
+
+    **Preseason is a phase of the offseason nearer kickoff, not a distinct data regime** (owner,
+    2026-08-16). Any generator that runs in `offseason` and not `preseason` needs a reason under
+    question 1, or the gate is wrong. Note that `offseason` and `preseason` share the same roster
+    condition — no current-year team→owner CSV exists in either — so that cannot be the reason.
+
+    ### What the rule implies (verify each before changing it)
+
+    - **Question 1 says NO — keep dark:** `existing:trajectory` (needs weekly movement),
+      `existing:championship_race` (needs a live race), and the six `stats:*` generators (need game
+      stats).
+    - **Question 2 says YES — currently dark and probably shouldn't be:** `historicalGenerator` and
+      `rivalryGenerator` (each emits several types — drought, dynasty, improvement, consistency;
+      lopsided, even, dominance streak), plus `career:points_leader`, `career:turnover_margin`,
+      `career:greatest_season`.
+    - **`existing:season_wrap` — the correction.** A 2026-08-14 audit recorded here that season wrap
+      "needs season evidence". That is wrong: it describes a season that has FINISHED, which is
+      question 2, not question 1. The owner ruled the same way independently on 2026-08-16. It is
+      gated as one generator, so extending it carries champion margin, failed chase, tight cluster
+      AND `toilet_bowl` together — which is what makes the standing toilet-bowl ruling below
+      implementable at all.
+
+    **Correction to this entry's own earlier claim:** it said `historicalGenerator` and
+    `rivalryGenerator` "are the whole gap". The diagnostic page shows they are not — at least five
+    more generators are dark under a rule that would admit them.
+
+    ### The obstacle, and why this is not a constants change
+
+    Several of these derive "who is in the league" from `context.currentRoster`, which is the
+    team→owner CSV written at draft confirmation. Before a draft that map is EMPTY, so
+    `computeRosterFallback` borrows the most recent archive and sets `usingArchivedRoster`. Switching
+    these generators on in preseason would therefore have them name owners drawn from LAST season's
+    roster — a departed owner could be described as active, which is exactly what AGENTS.md Insights
+    invariant 5 forbids.
+
+    **The league's actual membership exists and is not being used.** The confirmed owner list
+    (`preseason-owners:{slug}`) is the answer to "who is in the league this season"; the team→owner
+    map answers "who owns which team", which is a different question and only exists after a draft.
+    Generators reaching for the second when they mean the first is the root cause, and fixing it
+    makes the post-draft feed correct rather than accidentally correct.
+
+    ### Audit to run FIRST, before any gate changes
+
+    1. **Enumerate by searching, not from memory** — every generator reading `context.currentRoster`,
+       `context.usingArchivedRoster`, or historical rosters, and what each uses it FOR (membership,
+       team attribution, or display).
+    2. For each: does the confirmed owner list supply what it needs? Where it needs team attribution
+       there may be no preseason answer, and the honest outcome is that it stays dark.
+    3. **Read each candidate's copy** against invariant 5 — does any wording assert current-season
+       participation? INSIGHTS-022 is the precedent for getting this wrong.
+    4. Re-measure on the diagnostic page after each change. The page reports generated/served/shown,
+       so the effect of every gate is observable rather than asserted.
+
+    **Stop-and-report condition:** if the membership fix turns out to be larger than the gate changes
+    it enables, split it — a correct membership source is worth its own slice, and bundling it with
+    six gate flips is how a slice becomes unreviewable.
+
+    ### Also in scope
+
+    **`toilet_bowl` in preseason** (owner, 2026-08-15). The league's name for the weekly last-place
+    finisher; the generator counts how many times an owner won it in a season. Last season's
+    toilet-bowl champion is legitimate preseason content. Per the owner's rule a single-season extreme
     is news once and history afterwards, so it must NOT rotate indefinitely — see the classification
     in INSIGHTS-018.
 
-    Audit, 2026-08-14: **8 of 21 registered generators are preseason-eligible** — career volatility,
-    never-finished-last, title-chaser, rookie-benchmark, trending; stats team-identity; milestone
-    watch and perfect-against. Everything else is off, and most of it correctly so (trajectory,
-    championship race, season wrap and the live stat leaders all need season evidence).
-
-    Also split loading into `feed` (compact Overview selection, five cards) and `catalog` (every
-    eligible insight, priority-sorted, no suppression reads or writes), and point
-    `/league/[slug]/insights` at `catalog` so "See all" means all of it. **Measure the real catalog
-    size on TSC before deciding whether it needs a bound** — the acceptance bar of ">10" spans a page
-    and a wall.
+    Split loading into `feed` (compact Overview selection, five cards) and `catalog` (every eligible
+    insight, priority-sorted), and point `/league/[slug]/insights` at `catalog` so "See all" means all
+    of it. **Measure the real catalog size on TSC before deciding whether it needs a bound** — the
+    acceptance bar of ">10" spans a page and a wall.
 
 29. **INSIGHTS-024 — active-owner scoping.** After breadth. Correctness, not volume: on its own it
     REDUCES the feed, because it drops departed owners and a brand-new owner has no history to draw on.
