@@ -5,6 +5,7 @@ import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState, DraftPick } from '@/lib/draft';
 import type { LeagueStatus } from '@/lib/league';
 import type { DraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
+import { resolveControlOutcome } from './controlOutcome';
 import DraftBoardGrid from './DraftBoardGrid';
 import DraftHeaderArea from './DraftHeaderArea';
 
@@ -228,8 +229,40 @@ export default function DraftBoardClient({
 
   // --- Draft control helpers (admin-only, used by DraftHeaderArea) ---
 
+  // PLATFORM-102 — a refused control must SAY so, and re-sync.
+  //
+  // These helpers used to act only on success: no error state, no refresh. That
+  // was survivable while refusals were unreachable — the buttons were hidden in
+  // the states that would fail. This slice made them reachable: Undo now answers
+  // 409 when the board has moved on, and auto-pick answers 422 when the timer is
+  // not paused-expired. Silence then reads as a dead button, and pressing again
+  // keeps failing because nothing re-fetched the stale view.
+  //
+  // Reuses the existing `pickError` line rather than inventing a second error
+  // treatment — one place on this screen where things that went wrong appear.
+  async function applyControlResponse(res: Response, fallback: string): Promise<void> {
+    const data = (await res.json().catch(() => ({}))) as { draft?: DraftState; error?: string };
+    const outcome = resolveControlOutcome(res, data, fallback);
+
+    if (outcome.kind === 'error') {
+      setPickError(outcome.message);
+      // A refusal usually means this view is stale — re-sync so the next press
+      // acts on what the server actually has, instead of failing identically.
+      void refresh();
+      return;
+    }
+
+    setPickError(null);
+    if (outcome.kind === 'redirect-setup') {
+      window.location.href = `/league/${slug}/draft/setup`;
+      return;
+    }
+    setDraft(outcome.draft);
+  }
+
   async function draftPut(body: Record<string, unknown>) {
     setControlsLoading(true);
+    setPickError(null);
     try {
       const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
       const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
@@ -237,16 +270,9 @@ export default function DraftBoardClient({
         headers: { 'content-type': 'application/json', ...authHeaders },
         body: JSON.stringify(body),
       });
-      const data = (await res.json()) as { draft?: DraftState };
-      if (res.ok && data.draft) {
-        if (data.draft.phase === 'setup') {
-          window.location.href = `/league/${slug}/draft/setup`;
-          return;
-        }
-        setDraft(data.draft);
-      }
-    } catch {
-      /* network error — polling will recover */
+      await applyControlResponse(res, 'That control did not apply');
+    } catch (err) {
+      setPickError((err as Error).message);
     } finally {
       setControlsLoading(false);
     }
@@ -254,6 +280,7 @@ export default function DraftBoardClient({
 
   async function draftPost(path: string, body: Record<string, unknown> = {}) {
     setControlsLoading(true);
+    setPickError(null);
     try {
       const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
       const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}/${path}`, {
@@ -261,16 +288,9 @@ export default function DraftBoardClient({
         headers: { 'content-type': 'application/json', ...authHeaders },
         body: JSON.stringify(body),
       });
-      const data = (await res.json()) as { draft?: DraftState };
-      if (res.ok && data.draft) {
-        if (data.draft.phase === 'setup') {
-          window.location.href = `/league/${slug}/draft/setup`;
-          return;
-        }
-        setDraft(data.draft);
-      }
-    } catch {
-      /* network error — polling will recover */
+      await applyControlResponse(res, `${path} did not apply`);
+    } catch (err) {
+      setPickError((err as Error).message);
     } finally {
       setControlsLoading(false);
     }

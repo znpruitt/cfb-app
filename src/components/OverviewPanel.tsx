@@ -1465,7 +1465,7 @@ export default function OverviewPanel({
     // 5, so ranks 6-10 are dropped here and never render. Suppression used to
     // churn that tail into view as a side effect of hiding what it had already
     // shown; nothing does now. Rotation is the real answer and is deferred
-    // behind INSIGHTS-023 (see docs/next-tasks.md items 24-26).
+    // behind INSIGHTS-023 (see the INSIGHTS-029 / 018 / 023 items in docs/next-tasks.md).
     //
     // The `existing` filler below is NOT dead: it still fires whenever the
     // engine returns fewer than 5, which a young league does. Before 029 the
