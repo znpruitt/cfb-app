@@ -18,6 +18,13 @@ const tools = [
     desc: 'Manage team ownership for this season',
   },
   {
+    key: 'insights',
+    title: 'Insights',
+    // INSIGHTS-019 — navigation is a consumer: a diagnostic page nothing links
+    // to is a page nobody opens.
+    desc: 'What the feed generated, served, and showed',
+  },
+  {
     key: 'settings',
     title: 'Settings',
     // PLATFORM-086F2J — this promised two edits the page does not offer. Season

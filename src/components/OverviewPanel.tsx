@@ -15,6 +15,7 @@ import {
   type Insight,
 } from '../lib/selectors/insights';
 import { getCategoryConfig } from '../lib/insightCategories';
+import { OVERVIEW_INSIGHT_SLOTS, OVERVIEW_INSIGHT_SLOTS_WITH_RECAP } from '../lib/insights/limits';
 import type { LifecycleState } from '../lib/insights/types';
 import { prefersDarkMode } from '../lib/ownerColors';
 import {
@@ -1143,7 +1144,10 @@ function InsightsList({
   const isFreshOffseason = lifecycleState === 'fresh_offseason';
   const showRecap = isFreshOffseason && typeof currentYear === 'number';
 
-  const rows = insights.slice(0, showRecap ? 4 : 5);
+  const rows = insights.slice(
+    0,
+    showRecap ? OVERVIEW_INSIGHT_SLOTS_WITH_RECAP : OVERVIEW_INSIGHT_SLOTS
+  );
   if (!showRecap && rows.length === 0) return null;
 
   return (
@@ -1474,12 +1478,12 @@ export default function OverviewPanel({
     const seen = new Set(ranked.map((i) => i.id));
     const merged: Insight[] = [...ranked];
     for (const insight of existing) {
-      if (merged.length >= 5) break;
+      if (merged.length >= OVERVIEW_INSIGHT_SLOTS) break;
       if (seen.has(insight.id)) continue;
       seen.add(insight.id);
       merged.push(insight);
     }
-    return merged.slice(0, 5);
+    return merged.slice(0, OVERVIEW_INSIGHT_SLOTS);
   }, [historyForRender, rowsForRender, engineInsights]);
 
   const positionDeltaData = React.useMemo(() => {

@@ -147,7 +147,16 @@ type RawInsightsPayload = {
  * cached callback and is never persisted as a bogus empty result (PLATFORM-082A
  * lesson). Only genuinely-optional inputs degrade to defaults.
  */
-async function buildLeagueInsightContext(
+/**
+ * INSIGHTS-019 — exported for the admin diagnostic page, which needs the CONTEXT
+ * (not just the served feed) to report what each generator produced.
+ *
+ * Deliberately uncached, like the rest of this function: the page exists to show
+ * live truth, and an admin opening it occasionally is not the hot path. Do not
+ * reach for this from a public surface — that is precisely what PLATFORM-101 is
+ * about.
+ */
+export async function buildLeagueInsightContext(
   slug: string,
   resolvedYear: number,
   currentDate: Date
