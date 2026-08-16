@@ -80,8 +80,7 @@ Rules:
   fixing. `expire` and `autoPick` are now separate actions so expiry has no path to the picker at
   all, and Undo names the pick it removes. Gates at each round: tsc 0, `lint:all` 0, full suite
   green; the final round also driven end-to-end over HTTP.
-- Status: Implemented — PR open. (Not merged at time of writing; this line records actual shipped
-  state, per AGENTS.md, and is flipped at post-merge closeout.)
+- Status: MERGED — PR #481 (`a99a1038`), 2026-08-16.
 - **The lesson worth keeping: every error was a completeness failure, not a reasoning one.** Each
   came from deciding what was relevant instead of enumerating and checking. The durable fixes were
   structural — derive lists by searching, and make guards build their own lists.

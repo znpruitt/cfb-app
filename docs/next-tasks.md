@@ -85,7 +85,8 @@ Supersedes: (none)
     pre-draft repair roster as the draft's output, and HID the app's only publish button at the exact
     moment a draft became publishable. v1 was abandoned after two remediation rounds and rebuilt from
     clean `main`; both post-mortems are in `docs/prompt-registry.md`.
-12. **Draft-writer serialization — REMAINING WORK.** Draft routes were plain whole-record
+12. **Draft-writer serialization — REMAINING WORK** (PLATFORM-102 ✅ MERGED, PR #481, `a99a1038`,
+    2026-08-16). Draft routes were plain whole-record
     read-then-writes, so concurrent writers clobbered each other. PLATFORM-094 serialized confirm and
     pick-edit; PLATFORM-102 serialized every remaining mutation of an existing draft (`pick`, the
     whole `PUT`, `unpick`, `reset`, and Reopen). The rounds and review history are in
