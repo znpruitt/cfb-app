@@ -97,12 +97,13 @@ export type OwnerCareerStats = {
  * `none` — neither exists.
  */
 export type LeagueMembersSource =
-  /** A real current-year roster exists — the live answer, and what `PUT /api/owners` repairs. */
-  | 'current-roster'
-  /** No roster yet, but a new season's owners have been confirmed. */
+  /** The confirmed owner list — the documented single answer, and it wins. */
   | 'confirmed'
+  /** No confirmation record, but a real current-year roster exists. */
+  | 'current-roster'
   /** No new roster named, so last season's owners are still the league. */
   | 'previous-roster'
+  /** Neither exists. */
   | 'none';
 
 export type InsightContext = {

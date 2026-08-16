@@ -1,6 +1,7 @@
 import React from 'react';
 
 import type { InsightFate, InsightsDiagnostics } from '@/lib/server/insightsDiagnostics';
+import type { LeagueMembersSource } from '@/lib/insights/types';
 
 /**
  * INSIGHTS-019 — renders the funnel view model. Maps model to markup and derives
@@ -34,6 +35,23 @@ const FATE_ROW_CLASS: Record<InsightFate, string> = {
   'on-overview': 'text-gray-900 dark:text-zinc-100',
   'all-insights-only': 'text-gray-500 dark:text-zinc-400',
   'not-served': 'text-red-700/80 dark:text-red-400/80',
+};
+
+/**
+ * A caption for EVERY source. Written as a total record rather than a ternary
+ * chain because the chain silently absorbed a fourth value: `current-roster` —
+ * the source for every in-season league — fell through to the "neither exists"
+ * message and printed it directly above the owners it had just said do not
+ * exist. Exactly the wrong inference this section was added to prevent.
+ *
+ * `Record<LeagueMembersSource, string>` makes the compiler refuse a new source
+ * without a caption.
+ */
+const MEMBERSHIP_SOURCE_CAPTION: Record<LeagueMembersSource, string> = {
+  confirmed: 'From the confirmed owner list — a new roster has been named for this season.',
+  'current-roster': 'From this season’s roster — the live answer to who is in the league.',
+  'previous-roster': 'No new roster named yet, so last season’s owners are still the league.',
+  none: 'Neither a confirmed owner list nor a roster exists — no insights can name anyone.',
 };
 
 function Stat({
@@ -115,11 +133,7 @@ export default function InsightsDiagnosticsView({
           </span>
         </h2>
         <p className="mb-2 text-xs text-gray-500 dark:text-zinc-400">
-          {model.membership.source === 'confirmed'
-            ? 'From the confirmed owner list — a new roster has been named for this season.'
-            : model.membership.source === 'previous-roster'
-              ? 'No new roster named yet, so last season’s owners are still the league.'
-              : 'Neither a confirmed owner list nor a roster exists — no insights can name anyone.'}
+          {MEMBERSHIP_SOURCE_CAPTION[model.membership.source]}
         </p>
         {model.membership.owners.length > 0 ? (
           <p className="text-sm">{model.membership.owners.join(', ')}</p>

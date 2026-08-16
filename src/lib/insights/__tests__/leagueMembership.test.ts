@@ -396,11 +396,19 @@ test('a RETURNING owner gets career history built, not just permission to appear
   assert.equal(erin!.seasons, 2, 'the two seasons she actually played');
 });
 
-test('a mid-season roster repair reaches Insights, and is not frozen by preseason', async () => {
-  // The regression I introduced: `selectConfirmedRoster` prefers
-  // `preseason-owners`, and the screen that writes it only opens in preseason.
-  // So an owner replaced mid-season could be fixed in the roster and never in
-  // Insights, for the rest of the season. A live roster now wins.
+test('KNOWN GAP: a mid-season CSV repair does NOT reach Insights while a confirmation record exists', async () => {
+  // Pinned as a limitation, not as desired behaviour.
+  //
+  // `confirmedRoster.ts` documents that the confirmation record wins, because
+  // re-confirming owners must take effect immediately. But that record is only
+  // editable while `status.state === 'preseason'`, so an owner replaced
+  // mid-season can be repaired in the roster and never reach Insights.
+  //
+  // An earlier version of this slice "fixed" that by inverting the documented
+  // precedence, which created the mirror-image freeze: adding an owner became a
+  // silent no-op. Review caught it. The real fix is making the confirmation list
+  // writable in-season — recorded in docs/next-tasks.md — and this test exists so
+  // the gap is visible rather than rediscovered.
   await addLeague({
     slug: SLUG,
     displayName: 'Members League',
@@ -408,10 +416,7 @@ test('a mid-season roster repair reaches Insights, and is not frozen by preseaso
     createdAt: '2026-01-01T00:00:00.000Z',
     status: { state: 'season', year: YEAR },
   });
-
-  // Confirmed back in preseason — now stale, and uneditable.
   await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob', 'Carol']);
-  // The live roster, repaired through `PUT /api/owners`: Carol out, Erin in.
   await setAppState(
     `owners:${SLUG}:${YEAR}`,
     'csv',
@@ -420,10 +425,74 @@ test('a mid-season roster repair reaches Insights, and is not frozen by preseaso
 
   const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
 
-  assert.equal(context.leagueMembersSource, 'current-roster', 'the live roster is authoritative');
-  assert.ok(context.leagueMembers.has('Erin'), 'the replacement owner is a member');
+  assert.equal(context.leagueMembersSource, 'confirmed');
   assert.ok(
-    !context.leagueMembers.has('Carol'),
-    'and the replaced owner is not — the stale confirmed list must not win'
+    context.leagueMembers.has('Carol'),
+    'the replaced owner is STILL a member — this is the known gap'
   );
+  assert.ok(!context.leagueMembers.has('Erin'), 'and the replacement is not yet visible');
+});
+
+// ---------------------------------------------------------------------------
+// Membership decides who may be NAMED. It must not narrow the yardstick.
+//
+// Both reviewers landed on this independently: seeding career stats from members
+// alone meant `volatility` could claim nobody swings harder when a departed
+// owner swung harder, and `milestones` could say "first to the mark" when the
+// archives disprove it. False claims, arrived at from the opposite direction to
+// the rest of this week's.
+// ---------------------------------------------------------------------------
+
+test('career history is accumulated for DEPARTED owners too — they are the yardstick', async () => {
+  await seedLeague({
+    archiveOwners: ['Alice', 'Bob', 'Carol', 'Dave'],
+    confirmedOwners: ['Alice', 'Bob'],
+  });
+
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+
+  assert.deepEqual([...context.leagueMembers].sort(), ['Alice', 'Bob'], 'only two may be named');
+
+  const owners = context.ownerCareerStats.map((s) => s.owner).sort();
+  assert.ok(owners.includes('Dave'), 'but Dave still has stats — he is part of the comparison');
+  assert.ok(owners.includes('Carol'), 'and so does Carol');
+});
+
+test('membership still gates who is NAMED, despite the wider stats', async () => {
+  // The widening is only safe because consumers filter. If one stopped, a
+  // departed owner would be named — this is the check that catches it.
+  await seedNamingAliceAndBob(['Carol', 'Dave']);
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+
+  assert.ok(
+    context.ownerCareerStats.some((s) => s.owner === 'Alice'),
+    'Alice has stats (she played)'
+  );
+  const named = ownersNamedIn(context);
+  assert.ok(!named.includes('Alice'), `but is not named — got: ${named.join(', ')}`);
+});
+
+test('confirmed-first precedence is restored', async () => {
+  // Overturning `confirmedRoster.ts`'s documented rule to work around a
+  // preseason-only edit screen was the wrong end to fix. Re-confirming owners
+  // must take effect immediately.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Members League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'season', year: YEAR },
+  });
+  await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob', 'Erin']);
+  await setAppState(
+    `owners:${SLUG}:${YEAR}`,
+    'csv',
+    'team,owner\nGeorgia,Alice\nClemson,Bob\nAlabama,Carol'
+  );
+
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+
+  assert.equal(context.leagueMembersSource, 'confirmed', 'the confirmation record wins');
+  assert.ok(context.leagueMembers.has('Erin'), 'a newly confirmed owner takes effect immediately');
+  assert.ok(!context.leagueMembers.has('Carol'), 'and the CSV does not override it');
 });

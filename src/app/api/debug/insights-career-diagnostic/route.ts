@@ -47,6 +47,12 @@ export async function GET(req: Request): Promise<Response> {
     parseOwnersCsv(currentOwnersCsv).map((r) => [r.team, r.owner])
   );
 
+  // INSIGHTS-023a — this route previously omitted `leagueMembers` and so
+  // reported the pre-fix owner population, meaning an admin investigating "why
+  // does the returning owner have no career history" got the OLD answer here and
+  // the new one from /admin/[slug]/insights. The accumulator now spans every
+  // archived owner regardless, so both agree; the note stays because the
+  // disagreement was invisible.
   const result = await buildOwnerCareerStats({
     leagueSlug,
     currentYear: league.year,

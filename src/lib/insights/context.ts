@@ -243,15 +243,28 @@ export async function buildOwnerCareerStats(params: {
 }): Promise<CareerStatsBuildResult> {
   const { leagueSlug, currentYear, archives, historicalRosters, currentRoster } = params;
 
+  // EVERY owner who appears in the archives, plus the current membership.
+  //
+  // Both reviewers landed on the same principle: membership is the
+  // eligibility-to-NAME filter, not the population a comparison is computed
+  // over. Seeding these accumulators from members alone narrowed the YARDSTICK
+  // as well as the guest list — so `volatility` could say nobody swings harder
+  // when a departed owner swung harder, and `milestones` could call someone
+  // "first to the mark" when the archives disprove it. False claims.
+  //
+  // Widening also subsumes the earlier fix for a returning member: she has
+  // career history because she PLAYED, not because anyone threaded her through.
+  //
+  // Safe only because every consumer filters by `context.leagueMembers` before
+  // naming anyone — verified, not assumed, and pinned by the guard test.
   const activeOwners = new Set<string>();
-  if (params.leagueMembers && params.leagueMembers.size > 0) {
-    for (const owner of params.leagueMembers) {
-      if (owner && owner !== NO_CLAIM_OWNER) activeOwners.add(owner);
+  for (const archive of archives) {
+    for (const row of archive.finalStandings) {
+      if (row.owner && row.owner !== NO_CLAIM_OWNER) activeOwners.add(row.owner);
     }
-  } else {
-    for (const owner of currentRoster.values()) {
-      if (owner && owner !== NO_CLAIM_OWNER) activeOwners.add(owner);
-    }
+  }
+  for (const owner of params.leagueMembers ?? currentRoster.values()) {
+    if (owner && owner !== NO_CLAIM_OWNER) activeOwners.add(owner);
   }
 
   const accumulators = new Map<string, CareerAccumulator>();
@@ -360,24 +373,26 @@ export function resolveLeagueMembers(params: {
   const clean = (names: Iterable<string>): string[] =>
     [...names].filter((o) => o && o !== NO_CLAIM_OWNER);
 
-  // A REAL current-year roster wins. It is the live answer to "who is in the
-  // league", it is what `PUT /api/owners` repairs, and it exists both in-season
-  // and in offseason (where `league.year` is the completed season).
+  // CONFIRMED FIRST. `confirmedRoster.ts` documents why, and it is the single
+  // answer to "who is in the league": re-confirming owners must take effect
+  // immediately, because a CSV-first rule makes adding an owner a silent no-op
+  // for the rest of the season.
   //
-  // This ordering also closes a freeze I introduced by preferring the confirmed
-  // list unconditionally: that list is only editable during preseason, so an
-  // owner replaced mid-season could be repaired in the roster and never in
-  // Insights, for the rest of the season. Previously membership tracked the CSV
-  // and self-corrected; now it does again.
+  // An earlier version of this function inverted that to fix a mid-season freeze
+  // — the confirmation screen is preseason-only, so a repaired roster never
+  // reached Insights. That solved one freeze by creating its mirror image, and
+  // did it by overturning a documented decision in the module whose whole
+  // purpose is being the single answer. The freeze is real and is recorded as
+  // its own fix (make the confirmation list writable in-season); it is not this
+  // function's to work around.
+  const fromConfirmed = clean(confirmedOwners);
+  if (fromConfirmed.length > 0) return { members: new Set(fromConfirmed), source: 'confirmed' };
+
+  // No confirmation record: the current-year roster is the live answer.
   if (!usingArchivedRoster) {
     const fromCurrent = clean(resolvedRoster.values());
     if (fromCurrent.length > 0) return { members: new Set(fromCurrent), source: 'current-roster' };
   }
-
-  // No current roster: preseason, after owners are confirmed but before a draft
-  // assigns teams. The confirmed list is the league.
-  const fromConfirmed = clean(confirmedOwners);
-  if (fromConfirmed.length > 0) return { members: new Set(fromConfirmed), source: 'confirmed' };
 
   // No new roster named yet, so last season's owners are still the league
   // (owner framing: nobody has left until preseason names a new roster).

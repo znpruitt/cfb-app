@@ -65,12 +65,24 @@ type MilestoneEvent = {
   isFirst: boolean;
 };
 
+/**
+ * `candidates` are the owners who may be NAMED (current members). `allStats` is
+ * everyone in league history, and is what "first to the mark" is judged against.
+ *
+ * INSIGHTS-023a — these were the same list, so the claim meant "first among
+ * current members", which is not what it says. A departed owner who crossed the
+ * milestone years ago made it false, and the reader has no way to tell. Judging
+ * against the full population makes the sentence TRUE rather than scoping it
+ * down to something weaker.
+ */
 function evaluateMilestones(
-  ownerStats: OwnerCareerStats[],
+  candidates: OwnerCareerStats[],
+  allStats: OwnerCareerStats[],
   milestones: number[],
   value: (s: OwnerCareerStats) => number,
   kind: 'wins' | 'points'
 ): MilestoneEvent[] {
+  const ownerStats = candidates;
   const events: MilestoneEvent[] = [];
   for (const stats of ownerStats) {
     const current = value(stats);
@@ -86,7 +98,8 @@ function evaluateMilestones(
           isFirst: false,
         });
       } else if (ratio >= 1 && ratio <= JUST_CROSSED_THRESHOLD) {
-        const othersCrossed = ownerStats.filter(
+        // Against EVERYONE in league history, not just current members.
+        const othersCrossed = allStats.filter(
           (o) => o.owner !== stats.owner && value(o) >= milestone
         );
         events.push({
@@ -111,8 +124,20 @@ function deriveMilestoneWatch(context: InsightContext): Insight | null {
   if (activeStats.length === 0) return null;
 
   const events: MilestoneEvent[] = [
-    ...evaluateMilestones(activeStats, WIN_MILESTONES, (s) => s.totalWins, 'wins'),
-    ...evaluateMilestones(activeStats, POINT_MILESTONES, (s) => s.totalPoints, 'points'),
+    ...evaluateMilestones(
+      activeStats,
+      context.ownerCareerStats,
+      WIN_MILESTONES,
+      (s) => s.totalWins,
+      'wins'
+    ),
+    ...evaluateMilestones(
+      activeStats,
+      context.ownerCareerStats,
+      POINT_MILESTONES,
+      (s) => s.totalPoints,
+      'points'
+    ),
   ];
 
   if (events.length === 0) return null;
