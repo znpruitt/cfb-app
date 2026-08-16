@@ -955,7 +955,44 @@ Supersedes: (none)
       roster-as-membership site. No live effect today (nothing reads `context.records`), which is
       exactly why nothing would catch it waking up.
 
-36. **INSIGHTS-025 — rookie/returning claims (owner decision required, invariant amendment).**
+36. **Draft-board walkthrough on preview, 2026-08-16** (owner drove the `test` league end to end on
+    the merged `main`, `ae1dc0c8`, four days before the league's first real draft).
+
+    **Everything PLATFORM-102 hardened held.** Auto-pick, Undo, timer expiry pausing instead of
+    picking, TWO tabs expiring at once without a double pick, the losing tab's stale prompt clearing
+    itself when the pick landed, and "Start round 2" refusing a second click. Publication wrote the
+    roster and returned to the preseason checklist. No correctness defect was found in any writer.
+
+    Three items to fix, none blocking Thursday:
+
+    (a) **`POST /api/draft/[slug]/[year]/confirm` has no already-published guard.** It re-validates,
+    rebuilds the roster CSV, and writes `owners:{slug}:{year}` unconditionally — a republish of an
+    unchanged draft overwrites the roster with the draft's output. Reachable in the walkthrough:
+    with two tabs, confirming in one left the other's summary still offering Confirm (that page does
+    not live-update), and clicking it published again and reported success.
+
+    **The scenario is narrow — the authority argument is not.** A FRESH load is safe:
+    `selectDraftPublicationControls` sets `canPublish = !standing && complete`, so a published draft
+    with its roster intact offers Reopen, not Confirm. It needs a client rendered BEFORE publication
+    and held open, which the owner does not expect on draft day. But the client control is then the
+    only thing preventing the write, and this project has already paid for that mistake once —
+    PLATFORM-086F2H1SB, a live auth bypass, whose recorded lesson is that **routing is never the
+    action's authority**. The route should refuse a republish whose signature already matches, on its
+    own. `isDraftPublished` is the predicate and already exists. The genuine republish paths must
+    keep working: a REOPENED draft (signature preserved, phase `live`) and a published draft whose
+    roster was cleared (`publishedRosterExists: false`) both legitimately re-confirm.
+
+    (b) **`Cannot transition from 'live' to 'live'`** (`route.ts:777`) — internal phase vocabulary in
+    a message a commissioner reads mid-draft. Produced by clicking "Start round 2" in a second tab.
+    The refusal is correct; the wording should say the round has already started.
+
+    (c) **After expiry, a team click is ignored until "Select manually" is chosen**
+    (`DraftControls.tsx:164`, `DraftHeaderArea.tsx:798`). During the countdown a pick works normally;
+    only the paused/expired prompt gates it. The gate is deliberate — an explicit decision after the
+    clock runs out is right — but it refuses silently, so the board reads as broken for as long as it
+    takes to find the control.
+
+37. **INSIGHTS-025 — rookie/returning claims (owner decision required, invariant amendment).**
     Deliberately last, and deliberately separate.
 
     AGENTS.md Insights invariant 5 currently says naming who is genuinely returning "requires
@@ -971,7 +1008,7 @@ Supersedes: (none)
     trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
     For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
 
-37. **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left
+38. **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left
     is news — and it is the inverse of the trade 023a was agonising over: instead of losing content
     when someone leaves, leaving becomes content.
 
@@ -1010,7 +1047,7 @@ Supersedes: (none)
     **Blocked on the same owner ruling as INSIGHTS-025**: is a confirmed preseason owner list
     "finalized" enough to license these claims, or is Setup Complete the trigger?
 
-38. **INSIGHTS-026 — the pulse: a scheduled digest, and the insights stream's EVENT SOURCE.**
+39. **INSIGHTS-026 — the pulse: a scheduled digest, and the insights stream's EVENT SOURCE.**
     **ID split out 2026-08-14: this campaign was filed under INSIGHTS-018**, which the backlog also
     used for the NEW-tag mechanism, so a content campaign was hiding behind a mechanical one. Owner
     confirmed it is still wanted — _"it helps make the app feel alive"_. Design detail stays in
@@ -1072,7 +1109,7 @@ Supersedes: (none)
 
     In-season only, so it does nothing for the preseason feed; sequence after 018/023/024.
 
-39. **INSIGHTS-027 — preseason content generators (NEW content, not re-enabled content).** Also
+40. **INSIGHTS-027 — preseason content generators (NEW content, not re-enabled content).** Also
     recovered from the roadmap entry above, and distinct from INSIGHTS-023: that one switches on
     generators that already exist, this one writes generators that do not.
 
@@ -1091,10 +1128,10 @@ Supersedes: (none)
       is the whole point of the panel: _"Every insight must tell the user something they couldn't
       figure out just by reading the table. No restating visible data without a compelling angle."_
 
-40. **Then, in order:** INSIGHTS-020 (record-change insights),
+41. **Then, in order:** INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
     later.
-41. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
+42. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
     PLATFORM-093** — a brand-new league had no path to confirm owners — new leagues are born `season`, `/admin/[slug]/preseason/owners`
     redirects away unless the league is in `preseason`, and only `beginPreseason` (offseason-only) or
     the rollover cron reach that state, leaving only the historical/repair CSV import, which asks the
@@ -1114,7 +1151,7 @@ Supersedes: (none)
     shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
     constant. Severity was overstated when first reported — three client components already import
     that module, so the graph is in the client bundle on every league page anyway.
-42. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
+43. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
     Verified 2026-08-12. `DELETE /api/admin/leagues/[slug]` calls `removeLeague`, which filters the
     slug out of the registry list and nothing else. Every keyed record survives: `owners:{slug}:{year}`
     (team→owner rosters carrying real names), `preseason-owners:{slug}`, `draft:{slug}` (picks and
@@ -1144,7 +1181,7 @@ Supersedes: (none)
     the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
     the honest options are a purge that removes the residue, an already-archived guard in the
     rollover path, or retiring adoption — all of which are this campaign's decisions.
-43. 🟡 **PLATFORM-101 — `?bypassSuppression=1` is an uncached, invariant-skipping flag with no admin
+44. 🟡 **PLATFORM-101 — `?bypassSuppression=1` is an uncached, invariant-skipping flag with no admin
     check.** Raised by review during INSIGHTS-029 (2026-08-15); **pre-existing, NOT introduced
     there** — the bypass block in `loadInsights.ts` is byte-identical to `main` and the route file
     was untouched. Recorded here rather than fixed in-branch because the fix is an auth change.
@@ -1181,12 +1218,12 @@ Supersedes: (none)
     the public flag has no remaining reason to exist and deletion is the smaller change. Sequence
     accordingly rather than bolting an admin check onto a route that may not keep the flag.
 
-44. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+45. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
     once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
     retry.
-45. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+46. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -1196,7 +1233,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-46. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+47. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 
