@@ -992,6 +992,25 @@ Supersedes: (none)
     clock runs out is right — but it refuses silently, so the board reads as broken for as long as it
     takes to find the control.
 
+    (d) **Reopen and Reset are the same intent and live five steps apart** (owner, walking it).
+    Reopen sits on the summary; Reset is summary → back to the board → Settings → Reset → type the
+    slug. Both answer "this draft is wrong, let me redo it", and a commissioner mid-correction has to
+    change pages to find the second one. The typed slug STAYS — PLATFORM-099 made Reset cost a typed
+    slug because it sat beside the pick timer and one mis-click destroyed a live draft. The cost is
+    the confirmation, not the hunt. This is the PLATFORM-095 wayfinding class, which is why it is
+    recorded rather than treated as taste.
+
+    (e) **Reset leaves the published roster in place** — recorded because the walkthrough surfaced
+    it, not as a defect. `targetPhase === 'setup'` clears `picks`, `currentPickIndex`, `timerState`
+    and `timerExpiresAt` (`route.ts:837`); it does NOT clear `publishedPicks` and never touches
+    `owners:{slug}:{year}`. So after resetting a published draft the league keeps rosters produced by
+    a draft that no longer exists, and every surface reading the roster keeps showing them until a
+    new draft is confirmed. `isDraftPublished` correctly reads false (phase is `setup`, picks empty),
+    so the CONTROLS are right — it is the data that outlives the draft. Deliberate per the
+    PLATFORM-098 audit, which relies on exactly this ("reset clears picks and phase but leaves the
+    owner roster in place"), and defensible: blanking a league's rosters on reset would be worse.
+    Whether the summary should SAY so is the open question.
+
 37. **INSIGHTS-025 — rookie/returning claims (owner decision required, invariant amendment).**
     Deliberately last, and deliberately separate.
 
