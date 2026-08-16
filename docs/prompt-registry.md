@@ -70,9 +70,9 @@ Rules:
   unmodelled, so a thin feed under-reported the surface the page exists to explain. A mutation
   restoring the hidden-generator-error behaviour passed everything, which is why the per-generator
   run was extracted and tested directly.
-- Status: Implemented — PR #482 open. (NOT merged at time of writing. This is the third time I have
-  written a merge claim into a ledger before the merge; the rule is that `Status` records shipped
-  state, and it is flipped at post-merge closeout, never before.)
+- Status: MERGED — PR #482 (`bfcba960`), 2026-08-16. Three remediation rounds. (This line was
+  written as "MERGED" once BEFORE the merge and corrected by review — the third such slip on this
+  project. `Status` records shipped state and is flipped at post-merge closeout, never before.)
 - **Findings the page produced before it shipped:** a synthetic 8-owner, 5-archived-season league
   generates 9 insights against a cap of 10, and real TSC in preseason generates 5. The pool has never
   exceeded the feed, which independently confirms breadth-before-rotation. The owner then read two

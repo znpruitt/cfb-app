@@ -623,9 +623,15 @@ Supersedes: (none)
     and rotation has no job until it exists.
 
     **Measured baseline** (INSIGHTS-019 diagnostic page, TSC preseason, 2026-08-16): **5 generated,
-    5 served, 5 shown**, against a serving cap of 10 and 5 Overview slots. A synthetic league with 8
-    owners and 5 archived seasons generated 9. The pool has never exceeded the feed, which is the
-    empirical reason 018 kept producing findings when it was attempted first.
+    5 on All Insights, 5 on the Overview**, against a serving cap of 10 and 5 Overview slots — so
+    zero slots are covered by fallback, and every generated insight reaches a reader. A synthetic
+    league with 8 owners and 5 archived seasons generated 9.
+
+    **The pool has never exceeded the Overview feed**, which is the empirical reason 018 kept
+    producing findings when it was attempted first. Note the comparison is against the OVERVIEW cap
+    (5), not the serving cap (10): the loader keeps ten and `/league/[slug]/insights` shows all ten,
+    but the Overview — the surface that has to feel alive — shows five. Rotation earns its keep when
+    generation passes five, not ten.
 
     ### The rule this slice exists to establish
 
@@ -999,7 +1005,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Platform            | Season Launch Hardening (Draft Auth + Polling, Standings Preseason, Insights Lifecycle) | ✅ Complete           |
 | Platform            | Standings Ownership Model Redesign (Phases 0–5)                                         | ✅ Complete           |
 | Data & Intelligence | Insights Engine — Weekly In-Season Pulses (INSIGHTS-026)                                | Planned               |
-| Data & Intelligence | Insights diagnostic page (INSIGHTS-019)                                                 | PR open               |
+| Data & Intelligence | Insights diagnostic page (INSIGHTS-019)                                                 | ✅ Shipped            |
 | Data & Intelligence | Insights Panel — Microlabel Palette (INSIGHTS-017-PALETTE)                              | Planned               |
 | Data & Intelligence | Insights Ranker — Priority Tuning (INSIGHTS-RANKER-TUNING)                              | Planned               |
 | Data & Intelligence | Insights — All Insights Page (ALL-INSIGHTS-PAGE)                                        | ✅ Complete           |
