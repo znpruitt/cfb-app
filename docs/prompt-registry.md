@@ -50,6 +50,42 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-030-LEAGUE-RECORD-POPULATION-v1
+
+- Purpose: A record is a fact about the league's history; membership decides only who may be NAMED.
+  Five generators collapsed the two and said "in league history" / "all-time" / "on record" about a
+  maximum computed over current members, so when the real record holder left, the best remaining
+  member was crowned with a claim the archives disprove.
+- Scope: new `src/lib/insights/superlative.ts` (the resolver, the list formatter, the verb helper,
+  the membership-register predicate), four claim sites in `career.ts` / `historical.ts` /
+  `rivalry.ts`, the copy-policy cache version, the `official-roster` classifier count in
+  `context.ts`, and a 21-test suite. `career:turnover_margin` was REMOVED from scope mid-slice.
+- Outcome: `resolveSuperlative` takes ONE population plus an `isMember` predicate. Eligibility is
+  applied once to everyone and membership only partitions what survives, which makes
+  member-cited-as-departed unrepresentable rather than merely tested for. Three standings —
+  `holds` / `shares` / `trails`. Copy is gated on `leagueMembersSource`: when membership is only
+  last season's roster the copy states both figures and claims nothing about who is playing.
+  **Owner ruling: name the departed record holder** rather than narrow the claim or go silent.
+- Review / verification: tsc 0, `lint:all` 0, full suite green (3904); driven over HTTP against a
+  running server in both membership states, and diffed against `main` on identical seeded data —
+  4 of 10 insights changed, 6 byte-identical, which independently confirmed the six sites judged
+  already-correct. **Six remediation rounds, and the shape of them is the lesson.** Every round I
+  fixed the data model and left the consumers to re-derive from it, so the next round found the same
+  defect at the sites I had not touched: two lists that could drift apart, then a third state
+  hand-wired at four call sites, then a record entry two sites re-found for themselves, then a
+  holder list three sites formatted by hand, then the same list class again. Each time the close was
+  to move the thing into the shared module — population, entry, formatter, verb — and each time the
+  reason it had escaped was that no fixture reached the state: nothing reached `shares`, nothing had
+  three co-holders, nothing had multiple names on both sides. **The coverage gap was the defect; the
+  findings were symptoms.**
+- Status: MERGED — PR #484 (`<COMMIT>`), 2026-08-16.
+- **Two judgements recorded because they were wrong when made.** A label I filed as cosmetic in
+  023a (`official-roster` counting team rows, not owners) stopped being cosmetic the moment
+  `membershipIsKnown` read it to decide whether copy may name who is playing — a deferral is safe
+  only until something makes it load-bearing. And a test for `career:turnover_margin` shipped
+  wrapped in `if (margin)`, passing on a null every time; the surface cannot be reached from an
+  archive fixture, so it was cut from the slice entirely rather than covered in name only.
+
 ### INSIGHTS-023a-LEAGUE-MEMBERSHIP-v1
 
 - Purpose: Give the insights engine the league's actual membership. Every generator answered "who is
