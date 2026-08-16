@@ -319,6 +319,22 @@ export async function buildOwnerCareerStats(params: {
   return { ownerCareerStats, diagnosticsByYear };
 }
 
+/**
+ * Who is IN the league, for the purposes of "should we speak about this owner".
+ *
+ * Exported for testing. Pure.
+ */
+export function resolveLeagueMembers(
+  confirmedOwners: readonly string[],
+  resolvedRoster: Map<string, string>
+): ReadonlySet<string> {
+  const fromConfirmed = confirmedOwners.filter((o) => o && o !== NO_CLAIM_OWNER);
+  if (fromConfirmed.length > 0) return new Set(fromConfirmed);
+
+  // No new roster named yet: the league is still last season's league.
+  return new Set([...resolvedRoster.values()].filter((o) => o && o !== NO_CLAIM_OWNER));
+}
+
 // Pure: exported for testing. Resolves the effective roster for insight
 // generation, borrowing from the most recent archive when the current-year CSV
 // is empty (fresh_offseason rollover window).
@@ -409,7 +425,21 @@ export async function buildInsightContext(
     rankings,
     currentRoster: resolvedRoster,
     usingArchivedRoster,
-    leagueMembers: new Set(confirmedOwners),
+    // INSIGHTS-023a — the confirmed list once it exists; last season's owners
+    // before that. Owner's framing (2026-08-16): "no one has left the league
+    // until we've entered preseason and have a new roster of owners" —
+    // offseason is the rear-looking phase and its members are the people who
+    // played the season being looked back at, so the previous roster is the
+    // ANSWER there, not stale data.
+    //
+    // An earlier version used the confirmed list unconditionally. Measured, that
+    // emptied the feed entirely — 6 insights to 0 in offseason — for every
+    // league between rollover and owner confirmation.
+    //
+    // NoClaim is filtered on both paths: `selectConfirmedRoster` drops it from
+    // the CSV, but not from a legacy typed `preseason-owners` record, and the
+    // roster map carries it as the absorber for unowned teams.
+    leagueMembers: resolveLeagueMembers(confirmedOwners, resolvedRoster),
     records,
   };
 }

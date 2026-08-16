@@ -126,18 +126,39 @@ test('with no confirmed list, the owners CSV supplies membership', async () => {
   assert.ok(!context.leagueMembers.has('NoClaim'), 'NoClaim is not an owner');
 });
 
-test('with neither, membership is EMPTY — fewer insights, and right', async () => {
-  // Owner ruling 2026-08-16. A league with no confirmed list and no CSV gets no
-  // member-filtered insights rather than insights about whoever played last.
+test('with no new roster named, LAST SEASON’S owners are still the league', async () => {
+  // Owner framing 2026-08-16: "no one has left the league until we've entered
+  // preseason and have a new roster of owners." Offseason looks BACK, so its
+  // members are the people who played the season being looked back at.
+  //
+  // An earlier version returned an empty set here, on the reasoning that a
+  // borrowed roster is stale data. Measured, that emptied the feed entirely for
+  // every league between rollover and owner confirmation.
   await seedLeague({ archiveOwners: ['Alice', 'Bob', 'Carol', 'Dave'] });
 
   const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
 
-  assert.equal(context.leagueMembers.size, 0, 'no members');
-  assert.ok(
-    [...context.currentRoster.values()].length > 0,
-    'even though a borrowed roster exists — which is the whole point: it is not membership'
+  assert.deepEqual(
+    [...context.leagueMembers].sort(),
+    ['Alice', 'Bob', 'Carol', 'Dave'],
+    'the previous roster IS the membership answer here, not a fallback hack'
   );
+});
+
+test('NoClaim never becomes a member, from either source', async () => {
+  // The roster map carries it as the absorber for unowned teams, and a legacy
+  // typed `preseason-owners` record can contain it — `selectConfirmedRoster`
+  // only drops it on the CSV path. Deleting the old per-generator
+  // `set.delete(NO_CLAIM_OWNER)` removed the only guard on the typed path.
+  await seedLeague({ confirmedOwners: ['Alice', 'NoClaim', 'Bob'] });
+  const fromConfirmed = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  assert.deepEqual([...fromConfirmed.leagueMembers].sort(), ['Alice', 'Bob']);
+
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  await seedLeague({ archiveOwners: ['Alice', 'Bob', 'NoClaim', 'Dave'] });
+  const fromRoster = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  assert.ok(!fromRoster.leagueMembers.has('NoClaim'), 'nor via the previous-roster path');
 });
 
 // ---------------------------------------------------------------------------
