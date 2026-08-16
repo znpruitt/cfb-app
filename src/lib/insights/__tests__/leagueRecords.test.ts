@@ -215,76 +215,129 @@ function describe(insights: { type: string; description: string }[], type: strin
 // The resolver itself.
 // ---------------------------------------------------------------------------
 
+type Entry = { owner: string; v: number };
+const members = new Set(['Alice', 'Bob']);
+const isMember = (e: Entry): boolean => members.has(e.owner);
+
 test('resolveSuperlative separates who may be named from what the record spans', () => {
-  const population = [
+  const population: Entry[] = [
     { owner: 'Dave', v: 100 },
     { owner: 'Alice', v: 60 },
     { owner: 'Bob', v: 40 },
   ];
-  const nameable = population.filter((e) => e.owner !== 'Dave');
 
   const result = resolveSuperlative({
-    nameable,
     population,
+    isMember,
     value: (e) => e.v,
     owner: (e) => e.owner,
   });
 
   assert.equal(result?.best.owner, 'Alice', 'names the best MEMBER');
-  assert.equal(result?.holdsLeagueRecord, false);
-  assert.deepEqual(result?.recordHolder, { owner: 'Dave', value: 100 });
+  assert.equal(result?.standing, 'trails');
+  assert.deepEqual(result?.recordHolders, [{ owner: 'Dave', value: 100 }]);
 });
 
-test('a member who ties the all-time best still HOLDS the record', () => {
-  // Equal is not beaten. Without this a shared record would tell the member
-  // someone else holds what they also hold.
-  const population = [
-    { owner: 'Dave', v: 100 },
-    { owner: 'Alice', v: 100 },
-  ];
+test('a member level with a departed holder SHARES — neither takes nor loses it', () => {
+  // The third state. Two states forced a tie to read as "Alice takes the
+  // all-time lead" while Dave sat on the identical number.
   const result = resolveSuperlative({
-    nameable: [{ owner: 'Alice', v: 100 }],
-    population,
+    population: [
+      { owner: 'Dave', v: 100 },
+      { owner: 'Alice', v: 100 },
+    ],
+    isMember,
     value: (e) => e.v,
     owner: (e) => e.owner,
   });
 
-  assert.equal(result?.holdsLeagueRecord, true);
-  assert.equal(result?.recordHolder, null, 'and cites nobody');
+  assert.equal(result?.standing, 'shares');
+  assert.deepEqual(result?.recordHolders, [{ owner: 'Dave', value: 100 }]);
 });
 
-test('resolveSuperlative never cites a record the named member already holds', () => {
-  const population = [
-    { owner: 'Alice', v: 100 },
-    { owner: 'Bob', v: 40 },
-  ];
+test('a record held only by members is HELD, and cites nobody', () => {
   const result = resolveSuperlative({
-    nameable: population,
-    population,
+    population: [
+      { owner: 'Alice', v: 100 },
+      { owner: 'Bob', v: 40 },
+    ],
+    isMember,
     value: (e) => e.v,
     owner: (e) => e.owner,
   });
 
   assert.equal(result?.best.owner, 'Alice');
-  assert.equal(result?.holdsLeagueRecord, true);
-  assert.equal(result?.recordHolder, null);
+  assert.equal(result?.standing, 'holds');
+  assert.deepEqual(result?.recordHolders, []);
 });
 
 test('direction min finds the lowest, not the highest', () => {
-  const population = [
-    { owner: 'Dave', v: 1 },
-    { owner: 'Alice', v: 5 },
-  ];
   const result = resolveSuperlative({
-    nameable: [{ owner: 'Alice', v: 5 }],
-    population,
+    population: [
+      { owner: 'Dave', v: 1 },
+      { owner: 'Alice', v: 5 },
+    ],
+    isMember,
     value: (e) => e.v,
     owner: (e) => e.owner,
     direction: 'min',
   });
 
-  assert.equal(result?.holdsLeagueRecord, false);
-  assert.deepEqual(result?.recordHolder, { owner: 'Dave', value: 1 });
+  assert.equal(result?.standing, 'trails');
+  assert.deepEqual(result?.recordHolders, [{ owner: 'Dave', value: 1 }]);
+});
+
+test('a member can never be cited as the record holder', () => {
+  // The structural guarantee the predicate buys. Under the old two-list API the
+  // caller filtered `population` and `nameable` separately, and turnover margin
+  // dropped the seasons floor from one of them — so Erin, a CURRENT member,
+  // could be named as the departed record holder. With one population and a
+  // predicate, `best` IS the member extreme, so no member can out-rank it.
+  const population: Entry[] = [
+    { owner: 'Bob', v: 300 },
+    { owner: 'Alice', v: 60 },
+    { owner: 'Dave', v: 50 },
+  ];
+
+  const result = resolveSuperlative({
+    population,
+    isMember,
+    value: (e) => e.v,
+    owner: (e) => e.owner,
+  });
+
+  assert.equal(result?.best.owner, 'Bob', 'the best member is the best member');
+  assert.equal(result?.standing, 'holds');
+  for (const holder of result?.recordHolders ?? []) {
+    assert.ok(!members.has(holder.owner), `cited an active member: ${holder.owner}`);
+  }
+});
+
+test('comparison uses the DISPLAYED value when one is supplied', () => {
+  // .859504 and .860000 both render `.860`. Comparing raw values produced
+  // "Alice's .860 ... Dave's .860 remains the league record" — two identical
+  // figures, one said to beat the other.
+  const population = [
+    { owner: 'Dave', v: 0.86 },
+    { owner: 'Alice', v: 0.859504 },
+  ];
+
+  const raw = resolveSuperlative({
+    population,
+    isMember: (e) => e.owner === 'Alice',
+    value: (e) => e.v,
+    owner: (e) => e.owner,
+  });
+  assert.equal(raw?.standing, 'trails', 'raw precision says Dave is ahead');
+
+  const shown = resolveSuperlative({
+    population,
+    isMember: (e) => e.owner === 'Alice',
+    value: (e) => e.v,
+    owner: (e) => e.owner,
+    compareOn: (e) => Math.round(e.v * 1000),
+  });
+  assert.equal(shown?.standing, 'shares', 'but what a reader sees is a tie');
 });
 
 // ---------------------------------------------------------------------------
@@ -337,17 +390,17 @@ test('career points: a member never inherits the departed leader’s all-time cl
   assert.match(points, /Dave's 4,100 still stands as the league record/, 'and cites who does');
 });
 
-// NO TEST for `career:turnover_margin`, deliberately, and this comment is the
-// record of why. `totalTurnoverMargin` accumulates from archived GAME STATS
-// (`totalTurnoversForced - totalTurnovers`), not from any field on
-// `finalStandings`, and the floor is +20 — so no archive-shaped fixture can
-// reach the generator at all. The first version of this file shipped a test for
-// it wrapped in `if (margin)`, which passed because the insight was always null:
-// a vacuous test wearing a passing badge, the exact failure this project has
-// repeated. Its fix is the same three lines as the points leader and goes
-// through the same `resolveSuperlative` call, covered by the resolver's own
-// tests above. Reaching it behaviourally needs a game-stats fixture; recorded in
-// docs/next-tasks.md rather than faked here.
+// `career:turnover_margin` is NOT part of this slice — the generator is
+// untouched and still carries the defect, exactly as `main` has it.
+//
+// It cannot be covered from an archive fixture: `totalTurnoverMargin`
+// accumulates from cached game-stats partitions behind archive slate
+// provenance, a different subsystem from the archives the other four sites
+// read. AGENTS.md → Scope and sizing allows two responses to a surface a PR
+// touches — cover it, or omit it. An earlier version of this file took a third:
+// a test wrapped in `if (margin)` that passed on a null every time. Omitting is
+// the compliant option and leaves nothing worse than it found. Filed in
+// docs/next-tasks.md with the fixture it needs.
 
 test('greatest season: a member’s best is not the league record while Dave’s stands', async () => {
   await seedDepartedRecordHolder();
@@ -432,4 +485,78 @@ test('lopsided rivalry: the record series is named even though both are gone', a
     'Dave–Alice was more lopsided'
   );
   assert.match(lopsided, /Dave's 5–0 over Alice remains the league record/);
+});
+
+test('with membership UNKNOWN, the copy claims nothing about who is playing', async () => {
+  // THE finding both reviewers raised, and the one `/code-review` rated HIGH.
+  //
+  // With archives but no confirmed list and no current roster, membership is
+  // just last season's snapshot — so an owner who merely SAT OUT a season is
+  // absent from it. Saying the rest are "active owners", or that a record
+  // holder is not "still playing", asserts participation from archived data:
+  // AGENTS.md Insights invariant 5, and the same reasoning that deleted
+  // `applyReturningOwnerFraming` in INSIGHTS-022.
+  //
+  // The fallback is NOT the pre-030 wording — that wording is the false claim
+  // this slice removes. It is neutral copy stating both figures.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Records League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    foundedYear: 2021,
+    status: { state: 'offseason' },
+  });
+  const ORDER: Record<number, string[]> = {
+    2021: ['Dave', 'Bob', 'Carol', 'Alice'],
+    2022: ['Dave', 'Alice', 'Bob', 'Carol'],
+    2023: ['Dave', 'Alice', 'Carol', 'Bob'],
+    // Dave SITS OUT 2025 — he has not left, and nothing here can know that.
+    2025: ['Alice', 'Bob', 'Carol'],
+  };
+  const PTS = [900, 700, 500, 300];
+  const REC = [
+    { wins: 80, losses: 30 },
+    { wins: 70, losses: 40 },
+    { wins: 60, losses: 50 },
+    { wins: 50, losses: 60 },
+  ];
+  for (const [yearText, order] of Object.entries(ORDER)) {
+    const year = Number(yearText);
+    await seedArchive(
+      year,
+      order.map((owner, rank) => ({
+        owner,
+        wins: owner === 'Dave' && year === 2021 ? 90 : REC[rank]!.wins,
+        losses: owner === 'Dave' && year === 2021 ? 20 : REC[rank]!.losses,
+        pointsFor: PTS[rank]!,
+      }))
+    );
+  }
+  // No `preseason-owners`, no owners CSV — membership falls back to 2025's roster.
+
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  assert.equal(
+    context.leagueMembersSource,
+    'previous-roster',
+    'the fixture must actually reach the unknown-membership state'
+  );
+  assert.ok(!context.leagueMembers.has('Dave'), 'and Dave must be outside it');
+
+  const insights = generateRawInsights(context);
+  assert.ok(insights.length > 0, 'and it must generate something to inspect');
+
+  for (const insight of insights) {
+    assert.doesNotMatch(
+      insight.description,
+      /(active owners|still playing)/i,
+      `participation claim with membership unknown, from ${insight.type}: ${insight.description}`
+    );
+  }
+
+  // Neutral, not silent, and not the old false claim.
+  const points = describe(insights, 'career_points_leader');
+  assert.ok(points, 'the insight still runs');
+  assert.doesNotMatch(points, /all-time (lead|scoring)/, 'and does not steal the record');
+  assert.match(points, /is the league record/, 'it states both figures instead');
 });

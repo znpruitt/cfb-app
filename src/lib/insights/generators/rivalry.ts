@@ -3,8 +3,14 @@ import type { AppGame } from '../../schedule';
 import type { ScorePack } from '../../scores';
 import type { SeasonArchive } from '../../seasonArchive';
 import { registerGenerator } from '../engine';
-import { resolveSuperlative } from '../superlative';
-import type { InsightContext, InsightGenerator, LifecycleState, NewsHook } from '../types';
+import { membershipIsKnown, resolveSuperlative } from '../superlative';
+import type {
+  InsightContext,
+  InsightGenerator,
+  LeagueMembersSource,
+  LifecycleState,
+  NewsHook,
+} from '../types';
 
 const RIVALRY_LIFECYCLES: LifecycleState[] = [
   'early_season',
@@ -158,7 +164,8 @@ function countWins(results: HeadToHeadResult[]): Map<string, number> {
 function deriveLopsidedInsight(
   pairs: Map<string, HeadToHeadResult[]>,
   activeOwners: ReadonlySet<string>,
-  lifecycles: LifecycleState[]
+  lifecycles: LifecycleState[],
+  membersSource: LeagueMembersSource
 ): Insight | null {
   let bestKey: string | null = null;
   let bestDiff = 0;
@@ -222,21 +229,29 @@ function deriveLopsidedInsight(
   }
 
   const lopsidedStanding = resolveSuperlative({
-    nameable: qualifying.filter((p) => activeOwners.has(p.dominant) && activeOwners.has(p.loser)),
     population: qualifying,
+    isMember: (p) => activeOwners.has(p.dominant) && activeOwners.has(p.loser),
     value: (p) => p.diff,
     owner: (p) => p.dominant,
   });
   const recordPair =
-    lopsidedStanding && !lopsidedStanding.holdsLeagueRecord
+    lopsidedStanding && lopsidedStanding.standing !== 'holds'
       ? qualifying.reduce((max, p) => (p.diff > max.diff ? p : max), qualifying[0]!)
       : null;
+  const rivalryKnown = membershipIsKnown(membersSource);
 
   const hook: NewsHook = recordPair ? 'streak_extended' : 'new_record';
 
-  const description = recordPair
-    ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry among active owners. ${recordPair.dominant}'s ${recordPair.wins}–${recordPair.losses} over ${recordPair.loser} remains the league record.`
-    : `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry on record.`;
+  const recordText = recordPair
+    ? `${recordPair.dominant}'s ${recordPair.wins}–${recordPair.losses} over ${recordPair.loser}`
+    : '';
+  const description = !recordPair
+    ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry on record.`
+    : lopsidedStanding?.standing === 'shares'
+      ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins}, level with ${recordText} as the most lopsided rivalry in league history.`
+      : rivalryKnown
+        ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry among active owners. ${recordText} remains the league record.`
+        : `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins}; ${recordText} is the league record.`;
 
   return toInsight({
     id: `rivalry-lopsided-${ownerSlug(bestDominant)}-${ownerSlug(bestLoser)}`,
@@ -415,7 +430,12 @@ export const rivalryGenerator: InsightGenerator = {
     const activeOwners = context.leagueMembers;
 
     const insights: Insight[] = [];
-    const lopsided = deriveLopsidedInsight(pairs, activeOwners, RIVALRY_LIFECYCLES);
+    const lopsided = deriveLopsidedInsight(
+      pairs,
+      activeOwners,
+      RIVALRY_LIFECYCLES,
+      context.leagueMembersSource
+    );
     if (lopsided) insights.push(lopsided);
 
     const even = deriveEvenRivalryInsight(pairs, activeOwners, RIVALRY_LIFECYCLES);

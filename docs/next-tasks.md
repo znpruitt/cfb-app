@@ -896,6 +896,18 @@ Supersedes: (none)
     call, not a mechanical edit. The owner should rule on whether a departed owner's record should
     still be quotable at all.
 
+    **STATUS 2026-08-16: four of the five are fixed on `insights/030-league-record-population`;
+    `career:turnover_margin` is NOT and is the remaining work here.** It carries the identical
+    defect — "the largest career turnover margin on record" measured against members only — and was
+    omitted rather than fixed because it cannot be covered from an archive fixture:
+    `totalTurnoverMargin` accumulates from cached game-stats partitions gated behind archive slate
+    provenance (`assembleArchiveAnalyticsProvenance` needs `archive.gameStatSlate`, and
+    `listCachedGameStatsWeeks` needs seeded `game-stats::<year>:<week>:<seasonType>` rows). That is a
+    different subsystem from the archives the other four read. AGENTS.md → Scope and sizing allows
+    cover-it or omit-it; a version of the branch took a third option — a test wrapped in
+    `if (margin)` that passed on a null every time — which is why this note is explicit. The fix is
+    the same shape as `career:points_leader`, through `resolveSuperlative`; the work is the fixture.
+
     **The structural fix worth considering over five point fixes:** a superlative helper that takes
     the claim population and the naming population as separate arguments, so the distinction cannot be
     collapsed again by the next generator anyone writes. Every one of the seven correct sites hand-

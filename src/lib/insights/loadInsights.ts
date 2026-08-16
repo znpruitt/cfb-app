@@ -98,7 +98,7 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  * so no tag fires — without this, warm entries would keep serving the retracted
  * copy and keep omitting the offseason card until the TTL lapsed.
  */
-const INSIGHT_COPY_POLICY_VERSION = 'insights022-neutral-career-copy-v1';
+const INSIGHT_COPY_POLICY_VERSION = 'insights030-league-record-population-v1';
 
 /**
  * Membership policy version (INSIGHTS-023a). Same shape and same reason as the
