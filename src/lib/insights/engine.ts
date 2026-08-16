@@ -7,7 +7,12 @@ import {
 } from './suppression';
 import type { InsightContext, InsightGenerator } from './types';
 
-const MAX_INSIGHTS = 10;
+import { MAX_SERVED_INSIGHTS } from './limits';
+
+// Kept as a local alias so the many existing references read unchanged; the
+// VALUE now lives in `limits.ts` so the diagnostic page reports what the code
+// actually applies rather than a mirrored copy.
+const MAX_INSIGHTS = MAX_SERVED_INSIGHTS;
 
 const generators: InsightGenerator[] = [];
 
@@ -35,7 +40,7 @@ export function getRegisteredGenerators(): readonly InsightGenerator[] {
  * Add a new rule by appending another id-based branch — keep each rule narrow
  * and well-commented so the suppression logic stays auditable.
  */
-function shouldSuppressGenerator(g: InsightGenerator, context: InsightContext): boolean {
+export function shouldSuppressGenerator(g: InsightGenerator, context: InsightContext): boolean {
   // Rookie benchmark identifies first-archive owners as rookies. When the
   // current roster is borrowed from a prior archive (rollover window), every
   // owner read as "current" is actually a returning member, so the rookie
