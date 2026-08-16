@@ -105,6 +105,29 @@ export default function InsightsDiagnosticsView({
         <span className="font-medium text-gray-700 dark:text-zinc-200">{model.lifecycleState}</span>
       </div>
 
+      {/* WHO the engine thinks is playing. First, because an unchanged feed means
+          nothing until you know whether membership reached the engine at all. */}
+      <section className="border-b border-gray-200 pb-4 dark:border-zinc-800">
+        <h2 className="mb-1 text-sm font-semibold">
+          In the league{' '}
+          <span className="font-normal text-gray-500 dark:text-zinc-400">
+            ({model.membership.owners.length})
+          </span>
+        </h2>
+        <p className="mb-2 text-xs text-gray-500 dark:text-zinc-400">
+          {model.membership.source === 'confirmed'
+            ? 'From the confirmed owner list — a new roster has been named for this season.'
+            : model.membership.source === 'previous-roster'
+              ? 'No new roster named yet, so last season’s owners are still the league.'
+              : 'Neither a confirmed owner list nor a roster exists — no insights can name anyone.'}
+        </p>
+        {model.membership.owners.length > 0 ? (
+          <p className="text-sm">{model.membership.owners.join(', ')}</p>
+        ) : (
+          <p className="text-sm text-gray-500 dark:text-zinc-400">Nobody.</p>
+        )}
+      </section>
+
       {/* The funnel. Three numbers, in the order the feed passes through them. */}
       <div className="grid grid-cols-3 gap-4 border-y border-gray-200 py-4 dark:border-zinc-800">
         <Stat value={counts.generated} label="Generated" hint="by all generators" />

@@ -9,7 +9,12 @@ import {
   OVERVIEW_INSIGHT_SLOTS_WITH_RECAP,
 } from '../insights/limits.ts';
 import { buildLeagueInsightContext } from '../insights/loadInsights.ts';
-import type { InsightContext, InsightGenerator, LifecycleState } from '../insights/types.ts';
+import type {
+  InsightContext,
+  InsightGenerator,
+  LeagueMembersSource,
+  LifecycleState,
+} from '../insights/types.ts';
 import type { Insight } from '../selectors/insights.ts';
 
 /**
@@ -128,6 +133,23 @@ export type InsightsDiagnostics = {
      */
     overviewSlotsUnfilledByEngine: number;
   };
+  /**
+   * WHO the engine thinks is in the league, and where that came from.
+   *
+   * Added because the page could not answer the question it most needed to. When
+   * TSC's membership changed for 2026 — two owners left, one joined, one
+   * returned — the feed stayed at the same five insights with the same five
+   * names, because these generators emit SUPERLATIVES (most volatile, title
+   * chaser) rather than one insight per owner. An unchanged feed is therefore
+   * the same observation whether the confirmed list reached the engine or the
+   * fix silently failed and it fell back to last season's roster.
+   *
+   * Showing the list and its source settles it by looking instead of inferring.
+   */
+  membership: {
+    owners: string[];
+    source: LeagueMembersSource;
+  };
   generators: DiagnosticGenerator[];
   insights: DiagnosticInsight[];
 };
@@ -234,6 +256,7 @@ export async function buildInsightsDiagnostics(
         renderedCap: OVERVIEW_INSIGHT_SLOTS,
         overviewSlotsUnfilledByEngine: OVERVIEW_INSIGHT_SLOTS,
       },
+      membership: { owners: [], source: 'none' },
       generators: [],
       insights: [],
     };
@@ -290,6 +313,10 @@ export async function buildInsightsDiagnostics(
       servedCap: MAX_SERVED_INSIGHTS,
       renderedCap,
       overviewSlotsUnfilledByEngine: Math.max(0, renderedCap - served.length),
+    },
+    membership: {
+      owners: [...context.leagueMembers].sort(),
+      source: context.leagueMembersSource,
     },
     generators: perGenerator
       .map(({ generator, produced, skippedBy }) => ({

@@ -104,6 +104,7 @@ function makeContext(overrides: Partial<InsightContext> = {}): InsightContext {
     leagueMembers:
       overrides.leagueMembers ??
       new Set([...(overrides.currentRoster ?? new Map()).values()].filter((o) => o !== 'NoClaim')),
+    leagueMembersSource: overrides.leagueMembersSource ?? 'previous-roster',
     usingArchivedRoster: overrides.usingArchivedRoster ?? false,
     records: overrides.records ?? { career: [], season: [], rivalry: [], event: [] },
   };

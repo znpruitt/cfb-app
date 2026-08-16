@@ -294,3 +294,39 @@ test('GUARD: no generator reconstructs membership from the roster map', () => {
     'membership comes from context.leagueMembers; currentRoster answers "who owns which team"'
   );
 });
+
+// ---------------------------------------------------------------------------
+// The page must SHOW which source supplied membership.
+//
+// TSC changed for 2026 — two owners left, one joined, one returned — and the
+// feed stayed at the same five insights with the same five names, because these
+// generators emit SUPERLATIVES rather than one insight per owner. That reading
+// is identical whether the confirmed list reached the engine or the change
+// silently failed. The source is the fact that tells them apart.
+// ---------------------------------------------------------------------------
+
+test('the membership SOURCE is reported, not just the members', async () => {
+  await seedLeague({
+    archiveOwners: ['Alice', 'Bob', 'Carol', 'Dave'],
+    confirmedOwners: ['Alice', 'Bob', 'Carol', 'Erin'],
+  });
+  const confirmed = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  assert.equal(confirmed.leagueMembersSource, 'confirmed');
+
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  await seedLeague({ archiveOwners: ['Alice', 'Bob', 'Carol', 'Dave'] });
+  const previous = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  assert.equal(
+    previous.leagueMembersSource,
+    'previous-roster',
+    'the same member COUNT as a confirmed league — only the source distinguishes them'
+  );
+
+  await __deleteAppStateFileForTests();
+  __resetAppStateForTests();
+  await seedLeague({});
+  const none = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  assert.equal(none.leagueMembersSource, 'none');
+  assert.equal(none.leagueMembers.size, 0);
+});

@@ -22,7 +22,12 @@ import type { AliasMap } from '../teamNames';
 import { chooseDefaultWeek, deriveRegularWeeks } from '../weekSelection';
 import { deriveLifecycleState, deriveTotalRegularSeasonWeeks } from './lifecycle';
 import { selectAllRecords } from '../selectors/leagueRecords';
-import type { InsightContext, OwnerCareerStats, OwnerSeasonStats } from './types';
+import type {
+  InsightContext,
+  LeagueMembersSource,
+  OwnerCareerStats,
+  OwnerSeasonStats,
+} from './types';
 
 const NO_CLAIM_OWNER = 'NoClaim';
 
@@ -327,12 +332,16 @@ export async function buildOwnerCareerStats(params: {
 export function resolveLeagueMembers(
   confirmedOwners: readonly string[],
   resolvedRoster: Map<string, string>
-): ReadonlySet<string> {
+): { members: ReadonlySet<string>; source: LeagueMembersSource } {
   const fromConfirmed = confirmedOwners.filter((o) => o && o !== NO_CLAIM_OWNER);
-  if (fromConfirmed.length > 0) return new Set(fromConfirmed);
+  if (fromConfirmed.length > 0) return { members: new Set(fromConfirmed), source: 'confirmed' };
 
   // No new roster named yet: the league is still last season's league.
-  return new Set([...resolvedRoster.values()].filter((o) => o && o !== NO_CLAIM_OWNER));
+  const fromRoster = [...resolvedRoster.values()].filter((o) => o && o !== NO_CLAIM_OWNER);
+  return {
+    members: new Set(fromRoster),
+    source: fromRoster.length > 0 ? 'previous-roster' : 'none',
+  };
 }
 
 // Pure: exported for testing. Resolves the effective roster for insight
@@ -439,7 +448,10 @@ export async function buildInsightContext(
     // NoClaim is filtered on both paths: `selectConfirmedRoster` drops it from
     // the CSV, but not from a legacy typed `preseason-owners` record, and the
     // roster map carries it as the absorber for unowned teams.
-    leagueMembers: resolveLeagueMembers(confirmedOwners, resolvedRoster),
+    ...(() => {
+      const { members, source } = resolveLeagueMembers(confirmedOwners, resolvedRoster);
+      return { leagueMembers: members, leagueMembersSource: source };
+    })(),
     records,
   };
 }

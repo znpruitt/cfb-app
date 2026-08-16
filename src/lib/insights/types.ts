@@ -89,6 +89,15 @@ export type OwnerCareerStats = {
 
 // InsightContext — assembled once, passed to all generators.
 // Fields marked optional are not available in all lifecycle states.
+/**
+ * Where a league's membership came from.
+ * `confirmed` — the confirmed owner list, once a new roster has been named.
+ * `previous-roster` — no new roster yet, so last season's owners are still the
+ *   league (owner framing: nobody has left until preseason names a new roster).
+ * `none` — neither exists.
+ */
+export type LeagueMembersSource = 'confirmed' | 'previous-roster' | 'none';
+
 export type InsightContext = {
   leagueSlug: string;
   currentYear: number;
@@ -120,6 +129,14 @@ export type InsightContext = {
    * (2026-08-16): fewer insights and right, rather than guessing from stale data.
    */
   leagueMembers: ReadonlySet<string>;
+  /**
+   * WHICH source supplied `leagueMembers`. Carried so the diagnostic page can
+   * SHOW it rather than have anyone infer it — an unchanged feed is the same
+   * observation whether membership came from the confirmed list or fell back to
+   * last season's roster, and telling those apart by looking at insight counts
+   * is exactly the guessing this page exists to end.
+   */
+  leagueMembersSource: LeagueMembersSource;
   // true when currentRoster was borrowed from the most recent season archive
   // because the current-year owners CSV is empty (fresh_offseason rollover window).
   usingArchivedRoster: boolean;
