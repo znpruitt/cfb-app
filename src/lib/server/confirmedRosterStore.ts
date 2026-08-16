@@ -16,7 +16,21 @@ import { selectConfirmedRoster, type ConfirmedRoster } from '../selectors/confir
  * path silently BLOCKS a legitimate draft rather than merely showing an empty
  * surface.
  */
-export async function getConfirmedRoster(slug: string, year: number): Promise<ConfirmedRoster> {
+/**
+ * The roster AND the owners CSV text it was resolved from, in ONE pass.
+ *
+ * INSIGHTS-023a — `buildLeagueInsightContext` read `owners:{slug}:{year}` twice
+ * per uncached build: once for the team→owner map and once, concurrently, inside
+ * `getConfirmedRoster`. Two unsynchronized reads of one row, so a `PUT
+ * /api/owners` landing between them yields membership and the roster map from
+ * different generations of the same CSV — and the membership source is then
+ * classified against a roster that is not the one it was derived from. Callers
+ * that need both must take both from here.
+ */
+export async function readConfirmedRosterInputs(
+  slug: string,
+  year: number
+): Promise<{ roster: ConfirmedRoster; ownersCsv: string | null }> {
   const [confirmedRecord, ownersCsvRecord] = await Promise.all([
     // Read through the shared key builder rather than `getPreseasonOwners`, so a
     // legacy row of the wrong SHAPE reaches the selector as the untrusted value
@@ -25,8 +39,15 @@ export async function getConfirmedRoster(slug: string, year: number): Promise<Co
     getAppState<unknown>(`owners:${slug}:${year}`, 'csv'),
   ]);
 
-  return selectConfirmedRoster({
-    confirmedOwnersRecord: confirmedRecord?.value ?? null,
-    ownersCsvRecord: ownersCsvRecord?.value ?? null,
-  });
+  return {
+    roster: selectConfirmedRoster({
+      confirmedOwnersRecord: confirmedRecord?.value ?? null,
+      ownersCsvRecord: ownersCsvRecord?.value ?? null,
+    }),
+    ownersCsv: typeof ownersCsvRecord?.value === 'string' ? ownersCsvRecord.value : null,
+  };
+}
+
+export async function getConfirmedRoster(slug: string, year: number): Promise<ConfirmedRoster> {
+  return (await readConfirmedRosterInputs(slug, year)).roster;
 }

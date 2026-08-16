@@ -9,9 +9,9 @@ import {
 } from '@/lib/insights/engine';
 import '@/lib/insights/generators';
 import { getLeague } from '@/lib/leagueRegistry';
+import { readConfirmedRosterInputs } from '@/lib/server/confirmedRosterStore';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import { loadSeasonRankings } from '@/lib/server/rankings';
-import { getAppState } from '@/lib/server/appStateStore';
 import { getScopedAliasMap, SEED_ALIASES_HASH } from '@/lib/server/globalAliasStore';
 import { ALIAS_OVERRIDES_HASH } from '@/lib/teamDatabase';
 import { getTeamDatabaseItems } from '@/lib/server/teamDatabaseStore';
@@ -61,11 +61,6 @@ export type LoadInsightsOptions = {
  */
 const INSIGHTS_CACHE_TTL_SECONDS = 300;
 
-async function loadOwnersCsv(slug: string, year: number): Promise<string | null> {
-  const record = await getAppState<string>(`owners:${slug}:${year}`, 'csv');
-  return typeof record?.value === 'string' ? record.value : null;
-}
-
 function emptyResponse(
   lifecycleState: LifecycleState = 'offseason',
   error?: string
@@ -105,6 +100,19 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  */
 const INSIGHT_COPY_POLICY_VERSION = 'insights022-neutral-career-copy-v1';
 
+/**
+ * Membership policy version (INSIGHTS-023a). Same shape and same reason as the
+ * two above: generator output changed with no runtime invalidation signal.
+ *
+ * Membership now comes from the league's roster/confirmed list rather than being
+ * reconstructed from the team→owner map, so a warm entry computed under the old
+ * rule keeps serving cards naming DEPARTED owners — the exact thing the slice
+ * fixes — until the 300s TTL lapses or a standings tag fires. Deployment fires
+ * neither. This file's other two constants exist for precisely this class of
+ * change and say so; this one qualifies.
+ */
+const INSIGHT_MEMBERSHIP_POLICY_VERSION = 'insights023a-league-membership-v1';
+
 export function insightsCacheKeyParts(slug: string, resolvedYear: number): string[] {
   // `alias-overrides:` mirrors canonical standings: the curated catalog-alias
   // policy is applied at read time and feeds identity resolution here, so it is
@@ -117,6 +125,7 @@ export function insightsCacheKeyParts(slug: string, resolvedYear: number): strin
     `alias-overrides:${ALIAS_OVERRIDES_HASH}`,
     `analytics:${ANALYTICS_PROJECTION_VERSION}`,
     `copy:${INSIGHT_COPY_POLICY_VERSION}`,
+    `membership:${INSIGHT_MEMBERSHIP_POLICY_VERSION}`,
   ];
 }
 
@@ -168,17 +177,25 @@ export async function buildLeagueInsightContext(
     throw new Error(`League '${slug}' not found`);
   }
 
-  const [csvText, scheduleItems, teams, scopedAliasMap, manualOverrides, rankings] =
+  const [scheduleItems, teams, scopedAliasMap, manualOverrides, rankings, confirmedRoster] =
     await Promise.all([
-      loadOwnersCsv(slug, resolvedYear),
       loadCachedScheduleItems(resolvedYear).catch(() => []),
       getTeamDatabaseItems().catch(() => [] as Awaited<ReturnType<typeof getTeamDatabaseItems>>),
       getScopedAliasMap(slug, resolvedYear).catch(() => ({}) as AliasMap),
       loadPostseasonOverrides(slug, resolvedYear).catch(() => ({})),
       loadSeasonRankings(resolvedYear).catch(() => null),
+      // A store failure here must NOT degrade membership to "nobody" — that
+      // would silently empty every member-filtered insight and look identical
+      // to a league with no confirmed owners. Let it propagate, like the other
+      // authoritative reads (PLATFORM-084A: failures are never cached).
+      // ONE read of `owners:{slug}:{year}`, serving BOTH the confirmed roster and
+      // the team→owner map below. They were separate concurrent reads of the same
+      // row, so a roster write landing between them gave the two different
+      // generations of one CSV.
+      readConfirmedRosterInputs(slug, resolvedYear),
     ]);
 
-  const roster = parseOwnersCsv(csvText ?? '');
+  const roster = parseOwnersCsv(confirmedRoster.ownersCsv ?? '');
   const currentRoster = new Map(roster.map((r) => [r.team, r.owner]));
   const aliasMap: AliasMap = scopedAliasMap;
 
@@ -219,7 +236,12 @@ export async function buildLeagueInsightContext(
     seasonContext,
     rankings,
     currentRoster,
-    currentDate
+    currentDate,
+    // INSIGHTS-023a — the league's MEMBERSHIP, which is a different question
+    // from who owns which team. Read here rather than in `context.ts` so that
+    // module keeps doing no store access of its own.
+    confirmedRoster.roster.owners,
+    confirmedRoster.roster.source
   );
 }
 

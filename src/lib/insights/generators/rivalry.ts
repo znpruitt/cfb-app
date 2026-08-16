@@ -156,7 +156,7 @@ function countWins(results: HeadToHeadResult[]): Map<string, number> {
 
 function deriveLopsidedInsight(
   pairs: Map<string, HeadToHeadResult[]>,
-  activeOwners: Set<string>,
+  activeOwners: ReadonlySet<string>,
   lifecycles: LifecycleState[]
 ): Insight | null {
   let bestKey: string | null = null;
@@ -230,7 +230,7 @@ function deriveLopsidedInsight(
 
 function deriveEvenRivalryInsight(
   pairs: Map<string, HeadToHeadResult[]>,
-  activeOwners: Set<string>,
+  activeOwners: ReadonlySet<string>,
   lifecycles: LifecycleState[]
 ): Insight | null {
   let bestKey: string | null = null;
@@ -302,7 +302,7 @@ function activeStreak(results: HeadToHeadResult[]): { winner: string; length: nu
 
 function deriveDominanceStreakInsight(
   pairs: Map<string, HeadToHeadResult[]>,
-  activeOwners: Set<string>,
+  activeOwners: ReadonlySet<string>,
   lifecycles: LifecycleState[]
 ): Insight | null {
   let bestKey: string | null = null;
@@ -385,8 +385,10 @@ export const rivalryGenerator: InsightGenerator = {
     const pairs = collectHeadToHead(context.archives, context.historicalRosters);
     if (pairs.size === 0) return [];
 
-    const activeOwners = new Set(context.currentRoster.values());
-    activeOwners.delete(NO_CLAIM_OWNER);
+    // INSIGHTS-023a — membership, not team assignments. See the shared note in
+    // `career.ts`: this was `new Set(currentRoster.values())`, which before a
+    // draft is last season's owners.
+    const activeOwners = context.leagueMembers;
 
     const insights: Insight[] = [];
     const lopsided = deriveLopsidedInsight(pairs, activeOwners, RIVALRY_LIFECYCLES);

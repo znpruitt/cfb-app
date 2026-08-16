@@ -59,12 +59,6 @@ function isEligibleOwner(owner: string): boolean {
   return owner !== NO_CLAIM_OWNER;
 }
 
-function activeOwnerSet(currentRoster: Map<string, string>): Set<string> {
-  const set = new Set(currentRoster.values());
-  set.delete(NO_CLAIM_OWNER);
-  return set;
-}
-
 const TIE_SUPPRESSION_THRESHOLD = 4;
 
 function formatOwnerList(owners: string[]): string {
@@ -89,7 +83,7 @@ function positionOf(archive: SeasonArchive, owner: string): number | null {
 
 function deriveDroughtInsight(
   archives: SeasonArchive[],
-  activeOwners: Set<string>,
+  activeOwners: ReadonlySet<string>,
   lifecycles: LifecycleState[]
 ): Insight | null {
   if (archives.length === 0) return null;
@@ -183,7 +177,7 @@ function deriveDroughtInsight(
 
 function deriveDynastyInsight(
   archives: SeasonArchive[],
-  activeOwners: Set<string>,
+  activeOwners: ReadonlySet<string>,
   lifecycles: LifecycleState[]
 ): Insight | null {
   if (archives.length === 0) return null;
@@ -277,7 +271,7 @@ function deriveDynastyInsight(
 
 function deriveMostImprovedInsight(
   archives: SeasonArchive[],
-  activeOwners: Set<string>,
+  activeOwners: ReadonlySet<string>,
   lifecycles: LifecycleState[]
 ): Insight | null {
   if (archives.length < 2) return null;
@@ -366,7 +360,7 @@ function deriveMostImprovedInsight(
 
 function deriveConsistencyInsight(
   archives: SeasonArchive[],
-  activeOwners: Set<string>,
+  activeOwners: ReadonlySet<string>,
   lifecycles: LifecycleState[]
 ): Insight | null {
   if (archives.length < MIN_CONSISTENCY_SEASONS) return null;
@@ -465,7 +459,7 @@ export const historicalGenerator: InsightGenerator = {
     const archives = context.archives;
     if (archives.length === 0) return [];
 
-    const activeOwners = activeOwnerSet(context.currentRoster);
+    const activeOwners = context.leagueMembers;
 
     const insights: Insight[] = [];
     const drought = deriveDroughtInsight(archives, activeOwners, HISTORICAL_LIFECYCLES);

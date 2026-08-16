@@ -23,7 +23,6 @@ function frameStatsInsights(insights: Insight[], context: InsightContext): Insig
   return insights.map(applyLastSeasonFraming);
 }
 
-const NO_CLAIM_OWNER = 'NoClaim';
 const TIE_SUPPRESSION_THRESHOLD = 4;
 
 const STATS_LIFECYCLES: LifecycleState[] = [
@@ -48,12 +47,6 @@ const MIN_THIRD_DOWN_ATTEMPTS = 200;
 
 function ownerSlug(owner: string): string {
   return owner.trim().toLowerCase().replace(/\s+/gu, '-');
-}
-
-function activeOwnerSet(currentRoster: Map<string, string>): Set<string> {
-  const set = new Set(currentRoster.values());
-  set.delete(NO_CLAIM_OWNER);
-  return set;
 }
 
 function formatOwnerList(owners: string[]): string {
@@ -86,7 +79,7 @@ function toInsight(params: {
 
 function activeSeasonStats(context: InsightContext): OwnerSeasonStats[] {
   if (!context.ownerGameStats) return [];
-  const active = activeOwnerSet(context.currentRoster);
+  const active = context.leagueMembers;
   return context.ownerGameStats.filter((s) => active.has(s.owner));
 }
 

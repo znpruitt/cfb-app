@@ -50,6 +50,80 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-023a-LEAGUE-MEMBERSHIP-v1
+
+- Purpose: Give the insights engine the league's actual membership. Every generator answered "who is
+  in this league" from `context.currentRoster` — the team→owner CSV written at draft confirmation —
+  which does not exist before a draft, so in preseason the engine either named last season's roster
+  or named nobody.
+- Scope: `src/lib/insights/context.ts` (`resolveLeagueMembers`, membership on the context),
+  `types.ts`, `loadInsights.ts` (reads the confirmed roster, adds a membership policy version to the
+  cache key), the five generators that each hand-rolled `activeOwnerSet(currentRoster)`, the
+  diagnostic page's membership section, and a 17-test membership suite. No lifecycle gate was
+  touched — that is INSIGHTS-023, which this unblocks.
+- Outcome: membership resolves confirmed list → current roster → previous roster, with the source
+  carried through to the diagnostic page. **The precedence was ruled by the owner and it inverted my
+  first fix.** I had made the team→owner CSV win over the confirmed list; `confirmedRoster.ts`
+  documents the opposite, because a confirmed list is an owner DECISION and a CSV is a derived
+  artefact. The framing that settled it: _"no one has left the league until we've entered preseason
+  and have a new roster of owners — offseason is the rear-looking component, preseason the
+  forward-looking one."_ So borrowing the previous roster in offseason is correct, not a fallback
+  hack.
+- Review / verification: tsc 0, `lint:all` 0, full suite green (3882). Four rounds.
+  (1) My first membership rule produced an EMPTY feed — measured on the diagnostic page as 6 → 0
+  insights, not the "fewer and right" I had claimed. (2) **The 14-versus-4 finding**, read off the
+  live page by the owner: 14 confirmed members reached the engine and the insights named 4 of them.
+  Membership was never the constraint the lifecycle gates were — recorded, and the reason
+  INSIGHTS-023 stays a separate slice. (3) Widening `buildOwnerCareerStats` to span every archived
+  owner (membership filters who may be NAMED, not what a record is measured against) exposed
+  `career:trending` crowning a member with "the steepest decline in league history" while a departed
+  owner held it; fixed here, and the four pre-existing instances of the same shape are filed as
+  INSIGHTS-030 rather than fixed in this slice.
+  **Round 4 (both reviews gathered first, per AGENTS.md).** Codex: no findings — but its log shows
+  two test runs failing mid-review, almost certainly because I was mutation-testing in the working
+  tree at that moment, so its verdict rests on reading plus a clean `tsc`, not on a green suite.
+  `/code-review` found three, all verified before acceptance. (1) MEDIUM, and a hole in the
+  owner-directed source split committed an hour earlier: `selectConfirmedRoster` counts `NoClaim`
+  toward `MIN_CONFIRMED_OWNERS` on the confirmation path while membership strips it afterwards, so
+  `['Alice','NoClaim']` beat a four-owner CSV and produced a ONE-member league labelled `confirmed`.
+  Stripping a name after the bar was counted lowers the bar, so the bar is re-applied to what
+  survives. The same record still reaches `POST /api/draft`, which is pre-existing and filed
+  separately. (2) The loader read `owners:{slug}:{year}` twice concurrently — membership and the
+  roster map could come from different generations of one row; `readConfirmedRosterInputs` returns
+  both from one read. (3) A comment of mine claimed the career debug route and the admin page "both
+  agree"; they diverge for a confirmed owner who has never played, which is precisely the pre-draft
+  window this slice serves.
+- **The fix for (1) falsified the split's own premise, and that is the lesson.** `partial-roster` was
+  defined by CONTROL FLOW — "reaching this branch means the roster named fewer than the minimum" —
+  and refusing a padded confirmation record immediately dropped a fully rostered league into that
+  branch. The label is now COUNTED at the point of use. A test written the same day encoded the
+  inference and failed within the hour.
+  **Round 5 — reviews gathered, then STOPPED rather than taken** (owner ruling). Both reviewers
+  independently found the same defect: the roster-size threshold measured `resolvedRoster.values()`,
+  which is one entry per TEAM, so a single owner holding two teams counted as two and read as a full
+  roster. This is a multi-round snake draft; owners routinely hold several teams. Reproduced by
+  direct call. `/code-review` also caught two figures in THIS entry that had drifted stale as the
+  last two commits added tests (14→17, 3879→3882) — corrected above by re-running both, and the
+  drift is left recorded because it is the fourth time on this project that a stated number aged past
+  its measurement.
+- **The real finding is that rounds 4 and 5 were the same round.** Three defects, all mine, all
+  inside the twenty lines that classify the membership SOURCE, each one created by the previous fix:
+  the split, then the branch the `NoClaim` fix falsified, then the count. Membership itself — who the
+  engine believes is in the league — was stable and verified sound from round 2 onward. The churn was
+  entirely in a diagnostic LABEL.
+- **Why: the enum carries two independent facts.** Which record answered, and whether the answer is
+  large enough to trust. Every defect was in the second one, and the second one is REDUNDANT — the
+  diagnostics page renders the owner count two lines above the caption. Re-encoding an on-screen
+  number into an enum is the whole bug, and the fix is a deletion, not a fourth pass. Filed with the
+  remaining non-behavioural items rather than taken here, per the owner's call: none of it is
+  user-visible, and this branch unblocks INSIGHTS-023 three days before a real draft.
+- Status: Implemented — PR open, not merged.
+- **Two claims in this slice's own comments were corrected by review before merge:** that the
+  widening was "pinned by the guard test" (the guard greps `currentRoster.values(`, which an
+  unfiltered superlative passes untouched — `trending` was the live proof), and a source field that
+  reported `confirmed` for any league with an ordinary owners CSV. Both were assertions about
+  coverage rather than measurements of it.
+
 ### INSIGHTS-019-DIAGNOSTIC-PAGE-v1
 
 - Purpose: Make the Insights funnel observable — "why is my feed thin, and would rotation have

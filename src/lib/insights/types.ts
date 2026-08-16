@@ -89,6 +89,48 @@ export type OwnerCareerStats = {
 
 // InsightContext — assembled once, passed to all generators.
 // Fields marked optional are not available in all lifecycle states.
+/**
+ * Where a league's membership came from.
+ * `confirmed` — the confirmed owner list, once a new roster has been named.
+ * `previous-roster` — no new roster yet, so last season's owners are still the
+ *   league (owner framing: nobody has left until preseason names a new roster).
+ * `none` — neither exists.
+ */
+/**
+ * Where membership came from. FIVE values, not four: `official-roster` and
+ * `partial-roster` were one value (`current-roster`) and had to be split,
+ * because they carry different amounts of trust and the page printed the same
+ * caption for both.
+ *
+ * `official-roster` and `partial-roster` read the SAME durable record —
+ * `owners:{slug}:{year}`, the season's team→owner roster. They differ only in
+ * how many real owners it names: `MIN_CONFIRMED_OWNERS` or more is a league,
+ * fewer is `partial-roster` — real, but a membership resting on one person, and
+ * an insight naming its sole member is almost certainly wrong.
+ *
+ * That count is measured at the point of use, never inferred from which
+ * fallback fired. A refused confirmation record can drop a fully rostered
+ * league into the fallback path, so the branch does not tell you the size.
+ */
+export type LeagueMembersSource =
+  /** The confirmed preseason owner list — the documented single answer, and it wins. */
+  | 'confirmed'
+  /**
+   * No confirmation record, but the season's roster names enough owners that
+   * `selectConfirmedRoster` accepted it in place of one.
+   */
+  | 'official-roster'
+  /**
+   * A roster exists but is below the confirmation threshold — one named owner.
+   * Distinguished from `official-roster` so a one-owner league cannot read as a
+   * confirmed one.
+   */
+  | 'partial-roster'
+  /** No new roster named, so last season's owners are still the league. */
+  | 'previous-roster'
+  /** Neither exists. */
+  | 'none';
+
 export type InsightContext = {
   leagueSlug: string;
   currentYear: number;
@@ -104,6 +146,30 @@ export type InsightContext = {
   historicalRosters: Record<number, Map<string, string>>;
   rankings: RankingsResponse | null;
   currentRoster: Map<string, string>;
+  /**
+   * INSIGHTS-023a — who is IN the league this season, from the confirmed owner
+   * list. The answer to "should we speak about this owner at all".
+   *
+   * Distinct from `currentRoster`, which answers "who owns which team" and only
+   * exists after a draft. Five generators used to reconstruct membership from
+   * that map — `new Set(currentRoster.values())` copied into four files plus one
+   * inline — which meant that before a draft they were filtering against LAST
+   * season's owners, since `currentRoster` falls back to the most recent archive
+   * when the current-year CSV is absent.
+   *
+   * Empty when the league has neither a confirmed owner list nor an owners CSV.
+   * Member-filtered generators then produce nothing, which is the owner's ruling
+   * (2026-08-16): fewer insights and right, rather than guessing from stale data.
+   */
+  leagueMembers: ReadonlySet<string>;
+  /**
+   * WHICH source supplied `leagueMembers`. Carried so the diagnostic page can
+   * SHOW it rather than have anyone infer it — an unchanged feed is the same
+   * observation whether membership came from the confirmed list or fell back to
+   * last season's roster, and telling those apart by looking at insight counts
+   * is exactly the guessing this page exists to end.
+   */
+  leagueMembersSource: LeagueMembersSource;
   // true when currentRoster was borrowed from the most recent season archive
   // because the current-year owners CSV is empty (fresh_offseason rollover window).
   usingArchivedRoster: boolean;

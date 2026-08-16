@@ -1,6 +1,7 @@
 import React from 'react';
 
 import type { InsightFate, InsightsDiagnostics } from '@/lib/server/insightsDiagnostics';
+import type { LeagueMembersSource } from '@/lib/insights/types';
 
 /**
  * INSIGHTS-019 — renders the funnel view model. Maps model to markup and derives
@@ -34,6 +35,26 @@ const FATE_ROW_CLASS: Record<InsightFate, string> = {
   'on-overview': 'text-gray-900 dark:text-zinc-100',
   'all-insights-only': 'text-gray-500 dark:text-zinc-400',
   'not-served': 'text-red-700/80 dark:text-red-400/80',
+};
+
+/**
+ * A caption for EVERY source. Written as a total record rather than a ternary
+ * chain because the chain silently absorbed a fourth value: `current-roster` —
+ * the source for every in-season league — fell through to the "neither exists"
+ * message and printed it directly above the owners it had just said do not
+ * exist. Exactly the wrong inference this section was added to prevent.
+ *
+ * `Record<LeagueMembersSource, string>` makes the compiler refuse a new source
+ * without a caption.
+ */
+const MEMBERSHIP_SOURCE_CAPTION: Record<LeagueMembersSource, string> = {
+  confirmed: 'From the confirmed owner list — a new roster has been named for this season.',
+  'official-roster':
+    'No confirmed list for this season, so the season’s team-by-team roster is standing in for one.',
+  'partial-roster':
+    'The season’s roster names only one owner — too few to confirm a league, so anything named here rests on a single person.',
+  'previous-roster': 'No new roster named yet, so last season’s owners are still the league.',
+  none: 'Neither a confirmed owner list nor a roster exists — no insights can name anyone.',
 };
 
 function Stat({
@@ -104,6 +125,25 @@ export default function InsightsDiagnosticsView({
         {model.slug} · {model.year} · lifecycle{' '}
         <span className="font-medium text-gray-700 dark:text-zinc-200">{model.lifecycleState}</span>
       </div>
+
+      {/* WHO the engine thinks is playing. First, because an unchanged feed means
+          nothing until you know whether membership reached the engine at all. */}
+      <section className="border-b border-gray-200 pb-4 dark:border-zinc-800">
+        <h2 className="mb-1 text-sm font-semibold">
+          In the league{' '}
+          <span className="font-normal text-gray-500 dark:text-zinc-400">
+            ({model.membership.owners.length})
+          </span>
+        </h2>
+        <p className="mb-2 text-xs text-gray-500 dark:text-zinc-400">
+          {MEMBERSHIP_SOURCE_CAPTION[model.membership.source]}
+        </p>
+        {model.membership.owners.length > 0 ? (
+          <p className="text-sm">{model.membership.owners.join(', ')}</p>
+        ) : (
+          <p className="text-sm text-gray-500 dark:text-zinc-400">Nobody.</p>
+        )}
+      </section>
 
       {/* The funnel. Three numbers, in the order the feed passes through them. */}
       <div className="grid grid-cols-3 gap-4 border-y border-gray-200 py-4 dark:border-zinc-800">
