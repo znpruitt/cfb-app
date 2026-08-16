@@ -919,6 +919,20 @@ Supersedes: (none)
     `rivalry:dominance_streak` and `historical:improvement` for the same `>=` tie shape at the same
     time.
 
+    **Member-scoped superlatives and participation claims OUTSIDE the five sites** (found by review
+    during INSIGHTS-030, 2026-08-16; all PRE-EXISTING). The 030 sweep and its participation guard
+    cover the phrasings that slice introduced and no more — verified, and its comments now say so
+    rather than claiming to backstop everything:
+    - `drought` — "the longest **active** drought in the league", emitted in the `previous-roster`
+      state, is a present-tense participation claim from archived data. Same class as the copy 030
+      gated behind `membershipIsKnown`, in a generator 030 did not touch.
+    - `volatility` — "nobody swings harder year to year". Its RECORD population is correct (verified
+      twice), but the phrase is a league-wide superlative the sweep's pattern cannot see.
+    - `trending` — "the league's steadiest ascent"; `title_chaser` — "the league's reigning
+      bridesmaids". Same shape.
+
+    Each needs its own copy decision, which is why they were not widened into 030's guard.
+
     **The structural fix worth considering over five point fixes:** a superlative helper that takes
     the claim population and the naming population as separate arguments, so the distinction cannot be
     collapsed again by the next generator anyone writes. Every one of the seven correct sites hand-
@@ -967,12 +981,16 @@ Supersedes: (none)
       cosmetic: `membershipIsKnown` reads this label to decide whether copy may name who is playing,
       so a partially entered roster licensed "Alice leads active owners" while the real owners were
       not yet in it. Deferring a label as cosmetic is safe only until something makes it
-      load-bearing. The rest of this item — deleting `partial-roster` — still stands. This is a
-      multi-round snake draft, so one owner routinely holds several teams — `{Georgia→Alice,
-      Clemson→Alice}` counts as 2 and reports `official-roster` for a one-person league. It also puts
-      the classifier at odds with `selectConfirmedRoster`, which dedupes via `cleanOwnerNames` before
-      applying the same constant. Unreachable for any league with a confirmed owner list, and it
-      affects a caption only — membership itself is correct, because `new Set` dedupes.
+      load-bearing. The rest of this item — deleting `partial-roster` — still stands.
+
+      What it WAS, for the record: this is a multi-round snake draft, so one owner routinely holds
+      several teams, and `{Georgia→Alice, Clemson→Alice}` counted as 2 and reported
+      `official-roster` for a one-person league. That also put the classifier at odds with
+      `selectConfirmedRoster`, which dedupes via `cleanOwnerNames` before applying the same
+      constant. Membership itself was always correct — `new Set` dedupes — which is why it was
+      first judged to affect a caption only. Both of those sentences were left in the PRESENT tense
+      beside the ✅ marker that falsified them; a status flip has to correct the description it sits
+      on, not just prepend to it.
     - **`resolveSuperlative` is a SECOND record authority** (Codex, 2026-08-16). `selectAllRecords`
       is already on `InsightContext` and is canonical, and the two disagree on eligibility today:
       canonical `career_points` includes one-season owners while the generator requires two, and the

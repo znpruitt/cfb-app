@@ -120,9 +120,23 @@ export function resolveSuperlative<T>(params: {
   const bestValue = compareOn(best);
 
   // Everyone at the record who is NOT a member. When `best` is at the record
-  // these are co-holders; when it trails they are the holders. A member can
-  // never appear here: `best` is the member extreme, so a member at the record
-  // value IS `best`.
+  // these are co-holders; when it trails they are the holders.
+  //
+  // No entry here satisfies `isMember` — `best` is the member extreme, so a
+  // member at the record value IS `best`. **That is a statement about ENTRIES,
+  // not about owners**, and an earlier version of this comment claimed the
+  // stronger "a member can never appear here". It is false for a pair-shaped
+  // caller: `rivalry` tests `has(dominant) && has(loser)` while its `owner`
+  // accessor returns `dominant`, so a series where an ACTIVE owner swept a
+  // departed one is a non-member entry whose `owner` is a current member.
+  // Rivalry formats from `entry` and is unaffected, but any caller reaching for
+  // `formatHolderNames` on a pair-shaped population would name a current owner
+  // as the departed record holder.
+  // NOTE the asymmetry: holders are SELECTED by `compareOn` but carry the RAW
+  // `value`. When a caller supplies `compareOn`, co-holders are equal as
+  // displayed and may differ underneath, so `recordHolders[0].value` is one
+  // arbitrary pick among them. Read `entry` when the exact figure matters —
+  // `greatest_season`, the only `compareOn` caller today, does.
   const outsideHolders: RecordHolder<T>[] = population
     .filter((entry) => !isMember(entry) && compareOn(entry) === recordValue)
     .map((entry) => ({ entry, owner: owner(entry), value: value(entry) }));

@@ -764,8 +764,18 @@ function deriveGreatestSingleSeason(context: InsightContext): Insight | null {
   const recordSeasons = seasonStanding?.recordHolders.map((h) => h.entry) ?? [];
   const recordSeason = recordSeasons[0] ?? null;
   const seasonShares = seasonStanding?.standing === 'shares';
-  // All of them. Four owners level at .727 read as a two-way tie.
-  const recordSeasonText = formatOwnerList(recordSeasons.map((c) => `${c.owner}'s ${c.year}`));
+  // All of them — four owners level at .727 read as a two-way tie — but ONE
+  // entry per owner. Holders here are per SEASON ROW, so a departed owner with
+  // two equal seasons filled the citation with himself: "level with Dave's 2022
+  // and Dave's 2024".
+  const seenHolder = new Set<string>();
+  const holderSeasons: string[] = [];
+  for (const season of recordSeasons) {
+    if (seenHolder.has(season.owner)) continue;
+    seenHolder.add(season.owner);
+    holderSeasons.push(`${season.owner}'s ${season.year}`);
+  }
+  const recordSeasonText = formatOwnerList(holderSeasons);
 
   const bestSeason = `${best.owner}'s ${best.year} season (${winRate(best.winPct)} win rate across ${best.games} games)`;
   const description = !recordSeason
@@ -774,7 +784,12 @@ function deriveGreatestSingleSeason(context: InsightContext): Insight | null {
       ? `${bestSeason} is level with ${recordSeasonText} as the best single-season performance in league history.`
       : seasonKnown
         ? `${bestSeason} is the best by any active owner — ${recordSeasonText} at ${winRate(recordSeason.winPct)} remains the league record.`
-        : `${bestSeason}; ${recordSeasonText} at ${winRate(recordSeason.winPct)} is the league record.`;
+        : // A SENTENCE, not a fragment. `bestSeason` is a bare noun phrase and this
+          // was the one branch that never gave it a verb — "Bob's 2025 season
+          // (.727 win rate across 110 games); Dave's 2019 at .818 is the league
+          // record." `previous-roster` is the ordinary offseason state, so it
+          // shipped to the Overview card exactly like that.
+          `${bestSeason} stands at ${winRate(best.winPct)}; ${recordSeasonText} at ${winRate(recordSeason.winPct)} is the league record.`;
 
   return toInsight({
     id: `greatest-season-${ownerSlug(best.owner)}-${best.year}`,

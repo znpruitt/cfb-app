@@ -454,10 +454,16 @@ test('dynasty: the most titles of anyone STILL PLAYING, with the record named', 
 });
 
 test('every generated insight in this state is free of a stolen record claim', async () => {
-  // The sweep. Written because five separate assertions above can each be true
-  // while a SIXTH site — one nobody enumerated — still crowns a member. If a
-  // future generator adds an "all-time" claim over members, this fails without
-  // anyone remembering to extend the list.
+  // The sweep, and here is exactly what it does and does not cover.
+  //
+  // It catches a NEW unscoped claim phrased like the ones this slice fixed. It
+  // does NOT catch every member-scoped superlative in the engine: the pattern
+  // below cannot see "nobody swings harder year to year" (volatility), "the
+  // league's steadiest ascent" (trending), or "the league's reigning
+  // bridesmaids" (title_chaser). An earlier version of this comment claimed it
+  // backstopped "a SIXTH site nobody enumerated", which overstated it — those
+  // three are exactly such sites and it passes them. They are filed rather than
+  // widened into here, because each needs its own copy decision.
   await seedDepartedRecordHolder();
   const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
   const insights = generateRawInsights(context);
@@ -567,11 +573,27 @@ test('with membership UNKNOWN, the copy claims nothing about who is playing', as
     assert.doesNotMatch(
       insight.description,
       // `active owners?` — SINGULAR too. Greatest-season emits "the best by any
-      // active owner", which the plural-only regex could not see, leaving the
-      // one site this guard exists to backstop unguarded.
+      // active owner", which the plural-only regex could not see.
+      //
+      // This checks the phrasings THIS slice introduced. It does not catch every
+      // participation claim in the engine — `drought` says "the longest active
+      // drought in the league" in this same state, a present-tense claim from
+      // archived data that this pattern passes. Pre-existing, filed, and named
+      // here so the guard is not mistaken for total.
       /(active owners?|still playing)/i,
       `participation claim with membership unknown, from ${insight.type}: ${insight.description}`
     );
+  }
+
+  // Every description must be a SENTENCE. `bestSeason` is a bare noun phrase and
+  // greatest-season's unknown-membership branch was the one that never gave it a
+  // verb: "Bob's 2025 season (.727 win rate across 110 games); Dave's 2019 at
+  // .818 is the league record." This state is the ordinary offseason one, so it
+  // shipped to the Overview card.
+  const season = describe(insights, 'greatest_season');
+  if (season) {
+    assert.doesNotMatch(season, /games\);/, `a clause with no verb reached the card: ${season}`);
+    assert.match(season, /stands at/, 'the noun phrase is given a predicate');
   }
 
   // Neutral, not silent, and not the old false claim.
@@ -669,6 +691,14 @@ test('SHARES: a level season is not announced as the outright record', async () 
     'Dave is level with her — she did not set it alone'
   );
   assert.match(season, /is level with Dave's/, 'the shared holder is named');
+  // ONE entry per owner. Holders are per SEASON ROW and Dave has two seasons at
+  // the same rate here, so the citation read "Dave's 2022 and Dave's 2024" —
+  // one owner filling the co-holder list with himself.
+  assert.equal(
+    (season.match(/Dave's/g) ?? []).length,
+    1,
+    `a co-holder must be named once: ${season}`
+  );
 });
 
 test('SHARES: career points and titles say level, not taken', async () => {
@@ -767,6 +797,10 @@ async function seedThreeCoHolders(): Promise<void> {
   // least two or `deriveDynastyInsight` returns null and the multi-holder copy
   // this fixture exists to exercise never renders — the first version of this
   // seed gave her none and the test failed for that reason, not for the defect.
+  // THREE members tied at two titles, and three departed owners tied at three.
+  // Both lists need three names: the holder list exercises `formatHolderNames`,
+  // and the MEMBER list exercises `allNames`, which the previous round left as a
+  // `join(' and ')` — unguarded, because no fixture had ever tied three members.
   const CHAMPIONS = [
     'Dave',
     'Erin',
@@ -779,32 +813,31 @@ async function seedThreeCoHolders(): Promise<void> {
     'Frank',
     'Alice',
     'Alice',
+    'Bob',
+    'Bob',
+    'Carol',
+    'Carol',
   ];
+  const EVERYONE = ['Dave', 'Erin', 'Frank', 'Alice', 'Bob', 'Carol'];
   const ORDER: Record<number, string[]> = {};
   CHAMPIONS.forEach((champion, i) => {
-    const rest = ['Dave', 'Erin', 'Frank', 'Alice'].filter((o) => o !== champion);
-    ORDER[2015 + i] = [champion, ...rest];
+    const rest = EVERYONE.filter((o) => o !== champion);
+    ORDER[2011 + i] = [champion, ...rest];
   });
   const PTS = [900, 700, 500, 300];
-  const REC = [
-    { wins: 80, losses: 30 },
-    { wins: 70, losses: 40 },
-    { wins: 60, losses: 50 },
-    { wins: 50, losses: 60 },
-  ];
   for (const [yearText, order] of Object.entries(ORDER)) {
     const year = Number(yearText);
     await seedArchive(
       year,
       order.map((owner, rank) => ({
         owner,
-        wins: REC[rank]!.wins,
-        losses: REC[rank]!.losses,
-        pointsFor: PTS[rank]!,
+        wins: 80 - rank * 10,
+        losses: 30 + rank * 10,
+        pointsFor: PTS[rank] ?? 200,
       }))
     );
   }
-  await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob']);
+  await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob', 'Carol']);
 }
 
 test('three co-holders are all named, and named grammatically', async () => {
@@ -816,6 +849,13 @@ test('three co-holders are all named, and named grammatically', async () => {
   assert.ok(dynasty, 'the dynasty insight must exist for this fixture');
   assert.doesNotMatch(dynasty, / and \w+ and /, 'no "Dave and Erin and Frank"');
   assert.match(dynasty, /Dave, Erin, and Frank/, 'the shared list formatter, not a join');
+  // The MEMBER list too. `allNames` was still a `join(' and ')` after the round
+  // that shared holder formatting, and it feeds the branches added there.
+  //
+  // Asserted on the SHAPE, not on an order: `tied` sorts by most recent title,
+  // so the names come out "Carol, Bob, and Alice". Pinning alphabetical order
+  // failed on correct output — the copy was right and the assertion was wrong.
+  assert.match(dynasty, /\w+, \w+, and \w+ each own 2 league titles/, 'Oxford list, not a join');
 
   // Nothing anywhere may name only the first of several holders.
   for (const insight of insights) {

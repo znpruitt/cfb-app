@@ -1,7 +1,12 @@
 import type { Insight } from '../../selectors/insights';
 import type { SeasonArchive } from '../../seasonArchive';
 import { registerGenerator } from '../engine';
-import { formatHolderNames, membershipIsKnown, resolveSuperlative } from '../superlative';
+import {
+  formatHolderNames,
+  formatOwnerList,
+  membershipIsKnown,
+  resolveSuperlative,
+} from '../superlative';
 import type {
   InsightContext,
   InsightGenerator,
@@ -67,13 +72,6 @@ function isEligibleOwner(owner: string): boolean {
 }
 
 const TIE_SUPPRESSION_THRESHOLD = 4;
-
-function formatOwnerList(owners: string[]): string {
-  if (owners.length === 0) return '';
-  if (owners.length === 1) return owners[0]!;
-  if (owners.length === 2) return `${owners[0]} and ${owners[1]}`;
-  return `${owners.slice(0, -1).join(', ')}, and ${owners[owners.length - 1]}`;
-}
 
 function championOf(archive: SeasonArchive): string | null {
   const row = archive.finalStandings[0];
@@ -281,7 +279,11 @@ function deriveDynastyInsight(
   const mostRecentYear = lastTitleYear.get(mostRecent) ?? 0;
   const othersAtSameYear = tied.filter((o) => (lastTitleYear.get(o) ?? 0) === mostRecentYear);
 
-  const allNames = tied.join(' and ');
+  // The MEMBER list, through the same formatter as the holder list. The last
+  // round shared holder formatting and left this join — which then fed the two
+  // new `shares` branches below, so "Alice and Bob and Carol" is copy this slice
+  // introduced rather than inherited.
+  const allNames = formatOwnerList(tied);
   // Shared top honors: returning_leader when somebody ties a prior dynasty.
   const hook: NewsHook = 'returning_leader';
   let description: string;
