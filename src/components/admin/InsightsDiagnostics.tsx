@@ -18,9 +18,11 @@ import type { InsightFate, InsightsDiagnostics } from '@/lib/server/insightsDiag
  */
 
 const FATE_LABEL: Record<InsightFate, string> = {
-  rendered: 'On the Overview',
-  'served-not-rendered': 'Served, not shown',
-  'generated-not-served': 'Cut before serving',
+  'on-overview': 'On the Overview',
+  // NOT "not shown" — the All Insights page renders every served insight. The
+  // first version said "Served, not shown", which was simply false.
+  'all-insights-only': 'All Insights page only',
+  'not-served': 'Cut before serving',
 };
 
 /**
@@ -29,9 +31,9 @@ const FATE_LABEL: Record<InsightFate, string> = {
  * not survive the cut at all.
  */
 const FATE_ROW_CLASS: Record<InsightFate, string> = {
-  rendered: 'text-gray-900 dark:text-zinc-100',
-  'served-not-rendered': 'text-gray-500 dark:text-zinc-400',
-  'generated-not-served': 'text-red-700/80 dark:text-red-400/80',
+  'on-overview': 'text-gray-900 dark:text-zinc-100',
+  'all-insights-only': 'text-gray-500 dark:text-zinc-400',
+  'not-served': 'text-red-700/80 dark:text-red-400/80',
 };
 
 function Stat({
@@ -60,7 +62,13 @@ export default function InsightsDiagnosticsView({
   model: InsightsDiagnostics;
 }): React.ReactElement {
   const { counts } = model;
-  const poolExceedsFeed = counts.generated > counts.servedCap;
+  // Against the OVERVIEW cap, not the loader cap. The first version compared
+  // `generated > servedCap` (10) while the feed a reader sees is 5 — so with 7
+  // generated it printed "rotation has nothing to rotate" directly above two
+  // rows it had just labelled as not reaching the Overview. The page
+  // contradicted itself on one screen, and this sentence is the go/no-go input
+  // for INSIGHTS-023 and INSIGHTS-018.
+  const poolExceedsFeed = counts.generated > counts.renderedCap;
 
   return (
     <div className="space-y-6">
@@ -72,46 +80,75 @@ export default function InsightsDiagnosticsView({
       {/* The funnel. Three numbers, in the order the feed passes through them. */}
       <div className="grid grid-cols-3 gap-4 border-y border-gray-200 py-4 dark:border-zinc-800">
         <Stat value={counts.generated} label="Generated" hint="by all generators" />
-        <Stat value={counts.served} label="Served" hint={`cap ${counts.servedCap}`} />
-        <Stat value={counts.rendered} label="On the Overview" hint={`cap ${counts.renderedCap}`} />
+        <Stat value={counts.served} label="On All Insights" hint={`cap ${counts.servedCap}`} />
+        <Stat
+          value={counts.onOverview}
+          label="On the Overview"
+          hint={
+            counts.overviewFillerSlots > 0
+              ? `${counts.overviewFillerSlots} more slot${counts.overviewFillerSlots === 1 ? '' : 's'} filled by fallback`
+              : `cap ${counts.renderedCap}`
+          }
+        />
       </div>
 
       {/* The one conclusion the page exists to state, since INSIGHTS-023 and
           INSIGHTS-018 both turn on it. */}
+      {counts.overviewFillerSlots > 0 && (
+        <p className="text-sm text-gray-600 dark:text-zinc-300">
+          The engine fills {counts.onOverview} of the Overview&apos;s {counts.renderedCap} slots.
+          The remaining {counts.overviewFillerSlots} are covered by fallback cards derived on the
+          client from standings — so the Overview looks fuller than the engine actually is.
+        </p>
+      )}
+
       <p className="text-sm text-gray-600 dark:text-zinc-300">
         {poolExceedsFeed ? (
           <>
-            The pool is <strong>larger</strong> than the feed — {counts.generated} generated for{' '}
-            {counts.servedCap} slots, so {counts.generated - counts.servedCap} never leave the
-            server. Rotation would have something to rotate.
+            The pool is <strong>larger</strong> than the Overview feed — {counts.generated}{' '}
+            generated for {counts.renderedCap} slots, so {counts.generated - counts.renderedCap} do
+            not reach it. Rotation would have something to rotate.
           </>
         ) : (
           <>
-            The pool is <strong>not yet larger</strong> than the feed — {counts.generated} generated
-            for {counts.servedCap} slots. Rotation has nothing to rotate until breadth work widens
-            this.
+            The pool is <strong>not yet larger</strong> than the Overview feed — {counts.generated}{' '}
+            generated for {counts.renderedCap} slots. Rotation has nothing to rotate until breadth
+            work widens this.
           </>
         )}
       </p>
 
-      {/* Generators. Column priority: id (never drops) → produced → category. */}
+      {/* Generators.
+          Column priority (DESIGN.md responsive degradation): generator id and
+          produced NEVER drop — the id identifies the row and produced is the
+          table's defining metric. Category drops first: it is inferable from the
+          id prefix and carries no information the id lacks. Implemented, not just
+          declared. */}
       <section>
         <h2 className="mb-2 text-sm font-semibold">Generators</h2>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
               <th className="py-1.5 font-medium">Generator</th>
-              <th className="py-1.5 font-medium">Category</th>
+              <th className="hidden py-1.5 font-medium sm:table-cell">Category</th>
               <th className="py-1.5 text-right font-medium">Produced</th>
             </tr>
           </thead>
           <tbody>
             {model.generators.map((g) => (
               <tr key={g.id} className="border-b border-gray-100 dark:border-zinc-900">
-                <td className="py-1.5 font-mono text-xs">{g.id}</td>
-                <td className="py-1.5 text-gray-500 dark:text-zinc-400">{g.category}</td>
+                <td className="break-all py-1.5 font-mono text-xs">{g.id}</td>
+                <td className="hidden py-1.5 text-gray-500 sm:table-cell dark:text-zinc-400">
+                  {g.category}
+                </td>
                 <td className="py-1.5 text-right tabular-nums">
-                  {g.skippedBy ? (
+                  {g.skippedBy === 'error' ? (
+                    // Distinct from a quiet zero: a generator crashing on this
+                    // league is a prime cause of a thin feed.
+                    <span className="text-xs font-medium text-red-700 dark:text-red-400">
+                      threw an error
+                    </span>
+                  ) : g.skippedBy ? (
                     <span className="text-xs text-gray-400 dark:text-zinc-500">
                       {g.skippedBy === 'lifecycle' ? 'not in this lifecycle' : 'gated'}
                     </span>
@@ -125,8 +162,12 @@ export default function InsightsDiagnosticsView({
         </table>
       </section>
 
-      {/* Every insight and what happened to it. Column priority: rank + title
-          (never drop) → fate → owner → score → generator. */}
+      {/* Every insight and what happened to it.
+          Column priority (DESIGN.md): rank and insight NEVER drop (identifier),
+          nor does outcome (the table's defining metric — it is why this table
+          exists). Score drops first: it is a ranking input already expressed by
+          the row order. Owner drops next: it is repeated in the insight's own
+          title text. Implemented below, not just declared. */}
       <section>
         <h2 className="mb-2 text-sm font-semibold">Every insight, and where it ended up</h2>
         {model.insights.length === 0 ? (
@@ -139,8 +180,8 @@ export default function InsightsDiagnosticsView({
               <tr className="border-b border-gray-200 text-left text-xs uppercase tracking-wide text-gray-500 dark:border-zinc-800 dark:text-zinc-400">
                 <th className="py-1.5 font-medium">#</th>
                 <th className="py-1.5 font-medium">Insight</th>
-                <th className="py-1.5 font-medium">Owner</th>
-                <th className="py-1.5 text-right font-medium">Score</th>
+                <th className="hidden py-1.5 font-medium sm:table-cell">Owner</th>
+                <th className="hidden py-1.5 text-right font-medium md:table-cell">Score</th>
                 <th className="py-1.5 font-medium">Outcome</th>
               </tr>
             </thead>
@@ -157,8 +198,10 @@ export default function InsightsDiagnosticsView({
                       {i.type} · {i.generatorId}
                     </div>
                   </td>
-                  <td className="py-1.5">{i.owner ?? '—'}</td>
-                  <td className="py-1.5 text-right tabular-nums">{i.priorityScore}</td>
+                  <td className="hidden py-1.5 sm:table-cell">{i.owner ?? '—'}</td>
+                  <td className="hidden py-1.5 text-right tabular-nums md:table-cell">
+                    {i.priorityScore}
+                  </td>
                   <td className="py-1.5 text-xs">{FATE_LABEL[i.fate]}</td>
                 </tr>
               ))}

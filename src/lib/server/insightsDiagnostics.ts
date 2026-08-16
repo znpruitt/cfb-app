@@ -9,7 +9,7 @@ import {
   OVERVIEW_INSIGHT_SLOTS_WITH_RECAP,
 } from '../insights/limits.ts';
 import { buildLeagueInsightContext } from '../insights/loadInsights.ts';
-import type { LifecycleState } from '../insights/types.ts';
+import type { InsightContext, InsightGenerator, LifecycleState } from '../insights/types.ts';
 import type { Insight } from '../selectors/insights.ts';
 
 /**
@@ -29,14 +29,23 @@ import type { Insight } from '../selectors/insights.ts';
  * a view model and React maps it to markup. Same shape as `systemHealth.ts`.
  */
 
-/** What happened to one insight on its way to the screen. */
+/**
+ * What happened to one insight on its way to a screen.
+ *
+ * THREE surfaces, not two. The first version of this modelled the funnel as
+ * generated → served → Overview and called the middle band "served, not shown",
+ * which is false: `/league/[slug]/insights` renders EVERY served insight. Only
+ * the Overview cuts at five. Collapsing that surface made the page contradict
+ * itself — it printed "rotation has nothing to rotate" directly above rows it
+ * had labelled as never reaching a screen.
+ */
 export type InsightFate =
-  /** In the top slots the Overview actually renders. */
-  | 'rendered'
-  /** Served by the loader, but below the Overview's cut. */
-  | 'served-not-rendered'
-  /** Generated, but below the loader's cut — never leaves the server. */
-  | 'generated-not-served';
+  /** In the top slots the Overview renders. */
+  | 'on-overview'
+  /** Below the Overview's cut, but still shown on the All Insights page. */
+  | 'all-insights-only'
+  /** Below the loader's cut — never leaves the server. */
+  | 'not-served';
 
 export type DiagnosticInsight = {
   /** Rank in priority order across the whole generated set, 1-based. */
@@ -59,9 +68,13 @@ export type DiagnosticGenerator = {
    * Why it produced nothing, when that is a rule rather than a lack of data.
    * `lifecycle` — it does not run in this lifecycle state at all.
    * `gated` — it runs, but a cross-cutting rule skipped it (e.g. a borrowed roster).
+   * `error` — it THREW. Reported distinctly because a generator crashing on one
+   *   league is a prime cause of a thin feed, and the first version of this
+   *   reported it as `produced: 0` — indistinguishable from having nothing to
+   *   say, on the page whose whole job is explaining a thin feed.
    * `null` — it ran and simply had nothing to say.
    */
-  skippedBy: 'lifecycle' | 'gated' | null;
+  skippedBy: 'lifecycle' | 'gated' | 'error' | null;
 };
 
 export type InsightsDiagnostics = {
@@ -71,10 +84,27 @@ export type InsightsDiagnostics = {
   generatedAt: string;
   counts: {
     generated: number;
+    /** Served by the loader — all of these appear on the All Insights page. */
     served: number;
-    rendered: number;
+    /** ENGINE insights in the Overview's slots. See `overviewFillerSlots`. */
+    onOverview: number;
     servedCap: number;
     renderedCap: number;
+    /**
+     * Overview slots the engine could NOT fill, which `OverviewPanel` covers
+     * with client-derived filler (`deriveOverviewInsights`).
+     *
+     * Reported because omitting it made this page under-state the very case it
+     * exists for: with 2 engine insights it said "On the Overview: 2" while the
+     * Overview rendered 5 cards. The filler is exactly what hides a thin feed
+     * from the commissioner, so the page has to name it.
+     *
+     * Deliberately NOT recomputed here — the filler is derived client-side from
+     * standings, and duplicating that derivation server-side would create a
+     * second implementation to keep in agreement. The SHORTFALL is the honest,
+     * verifiable fact.
+     */
+    overviewFillerSlots: number;
   };
   generators: DiagnosticGenerator[];
   insights: DiagnosticInsight[];
@@ -102,12 +132,40 @@ export function classifyInsightFunnel(
   return {
     served,
     fateOf: (id: string): InsightFate =>
-      renderedIds.has(id)
-        ? 'rendered'
-        : servedIds.has(id)
-          ? 'served-not-rendered'
-          : 'generated-not-served',
+      renderedIds.has(id) ? 'on-overview' : servedIds.has(id) ? 'all-insights-only' : 'not-served',
   };
+}
+
+/**
+ * Run ONE generator the way the engine would, reporting why it produced nothing
+ * when that is a rule rather than a lack of data.
+ *
+ * Extracted so the failure path is testable. A throwing generator was previously
+ * reported as `produced: 0, skippedBy: null` — indistinguishable from "ran and
+ * had nothing to say" — on the page whose entire job is explaining a thin feed.
+ * Fixing that without a test would have left the fix unverified: a mutation
+ * restoring the old behaviour passed everything.
+ *
+ * The gate ORDER matches `generateRawInsights` exactly (lifecycle, then the
+ * cross-cutting gate, then positive scores), so this page cannot disagree with
+ * production about which generators ran.
+ */
+export function runGeneratorForDiagnostics(
+  g: InsightGenerator,
+  context: InsightContext
+): { produced: Insight[]; skippedBy: DiagnosticGenerator['skippedBy'] } {
+  if (!g.supportedLifecycles.includes(context.lifecycleState)) {
+    return { produced: [], skippedBy: 'lifecycle' };
+  }
+  if (shouldSuppressGenerator(g, context)) {
+    return { produced: [], skippedBy: 'gated' };
+  }
+  try {
+    return { produced: g.generate(context).filter((i) => i.priorityScore > 0), skippedBy: null };
+  } catch {
+    // Never take the page down, and never report it as an ordinary zero.
+    return { produced: [], skippedBy: 'error' };
+  }
 }
 
 export async function buildInsightsDiagnostics(
@@ -119,24 +177,10 @@ export async function buildInsightsDiagnostics(
 
   // Run each generator INDIVIDUALLY rather than through `generateRawInsights`,
   // which flattens them — the attribution is the point of this page.
-  const perGenerator = getRegisteredGenerators().map((g) => {
-    const runsHere = g.supportedLifecycles.includes(context.lifecycleState);
-    if (!runsHere) {
-      return { generator: g, produced: [] as Insight[], skippedBy: 'lifecycle' as const };
-    }
-    if (shouldSuppressGenerator(g, context)) {
-      return { generator: g, produced: [] as Insight[], skippedBy: 'gated' as const };
-    }
-    // A generator that throws must not take the whole page down — the page's job
-    // is to explain the feed, and a generator failing IS something to see.
-    let produced: Insight[] = [];
-    try {
-      produced = g.generate(context).filter((i) => i.priorityScore > 0);
-    } catch {
-      produced = [];
-    }
-    return { generator: g, produced, skippedBy: null };
-  });
+  const perGenerator = getRegisteredGenerators().map((g) => ({
+    generator: g,
+    ...runGeneratorForDiagnostics(g, context),
+  }));
 
   const ownerOf = (i: Insight): string | null => i.owner ?? i.owners?.[0] ?? null;
 
@@ -177,9 +221,10 @@ export async function buildInsightsDiagnostics(
     counts: {
       generated: allGenerated.length,
       served: served.length,
-      rendered: Math.min(served.length, renderedCap),
+      onOverview: Math.min(served.length, renderedCap),
       servedCap: MAX_SERVED_INSIGHTS,
       renderedCap,
+      overviewFillerSlots: Math.max(0, renderedCap - served.length),
     },
     generators: perGenerator
       .map(({ generator, produced, skippedBy }) => ({

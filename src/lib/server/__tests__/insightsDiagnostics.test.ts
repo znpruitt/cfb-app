@@ -7,8 +7,13 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
 } from '@/lib/server/appStateStore';
-import { buildInsightsDiagnostics, classifyInsightFunnel } from '@/lib/server/insightsDiagnostics';
+import {
+  buildInsightsDiagnostics,
+  classifyInsightFunnel,
+  runGeneratorForDiagnostics,
+} from '@/lib/server/insightsDiagnostics';
 import type { Insight } from '@/lib/selectors/insights';
+import type { InsightGenerator } from '@/lib/insights/types';
 import {
   MAX_SERVED_INSIGHTS,
   OVERVIEW_INSIGHT_SLOTS,
@@ -152,9 +157,9 @@ test('reports the funnel, and the fixture actually fills it', async () => {
 
   // The funnel only ever narrows.
   assert.ok(model.counts.served <= model.counts.generated, 'served cannot exceed generated');
-  assert.ok(model.counts.rendered <= model.counts.served, 'rendered cannot exceed served');
+  assert.ok(model.counts.onOverview <= model.counts.served, 'rendered cannot exceed served');
   assert.ok(model.counts.served <= model.counts.servedCap, 'served respects its cap');
-  assert.ok(model.counts.rendered <= model.counts.renderedCap, 'rendered respects its cap');
+  assert.ok(model.counts.onOverview <= model.counts.renderedCap, 'rendered respects its cap');
 });
 
 test('every generated insight is accounted for exactly once', async () => {
@@ -167,18 +172,18 @@ test('every generated insight is accounted for exactly once', async () => {
     'the list is the whole generated set, not just what survived'
   );
 
-  const rendered = model.insights.filter((i) => i.fate === 'rendered').length;
-  const servedNotRendered = model.insights.filter((i) => i.fate === 'served-not-rendered').length;
-  const cut = model.insights.filter((i) => i.fate === 'generated-not-served').length;
+  const onOverview = model.insights.filter((i) => i.fate === 'on-overview').length;
+  const allInsightsOnly = model.insights.filter((i) => i.fate === 'all-insights-only').length;
+  const cut = model.insights.filter((i) => i.fate === 'not-served').length;
 
-  assert.equal(rendered, model.counts.rendered, 'the rendered fate matches the rendered count');
+  assert.equal(onOverview, model.counts.onOverview, 'the rendered fate matches the rendered count');
   assert.equal(
-    rendered + servedNotRendered,
+    onOverview + allInsightsOnly,
     model.counts.served,
     'served = what shows plus what is served but not shown'
   );
   assert.equal(
-    rendered + servedNotRendered + cut,
+    onOverview + allInsightsOnly + cut,
     model.counts.generated,
     'no insight is unaccounted for, and none is counted twice'
   );
@@ -260,13 +265,13 @@ test('an overflowing pool: the tail is cut before serving', () => {
   assert.equal(served.length, MAX_SERVED_INSIGHTS, 'the loader cap applies');
 
   const fates = generated.map((i) => fateOf(i.id));
-  assert.equal(fates.filter((f) => f === 'rendered').length, OVERVIEW_INSIGHT_SLOTS);
+  assert.equal(fates.filter((f) => f === 'on-overview').length, OVERVIEW_INSIGHT_SLOTS);
   assert.equal(
-    fates.filter((f) => f === 'served-not-rendered').length,
+    fates.filter((f) => f === 'all-insights-only').length,
     MAX_SERVED_INSIGHTS - OVERVIEW_INSIGHT_SLOTS
   );
   assert.equal(
-    fates.filter((f) => f === 'generated-not-served').length,
+    fates.filter((f) => f === 'not-served').length,
     14 - MAX_SERVED_INSIGHTS,
     'the overflow is reported as cut — the branch a real fixture cannot reach'
   );
@@ -282,8 +287,8 @@ test('the cut falls on the LOWEST priority, not on arrival order', () => {
 
   const { fateOf } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
 
-  assert.equal(fateOf('highest'), 'rendered', 'the best insight reaches the screen');
-  assert.equal(fateOf('lowest'), 'generated-not-served', 'the worst is cut');
+  assert.equal(fateOf('highest'), 'on-overview', 'the best insight reaches the screen');
+  assert.equal(fateOf('lowest'), 'not-served', 'the worst is cut');
 });
 
 test('a pool smaller than the feed cuts nothing', () => {
@@ -292,7 +297,142 @@ test('a pool smaller than the feed cuts nothing', () => {
 
   assert.equal(served.length, 3);
   assert.ok(
-    generated.every((i) => fateOf(i.id) === 'rendered'),
+    generated.every((i) => fateOf(i.id) === 'on-overview'),
     'with 3 insights and 5 slots, everything shows — the state TSC is actually in'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// What review found this page getting wrong, pinned so it cannot come back.
+//
+// The first version modelled TWO surfaces (loader → Overview) when there are
+// THREE: `/league/[slug]/insights` renders every served insight, and only the
+// Overview cuts at five. It also ignored that `OverviewPanel` fills any empty
+// Overview slots with client-derived fallback cards — so on a thin feed it
+// reported "On the Overview: 2" while the Overview rendered 5.
+// ---------------------------------------------------------------------------
+
+test('the Overview shortfall is reported, because fallback cards hide it', () => {
+  // Two engine insights for five Overview slots: the reader sees five cards.
+  const generated = Array.from({ length: 2 }, (_, i) => synthetic(`i-${i}`, 10 - i));
+  const { served } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
+
+  const onOverview = Math.min(served.length, OVERVIEW_INSIGHT_SLOTS);
+  const fillerSlots = Math.max(0, OVERVIEW_INSIGHT_SLOTS - served.length);
+
+  assert.equal(onOverview, 2, 'the engine supplies two');
+  assert.equal(fillerSlots, 3, 'and three slots are covered by fallback — the thing that hides it');
+});
+
+test('a full engine feed reports no shortfall', () => {
+  const generated = Array.from({ length: 8 }, (_, i) => synthetic(`i-${i}`, 100 - i));
+  const { served } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
+
+  assert.equal(Math.max(0, OVERVIEW_INSIGHT_SLOTS - served.length), 0, 'no fallback needed');
+});
+
+test('insights below the Overview cut are still on the All Insights page', () => {
+  // The label said "Served, not shown". They ARE shown — just not on the
+  // Overview. Eight generated: five on the Overview, three All-Insights-only,
+  // none cut, because eight is under the serving cap of ten.
+  const generated = Array.from({ length: 8 }, (_, i) => synthetic(`i-${i}`, 100 - i));
+  const { fateOf } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
+
+  const fates = generated.map((i) => fateOf(i.id));
+  assert.equal(fates.filter((f) => f === 'on-overview').length, OVERVIEW_INSIGHT_SLOTS);
+  assert.equal(
+    fates.filter((f) => f === 'all-insights-only').length,
+    3,
+    'these reach a reader — on the All Insights page'
+  );
+  assert.equal(fates.filter((f) => f === 'not-served').length, 0, 'nothing is cut under the cap');
+});
+
+test('the pool/feed verdict is measured against the OVERVIEW cap, not the loader cap', () => {
+  // THE contradiction review found: with 7 generated the old page compared
+  // against the loader cap of 10, printed "nothing to rotate", and listed two
+  // rows that do not reach the Overview on the very same screen.
+  const generated = Array.from({ length: 7 }, (_, i) => synthetic(`i-${i}`, 100 - i));
+  const { fateOf } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
+
+  const beyondOverview = generated.filter((i) => fateOf(i.id) !== 'on-overview').length;
+  assert.equal(beyondOverview, 2, 'two insights do not reach the Overview');
+
+  // The verdict the page renders must agree with that.
+  assert.equal(
+    generated.length > OVERVIEW_INSIGHT_SLOTS,
+    true,
+    'so the pool DOES exceed the feed — rotation would have material'
+  );
+  assert.equal(
+    generated.length > MAX_SERVED_INSIGHTS,
+    false,
+    'while the old comparison said otherwise — this is the contradiction'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// A generator that CRASHES must not look like one with nothing to say.
+//
+// Review found the first version reporting a throwing generator as
+// `produced: 0, skippedBy: null` — while the comment two lines above claimed a
+// failing generator "IS something to see". A mutation restoring that behaviour
+// passed every test, which is how I know the fix needed this.
+// ---------------------------------------------------------------------------
+
+function fakeGenerator(overrides: Partial<InsightGenerator> = {}): InsightGenerator {
+  return {
+    id: 'fake:test',
+    category: 'historical',
+    supportedLifecycles: ['preseason', 'season' as never],
+    generate: () => [],
+    ...overrides,
+  } as InsightGenerator;
+}
+
+const fakeContext = { lifecycleState: 'preseason', usingArchivedRoster: false } as never;
+
+test('a generator that throws is reported as an error, not as zero', () => {
+  const result = runGeneratorForDiagnostics(
+    fakeGenerator({
+      generate: () => {
+        throw new Error('boom');
+      },
+    }),
+    fakeContext
+  );
+
+  assert.equal(result.skippedBy, 'error', 'the crash is visible');
+  assert.deepEqual(result.produced, [], 'and it does not take the page down');
+});
+
+test('a generator that simply has nothing to say is NOT reported as an error', () => {
+  const result = runGeneratorForDiagnostics(fakeGenerator({ generate: () => [] }), fakeContext);
+
+  assert.equal(result.skippedBy, null, 'quiet is not the same as broken');
+  assert.deepEqual(result.produced, []);
+});
+
+test('a generator outside this lifecycle is distinguished from both', () => {
+  const result = runGeneratorForDiagnostics(
+    fakeGenerator({ supportedLifecycles: ['postseason'] }),
+    fakeContext
+  );
+
+  assert.equal(result.skippedBy, 'lifecycle');
+});
+
+test('zero-and-negative-score insights are dropped, matching the engine', () => {
+  const result = runGeneratorForDiagnostics(
+    fakeGenerator({
+      generate: () => [synthetic('keep', 5), synthetic('drop-zero', 0), synthetic('drop-neg', -1)],
+    }),
+    fakeContext
+  );
+
+  assert.deepEqual(
+    result.produced.map((i) => i.id),
+    ['keep'],
+    'the page must apply the same positive-score filter production does'
   );
 });

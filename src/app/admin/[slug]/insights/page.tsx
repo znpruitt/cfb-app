@@ -4,7 +4,6 @@ import React from 'react';
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import InsightsDiagnosticsView from '@/components/admin/InsightsDiagnostics';
 import { getLeague } from '@/lib/leagueRegistry';
-import { resolveLeagueOperatingYear } from '@/lib/selectors/leagueLifecycle';
 import { buildInsightsDiagnostics } from '@/lib/server/insightsDiagnostics';
 
 export const dynamic = 'force-dynamic';
@@ -32,7 +31,22 @@ export default async function AdminLeagueInsightsPage({
   if (!league) notFound();
   const definedLeague = league!;
 
-  const year = resolveLeagueOperatingYear(definedLeague);
+  // Use the SAME year the loader uses, deliberately.
+  //
+  // The first version resolved `resolveLeagueOperatingYear` (which reads
+  // `status.year`) while `loadInsightsForLeague` defaults to `league.year`, and
+  // `buildInsightContext` sets `context.currentYear` from `league.year`
+  // regardless. On a legacy record where those disagree this page would have
+  // labelled the model with one year while parts of it were generated from
+  // another — and reported a different year than the public insights page for
+  // the same league.
+  //
+  // A diagnostic explains what production DOES; it does not get to pick a
+  // different input. The underlying issue — that the resolved year is not
+  // propagated through the context — is recorded in docs/next-tasks.md as its
+  // own item, because fixing it changes production insight generation and is not
+  // a diagnostic page's business.
+  const year = definedLeague.year;
   const model = await buildInsightsDiagnostics(slug, year);
 
   return (
@@ -45,6 +59,7 @@ export default async function AdminLeagueInsightsPage({
           { label: 'Insights' },
         ]}
       />
+      <h1 className="text-xl font-semibold">Insights diagnostics</h1>
       <InsightsDiagnosticsView model={model} />
     </main>
   );

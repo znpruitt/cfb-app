@@ -50,6 +50,33 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-019-DIAGNOSTIC-PAGE-v1
+
+- Purpose: Make the Insights funnel observable — "why is my feed thin, and would rotation have
+  anything to work with?" was answerable only by reading code.
+- Scope: `src/lib/server/insightsDiagnostics.ts` (view model), `/admin/[slug]/insights`, its
+  presentation component, `src/lib/insights/limits.ts` (the two caps, previously literals in the
+  loader and the Overview), and a `getRegisteredGenerators`/`shouldSuppressGenerator`/context-builder
+  export. No API route, no client fetch.
+- Outcome: reports generated → served (All Insights) → Overview, per generator and per insight, with
+  the Overview shortfall that client-side fallback cards cover. The backlog spec was STALE and was
+  not built to: it called for the "suppressed set" and NEW-tag verification, both retired or
+  deferred. Owner confirmed the funnel is the question.
+- Review / verification: tsc 0, `lint:all` 0, suite green; driven on preview against real TSC data.
+  **Review caught a modelling error, not a bug:** the funnel was built as TWO surfaces when there are
+  THREE — `/league/[slug]/insights` renders every served insight, and only the Overview cuts at five.
+  That made the page contradict itself (it compared the pool against the loader cap while labelling
+  rows as never shown) and mis-label the middle band. The Overview's client-derived filler was also
+  unmodelled, so a thin feed under-reported the surface the page exists to explain. A mutation
+  restoring the hidden-generator-error behaviour passed everything, which is why the per-generator
+  run was extracted and tested directly.
+- Status: MERGED — PR #482.
+- **Findings the page produced before it shipped:** a synthetic 8-owner, 5-archived-season league
+  generates 9 insights against a cap of 10, and real TSC in preseason generates 5. The pool has never
+  exceeded the feed, which independently confirms breadth-before-rotation. The owner then read two
+  more off the live page — arbitrary preseason lifecycle gates, and `usingArchivedRoster` answering
+  both membership and content safety — which became the INSIGHTS-023 rule and the 023a/023b split.
+
 ### PLATFORM-102-SERIALIZE-DRAFT-WRITERS-v1
 
 - Purpose: Stop concurrent draft writers from silently erasing each other's picks, before the
