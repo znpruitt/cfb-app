@@ -34,7 +34,7 @@ export default async function LeagueInsightsPage({
   // a league generates fewer than 10, and NOT harmless the moment INSIGHTS-023
   // widens the pool — at which point this surface silently hides the remainder
   // under a heading that claims completeness. Recorded on docs/next-tasks.md
-  // item 21; pagination or an explicit count belongs with that work.
+  // the INSIGHTS-029 item; pagination or an explicit count belongs with that work.
   const response = await loadInsightsForLeague(slug, league.year);
   const insights = response.insights.slice().sort((a, b) => b.priorityScore - a.priorityScore);
 

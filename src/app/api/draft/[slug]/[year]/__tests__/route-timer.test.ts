@@ -224,7 +224,10 @@ test('auto-pick that completes a round also pauses server-side (DRAFT-002)', asy
     })
   );
 
-  const res = await PUT(putRequest({ timerAction: 'expire' }), { params });
+  // PLATFORM-102 — this drives the commissioner clicking Auto-pick in the
+  // pause-and-prompt overlay, which is now its own action. `expire` means only
+  // "the clock ran out" and can no longer select a team.
+  const res = await PUT(putRequest({ timerAction: 'autoPick' }), { params });
   assert.equal(res.status, 200);
   const body = (await res.json()) as { draft: DraftState };
 

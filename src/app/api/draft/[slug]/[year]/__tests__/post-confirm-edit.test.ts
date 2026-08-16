@@ -348,7 +348,10 @@ test('undoing the last pick of a published draft retracts its publication', asyn
   const res = await UNPICK(
     new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/unpick`, {
       method: 'POST',
-      headers: { 'x-admin-token': TOKEN },
+      headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
+      // PLATFORM-102 — Undo names the pick it removes, so a duplicate press
+      // cannot consume the one before it.
+      body: JSON.stringify({ expectedPickNumber: 2 }),
     }),
     { params: confirmParams }
   );
@@ -670,7 +673,8 @@ test('an edit refuses when the pick it names was undone', async () => {
     UNPICK(
       new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/unpick`, {
         method: 'POST',
-        headers: { 'x-admin-token': TOKEN },
+        headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
+        body: JSON.stringify({ expectedPickNumber: 2 }),
       }),
       { params: confirmParams }
     )

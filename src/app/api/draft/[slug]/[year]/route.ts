@@ -2,10 +2,15 @@ import { NextResponse } from 'next/server';
 
 import { isAuthorizedForLeague } from '@/lib/leagueAuth';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
-import { getAppState, setAppState } from '@/lib/server/appStateStore';
+import { getAppState, setAppState, withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
-import { draftOwnersMatchRoster, type ConfirmedRoster } from '@/lib/selectors/confirmedRoster';
+import {
+  draftOwnersMatchRoster,
+  selectConfirmedRoster,
+  type ConfirmedRoster,
+} from '@/lib/selectors/confirmedRoster';
+import { preseasonOwnerScope } from '@/lib/preseasonOwnerStore';
 import {
   type DraftState,
   type DraftSettings,
@@ -45,6 +50,189 @@ function isDraftOrderPermutationOfOwners(draftOrder: string[], owners: string[])
 }
 
 export const dynamic = 'force-dynamic';
+
+/** A refusal decided inside a transaction — see `applyTimerAction`. */
+type ExpiryRefusal = { error: string; status: number };
+
+/**
+ * The PUT handler's refusal shape. Not every body is `{ error }` — several carry
+ * a `field` or `reason` — so the whole body travels, not just a message.
+ *
+ * Returned rather than thrown, so the transaction commits nothing and finishes
+ * cleanly. `NextResponse` cannot be returned from inside the callback, which is
+ * why every validation in the handler yields one of these and the caller maps it
+ * back to a response.
+ */
+type PutRefusal = { body: Record<string, unknown>; status: number };
+type PutOutcome = PutRefusal | { ok: true; draft: DraftState };
+
+/**
+ * PLATFORM-102 — the timer state machine, named and lifted out of the handler.
+ *
+ * Covers every action, not just `expire`. It was extracted while there were two
+ * call sites (a serialized fast path and a legacy one) to stop them drifting; the
+ * whole handler is serialized now, so there is a single call site and this exists
+ * for readability — the state machine is worth naming on its own.
+ *
+ * Pure: takes a draft, returns either a refusal or the next draft. It does not
+ * stamp `updatedAt` — the caller does that immediately before its write, as
+ * before.
+ */
+function applyTimerAction(
+  draft: DraftState,
+  action: 'start' | 'pause' | 'resume' | 'expire' | 'autoPick'
+): ExpiryRefusal | DraftState {
+  if (action === 'start' || action === 'resume') {
+    if (draft.phase !== 'live') {
+      return { error: 'Timer can only be started/resumed when draft is live', status: 422 };
+    }
+    const { pickTimerSeconds } = draft.settings;
+    if (!pickTimerSeconds) {
+      return { error: 'No pick timer configured', status: 422 };
+    }
+    return {
+      ...draft,
+      timerState: 'running',
+      timerExpiresAt: new Date(Date.now() + pickTimerSeconds * 1000).toISOString(),
+    };
+  }
+
+  if (action === 'pause') {
+    return { ...draft, timerState: 'paused', timerExpiresAt: null };
+  }
+
+  if (action !== 'expire' && action !== 'autoPick') {
+    return { error: `Unknown timerAction: "${action}"`, status: 400 };
+  }
+
+  const alreadyExpired = draft.phase === 'paused' && draft.timerState === 'expired';
+
+  // PLATFORM-102 round 6 — `expire` and `autoPick` are SEPARATE actions.
+  //
+  // They used to be one word meaning two things: "the clock ran out" and "yes,
+  // pick for me". The server told them apart by the state the draft was already
+  // in — so once serialization made requests take turns, a SECOND `expire` (two
+  // admin tabs both auto-fire at countdown zero, and `expireDispatchedRef` is per
+  // component instance) read the paused-expired state the first one had just
+  // committed and fell straight into the random auto-pick. Proven against a
+  // running server: two identical expires drafted a random team for an owner
+  // nobody had chosen it for.
+  //
+  // Splitting them REMOVES the path rather than guarding it. `expire` can no
+  // longer reach the picker at all, so repeating it cannot invent a pick — that
+  // is a property of the shape, not of a check I might get wrong.
+  if (action === 'expire') {
+    // Idempotent: expiring an already-expired draft is what a duplicate request
+    // IS, and the honest answer is "nothing to do". Returns the draft unchanged;
+    // the caller's write is then content-identical apart from `updatedAt`.
+    if (alreadyExpired) return draft;
+
+    if (draft.phase !== 'live') {
+      return {
+        error: `Timer expire only valid when the draft is live (phase: ${draft.phase})`,
+        status: 422,
+      };
+    }
+
+    // Validate the timer was actually running and has elapsed.
+    //
+    // Under the transaction this is also what makes a buzzer-beater pick win
+    // correctly: a manual pick that commits first refreshes `timerExpiresAt`, so
+    // this read (taken under the lock) sees a future expiry and refuses with
+    // "Timer has not expired yet" instead of overwriting the pick.
+    if (!draft.timerExpiresAt) {
+      return { error: 'No active timer — timerExpiresAt is null', status: 422 };
+    }
+    if (new Date(draft.timerExpiresAt) > new Date()) {
+      return { error: 'Timer has not expired yet', status: 422 };
+    }
+
+    // Natural expiry ALWAYS pauses and prompts. It never picks.
+    return {
+      ...draft,
+      phase: 'paused',
+      timerState: 'expired',
+      timerExpiresAt: null,
+    };
+  }
+
+  // action === 'autoPick' — the commissioner clicked Auto-pick in the
+  // pause-and-prompt overlay. This is the ONLY path that selects a team.
+  if (!alreadyExpired) {
+    return {
+      error: `Auto-pick is only valid from a paused, expired timer (phase: ${draft.phase}, timer: ${draft.timerState})`,
+      status: 422,
+    };
+  }
+
+  // Select a random available team.
+  const { items } = teamsData as TeamsJson;
+  const fbsTeams = getDraftEligibleTeams(items);
+  const pickedLower = new Set(draft.picks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : [])));
+
+  const available = fbsTeams.filter((t) => !pickedLower.has(t.school.toLowerCase()));
+
+  const bestTeam =
+    available.length > 0 ? available[Math.floor(Math.random() * available.length)] : undefined;
+  if (!bestTeam) {
+    return { error: 'No teams available for auto-pick', status: 422 };
+  }
+
+  const totalPicks = draft.settings.totalRounds * draft.owners.length;
+  const n = draft.owners.length;
+  const round = Math.floor(draft.currentPickIndex / n);
+  const roundPick = draft.currentPickIndex % n;
+  const owner = getPickOwner(draft.settings.draftOrder, draft.currentPickIndex);
+
+  const pick: DraftPick = {
+    pickNumber: draft.currentPickIndex + 1,
+    round,
+    roundPick,
+    owner,
+    team: bestTeam.school,
+    pickedAt: new Date().toISOString(),
+    autoSelected: true,
+  };
+
+  const newPickIndex = draft.currentPickIndex + 1;
+  const isComplete = newPickIndex >= totalPicks;
+  const { pickTimerSeconds } = draft.settings;
+
+  // Honor the same server-authoritative round-boundary pause as the manual
+  // pick route: an auto-pick that completes a round pauses for the next one.
+  const atRoundBoundary = !isComplete && newPickIndex > 0 && newPickIndex % n === 0;
+
+  if (isComplete) {
+    return {
+      ...draft,
+      picks: [...draft.picks, pick],
+      currentPickIndex: newPickIndex,
+      phase: 'complete',
+      timerState: 'off',
+      timerExpiresAt: null,
+    };
+  }
+  if (atRoundBoundary) {
+    return {
+      ...draft,
+      picks: [...draft.picks, pick],
+      currentPickIndex: newPickIndex,
+      phase: 'paused',
+      timerState: pickTimerSeconds ? 'paused' : 'off',
+      timerExpiresAt: null,
+    };
+  }
+  return {
+    ...draft,
+    picks: [...draft.picks, pick],
+    currentPickIndex: newPickIndex,
+    phase: 'live',
+    timerState: pickTimerSeconds ? 'running' : 'off',
+    timerExpiresAt: pickTimerSeconds
+      ? new Date(Date.now() + pickTimerSeconds * 1000).toISOString()
+      : null,
+  };
+}
 
 const VALID_PHASE_TRANSITIONS: Partial<Record<DraftPhase, DraftPhase[]>> = {
   setup: ['settings'],
@@ -286,455 +474,409 @@ export async function PUT(
     return NextResponse.json({ error: `League "${slug}" not found` }, { status: 404 });
   }
 
-  const record = await getAppState<DraftState>(draftScope(slug), String(year));
-  if (!record?.value) {
-    return NextResponse.json({ error: `No draft found for ${slug} ${year}` }, { status: 404 });
-  }
-
+  // PLATFORM-102 — the WHOLE handler runs inside one key transaction.
+  //
+  // Earlier versions serialized only a narrow slice (first `expire`, then any
+  // timer-only request) and left the rest on an unlocked read-then-write. Each
+  // carve-out required correctly predicting which field COMBINATIONS real clients
+  // send, and that prediction was wrong three times running. The last miss
+  // mattered: `DraftBoardClient` sends `{ phase: 'live', timerAction: 'start' }`
+  // together from the round-boundary resume, from Resume, and from Start round —
+  // so "Start round" still overwrote any pick that committed while it worked,
+  // which is the exact failure this slice exists to close, on the hottest path of
+  // draft night.
+  //
+  // Serializing the whole handler deletes the prediction. There is no remaining
+  // combination to be wrong about.
+  //
+  // NOTHING POOL-BACKED MAY RUN INSIDE THE CALLBACK. The transaction holds one of
+  // only three pooled clients (`appStateStore.ts` -> `max: 3`, no
+  // `connectionTimeoutMillis`) for its whole duration, while same-key waiters hold
+  // one each blocked on the advisory lock — so a nested pooled read needs a client
+  // that can never be freed, deadlocking database access process-wide. The body
+  // and the confirmed roster are therefore read BEFORE the lock.
   let body: unknown;
+  let bodyParseFailed = false;
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: 'request body must be valid JSON' }, { status: 400 });
+    bodyParseFailed = true;
   }
-
-  const { owners, settings, phase, timerAction } = body as {
+  // `JSON.parse('null')` succeeds, so a literal `null` body arrives here as null
+  // and would throw on destructuring — a 500 where the draft-state guards should
+  // answer 404/422. Normalise it.
+  const { owners, settings, phase, timerAction } = (body ?? {}) as {
     owners?: unknown;
     settings?: unknown;
     phase?: unknown;
     timerAction?: unknown;
   };
 
-  const original = record.value;
-
-  // Once the draft has started, the owner set/order and configured round count are
-  // locked: confirmation derives its expected pick count and per-owner counts from
-  // these, so a post-start mutation could make a finished roster unconfirmable.
-  const draftStarted =
-    original.picks.length > 0 ||
-    original.phase === 'live' ||
-    original.phase === 'paused' ||
-    original.phase === 'complete';
-
-  // PLATFORM-092 — ONE roster read per request, shared by the owners branch and
-  // the start transition. `handleSave('live')` sends owners, settings and phase
-  // together, so reading twice let a confirmation landing between them 422 a
-  // draft the same request had just reconciled. Lazy, so a PUT that touches
-  // neither branch still costs no store round-trip.
-  let rosterPromise: Promise<ConfirmedRoster> | null = null;
-  const readRoster = (): Promise<ConfirmedRoster> =>
-    (rosterPromise ??= getConfirmedRoster(slug, year));
-
-  let draft: DraftState = { ...original };
-
-  // Update owners
-  //
-  // PLATFORM-092 — the body's `owners` is IGNORED. Pre-start, a draft's owners
-  // are the confirmed roster; the request cannot propose a different set,
-  // because the only screen that changes owners is the confirmation page and
-  // this record is a copy of what it wrote. Callers still send the field (the
-  // setup shell does), so it stays accepted and simply does not decide anything.
-  if (owners !== undefined) {
-    if (!Array.isArray(owners) || owners.length < 2) {
-      return NextResponse.json(
-        { error: 'owners must be an array of at least 2 owner names', field: 'owners' },
-        { status: 400 }
-      );
-    }
-    const proposed = owners.filter(
-      (o): o is string => typeof o === 'string' && o.trim().length > 0
-    );
-    if (proposed.length < 2) {
-      return NextResponse.json(
-        { error: 'owners must contain at least 2 non-empty strings', field: 'owners' },
-        { status: 400 }
-      );
-    }
-
-    // A started draft keeps its pre-existing contract exactly: the owner set is
-    // frozen, and an attempt to change it is refused with 409. This precedes the
-    // roster read deliberately — that refusal is the more specific one, callers
-    // depend on its status, and a running draft's owners are frozen regardless of
-    // what the roster now says.
-    const attemptsChange =
-      proposed.length !== original.owners.length ||
-      proposed.some((name, i) => name !== original.owners[i]);
-    if (draftStarted) {
-      if (attemptsChange) {
-        return NextResponse.json(
-          {
-            error:
-              'owners cannot be changed after the draft has started. Reset or reopen the draft to change the owner set or order.',
-            field: 'owners',
-          },
-          { status: 409 }
-        );
+  const outcome = await withAppStateKeyTransaction<PutOutcome>(
+    draftScope(slug),
+    String(year),
+    async (txn): Promise<PutOutcome> => {
+      const record = await txn.read<DraftState>();
+      if (!record?.value) {
+        return { body: { error: `No draft found for ${slug} ${year}` }, status: 404 };
       }
-      // Identical to what is stored — nothing to do.
-    } else {
-      const roster = await readRoster();
-      if (!roster.isConfirmed) {
-        return NextResponse.json(
-          {
-            error: `Confirm the ${year} owners for "${slug}" before editing this draft`,
-            reason: 'owners-not-confirmed',
-          },
-          { status: 422 }
-        );
-      }
-      const ownerNames = roster.owners;
-      const ownersChanged = !draftOwnersMatchRoster(original.owners, ownerNames);
-      draft = { ...draft, owners: ownerNames };
 
-      // PLATFORM-092 — `owners` and `settings.draftOrder` are the two arrays the
-      // engine derives from: `getPickOwner` indexes the order while total picks are
-      // sized from the owner set. Resizing one without the other yields a draft
-      // that can never be confirmed ("Pick counts are uneven"), and an owners-only
-      // request carries no `settings` to fix it. Re-derive the order here; a
-      // request that also supplies `draftOrder` overwrites this below, validated
-      // against the set we just stored.
-      if (ownersChanged) {
-        draft = { ...draft, settings: { ...draft.settings, draftOrder: [...ownerNames] } };
+      // Ordering, deliberately: the draft-existence 404 wins over a malformed
+      // body, as it did before this slice. Round 3 hoisted the parse for pool
+      // safety and returned its 400 early, which silently flipped that — while
+      // the sibling pick route went out of its way to preserve it. Hoisting the
+      // parse is required; returning early is not.
+      if (bodyParseFailed) {
+        return { body: { error: 'request body must be valid JSON' }, status: 400 };
       }
-    }
-  }
 
-  // Update settings — validate every provided field BEFORE merging so a malformed
-  // or rejected request never mutates the persisted draft.
-  if (settings !== undefined && typeof settings === 'object' && settings !== null) {
-    const incoming = settings as Partial<DraftSettings>;
+      const original = record.value;
 
-    // draftOrder validation (parity with POST):
-    //  1. must be an array — malformed values 400, never crash;
-    //  2. locked once the draft has started (see draftStarted above) — snake
-    //     pick-owner assignment derives from settings.draftOrder, so a mid-draft
-    //     change reassigns remaining picks to the wrong owners;
-    //  3. must contain exactly the owner set (same rule POST enforces).
-    if (incoming.draftOrder !== undefined) {
-      if (!Array.isArray(incoming.draftOrder)) {
-        return NextResponse.json(
-          { error: 'settings.draftOrder must be an array', field: 'settings.draftOrder' },
-          { status: 400 }
-        );
-      }
-      const incomingOrder = incoming.draftOrder;
-      const originalOrder = original.settings.draftOrder;
-      const orderChanged =
-        incomingOrder.length !== originalOrder.length ||
-        incomingOrder.some((name, i) => name !== originalOrder[i]);
-      if (draftStarted && orderChanged) {
-        return NextResponse.json(
-          {
-            error:
-              'draftOrder cannot be changed after the draft has started. Reset or reopen the draft to change the draft order.',
-            field: 'settings.draftOrder',
-          },
-          { status: 409 }
-        );
-      }
-      // Effective owner set: owners may have just been updated above for a
-      // not-yet-started draft; draft.owners reflects that.
-      if (!isDraftOrderPermutationOfOwners(incomingOrder, draft.owners)) {
-        return NextResponse.json(
-          {
-            error: 'draftOrder must contain exactly the same owners as the owners array',
-            field: 'settings.draftOrder',
-          },
-          { status: 400 }
-        );
-      }
-    }
+      // PLATFORM-102 round 3 — the confirmed roster is read INSIDE the lock.
+      //
+      // Round 2 hoisted this above the transaction on the belief that any read
+      // there would need a second pooled connection and deadlock. That was wrong:
+      // `txn.readKey` runs on the transaction's OWN client and takes no extra
+      // connection, which is exactly what `confirm/route.ts` already relies on.
+      // The hoist widened a real window — the roster was read BEFORE an unbounded
+      // wait for the lock, and this handler both writes that owner set into the
+      // draft and freezes it at go-live, while the staleness gate compared stale
+      // against stale and therefore passed.
+      //
+      // Be precise about what this buys, because the first version of this comment
+      // said "locking both roster keys closes it" and that is FALSE. The two
+      // writers of those keys — `savePreseasonOwners` and `PUT /api/owners` —
+      // both use a plain `setAppState` and take no advisory lock, so these
+      // `lockKey` calls exclude nothing from them. Every writer that DOES take a
+      // lock (`confirm`, `pick/[n]`, the demo action) is already rooted on
+      // `draft:{slug}`, so the primary lock excludes it anyway.
+      //
+      // What genuinely changed is the TIMING: the roster is now read after the
+      // wait for the draft lock rather than before it, which narrows the window
+      // sharply without closing it. The `lockKey` calls are kept because they are
+      // correct and become load-bearing the moment those two writers converge on
+      // the transaction — they are ordered ascending as the store requires
+      // (`draft:` < `owners:` < `preseason-owners:`), so they introduce no cycle.
+      // Fully closing it means serializing `PUT /api/owners`, which is recorded
+      // as open in docs/next-tasks.md item 12.
+      //
+      // PLATFORM-092 — still ONE read per request, shared by the owners branch and
+      // the start transition; reading twice let a confirmation landing between them
+      // 422 a draft the same request had just reconciled. Lazy, so a PUT touching
+      // neither branch pays nothing — and unlike the round-2 version there is no
+      // "which branches might need it" prediction to get wrong.
+      let rosterMemo: ConfirmedRoster | null = null;
+      const loadRoster = async (): Promise<ConfirmedRoster> => {
+        if (rosterMemo) return rosterMemo;
+        await txn.lockKey(`owners:${slug}:${year}`, 'csv');
+        await txn.lockKey(preseasonOwnerScope(slug), String(year));
+        const confirmedRecord = await txn.readKey<unknown>(preseasonOwnerScope(slug), String(year));
+        const ownersCsvRecord = await txn.readKey<unknown>(`owners:${slug}:${year}`, 'csv');
+        rosterMemo = selectConfirmedRoster({
+          confirmedOwnersRecord: confirmedRecord?.value ?? null,
+          ownersCsvRecord: ownersCsvRecord?.value ?? null,
+        });
+        return rosterMemo;
+      };
 
-    // totalRounds validation (parity with POST):
-    //  1. must be a positive integer — strings/zero/negative/non-integers 400;
-    //  2. locked once the draft has started;
-    //  3. capped at the catalog maximum full rounds.
-    if (incoming.totalRounds !== undefined) {
-      if (
-        typeof incoming.totalRounds !== 'number' ||
-        !Number.isInteger(incoming.totalRounds) ||
-        incoming.totalRounds < 1
-      ) {
-        return NextResponse.json(
-          {
-            error: 'settings.totalRounds must be a positive integer',
-            field: 'settings.totalRounds',
-          },
-          { status: 400 }
-        );
-      }
-      if (draftStarted && incoming.totalRounds !== original.settings.totalRounds) {
-        return NextResponse.json(
-          {
-            error:
-              'totalRounds cannot be changed after the draft has started. Reset or reopen the draft to change the round count.',
-            field: 'settings.totalRounds',
-          },
-          { status: 409 }
-        );
-      }
-      const { items } = teamsData as TeamsJson;
-      const fbsCount = getDraftEligibleTeams(items).length;
-      const ownerCount = draft.owners.length;
-      if (ownerCount > 0) {
-        const maxRounds = Math.floor(fbsCount / ownerCount);
-        if (incoming.totalRounds > maxRounds) {
-          return NextResponse.json(
-            {
-              error: `totalRounds cannot exceed ${maxRounds} (${fbsCount} FBS teams ÷ ${ownerCount} owners)`,
-              field: 'settings.totalRounds',
-            },
-            { status: 400 }
-          );
+      // Once the draft has started, the owner set/order and configured round count are
+      // locked: confirmation derives its expected pick count and per-owner counts from
+      // these, so a post-start mutation could make a finished roster unconfirmable.
+      const draftStarted =
+        original.picks.length > 0 ||
+        original.phase === 'live' ||
+        original.phase === 'paused' ||
+        original.phase === 'complete';
+
+      let draft: DraftState = { ...original };
+
+      // Update owners
+      //
+      // PLATFORM-092 — the body's `owners` is IGNORED. Pre-start, a draft's owners
+      // are the confirmed roster; the request cannot propose a different set,
+      // because the only screen that changes owners is the confirmation page and
+      // this record is a copy of what it wrote. Callers still send the field (the
+      // setup shell does), so it stays accepted and simply does not decide anything.
+      if (owners !== undefined) {
+        if (!Array.isArray(owners) || owners.length < 2) {
+          return {
+            body: { error: 'owners must be an array of at least 2 owner names', field: 'owners' },
+            status: 400,
+          };
         }
-      }
-    }
-
-    draft = {
-      ...draft,
-      settings: {
-        ...draft.settings,
-        ...incoming,
-        // Ensure style is always 'snake'
-        style: 'snake',
-      },
-    };
-  }
-
-  // Phase transition
-  if (phase !== undefined) {
-    if (typeof phase !== 'string') {
-      return NextResponse.json(
-        { error: 'phase must be a string', field: 'phase' },
-        { status: 400 }
-      );
-    }
-    const targetPhase = phase as DraftPhase;
-
-    if (!isValidTransition(draft.phase, targetPhase)) {
-      return NextResponse.json(
-        { error: `Cannot transition from '${draft.phase}' to '${targetPhase}'`, field: 'phase' },
-        { status: 422 }
-      );
-    }
-
-    // PLATFORM-092 — the draft that RUNS must be for the confirmed roster.
-    //
-    // Below `isValidTransition` deliberately: a `complete` draft asked to go
-    // live is an illegal transition, and answering it with "the roster has
-    // changed — reopen draft settings" sends the operator to a screen that
-    // cannot help. The specific diagnosis belongs only on requests the
-    // transition itself permits, and this ordering also skips the store read on
-    // every rejected path.
-    //
-    // Every write above takes owners from the roster, so a draft only goes stale
-    // when the roster changes AFTER the last settings save — and
-    // `DraftSetupShell.handleStartDraft` sends `{ phase: 'live' }` alone, so
-    // nothing re-reads it on the way in.
-    //
-    // This REFUSES rather than silently re-seeding: starting is the moment the
-    // owner set and pick order freeze, and quietly regenerating both under the
-    // commissioner is a worse surprise than being told to reopen settings. The
-    // remedy works — the setup page shows the current roster, and saving there
-    // updates the draft.
-    //
-    // `paused → live` is exempt: that draft is already running with picks against
-    // a frozen owner set, and re-checking would strand it mid-draft.
-    if (targetPhase === 'live' && draft.phase !== 'paused') {
-      const roster = await readRoster();
-      // Two different causes, two different remedies. An unconfirmed roster is
-      // not a roster that CHANGED — telling the operator to go pick up a change
-      // that never happened points them at the wrong screen. This ordering also
-      // keeps the comparison from being asked a question it answers badly:
-      // `draftOwnersMatchRoster([], [])` is true, so an unconfirmed league would
-      // otherwise pass the gate outright.
-      if (!roster.isConfirmed) {
-        return NextResponse.json(
-          {
-            error: `Confirm the ${year} owners for "${slug}" before starting this draft`,
-            field: 'phase',
-            reason: 'owners-not-confirmed',
-          },
-          { status: 422 }
+        const proposed = owners.filter(
+          (o): o is string => typeof o === 'string' && o.trim().length > 0
         );
-      }
-      if (!draftOwnersMatchRoster(draft.owners, roster.owners)) {
-        return NextResponse.json(
-          {
-            error: `the ${year} roster for "${slug}" has changed since this draft was set up — reopen draft settings to pick it up, then start`,
-            field: 'phase',
-            reason: 'draft-owners-stale',
-          },
-          { status: 422 }
-        );
-      }
-    }
-
-    // On transition to setup (reset), clear picks
-    if (targetPhase === 'setup') {
-      draft = {
-        ...draft,
-        phase: 'setup',
-        picks: [],
-        currentPickIndex: 0,
-        timerState: 'off',
-        timerExpiresAt: null,
-      };
-    } else {
-      draft = { ...draft, phase: targetPhase };
-    }
-  }
-
-  // Timer action
-  if (timerAction !== undefined) {
-    if (typeof timerAction !== 'string') {
-      return NextResponse.json({ error: 'timerAction must be a string' }, { status: 400 });
-    }
-    const action = timerAction as 'start' | 'pause' | 'resume' | 'expire';
-
-    if (action === 'start' || action === 'resume') {
-      if (draft.phase !== 'live') {
-        return NextResponse.json(
-          { error: 'Timer can only be started/resumed when draft is live' },
-          { status: 422 }
-        );
-      }
-      const { pickTimerSeconds } = draft.settings;
-      if (!pickTimerSeconds) {
-        return NextResponse.json({ error: 'No pick timer configured' }, { status: 422 });
-      }
-      draft = {
-        ...draft,
-        timerState: 'running',
-        timerExpiresAt: new Date(Date.now() + pickTimerSeconds * 1000).toISOString(),
-      };
-    } else if (action === 'pause') {
-      draft = {
-        ...draft,
-        timerState: 'paused',
-        timerExpiresAt: null,
-      };
-    } else if (action === 'expire') {
-      // Accept expire from live phase (normal expiry) or paused+expired phase (commissioner
-      // clicked auto-pick in the pause-and-prompt overlay)
-      const isLiveExpire = draft.phase === 'live';
-      const isPausedExpire = draft.phase === 'paused' && draft.timerState === 'expired';
-
-      if (!isLiveExpire && !isPausedExpire) {
-        return NextResponse.json(
-          {
-            error: `Timer expire only valid when draft is live or paused-expired (phase: ${draft.phase})`,
-          },
-          { status: 422 }
-        );
-      }
-
-      // For live phase, validate the timer was actually running and has elapsed
-      if (isLiveExpire) {
-        if (!draft.timerExpiresAt) {
-          return NextResponse.json(
-            { error: 'No active timer — timerExpiresAt is null' },
-            { status: 422 }
-          );
+        if (proposed.length < 2) {
+          return {
+            body: { error: 'owners must contain at least 2 non-empty strings', field: 'owners' },
+            status: 400,
+          };
         }
-        if (new Date(draft.timerExpiresAt) > new Date()) {
-          return NextResponse.json({ error: 'Timer has not expired yet' }, { status: 422 });
+
+        // A started draft keeps its pre-existing contract exactly: the owner set is
+        // frozen, and an attempt to change it is refused with 409. This precedes the
+        // roster read deliberately — that refusal is the more specific one, callers
+        // depend on its status, and a running draft's owners are frozen regardless of
+        // what the roster now says.
+        const attemptsChange =
+          proposed.length !== original.owners.length ||
+          proposed.some((name, i) => name !== original.owners[i]);
+        if (draftStarted) {
+          if (attemptsChange) {
+            return {
+              body: {
+                error:
+                  'owners cannot be changed after the draft has started. Reset or reopen the draft to change the owner set or order.',
+                field: 'owners',
+              },
+              status: 409,
+            };
+          }
+          // Identical to what is stored — nothing to do.
+        } else {
+          const roster = await loadRoster();
+          if (!roster.isConfirmed) {
+            return {
+              body: {
+                error: `Confirm the ${year} owners for "${slug}" before editing this draft`,
+                reason: 'owners-not-confirmed',
+              },
+              status: 422,
+            };
+          }
+          const ownerNames = roster.owners;
+          const ownersChanged = !draftOwnersMatchRoster(original.owners, ownerNames);
+          draft = { ...draft, owners: ownerNames };
+
+          // PLATFORM-092 — `owners` and `settings.draftOrder` are the two arrays the
+          // engine derives from: `getPickOwner` indexes the order while total picks are
+          // sized from the owner set. Resizing one without the other yields a draft
+          // that can never be confirmed ("Pick counts are uneven"), and an owners-only
+          // request carries no `settings` to fix it. Re-derive the order here; a
+          // request that also supplies `draftOrder` overwrites this below, validated
+          // against the set we just stored.
+          if (ownersChanged) {
+            draft = { ...draft, settings: { ...draft.settings, draftOrder: [...ownerNames] } };
+          }
         }
       }
 
-      // Paused-expired phase means the commissioner is explicitly requesting auto-pick
-      // from the pause-and-prompt overlay. Live phase means the timer expired naturally.
-      // Natural expiry always pauses and prompts — no automatic auto-pick.
+      // Update settings — validate every provided field BEFORE merging so a malformed
+      // or rejected request never mutates the persisted draft.
+      if (settings !== undefined && typeof settings === 'object' && settings !== null) {
+        const incoming = settings as Partial<DraftSettings>;
 
-      if (isLiveExpire) {
-        // Timer expired naturally — always pause and prompt the commissioner
+        // draftOrder validation (parity with POST):
+        //  1. must be an array — malformed values 400, never crash;
+        //  2. locked once the draft has started (see draftStarted above) — snake
+        //     pick-owner assignment derives from settings.draftOrder, so a mid-draft
+        //     change reassigns remaining picks to the wrong owners;
+        //  3. must contain exactly the owner set (same rule POST enforces).
+        if (incoming.draftOrder !== undefined) {
+          if (!Array.isArray(incoming.draftOrder)) {
+            return {
+              body: { error: 'settings.draftOrder must be an array', field: 'settings.draftOrder' },
+              status: 400,
+            };
+          }
+          const incomingOrder = incoming.draftOrder;
+          const originalOrder = original.settings.draftOrder;
+          const orderChanged =
+            incomingOrder.length !== originalOrder.length ||
+            incomingOrder.some((name, i) => name !== originalOrder[i]);
+          if (draftStarted && orderChanged) {
+            return {
+              body: {
+                error:
+                  'draftOrder cannot be changed after the draft has started. Reset or reopen the draft to change the draft order.',
+                field: 'settings.draftOrder',
+              },
+              status: 409,
+            };
+          }
+          // Effective owner set: owners may have just been updated above for a
+          // not-yet-started draft; draft.owners reflects that.
+          if (!isDraftOrderPermutationOfOwners(incomingOrder, draft.owners)) {
+            return {
+              body: {
+                error: 'draftOrder must contain exactly the same owners as the owners array',
+                field: 'settings.draftOrder',
+              },
+              status: 400,
+            };
+          }
+        }
+
+        // totalRounds validation (parity with POST):
+        //  1. must be a positive integer — strings/zero/negative/non-integers 400;
+        //  2. locked once the draft has started;
+        //  3. capped at the catalog maximum full rounds.
+        if (incoming.totalRounds !== undefined) {
+          if (
+            typeof incoming.totalRounds !== 'number' ||
+            !Number.isInteger(incoming.totalRounds) ||
+            incoming.totalRounds < 1
+          ) {
+            return {
+              body: {
+                error: 'settings.totalRounds must be a positive integer',
+                field: 'settings.totalRounds',
+              },
+              status: 400,
+            };
+          }
+          if (draftStarted && incoming.totalRounds !== original.settings.totalRounds) {
+            return {
+              body: {
+                error:
+                  'totalRounds cannot be changed after the draft has started. Reset or reopen the draft to change the round count.',
+                field: 'settings.totalRounds',
+              },
+              status: 409,
+            };
+          }
+          const { items } = teamsData as TeamsJson;
+          const fbsCount = getDraftEligibleTeams(items).length;
+          const ownerCount = draft.owners.length;
+          if (ownerCount > 0) {
+            const maxRounds = Math.floor(fbsCount / ownerCount);
+            if (incoming.totalRounds > maxRounds) {
+              return {
+                body: {
+                  error: `totalRounds cannot exceed ${maxRounds} (${fbsCount} FBS teams ÷ ${ownerCount} owners)`,
+                  field: 'settings.totalRounds',
+                },
+                status: 400,
+              };
+            }
+          }
+        }
+
         draft = {
           ...draft,
-          phase: 'paused',
-          timerState: 'expired',
-          timerExpiresAt: null,
+          settings: {
+            ...draft.settings,
+            ...incoming,
+            // Ensure style is always 'snake'
+            style: 'snake',
+          },
         };
-      } else {
-        // isPausedExpire — commissioner clicked "Auto-pick" from prompt overlay
-        // Select a random available team
-        const { items } = teamsData as TeamsJson;
-        const fbsTeams = getDraftEligibleTeams(items);
-        const pickedLower = new Set(
-          draft.picks.flatMap((p) => (p.team ? [p.team.toLowerCase()] : []))
-        );
+      }
 
-        const available = fbsTeams.filter((t) => !pickedLower.has(t.school.toLowerCase()));
+      // Phase transition
+      if (phase !== undefined) {
+        if (typeof phase !== 'string') {
+          return { body: { error: 'phase must be a string', field: 'phase' }, status: 400 };
+        }
+        const targetPhase = phase as DraftPhase;
 
-        const bestTeam =
-          available.length > 0
-            ? available[Math.floor(Math.random() * available.length)]
-            : undefined;
-        if (!bestTeam) {
-          return NextResponse.json({ error: 'No teams available for auto-pick' }, { status: 422 });
+        if (!isValidTransition(draft.phase, targetPhase)) {
+          return {
+            body: {
+              error: `Cannot transition from '${draft.phase}' to '${targetPhase}'`,
+              field: 'phase',
+            },
+            status: 422,
+          };
         }
 
-        const totalPicks = draft.settings.totalRounds * draft.owners.length;
-        const n = draft.owners.length;
-        const round = Math.floor(draft.currentPickIndex / n);
-        const roundPick = draft.currentPickIndex % n;
-        const owner = getPickOwner(draft.settings.draftOrder, draft.currentPickIndex);
+        // PLATFORM-092 — the draft that RUNS must be for the confirmed roster.
+        //
+        // Below `isValidTransition` deliberately: a `complete` draft asked to go
+        // live is an illegal transition, and answering it with "the roster has
+        // changed — reopen draft settings" sends the operator to a screen that
+        // cannot help. The specific diagnosis belongs only on requests the
+        // transition itself permits, and this ordering also skips the store read on
+        // every rejected path.
+        //
+        // Every write above takes owners from the roster, so a draft only goes stale
+        // when the roster changes AFTER the last settings save — and
+        // `DraftSetupShell.handleStartDraft` sends `{ phase: 'live' }` alone, so
+        // nothing re-reads it on the way in.
+        //
+        // This REFUSES rather than silently re-seeding: starting is the moment the
+        // owner set and pick order freeze, and quietly regenerating both under the
+        // commissioner is a worse surprise than being told to reopen settings. The
+        // remedy works — the setup page shows the current roster, and saving there
+        // updates the draft.
+        //
+        // `paused → live` is exempt: that draft is already running with picks against
+        // a frozen owner set, and re-checking would strand it mid-draft.
+        if (targetPhase === 'live' && draft.phase !== 'paused') {
+          const roster = await loadRoster();
+          // Two different causes, two different remedies. An unconfirmed roster is
+          // not a roster that CHANGED — telling the operator to go pick up a change
+          // that never happened points them at the wrong screen. This ordering also
+          // keeps the comparison from being asked a question it answers badly:
+          // `draftOwnersMatchRoster([], [])` is true, so an unconfirmed league would
+          // otherwise pass the gate outright.
+          if (!roster.isConfirmed) {
+            return {
+              body: {
+                error: `Confirm the ${year} owners for "${slug}" before starting this draft`,
+                field: 'phase',
+                reason: 'owners-not-confirmed',
+              },
+              status: 422,
+            };
+          }
+          if (!draftOwnersMatchRoster(draft.owners, roster.owners)) {
+            return {
+              body: {
+                error: `the ${year} roster for "${slug}" has changed since this draft was set up — reopen draft settings to pick it up, then start`,
+                field: 'phase',
+                reason: 'draft-owners-stale',
+              },
+              status: 422,
+            };
+          }
+        }
 
-        const pick: DraftPick = {
-          pickNumber: draft.currentPickIndex + 1,
-          round,
-          roundPick,
-          owner,
-          team: bestTeam.school,
-          pickedAt: new Date().toISOString(),
-          autoSelected: true,
-        };
-
-        const newPickIndex = draft.currentPickIndex + 1;
-        const isComplete = newPickIndex >= totalPicks;
-        const { pickTimerSeconds } = draft.settings;
-
-        // Honor the same server-authoritative round-boundary pause as the manual
-        // pick route: an auto-pick that completes a round pauses for the next one.
-        const atRoundBoundary = !isComplete && newPickIndex > 0 && newPickIndex % n === 0;
-
-        if (isComplete) {
+        // On transition to setup (reset), clear picks
+        if (targetPhase === 'setup') {
           draft = {
             ...draft,
-            picks: [...draft.picks, pick],
-            currentPickIndex: newPickIndex,
-            phase: 'complete',
+            phase: 'setup',
+            picks: [],
+            currentPickIndex: 0,
             timerState: 'off',
             timerExpiresAt: null,
           };
-        } else if (atRoundBoundary) {
-          draft = {
-            ...draft,
-            picks: [...draft.picks, pick],
-            currentPickIndex: newPickIndex,
-            phase: 'paused',
-            timerState: pickTimerSeconds ? 'paused' : 'off',
-            timerExpiresAt: null,
-          };
         } else {
-          draft = {
-            ...draft,
-            picks: [...draft.picks, pick],
-            currentPickIndex: newPickIndex,
-            phase: 'live',
-            timerState: pickTimerSeconds ? 'running' : 'off',
-            timerExpiresAt: pickTimerSeconds
-              ? new Date(Date.now() + pickTimerSeconds * 1000).toISOString()
-              : null,
-          };
+          draft = { ...draft, phase: targetPhase };
         }
       }
-    } else {
-      return NextResponse.json({ error: `Unknown timerAction: "${action}"` }, { status: 400 });
+
+      // Timer action
+      if (timerAction !== undefined) {
+        if (typeof timerAction !== 'string') {
+          return { body: { error: 'timerAction must be a string' }, status: 400 };
+        }
+        const action = timerAction as 'start' | 'pause' | 'resume' | 'expire' | 'autoPick';
+
+        // PLATFORM-102 — this runs INSIDE the handler's transaction, like every
+        // other branch. An earlier version of this comment claimed a bundled
+        // request took a separate unserialized route; that was the v2 design and
+        // it was wrong — `DraftBoardClient` sends `{ phase: 'live', timerAction:
+        // 'start' }` from three call sites. There is no second path now.
+        const next = applyTimerAction(draft, action);
+        if ('error' in next) {
+          return { body: { error: next.error }, status: next.status };
+        }
+        draft = next;
+      }
+
+      draft = { ...draft, updatedAt: new Date().toISOString() };
+      await txn.write<DraftState>(draft);
+
+      return { ok: true, draft };
     }
+  );
+
+  if (!('ok' in outcome)) {
+    return NextResponse.json(outcome.body, { status: outcome.status });
   }
 
-  draft = { ...draft, updatedAt: new Date().toISOString() };
-  await setAppState<DraftState>(draftScope(slug), String(year), draft);
-
-  return NextResponse.json({ draft });
+  return NextResponse.json({ draft: outcome.draft });
 }

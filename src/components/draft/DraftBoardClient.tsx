@@ -5,6 +5,7 @@ import { requireAdminAuthHeaders } from '@/lib/adminAuth';
 import type { DraftState, DraftPick } from '@/lib/draft';
 import type { LeagueStatus } from '@/lib/league';
 import type { DraftTeamInsights } from '@/lib/selectors/draftTeamInsights';
+import { resolveControlOutcome } from './controlOutcome';
 import DraftBoardGrid from './DraftBoardGrid';
 import DraftHeaderArea from './DraftHeaderArea';
 
@@ -30,6 +31,9 @@ export default function DraftBoardClient({
 
   const [search, setSearch] = useState('');
   const [pickError, setPickError] = useState<string | null>(null);
+  // PLATFORM-102 — control refusals render beside the CONTROLS, not in the
+  // Available Teams strip. Separate state because the two have different homes.
+  const [controlError, setControlError] = useState<string | null>(null);
   const [pickLoading, setPickLoading] = useState(false);
   const [controlsLoading, setControlsLoading] = useState(false);
 
@@ -228,8 +232,40 @@ export default function DraftBoardClient({
 
   // --- Draft control helpers (admin-only, used by DraftHeaderArea) ---
 
+  // PLATFORM-102 — a refused control must SAY so, and re-sync.
+  //
+  // These helpers used to act only on success: no error state, no refresh. That
+  // was survivable while refusals were unreachable — the buttons were hidden in
+  // the states that would fail. This slice made them reachable: Undo now answers
+  // 409 when the board has moved on, and auto-pick answers 422 when the timer is
+  // not paused-expired. Silence then reads as a dead button, and pressing again
+  // keeps failing because nothing re-fetched the stale view.
+  //
+  // Reuses the existing `pickError` line rather than inventing a second error
+  // treatment — one place on this screen where things that went wrong appear.
+  async function applyControlResponse(res: Response, fallback: string): Promise<void> {
+    const data = (await res.json().catch(() => ({}))) as { draft?: DraftState; error?: string };
+    const outcome = resolveControlOutcome(res, data, fallback);
+
+    if (outcome.kind === 'error') {
+      setControlError(outcome.message);
+      // A refusal usually means this view is stale — re-sync so the next press
+      // acts on what the server actually has, instead of failing identically.
+      void refresh();
+      return;
+    }
+
+    setControlError(null);
+    if (outcome.kind === 'redirect-setup') {
+      window.location.href = `/league/${slug}/draft/setup`;
+      return;
+    }
+    setDraft(outcome.draft);
+  }
+
   async function draftPut(body: Record<string, unknown>) {
     setControlsLoading(true);
+    setControlError(null);
     try {
       const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
       const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
@@ -237,40 +273,27 @@ export default function DraftBoardClient({
         headers: { 'content-type': 'application/json', ...authHeaders },
         body: JSON.stringify(body),
       });
-      const data = (await res.json()) as { draft?: DraftState };
-      if (res.ok && data.draft) {
-        if (data.draft.phase === 'setup') {
-          window.location.href = `/league/${slug}/draft/setup`;
-          return;
-        }
-        setDraft(data.draft);
-      }
-    } catch {
-      /* network error — polling will recover */
+      await applyControlResponse(res, 'That control did not apply');
+    } catch (err) {
+      setControlError((err as Error).message);
     } finally {
       setControlsLoading(false);
     }
   }
 
-  async function draftPost(path: string) {
+  async function draftPost(path: string, body: Record<string, unknown> = {}) {
     setControlsLoading(true);
+    setControlError(null);
     try {
       const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
       const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}/${path}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...authHeaders },
-        body: '{}',
+        body: JSON.stringify(body),
       });
-      const data = (await res.json()) as { draft?: DraftState };
-      if (res.ok && data.draft) {
-        if (data.draft.phase === 'setup') {
-          window.location.href = `/league/${slug}/draft/setup`;
-          return;
-        }
-        setDraft(data.draft);
-      }
-    } catch {
-      /* network error — polling will recover */
+      await applyControlResponse(res, `${path} did not apply`);
+    } catch (err) {
+      setControlError((err as Error).message);
     } finally {
       setControlsLoading(false);
     }
@@ -293,10 +316,18 @@ export default function DraftBoardClient({
   }
 
   function handleUndo() {
-    void draftPost('unpick');
+    // PLATFORM-102 — name the pick being undone, so a duplicate press (second
+    // tab, retry after a lost response) is refused instead of eating the pick
+    // BEFORE the one on screen.
+    const lastPick = draft.picks[draft.picks.length - 1];
+    if (!lastPick) return;
+    void draftPost('unpick', { expectedPickNumber: lastPick.pickNumber });
   }
   function handleAutoPick() {
-    void draftPut({ timerAction: 'expire' });
+    // Distinct from the countdown's `expire`. One word for both meant a second
+    // expire — every open admin tab fires one at zero — read the paused state
+    // the first had committed and auto-picked a random team.
+    void draftPut({ timerAction: 'autoPick' });
   }
   function handleSelectManually() {
     void draftPut({ phase: 'live' });
@@ -332,6 +363,7 @@ export default function DraftBoardClient({
           onAutoPick={handleAutoPick}
           onSelectManually={handleSelectManually}
           onStartRound={handleStartRound}
+          controlError={controlError}
           settingsHref={`/league/${slug}/draft/setup`}
           summaryHref={`/league/${slug}/draft/summary`}
           controlsLoading={controlsLoading}

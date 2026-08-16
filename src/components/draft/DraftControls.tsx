@@ -82,11 +82,15 @@ export default function DraftControls({
   }
 
   function handleUnpick() {
-    void callPost('unpick');
+    // PLATFORM-102 — see DraftBoardClient.handleUndo: the request names the pick
+    // it is undoing so a duplicate cannot consume a second one.
+    const lastPick = draft.picks[draft.picks.length - 1];
+    if (!lastPick) return;
+    void callPost('unpick', { expectedPickNumber: lastPick.pickNumber });
   }
 
   function handleAutoPick() {
-    void callPut({ timerAction: 'expire' });
+    void callPut({ timerAction: 'autoPick' });
   }
 
   function handleReset() {
