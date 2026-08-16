@@ -18,7 +18,28 @@ import type {
 const NO_CLAIM_OWNER = 'NoClaim';
 const TIE_SUPPRESSION_THRESHOLD = 4;
 
-const POINTS_LEADER_LIFECYCLES: LifecycleState[] = ['fresh_offseason', 'offseason', 'postseason'];
+// INSIGHTS-023 — `preseason` added by the two-question rule, not case by case.
+// (1) Does it need CURRENT-SEASON evidence — games played, a live race, weekly
+// movement? These do not: every input is an archived season. (2) Is it a fact
+// about a COMPLETED season or an accumulated record? Yes, so it is as true in
+// August as in January, and preseason is when readers re-engage with it.
+//
+// Safe to name people only because INSIGHTS-023a put the CONFIRMED owner list on
+// the context and 030 made every record measure against the whole league. Before
+// those, switching this on would have named last season's roster from a borrowed
+// map and handed departed owners' records to whoever remained.
+const POINTS_LEADER_LIFECYCLES: LifecycleState[] = [
+  'fresh_offseason',
+  'offseason',
+  'postseason',
+  'preseason',
+];
+// INSIGHTS-023 — deliberately NOT extended to preseason, unlike its three
+// siblings. INSIGHTS-030 fixed four record populations and CUT this one: its
+// record is still measured against members only, so it can hand a departed
+// owner's margin to whoever remains. Preseason is where membership diverges
+// most, which is exactly why 030 was ordered before 023. Extend this gate only
+// after the population is fixed — see docs/next-tasks.md.
 const TURNOVER_LEADER_LIFECYCLES: LifecycleState[] = ['fresh_offseason', 'offseason', 'postseason'];
 const VOLATILITY_LIFECYCLES: LifecycleState[] = ['fresh_offseason', 'offseason', 'preseason'];
 const NEVER_LAST_LIFECYCLES: LifecycleState[] = ['fresh_offseason', 'offseason', 'preseason'];
@@ -37,11 +58,14 @@ const TITLE_CHASER_LIFECYCLES: LifecycleState[] = [
 // data supports. The archived-roster suppression below is what actually keeps it
 // honest, and it is unchanged.
 const ROOKIE_LIFECYCLES: LifecycleState[] = ['fresh_offseason', 'offseason', 'preseason'];
+// INSIGHTS-023 — a finished season's win rate is question 2: as true in August
+// as in January.
 const GREATEST_SEASON_LIFECYCLES: LifecycleState[] = [
   'late_season',
   'postseason',
   'fresh_offseason',
   'offseason',
+  'preseason',
 ];
 const TRENDING_LIFECYCLES: LifecycleState[] = [
   'preseason',

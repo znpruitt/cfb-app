@@ -16,6 +16,10 @@ import type {
   NewsHook,
 } from '../types';
 
+// INSIGHTS-023 — every type this generator emits is drawn from ARCHIVED seasons
+// and needs no current-season evidence, so it answers the two-question rule the
+// same way its `offseason` entry already does. Preseason is a phase of the
+// offseason nearer kickoff, not a distinct data regime.
 const HISTORICAL_LIFECYCLES: LifecycleState[] = [
   'early_season',
   'mid_season',
@@ -23,6 +27,7 @@ const HISTORICAL_LIFECYCLES: LifecycleState[] = [
   'postseason',
   'fresh_offseason',
   'offseason',
+  'preseason',
 ];
 
 const NO_CLAIM_OWNER = 'NoClaim';
@@ -90,7 +95,8 @@ function positionOf(archive: SeasonArchive, owner: string): number | null {
 function deriveDroughtInsight(
   archives: SeasonArchive[],
   activeOwners: ReadonlySet<string>,
-  lifecycles: LifecycleState[]
+  lifecycles: LifecycleState[],
+  membersSource: LeagueMembersSource
 ): Insight | null {
   if (archives.length === 0) return null;
   const sorted = sortedArchives(archives);
@@ -154,15 +160,26 @@ function deriveDroughtInsight(
   // Hook: never_won if every tied owner has no title; otherwise streak_extended.
   const hook: NewsHook = allNeverWon ? 'never_won' : 'streak_extended';
 
+  // INSIGHTS-023 — "the longest ACTIVE drought" and "still waiting" say the
+  // drought is ongoing, which says the owner is playing this season. Licensed
+  // only when membership is KNOWN, per the amended invariant 5. This generator
+  // already ran in `offseason`, where an unconfirmed league resolves membership
+  // from last season's roster, so the claim was unlicensed there too — but
+  // extending its gate to preseason in the same PR that writes the rule is not
+  // the way to inherit a defect.
+  const droughtKnown = membershipIsKnown(membersSource);
   let description: string;
   if (hook === 'never_won') {
-    if (tied.length === 1) {
-      description = `${nameList} has never won a title in ${longestDrought} seasons — the longest active drought in the league.`;
-    } else {
-      description = `${nameList} have never won a title in ${longestDrought} seasons.`;
-    }
+    description =
+      tied.length === 1 && droughtKnown
+        ? `${nameList} has never won a title in ${longestDrought} seasons — the longest active drought in the league.`
+        : tied.length === 1
+          ? `${nameList} has never won a title in ${longestDrought} seasons.`
+          : `${nameList} have never won a title in ${longestDrought} seasons.`;
   } else if (tied.length === 1) {
-    description = `${nameList} hasn't won a title in ${longestDrought} seasons — still waiting for another ring.`;
+    description = droughtKnown
+      ? `${nameList} hasn't won a title in ${longestDrought} seasons — still waiting for another ring.`
+      : `${nameList} last won a title ${longestDrought} seasons ago.`;
   } else {
     description = `${nameList} haven't won a title in ${longestDrought} seasons.`;
   }
@@ -517,7 +534,12 @@ export const historicalGenerator: InsightGenerator = {
     const activeOwners = context.leagueMembers;
 
     const insights: Insight[] = [];
-    const drought = deriveDroughtInsight(archives, activeOwners, HISTORICAL_LIFECYCLES);
+    const drought = deriveDroughtInsight(
+      archives,
+      activeOwners,
+      HISTORICAL_LIFECYCLES,
+      context.leagueMembersSource
+    );
     if (drought) insights.push(drought);
 
     const dynasty = deriveDynastyInsight(
