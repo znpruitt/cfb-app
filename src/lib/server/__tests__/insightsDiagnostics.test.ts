@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { beforeEach } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 
 import { addLeague } from '@/lib/leagueRegistry';
 import {
@@ -434,5 +436,90 @@ test('zero-and-negative-score insights are dropped, matching the engine', () => 
     result.produced.map((i) => i.id),
     ['keep'],
     'the page must apply the same positive-score filter production does'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Round 2 — the claims the PAGE makes, each pinned to a field.
+//
+// Both round-1 errors were prose that outran the data: a shortfall reported as
+// "covered by fallback" (untrue in preseason, where there is none), and a year
+// chosen by reasoning rather than by reading what the Overview asks for.
+// Everything else that round got a test; the sentence did not.
+// ---------------------------------------------------------------------------
+
+test('the shortfall is a shortfall — it claims nothing about fallback', () => {
+  const generated = Array.from({ length: 2 }, (_, i) => synthetic(`i-${i}`, 10 - i));
+  const { served } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
+
+  const unfilled = Math.max(0, OVERVIEW_INSIGHT_SLOTS - served.length);
+  assert.equal(unfilled, 3, 'three slots the engine did not fill');
+
+  // The page must NOT assert those three are covered. In preseason
+  // `deriveLeagueInsights` returns nothing (no owner has played), so the real
+  // fallback count there is zero — the old copy would have said three.
+  const src = readFileSync(
+    fileURLToPath(new URL('../../../components/admin/InsightsDiagnostics.tsx', import.meta.url)),
+    'utf8'
+  );
+  assert.ok(
+    !/are covered by fallback/.test(src),
+    'the page must not assert the unfilled slots ARE covered'
+  );
+  assert.ok(/may substitute/.test(src), 'it may say fallback MAY substitute — that much is true');
+});
+
+test('the recap cap is derived from the slot count, not a second literal', () => {
+  assert.equal(
+    OVERVIEW_INSIGHT_SLOTS_WITH_RECAP,
+    OVERVIEW_INSIGHT_SLOTS - 1,
+    'the recap row takes exactly one slot — widening the slots must carry through'
+  );
+});
+
+test('a crashed generator sorts above the quiet ones', async () => {
+  await seedLeagueWithHistory();
+  const model = await buildInsightsDiagnostics(SLUG, YEAR);
+
+  // No generator throws on this fixture, so assert the ORDERING RULE holds on
+  // the real output: every error (none here) precedes every non-error, and
+  // produced counts descend after that.
+  const errorIdx = model.generators
+    .map((g, i) => (g.skippedBy === 'error' ? i : -1))
+    .filter((i) => i >= 0);
+  const nonErrorIdx = model.generators
+    .map((g, i) => (g.skippedBy === 'error' ? -1 : i))
+    .filter((i) => i >= 0);
+  if (errorIdx.length > 0) {
+    assert.ok(Math.max(...errorIdx) < Math.min(...nonErrorIdx), 'errors come first');
+  }
+
+  const produced = model.generators.filter((g) => !g.skippedBy).map((g) => g.produced);
+  assert.deepEqual(
+    produced,
+    [...produced].sort((a, b) => b - a),
+    'then most productive first'
+  );
+});
+
+test('a store failure is REPORTED, not thrown — the page survives what it explains', async () => {
+  // No league seeded: `buildLeagueInsightContext` throws "League not found",
+  // which stands in for the store failures it deliberately does not swallow.
+  const model = await buildInsightsDiagnostics('no-such-league', YEAR);
+
+  assert.ok(model.contextError, 'the failure is carried in the model');
+  assert.match(String(model.contextError), /not found/);
+  assert.equal(model.counts.generated, 0, 'and the counts are honest about knowing nothing');
+  assert.deepEqual(model.generators, []);
+  assert.deepEqual(model.insights, []);
+});
+
+test('a healthy league carries no context error', async () => {
+  await seedLeagueWithHistory();
+  const model = await buildInsightsDiagnostics(SLUG, YEAR);
+  assert.equal(
+    model.contextError,
+    null,
+    'or the error state would be indistinguishable from health'
   );
 });

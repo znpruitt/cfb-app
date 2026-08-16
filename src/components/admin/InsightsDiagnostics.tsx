@@ -70,6 +70,26 @@ export default function InsightsDiagnosticsView({
   // for INSIGHTS-023 and INSIGHTS-018.
   const poolExceedsFeed = counts.generated > counts.renderedCap;
 
+  if (model.contextError) {
+    return (
+      <div className="space-y-4">
+        <p
+          role="alert"
+          className="rounded-lg border border-red-800/40 bg-red-950/30 px-4 py-3 text-sm text-red-300"
+        >
+          The insights context could not be built for {model.slug} {model.year}, so there is nothing
+          to diagnose — and the league&apos;s feed is empty for the same reason.
+        </p>
+        <p className="font-mono text-xs text-gray-500 dark:text-zinc-400">{model.contextError}</p>
+        <p className="text-sm text-gray-500 dark:text-zinc-400">
+          This is a store read failure (owners, standings or archives), not an absence of content.
+          The public feed degrades quietly to empty in this state; this page is where it is supposed
+          to be visible.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="text-sm text-gray-500 dark:text-zinc-400">
@@ -85,8 +105,8 @@ export default function InsightsDiagnosticsView({
           value={counts.onOverview}
           label="On the Overview"
           hint={
-            counts.overviewFillerSlots > 0
-              ? `${counts.overviewFillerSlots} more slot${counts.overviewFillerSlots === 1 ? '' : 's'} filled by fallback`
+            counts.overviewSlotsUnfilledByEngine > 0
+              ? `${counts.overviewSlotsUnfilledByEngine} of ${counts.renderedCap} slots unfilled`
               : `cap ${counts.renderedCap}`
           }
         />
@@ -94,11 +114,12 @@ export default function InsightsDiagnosticsView({
 
       {/* The one conclusion the page exists to state, since INSIGHTS-023 and
           INSIGHTS-018 both turn on it. */}
-      {counts.overviewFillerSlots > 0 && (
+      {counts.overviewSlotsUnfilledByEngine > 0 && (
         <p className="text-sm text-gray-600 dark:text-zinc-300">
           The engine fills {counts.onOverview} of the Overview&apos;s {counts.renderedCap} slots.
-          The remaining {counts.overviewFillerSlots} are covered by fallback cards derived on the
-          client from standings — so the Overview looks fuller than the engine actually is.
+          The Overview may substitute fallback cards derived from standings for some of the rest, so
+          what a reader sees there is not a measure of insight coverage. It substitutes nothing
+          before any games are played.
         </p>
       )}
 

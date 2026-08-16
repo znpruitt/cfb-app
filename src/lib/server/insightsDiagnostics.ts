@@ -82,6 +82,18 @@ export type InsightsDiagnostics = {
   year: number;
   lifecycleState: LifecycleState;
   generatedAt: string;
+  /**
+   * Set when the context could not be built at all — a store failure on owners,
+   * standings or archives.
+   *
+   * `buildLeagueInsightContext` deliberately does NOT swallow those (PLATFORM-082A:
+   * failures are never cached), and production's `loadInsightsForLeague` catches
+   * them and degrades to an empty feed. This page caught nothing, so the exact
+   * scenario it exists for — feed empty, commissioner opens the diagnostic to
+   * find out why — hit a generic error boundary instead of the diagnosis. The
+   * failure with the most diagnostic value was the one it could not report.
+   */
+  contextError: string | null;
   counts: {
     generated: number;
     /** Served by the loader — all of these appear on the All Insights page. */
@@ -91,20 +103,24 @@ export type InsightsDiagnostics = {
     servedCap: number;
     renderedCap: number;
     /**
-     * Overview slots the engine could NOT fill, which `OverviewPanel` covers
-     * with client-derived filler (`deriveOverviewInsights`).
+     * Overview slots the engine did not fill. A SHORTFALL, nothing more.
      *
-     * Reported because omitting it made this page under-state the very case it
-     * exists for: with 2 engine insights it said "On the Overview: 2" while the
-     * Overview rendered 5 cards. The filler is exactly what hides a thin feed
-     * from the commissioner, so the page has to name it.
+     * Named carefully, because the first version called these "filler slots" and
+     * the page then asserted they WERE covered by fallback cards. That claim is
+     * false in the state this page exists for: `deriveLeagueInsights` returns
+     * nothing when no owner has played — the whole of preseason — so there is
+     * zero fallback then, and even in-season `deriveOverviewInsights` caps at 3,
+     * so it can never cover five slots. A preseason league with 2 engine
+     * insights would have been told 3 slots were covered while the Overview
+     * rendered exactly 2.
      *
-     * Deliberately NOT recomputed here — the filler is derived client-side from
-     * standings, and duplicating that derivation server-side would create a
-     * second implementation to keep in agreement. The SHORTFALL is the honest,
-     * verifiable fact.
+     * The derivation was always honest; the COPY went beyond it, and the copy
+     * had no test. Deliberately still not recomputed: reproducing a client-side
+     * derivation on the server would create a second implementation to keep in
+     * step, which is a new divergence rather than a fix. The page now states the
+     * shortfall and says fallback MAY substitute, without quantifying it.
      */
-    overviewFillerSlots: number;
+    overviewSlotsUnfilledByEngine: number;
   };
   generators: DiagnosticGenerator[];
   insights: DiagnosticInsight[];
@@ -173,7 +189,30 @@ export async function buildInsightsDiagnostics(
   year: number
 ): Promise<InsightsDiagnostics> {
   const currentDate = new Date();
-  const context = await buildLeagueInsightContext(slug, year, currentDate);
+
+  let context;
+  try {
+    context = await buildLeagueInsightContext(slug, year, currentDate);
+  } catch (err) {
+    // Report the failure rather than becoming one.
+    return {
+      slug,
+      year,
+      lifecycleState: 'offseason',
+      generatedAt: currentDate.toISOString(),
+      contextError: err instanceof Error ? err.message : 'unknown error',
+      counts: {
+        generated: 0,
+        served: 0,
+        onOverview: 0,
+        servedCap: MAX_SERVED_INSIGHTS,
+        renderedCap: OVERVIEW_INSIGHT_SLOTS,
+        overviewSlotsUnfilledByEngine: OVERVIEW_INSIGHT_SLOTS,
+      },
+      generators: [],
+      insights: [],
+    };
+  }
 
   // Run each generator INDIVIDUALLY rather than through `generateRawInsights`,
   // which flattens them — the attribution is the point of this page.
@@ -218,13 +257,14 @@ export async function buildInsightsDiagnostics(
     year,
     lifecycleState: context.lifecycleState,
     generatedAt: currentDate.toISOString(),
+    contextError: null,
     counts: {
       generated: allGenerated.length,
       served: served.length,
       onOverview: Math.min(served.length, renderedCap),
       servedCap: MAX_SERVED_INSIGHTS,
       renderedCap,
-      overviewFillerSlots: Math.max(0, renderedCap - served.length),
+      overviewSlotsUnfilledByEngine: Math.max(0, renderedCap - served.length),
     },
     generators: perGenerator
       .map(({ generator, produced, skippedBy }) => ({
@@ -233,8 +273,16 @@ export async function buildInsightsDiagnostics(
         produced: produced.length,
         skippedBy,
       }))
-      // Most productive first — the ones carrying the feed are what you look at.
-      .sort((a, b) => b.produced - a.produced || a.id.localeCompare(b.id)),
+      // Crashes FIRST, then most productive. A generator that threw has
+      // `produced: 0`, so productivity-only ordering sank the one signal the
+      // type comment calls "a prime cause of a thin feed" beneath a dozen quiet
+      // lifecycle-skipped rows.
+      .sort(
+        (a, b) =>
+          Number(b.skippedBy === 'error') - Number(a.skippedBy === 'error') ||
+          b.produced - a.produced ||
+          a.id.localeCompare(b.id)
+      ),
     insights,
   };
 }

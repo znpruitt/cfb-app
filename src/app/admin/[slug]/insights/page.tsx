@@ -4,6 +4,8 @@ import React from 'react';
 import Breadcrumbs from '@/components/navigation/Breadcrumbs';
 import InsightsDiagnosticsView from '@/components/admin/InsightsDiagnostics';
 import { getLeague } from '@/lib/leagueRegistry';
+import { resolveLeagueSeason } from '@/lib/leagueSeason';
+import { getDefaultRankingsSeason } from '@/lib/rankings';
 import { buildInsightsDiagnostics } from '@/lib/server/insightsDiagnostics';
 
 export const dynamic = 'force-dynamic';
@@ -31,22 +33,26 @@ export default async function AdminLeagueInsightsPage({
   if (!league) notFound();
   const definedLeague = league!;
 
-  // Use the SAME year the loader uses, deliberately.
+  // Resolve the year by CALLING what the Overview calls, not by reasoning about
+  // which year is "right".
   //
-  // The first version resolved `resolveLeagueOperatingYear` (which reads
-  // `status.year`) while `loadInsightsForLeague` defaults to `league.year`, and
-  // `buildInsightContext` sets `context.currentYear` from `league.year`
-  // regardless. On a legacy record where those disagree this page would have
-  // labelled the model with one year while parts of it were generated from
-  // another — and reported a different year than the public insights page for
-  // the same league.
+  // Two previous attempts got this wrong in opposite directions, and the two
+  // reviewers disagreed because each was correct about a different lifecycle
+  // state. `applyLifecycleStatus` sets `year: status.year` for every
+  // NON-offseason state, so `league.year` and `status.year` agree in preseason
+  // and season — but in offseason it sets `lastAuthoritativeYear(current)`,
+  // which can differ, while the Overview's resolver returns `status.year`
+  // regardless.
   //
-  // A diagnostic explains what production DOES; it does not get to pick a
-  // different input. The underlying issue — that the resolved year is not
-  // propagated through the context — is recorded in docs/next-tasks.md as its
-  // own item, because fixing it changes production insight generation and is not
-  // a diagnostic page's business.
-  const year = definedLeague.year;
+  // This page explains the Overview, so it asks for exactly the year the
+  // Overview asks for (`CFBScheduleApp` → `resolveLeagueSeason` →
+  // `/api/insights?year=`). Pinned by a test that resolves both across lifecycle
+  // states rather than asserting they agree.
+  const year = resolveLeagueSeason({
+    leagueStatus: definedLeague.status,
+    leagueYear: definedLeague.year,
+    defaultSeason: getDefaultRankingsSeason(null),
+  });
   const model = await buildInsightsDiagnostics(slug, year);
 
   return (

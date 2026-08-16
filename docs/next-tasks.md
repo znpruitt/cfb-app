@@ -986,7 +986,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Platform            | Season Launch Hardening (Draft Auth + Polling, Standings Preseason, Insights Lifecycle) | ✅ Complete           |
 | Platform            | Standings Ownership Model Redesign (Phases 0–5)                                         | ✅ Complete           |
 | Data & Intelligence | Insights Engine — Weekly In-Season Pulses (INSIGHTS-026)                                | Planned               |
-| Data & Intelligence | Insights diagnostic page (INSIGHTS-019)                                                 | ✅ Shipped            |
+| Data & Intelligence | Insights diagnostic page (INSIGHTS-019)                                                 | PR open               |
 | Data & Intelligence | Insights Panel — Microlabel Palette (INSIGHTS-017-PALETTE)                              | Planned               |
 | Data & Intelligence | Insights Ranker — Priority Tuning (INSIGHTS-RANKER-TUNING)                              | Planned               |
 | Data & Intelligence | Insights — All Insights Page (ALL-INSIGHTS-PAGE)                                        | ✅ Complete           |

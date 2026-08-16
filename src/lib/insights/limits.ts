@@ -18,5 +18,11 @@ export const OVERVIEW_INSIGHT_SLOTS = 5;
 /**
  * In `fresh_offseason` the Overview gives its first slot to the season recap
  * row, leaving one fewer for insights.
+ *
+ * DERIVED, not a second literal. This module exists because a mirrored constant
+ * drifts — and a hardcoded `4` here was exactly that: widening the slot count
+ * for INSIGHTS-023 would have left this at 4, silently misreporting one
+ * insight's fate in `fresh_offseason`. The invariant is "the recap row takes one
+ * slot", so express that.
  */
-export const OVERVIEW_INSIGHT_SLOTS_WITH_RECAP = 4;
+export const OVERVIEW_INSIGHT_SLOTS_WITH_RECAP = OVERVIEW_INSIGHT_SLOTS - 1;
