@@ -80,7 +80,7 @@ type PutOutcome = PutRefusal | { ok: true; draft: DraftState };
  */
 function applyTimerAction(
   draft: DraftState,
-  action: 'start' | 'pause' | 'resume' | 'expire'
+  action: 'start' | 'pause' | 'resume' | 'expire' | 'autoPick'
 ): ExpiryRefusal | DraftState {
   if (action === 'start' || action === 'resume') {
     if (draft.phase !== 'live') {
@@ -101,42 +101,53 @@ function applyTimerAction(
     return { ...draft, timerState: 'paused', timerExpiresAt: null };
   }
 
-  if (action !== 'expire') {
+  if (action !== 'expire' && action !== 'autoPick') {
     return { error: `Unknown timerAction: "${action}"`, status: 400 };
   }
 
-  // Accept expire from live phase (normal expiry) or paused+expired phase (commissioner
-  // clicked auto-pick in the pause-and-prompt overlay)
-  const isLiveExpire = draft.phase === 'live';
-  const isPausedExpire = draft.phase === 'paused' && draft.timerState === 'expired';
+  const alreadyExpired = draft.phase === 'paused' && draft.timerState === 'expired';
 
-  if (!isLiveExpire && !isPausedExpire) {
-    return {
-      error: `Timer expire only valid when draft is live or paused-expired (phase: ${draft.phase})`,
-      status: 422,
-    };
-  }
-
-  // For live phase, validate the timer was actually running and has elapsed.
+  // PLATFORM-102 round 6 — `expire` and `autoPick` are SEPARATE actions.
   //
-  // Under the transaction this is also what makes a buzzer-beater pick win
-  // correctly: a manual pick that commits first refreshes `timerExpiresAt`, so
-  // this read (now taken under the lock) sees a future expiry and refuses with
-  // "Timer has not expired yet" instead of overwriting the pick.
-  if (isLiveExpire) {
+  // They used to be one word meaning two things: "the clock ran out" and "yes,
+  // pick for me". The server told them apart by the state the draft was already
+  // in — so once serialization made requests take turns, a SECOND `expire` (two
+  // admin tabs both auto-fire at countdown zero, and `expireDispatchedRef` is per
+  // component instance) read the paused-expired state the first one had just
+  // committed and fell straight into the random auto-pick. Proven against a
+  // running server: two identical expires drafted a random team for an owner
+  // nobody had chosen it for.
+  //
+  // Splitting them REMOVES the path rather than guarding it. `expire` can no
+  // longer reach the picker at all, so repeating it cannot invent a pick — that
+  // is a property of the shape, not of a check I might get wrong.
+  if (action === 'expire') {
+    // Idempotent: expiring an already-expired draft is what a duplicate request
+    // IS, and the honest answer is "nothing to do". Returns the draft unchanged;
+    // the caller's write is then content-identical apart from `updatedAt`.
+    if (alreadyExpired) return draft;
+
+    if (draft.phase !== 'live') {
+      return {
+        error: `Timer expire only valid when the draft is live (phase: ${draft.phase})`,
+        status: 422,
+      };
+    }
+
+    // Validate the timer was actually running and has elapsed.
+    //
+    // Under the transaction this is also what makes a buzzer-beater pick win
+    // correctly: a manual pick that commits first refreshes `timerExpiresAt`, so
+    // this read (taken under the lock) sees a future expiry and refuses with
+    // "Timer has not expired yet" instead of overwriting the pick.
     if (!draft.timerExpiresAt) {
       return { error: 'No active timer — timerExpiresAt is null', status: 422 };
     }
     if (new Date(draft.timerExpiresAt) > new Date()) {
       return { error: 'Timer has not expired yet', status: 422 };
     }
-  }
 
-  // Paused-expired phase means the commissioner is explicitly requesting auto-pick
-  // from the pause-and-prompt overlay. Live phase means the timer expired naturally.
-  // Natural expiry always pauses and prompts — no automatic auto-pick.
-  if (isLiveExpire) {
-    // Timer expired naturally — always pause and prompt the commissioner
+    // Natural expiry ALWAYS pauses and prompts. It never picks.
     return {
       ...draft,
       phase: 'paused',
@@ -145,7 +156,15 @@ function applyTimerAction(
     };
   }
 
-  // isPausedExpire — commissioner clicked "Auto-pick" from prompt overlay.
+  // action === 'autoPick' — the commissioner clicked Auto-pick in the
+  // pause-and-prompt overlay. This is the ONLY path that selects a team.
+  if (!alreadyExpired) {
+    return {
+      error: `Auto-pick is only valid from a paused, expired timer (phase: ${draft.phase}, timer: ${draft.timerState})`,
+      status: 422,
+    };
+  }
+
   // Select a random available team.
   const { items } = teamsData as TeamsJson;
   const fbsTeams = getDraftEligibleTeams(items);
@@ -834,7 +853,7 @@ export async function PUT(
         if (typeof timerAction !== 'string') {
           return { body: { error: 'timerAction must be a string' }, status: 400 };
         }
-        const action = timerAction as 'start' | 'pause' | 'resume' | 'expire';
+        const action = timerAction as 'start' | 'pause' | 'resume' | 'expire' | 'autoPick';
 
         // PLATFORM-102 — this runs INSIDE the handler's transaction, like every
         // other branch. An earlier version of this comment claimed a bundled

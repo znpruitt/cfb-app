@@ -63,7 +63,7 @@ Rules:
   team. Reading under the lock makes the buzzer-beater win instead. All pooled I/O (body, alias map,
   confirmed roster) is hoisted above or taken inside the transaction's own client; a `max: 3` pool
   with no `connectionTimeoutMillis` deadlocks otherwise.
-- Review / verification: **four review rounds, every one finding something real.** (1) A P1 I
+- Review / verification: **six review rounds, every one finding something real.** (1) A P1 I
   introduced — pooled reads inside the lock would have frozen database access process-wide, in the
   code meant to protect the draft. (2) The deadlock guard was vacuous, matching a COMMENT rather
   than the call; a "mutation-proven" claim here covered only half of it. (3) Three successive
@@ -71,7 +71,15 @@ Rules:
   the round-boundary button — unprotected; converting the whole handler deleted the prediction. (4)
   Reopen was missed entirely by three rounds because the writer list was never derived by searching,
   and the guard iterated a hand-written list that omitted it. The guard now scans the directory.
-  Gates at each round: tsc 0, `lint:all` 0, full suite green.
+  (5) The guard's own list was hand-written, then filename-based — a Server Action writing the draft
+  from outside the API tree stayed invisible until the collector matched on CONTENT. (6) **The one
+  nobody had asked about: serialization made non-idempotent commands COMPOUND.** Making requests take
+  turns means the second acts on what the first committed — so two `expire`s (every open admin tab
+  auto-fires one at countdown zero) had the second read the paused state and take the random
+  auto-pick branch, and two Undos removed two picks. Both proven against a running server before
+  fixing. `expire` and `autoPick` are now separate actions so expiry has no path to the picker at
+  all, and Undo names the pick it removes. Gates at each round: tsc 0, `lint:all` 0, full suite
+  green; the final round also driven end-to-end over HTTP.
 - Status: Implemented — PR open. (Not merged at time of writing; this line records actual shipped
   state, per AGENTS.md, and is flipped at post-merge closeout.)
 - **The lesson worth keeping: every error was a completeness failure, not a reasoning one.** Each

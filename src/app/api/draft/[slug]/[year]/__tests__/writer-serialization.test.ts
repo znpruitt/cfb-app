@@ -379,10 +379,18 @@ test('STRUCTURAL: an owners/settings PUT goes through the draft key lock', async
   assert.equal(persisted.settings.pickTimerSeconds, 60, 'settings untouched');
 });
 
-test('a null JSON body is refused by the draft-state guards, not a crash', async () => {
+test('a null JSON body does not crash, and is an empty no-op update', async () => {
   // `JSON.parse('null')` succeeds, so the body arrives as null. Destructuring it
-  // threw a TypeError (a 500) where the state guards should answer.
-  await seedDraft(liveExpiredDraft({ phase: 'complete' }));
+  // threw a TypeError (a 500) on `main`.
+  //
+  // The first version of this test asserted only `status < 500`, which cannot
+  // tell "refused with a 4xx" from "accepted and persisted" — and review found
+  // the real answer is the latter: every branch is skipped and the handler falls
+  // through to the write. Assert what actually happens, including that the draft
+  // is unchanged apart from its timestamp, so a future change to this path is
+  // visible rather than absorbed.
+  await seedDraft(liveExpiredDraft({ phase: 'complete', timerState: 'off' }));
+  const before = await readPersisted();
 
   const res = await PUT(
     new Request(`http://localhost/api/draft/${SLUG}/${YEAR}`, {
@@ -393,7 +401,14 @@ test('a null JSON body is refused by the draft-state guards, not a crash', async
     { params }
   );
 
-  assert.ok(res.status < 500, `expected a controlled refusal, got ${res.status}`);
+  assert.equal(res.status, 200, 'no crash, and no branch fires');
+
+  const after = await readPersisted();
+  assert.deepEqual(
+    { ...after, updatedAt: before.updatedAt },
+    before,
+    'nothing changed except updatedAt'
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -407,12 +422,17 @@ test('a null JSON body is refused by the draft-state guards, not a crash', async
 // on that screen.
 // ---------------------------------------------------------------------------
 
-function postRequest(path: string): Request {
+function postRequest(path: string, body: Record<string, unknown> = {}): Request {
   return new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/${path}`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
-    body: JSON.stringify({}),
+    body: JSON.stringify(body),
   });
+}
+
+/** Undo now names the pick it removes — see the unpick route. */
+function undoRequest(expectedPickNumber: number): Request {
+  return postRequest('unpick', { expectedPickNumber });
 }
 
 test('STRUCTURAL: Undo goes through the draft key lock', async () => {
@@ -436,7 +456,7 @@ test('STRUCTURAL: Undo goes through the draft key lock', async () => {
   __setAppStateKeyLockFailureForTests(new Error('injected lock failure'), draftScope(SLUG));
 
   await assert.rejects(
-    () => UNPICK(postRequest('unpick'), { params }),
+    () => UNPICK(undoRequest(1), { params }),
     'Undo must NOT proceed to a write without the lock'
   );
 
@@ -469,6 +489,22 @@ test('STRUCTURAL: Reset goes through the draft key lock', async () => {
  */
 const UNSERIALIZED_BY_DESIGN = [{ file: 'draft/[slug]/[year]/route.ts', handler: 'POST' }];
 
+/**
+ * Does this code write the DRAFT RECORD directly?
+ *
+ * Both spellings, since TypeScript infers the type argument: the explicit
+ * `setAppState<DraftState>(...)`, and an untyped `setAppState(draftScope(...))`.
+ * Deliberately NOT "any setAppState" — widening the scan surfaced
+ * `migrateTestOwnersCsv`, which writes an owners CSV and is not this guard's
+ * business. Whitespace-tolerant because the calls are often wrapped.
+ */
+function writesDraftRecord(code: string): boolean {
+  return (
+    /\bsetAppState\s*<\s*DraftState\s*>/.test(code) ||
+    /\bsetAppState\s*\(\s*draftScope\s*\(/.test(code)
+  );
+}
+
 test('GUARD: every draft handler that writes takes the lock', () => {
   // THIRD version of this guard. The first iterated four filenames I typed by
   // hand and missed Reopen entirely. The second scanned for files but hunted for
@@ -484,32 +520,47 @@ test('GUARD: every draft handler that writes takes the lock', () => {
   // is serialized and a create handler that is deliberately not, so a file-level
   // check calls that file fine and would never notice an unprotected handler
   // added beside them.
-  const apiDir = fileURLToPath(new URL('../../../', import.meta.url));
+  // Scan from `src/app`, not just the draft API subtree. Round 4's lesson was
+  // "derive the list by searching", and the first self-deriving version still
+  // searched one folder — `src/app/admin/[slug]/actions.ts` already writes the
+  // draft record and sat outside it (transactional today, invisible to the guard
+  // regardless).
+  const appDir = fileURLToPath(new URL('../../../../../', import.meta.url));
 
-  function collectRoutes(dir: string): string[] {
+  // Collect by CONTENT, not by filename. Widening the root alone was not enough:
+  // this collector previously took only files literally named `route.ts`, so
+  // `src/app/admin/[slug]/actions.ts` — which writes the draft record through a
+  // Server Action — stayed invisible even after the root moved up. Verified: the
+  // filename-based version found 6 files and none of them was that one.
+  function collectDraftWriters(dir: string): string[] {
     const found: string[] = [];
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
         if (entry.name === '__tests__') continue;
-        found.push(...collectRoutes(full));
-      } else if (entry.name === 'route.ts') {
-        found.push(full);
+        found.push(...collectDraftWriters(full));
+      } else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')) {
+        if (readFileSync(full, 'utf8').includes('draftScope(')) found.push(full);
       }
     }
     return found;
   }
 
-  const routes = collectRoutes(apiDir);
+  const routes = collectDraftWriters(appDir);
+  assert.ok(
+    routes.some((f) => f.replace(/\\/g, '/').endsWith('admin/[slug]/actions.ts')),
+    'the scan must reach draft writers that are not named route.ts — the Server ' +
+      'Action in admin/[slug]/actions.ts is the one that exposed this'
+  );
   let handlersChecked = 0;
-  let writesDetected = 0;
 
   for (const file of routes) {
     const src = readFileSync(file, 'utf8');
-    if (!src.includes('draftScope(')) continue;
 
-    const starts = [...src.matchAll(/^export async function (GET|POST|PUT|DELETE|PATCH)\(/gm)];
-    assert.ok(starts.length > 0, `${file} has no exported handlers`);
+    // Any exported async function, not just HTTP verbs — a Server Action that
+    // writes the draft is the same hazard under a different name.
+    const starts = [...src.matchAll(/^export async function (\w+)\(/gm)];
+    assert.ok(starts.length > 0, `${file} has no exported entry points`);
 
     for (let i = 0; i < starts.length; i++) {
       const handler = starts[i]![1]!;
@@ -519,8 +570,7 @@ test('GUARD: every draft handler that writes takes the lock', () => {
       // Any spelling of a write, with or without the type argument — the second
       // version of this guard only matched `setAppState<DraftState>`, so an
       // inferred-type call (valid TS) passed silently.
-      if (!/\bsetAppState\s*[<(]/.test(body)) continue;
-      writesDetected++;
+      if (!writesDraftRecord(body)) continue;
 
       const excepted = UNSERIALIZED_BY_DESIGN.some(
         (e) => file.replace(/\\/g, '/').endsWith(e.file) && e.handler === handler
@@ -544,19 +594,34 @@ test('GUARD: every draft handler that writes takes the lock', () => {
   // which is exactly how the previous version died.
   assert.ok(handlersChecked >= 8, `expected to inspect the draft handlers, saw ${handlersChecked}`);
 
-  // THE anti-vacuity check. If the write detector matches nothing, every handler
-  // is skipped and this test is a green no-op — which is precisely how version
-  // two died. Draft creation is a known direct writer, so the detector must see
-  // at least it. A regex that stops matching fails here rather than going quiet.
-  assert.ok(
-    writesDetected >= 1,
-    'the setAppState detector matched NOTHING — the guard is blind, not clean'
-  );
+  // THE anti-vacuity check: prove the detector still detects. If it silently
+  // stops matching, every handler is skipped and this test becomes a green no-op
+  // — precisely how version two died.
+  //
+  // It is checked against a fixed SAMPLE rather than against the live code. An
+  // earlier version anchored it to draft creation being an unserialized writer,
+  // which review pointed out is a defect queued for repair (docs/next-tasks.md
+  // item 12) — so this control would have failed, claiming the guard was blind,
+  // on the day the codebase got MORE correct.
+  const MUST_MATCH = [
+    'await setAppState<DraftState>(draftScope(slug), String(year), updated);',
+    'await setAppState(draftScope(slug), String(year), updated);',
+    'await setAppState(\n      draftScope(slug),\n      String(year),\n      updated\n    );',
+  ];
+  for (const sample of MUST_MATCH) {
+    assert.ok(writesDraftRecord(sample), `the write detector no longer matches: ${sample}`);
+  }
+  const MUST_NOT_MATCH = [
+    'await txn.write<DraftState>(updated);',
+    "await setAppState(`owners:test:${toYear}`, 'csv', record.value);",
+  ];
+  for (const sample of MUST_NOT_MATCH) {
+    assert.ok(!writesDraftRecord(sample), `false positive on: ${sample}`);
+  }
 
-  assert.equal(
-    UNSERIALIZED_BY_DESIGN.length,
-    1,
-    'exactly one handler is exempt; widening this list must be deliberate'
+  assert.ok(
+    UNSERIALIZED_BY_DESIGN.length <= 1,
+    'at most one handler is exempt; widening this list must be deliberate'
   );
 });
 
@@ -578,7 +643,7 @@ test('Undo still behaves correctly through the serialized path', async () => {
     })
   );
 
-  const res = await UNPICK(postRequest('unpick'), { params });
+  const res = await UNPICK(undoRequest(1), { params });
   assert.equal(res.status, 200);
 
   const persisted = await readPersisted();
@@ -620,7 +685,8 @@ test('Undo works in a LIVE draft with the timer running, mid-round', async () =>
     })
   );
 
-  const res = await UNPICK(postRequest('unpick'), { params });
+  // 2 is this fixture's last pick.
+  const res = await UNPICK(undoRequest(2), { params });
   assert.equal(res.status, 200, 'Undo must succeed in a live draft');
 
   const persisted = await readPersisted();
@@ -642,9 +708,9 @@ test('Undo works repeatedly, and after a pick lands through the same lock', asyn
   );
 
   assert.equal((await PICK(pickRequest('Georgia'), { params })).status, 200, 'first pick');
-  assert.equal((await UNPICK(postRequest('unpick'), { params })).status, 200, 'undo it');
+  assert.equal((await UNPICK(undoRequest(1), { params })).status, 200, 'undo it');
   assert.equal((await PICK(pickRequest('Clemson'), { params })).status, 200, 'pick again');
-  assert.equal((await UNPICK(postRequest('unpick'), { params })).status, 200, 'undo again');
+  assert.equal((await UNPICK(undoRequest(1), { params })).status, 200, 'undo again');
 
   const persisted = await readPersisted();
   assert.equal(persisted.picks.length, 0);
@@ -771,4 +837,116 @@ test('a malformed PUT against a missing draft answers 404, not 400', async () =>
   );
 
   assert.equal(res.status, 404, 'the missing draft is reported before the bad body');
+});
+
+// ---------------------------------------------------------------------------
+// Round 6 — IDEMPOTENCE. Serialization made non-idempotent commands compound.
+//
+// Nobody asked "is repeating this safe?" for five rounds. Once requests take
+// turns, the second one acts on the state the first committed:
+//   - two `expire`s (every open admin tab auto-fires one at countdown zero) had
+//     the second read the paused-expired state and take the RANDOM auto-pick
+//     branch. Proven on a running server: it drafted a team nobody chose.
+//   - two Undos removed two picks, both reporting success.
+//
+// Both are fixed by shape, not by a guard: `expire` no longer has a path to the
+// picker at all, and Undo names the pick it removes.
+// ---------------------------------------------------------------------------
+
+test('IDEMPOTENCE: a repeated expire cannot auto-pick', async () => {
+  await seedDraft(liveExpiredDraft());
+
+  const first = await PUT(putRequest({ timerAction: 'expire' }), { params });
+  assert.equal(first.status, 200);
+  const afterFirst = await readPersisted();
+  assert.equal(afterFirst.phase, 'paused', 'expiry pauses');
+  assert.equal(afterFirst.timerState, 'expired', 'and prompts');
+  assert.equal(afterFirst.picks.length, 0, 'and does NOT pick');
+
+  // The second tab's auto-fire. Before the split this drafted a random team.
+  const second = await PUT(putRequest({ timerAction: 'expire' }), { params });
+  assert.equal(second.status, 200, 'a duplicate expire is accepted as a no-op');
+  const afterSecond = await readPersisted();
+  assert.equal(afterSecond.picks.length, 0, 'STILL no pick — this is the regression');
+  assert.equal(afterSecond.phase, 'paused', 'and the state is unchanged');
+  assert.equal(afterSecond.timerState, 'expired');
+});
+
+test('auto-pick is its own action, reachable only from a paused expired timer', async () => {
+  await seedDraft(liveExpiredDraft());
+
+  // Not valid while the draft is live — only the overlay offers it.
+  const tooEarly = await PUT(putRequest({ timerAction: 'autoPick' }), { params });
+  assert.equal(tooEarly.status, 422);
+
+  await PUT(putRequest({ timerAction: 'expire' }), { params });
+
+  const res = await PUT(putRequest({ timerAction: 'autoPick' }), { params });
+  assert.equal(res.status, 200, 'the commissioner can still auto-pick deliberately');
+  const persisted = await readPersisted();
+  assert.equal(persisted.picks.length, 1, 'and it does select a team');
+  assert.equal(persisted.picks[0]?.autoSelected, true, 'marked as auto-selected');
+});
+
+test('IDEMPOTENCE: a repeated Undo cannot consume a second pick', async () => {
+  await seedDraft(
+    liveExpiredDraft({
+      picks: [
+        {
+          pickNumber: 1,
+          round: 0,
+          roundPick: 0,
+          owner: 'Alice',
+          team: 'Georgia',
+          pickedAt: '2026-08-01T00:00:10.000Z',
+          autoSelected: false,
+        },
+        {
+          pickNumber: 2,
+          round: 0,
+          roundPick: 1,
+          owner: 'Bob',
+          team: 'Clemson',
+          pickedAt: '2026-08-01T00:00:20.000Z',
+          autoSelected: false,
+        },
+      ],
+      currentPickIndex: 2,
+    })
+  );
+
+  const first = await UNPICK(undoRequest(2), { params });
+  assert.equal(first.status, 200, 'the intended undo lands');
+  assert.equal((await readPersisted()).picks.length, 1);
+
+  // The same click, submitted again — second tab, or a retry after a lost
+  // response. It still names pick 2, which is gone.
+  const second = await UNPICK(undoRequest(2), { params });
+  assert.equal(second.status, 409, 'the duplicate is refused, not applied');
+  const persisted = await readPersisted();
+  assert.equal(persisted.picks.length, 1, 'Georgia survives — this is the regression');
+  assert.equal(persisted.picks[0]?.team, 'Georgia');
+});
+
+test('Undo without an expected pick number is refused rather than guessing', async () => {
+  await seedDraft(
+    liveExpiredDraft({
+      picks: [
+        {
+          pickNumber: 1,
+          round: 0,
+          roundPick: 0,
+          owner: 'Alice',
+          team: 'Georgia',
+          pickedAt: '2026-08-01T00:00:10.000Z',
+          autoSelected: false,
+        },
+      ],
+      currentPickIndex: 1,
+    })
+  );
+
+  const res = await UNPICK(postRequest('unpick'), { params });
+  assert.equal(res.status, 400, 'a stale caller must reload rather than undo blind');
+  assert.equal((await readPersisted()).picks.length, 1, 'nothing was removed');
 });

@@ -100,10 +100,16 @@ Supersedes: (none)
     - `autoCompleteDraft` (demo leagues only) commits in a transaction but derives its payload from a
       read taken before it.
 
-    A guard in `writer-serialization.test.ts` scans the draft API directory, splits each route into
-    its exported handlers, and fails if any handler calls `setAppState` directly instead of writing
+    **Commands that change a draft are idempotent or conditional** (PLATFORM-102 round 6): `expire`
+    and `autoPick` are separate actions, so a repeated expiry cannot select a team; Undo names the
+    pick it removes and refuses a duplicate. **The same treatment is still owed to `POST /pick`** —
+    see item 13 — which is the last non-idempotent draft command.
+
+    A guard in `writer-serialization.test.ts` scans `src/app` by CONTENT, splits each file into
+    its exported entry points, and fails if any of them writes the draft record directly instead of
     through the transaction accessor. One handler is exempt by name (draft creation). It reasons per
-    HANDLER because a single file can hold both a serialized and an exempt one.
+    ENTRY POINT because a single file can hold both a serialized and an exempt one, and collects by
+    content because a Server Action writing the draft is not named `route.ts`.
 
 13. **A double-submitted pick is credited to the NEXT owner** (found by review during
     PLATFORM-102, 2026-08-15; not fixed there because the fix is client-side). The route's
@@ -425,7 +431,7 @@ Supersedes: (none)
       `canPublish` is true there while `DraftSetupShell` gates Reset on `isDraftPublished` alone, so
       a naive link points at a page with no Reset control.
 
-    **Sequence this with the owner-ID work (item 15), not before it.** Every failure above is the
+    **Sequence this with the PARKED "owner identity as an ID, not a name" item, not before it.** Every failure above is the
     same fact — ownership stored as a display NAME in three records that can disagree.
 
     Sequencing against PLATFORM-097 is undecided; they are adjacent (both are draft-recovery states)
@@ -868,7 +874,7 @@ All foundational phases are complete. Work is now organized into named workstrea
 | Draft               | Slow Draft Mode                                                                         | Planned               |
 | Draft               | Draft Difficulty Settings                                                               | Planned               |
 | Platform            | League State vs Season State separation                                                 | Planned — deliberate fork; see `docs/roadmap.md` |
-| Platform            | Multi-tenant Commissioner Sign-up                                                       | Planned — carries the league-deletion/data-retention question (item 13) |
+| Platform            | Multi-tenant Commissioner Sign-up                                                       | Planned — carries the "League deletion does not delete data" question |
 | Platform            | Server Action Auth Hardening                                                            | Planned               |
 | Platform            | Provider Refresh Observability (PLATFORM-086A)                                          | ✅ Complete (PR #391) |
 | Platform            | Provider Automation & Correctness (PLATFORM-086B–I)                                     | ✅ Complete           |

@@ -33,6 +33,40 @@ export async function POST(
     return NextResponse.json({ error: `League "${slug}" not found` }, { status: 404 });
   }
 
+  // PLATFORM-102 round 6 — Undo names the pick it is undoing.
+  //
+  // "Remove the last pick" is not idempotent: the same click submitted twice —
+  // two tabs, or a retry after a lost response — removed TWO picks, both
+  // reporting success. Serialization is what made them compound, because the
+  // second request now reads the state the first one committed. Proven against a
+  // running server.
+  //
+  // The caller sends the pick number it can SEE. If that is no longer the last
+  // pick, the board has moved on and the request is refused rather than applied
+  // to whatever happens to be on top. A duplicate therefore names a pick that is
+  // already gone and is refused — the second press does nothing.
+  //
+  // A caller that sends nothing is refused too, deliberately: a stale tab must
+  // reload before it can undo. That fails safe (Undo does not work until
+  // refreshed) rather than silently eating an extra pick.
+  let expectedPickNumber: unknown;
+  try {
+    const body = (await req.json()) as { expectedPickNumber?: unknown } | null;
+    expectedPickNumber = body?.expectedPickNumber;
+  } catch {
+    expectedPickNumber = undefined;
+  }
+  if (typeof expectedPickNumber !== 'number' || !Number.isFinite(expectedPickNumber)) {
+    return NextResponse.json(
+      {
+        error:
+          'expectedPickNumber is required — reload the draft board if this control is out of date',
+        field: 'expectedPickNumber',
+      },
+      { status: 400 }
+    );
+  }
+
   // PLATFORM-102 round 3 — Undo reads and writes inside one key transaction.
   //
   // It was scoped out of rounds 1 and 2 on the reasoning that Undo is pressed
@@ -58,6 +92,14 @@ export async function POST(
 
       if (draft.picks.length === 0) {
         return { error: 'No picks to undo', status: 422 };
+      }
+
+      const lastPick = draft.picks[draft.picks.length - 1]!;
+      if (lastPick.pickNumber !== expectedPickNumber) {
+        return {
+          error: `The board has moved on — pick ${expectedPickNumber} is no longer the last pick (it is now ${lastPick.pickNumber}). Refresh and try again.`,
+          status: 409,
+        };
       }
 
       const newPicks = draft.picks.slice(0, -1);

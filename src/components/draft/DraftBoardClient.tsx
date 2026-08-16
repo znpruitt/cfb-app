@@ -252,14 +252,14 @@ export default function DraftBoardClient({
     }
   }
 
-  async function draftPost(path: string) {
+  async function draftPost(path: string, body: Record<string, unknown> = {}) {
     setControlsLoading(true);
     try {
       const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
       const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}/${path}`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', ...authHeaders },
-        body: '{}',
+        body: JSON.stringify(body),
       });
       const data = (await res.json()) as { draft?: DraftState };
       if (res.ok && data.draft) {
@@ -293,10 +293,18 @@ export default function DraftBoardClient({
   }
 
   function handleUndo() {
-    void draftPost('unpick');
+    // PLATFORM-102 — name the pick being undone, so a duplicate press (second
+    // tab, retry after a lost response) is refused instead of eating the pick
+    // BEFORE the one on screen.
+    const lastPick = draft.picks[draft.picks.length - 1];
+    if (!lastPick) return;
+    void draftPost('unpick', { expectedPickNumber: lastPick.pickNumber });
   }
   function handleAutoPick() {
-    void draftPut({ timerAction: 'expire' });
+    // Distinct from the countdown's `expire`. One word for both meant a second
+    // expire — every open admin tab fires one at zero — read the paused state
+    // the first had committed and auto-picked a random team.
+    void draftPut({ timerAction: 'autoPick' });
   }
   function handleSelectManually() {
     void draftPut({ phase: 'live' });
