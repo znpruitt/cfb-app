@@ -104,6 +104,22 @@ export type InsightContext = {
   historicalRosters: Record<number, Map<string, string>>;
   rankings: RankingsResponse | null;
   currentRoster: Map<string, string>;
+  /**
+   * INSIGHTS-023a — who is IN the league this season, from the confirmed owner
+   * list. The answer to "should we speak about this owner at all".
+   *
+   * Distinct from `currentRoster`, which answers "who owns which team" and only
+   * exists after a draft. Five generators used to reconstruct membership from
+   * that map — `new Set(currentRoster.values())` copied into four files plus one
+   * inline — which meant that before a draft they were filtering against LAST
+   * season's owners, since `currentRoster` falls back to the most recent archive
+   * when the current-year CSV is absent.
+   *
+   * Empty when the league has neither a confirmed owner list nor an owners CSV.
+   * Member-filtered generators then produce nothing, which is the owner's ruling
+   * (2026-08-16): fewer insights and right, rather than guessing from stale data.
+   */
+  leagueMembers: ReadonlySet<string>;
   // true when currentRoster was borrowed from the most recent season archive
   // because the current-year owners CSV is empty (fresh_offseason rollover window).
   usingArchivedRoster: boolean;

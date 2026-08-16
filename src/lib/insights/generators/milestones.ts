@@ -9,7 +9,6 @@ import type {
 } from '../types';
 import { collectHeadToHead, type HeadToHeadResult } from './rivalry';
 
-const NO_CLAIM_OWNER = 'NoClaim';
 const TIE_SUPPRESSION_THRESHOLD = 4;
 
 const EVERGREEN_LIFECYCLES: LifecycleState[] = [
@@ -32,10 +31,18 @@ function ownerSlug(owner: string): string {
   return owner.trim().toLowerCase().replace(/\s+/gu, '-');
 }
 
-function activeOwnerSet(currentRoster: Map<string, string>): Set<string> {
-  const set = new Set(currentRoster.values());
-  set.delete(NO_CLAIM_OWNER);
-  return set;
+/**
+ * INSIGHTS-023a — who is in the league this season.
+ *
+ * Was `new Set(currentRoster.values())` minus NoClaim, copied identically into
+ * four generator files plus one inline. That reconstructs MEMBERSHIP from TEAM
+ * ASSIGNMENTS, and before a draft there are none — `currentRoster` falls back to
+ * the most recent archive — so every member filter was running against LAST
+ * season's owners. The confirmed owner list answers the question directly, and
+ * already drops NoClaim on the CSV path.
+ */
+function leagueMembers(context: InsightContext): ReadonlySet<string> {
+  return context.leagueMembers;
 }
 
 function formatNumber(n: number): string {
@@ -113,7 +120,7 @@ function evaluateMilestones(
 // === A. Career Milestone Watch ===
 
 function deriveMilestoneWatch(context: InsightContext): Insight | null {
-  const active = activeOwnerSet(context.currentRoster);
+  const active = leagueMembers(context);
   const activeStats = context.ownerCareerStats.filter((s) => active.has(s.owner));
   if (activeStats.length === 0) return null;
 
@@ -189,7 +196,7 @@ function countWins(results: HeadToHeadResult[]): Map<string, number> {
 function derivePerfectAgainst(context: InsightContext): Insight | null {
   if (context.archives.length === 0) return null;
   const pairs = collectHeadToHead(context.archives, context.historicalRosters);
-  const active = activeOwnerSet(context.currentRoster);
+  const active = leagueMembers(context);
 
   type Entry = { dominant: string; loser: string; wins: number; meetings: number };
   const entries: Entry[] = [];

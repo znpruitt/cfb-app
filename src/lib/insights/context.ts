@@ -346,7 +346,12 @@ export async function buildInsightContext(
   seasonContext: SeasonContext,
   rankings: RankingsResponse | null,
   currentRoster: Map<string, string>,
-  currentDate: Date
+  currentDate: Date,
+  /**
+   * The league's confirmed owner names. Passed in rather than read here so this
+   * module keeps doing no store access of its own.
+   */
+  confirmedOwners: readonly string[] = []
 ): Promise<InsightContext> {
   const regularWeeks = deriveRegularWeeks(games);
   const currentWeek = chooseDefaultWeek({ games, regularWeeks });
@@ -404,6 +409,7 @@ export async function buildInsightContext(
     rankings,
     currentRoster: resolvedRoster,
     usingArchivedRoster,
+    leagueMembers: new Set(confirmedOwners),
     records,
   };
 }

@@ -713,10 +713,20 @@ Supersedes: (none)
 
     - **INSIGHTS-023a — give the engine the league's membership.** Add the confirmed owner list to
       `InsightContext`, replace the five duplicated derivations with it, and narrow
-      `usingArchivedRoster` to its content-safety meaning. **No gate changes and no new content: the
-      served feed must be IDENTICAL afterwards**, which the INSIGHTS-019 page makes verifiable rather
-      than asserted. Fall back to the existing `currentRoster` derivation when no confirmed list
-      exists, so legacy leagues are unaffected.
+      `usingArchivedRoster` to its content-safety meaning. No gate changes, no new generators.
+
+      **Acceptance criterion, corrected 2026-08-16 (owner).** The original read "the served feed must
+      be IDENTICAL afterwards". That was written before the audit established that
+      `context.currentRoster` is the RESOLVED roster — borrowed from last season's archive whenever
+      the current-year CSV is absent, which is every league before its draft. Membership is therefore
+      filtered against LAST season's owners today, so a feed that stayed identical would be a feed
+      that stayed wrong. The real bar: **identical where membership is unchanged, and demonstrably
+      corrected where it changed** — a departed owner no longer named as active, a current owner no
+      longer excluded. The INSIGHTS-019 page makes the before/after measurable rather than asserted.
+
+      **When a league has neither a confirmed list nor a CSV** (owner ruling, 2026-08-16): serve
+      FEWER insights and be right. Membership is empty, so member-filtered generators produce
+      nothing, rather than guessing from whatever stale data exists.
     - **INSIGHTS-023b — the gates.** Apply the two-question rule above once membership is correct.
       Measure generated/served/shown before and after.
 

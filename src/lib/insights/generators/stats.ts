@@ -23,7 +23,6 @@ function frameStatsInsights(insights: Insight[], context: InsightContext): Insig
   return insights.map(applyLastSeasonFraming);
 }
 
-const NO_CLAIM_OWNER = 'NoClaim';
 const TIE_SUPPRESSION_THRESHOLD = 4;
 
 const STATS_LIFECYCLES: LifecycleState[] = [
@@ -50,10 +49,18 @@ function ownerSlug(owner: string): string {
   return owner.trim().toLowerCase().replace(/\s+/gu, '-');
 }
 
-function activeOwnerSet(currentRoster: Map<string, string>): Set<string> {
-  const set = new Set(currentRoster.values());
-  set.delete(NO_CLAIM_OWNER);
-  return set;
+/**
+ * INSIGHTS-023a — who is in the league this season.
+ *
+ * Was `new Set(currentRoster.values())` minus NoClaim, copied identically into
+ * four generator files plus one inline. That reconstructs MEMBERSHIP from TEAM
+ * ASSIGNMENTS, and before a draft there are none — `currentRoster` falls back to
+ * the most recent archive — so every member filter was running against LAST
+ * season's owners. The confirmed owner list answers the question directly, and
+ * already drops NoClaim on the CSV path.
+ */
+function leagueMembers(context: InsightContext): ReadonlySet<string> {
+  return context.leagueMembers;
 }
 
 function formatOwnerList(owners: string[]): string {
@@ -86,7 +93,7 @@ function toInsight(params: {
 
 function activeSeasonStats(context: InsightContext): OwnerSeasonStats[] {
   if (!context.ownerGameStats) return [];
-  const active = activeOwnerSet(context.currentRoster);
+  const active = leagueMembers(context);
   return context.ownerGameStats.filter((s) => active.has(s.owner));
 }
 

@@ -118,6 +118,13 @@ function makeContext(overrides: Partial<InsightContext> = {}): InsightContext {
     historicalRosters: overrides.historicalRosters ?? {},
     rankings: overrides.rankings ?? null,
     currentRoster: overrides.currentRoster ?? new Map(),
+    // INSIGHTS-023a — membership defaults to the owners in the roster map so
+    // these fixtures keep meaning what they meant: they were written when
+    // generators derived membership from `currentRoster`, and the point of the
+    // slice is that PRODUCTION no longer does, not that these cases changed.
+    leagueMembers:
+      overrides.leagueMembers ??
+      new Set([...(overrides.currentRoster ?? new Map()).values()].filter((o) => o !== 'NoClaim')),
     usingArchivedRoster: overrides.usingArchivedRoster ?? false,
     records: overrides.records ?? { career: [], season: [], rivalry: [], event: [] },
   };

@@ -56,10 +56,18 @@ function ownerSlug(owner: string): string {
   return owner.trim().toLowerCase().replace(/\s+/gu, '-');
 }
 
-function activeOwnerSet(currentRoster: Map<string, string>): Set<string> {
-  const set = new Set(currentRoster.values());
-  set.delete(NO_CLAIM_OWNER);
-  return set;
+/**
+ * INSIGHTS-023a — who is in the league this season.
+ *
+ * Was `new Set(currentRoster.values())` minus NoClaim, copied identically into
+ * four generator files plus one inline. That reconstructs MEMBERSHIP from TEAM
+ * ASSIGNMENTS, and before a draft there are none — `currentRoster` falls back to
+ * the most recent archive — so every member filter was running against LAST
+ * season's owners. The confirmed owner list answers the question directly, and
+ * already drops NoClaim on the CSV path.
+ */
+function leagueMembers(context: InsightContext): ReadonlySet<string> {
+  return context.leagueMembers;
 }
 
 function formatOwnerList(owners: string[]): string {
@@ -141,7 +149,7 @@ function priorLeaderByTurnoverMargin(
 ): { owner: string; margin: number } | null {
   // Approximation: subtract this season's single-season stats from current career
   // totals for each owner that played this year.
-  const active = activeOwnerSet(context.currentRoster);
+  const active = leagueMembers(context);
   const currentYearStats = context.ownerGameStats ?? [];
   const currentByOwner = new Map(currentYearStats.map((s) => [s.owner, s]));
 
@@ -158,7 +166,7 @@ function priorLeaderByTurnoverMargin(
 }
 
 function activeCareerStats(context: InsightContext, minSeasons = 0): OwnerCareerStats[] {
-  const active = activeOwnerSet(context.currentRoster);
+  const active = leagueMembers(context);
   return context.ownerCareerStats.filter((s) => active.has(s.owner) && s.seasons >= minSeasons);
 }
 
@@ -573,7 +581,7 @@ function deriveTitleChaser(context: InsightContext): Insight | null {
 // === F. Rookie Owner Benchmark ===
 
 function deriveRookieBenchmark(context: InsightContext): Insight | null {
-  const active = activeOwnerSet(context.currentRoster);
+  const active = leagueMembers(context);
   const rookies = context.ownerCareerStats.filter(
     (s) => active.has(s.owner) && s.isRookie && s.finishHistory.length >= 1
   );
@@ -630,7 +638,7 @@ function deriveRookieBenchmark(context: InsightContext): Insight | null {
 function deriveGreatestSingleSeason(context: InsightContext): Insight | null {
   type Candidate = { owner: string; year: number; winPct: number; games: number };
   const candidates: Candidate[] = [];
-  const activeOwners = activeOwnerSet(context.currentRoster);
+  const activeOwners = leagueMembers(context);
 
   for (const archive of context.archives) {
     for (const row of archive.finalStandings) {

@@ -9,6 +9,7 @@ import {
 } from '@/lib/insights/engine';
 import '@/lib/insights/generators';
 import { getLeague } from '@/lib/leagueRegistry';
+import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import { loadSeasonRankings } from '@/lib/server/rankings';
 import { getAppState } from '@/lib/server/appStateStore';
@@ -168,15 +169,27 @@ export async function buildLeagueInsightContext(
     throw new Error(`League '${slug}' not found`);
   }
 
-  const [csvText, scheduleItems, teams, scopedAliasMap, manualOverrides, rankings] =
-    await Promise.all([
-      loadOwnersCsv(slug, resolvedYear),
-      loadCachedScheduleItems(resolvedYear).catch(() => []),
-      getTeamDatabaseItems().catch(() => [] as Awaited<ReturnType<typeof getTeamDatabaseItems>>),
-      getScopedAliasMap(slug, resolvedYear).catch(() => ({}) as AliasMap),
-      loadPostseasonOverrides(slug, resolvedYear).catch(() => ({})),
-      loadSeasonRankings(resolvedYear).catch(() => null),
-    ]);
+  const [
+    csvText,
+    scheduleItems,
+    teams,
+    scopedAliasMap,
+    manualOverrides,
+    rankings,
+    confirmedRoster,
+  ] = await Promise.all([
+    loadOwnersCsv(slug, resolvedYear),
+    loadCachedScheduleItems(resolvedYear).catch(() => []),
+    getTeamDatabaseItems().catch(() => [] as Awaited<ReturnType<typeof getTeamDatabaseItems>>),
+    getScopedAliasMap(slug, resolvedYear).catch(() => ({}) as AliasMap),
+    loadPostseasonOverrides(slug, resolvedYear).catch(() => ({})),
+    loadSeasonRankings(resolvedYear).catch(() => null),
+    // A store failure here must NOT degrade membership to "nobody" — that
+    // would silently empty every member-filtered insight and look identical
+    // to a league with no confirmed owners. Let it propagate, like the other
+    // authoritative reads (PLATFORM-084A: failures are never cached).
+    getConfirmedRoster(slug, resolvedYear),
+  ]);
 
   const roster = parseOwnersCsv(csvText ?? '');
   const currentRoster = new Map(roster.map((r) => [r.team, r.owner]));
@@ -219,7 +232,11 @@ export async function buildLeagueInsightContext(
     seasonContext,
     rankings,
     currentRoster,
-    currentDate
+    currentDate,
+    // INSIGHTS-023a — the league's MEMBERSHIP, which is a different question
+    // from who owns which team. Read here rather than in `context.ts` so that
+    // module keeps doing no store access of its own.
+    confirmedRoster.owners
   );
 }
 
