@@ -1,7 +1,7 @@
 import type { Insight } from '../../selectors/insights';
 import type { SeasonArchive } from '../../seasonArchive';
 import { registerGenerator } from '../engine';
-import { membershipIsKnown, resolveSuperlative } from '../superlative';
+import { formatHolderNames, membershipIsKnown, resolveSuperlative } from '../superlative';
 import type {
   InsightContext,
   InsightGenerator,
@@ -242,7 +242,9 @@ function deriveDynastyInsight(
   const titleHolders =
     dynastyStanding && dynastyStanding.standing !== 'holds' ? dynastyStanding.recordHolders : [];
   const titleRecord = titleHolders.length > 0;
-  const titleHolderNames = titleHolders.map((h) => h.owner).join(' and ');
+  // `formatHolderNames`, not `join(' and ')` — three co-holders printed "Dave and
+  // Erin and Frank's 3".
+  const titleHolderNames = formatHolderNames(titleHolders);
   const titleRecordText = titleRecord
     ? ` ${titleHolderNames}'s ${titleHolders[0]!.value} remains the league record.`
     : '';
@@ -263,7 +265,7 @@ function deriveDynastyInsight(
     return toInsight({
       id: `historical-dynasty-${ownerSlug(topOwner)}`,
       type: 'dynasty',
-      title: 'Dynasty on record',
+      title: dynastyStanding?.standing === 'holds' ? 'Dynasty on record' : 'Title count',
       description,
       owner: topOwner,
       priorityScore: priority,
@@ -300,7 +302,7 @@ function deriveDynastyInsight(
   return toInsight({
     id: `historical-dynasty-${tied.map(ownerSlug).join('-')}`,
     type: 'dynasty',
-    title: 'Dynasty on record',
+    title: dynastyStanding?.standing === 'holds' ? 'Dynasty on record' : 'Title count',
     description,
     owner: tied[0],
     relatedOwners: tied.slice(1),

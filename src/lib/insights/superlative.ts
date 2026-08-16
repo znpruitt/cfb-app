@@ -159,3 +159,30 @@ export function resolveSuperlative<T>(params: {
 export function membershipIsKnown(source: LeagueMembersSource): boolean {
   return source === 'confirmed' || source === 'official-roster';
 }
+
+/**
+ * Every record holder, named — never just the first.
+ *
+ * Four separate sites formatted this list themselves and three got it wrong in
+ * the same way: `historical` joined with `' and '` and produced "Dave and Erin
+ * and Frank's 3", while `rivalry` and `greatest_season` took `recordHolders[0]`
+ * so a four-way tie read as a two-way one. `career.ts` had a correct
+ * `formatOwnerList` the whole time and it simply was not shared.
+ *
+ * Holder formatting lives here now for the same reason the population does: a
+ * thing every call site re-derives is a thing every call site can get wrong.
+ */
+export function formatOwnerList(owners: readonly string[]): string {
+  if (owners.length === 0) return '';
+  if (owners.length === 1) return owners[0]!;
+  if (owners.length === 2) return `${owners[0]} and ${owners[1]}`;
+  return `${owners.slice(0, -1).join(', ')}, and ${owners[owners.length - 1]}`;
+}
+
+/**
+ * The holders' names, possessive, ready to carry a figure:
+ * "Dave's", "Dave and Erin's", "Dave, Erin, and Frank's".
+ */
+export function formatHolderNames(holders: readonly RecordHolder<unknown>[]): string {
+  return formatOwnerList(holders.map((h) => h.owner));
+}

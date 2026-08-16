@@ -962,12 +962,26 @@ Supersedes: (none)
     than patching it a third time.
 
     - **The live defect it removes** (found by BOTH reviewers, 2026-08-16, reproduced by direct call):
-      the threshold measures `clean(resolvedRoster.values())`, one entry per TEAM. This is a
+      the threshold measured `clean(resolvedRoster.values())`, one entry per TEAM.
+      **✅ FIXED 2026-08-16 in INSIGHTS-030** (`new Set(...).size`), because it stopped being
+      cosmetic: `membershipIsKnown` reads this label to decide whether copy may name who is playing,
+      so a partially entered roster licensed "Alice leads active owners" while the real owners were
+      not yet in it. Deferring a label as cosmetic is safe only until something makes it
+      load-bearing. The rest of this item — deleting `partial-roster` — still stands. This is a
       multi-round snake draft, so one owner routinely holds several teams — `{Georgia→Alice,
       Clemson→Alice}` counts as 2 and reports `official-roster` for a one-person league. It also puts
       the classifier at odds with `selectConfirmedRoster`, which dedupes via `cleanOwnerNames` before
       applying the same constant. Unreachable for any league with a confirmed owner list, and it
       affects a caption only — membership itself is correct, because `new Set` dedupes.
+    - **`resolveSuperlative` is a SECOND record authority** (Codex, 2026-08-16). `selectAllRecords`
+      is already on `InsightContext` and is canonical, and the two disagree on eligibility today:
+      canonical `career_points` includes one-season owners while the generator requires two, and the
+      canonical rivalry record needs two meetings while `lopsided` needs four. So History and
+      Insights can name different record holders for the same league. **Pre-existing** — those
+      per-generator filters predate INSIGHTS-030, which corrected the POPULATION each is measured
+      over without touching which authority computes it — and converging them changes which records
+      get named, so it was deliberately not folded into that slice. Belongs with the relocation
+      below: both are "Insights derives things outside `selectors/`".
     - **Move `resolveLeagueMembers` into `src/lib/selectors/`** (Codex, AGENTS.md invariant 9: a pure
       derivation outside `selectors/` is an architecture violation). It belongs beside
       `confirmedRoster.ts`, whose `MIN_CONFIRMED_OWNERS` contract it re-applies. Note `context.ts`

@@ -3,7 +3,7 @@ import type { AppGame } from '../../schedule';
 import type { ScorePack } from '../../scores';
 import type { SeasonArchive } from '../../seasonArchive';
 import { registerGenerator } from '../engine';
-import { membershipIsKnown, resolveSuperlative } from '../superlative';
+import { formatOwnerList, membershipIsKnown, resolveSuperlative } from '../superlative';
 import type {
   InsightContext,
   InsightGenerator,
@@ -245,9 +245,13 @@ function deriveLopsidedInsight(
 
   const hook: NewsHook = recordPair ? 'streak_extended' : 'new_record';
 
-  const recordText = recordPair
-    ? `${recordPair.dominant}'s ${recordPair.wins}–${recordPair.losses} over ${recordPair.loser}`
-    : '';
+  // EVERY pair level at the record, not just the first. With Dave 6–0 over Carol
+  // and Erin 6–0 over Frank both at the top, naming one of them attributed sole
+  // possession to a co-holder.
+  const holderPairs = lopsidedStanding?.recordHolders.map((h) => h.entry) ?? [];
+  const recordText = formatOwnerList(
+    holderPairs.map((p) => `${p.dominant}'s ${p.wins}–${p.losses} over ${p.loser}`)
+  );
   const description = !recordPair
     ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry on record.`
     : lopsidedStanding?.standing === 'shares'
@@ -259,7 +263,7 @@ function deriveLopsidedInsight(
   return toInsight({
     id: `rivalry-lopsided-${ownerSlug(bestDominant)}-${ownerSlug(bestLoser)}`,
     type: 'lopsided_rivalry',
-    title: 'Most lopsided rivalry',
+    title: lopsidedStanding?.standing === 'holds' ? 'Most lopsided rivalry' : 'Lopsided rivalry',
     description,
     owner: bestDominant,
     relatedOwners: [bestLoser],

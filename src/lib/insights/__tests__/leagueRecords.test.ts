@@ -431,7 +431,7 @@ test('greatest season: a member’s best is not the league record while Dave’s
     /remains the best single-season performance on record/,
     'that phrase belongs to Dave’s season, not hers'
   );
-  assert.match(season, /Dave's \.818 in 2021 remains the league record/);
+  assert.match(season, /Dave's 2021 at \.818 remains the league record/);
 });
 
 test('dynasty: the most titles of anyone STILL PLAYING, with the record named', async () => {
@@ -566,7 +566,10 @@ test('with membership UNKNOWN, the copy claims nothing about who is playing', as
   for (const insight of insights) {
     assert.doesNotMatch(
       insight.description,
-      /(active owners|still playing)/i,
+      // `active owners?` — SINGULAR too. Greatest-season emits "the best by any
+      // active owner", which the plural-only regex could not see, leaving the
+      // one site this guard exists to backstop unguarded.
+      /(active owners?|still playing)/i,
       `participation claim with membership unknown, from ${insight.type}: ${insight.description}`
     );
   }
@@ -738,6 +741,113 @@ test('the sweep admits the shared-record copy it is meant to allow', async () =>
       consistency,
       /the most ever/,
       'the known tie-copy gap: still claiming the record outright while level'
+    );
+  }
+});
+
+/**
+ * THREE departed owners level at the top of every record.
+ *
+ * No fixture had more than one co-holder, which is why four separate sites
+ * formatted the holder list by hand and three got it wrong: dynasty joined with
+ * `' and '` ("Dave and Erin and Frank's 3"), rivalry and greatest-season took
+ * `recordHolders[0]` so a multi-way tie read as a single holder.
+ */
+async function seedThreeCoHolders(): Promise<void> {
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Co-holders League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    foundedYear: 2022,
+    status: { state: 'offseason' },
+  });
+
+  // Dave, Erin and Frank take three titles EACH; Alice takes two. Alice needs at
+  // least two or `deriveDynastyInsight` returns null and the multi-holder copy
+  // this fixture exists to exercise never renders — the first version of this
+  // seed gave her none and the test failed for that reason, not for the defect.
+  const CHAMPIONS = [
+    'Dave',
+    'Erin',
+    'Frank',
+    'Dave',
+    'Erin',
+    'Frank',
+    'Dave',
+    'Erin',
+    'Frank',
+    'Alice',
+    'Alice',
+  ];
+  const ORDER: Record<number, string[]> = {};
+  CHAMPIONS.forEach((champion, i) => {
+    const rest = ['Dave', 'Erin', 'Frank', 'Alice'].filter((o) => o !== champion);
+    ORDER[2015 + i] = [champion, ...rest];
+  });
+  const PTS = [900, 700, 500, 300];
+  const REC = [
+    { wins: 80, losses: 30 },
+    { wins: 70, losses: 40 },
+    { wins: 60, losses: 50 },
+    { wins: 50, losses: 60 },
+  ];
+  for (const [yearText, order] of Object.entries(ORDER)) {
+    const year = Number(yearText);
+    await seedArchive(
+      year,
+      order.map((owner, rank) => ({
+        owner,
+        wins: REC[rank]!.wins,
+        losses: REC[rank]!.losses,
+        pointsFor: PTS[rank]!,
+      }))
+    );
+  }
+  await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob']);
+}
+
+test('three co-holders are all named, and named grammatically', async () => {
+  await seedThreeCoHolders();
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  const insights = generateRawInsights(context);
+
+  const dynasty = describe(insights, 'dynasty');
+  assert.ok(dynasty, 'the dynasty insight must exist for this fixture');
+  assert.doesNotMatch(dynasty, / and \w+ and /, 'no "Dave and Erin and Frank"');
+  assert.match(dynasty, /Dave, Erin, and Frank/, 'the shared list formatter, not a join');
+
+  // Nothing anywhere may name only the first of several holders.
+  for (const insight of insights) {
+    if (!/remains the league record|is the league record|level with/.test(insight.description)) {
+      continue;
+    }
+    for (const owner of ['Dave', 'Erin', 'Frank']) {
+      assert.match(
+        insight.description,
+        new RegExp(owner),
+        `${insight.type} cites some co-holders but not ${owner}: ${insight.description}`
+      );
+    }
+  }
+});
+
+test('a title stops claiming the record when the body has retracted it', async () => {
+  // The headline renders directly above the description on the Overview card, so
+  // a static "Career points leader" over a body naming Dave as the record holder
+  // put the claim back on screen one line above its own retraction.
+  await seedDepartedRecordHolder();
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  const insights = generateRawInsights(context);
+
+  for (const insight of insights) {
+    if (!/remains the league record|is the league record|still stands/.test(insight.description)) {
+      continue;
+    }
+    assert.doesNotMatch(
+      insight.title,
+      /(leader|greatest|most lopsided|dynasty)/i,
+      `title re-asserts what the body retracts: "${insight.title}" / ${insight.description}`
     );
   }
 });

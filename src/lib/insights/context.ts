@@ -439,7 +439,16 @@ export function resolveLeagueMembers(params: {
     if (fromCurrent.length > 0) {
       return {
         members: new Set(fromCurrent),
-        source: fromCurrent.length >= MIN_CONFIRMED_OWNERS ? 'official-roster' : 'partial-roster',
+        // DISTINCT owners, not team rows. `resolvedRoster.values()` yields one
+        // entry per TEAM and this is a multi-round snake draft, so one owner
+        // holding two teams counted as two and a one-person roster reported as a
+        // full one. Found in INSIGHTS-023a and deferred as a mislabelled caption
+        // — which stopped being true when `membershipIsKnown` began reading this
+        // label to decide whether copy may name who is playing. A partially
+        // entered roster then licensed "Alice leads active owners" while the
+        // real owners sat unentered.
+        source:
+          new Set(fromCurrent).size >= MIN_CONFIRMED_OWNERS ? 'official-roster' : 'partial-roster',
       };
     }
   }

@@ -1,6 +1,11 @@
 import type { Insight } from '../../selectors/insights';
 import { registerGenerator } from '../engine';
-import { membershipIsKnown, resolveSuperlative, type RecordHolder } from '../superlative';
+import {
+  formatOwnerList,
+  membershipIsKnown,
+  resolveSuperlative,
+  type RecordHolder,
+} from '../superlative';
 import type {
   InsightContext,
   InsightGenerator,
@@ -86,13 +91,6 @@ function clauseFor(
   const clause = recordClause(holders, render);
   if (!clause) return '';
   return known ? clause.active : clause.neutral;
-}
-
-function formatOwnerList(owners: string[]): string {
-  if (owners.length === 0) return '';
-  if (owners.length === 1) return owners[0]!;
-  if (owners.length === 2) return `${owners[0]} and ${owners[1]}`;
-  return `${owners.slice(0, -1).join(', ')}, and ${owners[owners.length - 1]}`;
 }
 
 function formatNumber(n: number): string {
@@ -344,7 +342,11 @@ function deriveCareerPointsLeader(context: InsightContext): Insight | null {
   return toInsight({
     id: `career-points-leader-${ownerNames.map(ownerSlug).join('-')}`,
     type: 'career_points_leader',
-    title: 'Career points leader',
+    // The TITLE follows the standing. It is rendered directly above the
+    // description on the Overview card, so a static "Career points leader" over
+    // a body that says Dave holds the record had the headline re-asserting the
+    // exact claim the body retracts.
+    title: standing?.standing === 'holds' ? 'Career points leader' : 'Career points',
     description,
     owner: ownerNames[0],
     relatedOwners: ownerNames.slice(1),
@@ -759,22 +761,25 @@ function deriveGreatestSingleSeason(context: InsightContext): Insight | null {
   // single-season performance on record" — the very defect this module documents
   // — and because the comparison is on the DISPLAYED rate, a departed owner with
   // a strictly higher raw rate that rounds the same took a member with it.
-  const recordSeason = seasonStanding?.recordHolders[0]?.entry ?? null;
+  const recordSeasons = seasonStanding?.recordHolders.map((h) => h.entry) ?? [];
+  const recordSeason = recordSeasons[0] ?? null;
   const seasonShares = seasonStanding?.standing === 'shares';
+  // All of them. Four owners level at .727 read as a two-way tie.
+  const recordSeasonText = formatOwnerList(recordSeasons.map((c) => `${c.owner}'s ${c.year}`));
 
   const bestSeason = `${best.owner}'s ${best.year} season (${winRate(best.winPct)} win rate across ${best.games} games)`;
   const description = !recordSeason
     ? `${bestSeason} remains the best single-season performance on record.`
     : seasonShares
-      ? `${bestSeason} is level with ${recordSeason.owner}'s ${recordSeason.year} as the best single-season performance in league history.`
+      ? `${bestSeason} is level with ${recordSeasonText} as the best single-season performance in league history.`
       : seasonKnown
-        ? `${bestSeason} is the best by any active owner — ${recordSeason.owner}'s ${winRate(recordSeason.winPct)} in ${recordSeason.year} remains the league record.`
-        : `${bestSeason}; ${recordSeason.owner}'s ${winRate(recordSeason.winPct)} in ${recordSeason.year} is the league record.`;
+        ? `${bestSeason} is the best by any active owner — ${recordSeasonText} at ${winRate(recordSeason.winPct)} remains the league record.`
+        : `${bestSeason}; ${recordSeasonText} at ${winRate(recordSeason.winPct)} is the league record.`;
 
   return toInsight({
     id: `greatest-season-${ownerSlug(best.owner)}-${best.year}`,
     type: 'greatest_season',
-    title: 'Greatest single season',
+    title: seasonStanding?.standing === 'holds' ? 'Greatest single season' : 'Standout season',
     description,
     owner: best.owner,
     priorityScore: 62,
