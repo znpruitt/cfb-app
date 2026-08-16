@@ -78,7 +78,7 @@ Rules:
   reason it had escaped was that no fixture reached the state: nothing reached `shares`, nothing had
   three co-holders, nothing had multiple names on both sides. **The coverage gap was the defect; the
   findings were symptoms.**
-- Status: MERGED — PR #484 (`<COMMIT>`), 2026-08-16.
+- Status: MERGED — PR #484 (`94e0d6da`), 2026-08-16. Six remediation rounds.
 - **Two judgements recorded because they were wrong when made.** A label I filed as cosmetic in
   023a (`official-roster` counting team rows, not owners) stopped being cosmetic the moment
   `membershipIsKnown` read it to decide whether copy may name who is playing — a deferral is safe

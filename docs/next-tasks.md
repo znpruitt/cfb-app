@@ -853,7 +853,11 @@ Supersedes: (none)
     of the 13 `currentRoster` consumers need the MAP and which only need the owner SET, and who else
     reads `usingArchivedRoster`.
 
-33. **INSIGHTS-030 — league-record superlatives computed over the wrong population** (found while
+33. ✅ **INSIGHTS-030 — COMPLETE** (PR #484, `94e0d6da`, 2026-08-16). Four of the five sites fixed;
+    `career:turnover_margin` cut from scope and still open below, alongside the eligibility-floor
+    qualifier and the participation-claim class in the untouched generators. Original entry follows.
+
+    **INSIGHTS-030 — league-record superlatives computed over the wrong population** (found while
     fixing the one instance INSIGHTS-023a caused, 2026-08-16; the rest PREDATE 023a and are live on
     `main`).
 
