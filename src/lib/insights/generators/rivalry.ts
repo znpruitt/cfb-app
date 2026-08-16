@@ -234,10 +234,13 @@ function deriveLopsidedInsight(
     value: (p) => p.diff,
     owner: (p) => p.dominant,
   });
-  const recordPair =
-    lopsidedStanding && lopsidedStanding.standing !== 'holds'
-      ? qualifying.reduce((max, p) => (p.diff > max.diff ? p : max), qualifying[0]!)
-      : null;
+  // Taken from `recordHolders`, NOT re-derived. The reduce that used to sit here
+  // scanned the whole population with no membership filter and kept the FIRST
+  // entry at the max — so in the `shares` state, where a member pair and a
+  // departed pair are level, insertion order decided and the copy cited the
+  // member pair against itself: "Alice leads Bob 5–0, level with Alice's 5–0
+  // over Bob". `resolveSuperlative` had already computed the right partition.
+  const recordPair = lopsidedStanding?.recordHolders[0]?.entry ?? null;
   const rivalryKnown = membershipIsKnown(membersSource);
 
   const hook: NewsHook = recordPair ? 'streak_extended' : 'new_record';

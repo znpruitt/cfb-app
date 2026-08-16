@@ -43,7 +43,18 @@ import type { LeagueMembersSource } from './types';
  */
 export type SuperlativeStanding = 'holds' | 'shares' | 'trails';
 
-export type RecordHolder = { owner: string; value: number };
+/**
+ * A record holder, WITH the entry it came from.
+ *
+ * The entry is here because callers need more than a name and a number to write
+ * the sentence — the pair's scoreline, the season's year and game count. Two
+ * sites went back to the population to re-find it and both got it wrong: rivalry
+ * reduced over everyone with no membership filter and cited the member pair
+ * against ITSELF, and greatest-season only looked on `trails`, so a shared
+ * record silently kept the untouched "remains the best on record". Handing back
+ * what was already found removes the reason to look again.
+ */
+export type RecordHolder<T = unknown> = { entry: T; owner: string; value: number };
 
 export type SuperlativeResult<T> = {
   /** The best entry among members. Never a non-member. */
@@ -54,7 +65,7 @@ export type SuperlativeResult<T> = {
    * populated for both `shares` and `trails`, because in each case there is
    * someone outside the league whose figure the copy has to account for.
    */
-  recordHolders: RecordHolder[];
+  recordHolders: RecordHolder<T>[];
 };
 
 /**
@@ -112,9 +123,9 @@ export function resolveSuperlative<T>(params: {
   // these are co-holders; when it trails they are the holders. A member can
   // never appear here: `best` is the member extreme, so a member at the record
   // value IS `best`.
-  const outsideHolders = population
+  const outsideHolders: RecordHolder<T>[] = population
     .filter((entry) => !isMember(entry) && compareOn(entry) === recordValue)
-    .map((entry) => ({ owner: owner(entry), value: value(entry) }));
+    .map((entry) => ({ entry, owner: owner(entry), value: value(entry) }));
 
   if (bestValue === recordValue) {
     return {

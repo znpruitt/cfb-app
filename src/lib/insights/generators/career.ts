@@ -289,10 +289,15 @@ function deriveCareerPointsLeader(context: InsightContext): Insight | null {
   if (standing?.standing === 'shares') {
     // Tied with someone outside the league. Neither "takes the all-time lead"
     // nor "someone beat you" is true, which is why `shares` is its own state.
+    // ONE wording for both registers. The first version had a `membersKnown`
+    // split whose known branch read "Alice share the all-time scoring lead" —
+    // ungrammatical for a single owner — and matched none of the sweep's
+    // allowlist because it phrased the shared state differently from the other
+    // three sites. A shared record needs no membership register: naming both
+    // holders as level asserts nothing about who is playing.
     const names = formatOwnerList(ownerNames);
-    description = membersKnown
-      ? `${names} share the all-time scoring lead with ${formatOwnerList(holders.map((h) => h.owner))} at ${formatNumber(leaderPoints)} career league points.`
-      : `${names} and ${formatOwnerList(holders.map((h) => h.owner))} are level at ${formatNumber(leaderPoints)} career league points, the most in league history.`;
+    const withNames = formatOwnerList(holders.map((h) => h.owner));
+    description = `${names} ${tied.length > 1 ? 'are' : 'is'} level with ${withNames} at ${formatNumber(leaderPoints)} career league points, the most in league history.`;
   } else if (pointsClause) {
     // The five movement hooks below all narrate the ALL-TIME race — "extends the
     // lead", "reclaims", "the closest it's ever been". Every one is false when
@@ -749,20 +754,22 @@ function deriveGreatestSingleSeason(context: InsightContext): Insight | null {
     compareOn: (c) => displayedRate(c.winPct),
   });
   const seasonKnown = membershipIsKnown(context.leagueMembersSource);
-  const recordSeason =
-    seasonStanding?.standing === 'trails'
-      ? population.find(
-          (c) =>
-            c.owner === seasonStanding.recordHolders[0]?.owner &&
-            displayedRate(c.winPct) === displayedRate(seasonStanding.recordHolders[0]!.value)
-        )
-      : null;
+  // From `recordHolders`, and NOT gated on `trails`. Gating it there left the
+  // `shares` state falling through to the untouched "remains the best
+  // single-season performance on record" — the very defect this module documents
+  // — and because the comparison is on the DISPLAYED rate, a departed owner with
+  // a strictly higher raw rate that rounds the same took a member with it.
+  const recordSeason = seasonStanding?.recordHolders[0]?.entry ?? null;
+  const seasonShares = seasonStanding?.standing === 'shares';
 
-  const description = recordSeason
-    ? seasonKnown
-      ? `${best.owner}'s ${best.year} season (${winRate(best.winPct)} win rate across ${best.games} games) is the best by any active owner — ${recordSeason.owner}'s ${winRate(recordSeason.winPct)} in ${recordSeason.year} remains the league record.`
-      : `${best.owner}'s ${best.year} season (${winRate(best.winPct)} win rate across ${best.games} games); ${recordSeason.owner}'s ${winRate(recordSeason.winPct)} in ${recordSeason.year} is the league record.`
-    : `${best.owner}'s ${best.year} season (${winRate(best.winPct)} win rate across ${best.games} games) remains the best single-season performance on record.`;
+  const bestSeason = `${best.owner}'s ${best.year} season (${winRate(best.winPct)} win rate across ${best.games} games)`;
+  const description = !recordSeason
+    ? `${bestSeason} remains the best single-season performance on record.`
+    : seasonShares
+      ? `${bestSeason} is level with ${recordSeason.owner}'s ${recordSeason.year} as the best single-season performance in league history.`
+      : seasonKnown
+        ? `${bestSeason} is the best by any active owner — ${recordSeason.owner}'s ${winRate(recordSeason.winPct)} in ${recordSeason.year} remains the league record.`
+        : `${bestSeason}; ${recordSeason.owner}'s ${winRate(recordSeason.winPct)} in ${recordSeason.year} is the league record.`;
 
   return toInsight({
     id: `greatest-season-${ownerSlug(best.owner)}-${best.year}`,

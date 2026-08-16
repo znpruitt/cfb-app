@@ -908,6 +908,17 @@ Supersedes: (none)
     `if (margin)` that passed on a null every time — which is why this note is explicit. The fix is
     the same shape as `career:points_leader`, through `resolveSuperlative`; the work is the fixture.
 
+    **`historical:consistency` tie copy — NEW, found 2026-08-16 by the shared-record fixture, and
+    PRE-EXISTING on `main`.** Not one of the five sites: its record already spans the full
+    population, correctly. But `isRecord = maxCount >= allTimeMax` means a member merely LEVEL with a
+    departed owner prints "Alice finishes top-3 again — 4 times in league history, the most ever",
+    claiming outright what she shares. Defensible (nobody has more) but it reads as sole possession,
+    and the four fixed sites now say "level with" in that state, so consistency is the odd one out.
+    Pinned by an assertion in `leagueRecords.test.ts` so the exclusion is visible rather than silent;
+    when the copy is fixed that assertion fails and should be deleted. Check
+    `rivalry:dominance_streak` and `historical:improvement` for the same `>=` tie shape at the same
+    time.
+
     **The structural fix worth considering over five point fixes:** a superlative helper that takes
     the claim population and the naming population as separate arguments, so the distinction cannot be
     collapsed again by the next generator anyone writes. Every one of the seven correct sites hand-

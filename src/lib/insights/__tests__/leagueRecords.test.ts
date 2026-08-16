@@ -235,7 +235,14 @@ test('resolveSuperlative separates who may be named from what the record spans',
 
   assert.equal(result?.best.owner, 'Alice', 'names the best MEMBER');
   assert.equal(result?.standing, 'trails');
-  assert.deepEqual(result?.recordHolders, [{ owner: 'Dave', value: 100 }]);
+  assert.deepEqual(
+    result?.recordHolders.map((h) => ({ owner: h.owner, value: h.value })),
+    [{ owner: 'Dave', value: 100 }]
+  );
+  // The ENTRY comes back too. Callers need the rest of it — a rivalry's
+  // scoreline, a season's year — and the two that went back to the population to
+  // re-find it both got it wrong.
+  assert.deepEqual(result?.recordHolders[0]?.entry, { owner: 'Dave', v: 100 });
 });
 
 test('a member level with a departed holder SHARES — neither takes nor loses it', () => {
@@ -252,7 +259,10 @@ test('a member level with a departed holder SHARES — neither takes nor loses i
   });
 
   assert.equal(result?.standing, 'shares');
-  assert.deepEqual(result?.recordHolders, [{ owner: 'Dave', value: 100 }]);
+  assert.deepEqual(
+    result?.recordHolders.map((h) => ({ owner: h.owner, value: h.value })),
+    [{ owner: 'Dave', value: 100 }]
+  );
 });
 
 test('a record held only by members is HELD, and cites nobody', () => {
@@ -284,7 +294,10 @@ test('direction min finds the lowest, not the highest', () => {
   });
 
   assert.equal(result?.standing, 'trails');
-  assert.deepEqual(result?.recordHolders, [{ owner: 'Dave', value: 1 }]);
+  assert.deepEqual(
+    result?.recordHolders.map((h) => ({ owner: h.owner, value: h.value })),
+    [{ owner: 'Dave', value: 1 }]
+  );
 });
 
 test('a member can never be cited as the record holder', () => {
@@ -460,9 +473,13 @@ test('every generated insight in this state is free of a stolen record claim', a
     if (!superlative.test(insight.description)) continue;
     // A superlative is allowed ONLY when it is Dave's record being cited, or
     // when the sentence scopes itself to current owners.
-    const scoped = /(active owners|still playing|remains the league record|still stands)/i.test(
-      insight.description
-    );
+    // `level`/`are level on` admit the SHARES copy. Without them the sweep failed
+    // on correct sentences the moment a fixture reached that state — and a guard
+    // that fails on correct output teaches the next reader to weaken it.
+    const scoped =
+      /(active owners|still playing|remains the league record|still stands|is the league record|level with|are level)/i.test(
+        insight.description
+      );
     assert.ok(scoped, `unscoped league-record claim from ${insight.type}: ${insight.description}`);
   }
 });
@@ -559,4 +576,168 @@ test('with membership UNKNOWN, the copy claims nothing about who is playing', as
   assert.ok(points, 'the insight still runs');
   assert.doesNotMatch(points, /all-time (lead|scoring)/, 'and does not steal the record');
   assert.match(points, /is the league record/, 'it states both figures instead');
+});
+
+/**
+ * A league where a DEPARTED owner and a MEMBER are exactly level at the top of
+ * every record — the `shares` state.
+ *
+ * No fixture reached this state before, which is why three defects lived in it:
+ * rivalry cited the member pair against itself, greatest-season fell through to
+ * the untouched "remains the best on record", and the sweep's allowlist admitted
+ * none of the shared-record copy. `trails` was the only path anything exercised.
+ *
+ * Dave and Alice each take two titles, identical points, identical best seasons.
+ * The member rivalry is seeded FIRST each year, because insertion order is what
+ * decided the self-referential citation.
+ */
+async function seedSharedRecord(): Promise<void> {
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Shared League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    foundedYear: 2022,
+    status: { state: 'offseason' },
+  });
+
+  const ORDER: Record<number, string[]> = {
+    2022: ['Dave', 'Alice', 'Bob', 'Carol'],
+    2023: ['Alice', 'Dave', 'Carol', 'Bob'],
+    2024: ['Dave', 'Alice', 'Bob', 'Carol'],
+    2025: ['Alice', 'Dave', 'Carol', 'Bob'],
+  };
+  const PTS = [900, 700, 500, 300];
+  const REC = [
+    { wins: 80, losses: 30 },
+    { wins: 70, losses: 40 },
+    { wins: 60, losses: 50 },
+    { wins: 50, losses: 60 },
+  ];
+
+  for (const [yearText, order] of Object.entries(ORDER)) {
+    const year = Number(yearText);
+    await seedArchive(
+      year,
+      order.map((owner, rank) => ({
+        owner,
+        wins: REC[rank]!.wins,
+        losses: REC[rank]!.losses,
+        pointsFor: PTS[rank]!,
+      })),
+      [
+        // Member pair FIRST — the ordering that produced the self-citation.
+        meeting(year, 'Alice', 'Bob', 30, 10),
+        meeting(year, 'Dave', 'Carol', 30, 10),
+      ]
+    );
+  }
+
+  // Membership is KNOWN and Dave is not in it.
+  await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob', 'Carol']);
+}
+
+test('SHARES: a level rivalry names the OTHER pair, never itself', async () => {
+  await seedSharedRecord();
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  const insights = generateRawInsights(context);
+
+  const lopsided = describe(insights, 'lopsided_rivalry');
+  assert.ok(lopsided, 'the rivalry insight must exist for this fixture');
+  assert.match(lopsided, /Alice leads Bob 4–0/, 'the member pair is the one named');
+  assert.match(lopsided, /Dave's 4–0 over Carol/, 'and the outside pair is the co-holder');
+  assert.doesNotMatch(
+    lopsided,
+    /level with Alice's .* over Bob/,
+    'the sentence must not cite the named pair against itself'
+  );
+});
+
+test('SHARES: a level season is not announced as the outright record', async () => {
+  await seedSharedRecord();
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  const insights = generateRawInsights(context);
+
+  const season = describe(insights, 'greatest_season');
+  assert.ok(season, 'the greatest-season insight must exist for this fixture');
+  assert.doesNotMatch(
+    season,
+    /remains the best single-season performance on record/,
+    'Dave is level with her — she did not set it alone'
+  );
+  assert.match(season, /is level with Dave's/, 'the shared holder is named');
+});
+
+test('SHARES: career points and titles say level, not taken', async () => {
+  await seedSharedRecord();
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  const insights = generateRawInsights(context);
+
+  const points = describe(insights, 'career_points_leader');
+  assert.ok(points, 'the points insight must exist for this fixture');
+  assert.doesNotMatch(
+    points,
+    /takes the all-time scoring lead/,
+    'she shares it, she did not take it'
+  );
+  assert.match(points, /Dave/, 'and the co-holder is named');
+
+  const dynasty = describe(insights, 'dynasty');
+  // Unguarded, and the negative assertion here was WRONG the first time: it
+  // rejected "the most in league history", but with both names in the sentence
+  // that phrase is TRUE — they are jointly the most in league history. The claim
+  // to reject is sole possession, not the superlative.
+  assert.ok(dynasty, 'the dynasty insight must exist for this fixture');
+  assert.match(dynasty, /Alice and Dave are level on 2 league titles/);
+  assert.doesNotMatch(dynasty, /the most of anyone still playing/, 'not a trails claim');
+});
+
+test('the sweep admits the shared-record copy it is meant to allow', async () => {
+  // The sweep runs over the DEPARTED fixture, so it never saw `shares` copy and
+  // its allowlist silently excluded all three shared sentences. Running it over
+  // the shared fixture is what proves the allowlist matches reality rather than
+  // matching whatever the one fixture happened to produce.
+  await seedSharedRecord();
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  const insights = generateRawInsights(context);
+
+  const superlative =
+    /(in league history|the most ever|the most consistent|the best single-season|the largest career|the most lopsided|all-time)/i;
+  const scoped =
+    /(active owners|still playing|remains the league record|still stands|is the league record|level with|are level)/i;
+
+  const FIXED_BY_THIS_SLICE = new Set([
+    'career_points_leader',
+    'dynasty',
+    'greatest_season',
+    'lopsided_rivalry',
+  ]);
+
+  let checked = 0;
+  for (const insight of insights) {
+    if (!FIXED_BY_THIS_SLICE.has(insight.type)) continue;
+    if (!superlative.test(insight.description)) continue;
+    checked += 1;
+    assert.ok(
+      scoped.test(insight.description),
+      `shared-record copy rejected by the sweep, from ${insight.type}: ${insight.description}`
+    );
+  }
+  assert.ok(checked >= 2, `expected shared superlative copy to inspect, saw ${checked}`);
+
+  // `consistency` is EXCLUDED, and this assertion pins why rather than letting
+  // the exclusion be silent. Its record already spans the full population — it
+  // is not one of this slice's five sites — but its `maxCount >= allTimeMax`
+  // tie-handling prints "the most ever" without naming the owner who is level.
+  // Pre-existing on `main`; this fixture is simply the first to create the tie.
+  // Filed in docs/next-tasks.md. If this assertion starts failing, the copy was
+  // fixed and the exclusion should go.
+  const consistency = describe(insights, 'consistency');
+  if (consistency) {
+    assert.match(
+      consistency,
+      /the most ever/,
+      'the known tie-copy gap: still claiming the record outright while level'
+    );
+  }
 });
