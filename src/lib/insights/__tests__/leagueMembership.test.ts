@@ -663,3 +663,32 @@ test('GUARD: the loader reads the owners row exactly once', () => {
   );
   assert.ok(src.length > 1000, 'and the source must actually have been read');
 });
+
+test('one owner holding two teams is a PARTIAL roster, not an official one', async () => {
+  // `resolvedRoster.values()` yields one entry per TEAM, and this is a
+  // multi-round snake draft, so one owner routinely holds several. Counting rows
+  // reported a one-person roster as a full one.
+  //
+  // Filed as cosmetic in INSIGHTS-023a — a caption on an admin page. That stopped
+  // being true in INSIGHTS-030, where `membershipIsKnown` reads this label to
+  // decide whether insight copy may name who is playing: a partially entered
+  // roster licensed "Alice leads active owners" while the real owners were not
+  // yet in it. Restoring the row count leaves the suite green without this test.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Members League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'season', year: YEAR },
+  });
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', 'team,owner\nGeorgia,Alice\nClemson,Alice');
+
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+
+  assert.deepEqual([...context.leagueMembers], ['Alice'], 'one person is in this league');
+  assert.equal(
+    context.leagueMembersSource,
+    'partial-roster',
+    'two teams held by one owner is not a two-owner roster'
+  );
+});

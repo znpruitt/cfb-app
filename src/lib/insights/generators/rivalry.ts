@@ -3,7 +3,14 @@ import type { AppGame } from '../../schedule';
 import type { ScorePack } from '../../scores';
 import type { SeasonArchive } from '../../seasonArchive';
 import { registerGenerator } from '../engine';
-import type { InsightContext, InsightGenerator, LifecycleState, NewsHook } from '../types';
+import { formatOwnerList, holderVerb, membershipIsKnown, resolveSuperlative } from '../superlative';
+import type {
+  InsightContext,
+  InsightGenerator,
+  LeagueMembersSource,
+  LifecycleState,
+  NewsHook,
+} from '../types';
 
 const RIVALRY_LIFECYCLES: LifecycleState[] = [
   'early_season',
@@ -157,7 +164,8 @@ function countWins(results: HeadToHeadResult[]): Map<string, number> {
 function deriveLopsidedInsight(
   pairs: Map<string, HeadToHeadResult[]>,
   activeOwners: ReadonlySet<string>,
-  lifecycles: LifecycleState[]
+  lifecycles: LifecycleState[],
+  membersSource: LeagueMembersSource
 ): Insight | null {
   let bestKey: string | null = null;
   let bestDiff = 0;
@@ -197,27 +205,71 @@ function deriveLopsidedInsight(
     LOPSIDED_BASE_PRIORITY + LOPSIDED_PER_WIN_DIFF_BONUS * bestDiff
   );
 
-  // Compute all-time max win differential across every qualifying pair.
-  let allTimeMaxDiff = 0;
+  // INSIGHTS-030 — the league's most lopsided series, across EVERY qualifying
+  // pair. The member filter that used to sit in this loop made the record mean
+  // "most lopsided among pairs still playing", so the copy called a member's
+  // series the most lopsided on record while a departed pair's was worse.
+  //
+  // Pair-shaped rather than owner-shaped, so the record holder is two names and
+  // a scoreline. `resolveSuperlative` decides WHETHER the named pair holds it;
+  // the entry itself carries what the citation needs.
+  type PairRecord = { dominant: string; loser: string; diff: number; wins: number; losses: number };
+  const qualifying: PairRecord[] = [];
   for (const [key, results] of pairs) {
     if (results.length < MIN_LOPSIDED_MEETINGS) continue;
     const [a, b] = pairOwners(key);
-    if (!activeOwners.has(a) || !activeOwners.has(b)) continue;
     const wins = countWins(results);
-    const diff = Math.abs((wins.get(a) ?? 0) - (wins.get(b) ?? 0));
-    if (diff > allTimeMaxDiff) allTimeMaxDiff = diff;
+    const aWins = wins.get(a) ?? 0;
+    const bWins = wins.get(b) ?? 0;
+    qualifying.push(
+      aWins >= bWins
+        ? { dominant: a, loser: b, diff: aWins - bWins, wins: aWins, losses: bWins }
+        : { dominant: b, loser: a, diff: bWins - aWins, wins: bWins, losses: aWins }
+    );
   }
-  const hook: NewsHook = bestDiff >= allTimeMaxDiff ? 'new_record' : 'streak_extended';
 
-  const description =
-    hook === 'new_record'
-      ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry on record.`
-      : `${bestDominant} extends the all-time series lead over ${bestLoser} to ${bestDominantWins}–${bestLoserWins}.`;
+  const lopsidedStanding = resolveSuperlative({
+    population: qualifying,
+    isMember: (p) => activeOwners.has(p.dominant) && activeOwners.has(p.loser),
+    value: (p) => p.diff,
+    owner: (p) => p.dominant,
+  });
+  // Taken from `recordHolders`, NOT re-derived. The reduce that used to sit here
+  // scanned the whole population with no membership filter and kept the FIRST
+  // entry at the max — so in the `shares` state, where a member pair and a
+  // departed pair are level, insertion order decided and the copy cited the
+  // member pair against itself: "Alice leads Bob 5–0, level with Alice's 5–0
+  // over Bob". `resolveSuperlative` had already computed the right partition.
+  const recordPair = lopsidedStanding?.recordHolders[0]?.entry ?? null;
+  const rivalryKnown = membershipIsKnown(membersSource);
+
+  const hook: NewsHook = recordPair ? 'streak_extended' : 'new_record';
+
+  // EVERY pair level at the record, not just the first. With Dave 6–0 over Carol
+  // and Erin 6–0 over Frank both at the top, naming one of them attributed sole
+  // possession to a co-holder.
+  const holderPairs = lopsidedStanding?.recordHolders.map((h) => h.entry) ?? [];
+  const recordText = formatOwnerList(
+    holderPairs.map((p) => `${p.dominant}'s ${p.wins}–${p.losses} series over ${p.loser}`)
+  );
+  // Each series is wrapped so a multi-pair list cannot be misread: without it,
+  // "Dave's 6–0 over Carol and Erin's 6–0 over Frank" parses as one opponent
+  // phrase. The verb agrees with the number of pairs.
+  const holders = lopsidedStanding?.recordHolders ?? [];
+  const remains = holderVerb(holders, 'remains', 'remain');
+  const isAre = holderVerb(holders, 'is', 'are');
+  const description = !recordPair
+    ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry on record.`
+    : lopsidedStanding?.standing === 'shares'
+      ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins}, level with ${recordText}.`
+      : rivalryKnown
+        ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry among active owners. ${recordText} ${remains} the league record.`
+        : `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins}; ${recordText} ${isAre} the league record.`;
 
   return toInsight({
     id: `rivalry-lopsided-${ownerSlug(bestDominant)}-${ownerSlug(bestLoser)}`,
     type: 'lopsided_rivalry',
-    title: 'Most lopsided rivalry',
+    title: lopsidedStanding?.standing === 'holds' ? 'Most lopsided rivalry' : 'Lopsided rivalry',
     description,
     owner: bestDominant,
     relatedOwners: [bestLoser],
@@ -391,7 +443,12 @@ export const rivalryGenerator: InsightGenerator = {
     const activeOwners = context.leagueMembers;
 
     const insights: Insight[] = [];
-    const lopsided = deriveLopsidedInsight(pairs, activeOwners, RIVALRY_LIFECYCLES);
+    const lopsided = deriveLopsidedInsight(
+      pairs,
+      activeOwners,
+      RIVALRY_LIFECYCLES,
+      context.leagueMembersSource
+    );
     if (lopsided) insights.push(lopsided);
 
     const even = deriveEvenRivalryInsight(pairs, activeOwners, RIVALRY_LIFECYCLES);

@@ -896,6 +896,56 @@ Supersedes: (none)
     call, not a mechanical edit. The owner should rule on whether a departed owner's record should
     still be quotable at all.
 
+    **STATUS 2026-08-16: four of the five are fixed on `insights/030-league-record-population`;
+    `career:turnover_margin` is NOT and is the remaining work here.** It carries the identical
+    defect — "the largest career turnover margin on record" measured against members only — and was
+    omitted rather than fixed because it cannot be covered from an archive fixture:
+    `totalTurnoverMargin` accumulates from cached game-stats partitions gated behind archive slate
+    provenance (`assembleArchiveAnalyticsProvenance` needs `archive.gameStatSlate`, and
+    `listCachedGameStatsWeeks` needs seeded `game-stats::<year>:<week>:<seasonType>` rows). That is a
+    different subsystem from the archives the other four read. AGENTS.md → Scope and sizing allows
+    cover-it or omit-it; a version of the branch took a third option — a test wrapped in
+    `if (margin)` that passed on a null every time — which is why this note is explicit. The fix is
+    the same shape as `career:points_leader`, through `resolveSuperlative`; the work is the fixture.
+
+    **`historical:consistency` tie copy — NEW, found 2026-08-16 by the shared-record fixture, and
+    PRE-EXISTING on `main`.** Not one of the five sites: its record already spans the full
+    population, correctly. But `isRecord = maxCount >= allTimeMax` means a member merely LEVEL with a
+    departed owner prints "Alice finishes top-3 again — 4 times in league history, the most ever",
+    claiming outright what she shares. Defensible (nobody has more) but it reads as sole possession,
+    and the four fixed sites now say "level with" in that state, so consistency is the odd one out.
+    Pinned by an assertion in `leagueRecords.test.ts` so the exclusion is visible rather than silent;
+    when the copy is fixed that assertion fails and should be deleted. Check
+    `rivalry:dominance_streak` and `historical:improvement` for the same `>=` tie shape at the same
+    time.
+
+    **Member-scoped superlatives and participation claims OUTSIDE the five sites** (found by review
+    during INSIGHTS-030, 2026-08-16; all PRE-EXISTING). The 030 sweep and its participation guard
+    cover the phrasings that slice introduced and no more — verified, and its comments now say so
+    rather than claiming to backstop everything:
+    - `drought` — "the longest **active** drought in the league", emitted in the `previous-roster`
+      state, is a present-tense participation claim from archived data. Same class as the copy 030
+      gated behind `membershipIsKnown`, in a generator 030 did not touch.
+    - `volatility` — "nobody swings harder year to year". Its RECORD population is correct (verified
+      twice), but the phrase is a league-wide superlative the sweep's pattern cannot see.
+    - `trending` — "the league's steadiest ascent"; `title_chaser` — "the league's reigning
+      bridesmaids". Same shape.
+
+    Each needs its own copy decision, which is why they were not widened into 030's guard.
+
+    **REMAINING after INSIGHTS-030: the eligibility floor is invisible to the copy** (Codex,
+    2026-08-16). Each generator filters its population by a floor — two career seasons, 100 games in
+    a season, four meetings for a rivalry — and then says "leads active owners". A member below the
+    floor is dropped before the comparison, so the claim quantifies over a set the reader does not
+    know was narrowed. Judged NOT a merge blocker and the reasoning is recorded so it is not
+    re-litigated: career totals accumulate, so a one-season member cannot out-score a veteran; drafts
+    produce equal-size rosters, so the 100-game floor includes or excludes everyone together rather
+    than discriminating between members; and the four-meeting floor is what DEFINES a rivalry, so
+    "the most lopsided rivalry" reasonably means "among series that qualify". Reachable only on
+    contrived data. The fix is copy — drop the "active owners" quantifier for the non-holding state,
+    which the unknown-membership register already does — not a wider population, since widening
+    reintroduces the round-2 defect where a one-season member was cited as a DEPARTED record holder.
+
     **The structural fix worth considering over five point fixes:** a superlative helper that takes
     the claim population and the naming population as separate arguments, so the distinction cannot be
     collapsed again by the next generator anyone writes. Every one of the seven correct sites hand-
@@ -939,12 +989,30 @@ Supersedes: (none)
     than patching it a third time.
 
     - **The live defect it removes** (found by BOTH reviewers, 2026-08-16, reproduced by direct call):
-      the threshold measures `clean(resolvedRoster.values())`, one entry per TEAM. This is a
-      multi-round snake draft, so one owner routinely holds several teams — `{Georgia→Alice,
-      Clemson→Alice}` counts as 2 and reports `official-roster` for a one-person league. It also puts
-      the classifier at odds with `selectConfirmedRoster`, which dedupes via `cleanOwnerNames` before
-      applying the same constant. Unreachable for any league with a confirmed owner list, and it
-      affects a caption only — membership itself is correct, because `new Set` dedupes.
+      the threshold measured `clean(resolvedRoster.values())`, one entry per TEAM.
+      **✅ FIXED 2026-08-16 in INSIGHTS-030** (`new Set(...).size`), because it stopped being
+      cosmetic: `membershipIsKnown` reads this label to decide whether copy may name who is playing,
+      so a partially entered roster licensed "Alice leads active owners" while the real owners were
+      not yet in it. Deferring a label as cosmetic is safe only until something makes it
+      load-bearing. The rest of this item — deleting `partial-roster` — still stands.
+
+      What it WAS, for the record: this is a multi-round snake draft, so one owner routinely holds
+      several teams, and `{Georgia→Alice, Clemson→Alice}` counted as 2 and reported
+      `official-roster` for a one-person league. That also put the classifier at odds with
+      `selectConfirmedRoster`, which dedupes via `cleanOwnerNames` before applying the same
+      constant. Membership itself was always correct — `new Set` dedupes — which is why it was
+      first judged to affect a caption only. Both of those sentences were left in the PRESENT tense
+      beside the ✅ marker that falsified them; a status flip has to correct the description it sits
+      on, not just prepend to it.
+    - **`resolveSuperlative` is a SECOND record authority** (Codex, 2026-08-16). `selectAllRecords`
+      is already on `InsightContext` and is canonical, and the two disagree on eligibility today:
+      canonical `career_points` includes one-season owners while the generator requires two, and the
+      canonical rivalry record needs two meetings while `lopsided` needs four. So History and
+      Insights can name different record holders for the same league. **Pre-existing** — those
+      per-generator filters predate INSIGHTS-030, which corrected the POPULATION each is measured
+      over without touching which authority computes it — and converging them changes which records
+      get named, so it was deliberately not folded into that slice. Belongs with the relocation
+      below: both are "Insights derives things outside `selectors/`".
     - **Move `resolveLeagueMembers` into `src/lib/selectors/`** (Codex, AGENTS.md invariant 9: a pure
       derivation outside `selectors/` is an architecture violation). It belongs beside
       `confirmedRoster.ts`, whose `MIN_CONFIRMED_OWNERS` contract it re-applies. Note `context.ts`
