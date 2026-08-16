@@ -85,25 +85,24 @@ Supersedes: (none)
     pre-draft repair roster as the draft's output, and HID the app's only publish button at the exact
     moment a draft became publishable. v1 was abandoned after two remediation rounds and rebuilt from
     clean `main`; both post-mortems are in `docs/prompt-registry.md`.
-12. **Draft-writer serialization** (follow-up, pre-existing). Draft routes were plain whole-record
-    read-then-writes, so two concurrent writers clobber each other and a confirmation overlapping a
-    `/reset` can republish the pre-reset picks. PLATFORM-094 put confirm and pick-edit on
-    transactions. **PLATFORM-102 (2026-08-15) added `POST /pick` and the ENTIRE
-    `PUT /api/draft/[slug]/[year]` handler.** It took three attempts: the first serialized only
-    `expire`, the second only timer-only requests, and review found each boundary wrong about what
-    clients actually send — `DraftBoardClient` bundles `{ phase: 'live', timerAction: 'start' }` from
-    the round-boundary resume, Resume, and Start round, so the button pressed at every round boundary
-    could still erase a pick. Converting the whole handler removed the prediction. **Round 3 added `/unpick` and `/reset`** — Undo is a
-    button on the draft board during the draft, so the "pressed deliberately, nothing else in
-    flight" reasoning that scoped them out was wrong. **Still unserialized: `PUT /api/owners`, and
-    draft CREATION (`POST`), whose "already exists" 409 check is its own read-then-write — a much
-    smaller concern, since it cannot lose picks.** A source guard in
-    `writer-serialization.test.ts` now fails if any draft-record writer regains a plain
-    `setAppState`. `PUT /api/owners` likewise writes the roster
-    outside any transaction. Two specifics found in review and left in place: `autoCompleteDraft`
-    commits in a transaction but derives its payload from a read taken before it (demo league only),
-    and a settings PUT whose read predates a `POST /confirm` commit writes back a draft WITHOUT
-    `publishedPicks`, silently retracting a valid publication — recovery is re-Confirming.
+12. **Draft-writer serialization — REMAINING WORK.** Draft routes were plain whole-record
+    read-then-writes, so concurrent writers clobbered each other. PLATFORM-094 serialized confirm and
+    pick-edit; PLATFORM-102 serialized every remaining mutation of an existing draft (`pick`, the
+    whole `PUT`, `unpick`, `reset`, and Reopen). The rounds and review history are in
+    `docs/prompt-registry.md`.
+
+    **Still unserialized, in priority order:**
+    - `PUT /api/owners` — writes the owner roster outside any transaction. This is also what stops
+      the draft's roster staleness check from being airtight, since PLATFORM-102's `lockKey` calls
+      exclude nothing while this writer takes no lock.
+    - Draft CREATION (`POST /api/draft/[slug]/[year]`) — its "already exists" 409 is its own
+      read-then-write. Much smaller: it builds a fresh record and cannot lose picks.
+    - `autoCompleteDraft` (demo leagues only) commits in a transaction but derives its payload from a
+      read taken before it.
+
+    A guard in `writer-serialization.test.ts` scans the draft API directory and fails if any writer
+    of an existing draft regains a plain `setAppState`, so new gaps surface without being remembered.
+
 13. **A double-submitted pick is credited to the NEXT owner** (found by review during
     PLATFORM-102, 2026-08-15; not fixed there because the fix is client-side). The route's
     expected-owner guard only fires when the body carries `owner`, and

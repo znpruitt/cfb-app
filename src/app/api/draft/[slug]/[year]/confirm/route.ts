@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { requireAdminRequest } from '@/lib/server/adminAuth';
-import { getAppState, setAppState, withAppStateKeyTransaction } from '@/lib/server/appStateStore';
+import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
 import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import {
@@ -17,6 +17,9 @@ import { draftPicksSignature } from '@/lib/selectors/draftPublication';
 type TeamsJson = { items: TeamCatalogItem[] };
 
 export const dynamic = 'force-dynamic';
+
+/** A refusal decided inside the Reopen transaction. */
+type ReopenOutcome = { error: string; status: number } | { ok: true; draft: DraftState };
 
 /**
  * A refusal produced inside the publish transaction. Returned rather than
@@ -243,35 +246,62 @@ export async function DELETE(
     return NextResponse.json({ error: `League "${slug}" not found` }, { status: 404 });
   }
 
-  const record = await getAppState<DraftState>(draftScope(slug), String(year));
-  if (!record?.value) {
-    return NextResponse.json({ error: `No draft found for ${slug} ${year}` }, { status: 404 });
+  // PLATFORM-102 round 4 — Reopen reads and writes inside one key transaction.
+  //
+  // It was the LAST plain read-then-write on the draft record, and three earlier
+  // rounds missed it because I worked from the writers I happened to be thinking
+  // about instead of searching for all of them. Both reviewers found it; the
+  // guard I added to catch exactly this iterated a hand-written list of four
+  // files and did not include this one, so it asserted an invariant it never
+  // checked. That guard now derives its list by scanning.
+  //
+  // Reachable concurrently with every writer this slice already serialized,
+  // because they all accept `phase: 'complete'`. The loss: a confirm commits
+  // `publishedPicks` plus the owners CSV, then a reopen whose read predates that
+  // commit writes its stale snapshot back — the CSV stays published while
+  // `publishedPicks` is gone, so the league holds an owner roster that no draft
+  // claims to have produced, and both callers got a 200.
+  const outcome = await withAppStateKeyTransaction<ReopenOutcome>(
+    draftScope(slug),
+    String(year),
+    async (txn): Promise<ReopenOutcome> => {
+      const record = await txn.read<DraftState>();
+      if (!record?.value) {
+        return { error: `No draft found for ${slug} ${year}`, status: 404 };
+      }
+
+      const draft = record.value;
+
+      if (draft.phase !== 'complete') {
+        return {
+          error: `Cannot reopen draft in phase: ${draft.phase}. Only a confirmed (complete) draft can be reopened.`,
+          status: 422,
+        };
+      }
+
+      // Nothing here touches `publishedPicks`, deliberately. `isDraftPublished`
+      // requires `phase: 'complete'`, so moving to `live` retracts the publication
+      // on its own — and the digest is preserved, so re-confirming an unchanged
+      // draft is recognisably the same publication. Every other path that changes
+      // picks (/reset, /unpick, pick edits) retracts the same way, by changing what
+      // the digest is computed over. No writer maintains this field.
+      const updated: DraftState = {
+        ...draft,
+        phase: 'live',
+        updatedAt: new Date().toISOString(),
+      };
+
+      await txn.write<DraftState>(updated);
+
+      return { ok: true, draft: updated };
+    }
+  );
+
+  if (!('ok' in outcome)) {
+    return NextResponse.json({ error: outcome.error }, { status: outcome.status });
   }
 
-  const draft = record.value;
-
-  if (draft.phase !== 'complete') {
-    return NextResponse.json(
-      {
-        error: `Cannot reopen draft in phase: ${draft.phase}. Only a confirmed (complete) draft can be reopened.`,
-      },
-      { status: 422 }
-    );
-  }
-
-  // Nothing here touches `publishedPicks`, deliberately. `isDraftPublished`
-  // requires `phase: 'complete'`, so moving to `live` retracts the publication
-  // on its own — and the digest is preserved, so re-confirming an unchanged
-  // draft is recognisably the same publication. Every other path that changes
-  // picks (/reset, /unpick, pick edits) retracts the same way, by changing what
-  // the digest is computed over. No writer maintains this field.
-  const updated: DraftState = {
-    ...draft,
-    phase: 'live',
-    updatedAt: new Date().toISOString(),
-  };
-
-  await setAppState<DraftState>(draftScope(slug), String(year), updated);
+  const updated = outcome.draft;
 
   // The previously written owner CSV remains in scope (per route doc above);
   // reopening still affects which roster the canonical selector should

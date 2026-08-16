@@ -50,66 +50,32 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
-### PLATFORM-102-SERIALIZE-PICK-AND-EXPIRE-v1
+### PLATFORM-102-SERIALIZE-DRAFT-WRITERS-v1
 
-- Purpose: Stop the two draft writers that can append a pick from erasing each other, before the
+- Purpose: Stop concurrent draft writers from silently erasing each other's picks, before the
   league's first real draft.
-- Scope: every draft-record MUTATION — `pick`, `unpick`, `reset`, and the whole `PUT` — plus a
-  serialization suite. Draft CREATION (`POST`) and `PUT /api/owners` deliberately untouched; see
-  `docs/next-tasks.md` item 12.
-- **The failure.** `DraftBoardClient` fires `PUT { timerAction: 'expire' }` automatically at
-  countdown zero. A pick submitted as the clock ran out committed, then expiry wrote its stale
-  whole-record snapshot back — the pick vanished while its caller got a 200, and the board then
-  prompted for an auto-pick on a slot that was already filled. Accepting that prompt assigned a
-  RANDOM team. Under the lock the pick refreshes `timerExpiresAt`, so the late expiry is refused
-  with "Timer has not expired yet": the buzzer-beater wins, which is the right answer.
-- **I introduced a P1 fixing it, and both reviewers caught it independently.** The first version
-  moved `getScopedAliasMap` (two `getAppState` reads) and `await req.json()` INSIDE the transaction.
-  `withAppStateKeyTransaction` holds one of three pooled clients (`max: 3`, no
-  `connectionTimeoutMillis`) for the whole callback while same-key waiters hold one each blocking on
-  the advisory lock — so a nested pooled read needs a client that can never be freed. Two concurrent
-  picks would have deadlocked DB access process-wide, in the exact scenario the slice existed to
-  protect. `pick/[n]/route.ts` already had the correct shape and I had read it. Fixed by hoisting
-  the I/O above the transaction while leaving every refusal at its original position, so error
-  precedence is unchanged.
-- **Three attempts at the boundary, and the third stopped drawing one.** v1 serialized `expire`
-  only; review found `start`/`pause`/`resume` are sent alone too. v2 serialized every timer-only
-  request; review found `DraftBoardClient` BUNDLES `{ phase: 'live', timerAction: 'start' }` from
-  three call sites including Start round — the round-boundary button — so the hottest path was still
-  unlocked. Each carve-out required correctly predicting real client behaviour and each prediction
-  was wrong. v3 converts the entire handler (16 early returns to refusal objects, all pooled I/O
-  hoisted above the lock), which deletes the question. **The lesson is the rhyme, not any one
-  finding: when successive review rounds keep falsifying the same KIND of assumption, the approach
-  is wrong, not the details.**
-- **Tests cannot see a pool deadlock** (the suite runs the file-backed store), so the pin is a
-  SOURCE guard asserting no pooled call appears inside either callback. **That guard was itself
-  vacuous twice, and my "mutation-proven" claim here was an overclaim the first time**: I mutated the
-  alias-map half only. `indexOf('withAppStateKeyTransaction')` first matched the IMPORT line; after
-  fixing that, `indexOf('req.json(')` matched a COMMENT in the route that mentions `req.json()`, so
-  review moved the real call inside the callback and watched the guard stay green. It now anchors on
-  the awaited call and uses `lastIndexOf`, and BOTH halves are mutation-proven. The lock-participation tests are mutation-proven too; a first mutation
-  attempt survived because it changed the read inside the transaction rather than removing the lock,
-  which is recorded in the suite so the next reader does not repeat it. The buzzer-beater test is
-  labelled in its own header as NOT evidence of serialization, since it drives the routes
-  sequentially and passes without the fix.
-- Also from review: `start`/`pause`/`resume` are sent alone by the same clients and take the same
-  whole-record write, so the serialized path was widened from expire-only to every timer-only
-  request; and a test fixture hardcoded a `timerExpiresAt` that was in the FUTURE when written and
-  only became "expired" through wall-clock drift.
-- **Round 3 reversed two of my own scope calls, both times because a reviewer was right about how
-  the app is USED rather than how it is written.** (a) I had argued Undo and Reset were low risk
-  because they are pressed deliberately with nothing else in flight — but Undo is a button on the
-  draft board DURING the draft, which is precisely when picks are landing. (b) I had hoisted the
-  confirmed-roster read above the lock believing any read inside would need a second pooled
-  connection; `txn.readKey` runs on the transaction's own client and takes none, which
-  `confirm/route.ts` already relied on. The hoist widened a real staleness window on a value this
-  handler writes INTO the draft, with a gate that compared stale against stale and therefore passed.
-  Both are now inside the lock, with the roster's two keys locked in ascending order.
-- A source guard now fails if any draft-record writer regains a plain `setAppState` — the class of
-  regression three rounds of carve-outs kept leaving somewhere.
-- Deferred, recorded as `docs/next-tasks.md` item 13: a double-submitted pick is now credited to the
-  NEXT owner, because the expected-owner guard only fires when the client sends `owner` and it does
-  not. Server-side guard exists; the fix is client-side.
+- Scope: every mutation of an existing draft record — `pick`, the whole `PUT`, `unpick`, `reset`,
+  and Reopen (`DELETE /confirm`) — onto `withAppStateKeyTransaction`, plus a serialization suite.
+  Draft creation and `PUT /api/owners` deliberately out of scope (`docs/next-tasks.md` item 12).
+- Outcome: `DraftBoardClient` fires the expire PUT automatically at countdown zero, so a pick
+  submitted as the clock ran out was erased by expiry's stale whole-record write while its caller
+  got a 200 — and the board then prompted for an auto-pick on a filled slot, assigning a random
+  team. Reading under the lock makes the buzzer-beater win instead. All pooled I/O (body, alias map,
+  confirmed roster) is hoisted above or taken inside the transaction's own client; a `max: 3` pool
+  with no `connectionTimeoutMillis` deadlocks otherwise.
+- Review / verification: **four review rounds, every one finding something real.** (1) A P1 I
+  introduced — pooled reads inside the lock would have frozen database access process-wide, in the
+  code meant to protect the draft. (2) The deadlock guard was vacuous, matching a COMMENT rather
+  than the call; a "mutation-proven" claim here covered only half of it. (3) Three successive
+  carve-outs each mispredicted which field combinations clients send, the last leaving Start round —
+  the round-boundary button — unprotected; converting the whole handler deleted the prediction. (4)
+  Reopen was missed entirely by three rounds because the writer list was never derived by searching,
+  and the guard iterated a hand-written list that omitted it. The guard now scans the directory.
+  Gates at each round: tsc 0, `lint:all` 0, full suite green.
+- Status: merged — see the PR for the final diffstat.
+- **The lesson worth keeping: every error was a completeness failure, not a reasoning one.** Each
+  came from deciding what was relevant instead of enumerating and checking. The durable fixes were
+  structural — derive lists by searching, and make guards build their own lists.
 
 ### INSIGHTS-018-ROTATION-AND-NEW-TAG-v1 (ABANDONED — not merged)
 

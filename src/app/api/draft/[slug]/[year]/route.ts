@@ -483,10 +483,6 @@ export async function PUT(
   } catch {
     bodyParseFailed = true;
   }
-  if (bodyParseFailed) {
-    return NextResponse.json({ error: 'request body must be valid JSON' }, { status: 400 });
-  }
-
   // `JSON.parse('null')` succeeds, so a literal `null` body arrives here as null
   // and would throw on destructuring — a 500 where the draft-state guards should
   // answer 404/422. Normalise it.
@@ -506,6 +502,15 @@ export async function PUT(
         return { body: { error: `No draft found for ${slug} ${year}` }, status: 404 };
       }
 
+      // Ordering, deliberately: the draft-existence 404 wins over a malformed
+      // body, as it did before this slice. Round 3 hoisted the parse for pool
+      // safety and returned its 400 early, which silently flipped that — while
+      // the sibling pick route went out of its way to preserve it. Hoisting the
+      // parse is required; returning early is not.
+      if (bodyParseFailed) {
+        return { body: { error: 'request body must be valid JSON' }, status: 400 };
+      }
+
       const original = record.value;
 
       // PLATFORM-102 round 3 — the confirmed roster is read INSIDE the lock.
@@ -519,8 +524,22 @@ export async function PUT(
       // draft and freezes it at go-live, while the staleness gate compared stale
       // against stale and therefore passed.
       //
-      // Locking both roster keys closes it. Order is ascending as the store
-      // requires (`draft:` < `owners:` < `preseason-owners:`), so no cycle.
+      // Be precise about what this buys, because the first version of this comment
+      // said "locking both roster keys closes it" and that is FALSE. The two
+      // writers of those keys — `savePreseasonOwners` and `PUT /api/owners` —
+      // both use a plain `setAppState` and take no advisory lock, so these
+      // `lockKey` calls exclude nothing from them. Every writer that DOES take a
+      // lock (`confirm`, `pick/[n]`, the demo action) is already rooted on
+      // `draft:{slug}`, so the primary lock excludes it anyway.
+      //
+      // What genuinely changed is the TIMING: the roster is now read after the
+      // wait for the draft lock rather than before it, which narrows the window
+      // sharply without closing it. The `lockKey` calls are kept because they are
+      // correct and become load-bearing the moment those two writers converge on
+      // the transaction — they are ordered ascending as the store requires
+      // (`draft:` < `owners:` < `preseason-owners:`), so they introduce no cycle.
+      // Fully closing it means serializing `PUT /api/owners`, which is recorded
+      // as open in docs/next-tasks.md item 12.
       //
       // PLATFORM-092 — still ONE read per request, shared by the owners branch and
       // the start transition; reading twice let a confirmation landing between them

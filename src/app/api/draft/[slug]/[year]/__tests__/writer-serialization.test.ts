@@ -1,3 +1,5 @@
+import { runWithRevalidateContext } from './_setup/revalidateContext';
+
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
@@ -5,6 +7,7 @@ import { PUT } from '../route';
 import { POST as PICK } from '../pick/route';
 import { POST as UNPICK } from '../unpick/route';
 import { POST as RESET } from '../reset/route';
+import { DELETE as REOPEN } from '../confirm/route';
 import { addLeague } from '@/lib/leagueRegistry';
 import {
   setAppState,
@@ -14,7 +17,8 @@ import {
   __setAppStateKeyLockFailureForTests,
 } from '@/lib/server/appStateStore';
 import { type DraftState, type DraftSettings, draftScope } from '@/lib/draft';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
@@ -66,15 +70,25 @@ function draftSettings(overrides: Partial<DraftSettings> = {}): DraftSettings {
   };
 }
 
-/** A live draft whose timer has ALREADY elapsed — the buzzer-beater setup. */
-function liveExpiredDraft(overrides: Partial<DraftState> = {}): DraftState {
+/**
+ * A live draft whose timer has ALREADY elapsed — the buzzer-beater setup.
+ *
+ * `settings` is accepted PARTIALLY and merged over the defaults. It is applied
+ * after the spread on purpose: it previously sat above `...overrides`, so a
+ * caller passing `settings` replaced the defaults outright and got a DraftState
+ * with no `totalRounds` or `draftOrder`. `totalRounds * owners.length` is then
+ * NaN, the completeness guard passes, and the pick route dies in `getPickOwner`.
+ * Invisible until a test passed `settings`, which none did.
+ */
+function liveExpiredDraft(
+  overrides: Partial<Omit<DraftState, 'settings'>> & { settings?: Partial<DraftSettings> } = {}
+): DraftState {
   const now = '2026-08-01T00:00:00.000Z';
   return {
     leagueSlug: SLUG,
     year: YEAR,
     phase: 'live',
     owners: [...OWNERS],
-    settings: draftSettings(overrides.settings),
     picks: [],
     currentPickIndex: 0,
     timerState: 'running',
@@ -86,6 +100,7 @@ function liveExpiredDraft(overrides: Partial<DraftState> = {}): DraftState {
     createdAt: now,
     updatedAt: now,
     ...overrides,
+    settings: draftSettings(overrides.settings),
   };
 }
 
@@ -190,10 +205,10 @@ test('BEHAVIOURAL: a pick that beats the clock survives, and the late expiry is 
   assert.equal(persisted.picks[0]?.autoSelected, false, 'and it is still the manual pick');
 });
 
-test('the expire-only path and the mixed-request path agree (shared applyTimerExpiry)', async () => {
-  // `applyTimerExpiry` is shared so the serialized path and the legacy path
-  // cannot drift. Drive the legacy path (expire alongside another field) and
-  // assert it produces the same pause-and-prompt state.
+test('a timer action bundled with another field still pauses and prompts', async () => {
+  // Round 3 removed the separate fast path, so a bundled request runs through the
+  // same transaction as everything else. This pins that it still produces the
+  // pause-and-prompt state rather than auto-picking.
   await seedDraft(liveExpiredDraft());
 
   const res = await PUT(putRequest({ timerAction: 'expire', owners: [...OWNERS] }), { params });
@@ -263,10 +278,11 @@ test('GUARD: the pick route does no pool-backed I/O inside the transaction', () 
   );
 });
 
-test('GUARD: the timer-only fast path does no pool-backed I/O inside the transaction', () => {
+test('GUARD: the PUT does no pool-backed I/O inside its transaction', () => {
   const src = sourceOf('../route.ts');
+  // Round 3 removed the fast path; this is the whole PUT callback now.
   const fastPath = src.indexOf('const outcome = await withAppStateKeyTransaction');
-  assert.ok(fastPath > 0, 'the timer-only fast path must open a key transaction');
+  assert.ok(fastPath > 0, 'the PUT must open a key transaction');
 
   // The callback ends where the outcome is mapped back to a response.
   const end = src.indexOf("if (!('ok' in outcome))", fastPath);
@@ -444,35 +460,58 @@ test('STRUCTURAL: Reset goes through the draft key lock', async () => {
   assert.equal(persisted.phase, 'live', 'the draft was not reset');
 });
 
-test('GUARD: no draft-record writer bypasses the transaction', () => {
-  // The whole point of round 3. Every route that writes the draft record must go
-  // through a key transaction — a plain `setAppState` on the draft scope is the
-  // shape that loses picks, and it is what three rounds of carve-outs kept
-  // leaving behind somewhere.
-  for (const route of ['../pick/route.ts', '../unpick/route.ts', '../reset/route.ts']) {
-    const src = sourceOf(route);
-    assert.ok(
-      src.includes('withAppStateKeyTransaction'),
-      `${route} must serialize its draft-record write`
-    );
-    assert.ok(
-      !src.includes('await setAppState<DraftState>'),
-      `${route} still writes the draft record outside a transaction`
-    );
+test('GUARD: every draft-record writer goes through a transaction', () => {
+  // This guard used to iterate a HAND-WRITTEN list of four files — the four I
+  // happened to be thinking about. `confirm/route.ts` (Reopen) was not among
+  // them, so the guard passed while a plain read-then-write sat right there, and
+  // it asserted an invariant it never checked. Both reviewers found it.
+  //
+  // It now DERIVES its list by scanning the draft API directory, so a new writer
+  // is covered the moment it exists rather than when someone remembers to add it
+  // here. That is the whole point of the guard: catching what the author forgot.
+  const apiDir = fileURLToPath(new URL('../', import.meta.url));
+
+  function collectRoutes(dir: string): string[] {
+    const found: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === '__tests__') continue;
+        found.push(...collectRoutes(full));
+      } else if (entry.name === 'route.ts') {
+        found.push(full);
+      }
+    }
+    return found;
   }
 
-  // The PUT only — draft CREATION (`POST`) lives in the same file and is
-  // deliberately excluded. It builds a fresh record rather than reading one and
-  // writing it back, so it cannot lose a pick; its own read-then-write on the
-  // "already exists" 409 check is a separate, much smaller concern and is not in
-  // this slice's scope.
-  const routeSrc = sourceOf('../route.ts');
-  const putOnly = routeSrc.slice(routeSrc.indexOf('export async function PUT('));
-  assert.ok(putOnly.includes('withAppStateKeyTransaction'), 'the PUT must serialize');
-  assert.ok(
-    !putOnly.includes('await setAppState<DraftState>'),
-    'the PUT still writes the draft record outside a transaction'
-  );
+  const routes = collectRoutes(apiDir);
+  assert.ok(routes.length >= 5, `expected to find the draft routes, found ${routes.length}`);
+
+  const writers = routes.filter((f) => readFileSync(f, 'utf8').includes('DraftState>'));
+  assert.ok(writers.length >= 5, `expected several draft-record writers, found ${writers.length}`);
+
+  for (const file of writers) {
+    const src = readFileSync(file, 'utf8');
+    const plainWrites = src.split('await setAppState<DraftState>').length - 1;
+    if (plainWrites === 0) continue;
+
+    // Draft CREATION is the one allowed exception, and it is allowed for a
+    // reason rather than because it was overlooked: it builds a fresh record
+    // instead of reading one and writing it back, so it cannot lose a pick. Its
+    // own "already exists" check is a separate, much smaller concern.
+    const putIndex = src.indexOf('export async function PUT(');
+    const creationOnly =
+      file.endsWith(`draft${sep}[slug]${sep}[year]${sep}route.ts`) &&
+      putIndex > 0 &&
+      !src.slice(putIndex).includes('await setAppState<DraftState>');
+
+    assert.ok(
+      creationOnly,
+      `${file} writes the draft record outside a transaction — every mutation of ` +
+        'an existing draft must be serialized (draft creation is the sole exception)'
+    );
+  }
 });
 
 test('Undo still behaves correctly through the serialized path', async () => {
@@ -569,4 +608,121 @@ test('Undo works repeatedly, and after a pick lands through the same lock', asyn
   // And the undone team is selectable again — an Undo that left the team locked
   // out would be useless in a live draft.
   assert.equal((await PICK(pickRequest('Georgia'), { params })).status, 200, 'reselectable');
+});
+
+// ---------------------------------------------------------------------------
+// Round 4 — the writer three rounds missed.
+//
+// Reopen (`DELETE /confirm`) was the last plain read-then-write on the draft
+// record. It survived because every round worked from the writers I happened to
+// be thinking about; the list was never derived by searching. The guard above
+// now scans for writers instead of naming them.
+// ---------------------------------------------------------------------------
+
+test('STRUCTURAL: Reopen goes through the draft key lock', async () => {
+  await seedDraft(
+    liveExpiredDraft({
+      phase: 'complete',
+      timerState: 'off',
+      picks: [
+        {
+          pickNumber: 1,
+          round: 0,
+          roundPick: 0,
+          owner: 'Alice',
+          team: 'Georgia',
+          pickedAt: '2026-08-01T00:00:10.000Z',
+          autoSelected: false,
+        },
+      ],
+      currentPickIndex: 1,
+      publishedPicks: 'sig-from-confirm',
+    })
+  );
+
+  __setAppStateKeyLockFailureForTests(new Error('injected lock failure'), draftScope(SLUG));
+
+  await assert.rejects(
+    () => REOPEN(postRequest('confirm'), { params }),
+    'Reopen must NOT proceed to a write without the lock'
+  );
+
+  __setAppStateKeyLockFailureForTests(null);
+  const persisted = await readPersisted();
+  assert.equal(persisted.phase, 'complete', 'the draft was not reopened');
+  assert.equal(persisted.publishedPicks, 'sig-from-confirm', 'the publication is intact');
+});
+
+test('Reopen still behaves correctly through the serialized path', async () => {
+  await seedDraft(
+    liveExpiredDraft({
+      phase: 'complete',
+      timerState: 'off',
+      picks: [
+        {
+          pickNumber: 1,
+          round: 0,
+          roundPick: 0,
+          owner: 'Alice',
+          team: 'Georgia',
+          pickedAt: '2026-08-01T00:00:10.000Z',
+          autoSelected: false,
+        },
+      ],
+      currentPickIndex: 1,
+      publishedPicks: 'sig-from-confirm',
+    })
+  );
+
+  // Reopen invalidates standings, which needs a request context the bare test
+  // runner does not supply — the same helper the confirm suite uses.
+  const res = await runWithRevalidateContext(() => REOPEN(postRequest('confirm'), { params }));
+  assert.equal(res.status, 200);
+
+  const persisted = await readPersisted();
+  assert.equal(persisted.phase, 'live', 'reopened');
+  assert.equal(persisted.picks.length, 1, 'picks preserved');
+  assert.equal(
+    persisted.publishedPicks,
+    'sig-from-confirm',
+    'the digest is preserved — phase alone retracts the publication'
+  );
+});
+
+test('the fixture helper merges settings instead of replacing them', async () => {
+  // This is the test whose absence hid a real bug: `settings:` sat above
+  // `...overrides`, so passing `settings` dropped `totalRounds` and `draftOrder`
+  // and the pick route died in `getPickOwner`. Nothing passed `settings` until
+  // now, which is the only reason it was invisible.
+  await seedDraft(
+    liveExpiredDraft({
+      phase: 'live',
+      timerState: 'off',
+      settings: { pickTimerSeconds: null },
+    })
+  );
+
+  const persisted = await readPersisted();
+  assert.equal(persisted.settings.pickTimerSeconds, null, 'the override applied');
+  assert.equal(persisted.settings.totalRounds, 2, 'and the defaults survived');
+  assert.deepEqual(persisted.settings.draftOrder, OWNERS, 'including the draft order');
+
+  // And the route can actually use it.
+  const res = await PICK(pickRequest('Georgia'), { params });
+  assert.equal(res.status, 200, 'a pick works against the merged settings');
+});
+
+test('a malformed PUT against a missing draft answers 404, not 400', async () => {
+  // Ordering preserved from before this slice, and matching the sibling pick
+  // route. Round 3 flipped it by returning the parse failure early.
+  const res = await PUT(
+    new Request(`http://localhost/api/draft/${SLUG}/${YEAR}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
+      body: '{not valid json',
+    }),
+    { params }
+  );
+
+  assert.equal(res.status, 404, 'the missing draft is reported before the bad body');
 });
