@@ -47,12 +47,19 @@ export async function GET(req: Request): Promise<Response> {
     parseOwnersCsv(currentOwnersCsv).map((r) => [r.team, r.owner])
   );
 
-  // INSIGHTS-023a — this route previously omitted `leagueMembers` and so
-  // reported the pre-fix owner population, meaning an admin investigating "why
-  // does the returning owner have no career history" got the OLD answer here and
-  // the new one from /admin/[slug]/insights. The accumulator now spans every
-  // archived owner regardless, so both agree; the note stays because the
-  // disagreement was invisible.
+  // INSIGHTS-023a — this route passes NO `leagueMembers`, so its seed population
+  // is `archives ∪ current-CSV owners`, while /admin/[slug]/insights seeds
+  // `archives ∪ leagueMembers`.
+  //
+  // An earlier version of this comment said the two "both agree" now that the
+  // accumulator spans every archived owner. They agree for anyone who has PLAYED,
+  // which is most of the time and is why the gap is easy to miss — but a
+  // brand-new owner named in the confirmed list, absent from every archive and
+  // not yet in the CSV, gets a career-stats entry on the page and none here.
+  // That is the pre-draft preseason window this slice exists for, so the
+  // divergence is likeliest exactly when someone is debugging it. Left as a
+  // stated limitation rather than closed: this route is a debug surface, and
+  // giving it membership means giving it a confirmed-roster read of its own.
   const result = await buildOwnerCareerStats({
     leagueSlug,
     currentYear: league.year,
@@ -85,10 +92,11 @@ export async function GET(req: Request): Promise<Response> {
     archiveYears,
     // INSIGHTS-023a — renamed, not just re-scoped. `buildOwnerCareerStats` now
     // accumulates over every owner in the archives (membership decides who may
-    // be NAMED, not who the comparison spans), so this number is the league's
-    // all-time owner count. Still calling it "active" made this route disagree
-    // with the membership section of /admin/[slug]/insights — the exact
-    // disagreement the note above says it closes.
+    // be NAMED, not who the comparison spans), so "active" was simply wrong.
+    //
+    // Precisely: this counts `archived ∪ current-CSV`, per the seed above — NOT
+    // the league's all-time owner count, which an earlier version of this
+    // comment claimed. It excludes a confirmed owner who has never played.
     historicalOwnerCount: owners.length,
     diagnosticsByYear: result.diagnosticsByYear,
     owners,

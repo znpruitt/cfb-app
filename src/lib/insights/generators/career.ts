@@ -731,9 +731,15 @@ function deriveTrending(context: InsightContext, direction: 'up' | 'down'): Insi
   const allEntries: Entry[] = context.ownerCareerStats
     .map(buildEntry)
     .filter((e): e is Entry => e !== null);
+  // Seeded at 0 in BOTH directions, which is correct rather than an unfinished
+  // edit — it was written as `direction === 'up' ? 0 : 0`, a no-op ternary that
+  // read like a mistake. `buildEntry` rejects `netChange === 0`, so up-entries
+  // are strictly negative and down-entries strictly positive, and 0 is the
+  // identity for `min` and `max` respectively. If that guard is ever relaxed,
+  // this seed pins `recordChange` at 0 and `holdsRecord` goes wrong.
   const recordChange = allEntries.reduce(
     (acc, e) => (direction === 'up' ? Math.min(acc, e.netChange) : Math.max(acc, e.netChange)),
-    direction === 'up' ? 0 : 0
+    0
   );
 
   // Sort by magnitude of net change: trending up wants most negative netChange

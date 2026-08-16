@@ -79,6 +79,25 @@ Rules:
   `career:trending` crowning a member with "the steepest decline in league history" while a departed
   owner held it; fixed here, and the four pre-existing instances of the same shape are filed as
   INSIGHTS-030 rather than fixed in this slice.
+  **Round 4 (both reviews gathered first, per AGENTS.md).** Codex: no findings — but its log shows
+  two test runs failing mid-review, almost certainly because I was mutation-testing in the working
+  tree at that moment, so its verdict rests on reading plus a clean `tsc`, not on a green suite.
+  `/code-review` found three, all verified before acceptance. (1) MEDIUM, and a hole in the
+  owner-directed source split committed an hour earlier: `selectConfirmedRoster` counts `NoClaim`
+  toward `MIN_CONFIRMED_OWNERS` on the confirmation path while membership strips it afterwards, so
+  `['Alice','NoClaim']` beat a four-owner CSV and produced a ONE-member league labelled `confirmed`.
+  Stripping a name after the bar was counted lowers the bar, so the bar is re-applied to what
+  survives. The same record still reaches `POST /api/draft`, which is pre-existing and filed
+  separately. (2) The loader read `owners:{slug}:{year}` twice concurrently — membership and the
+  roster map could come from different generations of one row; `readConfirmedRosterInputs` returns
+  both from one read. (3) A comment of mine claimed the career debug route and the admin page "both
+  agree"; they diverge for a confirmed owner who has never played, which is precisely the pre-draft
+  window this slice serves.
+- **The fix for (1) falsified the split's own premise, and that is the lesson.** `partial-roster` was
+  defined by CONTROL FLOW — "reaching this branch means the roster named fewer than the minimum" —
+  and refusing a padded confirmation record immediately dropped a fully rostered league into that
+  branch. The label is now COUNTED at the point of use. A test written the same day encoded the
+  inference and failed within the hour.
 - Status: Implemented — PR open, not merged.
 - **Two claims in this slice's own comments were corrected by review before merge:** that the
   widening was "pinned by the guard test" (the guard greps `currentRoster.values(`, which an

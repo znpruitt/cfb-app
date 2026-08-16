@@ -601,3 +601,65 @@ test('a one-owner roster is reported as PARTIAL, not as the season roster', asyn
   assert.equal(context.leagueMembersSource, 'partial-roster');
   assert.deepEqual([...context.leagueMembers], ['Alice'], 'NoClaim is never a member');
 });
+
+test('a NoClaim-bearing confirmation record does NOT crown a one-member league', async () => {
+  // `selectConfirmedRoster` counts NoClaim toward MIN_CONFIRMED_OWNERS on the
+  // confirmation path — deliberately, since NoClaim in typed input is a mistake
+  // to refuse rather than a value to filter. Membership strips it afterwards.
+  // Stripping a name after the bar was counted silently lowers the bar, so
+  // ['Alice','NoClaim'] cleared it, beat a full CSV on precedence, and produced
+  // ONE member labelled `confirmed` with three real owners invisible.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Members League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'preseason', year: YEAR },
+  });
+  await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'NoClaim']);
+  await setAppState(
+    `owners:${SLUG}:${YEAR}`,
+    'csv',
+    'team,owner\nGeorgia,Alice\nClemson,Bob\nAlabama,Carol\nOhio State,Dave'
+  );
+
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+
+  assert.equal(
+    context.leagueMembersSource,
+    'official-roster',
+    'a sub-threshold confirmation record must not win precedence'
+  );
+  assert.deepEqual(
+    [...context.leagueMembers].sort(),
+    ['Alice', 'Bob', 'Carol', 'Dave'],
+    'the real roster is the answer, not the one name that survived cleaning'
+  );
+});
+
+test('GUARD: the loader reads the owners row exactly once', () => {
+  // The confirmed roster and the team→owner map were two concurrent reads of
+  // `owners:{slug}:{year}`, so a roster write between them handed the two
+  // different generations of one CSV — and `official-roster` vs `partial-roster`
+  // is classified by comparing them. `readConfirmedRosterInputs` returns both.
+  //
+  // Comments are stripped first: this file and the loader both DESCRIBE the
+  // banned read, and three earlier guards on this project matched their own
+  // prose instead of code.
+  const src = codeOnly(
+    readFileSync(fileURLToPath(new URL('../loadInsights.ts', import.meta.url)), 'utf8')
+  );
+
+  const reads = src.match(/owners:\$\{[^}]*\}/g) ?? [];
+  assert.deepEqual(reads, [], `loadInsights must not build an owners key itself, found ${reads}`);
+  assert.match(src, /readConfirmedRosterInputs\(/, 'and must take both facts from the one reader');
+
+  // Anti-vacuity, both halves: the detector must fire on real code, and must
+  // survive comment-stripping rather than be neutered by it.
+  assert.match(
+    codeOnly('const r = await getAppState(`owners:${slug}:${year}`, "csv");'),
+    /owners:\$\{[^}]*\}/,
+    'the detector must still match a real read'
+  );
+  assert.ok(src.length > 1000, 'and the source must actually have been read');
+});

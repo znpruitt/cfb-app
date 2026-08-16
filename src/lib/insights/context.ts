@@ -7,7 +7,7 @@ import {
 import type { AnalyticsGameStats, SeasonRelation } from '../gameStats/contract';
 import { aggregateOwnerSeasonStats } from '../gameStats/ownerStats';
 import { projectAnalyticsPartition } from '../gameStats/publicProjection';
-import type { ConfirmedRosterSource } from '../selectors/confirmedRoster';
+import { MIN_CONFIRMED_OWNERS, type ConfirmedRosterSource } from '../selectors/confirmedRoster';
 import type { League } from '../league';
 import { parseOwnersCsv } from '../parseOwnersCsv';
 import type { RankingsResponse } from '../rankings';
@@ -402,8 +402,19 @@ export function resolveLeagueMembers(params: {
   // purpose is being the single answer. The freeze is real and is recorded as
   // its own fix (make the confirmation list writable in-season); it is not this
   // function's to work around.
+  //
+  // The threshold is re-checked AFTER cleaning, and that is the whole point.
+  // `selectConfirmedRoster` counts `NoClaim` toward `MIN_CONFIRMED_OWNERS` on
+  // the confirmation path — deliberately, because `NoClaim` in typed input is a
+  // mistake to refuse (`findOwnerListProblem`), not a value to filter. `clean()`
+  // strips it here. Doing that after the selector had already counted it meant a
+  // legacy or hand-edited record of `['Alice', 'NoClaim']` cleared a two-owner
+  // bar, beat a full four-owner CSV on precedence, and produced a ONE-member
+  // league labelled `confirmed` — with the three real owners invisible to every
+  // generator. Stripping a name silently lowers the bar it was counted toward,
+  // so the bar has to be applied again to what survived.
   const fromConfirmed = clean(confirmedOwners);
-  if (fromConfirmed.length > 0) {
+  if (fromConfirmed.length >= MIN_CONFIRMED_OWNERS) {
     return {
       members: new Set(fromConfirmed),
       // `owners-csv` means the selector fell back to the season's roster record
@@ -413,18 +424,24 @@ export function resolveLeagueMembers(params: {
     };
   }
 
-  // No confirmed roster at all, yet a current-year roster parsed. Both branches
-  // read `owners:{slug}:{year}` — `getConfirmedRoster` from the raw record and
-  // `currentRoster` from the same text — so reaching here means that record
-  // named FEWER than `MIN_CONFIRMED_OWNERS` distinct owners while still parsing
-  // to a non-empty map: a one-owner roster.
+  // No usable confirmation record, but a current-year roster parsed. Two ways to
+  // arrive: no confirmation record was ever written, or one was and it failed the
+  // re-check above.
   //
-  // Reported as `partial-roster`, not as the season's roster. It is still the
-  // live answer and using it is right, but a caption that reads the same as a
-  // full roster hides the one state where membership is a single name.
+  // The label is MEASURED, not deduced from which branch we are in. It was
+  // deduced at first — "reaching here means the record named fewer than
+  // `MIN_CONFIRMED_OWNERS`" — and the very next fix falsified that: refusing a
+  // `NoClaim`-padded confirmation record drops a league with a FULL four-owner
+  // roster into this branch, which would then have been reported as
+  // `partial-roster`. Counting what is actually here cannot go stale that way.
   if (!usingArchivedRoster) {
     const fromCurrent = clean(resolvedRoster.values());
-    if (fromCurrent.length > 0) return { members: new Set(fromCurrent), source: 'partial-roster' };
+    if (fromCurrent.length > 0) {
+      return {
+        members: new Set(fromCurrent),
+        source: fromCurrent.length >= MIN_CONFIRMED_OWNERS ? 'official-roster' : 'partial-roster',
+      };
+    }
   }
 
   // No new roster named yet, so last season's owners are still the league

@@ -104,11 +104,13 @@ export type OwnerCareerStats = {
  *
  * `official-roster` and `partial-roster` read the SAME durable record —
  * `owners:{slug}:{year}`, the season's team→owner roster. They differ only in
- * whether it cleared `MIN_CONFIRMED_OWNERS`: at two or more distinct owners
- * `selectConfirmedRoster` accepts it as the confirmed roster, below that it
- * refuses and membership falls through to the parsed map. So `partial-roster`
- * means "this league's roster names exactly one person" — real, but not a
- * league, and an insight naming its sole member is almost certainly wrong.
+ * how many real owners it names: `MIN_CONFIRMED_OWNERS` or more is a league,
+ * fewer is `partial-roster` — real, but a membership resting on one person, and
+ * an insight naming its sole member is almost certainly wrong.
+ *
+ * That count is measured at the point of use, never inferred from which
+ * fallback fired. A refused confirmation record can drop a fully rostered
+ * league into the fallback path, so the branch does not tell you the size.
  */
 export type LeagueMembersSource =
   /** The confirmed preseason owner list — the documented single answer, and it wins. */
