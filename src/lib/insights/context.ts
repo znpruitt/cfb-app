@@ -406,17 +406,25 @@ export function resolveLeagueMembers(params: {
   if (fromConfirmed.length > 0) {
     return {
       members: new Set(fromConfirmed),
-      // `owners-csv` IS the current roster — the selector fell back to it
+      // `owners-csv` means the selector fell back to the season's roster record
       // because no confirmation record exists. Saying "confirmed" there is the
       // false claim this field was added to prevent.
-      source: confirmedSource === 'preseason-owners' ? 'confirmed' : 'current-roster',
+      source: confirmedSource === 'preseason-owners' ? 'confirmed' : 'official-roster',
     };
   }
 
-  // No confirmation record: the current-year roster is the live answer.
+  // No confirmed roster at all, yet a current-year roster parsed. Both branches
+  // read `owners:{slug}:{year}` — `getConfirmedRoster` from the raw record and
+  // `currentRoster` from the same text — so reaching here means that record
+  // named FEWER than `MIN_CONFIRMED_OWNERS` distinct owners while still parsing
+  // to a non-empty map: a one-owner roster.
+  //
+  // Reported as `partial-roster`, not as the season's roster. It is still the
+  // live answer and using it is right, but a caption that reads the same as a
+  // full roster hides the one state where membership is a single name.
   if (!usingArchivedRoster) {
     const fromCurrent = clean(resolvedRoster.values());
-    if (fromCurrent.length > 0) return { members: new Set(fromCurrent), source: 'current-roster' };
+    if (fromCurrent.length > 0) return { members: new Set(fromCurrent), source: 'partial-roster' };
   }
 
   // No new roster named yet, so last season's owners are still the league

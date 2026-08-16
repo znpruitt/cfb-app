@@ -517,7 +517,7 @@ test('a plain owners CSV is reported as the ROSTER, not as a confirmed list', as
 
   const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
 
-  assert.equal(context.leagueMembersSource, 'current-roster', 'no confirmation record exists');
+  assert.equal(context.leagueMembersSource, 'official-roster', 'no confirmation record exists');
   assert.deepEqual([...context.leagueMembers].sort(), ['Alice', 'Bob', 'Carol']);
 });
 
@@ -579,4 +579,25 @@ test('a departed record holder still sets the bar for a trend superlative', asyn
       `a member must not claim the league record while a departed owner holds it — got: ${insight.description}`
     );
   }
+});
+
+test('a one-owner roster is reported as PARTIAL, not as the season roster', async () => {
+  // The split. Both states read `owners:{slug}:{year}`; they differ only in
+  // whether it cleared MIN_CONFIRMED_OWNERS. Collapsed into one value, a league
+  // whose roster names a single person printed the same caption as a fully
+  // rostered one — and every member-filtered insight then speaks about that one
+  // person as though the league had confirmed them.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Members League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'season', year: YEAR },
+  });
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', 'team,owner\nGeorgia,Alice\nClemson,NoClaim');
+
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+
+  assert.equal(context.leagueMembersSource, 'partial-roster');
+  assert.deepEqual([...context.leagueMembers], ['Alice'], 'NoClaim is never a member');
 });

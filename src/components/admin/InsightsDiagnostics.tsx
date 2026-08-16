@@ -49,7 +49,10 @@ const FATE_ROW_CLASS: Record<InsightFate, string> = {
  */
 const MEMBERSHIP_SOURCE_CAPTION: Record<LeagueMembersSource, string> = {
   confirmed: 'From the confirmed owner list — a new roster has been named for this season.',
-  'current-roster': 'From this season’s roster — the live answer to who is in the league.',
+  'official-roster':
+    'No confirmed list for this season, so the season’s team-by-team roster is standing in for one.',
+  'partial-roster':
+    'The season’s roster names only one owner — too few to confirm a league, so anything named here rests on a single person.',
   'previous-roster': 'No new roster named yet, so last season’s owners are still the league.',
   none: 'Neither a confirmed owner list nor a roster exists — no insights can name anyone.',
 };

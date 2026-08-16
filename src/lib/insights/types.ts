@@ -96,11 +96,34 @@ export type OwnerCareerStats = {
  *   league (owner framing: nobody has left until preseason names a new roster).
  * `none` — neither exists.
  */
+/**
+ * Where membership came from. FIVE values, not four: `official-roster` and
+ * `partial-roster` were one value (`current-roster`) and had to be split,
+ * because they carry different amounts of trust and the page printed the same
+ * caption for both.
+ *
+ * `official-roster` and `partial-roster` read the SAME durable record —
+ * `owners:{slug}:{year}`, the season's team→owner roster. They differ only in
+ * whether it cleared `MIN_CONFIRMED_OWNERS`: at two or more distinct owners
+ * `selectConfirmedRoster` accepts it as the confirmed roster, below that it
+ * refuses and membership falls through to the parsed map. So `partial-roster`
+ * means "this league's roster names exactly one person" — real, but not a
+ * league, and an insight naming its sole member is almost certainly wrong.
+ */
 export type LeagueMembersSource =
-  /** The confirmed owner list — the documented single answer, and it wins. */
+  /** The confirmed preseason owner list — the documented single answer, and it wins. */
   | 'confirmed'
-  /** No confirmation record, but a real current-year roster exists. */
-  | 'current-roster'
+  /**
+   * No confirmation record, but the season's roster names enough owners that
+   * `selectConfirmedRoster` accepted it in place of one.
+   */
+  | 'official-roster'
+  /**
+   * A roster exists but is below the confirmation threshold — one named owner.
+   * Distinguished from `official-roster` so a one-owner league cannot read as a
+   * confirmed one.
+   */
+  | 'partial-roster'
   /** No new roster named, so last season's owners are still the league. */
   | 'previous-roster'
   /** Neither exists. */
