@@ -31,6 +31,9 @@ export default function DraftBoardClient({
 
   const [search, setSearch] = useState('');
   const [pickError, setPickError] = useState<string | null>(null);
+  // PLATFORM-102 — control refusals render beside the CONTROLS, not in the
+  // Available Teams strip. Separate state because the two have different homes.
+  const [controlError, setControlError] = useState<string | null>(null);
   const [pickLoading, setPickLoading] = useState(false);
   const [controlsLoading, setControlsLoading] = useState(false);
 
@@ -245,14 +248,14 @@ export default function DraftBoardClient({
     const outcome = resolveControlOutcome(res, data, fallback);
 
     if (outcome.kind === 'error') {
-      setPickError(outcome.message);
+      setControlError(outcome.message);
       // A refusal usually means this view is stale — re-sync so the next press
       // acts on what the server actually has, instead of failing identically.
       void refresh();
       return;
     }
 
-    setPickError(null);
+    setControlError(null);
     if (outcome.kind === 'redirect-setup') {
       window.location.href = `/league/${slug}/draft/setup`;
       return;
@@ -262,7 +265,7 @@ export default function DraftBoardClient({
 
   async function draftPut(body: Record<string, unknown>) {
     setControlsLoading(true);
-    setPickError(null);
+    setControlError(null);
     try {
       const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
       const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}`, {
@@ -272,7 +275,7 @@ export default function DraftBoardClient({
       });
       await applyControlResponse(res, 'That control did not apply');
     } catch (err) {
-      setPickError((err as Error).message);
+      setControlError((err as Error).message);
     } finally {
       setControlsLoading(false);
     }
@@ -280,7 +283,7 @@ export default function DraftBoardClient({
 
   async function draftPost(path: string, body: Record<string, unknown> = {}) {
     setControlsLoading(true);
-    setPickError(null);
+    setControlError(null);
     try {
       const authHeaders = requireAdminAuthHeaders() as Record<string, string>;
       const res = await fetch(`/api/draft/${encodeURIComponent(slug)}/${year}/${path}`, {
@@ -290,7 +293,7 @@ export default function DraftBoardClient({
       });
       await applyControlResponse(res, `${path} did not apply`);
     } catch (err) {
-      setPickError((err as Error).message);
+      setControlError((err as Error).message);
     } finally {
       setControlsLoading(false);
     }
@@ -360,6 +363,7 @@ export default function DraftBoardClient({
           onAutoPick={handleAutoPick}
           onSelectManually={handleSelectManually}
           onStartRound={handleStartRound}
+          controlError={controlError}
           settingsHref={`/league/${slug}/draft/setup`}
           summaryHref={`/league/${slug}/draft/summary`}
           controlsLoading={controlsLoading}

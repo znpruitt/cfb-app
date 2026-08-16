@@ -29,6 +29,14 @@ type DraftHeaderAreaProps = {
   onAutoPick?: () => void;
   onSelectManually?: () => void;
   onStartRound?: () => void;
+  /**
+   * PLATFORM-102 — a refusal from one of the controls BELOW, rendered beside
+   * them. It previously reused the pick-error line in the Available Teams strip
+   * at the bottom of a `calc(100dvh - 10rem)` layout, so pressing Undo at the top
+   * put the explanation a full viewport away and the button still read as dead —
+   * the exact symptom surfacing the error was meant to remove.
+   */
+  controlError?: string | null;
   settingsHref?: string;
   summaryHref?: string;
   controlsLoading?: boolean;
@@ -57,6 +65,7 @@ export default function DraftHeaderArea({
   onAutoPick,
   onSelectManually,
   onStartRound,
+  controlError,
   summaryHref,
   controlsLoading,
 }: DraftHeaderAreaProps): React.ReactElement {
@@ -726,6 +735,16 @@ export default function DraftHeaderArea({
           </div>
         )}
       </div>
+
+      {/* Control refusal — sits directly above every admin control cluster below */}
+      {isAdmin && controlError && (
+        <p
+          role="alert"
+          className="mt-2.5 rounded-lg border border-red-800/40 bg-red-950/30 px-4 py-2.5 text-sm text-red-300"
+        >
+          {controlError}
+        </p>
+      )}
 
       {/* Round pause banner */}
       {isRoundPause && isAdmin && onStartRound && (
