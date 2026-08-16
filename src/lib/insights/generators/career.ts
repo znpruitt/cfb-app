@@ -2,6 +2,7 @@ import type { Insight } from '../../selectors/insights';
 import { registerGenerator } from '../engine';
 import {
   formatOwnerList,
+  holderVerb,
   membershipIsKnown,
   resolveSuperlative,
   type RecordHolder,
@@ -78,8 +79,8 @@ function recordClause(
   const names = formatOwnerList(holders.map((h) => h.owner));
   const figure = render(holders[0]!.value);
   return {
-    active: ` — ${names}'s ${figure} still stands as the league record.`,
-    neutral: `; ${names}'s ${figure} is the league record.`,
+    active: ` — ${names}'s ${figure} ${holderVerb(holders, 'still stands', 'still stand')} as the league record.`,
+    neutral: `; ${names}'s ${figure} ${holderVerb(holders, 'is', 'are')} the league record.`,
   };
 }
 
@@ -776,6 +777,9 @@ function deriveGreatestSingleSeason(context: InsightContext): Insight | null {
     holderSeasons.push(`${season.owner}'s ${season.year}`);
   }
   const recordSeasonText = formatOwnerList(holderSeasons);
+  // The verb agrees with what is PRINTED — the deduped list — not with the raw
+  // holder count, which can hold two seasons belonging to one owner.
+  const printedHolders = seasonStanding?.recordHolders.slice(0, holderSeasons.length) ?? [];
 
   const bestSeason = `${best.owner}'s ${best.year} season (${winRate(best.winPct)} win rate across ${best.games} games)`;
   const description = !recordSeason
@@ -783,13 +787,13 @@ function deriveGreatestSingleSeason(context: InsightContext): Insight | null {
     : seasonShares
       ? `${bestSeason} is level with ${recordSeasonText} as the best single-season performance in league history.`
       : seasonKnown
-        ? `${bestSeason} is the best by any active owner — ${recordSeasonText} at ${winRate(recordSeason.winPct)} remains the league record.`
+        ? `${bestSeason} is the best by any active owner — ${recordSeasonText} at ${winRate(recordSeason.winPct)} ${holderVerb(printedHolders, 'remains', 'remain')} the league record.`
         : // A SENTENCE, not a fragment. `bestSeason` is a bare noun phrase and this
           // was the one branch that never gave it a verb — "Bob's 2025 season
           // (.727 win rate across 110 games); Dave's 2019 at .818 is the league
           // record." `previous-roster` is the ordinary offseason state, so it
           // shipped to the Overview card exactly like that.
-          `${bestSeason} stands at ${winRate(best.winPct)}; ${recordSeasonText} at ${winRate(recordSeason.winPct)} is the league record.`;
+          `${bestSeason} stands at ${winRate(best.winPct)}; ${recordSeasonText} at ${winRate(recordSeason.winPct)} ${holderVerb(printedHolders, 'is', 'are')} the league record.`;
 
   return toInsight({
     id: `greatest-season-${ownerSlug(best.owner)}-${best.year}`,

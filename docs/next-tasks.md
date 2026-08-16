@@ -933,6 +933,19 @@ Supersedes: (none)
 
     Each needs its own copy decision, which is why they were not widened into 030's guard.
 
+    **REMAINING after INSIGHTS-030: the eligibility floor is invisible to the copy** (Codex,
+    2026-08-16). Each generator filters its population by a floor — two career seasons, 100 games in
+    a season, four meetings for a rivalry — and then says "leads active owners". A member below the
+    floor is dropped before the comparison, so the claim quantifies over a set the reader does not
+    know was narrowed. Judged NOT a merge blocker and the reasoning is recorded so it is not
+    re-litigated: career totals accumulate, so a one-season member cannot out-score a veteran; drafts
+    produce equal-size rosters, so the 100-game floor includes or excludes everyone together rather
+    than discriminating between members; and the four-meeting floor is what DEFINES a rivalry, so
+    "the most lopsided rivalry" reasonably means "among series that qualify". Reachable only on
+    contrived data. The fix is copy — drop the "active owners" quantifier for the non-holding state,
+    which the unknown-membership register already does — not a wider population, since widening
+    reintroduces the round-2 defect where a one-season member was cited as a DEPARTED record holder.
+
     **The structural fix worth considering over five point fixes:** a superlative helper that takes
     the claim population and the naming population as separate arguments, so the distinction cannot be
     collapsed again by the next generator anyone writes. Every one of the seven correct sites hand-

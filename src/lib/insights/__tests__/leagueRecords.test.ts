@@ -507,7 +507,7 @@ test('lopsided rivalry: the record series is named even though both are gone', a
     /the most lopsided rivalry on record/,
     'Dave–Alice was more lopsided'
   );
-  assert.match(lopsided, /Dave's 5–0 over Alice remains the league record/);
+  assert.match(lopsided, /Dave's 5–0 series over Alice remains the league record/);
 });
 
 test('with membership UNKNOWN, the copy claims nothing about who is playing', async () => {
@@ -591,10 +591,12 @@ test('with membership UNKNOWN, the copy claims nothing about who is playing', as
   // .818 is the league record." This state is the ordinary offseason one, so it
   // shipped to the Overview card.
   const season = describe(insights, 'greatest_season');
-  if (season) {
-    assert.doesNotMatch(season, /games\);/, `a clause with no verb reached the card: ${season}`);
-    assert.match(season, /stands at/, 'the noun phrase is given a predicate');
-  }
+  // UNGUARDED. The `if (season)` this replaces is the same vacuity this file
+  // condemns three tests above: if the fixture ever stops emitting
+  // greatest_season, both assertions vanish and the suite stays green.
+  assert.ok(season, 'the greatest-season insight must exist for this fixture');
+  assert.doesNotMatch(season, /games\);/, `a clause with no verb reached the card: ${season}`);
+  assert.match(season, /stands at/, 'the noun phrase is given a predicate');
 
   // Neutral, not silent, and not the old false claim.
   const points = describe(insights, 'career_points_leader');
@@ -670,10 +672,10 @@ test('SHARES: a level rivalry names the OTHER pair, never itself', async () => {
   const lopsided = describe(insights, 'lopsided_rivalry');
   assert.ok(lopsided, 'the rivalry insight must exist for this fixture');
   assert.match(lopsided, /Alice leads Bob 4–0/, 'the member pair is the one named');
-  assert.match(lopsided, /Dave's 4–0 over Carol/, 'and the outside pair is the co-holder');
+  assert.match(lopsided, /Dave's 4–0 series over Carol/, 'and the outside pair is the co-holder');
   assert.doesNotMatch(
     lopsided,
-    /level with Alice's .* over Bob/,
+    /level with Alice's .* series over Bob/,
     'the sentence must not cite the named pair against itself'
   );
 });
@@ -890,4 +892,81 @@ test('a title stops claiming the record when the body has retracted it', async (
       `title re-asserts what the body retracts: "${insight.title}" / ${insight.description}`
     );
   }
+});
+
+test('a shared record with several names on BOTH sides stays grammatical', async () => {
+  // Two members and two departed owners, all level on titles. No fixture had
+  // ever reached dynasty `shares` with more than one name on either side, which
+  // is how `${allNames} and ${titleHolderNames}` — two already-joined lists
+  // concatenated with a bare "and" — rebuilt the exact "A and B and C" shape one
+  // round after it was deleted.
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Level League',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    foundedYear: 2018,
+    status: { state: 'offseason' },
+  });
+
+  // Alice, Bob, Dave and Erin take two titles each; Dave and Erin then leave.
+  const CHAMPIONS = ['Alice', 'Bob', 'Dave', 'Erin', 'Alice', 'Bob', 'Dave', 'Erin'];
+  const EVERYONE = ['Alice', 'Bob', 'Dave', 'Erin'];
+  const PTS = [900, 700, 500, 300];
+  for (const [i, champion] of CHAMPIONS.entries()) {
+    const order = [champion, ...EVERYONE.filter((o) => o !== champion)];
+    await seedArchive(
+      2018 + i,
+      order.map((owner, rank) => ({
+        owner,
+        wins: 80 - rank * 10,
+        losses: 30 + rank * 10,
+        pointsFor: PTS[rank]!,
+      }))
+    );
+  }
+  await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob']);
+
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  const insights = generateRawInsights(context);
+
+  const dynasty = describe(insights, 'dynasty');
+  assert.ok(dynasty, 'the dynasty insight must exist for this fixture');
+  assert.doesNotMatch(
+    dynasty,
+    / and \w+ and /,
+    `two joined lists concatenated with "and": ${dynasty}`
+  );
+  for (const owner of ['Alice', 'Bob', 'Dave', 'Erin']) {
+    assert.match(dynasty, new RegExp(owner), `${owner} is level and must be named: ${dynasty}`);
+  }
+});
+
+test('a plural record-holder list takes a plural verb', async () => {
+  // The multi-holder path was built deliberately and rendered with a hardcoded
+  // singular at three sites: "Dave's 2019 and Erin's 2021 at .818 remains the
+  // league record."
+  await seedThreeCoHolders();
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  const insights = generateRawInsights(context);
+
+  let checked = 0;
+  for (const insight of insights) {
+    // A citation naming two or more holders — an Oxford list or an "X and Y".
+    if (!/ and \w/.test(insight.description)) continue;
+    if (!/(remains|is) the league record/.test(insight.description)) continue;
+    checked += 1;
+    assert.fail(`singular verb on a multi-holder citation: ${insight.description}`);
+  }
+  // Anti-vacuity: the fixture must actually produce multi-holder citations, or
+  // this test proves nothing.
+  const multi = insights.filter((i) => /(remain|are) the league record/.test(i.description));
+  assert.ok(
+    multi.length > 0 || checked === 0,
+    'expected either plural citations or none to inspect'
+  );
+  assert.ok(
+    insights.some((i) => /Dave, Erin, and Frank/.test(i.description)),
+    'the fixture must produce a multi-holder citation at all'
+  );
 });

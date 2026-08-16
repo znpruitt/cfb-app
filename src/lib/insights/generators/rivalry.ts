@@ -3,7 +3,7 @@ import type { AppGame } from '../../schedule';
 import type { ScorePack } from '../../scores';
 import type { SeasonArchive } from '../../seasonArchive';
 import { registerGenerator } from '../engine';
-import { formatOwnerList, membershipIsKnown, resolveSuperlative } from '../superlative';
+import { formatOwnerList, holderVerb, membershipIsKnown, resolveSuperlative } from '../superlative';
 import type {
   InsightContext,
   InsightGenerator,
@@ -250,15 +250,21 @@ function deriveLopsidedInsight(
   // possession to a co-holder.
   const holderPairs = lopsidedStanding?.recordHolders.map((h) => h.entry) ?? [];
   const recordText = formatOwnerList(
-    holderPairs.map((p) => `${p.dominant}'s ${p.wins}–${p.losses} over ${p.loser}`)
+    holderPairs.map((p) => `${p.dominant}'s ${p.wins}–${p.losses} series over ${p.loser}`)
   );
+  // Each series is wrapped so a multi-pair list cannot be misread: without it,
+  // "Dave's 6–0 over Carol and Erin's 6–0 over Frank" parses as one opponent
+  // phrase. The verb agrees with the number of pairs.
+  const holders = lopsidedStanding?.recordHolders ?? [];
+  const remains = holderVerb(holders, 'remains', 'remain');
+  const isAre = holderVerb(holders, 'is', 'are');
   const description = !recordPair
     ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry on record.`
     : lopsidedStanding?.standing === 'shares'
-      ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins}, level with ${recordText} as the most lopsided rivalry in league history.`
+      ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins}, level with ${recordText}.`
       : rivalryKnown
-        ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry among active owners. ${recordText} remains the league record.`
-        : `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins}; ${recordText} is the league record.`;
+        ? `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins} — the most lopsided rivalry among active owners. ${recordText} ${remains} the league record.`
+        : `${bestDominant} leads ${bestLoser} ${bestDominantWins}–${bestLoserWins}; ${recordText} ${isAre} the league record.`;
 
   return toInsight({
     id: `rivalry-lopsided-${ownerSlug(bestDominant)}-${ownerSlug(bestLoser)}`,

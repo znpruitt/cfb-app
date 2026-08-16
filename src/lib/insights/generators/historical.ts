@@ -4,6 +4,7 @@ import { registerGenerator } from '../engine';
 import {
   formatHolderNames,
   formatOwnerList,
+  holderVerb,
   membershipIsKnown,
   resolveSuperlative,
 } from '../superlative';
@@ -243,8 +244,14 @@ function deriveDynastyInsight(
   // `formatHolderNames`, not `join(' and ')` — three co-holders printed "Dave and
   // Erin and Frank's 3".
   const titleHolderNames = formatHolderNames(titleHolders);
+  // The COMBINED list, formatted ONCE. `${a} and ${b}` where both sides are
+  // already `and`/Oxford-joined rebuilds the exact "Dave and Erin and Frank"
+  // shape the shared formatter exists to prevent — which is how the previous
+  // round deleted one join and reintroduced it two lines later.
+  const levelNames = (members: string[]): string =>
+    formatOwnerList([...members, ...titleHolders.map((h) => h.owner)]);
   const titleRecordText = titleRecord
-    ? ` ${titleHolderNames}'s ${titleHolders[0]!.value} remains the league record.`
+    ? ` ${titleHolderNames}'s ${titleHolders[0]!.value} ${holderVerb(titleHolders, 'remains', 'remain')} the league record.`
     : '';
   const shares = dynastyStanding?.standing === 'shares';
 
@@ -252,7 +259,7 @@ function deriveDynastyInsight(
     const topOwner = tied[0]!;
     const hook: NewsHook = wonThisYear ? 'streak_extended' : 'new_leader';
     const description = shares
-      ? `${topOwner} and ${titleHolderNames} are level on ${maxCount} league titles, the most in league history.`
+      ? `${levelNames([topOwner])} are level on ${maxCount} league titles, the most in league history.`
       : titleRecord
         ? dynastyKnown
           ? `${topOwner} has ${maxCount} titles — the most of anyone still playing.${titleRecordText}`
@@ -288,7 +295,7 @@ function deriveDynastyInsight(
   const hook: NewsHook = 'returning_leader';
   let description: string;
   if (shares) {
-    description = `${allNames} and ${titleHolderNames} are level on ${maxCount} league titles, the most in league history.`;
+    description = `${levelNames(tied)} are level on ${maxCount} league titles, the most in league history.`;
   } else if (titleRecord) {
     description = dynastyKnown
       ? `${allNames} each own ${maxCount} league titles — the most of anyone still playing.${titleRecordText}`
@@ -297,7 +304,9 @@ function deriveDynastyInsight(
     description = `${allNames} each own ${maxCount} league titles — the most in league history.`;
   } else {
     const others = tied.filter((o) => o !== mostRecent);
-    const othersStr = others.join(' and ');
+    // The last one. `deriveDynastyInsight` has no tie-suppression threshold, so
+    // four tied members with a unique most-recent champion reach this line.
+    const othersStr = formatOwnerList(others);
     description = `${mostRecent} now ties ${othersStr} for most titles in league history with ${maxCount}.`;
   }
 

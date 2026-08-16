@@ -200,3 +200,19 @@ export function formatOwnerList(owners: readonly string[]): string {
 export function formatHolderNames(holders: readonly RecordHolder<unknown>[]): string {
   return formatOwnerList(holders.map((h) => h.owner));
 }
+
+/**
+ * The verb for a holder list. "Dave's 4,100 **remains** the league record" but
+ * "Dave's 2019 and Erin's 2021 **remain** the league record".
+ *
+ * Here rather than at each site because the multi-holder path was deliberately
+ * built and then rendered with a hardcoded singular at three of them — the same
+ * per-site drift the list formatter was moved here to stop.
+ */
+export function holderVerb(
+  holders: readonly RecordHolder<unknown>[],
+  singular: string,
+  plural: string
+): string {
+  return holders.length > 1 ? plural : singular;
+}
