@@ -72,7 +72,8 @@ Rules:
   Reopen was missed entirely by three rounds because the writer list was never derived by searching,
   and the guard iterated a hand-written list that omitted it. The guard now scans the directory.
   Gates at each round: tsc 0, `lint:all` 0, full suite green.
-- Status: merged — see the PR for the final diffstat.
+- Status: Implemented — PR open. (Not merged at time of writing; this line records actual shipped
+  state, per AGENTS.md, and is flipped at post-merge closeout.)
 - **The lesson worth keeping: every error was a completeness failure, not a reasoning one.** Each
   came from deciding what was relevant instead of enumerating and checking. The durable fixes were
   structural — derive lists by searching, and make guards build their own lists.

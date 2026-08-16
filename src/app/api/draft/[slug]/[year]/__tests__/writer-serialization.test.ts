@@ -18,7 +18,7 @@ import {
 } from '@/lib/server/appStateStore';
 import { type DraftState, type DraftSettings, draftScope } from '@/lib/draft';
 import { readFileSync, readdirSync } from 'node:fs';
-import { join, sep } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
@@ -460,16 +460,31 @@ test('STRUCTURAL: Reset goes through the draft key lock', async () => {
   assert.equal(persisted.phase, 'live', 'the draft was not reset');
 });
 
-test('GUARD: every draft-record writer goes through a transaction', () => {
-  // This guard used to iterate a HAND-WRITTEN list of four files — the four I
-  // happened to be thinking about. `confirm/route.ts` (Reopen) was not among
-  // them, so the guard passed while a plain read-then-write sat right there, and
-  // it asserted an invariant it never checked. Both reviewers found it.
+/**
+ * The one handler allowed to write without a transaction, named explicitly so
+ * that adding to this list is a deliberate, visible act rather than a silent
+ * widening. Draft CREATION builds a fresh record instead of reading one and
+ * writing it back, so it cannot lose a pick; its own "already exists" check is a
+ * separate, much smaller concern (docs/next-tasks.md item 12).
+ */
+const UNSERIALIZED_BY_DESIGN = [{ file: 'draft/[slug]/[year]/route.ts', handler: 'POST' }];
+
+test('GUARD: every draft handler that writes takes the lock', () => {
+  // THIRD version of this guard. The first iterated four filenames I typed by
+  // hand and missed Reopen entirely. The second scanned for files but hunted for
+  // one exact string — and SKIPPED any file that did not contain it, so for five
+  // of six routes it asserted nothing at all.
   //
-  // It now DERIVES its list by scanning the draft API directory, so a new writer
-  // is covered the moment it exists rather than when someone remembers to add it
-  // here. That is the whole point of the guard: catching what the author forgot.
-  const apiDir = fileURLToPath(new URL('../', import.meta.url));
+  // Both failed the same way: they hunted for the BAD thing, which only works if
+  // you can enumerate every way the bad thing can be written. This one requires
+  // the GOOD thing instead — a handler that writes must contain the locking call
+  // — so a regression cannot slip through by being spelled differently.
+  //
+  // It reasons per HANDLER, not per file. `route.ts` holds an update handler that
+  // is serialized and a create handler that is deliberately not, so a file-level
+  // check calls that file fine and would never notice an unprotected handler
+  // added beside them.
+  const apiDir = fileURLToPath(new URL('../../../', import.meta.url));
 
   function collectRoutes(dir: string): string[] {
     const found: string[] = [];
@@ -486,32 +501,63 @@ test('GUARD: every draft-record writer goes through a transaction', () => {
   }
 
   const routes = collectRoutes(apiDir);
-  assert.ok(routes.length >= 5, `expected to find the draft routes, found ${routes.length}`);
+  let handlersChecked = 0;
+  let writesDetected = 0;
 
-  const writers = routes.filter((f) => readFileSync(f, 'utf8').includes('DraftState>'));
-  assert.ok(writers.length >= 5, `expected several draft-record writers, found ${writers.length}`);
-
-  for (const file of writers) {
+  for (const file of routes) {
     const src = readFileSync(file, 'utf8');
-    const plainWrites = src.split('await setAppState<DraftState>').length - 1;
-    if (plainWrites === 0) continue;
+    if (!src.includes('draftScope(')) continue;
 
-    // Draft CREATION is the one allowed exception, and it is allowed for a
-    // reason rather than because it was overlooked: it builds a fresh record
-    // instead of reading one and writing it back, so it cannot lose a pick. Its
-    // own "already exists" check is a separate, much smaller concern.
-    const putIndex = src.indexOf('export async function PUT(');
-    const creationOnly =
-      file.endsWith(`draft${sep}[slug]${sep}[year]${sep}route.ts`) &&
-      putIndex > 0 &&
-      !src.slice(putIndex).includes('await setAppState<DraftState>');
+    const starts = [...src.matchAll(/^export async function (GET|POST|PUT|DELETE|PATCH)\(/gm)];
+    assert.ok(starts.length > 0, `${file} has no exported handlers`);
 
-    assert.ok(
-      creationOnly,
-      `${file} writes the draft record outside a transaction — every mutation of ` +
-        'an existing draft must be serialized (draft creation is the sole exception)'
-    );
+    for (let i = 0; i < starts.length; i++) {
+      const handler = starts[i]![1]!;
+      const body = src.slice(starts[i]!.index!, starts[i + 1]?.index ?? src.length);
+      handlersChecked++;
+
+      // Any spelling of a write, with or without the type argument — the second
+      // version of this guard only matched `setAppState<DraftState>`, so an
+      // inferred-type call (valid TS) passed silently.
+      if (!/\bsetAppState\s*[<(]/.test(body)) continue;
+      writesDetected++;
+
+      const excepted = UNSERIALIZED_BY_DESIGN.some(
+        (e) => file.replace(/\\/g, '/').endsWith(e.file) && e.handler === handler
+      );
+      if (excepted) continue;
+
+      // The rule is NOT "this handler contains a transaction somewhere" — that
+      // passes a stray unprotected write added beside a serialized one. Draft
+      // handlers must write through the transaction accessor (`txn.write` /
+      // `txn.writeKey`) and must not call `setAppState` at all.
+      assert.fail(
+        `${file} → ${handler}() calls setAppState directly. Draft handlers must ` +
+          'write through the transaction accessor (txn.write / txn.writeKey), or be ' +
+          'added to UNSERIALIZED_BY_DESIGN with a reason.'
+      );
+    }
   }
+
+  // POSITIVE CONTROLS. Without these the whole test passes when the scan finds
+  // nothing — a directory move or a rename would turn this into a green no-op,
+  // which is exactly how the previous version died.
+  assert.ok(handlersChecked >= 8, `expected to inspect the draft handlers, saw ${handlersChecked}`);
+
+  // THE anti-vacuity check. If the write detector matches nothing, every handler
+  // is skipped and this test is a green no-op — which is precisely how version
+  // two died. Draft creation is a known direct writer, so the detector must see
+  // at least it. A regex that stops matching fails here rather than going quiet.
+  assert.ok(
+    writesDetected >= 1,
+    'the setAppState detector matched NOTHING — the guard is blind, not clean'
+  );
+
+  assert.equal(
+    UNSERIALIZED_BY_DESIGN.length,
+    1,
+    'exactly one handler is exempt; widening this list must be deliberate'
+  );
 });
 
 test('Undo still behaves correctly through the serialized path', async () => {
