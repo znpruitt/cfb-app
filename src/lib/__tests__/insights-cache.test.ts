@@ -44,7 +44,7 @@ test('insights cache key includes slug, year, the seed-alias hash, and the overr
     // "Returning owner" prefix and widening the rookie card's lifecycle are
     // policy changes that touch no standings input, so no tag fires and warm
     // entries would otherwise keep serving retracted copy until the TTL lapsed.
-    'copy:insights025-membership-changes-v3',
+    'copy:insights025-membership-changes-v4',
     // INSIGHTS-023a — membership is part of cache IDENTITY for the same reason.
     // Membership now comes from the league's roster/confirmed list instead of
     // being reconstructed from the team→owner map, so a warm entry computed

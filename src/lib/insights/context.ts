@@ -563,6 +563,7 @@ export async function buildInsightContext(
         complete: false,
         evidence: 'roster-not-final' as const,
         unlistedRosterOwners: [] as string[],
+        unrosteredMembers: [] as string[],
       };
 
   const { ownerCareerStats } = await buildOwnerCareerStats({
@@ -585,11 +586,6 @@ export async function buildInsightContext(
     leagueSlug,
     currentYear: league.year,
     lifecycleState,
-    // The FLAG, read from the league status — not re-derived from the
-    // completeness evidence, which happened to agree only because of branch
-    // order and would have silently diverged if that order ever changed.
-    preseasonSetupComplete:
-      leagueStatus.state === 'preseason' && leagueStatus.setupComplete === true,
     membershipCompleteness,
     seasonContext,
     currentWeek,

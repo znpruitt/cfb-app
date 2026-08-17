@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
+import { invalidateStandings } from '@/lib/selectors/leagueStandings';
 import { getLeague } from '@/lib/leagueRegistry';
 import { type DraftState, draftScope } from '@/lib/draft';
 
@@ -78,6 +79,16 @@ export async function POST(
   if (!('ok' in outcome)) {
     return NextResponse.json({ error: outcome.error }, { status: outcome.status });
   }
+
+  // PUBLICATION CHANGED, so the Insights cache must be busted with the standings
+  // one. INSIGHTS-025 made `isDraftPublished` an input to the cached insight
+  // build — it is the evidence that licenses membership-change cards — and this
+  // route retracts publication by moving `phase` off `complete`. Without this the
+  // feed keeps serving joined/left cards for a roster that is no longer final,
+  // for the full 300s TTL. The `confirm` and reopen paths already do this; these
+  // two did not, because before INSIGHTS-025 a draft phase change altered no
+  // cached public output.
+  invalidateStandings(slug, year);
 
   return NextResponse.json({ draft: outcome.draft });
 }

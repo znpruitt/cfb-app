@@ -154,6 +154,7 @@ export type InsightsDiagnostics = {
     complete: boolean;
     completenessEvidence: MembershipCompleteness['evidence'];
     unlistedRosterOwners: string[];
+    unrosteredMembers: string[];
   };
   generators: DiagnosticGenerator[];
   insights: DiagnosticInsight[];
@@ -274,6 +275,7 @@ export async function buildInsightsDiagnostics(
         complete: false,
         completenessEvidence: 'roster-not-final',
         unlistedRosterOwners: [],
+        unrosteredMembers: [],
       },
       generators: [],
       insights: [],
@@ -346,6 +348,7 @@ export async function buildInsightsDiagnostics(
       complete: context.membershipCompleteness.complete,
       completenessEvidence: context.membershipCompleteness.evidence,
       unlistedRosterOwners: context.membershipCompleteness.unlistedRosterOwners,
+      unrosteredMembers: context.membershipCompleteness.unrosteredMembers,
     },
     generators: perGenerator
       .map(({ generator, produced, skippedBy }) => ({

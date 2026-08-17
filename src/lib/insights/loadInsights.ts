@@ -135,7 +135,7 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  * "INSIGHTS-022" while the value already read `insights030`, which is the same
  * class of drift the constant exists to prevent.
  */
-const INSIGHT_COPY_POLICY_VERSION = 'insights025-membership-changes-v3';
+const INSIGHT_COPY_POLICY_VERSION = 'insights025-membership-changes-v4';
 
 /**
  * Membership policy version (INSIGHTS-023a). Same shape and same reason as the
@@ -255,7 +255,13 @@ export async function buildLeagueInsightContext(
     // in `context.ts`, which does no store access of its own. Year-scoped and
     // durable, which is what makes it survive the season transition — the
     // property that sank two previous versions of the gate.
-    getAppState<DraftState>(draftScope(slug), String(resolvedYear)).catch(() => null),
+    // NO `.catch`. `getAppState` returns null only for genuine absence and THROWS
+    // on a real store failure, and the policy stated above governs this read too:
+    // failures propagate so `unstable_cache` never persists them. Caught at first,
+    // which turned "the store is down" into "the draft is unpublished", withheld
+    // every membership card, and cached that for the full TTL — the one thing the
+    // paragraph a few lines up forbids.
+    getAppState<DraftState>(draftScope(slug), String(resolvedYear)),
   ]);
 
   const roster = parseOwnersCsv(confirmedRoster.ownersCsv ?? '');

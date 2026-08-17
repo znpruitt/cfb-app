@@ -137,19 +137,6 @@ export type InsightContext = {
   currentYear: number;
   lifecycleState: LifecycleState;
   /**
-   * INSIGHTS-025 — whether the commissioner has finished preseason setup.
-   *
-   * `lifecycleState` says a league is in preseason; it does NOT say the owner
-   * list is finished. A half-entered confirmed list satisfies
-   * `membershipIsKnown` at two names, which is enough for a membership generator
-   * to announce everyone not yet typed as departed. Only `completePreseasonSetup`
-   * writes this flag, so it is the one signal that answers "is membership
-   * FINISHED" rather than "is membership known".
-   *
-   * `false` outside preseason, where the question does not apply.
-   */
-  preseasonSetupComplete: boolean;
-  /**
    * Whether the member list ACCOUNTS FOR EVERYONE playing, with the evidence that
    * answered it. `leagueMembersSource` says where the list came from; this says
    * whether it is finished, which is the question any claim about ABSENCE needs.

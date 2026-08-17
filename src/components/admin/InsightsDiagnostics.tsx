@@ -60,6 +60,10 @@ const MEMBERSHIP_COMPLETENESS_CAPTION: Record<
     'this season\u2019s roster is not published yet, so who is playing is not settled. Nothing to fix \u2014 the cards appear once the draft is confirmed.',
   'list-contradicted':
     'someone holds a team this season but is missing from the owner list. Until that is resolved they would be announced as having LEFT.',
+  'roster-behind-list':
+    'someone is in the owner list but holds no team in the published roster \u2014 the list has changed since the draft was published. Re-publish the draft, or remove them.',
+  'identity-ambiguous':
+    'two owner names differ only in capitalisation or spacing, so the app cannot tell whether that is one person or two. Make the spellings consistent.',
 };
 
 const MEMBERSHIP_SOURCE_CAPTION: Record<LeagueMembersSource, string> = {
@@ -170,6 +174,11 @@ export default function InsightsDiagnosticsView({
           </span>{' '}
           — {MEMBERSHIP_COMPLETENESS_CAPTION[model.membership.completenessEvidence]}
         </p>
+        {model.membership.unrosteredMembers.length > 0 && (
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-500">
+            In the list but holds no team: {model.membership.unrosteredMembers.join(', ')}
+          </p>
+        )}
         {model.membership.unlistedRosterOwners.length > 0 && (
           <p className="mt-1 text-xs text-amber-700 dark:text-amber-500">
             Holds a team but is not in the list: {model.membership.unlistedRosterOwners.join(', ')}

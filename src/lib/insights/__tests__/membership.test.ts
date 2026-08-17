@@ -77,7 +77,6 @@ function contextFor(archives: SeasonArchive[], members: string[], year?: number)
     // Setup FINISHED, not merely known — the gate this slice needed. Individual
     // tests override it to prove the gate bites.
     lifecycleState: 'preseason',
-    preseasonSetupComplete: true,
     // The gate reads this, not the flag above — completeness is one resolved
     // answer on the context (`membershipCompleteness.ts`), so fixtures state it
     // directly rather than restating the evidence rules.
@@ -343,7 +342,6 @@ function servedMembership(context: InsightContext, bypassSuppression = false): I
 function midSetupContext(roster: string[], entered: string[]): InsightContext {
   return {
     ...contextFor([archive(2029, roster, roster)], entered),
-    preseasonSetupComplete: false,
     membershipCompleteness: {
       complete: false,
       evidence: 'roster-not-final' as const,
@@ -366,11 +364,21 @@ test('a half-entered owner list publishes NOTHING', () => {
   const finished = servedMembership(contextFor([archive(2029, roster, roster)], ['A', 'B']));
   assert.ok(finished.length > 0, 'a complete list still reports');
 
-  // And the suppression is VISIBLE to diagnostics, which is why the gate sits in
-  // `shouldSuppressGenerator` rather than inside `generate`.
-  assert.ok(
-    servedMembership(midSetupContext(roster, ['A', 'B']), true).length > 0,
-    'bypassSuppression must expose what production withheld'
+  // AND `?bypassSuppression=1` MUST NOT LIFT IT. This assertion was inverted for
+  // one round — it required the bypass to expose the withheld cards, on the
+  // theory that a diagnostic surface should see what production suppressed.
+  //
+  // That flag is read straight off the query string and `isAuthorizedForLeague`
+  // returns true for any caller on a passwordless league, so what the assertion
+  // actually pinned was a public URL that published "Heidi, Grace, Frank, Erin,
+  // Dave, and Carol have left the league" on demand. The diagnostics rationale
+  // was hollow besides: `runGeneratorForDiagnostics` calls
+  // `shouldSuppressGenerator` WITHOUT the bypass, so the page reports `gated`
+  // either way.
+  assert.deepEqual(
+    servedMembership(midSetupContext(roster, ['A', 'B']), true),
+    [],
+    'a query parameter must not be able to publish a claim about real people'
   );
 });
 

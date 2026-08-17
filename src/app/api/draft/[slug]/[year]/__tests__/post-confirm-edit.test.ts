@@ -327,38 +327,52 @@ test('resetting a published draft retracts its publication', async () => {
   // publication; clearing the picks is what retracts it.
   await seedConfirmed();
 
-  const res = await RESET(
-    new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/reset`, {
-      method: 'POST',
-      headers: { 'x-admin-token': TOKEN },
-    }),
-    { params: confirmParams }
+  const { result: res, tags } = await runCapturingTags(() =>
+    RESET(
+      new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/reset`, {
+        method: 'POST',
+        headers: { 'x-admin-token': TOKEN },
+      }),
+      { params: confirmParams }
+    )
   );
   assert.equal(res.status, 200, await res.text());
 
   const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
   assert.equal(after?.phase, 'setup');
   assert.equal(isDraftPublished(after), false, 'the old roster no longer speaks for it');
+
+  // INSIGHTS-025 made publication an INPUT to the cached insight build, so
+  // retracting it has to bust that cache. Before this the Overview kept serving
+  // membership-change cards derived from a roster that no longer counted, for the
+  // full 300s TTL.
+  assert.ok(
+    tags.includes(`standings:${SLUG}`),
+    `retraction must invalidate standings — got ${tags.join(', ') || 'no tags'}`
+  );
 });
 
 test('undoing the last pick of a published draft retracts its publication', async () => {
   // Same class, second path — and Undo last pick is offered at `complete` too.
   await seedConfirmed();
 
-  const res = await UNPICK(
-    new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/unpick`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
-      // PLATFORM-102 — Undo names the pick it removes, so a duplicate press
-      // cannot consume the one before it.
-      body: JSON.stringify({ expectedPickNumber: 2 }),
-    }),
-    { params: confirmParams }
+  const { result: res, tags } = await runCapturingTags(() =>
+    UNPICK(
+      new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/unpick`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
+        // PLATFORM-102 — Undo names the pick it removes, so a duplicate press
+        // cannot consume the one before it.
+        body: JSON.stringify({ expectedPickNumber: 2 }),
+      }),
+      { params: confirmParams }
+    )
   );
   assert.equal(res.status, 200, await res.text());
 
   const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
   assert.equal(isDraftPublished(after), false);
+  assert.ok(tags.includes(`standings:${SLUG}`), 'same reason as reset — see above');
 });
 
 test('changing the pick timer on a published draft does NOT retract it', async () => {

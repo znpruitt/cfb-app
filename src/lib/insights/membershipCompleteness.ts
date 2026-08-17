@@ -68,10 +68,24 @@ import { identityKey } from './membershipHistory';
  * membership news until its draft is confirmed, and that is the intended
  * behaviour rather than a delay to work around.
  *
- * The second half is the contradiction check, and it is MANDATORY rather than a
+ * The second half is the two-way match, and it is MANDATORY rather than a
  * fallback. A published draft is run over the confirmed owner list, so every
- * participant holds teams; if someone holds a team and is not listed, the list is
- * missing a participant, whatever else may assert otherwise.
+ * participant holds teams and every member should hold one:
+ *
+ *  - someone holding a team but NOT listed ⇒ the list is missing a participant;
+ *  - someone listed but holding NO team ⇒ the list has moved on since the draft
+ *    published, and publication is a past event that does not follow it.
+ *
+ * How load-bearing that is depends on where membership came from, and the honest
+ * statement is worth making because an earlier version of this comment implied it
+ * always bites. It is a genuine second condition ONLY for
+ * `leagueMembersSource === 'confirmed'`, where the list is an independent record.
+ * For `official-roster` and `partial-roster`, `resolveLeagueMembers` DERIVES the
+ * members from the same owners CSV that produces the roster, so both directions
+ * hold by construction and publication is doing all the work. That is sound —
+ * with a published roster the derived list is the participant list — but it is
+ * one condition there, not two, and a reader should not count on the match to
+ * catch anything in that case.
  *
  * Everything else is `incomplete`, including every case this module cannot see. A
  * feature that publishes claims about who is gone fails closed.
@@ -106,11 +120,19 @@ export type MembershipCompleteness = {
   /**
    * Why the answer is what it is. Surfaced on the diagnostics page, because the
    * gate's silence is otherwise indistinguishable from a generator that simply
-   * found nothing to say.
+   * found nothing to say — and because the four reasons call for different
+   * responses from an operator.
    */
-  evidence: 'published-roster' | 'roster-not-final' | 'list-contradicted';
+  evidence:
+    | 'published-roster'
+    | 'roster-not-final'
+    | 'list-contradicted'
+    | 'roster-behind-list'
+    | 'identity-ambiguous';
   /** Owners holding a team this season who are absent from the member list. */
   unlistedRosterOwners: string[];
+  /** Members who hold no team in the published roster. */
+  unrosteredMembers: string[];
 };
 
 export function resolveMembershipCompleteness(params: {
@@ -134,34 +156,71 @@ export function resolveMembershipCompleteness(params: {
 }): MembershipCompleteness {
   const { members, currentRoster, usingArchivedRoster, rosterIsPublished } = params;
 
-  // Compared on NORMALIZED identity, matching `buildMembershipHistory`. Compared
-  // raw at first, which meant a case drift between the CSV and the confirmed list
-  // — the exact drift the history layer resolves — put a name here and silenced
-  // the whole feed. Failing closed, but silently and for no reason.
-  const memberKeys = new Set([...members].map(identityKey));
-  const unlistedRosterOwners = usingArchivedRoster
+  const memberNames = [...members].filter((o) => o && o !== NO_CLAIM_OWNER && o.trim());
+  const rosterOwners = usingArchivedRoster
     ? []
     : [
-        ...new Map(
-          [...currentRoster.values()]
-            .filter(
-              (owner) => owner && owner !== NO_CLAIM_OWNER && !memberKeys.has(identityKey(owner))
-            )
-            .map((owner) => [identityKey(owner), owner])
-        ).values(),
-      ].sort((a, b) => a.localeCompare(b));
+        ...new Set(
+          [...currentRoster.values()].filter((o) => o && o !== NO_CLAIM_OWNER && o.trim())
+        ),
+      ];
 
-  // Checked FIRST and unconditionally. v2 made this a fallback that a
-  // `setupComplete` assertion could skip, and a commissioner re-confirming a
-  // shortened list then published an owner as departed while they still held a
-  // team. A visible contradiction defeats any assertion of completeness.
+  // IDENTITY AMBIGUITY FAILS CLOSED. Two different spellings sharing one
+  // normalized identity is either a re-typed name or two owners the app cannot
+  // tell apart, and `cleanOwnerNames` permits both (`Mike` and `mike` are
+  // distinct owners; AGENTS.md invariant 11 defers canonical owner identity). The
+  // matching below normalizes, so without this a collapsed pair could corroborate
+  // itself. `membershipHistory` already refuses to speak about such an identity;
+  // this makes the completeness answer agree rather than leaving the two layers
+  // to disagree about who exists.
+  const spellings = new Map<string, Set<string>>();
+  for (const raw of [...memberNames, ...rosterOwners]) {
+    const seen = spellings.get(identityKey(raw)) ?? new Set<string>();
+    seen.add(raw);
+    spellings.set(identityKey(raw), seen);
+  }
+  const ambiguous = [...spellings.values()].some((set) => set.size > 1);
+
+  const memberKeys = new Set(memberNames.map(identityKey));
+  const rosterKeys = new Set(rosterOwners.map(identityKey));
+
+  // Compared on NORMALIZED identity. Compared raw at first, which meant a case
+  // drift between the CSV and the confirmed list silenced the whole feed for no
+  // reason; ambiguity is handled above instead, where it can be reported.
+  const unlistedRosterOwners = rosterOwners
+    .filter((owner) => !memberKeys.has(identityKey(owner)))
+    .sort((a, b) => a.localeCompare(b));
+  const unrosteredMembers = usingArchivedRoster
+    ? []
+    : memberNames
+        .filter((owner) => !rosterKeys.has(identityKey(owner)))
+        .sort((a, b) => a.localeCompare(b));
+
+  const base = { unlistedRosterOwners, unrosteredMembers };
+
+  if (ambiguous) return { complete: false, evidence: 'identity-ambiguous', ...base };
+
+  // Checked FIRST and unconditionally. An earlier version made this a fallback
+  // that an assertion of completeness could skip, and a commissioner re-confirming
+  // a shortened list then published an owner as departed while they still held a
+  // team. A visible contradiction defeats any evidence.
   if (unlistedRosterOwners.length > 0) {
-    return { complete: false, evidence: 'list-contradicted', unlistedRosterOwners };
+    return { complete: false, evidence: 'list-contradicted', ...base };
   }
 
-  if (!rosterIsPublished || usingArchivedRoster) {
-    return { complete: false, evidence: 'roster-not-final', unlistedRosterOwners };
+  if (!rosterIsPublished || usingArchivedRoster || rosterOwners.length === 0) {
+    return { complete: false, evidence: 'roster-not-final', ...base };
   }
 
-  return { complete: true, evidence: 'published-roster', unlistedRosterOwners };
+  // THE SECOND DIRECTION, and it is not symmetry for its own sake. Publication is
+  // a PAST event: publishing an A/B draft and then re-confirming A/B/C leaves the
+  // publication valid while the list has moved on, and one-way containment
+  // (roster ⊆ members) still held — so C was announced as joining a league whose
+  // final roster does not include them. The same gap let a blanked roster pass,
+  // because an empty set is contained in everything.
+  if (unrosteredMembers.length > 0) {
+    return { complete: false, evidence: 'roster-behind-list', ...base };
+  }
+
+  return { complete: true, evidence: 'published-roster', ...base };
 }

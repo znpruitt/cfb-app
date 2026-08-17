@@ -85,11 +85,15 @@ function makeContext(overrides: Partial<InsightContext> = {}): InsightContext {
   return {
     leagueSlug: overrides.leagueSlug ?? 'test',
     currentYear: overrides.currentYear ?? 2025,
-    preseasonSetupComplete: false,
-    membershipCompleteness: {
+    // `?? overrides` matters: every other field here honours them, and this one
+    // did not — so a future test passing `membershipCompleteness: { complete:
+    // false }` to exercise the gate would have type-checked, run, and silently
+    // asserted the `complete: true` path instead.
+    membershipCompleteness: overrides.membershipCompleteness ?? {
       complete: true,
       evidence: 'published-roster' as const,
       unlistedRosterOwners: [],
+      unrosteredMembers: [],
     },
     lifecycleState: overrides.lifecycleState ?? 'mid_season',
     seasonContext: overrides.seasonContext ?? 'in-season',
@@ -425,4 +429,21 @@ test('describeSuppressionStore: a record written AFTER retirement is flagged lou
   assert.match(msg, /UNEXPECTED/);
   assert.match(msg, /1 of 2 record\(s\) were written AFTER/);
   assert.match(msg, /may be draining/);
+});
+
+test('ANTI-VACUITY: makeContext honours a membershipCompleteness override', () => {
+  // This helper hardcoded the field while every other one honoured `overrides`,
+  // so any future test written to exercise the WITHHELD path would have
+  // type-checked, run, and silently asserted the complete path — a vacuous pass
+  // in the file that would be used to regression-test the gate.
+  const ctx = makeContext({
+    membershipCompleteness: {
+      complete: false,
+      evidence: 'roster-not-final',
+      unlistedRosterOwners: [],
+      unrosteredMembers: [],
+    },
+  });
+  assert.equal(ctx.membershipCompleteness.complete, false);
+  assert.equal(ctx.membershipCompleteness.evidence, 'roster-not-final');
 });

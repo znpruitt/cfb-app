@@ -97,10 +97,12 @@ export function shouldSuppressGenerator(g: InsightGenerator, context: InsightCon
   // list known to be COMPLETE, not merely known. `membershipCompleteness.ts` holds
   // the reasoning and the evidence rules.
   //
-  // Here rather than inside `generate` because that is what this gate is for: a
-  // flag-based skip belongs where `bypassSuppression` can lift it, so the
-  // diagnostics page can show what production withheld and why. Shipped inside
-  // `generate` first, where the bypass could not reach it.
+  // This entry LABELS the skip so the diagnostics table can say `gated` instead of
+  // reporting an ordinary zero. It does not enforce it: `bypassSuppression` lifts
+  // everything here and is reachable by any caller on a passwordless league, so
+  // the generator carries its own non-bypassable copy of this check. See the long
+  // note in `generators/membership.ts` — for one round this was the only
+  // placement, and `?bypassSuppression=1` published the withheld card publicly.
   if (g.id === 'narrative:membership' && !context.membershipCompleteness.complete) {
     return true;
   }

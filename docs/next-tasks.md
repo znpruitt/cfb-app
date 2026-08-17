@@ -1286,6 +1286,29 @@ Supersedes: (none)
     the diagnostics page; and the `membership-` id prefix, which exempts insights from a binding
     participant check, is now enforced by a test.
 
+    **v4 (third review round).** Two HIGHs and seven smaller findings. The gate had been moved into
+    `shouldSuppressGenerator` at the previous round's request, so that AGENTS.md's bypassable-skip
+    rule was satisfied — but `?bypassSuppression=1` is read off the query string and
+    `isAuthorizedForLeague` returns true for any caller on a passwordless league, so that URL
+    published the withheld card to anyone. Verified against both commits on one seed: `775fee19`
+    returns "Heidi, Grace, Frank, Erin, Dave, and Carol have left the league" for
+    `?bypassSuppression=1`; this commit returns nothing, on that and on
+    `?year=2024&bypassSuppression=1`. The relocation's stated benefit was also imaginary —
+    `runGeneratorForDiagnostics` calls `shouldSuppressGenerator` WITHOUT the bypass, so the page
+    reported `gated` either way. The check is now duplicated deliberately: the suppression entry
+    LABELS, the in-generator return ENFORCES. (`?bypassSuppression=1` lacking an admin gate at all is
+    item 47.) Also: the roster/list match became TWO-WAY, because publication is a past event —
+    publishing an A/B draft then re-confirming A/B/C left the publication valid while C was announced
+    as joining, and a blanked roster passed the same way since an empty set is contained in
+    everything; identity ambiguity now fails closed WITH a named diagnostics reason, resolving two
+    review rounds that pulled opposite ways on normalized-vs-raw comparison; `reset` and `unpick`
+    retract publication and now invalidate standings, as does `autoCompleteDraft` which establishes
+    it; the draft read no longer swallows a store failure into "unpublished" and caches it; the
+    `completeSetup` invalidation added in v2 was REVERTED along with the test asserting its
+    now-false rationale; `preseasonSetupComplete` was deleted as dead; and both shared test helpers
+    were hardcoding `membershipCompleteness`, so a future test of the gate would have passed
+    vacuously — fixed and pinned with anti-vacuity tests.
+
     Original entry follows.
 
     **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left

@@ -443,17 +443,6 @@ export async function completeSetup(slug: string, year: number): Promise<void> {
       })
     );
   }
-  // Completing setup CHANGES THE PUBLIC FEED: `setupComplete` is the evidence
-  // that licenses membership-change insights (`membershipCompleteness.ts`), and
-  // that answer is computed inside the insights cache. Revalidating the admin
-  // paths does not reach it — the insights entry carries the canonical standings
-  // tags — so without this the public Overview kept serving the pre-completion
-  // pool, silent on arrivals and departures, until the 300s TTL lapsed.
-  //
-  // The same class of miss as the cache-policy bump this slice automated: a flag
-  // that shapes cached output, written by an action that fires no tag the cache
-  // listens to.
-  invalidateStandings(slug, year);
   revalidatePath(`/admin/${slug}`);
   revalidatePath(`/admin/${slug}`, 'layout');
   revalidatePath(`/admin/${slug}/preseason`);
@@ -644,6 +633,11 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
     await txn.write<DraftState>(completed);
   });
 
+  // ESTABLISHES publication, and writes the official roster besides — both are
+  // inputs to the cached insight build since INSIGHTS-025 (`isDraftPublished` is
+  // the evidence for membership-change cards). Revalidating the admin path does
+  // not reach the public feed.
+  invalidateStandings(TEST_LEAGUE_SLUG, year);
   revalidatePath(TEST_LEAGUE_ADMIN_PATH);
   // Vacancies filled count as work done — reporting only `newPicks` said zero
   // when the control had filled nothing but holes.

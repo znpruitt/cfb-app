@@ -238,13 +238,17 @@ test('completeSetup writes one synchronized lifecycle record (no separate year w
   assert.equal(league?.year, 2026, 'top-level year synchronized by the same lifecycle write');
 });
 
-test('completeSetup invalidates the INSIGHTS feed, not only the admin pages', async () => {
-  // INSIGHTS-025. `setupComplete` is the evidence that licenses membership-change
-  // insights (`membershipCompleteness.ts`), and that answer is computed inside the
-  // insights cache — whose entries carry the canonical standings tags. Revalidating
-  // the admin paths does not reach it, so before this the public Overview kept
-  // serving the pre-completion pool (silent on arrivals and departures) for up to
-  // the 300s TTL after the commissioner clicked Complete Setup.
+test('completeSetup does NOT invalidate standings, and that is deliberate', async () => {
+  // `leagueStandings.ts` records `completeSetup` as an intentionally un-wired
+  // lifecycle mutator: it flips a flag with no standings-content change.
+  //
+  // INSIGHTS-025 v2 briefly made that false — `setupComplete` was the evidence
+  // licensing membership-change cards, so completing setup DID change cached
+  // public output — and this test asserted the invalidation. v3 moved the
+  // evidence to draft publication and deleted the field from the insight context
+  // entirely, so the dependency is gone and the invalidation with it. Asserted
+  // rather than dropped, because the two files disagreed for a whole round and
+  // nothing would have caught it.
   await setAppState('leagues', 'registry', [
     makeLeague('alpha', { state: 'preseason', year: 2026 }),
   ]);
@@ -252,10 +256,17 @@ test('completeSetup invalidates the INSIGHTS feed, not only the admin pages', as
 
   const tags = await runCapturingTags(() => completeSetup('alpha', 2026));
 
-  assert.ok(tags.includes('standings:alpha'), 'league umbrella tag invalidated');
+  // The admin PATH tags are expected — the checklist and banner must refresh.
+  // What must NOT appear is a standings tag, which is what the insights cache
+  // listens to.
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings')),
+    [],
+    `no standings tags — see leagueStandings.ts; got ${tags.join(', ')}`
+  );
   assert.ok(
-    tags.includes('standings:alpha:2026'),
-    'and the YEAR tag — insights are cached per (slug, year)'
+    tags.some((t) => t.includes('/admin/alpha')),
+    'control: the action DID revalidate, so the filter above is not passing on an empty capture'
   );
 });
 

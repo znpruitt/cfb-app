@@ -277,14 +277,29 @@ export const membershipGenerator: InsightGenerator = {
     // is the one generator where an unknown membership makes the whole subject
     // unanswerable rather than merely unsafe to word.
     //
-    // KNOWN is not FINISHED, and the stronger question — is the list COMPLETE —
-    // lives in `shouldSuppressGenerator` rather than here, because AGENTS.md
-    // requires flag-based generator skips to sit in the bypassable gate so the
-    // diagnostics page can see what production suppressed. It was an
-    // unconditional return inside this function at first, which made
-    // `?bypassSuppression=1` silently unable to explain an empty feed.
     if (!membershipIsKnown(context.leagueMembersSource)) return [];
     if (context.archives.length === 0) return [];
+
+    // NON-BYPASSABLE, and deliberately duplicated with `shouldSuppressGenerator`.
+    //
+    // The completeness gate lived ONLY in the suppression layer for one round,
+    // because AGENTS.md asks flag-based skips to sit there so diagnostics can see
+    // what production withheld. That was wrong twice over. `bypassSuppression` is
+    // read straight off the query string and `isAuthorizedForLeague` returns true
+    // for ANY caller on a passwordless league, so
+    // `?bypassSuppression=1` published the exact card this gate exists to
+    // withhold — "Heidi, Grace, Frank, Erin, Dave, and Carol have left the
+    // league" — to anyone who typed it. (That flag's lack of an admin gate is
+    // filed separately as PLATFORM-101; this generator must not depend on it
+    // being fixed.) And the diagnostics benefit was imaginary:
+    // `runGeneratorForDiagnostics` calls `shouldSuppressGenerator` WITHOUT the
+    // bypass, so the page shows `gated` and never rendered the withheld cards.
+    //
+    // So the two placements do different jobs and both are needed. The
+    // suppression entry LABELS the skip for the diagnostics table; this return
+    // ENFORCES it. A diagnostic surface may explain a withheld claim about real
+    // people; nothing may publish one.
+    if (!context.membershipCompleteness.complete) return [];
 
     const history = buildMembershipHistory({
       archives: context.archives,

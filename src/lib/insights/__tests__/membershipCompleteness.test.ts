@@ -86,14 +86,40 @@ test('a BORROWED roster is neither final nor a contradiction', () => {
   assert.deepEqual(answer.unlistedRosterOwners, []);
 });
 
-test('an empty roster is not agreement', () => {
-  // Vacuous truth: with no roster, "every roster owner is listed" holds. Only
-  // publication distinguishes "nobody has drafted yet" from "the draft is done".
+test('an empty roster is not agreement, published or not', () => {
+  // Vacuous truth: with no roster, "every roster owner is listed" holds — an
+  // empty set is contained in everything. `PUT /api/owners` can blank the CSV
+  // without touching the draft, so a published draft beside an empty roster is
+  // reachable, and the one-way check called it complete.
   assert.equal(ask({ members: ['A', 'B'], roster: [] }).complete, false);
-  // And a published draft cannot have an empty roster, so this pairing is
-  // unreachable in production; asserted anyway because the module must not depend
-  // on that being true elsewhere.
-  assert.equal(ask({ members: ['A', 'B'], roster: [], rosterIsPublished: true }).complete, true);
+  assert.equal(ask({ members: ['A', 'B'], roster: [], rosterIsPublished: true }).complete, false);
+});
+
+test('a member holding no team means the roster is BEHIND the list', () => {
+  // Publication is a PAST event. Publish an A/B draft, then re-confirm A/B/C:
+  // the publication stays valid, roster ⊆ members still holds, and C was
+  // announced as joining a league whose final roster does not include them.
+  const answer = ask({ members: ['A', 'B', 'C'], roster: ['A', 'B'], rosterIsPublished: true });
+  assert.equal(answer.complete, false);
+  assert.equal(answer.evidence, 'roster-behind-list');
+  assert.deepEqual(answer.unrosteredMembers, ['C']);
+
+  // POSITIVE CONTROL: with C drafted too, it is complete.
+  assert.equal(
+    ask({ members: ['A', 'B', 'C'], roster: ['A', 'B', 'C'], rosterIsPublished: true }).complete,
+    true
+  );
+});
+
+test('two spellings of one identity FAIL CLOSED rather than corroborating', () => {
+  // The matching below normalizes, so `Mike` and `mike` would otherwise vouch for
+  // each other — deciding a canonical owner identity that AGENTS.md invariant 11
+  // defers. `membershipHistory` already refuses to speak about such an identity;
+  // this makes the completeness answer agree instead of the two layers
+  // disagreeing about who exists.
+  const answer = ask({ members: ['Mike', 'mike'], roster: ['Mike'], rosterIsPublished: true });
+  assert.equal(answer.complete, false);
+  assert.equal(answer.evidence, 'identity-ambiguous');
 });
 
 test('a roster of nothing but NoClaim proves nothing about membership', () => {
@@ -111,6 +137,23 @@ test('a roster of nothing but NoClaim proves nothing about membership', () => {
     rosterIsPublished: false,
   });
   assert.equal(answer.complete, false, 'agreement with nobody is not agreement');
+  assert.equal(answer.evidence, 'roster-not-final', 'unpublished is the first thing wrong');
+
+  // PUBLISHED and all-NoClaim — reachable, because `PUT /api/owners` can blank a
+  // roster without touching the draft. The two-way check is what catches it.
+  const published = resolveMembershipCompleteness({
+    members: new Set(['A', 'B']),
+    currentRoster: new Map([['T1', NO_CLAIM_OWNER]]),
+    usingArchivedRoster: false,
+    rosterIsPublished: true,
+  });
+  assert.equal(published.complete, false);
+  // `roster-not-final` rather than `roster-behind-list`: once the sentinel is
+  // filtered this roster names NO owners, which is indistinguishable from having
+  // no roster at all, and that is the more truthful thing to tell an operator.
+  // The ordering is deliberate — "nobody holds anything" outranks "these members
+  // hold nothing".
+  assert.equal(published.evidence, 'roster-not-final');
 });
 
 test('NoClaim is not counted as an unlisted owner', () => {
@@ -132,25 +175,35 @@ test('NoClaim is not counted as an unlisted owner', () => {
   assert.deepEqual(answer.unlistedRosterOwners, []);
 });
 
-test('the contradiction check compares NORMALIZED identity, like the history layer', () => {
-  // Compared raw at first, so a case drift between the CSV and the confirmed list
-  // — the exact drift `identityKey` exists for, which the history layer resolves
-  // — put a name in `unlistedRosterOwners` and silenced the whole feed. It failed
-  // closed, so no false claim, but the silence was indistinguishable from having
-  // nothing to say.
-  const answer = ask({
+test('a spelling drift between the CSV and the list FAILS CLOSED, and says so', () => {
+  // This reverses a narrower earlier version of this test, deliberately, so the
+  // reasoning is recorded rather than re-litigated.
+  //
+  // One review round flagged raw comparison as SILENT over-suppression: a case
+  // drift the history layer resolves would silence the whole feed for no visible
+  // reason. The fix was to compare normalized. The next round flagged the
+  // consequence: normalizing lets `Mike` and `mike` — which `cleanOwnerNames`
+  // deliberately keeps distinct, and which AGENTS.md invariant 11 defers a
+  // canonical mapping for — corroborate each other.
+  //
+  // Both are right. The resolution is to fail closed AND to stop being silent
+  // about it: `identity-ambiguous` is now a reported evidence value with its own
+  // diagnostics caption naming the fix. A feature whose failure mode is
+  // announcing that real people quit does not get to guess which of two readings
+  // is correct.
+  const drifted = ask({
     members: ['Alice', 'Bob'],
     roster: ['alice', 'BOB'],
     rosterIsPublished: true,
   });
-  assert.equal(answer.complete, true);
-  assert.deepEqual(answer.unlistedRosterOwners, []);
+  assert.equal(drifted.complete, false);
+  assert.equal(drifted.evidence, 'identity-ambiguous', 'and the operator is told which problem');
 
-  // POSITIVE CONTROL: a genuinely different name is still a contradiction.
+  // POSITIVE CONTROL: consistent spellings publish normally, so the check is
+  // rejecting the drift rather than the fixture.
   assert.equal(
-    ask({ members: ['Alice', 'Bob'], roster: ['alice', 'Carol'], rosterIsPublished: true })
-      .complete,
-    false
+    ask({ members: ['Alice', 'Bob'], roster: ['Alice', 'Bob'], rosterIsPublished: true }).complete,
+    true
   );
 });
 
@@ -161,6 +214,9 @@ test('an out-of-year request cannot be answered, so it is not answered', async (
   // decides what counts as "last season" — comes from the league record. On a
   // 2027 league, `?year=2024` diffed the 2024 roster against the 2026 archive and
   // announced everyone who joined since as departed, in copy dated 2027.
+  //
+  // (This test was lost once to a scripted truncation of this file and restored
+  // when `lint:all` flagged the orphaned import — the only thing that noticed.)
   const league = {
     slug: 'l',
     displayName: 'L',
@@ -192,8 +248,8 @@ test('an out-of-year request cannot be answered, so it is not answered', async (
   const mismatched = await build(2024);
   assert.equal(mismatched.membershipCompleteness.complete, false, 'a foreign year is unanswerable');
 
-  // POSITIVE CONTROL: the identical inputs at the league's OWN year do answer, so
-  // the guard is rejecting the mismatch rather than the fixture.
+  // POSITIVE CONTROL: identical inputs at the league's OWN year do answer, so the
+  // guard is rejecting the mismatch rather than the fixture.
   const coherent = await build(2027);
   assert.equal(coherent.membershipCompleteness.complete, true);
   assert.equal(coherent.membershipCompleteness.evidence, 'published-roster');
