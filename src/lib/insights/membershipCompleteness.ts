@@ -77,9 +77,21 @@ import { identityKey } from './membershipHistory';
  * feature that publishes claims about who is gone fails closed.
  *
  * A consequence worth stating plainly: a league that assigns teams by hand rather
- * than by draft publishes no membership changes at all. That is the correct
- * answer rather than a gap — a hand-uploaded CSV carries no signal that it is
- * finished, which is exactly what v2 got wrong.
+ * than by draft publishes no membership changes at all. A hand-uploaded CSV
+ * carries no signal that it is finished, which is exactly what v2 got wrong.
+ *
+ * That is a GAP, not the final answer. The owner ruled (2026-08-17) that
+ * completing setup should be the fallback gate so a commissioner-assigned roster
+ * keeps full insight access, and that ruling is accepted — it is not implemented
+ * here because it cannot be yet. `manualAssignmentComplete` has no writer, so a
+ * manual league can never complete setup at all (it cannot finish preseason
+ * either, which is the larger problem), and the fallback branch would be
+ * unreachable code in the one module on this feature where an evidence rule with
+ * no real state behind it has already caused two published falsehoods. Whatever
+ * records that completion must also be per-season and durable, because
+ * `setupComplete` is deleted by the season transition. Filed as queue item 51
+ * with both constraints; add the branch when a manual league can reach the
+ * state.
  *
  * ## What this deliberately does NOT do
  *
