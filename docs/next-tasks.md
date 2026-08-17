@@ -985,7 +985,9 @@ Supersedes: (none)
     collapsed again by the next generator anyone writes. Every one of the seven correct sites hand-
     rolls the same two loops.
 
-34. **INSIGHTS-031 follow-ups — the rest of roster x schedule** (split at build, 2026-08-17).
+34. ✅ **INSIGHTS-031 — COMPLETE** (PR #486, `cad8362e`, 2026-08-17). Two self-play insights, weekly
+    variant rotation, and draft-fact decay. **INSIGHTS-031 follow-ups — the rest of roster x
+    schedule** (split at build, 2026-08-17).
 
     The computation already produces all of this; only the two self-play insights have copy.
 

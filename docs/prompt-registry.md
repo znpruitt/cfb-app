@@ -85,7 +85,7 @@ Rules:
   mechanism that never runs. (5) Adopting the canonical `getGameOwners` made every test throw: my
   fixtures never set `participants`, so they had been passing against a shape production does not
   produce.
-- Status: MERGED — PR #486 (`<COMMIT>`), 2026-08-17. Two remediation rounds.
+- Status: MERGED — PR #486 (`cad8362e`), 2026-08-17. Two remediation rounds.
 - **Owner ruling recorded WITH the mechanic that contradicts it, so it is not re-litigated.** Both
   reviewers showed self-games are not standings-neutral — `deriveStandings` sorts by WINS first, so
   the self-win counts fully and the paired loss only bites as a tiebreak. Ruling: keep the framing.
