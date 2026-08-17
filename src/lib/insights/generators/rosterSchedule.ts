@@ -59,6 +59,16 @@ const MIN_SELF_GAMES_TO_REPORT = 6;
 /** Below this, "cleanest board" is noise rather than a distinction. */
 const MAX_SELF_GAMES_FOR_CLEAN = 3;
 
+/**
+ * A tie wider than this stops being a distinction and starts being a list.
+ *
+ * The bad-bet side is bounded by its reporting floor, so a wide tie there is
+ * rare. The clean side fires at 0-3, where ties are common — six owners at zero
+ * produced "A, B, C, D, E, F, and G's teams never face each other all year",
+ * which nobody reads and which says nothing about any of them.
+ */
+export const MAX_NAMED_OWNERS = 3;
+
 /** At least this many owners must have a roster, or there is no league to compare. */
 const MIN_OWNERS_FOR_COMPARISON = 4;
 
@@ -181,7 +191,7 @@ export const rosterScheduleGenerator: InsightGenerator = {
       // Only a distinction if somebody did worse. A league where every owner
       // has the same count has no cleanest board.
       const someoneWorse = all.some((p) => p.selfGames > best.selfGames);
-      if (someoneWorse) {
+      if (someoneWorse && owners.length <= MAX_NAMED_OWNERS) {
         const variants = cleanVariants(formatOwnerList(owners), best.selfGames, owners.length > 1);
         insights.push({
           id: `self-schedule-clean-${owners.map((o) => o.toLowerCase().replace(/\s+/g, '-')).join('-')}`,

@@ -1006,6 +1006,16 @@ Supersedes: (none)
       is the bottom of the board by definition. **NOT "free wins"** (owner correction): the team still
       has to win.
 
+    **The engine feed does NOT pass through `OVERVIEW_TYPE_PRIORITY`** (found by both reviewers,
+    2026-08-17). `deriveOverviewInsights`/`deriveStandingsInsights` run only on `deriveLeagueInsights`
+    output — the legacy standings-derived set — while `OverviewPanel` sorts engine insights by raw
+    `priorityScore` and merges them ahead of it. INSIGHTS-031 registered two types in that map
+    believing an unregistered type would rank last and never surface; the entries did nothing and
+    were removed. **A generator's rank is its `priorityScore`, full stop.** Whether the engine feed
+    SHOULD pass through a type-bonus ranker is a real decision nobody has made — it would give the
+    type-level ordering policy somewhere to live, and it matters more as the pool grows past the
+    five Overview slots.
+
     **CALIBRATION OPEN: `MIN_SELF_GAMES_TO_REPORT = 6` was set on SIMULATED data.** Twenty synthetic
     14-owner drafts over the real conference structure, with an approximated schedule — leaders ran
     5-8, league median 3, and ties at the top were the most common outcome (10 of 20). A full 2025

@@ -4,7 +4,10 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { buildRosterScheduleProfile, rankBySelfGames } from '@/lib/insights/rosterSchedule';
-import { rosterScheduleGenerator } from '@/lib/insights/generators/rosterSchedule';
+import {
+  MAX_NAMED_OWNERS,
+  rosterScheduleGenerator,
+} from '@/lib/insights/generators/rosterSchedule';
 import {
   applyInsightDecay,
   applyInsightVariants,
@@ -360,24 +363,26 @@ test('rotationBucket advances exactly once per cadence', () => {
 // The trap.
 // ---------------------------------------------------------------------------
 
-test('both new types are registered in the Overview priority map', () => {
-  // `deriveOverviewInsights` ranks by `priorityScore + (OVERVIEW_TYPE_PRIORITY[type] ?? 0)`,
-  // and the listed types carry +54 to +120. An UNREGISTERED type scores +0 and
-  // loses to every existing insight, so it would generate correctly and never
-  // appear — a silent no-op with green tests. Registration is part of shipping
-  // the feature.
-  const src = readFileSync(
-    fileURLToPath(new URL('../../selectors/insights.ts', import.meta.url)),
-    'utf8'
-  );
-  const map = /const OVERVIEW_TYPE_PRIORITY[^{]*\{([\s\S]*?)\n\};/.exec(src);
-  assert.ok(map, 'the priority map must be readable to be pinned');
-  assert.match(map[1]!, /self_schedule_heavy:/, 'the bad-bet type must be ranked');
-  assert.match(map[1]!, /self_schedule_clean:/, 'the good-bet type must be ranked');
+test('the generators rank by priorityScore, which is what the Overview reads', () => {
+  // An earlier version of this test pinned entries in `OVERVIEW_TYPE_PRIORITY`,
+  // on the belief that an unregistered type would score +0 against bonuses of
+  // +54 to +120 and never surface. That map is real but NOT on this path:
+  // `deriveOverviewInsights` runs only on the legacy standings-derived set, and
+  // `OverviewPanel` sorts engine insights by raw `priorityScore` alone. The
+  // registration did nothing and this test pinned a mechanism that never ran.
+  //
+  // What actually decides whether these cards appear is the score itself, so
+  // that is what gets pinned: high enough to compete, and the bad bet above the
+  // good one.
+  const context = leagueWhere({ A: 8, B: 2, C: 2, D: 1, E: 1, F: 0 });
+  const produced = rosterScheduleGenerator.generate(context);
+  const heavy = produced.find((i) => i.type === 'self_schedule_heavy');
+  const clean = produced.find((i) => i.type === 'self_schedule_clean');
 
-  // Anti-vacuity: the detector must be able to tell a listed type from an absent
-  // one, or the two assertions above prove nothing.
-  assert.doesNotMatch(map[1]!, /definitely_not_a_type:/);
+  assert.ok(heavy && clean, 'both insights must exist for this fixture');
+  assert.ok(heavy.priorityScore > clean.priorityScore, 'the bad bet leads the good one');
+  assert.ok(heavy.priorityScore >= 70, 'and both compete with existing engine insights');
+  assert.ok(clean.priorityScore >= 65);
 });
 
 // ---------------------------------------------------------------------------
@@ -429,30 +434,110 @@ test('the generator declares decay and never applies it', () => {
   }
 });
 
-test('the serving path actually applies decay and variants', () => {
-  // WIRING, not behaviour, and that is a deliberate downgrade.
+test('the serving path decays BEFORE it caps, and applies variants', () => {
+  // WIRING, not behaviour, and that is a deliberate downgrade — removing the
+  // `applyInsightDecay` call failed nothing until this pin existed.
   //
-  // Removing the `applyInsightDecay` call from `loadInsights` failed nothing:
-  // every test above exercises the helper in isolation or checks that the
-  // generator declares its policy. A helper that is correct and never called is
-  // the same defect as a helper that is wrong.
-  //
-  // A behavioural pin needs a seeded post-draft league with a cached schedule in
-  // a mid-season lifecycle — a fixture this slice does not otherwise need.
-  // Recorded in docs/next-tasks.md rather than faked.
+  // The ORDER is the part that matters and the part review caught: decay ran
+  // after `selectServedInsights`, which sorts and slices to the served cap. A
+  // stale draft fact therefore competed at full weight for the one cut that
+  // removes anything, displacing a fresher insight that then appeared nowhere.
   const src = readFileSync(fileURLToPath(new URL('../loadInsights.ts', import.meta.url)), 'utf8')
     .replace(/\/\*[\s\S]*?\*\//g, '')
     .replace(/\/\/.*$/gm, '');
 
-  assert.match(src, /applyInsightDecay\(/, 'decay must be applied on the way out');
-  assert.match(src, /applyInsightVariants\(/, 'and so must the variant pick');
+  assert.match(
+    src,
+    /selectServedInsights\(\s*applyInsightDecay\(/,
+    'decay must be applied to the RAW set, inside the call that caps it'
+  );
+  assert.match(src, /applyInsightVariants\(/, 'and the variant pick still happens on the way out');
 
-  // Anti-vacuity: the detector must be able to tell a present call from an
-  // absent one, and comment-stripping must not be what makes it pass.
+  // Anti-vacuity: the detector must tell a present call from an absent one, and
+  // comment-stripping must not be what makes it pass.
   assert.doesNotMatch(src, /applyInsightDefinitelyNotACall\(/);
   assert.match(
-    '  const x = applyInsightDecay(served, lifecycleState);'.replace(/\/\/.*$/gm, ''),
-    /applyInsightDecay\(/,
+    'const s = selectServedInsights(applyInsightDecay(raw, life)); // note'.replace(
+      /\/\/.*$/gm,
+      ''
+    ),
+    /selectServedInsights\(\s*applyInsightDecay\(/,
     'the detector still matches real code after stripping'
   );
+});
+
+// ---------------------------------------------------------------------------
+// NoClaim.
+// ---------------------------------------------------------------------------
+
+test('NoClaim is never profiled as an owner', () => {
+  // `buildConfirmedOwnersCsv` writes a row for EVERY eligible team the draft did
+  // not take, owned by `NoClaim`. Counting games between two of those as one
+  // owner's self-games made `NoClaim` the league leader.
+  //
+  // THIRTY undrafted teams here, deliberately. My own verification fixture had
+  // ten, which produced fewer NoClaim self-games than the reporting floor — so
+  // the defect hid behind the threshold and the run looked clean. A fixture that
+  // cannot reach the failure is not evidence.
+  const games: AppGame[] = [];
+  const owners: Array<[string, string]> = [];
+
+  for (let i = 0; i < 30; i += 1) owners.push([`U${i}`, 'NoClaim']);
+  for (let i = 0; i < 29; i += 1) games.push(game(`U${i}`, `U${i + 1}`, 1));
+
+  // Four real owners, two self-games each — far below NoClaim's 29.
+  for (const owner of ['Alice', 'Bob', 'Cara', 'Dan']) {
+    for (let i = 0; i < 2; i += 1) {
+      const home = `${owner}H${i}`;
+      const away = `${owner}A${i}`;
+      owners.push([home, owner], [away, owner]);
+      games.push(game(home, away, 2));
+    }
+  }
+  // And one drafted-vs-leftover fixture, which must count as UNDRAFTED rather
+  // than as a game against an owner named NoClaim.
+  owners.push(['AliceSolo', 'Alice']);
+  games.push(game('AliceSolo', 'U0', 3));
+
+  const profile = buildRosterScheduleProfile(games, roster(owners));
+
+  assert.ok(!profile.byOwner.has('NoClaim'), 'NoClaim must not appear as an owner at all');
+  assert.equal(profile.byOwner.size, 4, 'and must not inflate the owner count');
+  assert.equal(
+    profile.byOwner.get('Alice')?.againstUndrafted,
+    1,
+    'a game against a leftover is undrafted, not a matchup with an owner'
+  );
+  assert.equal(
+    profile.byOwner.get('Alice')?.againstByOwner.get('NoClaim'),
+    undefined,
+    'and never a head-to-head record against it'
+  );
+
+  // The generator must therefore name a real owner, or nobody.
+  const produced = rosterScheduleGenerator.generate(contextWith(games, owners));
+  for (const insight of produced) {
+    assert.doesNotMatch(insight.description, /NoClaim/, `named NoClaim: ${insight.description}`);
+  }
+  // And with all four real owners level, the clean side has no distinction to
+  // draw — the guard NoClaim used to defeat by sitting below them.
+  assert.ok(
+    !produced.some((i) => i.type === 'self_schedule_clean'),
+    'everyone level means no cleanest board'
+  );
+});
+
+test('the cleanest-board list is capped rather than naming half the league', () => {
+  // Six owners at zero produced "A, B, C, D, E, F, and G's teams never face each
+  // other all year" — a sentence nobody reads. The bad-bet side is bounded by
+  // its reporting floor; this side is not, and ties are far more likely at 0-3.
+  const context = leagueWhere({ A: 8, B: 0, C: 0, D: 0, E: 0, F: 0, G: 0, H: 0 });
+  const clean = rosterScheduleGenerator
+    .generate(context)
+    .find((i) => i.type === 'self_schedule_clean');
+
+  if (clean) {
+    const names = (clean.relatedOwners?.length ?? 0) + 1;
+    assert.ok(names <= MAX_NAMED_OWNERS, `named ${names} owners: ${clean.description}`);
+  }
 });

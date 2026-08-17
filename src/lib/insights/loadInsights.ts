@@ -104,6 +104,11 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  *    lifecycle.
  *  - INSIGHTS-030 rewrote every league-record claim at four sites and added the
  *    unknown-membership register.
+ *  - INSIGHTS-031 registered a new generator and added `descriptionVariants`
+ *    and `decay` to the cached payload. A NEW GENERATOR qualifies for the same
+ *    reason copy does: the raw set changes and nothing else in the key moves, so
+ *    a warm entry serves the feature without its variants or its decay policy
+ *    until the TTL lapses.
  *  - INSIGHTS-023 opened TWO lifecycle gates into preseason —
  *    `career:points_leader` and `career:greatest_season` — and made the
  *    points-leader race narration conditional on membership. A lifecycle change
@@ -118,7 +123,7 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  * "INSIGHTS-022" while the value already read `insights030`, which is the same
  * class of drift the constant exists to prevent.
  */
-const INSIGHT_COPY_POLICY_VERSION = 'insights023-preseason-gates-v1';
+const INSIGHT_COPY_POLICY_VERSION = 'insights031-roster-schedule-v1';
 
 /**
  * Membership policy version (INSIGHTS-023a). Same shape and same reason as the
@@ -370,7 +375,13 @@ export async function loadInsightsForLeague(
     //
     // Pure, so unlike `applySuppression` it needs no per-request escape from the
     // cache: the output is a function of the raw set alone.
-    const served = selectServedInsights(rawInsights);
+    // DECAY FIRST, then the cut. `selectServedInsights` sorts and slices to
+    // `MAX_SERVED_INSIGHTS`, so decaying afterwards only reorders what already
+    // survived — a stale draft fact would still compete at full weight for the
+    // one cut that actually removes anything, displacing a fresher insight that
+    // then appears nowhere. The comment in `variants.ts` says decay makes it
+    // "stop competing"; this ordering is what makes that true.
+    const served = selectServedInsights(applyInsightDecay(rawInsights, lifecycleState));
     // INSIGHTS-031 — the two things that depend on the clock happen HERE,
     // outside the cache.
     //
@@ -384,7 +395,7 @@ export async function loadInsightsForLeague(
     // Decay first — it rewrites `priorityScore`, which every downstream ranker
     // reads — then the wording. `currentDate` rather than a fresh `new Date()`,
     // so one request cannot land two insights in different rotation buckets.
-    const insights = applyInsightVariants(applyInsightDecay(served, lifecycleState), currentDate);
+    const insights = applyInsightVariants(served, currentDate);
     return { insights, lifecycleState, generatedAt };
   } catch (err) {
     // A genuine store/database failure escaped the cached callback (nothing was
