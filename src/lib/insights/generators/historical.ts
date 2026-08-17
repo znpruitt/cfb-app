@@ -179,7 +179,13 @@ function deriveDroughtInsight(
   } else if (tied.length === 1) {
     description = droughtKnown
       ? `${nameList} hasn't won a title in ${longestDrought} seasons — still waiting for another ring.`
-      : `${nameList} last won a title ${longestDrought} seasons ago.`;
+      : // "N seasons ago" was WRONG and I wrote it. `longestDrought` counts
+        // titleless seasons from the newest ARCHIVE year, so in preseason 2026
+        // the newest archive is 2025 and an owner who last won in 2022 gets 3 —
+        // a reader in 2026 counts back to 2023. The count-of-seasons phrasing is
+        // correct in every lifecycle; only the participation clause needed
+        // dropping.
+        `${nameList} has gone ${longestDrought} seasons without a title.`;
   } else {
     description = `${nameList} haven't won a title in ${longestDrought} seasons.`;
   }
@@ -187,7 +193,13 @@ function deriveDroughtInsight(
   return toInsight({
     id: `historical-drought-${ownerNames.map(ownerSlug).join('-')}`,
     type: 'drought',
-    title: 'Longest active title drought',
+    // The TITLE follows membership too. It renders directly above the
+    // description, so a constant "Longest ACTIVE title drought" put the
+    // participation claim back on screen one line above the body that had just
+    // dropped it. `career.ts` documents this exact failure mode and gates its
+    // title; this one did not, and my guard missed it because the guard only
+    // inspected descriptions.
+    title: droughtKnown ? 'Longest active title drought' : 'Longest title drought',
     description,
     owner: ownerNames[0],
     relatedOwners: ownerNames.slice(1),

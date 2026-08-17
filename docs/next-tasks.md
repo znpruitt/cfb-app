@@ -955,7 +955,24 @@ Supersedes: (none)
     collapsed again by the next generator anyone writes. Every one of the seven correct sites hand-
     rolls the same two loops.
 
-34. **Season wrap from the ARCHIVE, and `never_last`'s "and counting"** (split out of INSIGHTS-023
+34. **Career copy narrates in the PRESENT with no time framing** (found by review during
+    INSIGHTS-023, 2026-08-16; PRE-EXISTING, and 023 widened its exposure).
+
+    `career.ts` never calls `applyLastSeasonFraming`, and its hook-driven branches narrate movement
+    with no year: in August 2026 a reader gets "Erin reclaims the all-time scoring lead with 3,800
+    career points" about a change that happened when the 2025 archive closed. `historical:consistency`
+    does the same — "each finish top-3 AGAIN — 3 times in league history".
+
+    This is AGENTS.md Insights invariant 5 clause **(a)** — restate WHEN the data is from — which the
+    023 amendment explicitly left in force. It is inherited from the pre-existing `offseason` entry
+    rather than introduced, and 023 opened these gates into preseason without addressing it, which is
+    a fair criticism of that slice. Not folded in because the fix is a framing pass across every
+    career generator, and bundling one into a gate slice is how a slice becomes unreviewable.
+
+    Check `season_wrap`'s existing `applyLastSeasonFraming` call for the pattern to follow — it is
+    the one generator that already does this correctly.
+
+35. **Season wrap from the ARCHIVE, and `never_last`'s "and counting"** (split out of INSIGHTS-023
     at its audit, 2026-08-16; owner said YES to wanting last season's wrap during preseason).
 
     **`existing:season_wrap` does not read what the INSIGHTS-023 entry assumed.** That entry argued
@@ -978,7 +995,7 @@ Supersedes: (none)
     introduced, which is why 023 filed it instead of bundling it. Same shape as the `drought` and
     `dominance_streak` phrasings 023 gated on `membershipIsKnown`; the fix is the same.
 
-35. **A `NoClaim`-bearing confirmation record counts toward the owner threshold** (found by review
+36. **A `NoClaim`-bearing confirmation record counts toward the owner threshold** (found by review
     during INSIGHTS-023a, 2026-08-16; PRE-EXISTING, and it reaches the draft).
 
     `selectConfirmedRoster` calls `cleanOwnerNames` on the `preseason-owners` record, which trims and
@@ -1005,7 +1022,7 @@ Supersedes: (none)
     already treats those as a live class (`confirmedOwnersRecord: unknown`, "a legacy or hand-edited
     row can hold any JSON shape"), so the defence belongs there rather than being argued away.
 
-36. **INSIGHTS-031 — retire `partial-roster`, and land the membership derivation in `selectors/`**
+37. **INSIGHTS-031 — retire `partial-roster`, and land the membership derivation in `selectors/`**
     (deferred out of INSIGHTS-023a at merge, 2026-08-16, owner ruling: none of it is user-visible).
 
     **Delete `partial-roster`, do not fix it.** The `LeagueMembersSource` enum carries two
@@ -1050,7 +1067,7 @@ Supersedes: (none)
       roster-as-membership site. No live effect today (nothing reads `context.records`), which is
       exactly why nothing would catch it waking up.
 
-37. **Draft-board walkthrough on preview, 2026-08-16** (owner drove the `test` league end to end on
+38. **Draft-board walkthrough on preview, 2026-08-16** (owner drove the `test` league end to end on
     the merged `main`, `ae1dc0c8`, four days before the league's first real draft).
 
     **Everything PLATFORM-102 hardened held.** Auto-pick, Undo, timer expiry pausing instead of
@@ -1106,7 +1123,7 @@ Supersedes: (none)
     owner roster in place"), and defensible: blanking a league's rosters on reset would be worse.
     Whether the summary should SAY so is the open question.
 
-38. **INSIGHTS-025 — rookie/returning claims (owner decision required, invariant amendment).**
+39. **INSIGHTS-025 — rookie/returning claims (owner decision required, invariant amendment).**
     Deliberately last, and deliberately separate.
 
     AGENTS.md Insights invariant 5 currently says naming who is genuinely returning "requires
@@ -1122,7 +1139,7 @@ Supersedes: (none)
     trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
     For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
 
-39. **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left
+40. **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left
     is news — and it is the inverse of the trade 023a was agonising over: instead of losing content
     when someone leaves, leaving becomes content.
 
@@ -1161,7 +1178,7 @@ Supersedes: (none)
     **Blocked on the same owner ruling as INSIGHTS-025**: is a confirmed preseason owner list
     "finalized" enough to license these claims, or is Setup Complete the trigger?
 
-40. **INSIGHTS-026 — the pulse: a scheduled digest, and the insights stream's EVENT SOURCE.**
+41. **INSIGHTS-026 — the pulse: a scheduled digest, and the insights stream's EVENT SOURCE.**
     **ID split out 2026-08-14: this campaign was filed under INSIGHTS-018**, which the backlog also
     used for the NEW-tag mechanism, so a content campaign was hiding behind a mechanical one. Owner
     confirmed it is still wanted — _"it helps make the app feel alive"_. Design detail stays in
@@ -1223,7 +1240,7 @@ Supersedes: (none)
 
     In-season only, so it does nothing for the preseason feed; sequence after 018/023/024.
 
-41. **INSIGHTS-027 — preseason content generators (NEW content, not re-enabled content).** Also
+42. **INSIGHTS-027 — preseason content generators (NEW content, not re-enabled content).** Also
     recovered from the roadmap entry above, and distinct from INSIGHTS-023: that one switches on
     generators that already exist, this one writes generators that do not.
 
@@ -1242,10 +1259,10 @@ Supersedes: (none)
       is the whole point of the panel: _"Every insight must tell the user something they couldn't
       figure out just by reading the table. No restating visible data without a compelling angle."_
 
-42. **Then, in order:** INSIGHTS-020 (record-change insights),
+43. **Then, in order:** INSIGHTS-020 (record-change insights),
     History Records continuation, Slow Draft Mode; commissioner onboarding / multi-tenant signup
     later.
-43. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
+44. **PLATFORM-092 follow-ups** (recorded so they are not rediscovered): (a) ✅ **CLOSED by
     PLATFORM-093** — a brand-new league had no path to confirm owners — new leagues are born `season`, `/admin/[slug]/preseason/owners`
     redirects away unless the league is in `preseason`, and only `beginPreseason` (offseason-only) or
     the rollover cron reach that state, leaving only the historical/repair CSV import, which asks the
@@ -1265,7 +1282,7 @@ Supersedes: (none)
     shell pulls `standings.ts`'s dependency graph into the separately-chunked admin route for one
     constant. Severity was overstated when first reported — three client components already import
     that module, so the graph is in the client bundle on every league page anyway.
-44. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
+45. **League deletion does not delete data — data-retention and future multi-tenant privacy.**
     Verified 2026-08-12. `DELETE /api/admin/leagues/[slug]` calls `removeLeague`, which filters the
     slug out of the registry list and nothing else. Every keyed record survives: `owners:{slug}:{year}`
     (team→owner rosters carrying real names), `preseason-owners:{slug}`, `draft:{slug}` (picks and
@@ -1295,7 +1312,7 @@ Supersedes: (none)
     the score cache has aged out. Not a PLATFORM-093 regression and deliberately not fixed there:
     the honest options are a purge that removes the residue, an already-archived guard in the
     rollover path, or retiring adoption — all of which are this campaign's decisions.
-45. 🟡 **PLATFORM-101 — `?bypassSuppression=1` is an uncached, invariant-skipping flag with no admin
+46. 🟡 **PLATFORM-101 — `?bypassSuppression=1` is an uncached, invariant-skipping flag with no admin
     check.** Raised by review during INSIGHTS-029 (2026-08-15); **pre-existing, NOT introduced
     there** — the bypass block in `loadInsights.ts` is byte-identical to `main` and the route file
     was untouched. Recorded here rather than fixed in-branch because the fix is an auth change.
@@ -1332,12 +1349,12 @@ Supersedes: (none)
     the public flag has no remaining reason to exist and deletion is the smaller change. Sequence
     accordingly rather than bolting an admin check onto a route that may not keep the flag.
 
-46. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
+47. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
     exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
     re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
     once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
     retry.
-47. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
+48. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
     honest fix is a server-side read passed as a prop like `canonicalStandings`; (b) draft setup can
@@ -1347,7 +1364,7 @@ Supersedes: (none)
     (c) a past `scheduledAt` still reads `Draft scheduled`, a forward-looking claim licensed by a
     fact about the past. Reinstating any "ready for kickoff" claim requires extracting the admin
     checklist's `teamsAssigned` derivation into a selector both surfaces consume.
-48. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
+49. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
 

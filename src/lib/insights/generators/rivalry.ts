@@ -328,15 +328,22 @@ function deriveEvenRivalryInsight(
     const trailer = bestWinsA > bestWinsB ? bestOwnerB : bestOwnerA;
     const leaderWins = Math.max(bestWinsA, bestWinsB);
     const trailerWins = Math.min(bestWinsA, bestWinsB);
+    // The search loop above skips any pair with a non-member, so the population
+    // is members-only. "the closest rivalry in the league" is true of that
+    // population when membership is known; "the closest in LEAGUE HISTORY" is
+    // not, and it is a WIDER claim than the one it replaced — a departed pair at
+    // 5–5 over ten meetings beats it and is never considered. That is the
+    // record-population class INSIGHTS-030 fixed at four sites; `even_rivalry`
+    // was never converted, so the honest move here is to claim nothing.
     description = evenKnown
       ? `${leader} leads ${trailer} ${leaderWins}–${trailerWins} across ${bestMeetings} meetings — the closest rivalry in the league.`
-      : `${leader} leads ${trailer} ${leaderWins}–${trailerWins} across ${bestMeetings} meetings — the closest in league history.`;
+      : `${leader} leads ${trailer} ${leaderWins}–${trailerWins} across ${bestMeetings} meetings.`;
   }
 
   return toInsight({
     id: `rivalry-even-${ownerSlug(bestOwnerA)}-${ownerSlug(bestOwnerB)}`,
     type: 'even_rivalry',
-    title: 'Most evenly matched rivalry',
+    title: evenKnown ? 'Most evenly matched rivalry' : 'An even rivalry',
     description,
     owner: bestOwnerA,
     relatedOwners: [bestOwnerB],
@@ -436,7 +443,7 @@ function deriveDominanceStreakInsight(
   return toInsight({
     id: `rivalry-dominance-${ownerSlug(bestWinner)}-${ownerSlug(bestLoser)}`,
     type: 'dominance_streak',
-    title: 'Active dominance streak',
+    title: dominanceKnown ? 'Active dominance streak' : 'Dominance streak',
     description,
     owner: bestWinner,
     relatedOwners: [bestLoser],
