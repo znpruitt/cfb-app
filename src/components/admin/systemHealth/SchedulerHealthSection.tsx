@@ -110,6 +110,17 @@ export default function SchedulerHealthSection({
                     <Detail label="Completed" value={formatMoment(receipt.completedAt, nowMs)} />
                   )}
                   {receipt && <Detail label="Invocation id" value={receipt.invocationId} />}
+                  {/* WHICH BUILD executed this run. Since production promotion
+                      became manual (deployment-runbook §6b), "merged" and
+                      "running" are different facts — and these two lifecycle jobs
+                      perform season-state writes, so an operator needs to see the
+                      commit that actually ran rather than assume it is `main`. */}
+                  {receipt && (
+                    <Detail
+                      label="Built from"
+                      value={receipt.buildCommitSha ?? 'not reported by the runtime'}
+                    />
+                  )}
                   {receipt && (
                     <Detail label="Target" value={summarizeReceiptTarget(receipt.target)} />
                   )}
