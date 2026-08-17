@@ -1,7 +1,7 @@
 # Production Deployment Runbook
 
 Status: Current
-Last verified: 2026-07-26
+Last verified: 2026-08-17
 Owner: Project documentation
 Canonical for: detailed hosted-deployment / operator checklist — the step-by-step operational companion to docs/operations/deployment.md
 Supersedes: (none)
@@ -12,6 +12,8 @@ Use this runbook for deploying **turfwar.games** to Vercel with Clerk authentica
 
 1. Create a new Vercel project from the GitHub repo.
 2. Confirm Vercel is building the default branch and preview deploys for pull requests.
+   **Building is not shipping** — see §6b. Merging to `main` produces a Production Deployment that
+   does not serve traffic until it is promoted.
 3. Set the custom domain to `turfwar.games` in Vercel project settings.
 
 ## 2) DNS and domain configuration
@@ -106,6 +108,57 @@ These three mechanisms are independent: Clerk (identity + admin role), `ADMIN_AP
 2. Trigger a fresh production deploy.
 3. Open `turfwar.games`.
 4. Confirm the league page loads before deeper validation.
+
+## 6b) Promotion — merging to `main` does NOT ship
+
+**Owner change, 2026-08-17.** `Settings -> Environments -> Production -> Auto-assign Custom Production
+Domains` is **DISABLED**. (On the Hobby plan this is the control that exists; the
+`Automatically promote successful deployments` toggle named in Vercel's docs is not offered here.)
+
+### What that changes
+
+| | Before | Now |
+| --- | --- | --- |
+| Merge to `main` | builds AND serves production | builds only |
+| `turfwar.games`, `cfb-app.vercel.app` | repointed automatically | stay on the last PROMOTED deployment |
+| Shipping | implicit | an explicit, separate act |
+
+`main` is therefore no longer a synonym for what members see. **Merged and live are now two
+different questions, and every claim about production has to say which one it means.** The
+`preview` branch keeps its existing job (`CLAUDE.md` -> Preview branch): it tracks the working
+branch continuously so the owner can click through what is being built.
+
+### To promote
+
+1. Vercel -> project -> **Deployments**.
+2. Find the deployment for the commit you intend to ship — check the SHA, not the position in the
+   list. With auto-assign off, the newest build is routinely NOT the live one, so "the top row" is
+   no longer a safe proxy.
+3. Ellipsis -> **Promote to Production**.
+4. Confirm `turfwar.games` now serves that build before treating it as shipped.
+
+`vercel promote` does the same from the CLI. The CLI is not installed in the maintenance
+environment; `npm i -g vercel` if a command-line path is wanted.
+
+### What follows the promoted deployment, and what may not
+
+- **The custom domains** — by definition, that is what promotion moves.
+- **The five external QStash schedules** (§8e game stats, §8f live scores, §8g odds, §8h weekly
+  schedule, §8j rankings). Each is provisioned against a `turfwar.games` URL, so it hits whatever is
+  promoted. An unpromoted merge does not change their behaviour.
+- **The two Vercel-native crons in `vercel.json`** (`/api/cron/season-transition`,
+  `/api/cron/season-rollover`, daily 00:00 UTC) — **UNVERIFIED under this setting.** Vercel binds
+  cron jobs to a production deployment, and it has not been confirmed here whether that is the
+  promoted one or the newest production build. This matters: those two routes perform LIFECYCLE
+  WRITES (preseason -> season, season rollover and archival), so if they bind to an unpromoted build,
+  a merge could change lifecycle behaviour with nothing promoted. **Check `Settings -> Cron Jobs`
+  after the next merge-without-promotion and record the answer here.**
+
+### Consequence for the documentation ledgers
+
+A slice is not "in production" at merge. `docs/next-tasks.md` and `docs/prompt-registry.md` record
+MERGE status; anything asserting production behaviour (activation checkpoints in §8e-§8j, and any
+"PRODUCTION-ACTIVE" claim) now additionally requires that the deployment carrying it was promoted.
 
 ## 7) Must complete before production signoff
 
