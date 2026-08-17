@@ -195,9 +195,20 @@ production database for preview deployments, so that clicking through preview ca
 production data. `DATABASE_URL` is set for the Preview environment (§4) but does not point at the
 production database.
 
-A preview deployment therefore reads a POINT-IN-TIME COPY, taken when its branch was created or last
-reset. Everything durable is frozen at that moment: league records, rosters, drafts, archives,
-cached provider data, and scheduler receipts.
+A preview deployment therefore reads a SEPARATE STORE from production: league records, rosters,
+drafts, archives, cached provider data, and scheduler receipts are all its own.
+
+**How far that store lags production is NOT established, and the obvious assumption is wrong.** If
+the branch were created from production on each preview push, preview would hold data current as of
+that push. Measured 2026-08-17, it did not: the preview deployment was running that day's code (the
+`Built from` row only exists in `18660a4b`) while its scheduler receipts were three days old. So the
+branch is not being recreated from production per push.
+
+Candidate explanations, none confirmed: a long-lived branch created once for the `preview` git branch
+and reused; per-deployment branches seeded from a stale parent rather than from production; or a
+store that is not a child of production at all. **Settle it in the Neon console — the branch list
+shows each branch's parent and creation time — and record the answer here.** It matters for anything
+that reasons about preview data being representative.
 
 ### What this makes MEANINGLESS on preview
 
