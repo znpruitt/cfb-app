@@ -698,3 +698,33 @@ test('a MALFORMED stored commit is corruption, and the record is refused', () =>
     null
   );
 });
+
+test('an UPPERCASE stored commit is normalized, not treated as corruption', () => {
+  // The reader accepted `/i` and lowercased while the parser did not, so a
+  // receipt carrying an uppercase SHA — a hand-repaired durable row, or any
+  // future writer that skips the normalizer — failed the WHOLE parse.
+  //
+  // The cost is wildly disproportionate to the field: rejecting the record makes
+  // `deliveryState` degrade to `invalid`, which discards `reason`, `target` and
+  // both timestamps. The entire forensic surface of a run, thrown away over an
+  // observability-only value.
+  const upper = validReceipt('schedule-refresh', ms('2026-03-15T12:06:00Z')) as Record<
+    string,
+    unknown
+  >;
+  upper.buildCommitSha = 'E043FE97AABBCCDDEEFF00112233445566778899';
+
+  const parsed = parseSchedulerExecutionReceipt(
+    upper,
+    'schedule-refresh',
+    ms('2026-03-15T12:10:00Z')
+  );
+  assert.ok(parsed, 'the record survives');
+  assert.equal(
+    parsed.buildCommitSha,
+    'e043fe97aabbccddeeff00112233445566778899',
+    'lowercased, so a comparison against a git SHA never fails on case'
+  );
+  // The rest of the receipt is intact — the point of not rejecting it.
+  assert.ok(parsed.reason.length > 0 && parsed.target && parsed.startedAt);
+});

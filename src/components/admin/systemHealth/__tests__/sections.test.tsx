@@ -394,3 +394,51 @@ test('production-misconfigured storage renders an Action required row', async ()
   assert.ok(html.includes('Production storage is misconfigured'));
   assert.ok(html.includes('Action required'));
 });
+
+test('scheduler rows show WHICH BUILD executed each run, and say nothing more when unknown', async () => {
+  // The server side of this field got four tests and the surface an operator
+  // actually reads got none — and the empty branch is the one production hits
+  // first, because every receipt stored before it shipped lacks the field.
+  const model = await buildModel({
+    schedulerDelivery: () =>
+      Promise.resolve(
+        deliverySnapshot(
+          EXTERNAL_SCHEDULER_JOBS.map((job) => {
+            const receipt = receiptFor(job, 'success');
+            // `season-transition` reports a build; the rest report none, which is
+            // exactly the mixed state the first production read will show.
+            return deliveryRow(
+              job,
+              'on-time',
+              job === 'season-transition'
+                ? { ...receipt, buildCommitSha: 'e043fe97aabbccddeeff00112233445566778899' }
+                : { ...receipt, buildCommitSha: null }
+            );
+          })
+        )
+      ),
+  });
+
+  const html = renderToStaticMarkup(
+    <SchedulerHealthSection jobs={model.schedulerJobs} nowMs={NOW} />
+  );
+
+  assert.ok(html.includes('Built from'), 'the label renders');
+  assert.ok(
+    html.includes('e043fe97aabbccddeeff00112233445566778899'),
+    'a recorded commit reaches the DOM in full — a truncated SHA cannot be compared to a promotion'
+  );
+
+  // The empty state states a FACT and asserts no cause. It has three of them (a
+  // run predating the field, a runtime that supplied none, a non-Git deploy) and
+  // an earlier version claimed the second for all three, which made the SAFE
+  // outcome in deployment-runbook §6b unreadable.
+  assert.ok(html.includes('not recorded'), 'the empty state is shown, not hidden');
+  assert.ok(
+    !/not reported by the runtime/.test(html),
+    'and does not claim the runtime was the reason'
+  );
+  // It points at the timestamp that disambiguates it, which is the whole
+  // procedure: a RECENT run with no commit is itself the answer.
+  assert.ok(html.includes('Completed'), 'the disambiguating field is on the row');
+});

@@ -112,13 +112,25 @@ export default function SchedulerHealthSection({
                   {receipt && <Detail label="Invocation id" value={receipt.invocationId} />}
                   {/* WHICH BUILD executed this run. Since production promotion
                       became manual (deployment-runbook §6b), "merged" and
-                      "running" are different facts — and these two lifecycle jobs
-                      perform season-state writes, so an operator needs to see the
-                      commit that actually ran rather than assume it is `main`. */}
+                      "running" are different facts, and an operator cannot assume
+                      a job ran `main`. Rendered for every scheduler row — the two
+                      lifecycle jobs are where it matters most, because they
+                      perform season-state writes, but any job can be executed by
+                      a build other than the one just merged.
+
+                      The empty value says only that nothing was RECORDED, and
+                      deliberately asserts no cause. It has three of them — a run
+                      predating this field, a runtime that supplied no SHA, and a
+                      non-Git deployment — which mean different things, and an
+                      earlier version claimed the second for all three. Read it
+                      against `Completed` above: a RECENT run with no
+                      commit is itself evidence that a build without this field
+                      executed it, which is the observation deployment-runbook §6b
+                      turns on. */}
                   {receipt && (
                     <Detail
                       label="Built from"
-                      value={receipt.buildCommitSha ?? 'not reported by the runtime'}
+                      value={receipt.buildCommitSha ?? 'not recorded — see Completed above'}
                     />
                   )}
                   {receipt && (

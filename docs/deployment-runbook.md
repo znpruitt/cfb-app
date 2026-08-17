@@ -155,12 +155,29 @@ environment; `npm i -g vercel` if a command-line path is wanted.
 
   **The app now answers this itself.** Every scheduler receipt records
   `buildCommitSha` — the commit the executing deployment was built from — and System Health shows it
-  per job as **Built from**. So after the next merge-without-promotion, read that field on the two
-  lifecycle jobs once they have fired: if it names the UNPROMOTED commit, crons follow the newest
-  production build; if it names the promoted one, the isolation holds. Record the answer here.
+  per job as **Built from**.
 
-  Until each job next fires, its stored receipt predates the field and shows
-  `not reported by the runtime` — that is a legacy record, not a fault.
+  **Read `Built from` TOGETHER WITH `Completed`. On its own it cannot tell you the safe answer.**
+  An earlier version of this procedure said to read the field alone, which could only ever confirm
+  the dangerous hypothesis:
+
+  | What you see | What it means |
+  | --- | --- |
+  | A commit, and it is the UNPROMOTED one | Crons follow the newest production build. An unpromoted merge CAN change lifecycle behaviour. |
+  | A commit, and it is the PROMOTED one | Crons follow the promoted deployment. The isolation holds. |
+  | No commit, and `Completed` is RECENT | Crons follow the promoted deployment, and that build predates this field — **also the isolation holding.** |
+  | No commit, and `Completed` is STALE | The job has not fired since this shipped. No conclusion yet; wait. |
+
+  Rows three and four render identically in the `Built from` cell, and only the run timestamp
+  separates "the answer is the safe one" from "nothing has happened yet". Until a build carrying this
+  field has itself been PROMOTED, row three is the expected reading of a healthy system — not a
+  fault, and not an absence of data.
+
+  Two prerequisites, or every receipt reads empty forever and feeds that same misreading: the
+  deployment must be Git-created (a CLI deploy supplies no commit), and Vercel's system environment
+  variables must be exposed to the runtime.
+
+  Record the answer here once observed.
 
 ### Consequence for the documentation ledgers
 

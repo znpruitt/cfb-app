@@ -701,8 +701,10 @@ function rebuildReceipt(receipt: SchedulerExecutionReceipt): SchedulerExecutionR
     providerCallAttempted: receipt.providerCallAttempted,
     target,
     // Normalized to null rather than left undefined, so every parsed receipt has
-    // the same shape whether or not the writer that produced it knew this field.
-    buildCommitSha: receipt.buildCommitSha ?? null,
+    // the same shape whether or not the writer that produced it knew this field —
+    // and lowercased, so a comparison against a git SHA never fails on case
+    // regardless of which writer stored it.
+    buildCommitSha: receipt.buildCommitSha?.toLowerCase() ?? null,
   };
 }
 
@@ -887,7 +889,15 @@ export function parseSchedulerExecutionReceipt(
   // well-formed; a malformed one is corruption and the record is replaceable.
   if (record.buildCommitSha !== undefined && record.buildCommitSha !== null) {
     if (typeof record.buildCommitSha !== 'string') return null;
-    if (!/^[0-9a-f]{7,40}$/.test(record.buildCommitSha)) return null;
+    // Case-INSENSITIVE, matching `readBuildCommitSha`. The two disagreed for one
+    // round: the reader accepted `/i` and lowercased, the parser did not, so a
+    // receipt carrying an uppercase SHA — a hand-repaired durable row, or any
+    // future writer that skips the normalizer — failed the WHOLE parse. The cost
+    // is wildly disproportionate to the field: `deliveryState` degrades to
+    // `invalid` and the row loses `reason`, `target` and both timestamps, so the
+    // entire forensic surface of a run is discarded over an observability-only
+    // value. `rebuildReceipt` lowercases it instead.
+    if (!/^[0-9a-f]{7,40}$/i.test(record.buildCommitSha)) return null;
   }
   if (!isValidStoredTarget(record.target, expectedJob)) return null;
   // REBUILD field-by-field through the allowlist so no extra top-level, target,
