@@ -133,5 +133,11 @@ duplicate of what is already live: no new information and a wasted deployment. T
 clearing genuinely stale work — if `preview` still holds an abandoned branch, resetting it to `main`
 is housekeeping, not verification, and should be described as such.
 
+**Preview reads its own database.** Vercel/Neon spins off a child branch so preview testing cannot
+mutate production data, which means preview's durable state is a point-in-time copy and NOTHING
+writes scheduler receipts there. System Health on preview always reports scheduler delivery as late
+and provider data as stale — correct about its snapshot, and silent about production. Diagnose
+platform health on production only; `docs/deployment-runbook.md` §6c has the detail.
+
 `preview` is a throwaway surface, so the force push is intentional. Never open a PR from `preview`;
 never merge `preview` into `main`. Do not push unreviewed work there.

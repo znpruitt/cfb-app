@@ -34,7 +34,10 @@ Use this runbook for deploying **turfwar.games** to Vercel with Clerk authentica
 
 ## 4) Set required environment variables in Vercel
 
-Set these for **Production** (and **Preview** for preview deploys):
+Set these for **Production** (and **Preview** for preview deploys). **`DATABASE_URL` is NOT the same
+value in both** — Preview points at a Neon CHILD BRANCH so preview testing cannot mutate production
+data. See §6c, which also explains why System Health's scheduler and provider sections are
+meaningless on preview.
 
 - `DATABASE_URL`
 - `CFBD_API_KEY`
@@ -184,6 +187,51 @@ environment; `npm i -g vercel` if a command-line path is wanted.
 A slice is not "in production" at merge. `docs/next-tasks.md` and `docs/prompt-registry.md` record
 MERGE status; anything asserting production behaviour (activation checkpoints in §8e-§8j, and any
 "PRODUCTION-ACTIVE" claim) now additionally requires that the deployment carrying it was promoted.
+
+## 6c) Preview reads a CHILD BRANCH of the database, not production
+
+**Deliberate, owner-confirmed 2026-08-17.** Vercel/Neon is allowed to spin off child branches of the
+production database for preview deployments, so that clicking through preview cannot mutate
+production data. `DATABASE_URL` is set for the Preview environment (§4) but does not point at the
+production database.
+
+A preview deployment therefore reads a POINT-IN-TIME COPY, taken when its branch was created or last
+reset. Everything durable is frozen at that moment: league records, rosters, drafts, archives,
+cached provider data, and scheduler receipts.
+
+### What this makes MEANINGLESS on preview
+
+**The Scheduler delivery section, always.** Nothing writes scheduler receipts to a preview branch:
+Vercel triggers a cron by requesting the PRODUCTION deployment URL, and all five external QStash
+schedules are provisioned against `turfwar.games`. So no scheduled invocation has ever reached
+preview. Its receipts sit at whatever they were when the branch was taken, while System Health
+compares them against wall-clock now — so every job whose cadence has elapsed since then reports
+`Late`, which within an hour or two means all of them.
+
+**Provider freshness, for the same reason.** `Odds snapshot`, canonical schedule age, and the
+dataset warnings under Prioritized issues all measure the age of data nobody is refreshing there.
+
+Both verdicts are CORRECT about the data they are reading. They are simply reading a snapshot, and
+they say nothing whatsoever about production.
+
+Observed 2026-08-17 as the worked example: preview reported six of seven jobs `Late` (last completed
+the previous Friday) and `Odds snapshot Thursday`, while production at the same moment reported every
+job `On time`, live scores delivered `1m ago`, and `Odds snapshot 18h ago`. Same application code.
+Different database.
+
+### What preview IS good for
+
+Rendering, layout, copy, navigation, interaction, and any logic that is a function of the data in the
+snapshot — which is the whole point of the branch, since a draft can be run end to end there without
+touching a real league.
+
+### The trap this closes
+
+A stale preview reads as a platform outage, and the natural next inference — "production is healthy,
+so it must be the change on preview" — is wrong for a structural reason that is invisible from the
+page. **Diagnose scheduler and provider health on production only** (`turfwar.games/admin/diagnostics`).
+If a preview reading disagrees with production, the branch is the first explanation to rule out, not
+the last.
 
 ## 7) Must complete before production signoff
 
