@@ -36,7 +36,9 @@ export type InsightType =
   | 'third_down'
   | 'team_identity'
   | 'milestone_watch'
-  | 'perfect_against';
+  | 'perfect_against'
+  | 'self_schedule_heavy'
+  | 'self_schedule_clean';
 
 export type Insight = {
   id: string;
@@ -56,6 +58,30 @@ export type Insight = {
   // The numeric stat the suppression gate tracks for this insight. Meaning is
   // generator-specific (e.g. career points, streak length, win differential).
   statValue: number;
+  /**
+   * INSIGHTS-031 — alternate wordings of the SAME fact, one of which `description`
+   * already holds.
+   *
+   * The generator emits every variant and picks none. Choosing here would bake a
+   * week's choice into the `unstable_cache` entry, which AGENTS.md invariant 3
+   * forbids: time-dependent classification belongs in consumers, because a
+   * `Date.now()` inside a tagged cache closure produces stale classification that
+   * survives until someone manually invalidates. `selectInsightVariant` runs at
+   * request time instead.
+   *
+   * Absent or single-entry means there is nothing to rotate and `description`
+   * stands as written.
+   */
+  descriptionVariants?: string[];
+  /**
+   * INSIGHTS-031 — how this insight ages.
+   *
+   * `draft` means the fact is fixed but its RELEVANCE falls as the season moves
+   * away from the draft. The generator declares the policy and never applies it:
+   * a decayed score inside the cache would freeze at whatever lifecycle warmed
+   * the entry. `applyInsightDecay` runs at request time.
+   */
+  decay?: 'draft';
   // Backward-compatible aliases used by existing tests/UI until full migration.
   score?: number;
   owners?: string[];
@@ -89,6 +115,13 @@ const OVERVIEW_TYPE_PRIORITY: Partial<Record<InsightType, number>> = {
   improvement: 74,
   consistency: 72,
   even_rivalry: 70,
+  // INSIGHTS-031 — an UNLISTED type scores `?? 0` here while everything above
+  // carries +54 to +120, so a new insight would rank last against every existing
+  // one and never reach the Overview. Registering the type is part of shipping
+  // it, not a follow-up. Placed just under the historical block: a draft fact is
+  // fresher than a career record but does not outrank a live season race.
+  self_schedule_heavy: 76,
+  self_schedule_clean: 68,
 };
 
 const STANDINGS_TYPE_PRIORITY: Partial<Record<InsightType, number>> = {

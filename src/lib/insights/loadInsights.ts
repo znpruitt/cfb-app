@@ -2,6 +2,7 @@ import { unstable_cache } from 'next/cache';
 import { cache } from 'react';
 
 import { buildInsightContext } from '@/lib/insights/context';
+import { applyInsightDecay, applyInsightVariants } from './variants';
 import {
   generateRawInsights,
   runInsightsEngine,
@@ -369,7 +370,21 @@ export async function loadInsightsForLeague(
     //
     // Pure, so unlike `applySuppression` it needs no per-request escape from the
     // cache: the output is a function of the raw set alone.
-    const insights = selectServedInsights(rawInsights);
+    const served = selectServedInsights(rawInsights);
+    // INSIGHTS-031 — the two things that depend on the clock happen HERE,
+    // outside the cache.
+    //
+    // `cachedRawInsights` above is `unstable_cache`-wrapped, and AGENTS.md
+    // invariant 3 forbids time-dependent classification inside it: a `Date.now()`
+    // in a tagged closure produces stale classification that survives until
+    // someone manually invalidates. A generator that picked this week's wording,
+    // or decayed its own score, would bake one moment into the entry.
+    //
+    // So the cached value is the fact, its wordings, and an undecayed score.
+    // Decay first — it rewrites `priorityScore`, which every downstream ranker
+    // reads — then the wording. `currentDate` rather than a fresh `new Date()`,
+    // so one request cannot land two insights in different rotation buckets.
+    const insights = applyInsightVariants(applyInsightDecay(served, lifecycleState), currentDate);
     return { insights, lifecycleState, generatedAt };
   } catch (err) {
     // A genuine store/database failure escaped the cached callback (nothing was
