@@ -50,6 +50,54 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-031-ROSTER-SCHEDULE-CONTENT-v1
+
+- Purpose: The first insight content about the DRAFT rather than about college football. A game
+  between two of an owner's own teams caps their upside — two roster-games that cannot beat anyone
+  else. The schedule and the team→owner map had both been on the insight context all along and
+  nothing had ever crossed them.
+- Scope: `insights/rosterSchedule.ts` (the pure cross-product), a generator emitting two types
+  (`self_schedule_heavy`, `self_schedule_clean`), `insights/variants.ts` (weekly wording rotation and
+  draft-fact priority decay), the serving wiring in `loadInsights`, the diagnostics funnel, and a
+  31-test suite. Head-to-head volume and undrafted-opponent counts are computed and deliberately
+  unused.
+- Outcome: **the copy was written WITH the owner, line by line, rather than drafted and reviewed** —
+  a deliberate process change, because a reviewer can check whether a sentence is true and only the
+  owner can say whether it is any good, and this campaign had burned rounds on the difference. Every
+  aside shipped is his or was cut by him. Thresholds are measured: twenty simulated 14-owner drafts
+  over the real conference structure put leaders at 5-8 against a league median of 3, and **a
+  gap requirement was considered and rejected on that evidence** — ties at the top were the most
+  common outcome (10 of 20) and the largest gap seen was 2.
+- Review / verification: tsc 0, `lint:all` 0, full suite green (3943); driven end-to-end over HTTP in
+  an isolated git worktree — a post-draft league with 126 drafted teams and 896 games emits both
+  insights, a league still borrowing last season's roster emits neither.
+  **Two rounds, ten findings, and the same lesson twice.** (1) `NoClaim` was profiled as an owner:
+  every undrafted team carries that owner name post-confirmation, so leftover-vs-leftover games
+  became somebody's self-games — reproduced as "NoClaim's teams play each other 30 times". **My own
+  HTTP verification had `NoClaim` in the fixture and missed it**, because ten leftovers produced
+  fewer self-games than the reporting floor and the defect hid under the threshold. (2) I added two
+  clock-dependent serving passes and wired ONE caller, so the diagnostics page — built precisely so
+  the funnel could not lie — reported 74 for a card production ranked at 26. (3) **I claimed this
+  feature was structurally immune to the population-vs-claim defect that produced INSIGHTS-030 and
+  023. It was not:** the comparison set is the league, and a half-entered roster passes every count
+  check. (4) A "trap" I reported confidently was not one — `OVERVIEW_TYPE_PRIORITY` is consulted only
+  for the legacy standings-derived set, so my registration did nothing and the test pinned a
+  mechanism that never runs. (5) Adopting the canonical `getGameOwners` made every test throw: my
+  fixtures never set `participants`, so they had been passing against a shape production does not
+  produce.
+- Status: MERGED — PR #486 (`<COMMIT>`), 2026-08-17. Two remediation rounds.
+- **Owner ruling recorded WITH the mechanic that contradicts it, so it is not re-litigated.** Both
+  reviewers showed self-games are not standings-neutral — `deriveStandings` sorts by WINS first, so
+  the self-win counts fully and the paired loss only bites as a tiebreak. Ruling: keep the framing.
+  "Wins over others is still the goal — I understand the reviewer is technically correct, but from a
+  narrative framing perspective, aiming for .500 is lame." An editorial decision about voice, not a
+  claim about arithmetic.
+- **Time lives at the serving edge, and that is now a pattern rather than a one-off.** Variant
+  rotation and decay both violate AGENTS.md invariant 3 if computed in a generator, where they would
+  freeze at whatever moment warmed the `unstable_cache` entry. Generators emit every wording and an
+  undecayed score; the loader chooses. The next thing that depends on the clock goes in the same
+  place.
+
 ### INSIGHTS-023-PRESEASON-GATES-v1
 
 - Purpose: Career records and league history were dark in preseason. Not by decision — the gates

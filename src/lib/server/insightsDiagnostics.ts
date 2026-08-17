@@ -9,6 +9,7 @@ import {
   OVERVIEW_INSIGHT_SLOTS_WITH_RECAP,
 } from '../insights/limits.ts';
 import { buildLeagueInsightContext } from '../insights/loadInsights.ts';
+import { applyInsightDecay } from '../insights/variants.ts';
 import type {
   InsightContext,
   InsightGenerator,
@@ -167,9 +168,16 @@ export type InsightsDiagnostics = {
  */
 export function classifyInsightFunnel(
   generated: Insight[],
-  renderedCap: number
+  renderedCap: number,
+  lifecycleState: string
 ): { served: Insight[]; fateOf: (id: string) => InsightFate } {
-  const served = selectServedInsights(generated);
+  // DECAY FIRST, exactly as `loadInsightsForLeague` does. Without it this page
+  // reported a draft insight's score as 74 while production ranked it at 26, and
+  // — because the sort order differed — could show "On the Overview" for a card
+  // production had cut. The docblock above promises this page cannot disagree
+  // with production about the funnel; INSIGHTS-031 broke that promise the moment
+  // it added a serving-layer pass and wired only one caller.
+  const served = selectServedInsights(applyInsightDecay(generated, lifecycleState));
   const servedIds = new Set(served.map((i) => i.id));
   const renderedIds = new Set(served.slice(0, renderedCap).map((i) => i.id));
 
@@ -285,7 +293,11 @@ export async function buildInsightsDiagnostics(
 
   // The served set comes from the SAME function the loader uses, so this page
   // cannot disagree with production about which insights survive the cut.
-  const { served, fateOf } = classifyInsightFunnel(allGenerated, renderedCap);
+  const { served, fateOf } = classifyInsightFunnel(
+    allGenerated,
+    renderedCap,
+    context.lifecycleState
+  );
 
   const ranked = [...allGenerated].sort((a, b) => b.priorityScore - a.priorityScore);
 

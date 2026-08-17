@@ -2,6 +2,7 @@ import { unstable_cache } from 'next/cache';
 import { cache } from 'react';
 
 import { buildInsightContext } from '@/lib/insights/context';
+import { applyInsightDecay, applyInsightVariants } from './variants';
 import {
   generateRawInsights,
   runInsightsEngine,
@@ -103,6 +104,11 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  *    lifecycle.
  *  - INSIGHTS-030 rewrote every league-record claim at four sites and added the
  *    unknown-membership register.
+ *  - INSIGHTS-031 registered a new generator and added `descriptionVariants`
+ *    and `decay` to the cached payload. A NEW GENERATOR qualifies for the same
+ *    reason copy does: the raw set changes and nothing else in the key moves, so
+ *    a warm entry serves the feature without its variants or its decay policy
+ *    until the TTL lapses.
  *  - INSIGHTS-023 opened TWO lifecycle gates into preseason —
  *    `career:points_leader` and `career:greatest_season` — and made the
  *    points-leader race narration conditional on membership. A lifecycle change
@@ -117,7 +123,7 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  * "INSIGHTS-022" while the value already read `insights030`, which is the same
  * class of drift the constant exists to prevent.
  */
-const INSIGHT_COPY_POLICY_VERSION = 'insights023-preseason-gates-v1';
+const INSIGHT_COPY_POLICY_VERSION = 'insights031-roster-schedule-v1';
 
 /**
  * Membership policy version (INSIGHTS-023a). Same shape and same reason as the
@@ -346,7 +352,16 @@ export async function loadInsightsForLeague(
   if (options.bypassSuppression === true) {
     try {
       const context = await buildLeagueInsightContext(slug, resolvedYear, currentDate);
-      const insights = await runInsightsEngine(context, { bypassSuppression: true });
+      const raw = await runInsightsEngine(context, { bypassSuppression: true });
+      // The SAME two clock-dependent passes as the cached path. This branch
+      // skipped both, so a diagnostic run served undecayed scores and always
+      // variant zero — a second serving path silently opting out of the
+      // serving contract, which is how the diagnostics page came to disagree
+      // with production about the same league.
+      const insights = applyInsightVariants(
+        applyInsightDecay(raw, context.lifecycleState),
+        currentDate
+      );
       return {
         insights,
         lifecycleState: context.lifecycleState,
@@ -369,7 +384,27 @@ export async function loadInsightsForLeague(
     //
     // Pure, so unlike `applySuppression` it needs no per-request escape from the
     // cache: the output is a function of the raw set alone.
-    const insights = selectServedInsights(rawInsights);
+    // DECAY FIRST, then the cut. `selectServedInsights` sorts and slices to
+    // `MAX_SERVED_INSIGHTS`, so decaying afterwards only reorders what already
+    // survived — a stale draft fact would still compete at full weight for the
+    // one cut that actually removes anything, displacing a fresher insight that
+    // then appears nowhere. The comment in `variants.ts` says decay makes it
+    // "stop competing"; this ordering is what makes that true.
+    const served = selectServedInsights(applyInsightDecay(rawInsights, lifecycleState));
+    // INSIGHTS-031 — the two things that depend on the clock happen HERE,
+    // outside the cache.
+    //
+    // `cachedRawInsights` above is `unstable_cache`-wrapped, and AGENTS.md
+    // invariant 3 forbids time-dependent classification inside it: a `Date.now()`
+    // in a tagged closure produces stale classification that survives until
+    // someone manually invalidates. A generator that picked this week's wording,
+    // or decayed its own score, would bake one moment into the entry.
+    //
+    // So the cached value is the fact, its wordings, and an undecayed score.
+    // Decay first — it rewrites `priorityScore`, which every downstream ranker
+    // reads — then the wording. `currentDate` rather than a fresh `new Date()`,
+    // so one request cannot land two insights in different rotation buckets.
+    const insights = applyInsightVariants(served, currentDate);
     return { insights, lifecycleState, generatedAt };
   } catch (err) {
     // A genuine store/database failure escaped the cached callback (nothing was

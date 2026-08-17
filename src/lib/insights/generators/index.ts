@@ -4,3 +4,4 @@ import './rivalry';
 import './career';
 import './stats';
 import './milestones';
+import './rosterSchedule';

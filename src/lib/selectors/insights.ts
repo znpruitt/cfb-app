@@ -36,7 +36,9 @@ export type InsightType =
   | 'third_down'
   | 'team_identity'
   | 'milestone_watch'
-  | 'perfect_against';
+  | 'perfect_against'
+  | 'self_schedule_heavy'
+  | 'self_schedule_clean';
 
 export type Insight = {
   id: string;
@@ -56,6 +58,30 @@ export type Insight = {
   // The numeric stat the suppression gate tracks for this insight. Meaning is
   // generator-specific (e.g. career points, streak length, win differential).
   statValue: number;
+  /**
+   * INSIGHTS-031 — alternate wordings of the SAME fact, one of which `description`
+   * already holds.
+   *
+   * The generator emits every variant and picks none. Choosing here would bake a
+   * week's choice into the `unstable_cache` entry, which AGENTS.md invariant 3
+   * forbids: time-dependent classification belongs in consumers, because a
+   * `Date.now()` inside a tagged cache closure produces stale classification that
+   * survives until someone manually invalidates. `selectInsightVariant` runs at
+   * request time instead.
+   *
+   * Absent or single-entry means there is nothing to rotate and `description`
+   * stands as written.
+   */
+  descriptionVariants?: string[];
+  /**
+   * INSIGHTS-031 — how this insight ages.
+   *
+   * `draft` means the fact is fixed but its RELEVANCE falls as the season moves
+   * away from the draft. The generator declares the policy and never applies it:
+   * a decayed score inside the cache would freeze at whatever lifecycle warmed
+   * the entry. `applyInsightDecay` runs at request time.
+   */
+  decay?: 'draft';
   // Backward-compatible aliases used by existing tests/UI until full migration.
   score?: number;
   owners?: string[];
@@ -73,6 +99,23 @@ const FINAL_SURGE_MIN_WINS = 3;
 const FINAL_SURGE_MIN_GAMES_BACK_GAIN = 2;
 const STANDINGS_MIN_RACE_PRIORITY = 76;
 
+/**
+ * Type bonuses for the LEGACY standings-derived insights only.
+ *
+ * `deriveOverviewInsights` and `deriveStandingsInsights` are called exclusively
+ * on `deriveLeagueInsights` output (`OverviewPanel.tsx`, `StandingsPanel.tsx`),
+ * which is the standings-derived set. **ENGINE insights never pass through
+ * here** — `OverviewPanel` sorts them by raw `priorityScore` and merges them
+ * ahead of this set.
+ *
+ * INSIGHTS-031 registered two generator types in this map on the belief that an
+ * unregistered type would rank last and never surface. That was wrong: the map
+ * is real, but it is not on the engine path, so the entries did nothing and a
+ * test pinned a mechanism that does not run. They were removed rather than left
+ * as a decoration. A generator's rank is its `priorityScore`, full stop —
+ * anything else needs the engine feed routed through a ranker first, which is a
+ * separate decision recorded in docs/next-tasks.md.
+ */
 const OVERVIEW_TYPE_PRIORITY: Partial<Record<InsightType, number>> = {
   champion_margin: 120,
   failed_chase: 110,
