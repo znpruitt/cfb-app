@@ -44,20 +44,38 @@ function archive(year: number, roster: string[], order: string[]): SeasonArchive
   } as unknown as SeasonArchive;
 }
 
-function history(archives: SeasonArchive[], members: string[]): MembershipEvent[] {
+/**
+ * Events for a league whose newest archive is the season before `currentYear`.
+ *
+ * The default is derived from the archives rather than pinned, because the
+ * derivation now REQUIRES the newest archive to be last season — a gap made it
+ * re-announce settled events as this year's news.
+ */
+function history(
+  archives: SeasonArchive[],
+  members: string[],
+  currentYear?: number
+): MembershipEvent[] {
+  const newest = Math.max(...archives.map((a) => a.year), 0);
   return buildMembershipHistory({
     archives,
     members: new Set(members),
     parseCsv: parseOwnersCsv,
+    currentYear: currentYear ?? newest + 1,
   }).events;
 }
 
-function contextFor(archives: SeasonArchive[], members: string[], year = 2030): InsightContext {
+function contextFor(archives: SeasonArchive[], members: string[], year?: number): InsightContext {
+  const newest = Math.max(...archives.map((a) => a.year), 0);
   return {
     archives,
-    currentYear: year,
+    currentYear: year ?? newest + 1,
     leagueMembers: new Set(members),
     leagueMembersSource: 'confirmed',
+    // Setup FINISHED, not merely known — the gate this slice needed. Individual
+    // tests override it to prove the gate bites.
+    lifecycleState: 'preseason',
+    preseasonSetupComplete: true,
   } as unknown as InsightContext;
 }
 
@@ -185,7 +203,7 @@ function departureVariants(count: number): string[] {
   const leaving = roster.slice(2);
   const members = roster.slice(0, 2);
   const insight = membershipGenerator
-    .generate(contextFor([archive(2029, roster, roster)], members))
+    .generate(contextFor([archive(2029, roster, roster)], members, 2030))
     .find((i) => i.type === 'owners_left');
   assert.ok(insight, `expected a departure insight for ${count} leaver(s)`);
   assert.equal(
@@ -290,4 +308,166 @@ test('no owner name or season is hardcoded anywhere in this feature', () => {
   // Anti-vacuity: the detectors must fire on the thing they are looking for.
   assert.match('const year = 2026;'.replace(/\/\/.*$/gm, ''), /\b(19|20)\d{2}\b/);
   assert.match("if (owner === 'Schmitt') {", /owner\s*===\s*'[A-Z]/);
+});
+
+// ---------------------------------------------------------------------------
+// Completeness — the gate that "known" did not provide.
+// ---------------------------------------------------------------------------
+
+test('a half-entered owner list publishes NOTHING', () => {
+  // THE finding, reproduced. `membershipIsKnown` is satisfied at two names, so
+  // while a commissioner is still typing the list everyone not yet entered is
+  // absent from `leagueMembers` and computed as departed. Before the gate, an
+  // eight-owner league with two names entered produced a top-slot card naming six
+  // real people as gone.
+  const roster = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+  const midSetup = {
+    ...contextFor([archive(2029, roster, roster)], ['A', 'B']),
+    preseasonSetupComplete: false,
+  } as unknown as InsightContext;
+
+  assert.deepEqual(membershipGenerator.generate(midSetup), []);
+
+  // POSITIVE CONTROL: the identical fixture with setup FINISHED does report, so
+  // the gate is rejecting incompleteness rather than the fixture.
+  const finished = membershipGenerator.generate(
+    contextFor([archive(2029, roster, roster)], ['A', 'B'])
+  );
+  assert.ok(finished.length > 0, 'a finished list still reports');
+});
+
+test('outside preseason the completeness question does not apply', () => {
+  // `setupComplete` is only ever written for a preseason league. An in-season or
+  // offseason league's membership is settled by definition, so a false flag there
+  // must not block anything.
+  const roster = ['A', 'B', 'C'];
+  const inSeason = {
+    ...contextFor([archive(2029, roster, roster)], ['A', 'B']),
+    lifecycleState: 'early_season',
+    preseasonSetupComplete: false,
+  } as unknown as InsightContext;
+
+  assert.ok(membershipGenerator.generate(inSeason).length > 0);
+});
+
+test('several returners are GROUPED into one insight', () => {
+  // Emitting one each broke the rule stated in this generator's own comments and
+  // did it at the highest priority score in the engine — four returners would
+  // have taken four of the Overview's five slots.
+  const archives = [
+    archive(2027, ['A', 'B', 'C', 'D', 'E'], ['A', 'B', 'C', 'D', 'E']),
+    archive(2029, ['A'], ['A']),
+  ];
+  const produced = membershipGenerator.generate(contextFor(archives, ['A', 'B', 'C', 'D']));
+  const returns = produced.filter((i) => i.type === 'owner_returned');
+
+  assert.equal(returns.length, 1, `three returners must be one insight, got ${returns.length}`);
+  assert.equal((returns[0]?.relatedOwners?.length ?? 0) + 1, 3, 'and all three are named');
+
+  // A SINGLE returner keeps the richer copy that names the year they last played.
+  const one = membershipGenerator
+    .generate(contextFor(archives, ['A', 'B']))
+    .find((i) => i.type === 'owner_returned');
+  assert.match(one!.description, /last appeared in \d{4}/);
+});
+
+test('name drift produces SILENCE, not two contradictory claims', () => {
+  // Owner identity is a raw string and nothing folds case, so a commissioner
+  // re-typing a name made this generator assert both "x joins the league" and
+  // "X has left the league" in the same feed. The app cannot tell a typo from two
+  // members whose names differ only in case, so it must not guess.
+  const events = history([archive(2029, ['A', 'Bee'], ['A', 'Bee'])], ['A', 'bee']);
+  assert.deepEqual(events, [], `expected silence, got ${JSON.stringify(events)}`);
+
+  // POSITIVE CONTROL: a genuinely different name still produces both events.
+  const real = history([archive(2029, ['A', 'Bee'], ['A', 'Bee'])], ['A', 'Cee']);
+  const kinds = real.map((e) => e.kind).sort();
+  assert.deepEqual(kinds, ['joined', 'left']);
+});
+
+test('an archive gap stops the derivation rather than re-announcing old news', () => {
+  // The newest archive must BE last season. Otherwise settled events resurface as
+  // this year's news, and an owner whose only season is unarchived is announced as
+  // brand new.
+  const archives = [archive(2027, ['A', 'B'], ['A', 'B'])];
+  assert.deepEqual(history(archives, ['A'], 2030), [], 'a three-year gap says nothing');
+  assert.notDeepEqual(history(archives, ['A'], 2028), [], 'and the adjacent year does');
+});
+
+test('a departure count never exceeds the names printed', () => {
+  // "Two owners are out: C (3rd)." — the count came from the full list while the
+  // sentence listed only the placed names, and this was the DEFAULT description.
+  const roster = ['A', 'B', 'C', 'D'];
+  // C and D depart; D is on the roster but absent from the standings table.
+  const withUnranked = archive(2029, roster, ['A', 'B', 'C']);
+  const insight = membershipGenerator
+    .generate(contextFor([withUnranked], ['A', 'B']))
+    .find((i) => i.type === 'owners_left');
+
+  assert.ok(insight);
+  for (const variant of insight.descriptionVariants ?? []) {
+    const claimed = /^(One|Two|Three|Four|Five|Six)\b/.exec(variant);
+    if (!claimed) continue;
+    const listed = (variant.match(/\(\d+\w\w\)/g) ?? []).length;
+    const word = claimed[1]!.toLowerCase();
+    const expected = ['one', 'two', 'three', 'four', 'five', 'six'].indexOf(word) + 1;
+    assert.equal(listed, expected, `count says ${word} but ${listed} named: ${variant}`);
+  }
+});
+
+test('variants are never duplicated', () => {
+  // A single unranked departure emitted the bare form twice, and the test
+  // asserting `length === 2` passed on two copies of one string.
+  const insight = membershipGenerator
+    .generate(contextFor([archive(2029, ['A', 'B', 'C'], ['A', 'B'])], ['A', 'B']))
+    .find((i) => i.type === 'owners_left');
+  const variants = insight?.descriptionVariants ?? [];
+  assert.equal(new Set(variants).size, variants.length, `duplicates: ${variants.join(' | ')}`);
+});
+
+test('a "best finish" needs more than one RANKED season to be a best', () => {
+  // Counting seasons rather than RANKED seasons admitted a returner with two
+  // prior seasons of which only one reached the standings table. `ranked.reduce`
+  // then returned that single finish as their "best" — and a 2nd of 2 was
+  // welcomed back as a podium when it was last place.
+  const archives = [
+    // B is on the 2027 roster but absent from its standings table.
+    archive(2027, ['A', 'B'], ['A']),
+    // B is ranked 2nd of 2 in 2028 — their only ranked season.
+    archive(2028, ['A', 'B'], ['A', 'B']),
+    archive(2029, ['A'], ['A']),
+  ];
+  const returned = history(archives, ['A', 'B']).find((e) => e.kind === 'returned');
+  assert.ok(returned && returned.kind === 'returned');
+  assert.equal(returned.seasonsAway, 1);
+  assert.equal(
+    returned.bestSeason,
+    null,
+    'one ranked season is not a best finish, however many seasons were played'
+  );
+
+  // And the copy must not claim one.
+  const insight = membershipGenerator
+    .generate(contextFor(archives, ['A', 'B']))
+    .find((i) => i.type === 'owner_returned');
+  for (const variant of [insight!.description, ...(insight!.descriptionVariants ?? [])]) {
+    assert.doesNotMatch(variant, /best finish/, variant);
+  }
+
+  // POSITIVE CONTROL: with TWO ranked seasons the best-finish copy does appear,
+  // and names the better of the two rather than the more recent.
+  const twoRanked = [
+    archive(2027, ['A', 'B'], ['B', 'A']),
+    archive(2028, ['A', 'B'], ['A', 'B']),
+    archive(2029, ['A'], ['A']),
+  ];
+  const best = history(twoRanked, ['A', 'B']).find((e) => e.kind === 'returned');
+  assert.ok(best && best.kind === 'returned');
+  assert.equal(best.bestSeason?.year, 2027, 'the 1st-place season, not the most recent');
+  assert.ok(
+    membershipGenerator
+      .generate(contextFor(twoRanked, ['A', 'B']))
+      .find((i) => i.type === 'owner_returned')
+      ?.descriptionVariants?.some((v) => /best finish was 1st in 2027/.test(v))
+  );
 });

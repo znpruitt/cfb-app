@@ -4,7 +4,9 @@ import { cache } from 'react';
 import { buildInsightContext } from '@/lib/insights/context';
 import { applyInsightDecay, applyInsightVariants } from './variants';
 import {
+  fingerprintGeneratorSet,
   generateRawInsights,
+  getRegisteredGenerators,
   runInsightsEngine,
   selectServedInsights,
 } from '@/lib/insights/engine';
@@ -123,7 +125,7 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  * "INSIGHTS-022" while the value already read `insights030`, which is the same
  * class of drift the constant exists to prevent.
  */
-const INSIGHT_COPY_POLICY_VERSION = 'insights031-roster-schedule-v1';
+const INSIGHT_COPY_POLICY_VERSION = 'insights025-membership-changes-v1';
 
 /**
  * Membership policy version (INSIGHTS-023a). Same shape and same reason as the
@@ -138,6 +140,16 @@ const INSIGHT_COPY_POLICY_VERSION = 'insights031-roster-schedule-v1';
  */
 const INSIGHT_MEMBERSHIP_POLICY_VERSION = 'insights023a-league-membership-v1';
 
+/**
+ * Frozen at module load, AFTER `import '@/lib/insights/generators'` above has run
+ * every registration — imports evaluate before this body, so this sees the
+ * complete production set. Frozen rather than computed per call so that a test
+ * calling `clearGenerators()` cannot change the key a later assertion reads.
+ *
+ * See `fingerprintGeneratorSet` for what this does and does not cover.
+ */
+const GENERATOR_SET_FINGERPRINT = fingerprintGeneratorSet(getRegisteredGenerators());
+
 export function insightsCacheKeyParts(slug: string, resolvedYear: number): string[] {
   // `alias-overrides:` mirrors canonical standings: the curated catalog-alias
   // policy is applied at read time and feeds identity resolution here, so it is
@@ -151,6 +163,9 @@ export function insightsCacheKeyParts(slug: string, resolvedYear: number): strin
     `analytics:${ANALYTICS_PROJECTION_VERSION}`,
     `copy:${INSIGHT_COPY_POLICY_VERSION}`,
     `membership:${INSIGHT_MEMBERSHIP_POLICY_VERSION}`,
+    // Computed, not remembered — the generator SET is part of cache identity and
+    // I proved twice that I will forget to say so by hand.
+    `generators:${GENERATOR_SET_FINGERPRINT}`,
   ];
 }
 

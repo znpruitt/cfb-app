@@ -107,6 +107,7 @@ function makeContext(overrides: Partial<InsightContext> = {}): InsightContext {
     leagueSlug: overrides.leagueSlug ?? 'test',
     currentYear: overrides.currentYear ?? 2026,
     lifecycleState: overrides.lifecycleState ?? 'fresh_offseason',
+    preseasonSetupComplete: overrides.preseasonSetupComplete ?? false,
     seasonContext: overrides.seasonContext ?? 'in-season',
     currentWeek: overrides.currentWeek ?? null,
     currentStandings: overrides.currentStandings ?? [],
@@ -347,6 +348,7 @@ function archivedRosterContext(
 ) {
   return makeContext({
     lifecycleState,
+    preseasonSetupComplete: false,
     ownerCareerStats: [stats],
     currentRoster: new Map([['team', owner]]),
     usingArchivedRoster: true,

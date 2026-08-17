@@ -1247,7 +1247,7 @@ Supersedes: (none)
     trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
     For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
 
-41. ✅ **Membership CHANGES as content — SHIPPED as INSIGHTS-025** (2026-08-17). Joined, returned and left, all derived from the archives; departures grouped and capped at three named. Original entry follows.
+41. ✅ **Membership CHANGES as content — SHIPPED as INSIGHTS-025** (2026-08-17). Joined, returned and left, all derived from the archives. Arrivals and departures grouped; returners grouped only when there is more than one, so a single returner keeps the copy that names the year they last played. `MAX_NAMED_DEPARTURES` caps the PLACEMENT list at three — not the names, which are always all listed. An earlier version of this line claimed "capped at three named" and was wrong about the code it described. Original entry follows.
 
     **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left
     is news — and it is the inverse of the trade 023a was agonising over: instead of losing content

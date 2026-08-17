@@ -106,8 +106,13 @@ export function buildMembershipHistory(params: {
   archives: readonly SeasonArchive[];
   members: ReadonlySet<string>;
   parseCsv: (csv: string) => { owner: string }[];
+  /**
+   * The season being played or prepared. Events are only derivable when the
+   * newest archive is the season immediately before it.
+   */
+  currentYear: number;
 }): MembershipHistory {
-  const { archives, members, parseCsv } = params;
+  const { archives, members, parseCsv, currentYear } = params;
   const sorted = [...archives].sort((a, b) => a.year - b.year);
 
   const seasonsByOwner = new Map<string, OwnerSeason[]>();
@@ -129,12 +134,46 @@ export function buildMembershipHistory(params: {
     return { seasonsByOwner, latestArchivedYear, events };
   }
 
+  // The newest archive must BE last season. `latestArchivedYear` was computed
+  // here and never read, so a gap in the archives re-announced settled events as
+  // this year's news — "C has left the league after finishing 3rd in 2027" served
+  // in 2030. The reverse is worse: an owner whose only season is the unarchived
+  // one has no rows at all and is announced as brand new.
+  //
+  // Rollover archives before it transitions, so this is not the ordinary path —
+  // but `setTestLeagueStatus` advances a demo league with no archive at all, and
+  // an archive failure skips only that league.
+  if (latestArchivedYear !== currentYear - 1) {
+    return { seasonsByOwner, latestArchivedYear, events };
+  }
+
   const lastSeasonOwners = ownersInArchive(latest, parseCsv);
+
+  // NAME DRIFT is indistinguishable from two people, so it produces SILENCE.
+  //
+  // Owner identity is a raw string — `cleanOwnerNames` trims but deliberately
+  // does not fold case, and no owner-name resolver exists anywhere in the app.
+  // So a commissioner re-typing "alice" against an archive holding "Alice" made
+  // this generator assert BOTH "alice joins the league" and "Alice has left the
+  // league" in the same feed. Every other member-filtered generator degrades to
+  // silence on that drift; this one was the exception.
+  //
+  // The app cannot tell a typo from two league members whose names differ only in
+  // case, so it must not guess. Any name that would appear on BOTH sides under a
+  // loose comparison is dropped from both.
+  const loose = (name: string): string => name.trim().toLowerCase().replace(/\s+/g, ' ');
+  const joinedRaw = [...members].filter(
+    (owner) => owner && owner !== NO_CLAIM_OWNER && !seasonsByOwner.has(owner)
+  );
+  const leftRaw = [...lastSeasonOwners].filter((owner) => !members.has(owner));
+  const ambiguous = new Set(
+    joinedRaw.map(loose).filter((key) => leftRaw.some((owner) => loose(owner) === key))
+  );
 
   // JOINED — grouped into ONE event. Three arrivals must not consume three of
   // the Overview's five slots.
-  const joined = [...members]
-    .filter((owner) => owner && owner !== NO_CLAIM_OWNER && !seasonsByOwner.has(owner))
+  const joined = joinedRaw
+    .filter((owner) => !ambiguous.has(loose(owner)))
     .sort((a, b) => a.localeCompare(b));
   if (joined.length > 0) events.push({ kind: 'joined', owners: joined });
 
@@ -151,8 +190,12 @@ export function buildMembershipHistory(params: {
     // Ties break toward the MOST RECENT, so a returner who matched their best
     // more than once is welcomed back with the one people remember.
     const ranked = seasons.filter((season) => season.placement !== null);
+    // RANKED seasons, not seasons. Counting `seasons.length` admitted a returner
+    // with two prior seasons of which only one was ranked — so the "welcome"
+    // rendered their single ranked finish as a best, and a 2nd-of-2 read as a
+    // podium when it was last place.
     const bestSeason =
-      seasons.length > 1 && ranked.length > 0
+      ranked.length > 1
         ? ranked.reduce((best, season) => (season.placement! <= best.placement! ? season : best))
         : null;
     events.push({
@@ -168,8 +211,8 @@ export function buildMembershipHistory(params: {
   }
 
   // LEFT — on the most recent roster, not a member now.
-  for (const owner of [...lastSeasonOwners].sort((a, b) => a.localeCompare(b))) {
-    if (members.has(owner)) continue;
+  for (const owner of [...leftRaw].sort((a, b) => a.localeCompare(b))) {
+    if (ambiguous.has(loose(owner))) continue;
     events.push({
       kind: 'left',
       owner,

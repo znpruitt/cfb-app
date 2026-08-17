@@ -551,6 +551,8 @@ export async function buildInsightContext(
     leagueSlug,
     currentYear: league.year,
     lifecycleState,
+    preseasonSetupComplete:
+      leagueStatus.state === 'preseason' && leagueStatus.setupComplete === true,
     seasonContext,
     currentWeek,
     currentStandings,

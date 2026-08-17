@@ -49,7 +49,11 @@ async function seedLeague(opts: {
     year: YEAR,
     createdAt: '2026-01-01T00:00:00.000Z',
     foundedYear: 2023,
-    status: { state: 'preseason', year: YEAR },
+    // `setupComplete` matters from INSIGHTS-025 onward: without it the
+    // membership generator treats the confirmed list as still being typed and
+    // stays silent, which is exactly what it should do mid-setup. These fixtures
+    // model a FINISHED preseason, so the flag is set.
+    status: { state: 'preseason', year: YEAR, setupComplete: true },
   });
 
   if (opts.ownersCsv !== undefined) {
@@ -178,7 +182,11 @@ async function seedNamingAliceAndBob(confirmed: string[]): Promise<void> {
     year: YEAR,
     createdAt: '2026-01-01T00:00:00.000Z',
     foundedYear: 2022,
-    status: { state: 'preseason', year: YEAR },
+    // `setupComplete` matters from INSIGHTS-025 onward: without it the
+    // membership generator treats the confirmed list as still being typed and
+    // stays silent, which is exactly what it should do mid-setup. These fixtures
+    // model a FINISHED preseason, so the flag is set.
+    status: { state: 'preseason', year: YEAR, setupComplete: true },
   });
   await setAppState(`preseason-owners:${SLUG}`, String(YEAR), confirmed);
 
@@ -228,11 +236,12 @@ async function seedNamingAliceAndBob(confirmed: string[]): Promise<void> {
  * rivalry, or lead a category, because those claims describe the league that is
  * about to play. They may be named in an event that reports their departure.
  *
- * Filtering by generator id rather than by insight type, so a new membership
- * type is covered without anyone remembering to add it here.
+ * Filtering on the `membership-` INSIGHT-ID PREFIX, which is what the code below
+ * actually does — an earlier version of this comment said "by generator id" and
+ * was wrong about its own filter. The consequence is worth stating: any generator
+ * that emits a `membership-*` id is exempted from the participant checks in this
+ * file, so that prefix is now load-bearing and must not be reused.
  */
-const MEMBERSHIP_GENERATOR_ID = 'narrative:membership';
-
 function ownersNamedIn(context: Parameters<typeof generateRawInsights>[0]): string[] {
   return generateRawInsights(context)
     .filter((i) => !i.id.startsWith('membership-'))
@@ -374,7 +383,11 @@ test('a RETURNING owner gets career history built, not just permission to appear
     year: YEAR,
     createdAt: '2026-01-01T00:00:00.000Z',
     foundedYear: 2022,
-    status: { state: 'preseason', year: YEAR },
+    // `setupComplete` matters from INSIGHTS-025 onward: without it the
+    // membership generator treats the confirmed list as still being typed and
+    // stays silent, which is exactly what it should do mid-setup. These fixtures
+    // model a FINISHED preseason, so the flag is set.
+    status: { state: 'preseason', year: YEAR, setupComplete: true },
   });
   await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob', 'Erin']);
 
@@ -558,7 +571,11 @@ test('a departed record holder still sets the bar for a trend superlative', asyn
     year: YEAR,
     createdAt: '2026-01-01T00:00:00.000Z',
     foundedYear: 2022,
-    status: { state: 'preseason', year: YEAR },
+    // `setupComplete` matters from INSIGHTS-025 onward: without it the
+    // membership generator treats the confirmed list as still being typed and
+    // stays silent, which is exactly what it should do mid-setup. These fixtures
+    // model a FINISHED preseason, so the flag is set.
+    status: { state: 'preseason', year: YEAR, setupComplete: true },
   });
   await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob', 'Carol']);
 
@@ -641,7 +658,11 @@ test('a NoClaim-bearing confirmation record does NOT crown a one-member league',
     displayName: 'Members League',
     year: YEAR,
     createdAt: '2026-01-01T00:00:00.000Z',
-    status: { state: 'preseason', year: YEAR },
+    // `setupComplete` matters from INSIGHTS-025 onward: without it the
+    // membership generator treats the confirmed list as still being typed and
+    // stays silent, which is exactly what it should do mid-setup. These fixtures
+    // model a FINISHED preseason, so the flag is set.
+    status: { state: 'preseason', year: YEAR, setupComplete: true },
   });
   await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'NoClaim']);
   await setAppState(
@@ -718,15 +739,6 @@ test('one owner holding two teams is a PARTIAL roster, not an official one', asy
     'partial-roster',
     'two teams held by one owner is not a two-owner roster'
   );
-});
-
-test('a departed owner IS named by the membership event, and nowhere else', () => {
-  // The narrowing INSIGHTS-025 made explicit, pinned from both directions so it
-  // cannot drift back into either "never name them" or "name them anywhere".
-  //
-  // Without the second half this test would pass if membership events stopped
-  // firing; without the first, it would pass if the participant rule collapsed.
-  assert.equal(MEMBERSHIP_GENERATOR_ID, 'narrative:membership');
 });
 
 test('WIRING: a departed owner is named ONLY by the membership event', async () => {

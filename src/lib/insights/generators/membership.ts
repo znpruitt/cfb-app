@@ -45,6 +45,28 @@ function ordinal(n: number): string {
   return `${n}${n % 10 <= 3 ? suffix : 'th'}`;
 }
 
+/**
+ * A stable id fragment that PRESERVES distinct owner identities.
+ *
+ * `ownerKey(owner)` collapsed two names the roster layer
+ * treats as distinct — `cleanOwnerNames` trims but does not fold case — and the
+ * views key React rows on `insight.id`, so two returners could reconcile onto one
+ * row. The suffix is a small hash of the RAW name, so casing and spacing survive
+ * into the key while the readable part stays readable.
+ */
+function ownerKey(owner: string): string {
+  let hash = 2166136261;
+  for (let i = 0; i < owner.length; i += 1) {
+    hash ^= owner.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const slug = owner
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+  return `${slug}${(hash >>> 0).toString(36)}`;
+}
+
 function joinedInsight(owners: string[], year: number): Insight {
   const names = formatOwnerList(owners);
   const verb = owners.length > 1 ? 'join' : 'joins';
@@ -55,7 +77,7 @@ function joinedInsight(owners: string[], year: number): Insight {
   return {
     // Grouped into ONE insight. Three arrivals must not consume three of the
     // Overview's five slots.
-    id: `membership-joined-${year}-${owners.map((o) => o.toLowerCase().replace(/\s+/g, '-')).join('-')}`,
+    id: `membership-joined-${year}-${owners.map((o) => ownerKey(o)).join('-')}`,
     type: 'owners_joined',
     title: owners.length > 1 ? 'New owners' : 'New owner',
     description: variants[0]!,
@@ -91,7 +113,7 @@ function returnedInsight(
     );
   }
   return {
-    id: `membership-returned-${year}-${owner.toLowerCase().replace(/\s+/g, '-')}`,
+    id: `membership-returned-${year}-${ownerKey(owner)}`,
     type: 'owner_returned',
     title: 'Back in the league',
     description: variants[0]!,
@@ -175,17 +197,31 @@ function leftInsight(
   // names with five ordinals is something you scan. Same width limit the
   // self-play insights carry, which review had to make me apply to both sides
   // after I capped only one. Beyond the cap the bare form does the job.
-  if (ordered.length > 1 && ordered.length <= MAX_NAMED_DEPARTURES && withPlacements.length > 0) {
+  // EVERY departure must have a placement for this form, not merely one of them.
+  // `withPlacements` drops unranked owners while the count came from the full
+  // list, so two departures where one is unranked rendered "Two owners are out:
+  // C (3rd)." — a count of two above a single name, in the DEFAULT description
+  // rather than only in a rotation variant.
+  if (
+    ordered.length > 1 &&
+    ordered.length <= MAX_NAMED_DEPARTURES &&
+    withPlacements.length === ordered.length
+  ) {
     variants.push(
       // Capitalised: this word opens the sentence, and `countWord` returns
       // lowercase because it is also usable mid-sentence.
       `${capitalize(countWord(ordered.length))} owners are out for ${currentYear}: ${formatOwnerList(withPlacements)}.`
     );
   }
-  variants.push(`${names} ${ordered.length > 1 ? 'have' : 'has'} left the league.`);
+  // Deduped. A single UNRANKED departure took the bare form from the branch above
+  // and then appended it again, producing two identical variants — and the test
+  // asserting `length === 2` passed on the duplicate, because it counted entries
+  // rather than distinct ones.
+  const bare = `${names} ${ordered.length > 1 ? 'have' : 'has'} left the league.`;
+  if (!variants.includes(bare)) variants.push(bare);
 
   return {
-    id: `membership-left-${currentYear}-${ordered.map((e) => e.owner.toLowerCase().replace(/\s+/g, '-')).join('-')}`,
+    id: `membership-left-${currentYear}-${ordered.map((e) => ownerKey(e.owner)).join('-')}`,
     type: 'owners_left',
     title: ordered.length > 1 ? 'Owners out' : 'Owner out',
     description: variants[0]!,
@@ -198,6 +234,34 @@ function leftInsight(
     newsHook: 'snapshot',
     decay: 'draft',
     statValue: ordered.length,
+  };
+}
+
+/** Several returners in one year: report the fact, drop the per-owner detail. */
+function groupedReturnInsight(
+  events: Extract<MembershipEvent, { kind: 'returned' }>[],
+  year: number
+): Insight {
+  const owners = [...events].sort((a, b) => a.owner.localeCompare(b.owner)).map((e) => e.owner);
+  const names = formatOwnerList(owners);
+  const variants = [
+    `This year ${names} return to the league.`,
+    `${names} are back in the league for ${year}.`,
+  ];
+  return {
+    id: `membership-returned-${year}-${owners.map((o) => ownerKey(o)).join('-')}`,
+    type: 'owner_returned',
+    title: 'Back in the league',
+    description: variants[0]!,
+    descriptionVariants: variants,
+    owner: owners[0],
+    relatedOwners: owners.slice(1),
+    priorityScore: 84,
+    lifecycle: MEMBERSHIP_LIFECYCLES,
+    category: 'narrative',
+    newsHook: 'snapshot',
+    decay: 'draft',
+    statValue: owners.length,
   };
 }
 
@@ -215,16 +279,55 @@ export const membershipGenerator: InsightGenerator = {
     if (!membershipIsKnown(context.leagueMembersSource)) return [];
     if (context.archives.length === 0) return [];
 
+    // KNOWN is not FINISHED, and that distinction is the whole gate.
+    //
+    // `membershipIsKnown` is satisfied at MIN_CONFIRMED_OWNERS — two names. So
+    // while a commissioner is still typing the list, everyone not yet entered is
+    // absent from `leagueMembers` and computed as DEPARTED. Driven through the
+    // real loader on an 8-owner league with two names entered, the top card read
+    // "Heidi, Grace, Frank, Erin, Dave, and Carol have left the league" — six
+    // real people announced as gone, mid-setup.
+    //
+    // Only `completePreseasonSetup` writes `setupComplete`, so it is the one
+    // signal that answers "is the list finished". Outside preseason the question
+    // does not apply: an in-season or offseason league's membership is settled by
+    // definition, so the flag is false there and the check must not block it.
+    //
+    // This is the same defect INSIGHTS-031 had — a partially entered roster
+    // passing a count-based check — and the same fix: gate on completeness, not
+    // on quantity.
+    if (context.lifecycleState === 'preseason' && !context.preseasonSetupComplete) return [];
+
     const history = buildMembershipHistory({
       archives: context.archives,
       members: context.leagueMembers,
       parseCsv: parseOwnersCsv,
+      currentYear: context.currentYear,
     });
 
     const insights: Insight[] = [];
     for (const event of history.events) {
       if (event.kind === 'joined') insights.push(joinedInsight(event.owners, context.currentYear));
-      if (event.kind === 'returned') insights.push(returnedInsight(event, context.currentYear));
+    }
+
+    // RETURNERS: one insight when there is one, GROUPED when there are several.
+    //
+    // Emitting one each broke the rule stated three lines up in this same file —
+    // "three arrivals must not consume three of the Overview's five slots" — and
+    // did it at `priorityScore: 84`, higher than any pre-existing insight in the
+    // engine, which topped out at 78. Four returners would have taken four of the
+    // five slots.
+    //
+    // A single returner keeps the good copy, which names the year they last
+    // played. Several cannot: the sentence would have to carry a year each, so
+    // the grouped form drops the detail and reports the fact.
+    const returners = history.events.filter(
+      (e): e is Extract<MembershipEvent, { kind: 'returned' }> => e.kind === 'returned'
+    );
+    if (returners.length === 1) {
+      insights.push(returnedInsight(returners[0]!, context.currentYear));
+    } else if (returners.length > 1) {
+      insights.push(groupedReturnInsight(returners, context.currentYear));
     }
     // Departures are collected and emitted as ONE insight — see `leftInsight`.
     const departures = history.events.filter(

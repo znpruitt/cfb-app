@@ -29,6 +29,50 @@ export function getRegisteredGenerators(): readonly InsightGenerator[] {
 }
 
 /**
+ * Order-independent fingerprint of the registered generator SET — each
+ * generator's id plus the lifecycle states it declares.
+ *
+ * ## Why this exists
+ *
+ * `INSIGHT_COPY_POLICY_VERSION` in `loadInsights.ts` is a hand-maintained cache
+ * key part, and adding a generator changes which cards exist while firing no
+ * invalidation signal — deployment fires no tag, so a warm `revalidate: false`
+ * entry keeps serving the OLD pool until its TTL lapses. I forgot that bump on
+ * two consecutive slices, and the second time the diagnostics page disagreed
+ * with production as a result.
+ *
+ * So the part of it that a machine can see is now computed rather than
+ * remembered. What this covers, exactly:
+ *
+ *  - a generator ADDED or REMOVED       → hash moves, cache busts, no bump needed
+ *  - a generator's LIFECYCLES changed   → same
+ *  - the WORDING inside a generator     → NOT covered. Still needs the constant.
+ *
+ * That last line is the limit and it is real: this hash cannot see a sentence
+ * change, so `INSIGHT_COPY_POLICY_VERSION` is not redundant and must not be
+ * deleted on the strength of this.
+ *
+ * Sorted so the hash is a function of the SET, not of import order in
+ * `generators/index.ts` — reordering those imports changes nothing observable
+ * and must not cold-start every league. The count is carried alongside the hash
+ * because 32 bits is narrow: a collision here means a stale pool survives, and
+ * requiring the count to match as well costs nothing. Same FNV-1a construction
+ * as `ALIAS_OVERRIDES_HASH`, which sits beside it in the key.
+ */
+export function fingerprintGeneratorSet(set: readonly InsightGenerator[]): string {
+  const serialized = set
+    .map((g) => `${g.id}@${[...g.supportedLifecycles].sort().join(',')}`)
+    .sort()
+    .join(';');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < serialized.length; i += 1) {
+    h ^= serialized.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return `${set.length}:${(h >>> 0).toString(16)}`;
+}
+
+/**
  * Cross-cutting suppression rules layered on top of `supportedLifecycles`.
  *
  * `supportedLifecycles` is the static, generator-declared filter ("this generator
