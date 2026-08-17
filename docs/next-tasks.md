@@ -1020,10 +1020,29 @@ Supersedes: (none)
     legitimate preseason content, and per the single-season-extreme rule it is news once, not
     rotating content.
 
-    **Also here: `career:never_last` says "N seasons AND COUNTING"** — an ongoing-participation claim.
-    Its gate ALREADY included preseason before INSIGHTS-023, so it is pre-existing rather than
-    introduced, which is why 023 filed it instead of bundling it. Same shape as the `drought` and
-    `dominance_streak` phrasings 023 gated on `membershipIsKnown`; the fix is the same.
+    **Also here — THREE ungated participation claims, all live on `main` today.** An earlier version
+    of this entry said INSIGHTS-023 had "gated the `drought` and `dominance_streak` phrasings on
+    `membershipIsKnown`". **It did not.** 023 wrote that gating and then REVERTED both generators
+    when review found unconverted superlatives in them, so the ledger recorded a fix that was backed
+    out — dropping a known-unresolved risk, which AGENTS.md forbids.
+
+    What is actually unresolved:
+    - `historical:drought` — `title: 'Longest active title drought'` is a constant, and the
+      single-owner description says "the longest active drought in the league" / "still waiting for
+      another ring".
+    - `rivalry:dominance_streak` — `title: 'Active dominance streak'` is a constant, plus "a pattern
+      is emerging", "lived rent-free", "at some point this is a subscription".
+    - `career:never_last` — "N seasons AND COUNTING".
+
+    All three assert an ongoing relationship, i.e. that the owner is playing. All three run in
+    `offseason`/`fresh_offseason`, where `resolveLeagueMembers` returns `previous-roster` because
+    `usingArchivedRoster` short-circuits the `official-roster` branch — so an owner who merely sat a
+    season out is described as active. That is what the invariant-5 amendment forbids, and it ships
+    live regardless of INSIGHTS-023, which is precisely why the record has to stay accurate.
+
+    The gating code 023 wrote is recoverable from `cf26ef2d` if it helps, but re-apply it as part of
+    the superlative conversion, not on its own — the conversion is what those generators actually
+    need first.
 
 36. **A `NoClaim`-bearing confirmation record counts toward the owner threshold** (found by review
     during INSIGHTS-023a, 2026-08-16; PRE-EXISTING, and it reaches the draft).

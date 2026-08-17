@@ -173,6 +173,19 @@ test('career:turnover_margin stays DARK in preseason, deliberately', () => {
     'turnover margin must not run in preseason until its record population is fixed'
   );
 
+  // The initializer must be a LITERAL array. This pin reads the gate TEXTUALLY,
+  // so `= [...POINTS_LEADER_LIFECYCLES]` would contain no literal `preseason`
+  // and the assertion above would pass while the gate is in fact open — green on
+  // the exact regression it exists to catch. A spread is a fine thing to write;
+  // it just has to fail HERE first, so the pin gets rewritten rather than
+  // silently bypassed.
+  assert.doesNotMatch(gate[1]!, /\.\.\./, 'a spread makes the check above vacuous');
+  assert.match(
+    gate[1]!.trim(),
+    /^\[\s*'/,
+    `the pin can only read a literal array; got ${gate[1]!.trim()}`
+  );
+
   // Anti-vacuity, both halves: the detector must fire on a gate that DOES carry
   // preseason, and the comment stripper must not be what makes it pass.
   const sibling = /const POINTS_LEADER_LIFECYCLES[^=]*=\s*(\[[^\]]*\]|[^;]*);/.exec(
@@ -269,7 +282,7 @@ test('with membership UNKNOWN, the opened generators claim nothing about who is 
   assert.ok(points, 'the points-leader insight must exist for this fixture');
   assert.match(
     points.description,
-    /has [\d,]+ career league points, the most in league history\.$/,
+    /has [\d,]+ career league points\.$/,
     `race narration reached the card with membership unknown: ${points.description}`
   );
 
@@ -297,4 +310,34 @@ test('opening these gates changes nothing about which season the data is from', 
 
   assert.equal(context.usingArchivedRoster, true, 'the roster MAP is still borrowed');
   assert.equal(context.leagueMembersSource, 'confirmed', 'while the member NAMES are confirmed');
+});
+
+test('the points leader states a standing, not an archived event, in preseason', async () => {
+  // Invariant 5(a): `usingArchivedRoster` is true throughout preseason, so the
+  // hook narration — "reclaims", "takes the all-time scoring lead" — describes a
+  // transition that happened when last season closed and reads in August as news.
+  //
+  // CONFIRMED membership, deliberately. The earlier guard covers the unknown
+  // case; this path is reachable only when membership IS known and a current
+  // member holds the record, which is the likely shape for a real league and the
+  // one my HTTP verification missed by seeding a departed record holder.
+  await seedPreseasonLeague({ confirmed: [...OWNERS, 'Ivy'] });
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  assert.equal(context.leagueMembersSource, 'confirmed');
+  assert.equal(context.usingArchivedRoster, true, 'the roster is borrowed in preseason');
+
+  const points = generateRawInsights(context).find((i) => i.type === 'career_points_leader');
+  assert.ok(points, 'the points-leader insight must exist for this fixture');
+  assert.doesNotMatch(
+    points.description,
+    /(reclaims|takes the all-time|crosses|is pulling away|is closing in|extends the all-time)/i,
+    `archived event narrated as current: ${points.description}`
+  );
+
+  // And no superlative over the eligibility-narrowed population.
+  assert.doesNotMatch(
+    points.description,
+    /the most in league history/,
+    `a league-record claim over a population narrowed by the seasons floor: ${points.description}`
+  );
 });

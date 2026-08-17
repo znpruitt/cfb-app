@@ -103,10 +103,15 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  *    lifecycle.
  *  - INSIGHTS-030 rewrote every league-record claim at four sites and added the
  *    unknown-membership register.
- *  - INSIGHTS-023 opened four lifecycle gates into preseason and gated the
- *    participation wording — including insight TITLES — on membership. A
- *    lifecycle change moves the pool, not just the wording, so it qualifies for
- *    the same reason: nothing else in the cache key moves for it.
+ *  - INSIGHTS-023 opened TWO lifecycle gates into preseason —
+ *    `career:points_leader` and `career:greatest_season` — and made the
+ *    points-leader race narration conditional on membership. A lifecycle change
+ *    moves the POOL, not just the wording, so it qualifies for the same reason:
+ *    nothing else in the cache key moves for it.
+ *
+ *    (This line first said "four gates ... including insight TITLES", written
+ *    before the slice was narrowed at review and left stale afterwards — the
+ *    exact drift the paragraph below says versioning the docblock prevents.)
  *
  * The docblock is versioned with the constant deliberately: it opened
  * "INSIGHTS-022" while the value already read `insights030`, which is the same

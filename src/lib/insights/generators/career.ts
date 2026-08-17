@@ -34,8 +34,8 @@ const POINTS_LEADER_LIFECYCLES: LifecycleState[] = [
   'postseason',
   'preseason',
 ];
-// INSIGHTS-023 — deliberately NOT extended to preseason, unlike its three
-// siblings. INSIGHTS-030 fixed four record populations and CUT this one: its
+// INSIGHTS-023 — deliberately NOT extended to preseason, unlike the two
+// siblings that were (`POINTS_LEADER_LIFECYCLES`, `GREATEST_SEASON_LIFECYCLES`). INSIGHTS-030 fixed four record populations and CUT this one: its
 // record is still measured against members only, so it can hand a departed
 // owner's margin to whoever remains. Preseason is where membership diverges
 // most, which is exactly why 030 was ordered before 023. Extend this gate only
@@ -333,15 +333,31 @@ function deriveCareerPointsLeader(context: InsightContext): Insight | null {
       : `${names} ${tied.length > 1 ? 'have' : 'has'} ${formatNumber(leaderPoints)} career league points${pointsClause}`;
   } else if (tied.length > 1) {
     description = `${formatOwnerList(ownerNames)} are tied for the all-time lead with ${formatNumber(leaderPoints)} career league points each.`;
-  } else if (!membersKnown) {
-    // INSIGHTS-023 — the `switch` below narrates an ONGOING race and was reached
-    // whenever a member holds the record, because `membersKnown` gated only the
-    // clause above it. Two of its branches name a SECOND owner — "N points clear
-    // of Bob", "Bob is closing in" — and with membership unknown either of them
-    // may have left. One sentence for the whole state, as at every other site in
-    // this file: the standing is a fact, the race is a claim about who is still
-    // running.
-    description = `${leaderOwner} has ${formatNumber(leaderPoints)} career league points, the most in league history.`;
+  } else if (!membersKnown || context.usingArchivedRoster) {
+    // TWO reasons to leave the `switch` below, and it took both reviewers to get
+    // them both.
+    //
+    // (1) `membersKnown` — the switch narrates an ONGOING race and was reached
+    // whenever a member holds the record, because the flag gated only the clause
+    // above it. Two branches name a SECOND owner ("N points clear of Bob", "Bob
+    // is closing in") who, with membership unknown, may have left.
+    //
+    // (2) `usingArchivedRoster` — invariant 5 clause (a), which the INSIGHTS-023
+    // amendment explicitly leaves in force. The hook comes from the archive, so
+    // "reclaims" / "takes the all-time scoring lead" describes a transition that
+    // happened when last season closed. Served in August with no year, it reads
+    // as news. `career.ts` never calls `applyLastSeasonFraming`, so state the
+    // standing rather than narrate the change.
+    //
+    // My own HTTP verification missed this: the fixture had the record holder
+    // DEPARTED, so it exercised the trailing branch and never reached the switch.
+    //
+    // NO superlative either. "the most in league history" was measured over a
+    // population already narrowed by `MIN_CAREER_SEASONS` and the points floor —
+    // in a two-season league where Bob played only 2025 for 900, Bob is filtered
+    // out and Alice's 800 is announced as the league record. A new instance of
+    // the eligibility class, created by the previous round's fix.
+    description = `${leaderOwner} has ${formatNumber(leaderPoints)} career league points.`;
   } else {
     switch (hook) {
       case 'extending_lead':

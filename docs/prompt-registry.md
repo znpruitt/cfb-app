@@ -50,6 +50,43 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-023-PRESEASON-GATES-v1
+
+- Purpose: Career records and league history were dark in preseason. Not by decision — the gates
+  were set one at a time over months and disagreed: `career:volatility` ran, `career:points_leader`
+  did not, though both are facts about finished seasons.
+- Scope as SHIPPED: `career:points_leader` and `career:greatest_season` opened into preseason, the
+  AGENTS.md invariant-5 amendment, the copy-policy cache bump, and a gates suite. **Narrowed at
+  review from four gate groups** — `historical` and `rivalry` were reverted to `main`.
+- Outcome: decided by a two-question rule written at each gate — (1) does it need current-season
+  evidence? (2) otherwise, is it a fact about a completed season or an accumulated record? Measured
+  over HTTP against `main` on identical seeded data: 4 insights → 6, nothing else moved, both new
+  lines carrying INSIGHTS-030's record citations with a real departed owner.
+  **Owner ruling (2026-08-16): a confirmed owner list is finalized enough to license participation
+  claims**, so invariant 5 was amended here — it had said naming who is returning "requires
+  comparing a FINALIZED upcoming roster against league history, which no generator has", and
+  INSIGHTS-023a built exactly that. Copy may assert participation only when `membershipIsKnown`;
+  `usingArchivedRoster` and membership are recorded as INDEPENDENT.
+- Review / verification: tsc 0, `lint:all` 0, full suite green (3911); driven over HTTP in isolated
+  git worktrees so the seeded file store could not contaminate the reviewers' own probes.
+  **Three rounds, and the narrowing is the finding worth keeping.** Both reviewers showed that
+  opening `historical`/`rivalry` exposes four superlatives INSIGHTS-030 never converted —
+  `consistency`, `improvement`, `even_rivalry`, and `drought`'s title — with `consistency`
+  reproduced on this slice's OWN fixture. **My 030 closeout had listed six of these as
+  already-correct, "verified by reading each call site." That verification was systematically
+  wrong:** I checked whether each generator's ALL-TIME claim spanned everyone, and never read the
+  OTHER branch of the same sentence, which claims something narrower over the member-only list.
+  Rather than convert four more sites inside a gate slice, those two generators were reverted.
+- Status: Implemented — PR #485 open, not merged.
+- **Also corrected here: a ledger entry claiming a fix that had been reverted.** The narrowing backed
+  out gating for `drought` and `dominance_streak`, and `docs/next-tasks.md` still recorded it as
+  done — dropping a known-unresolved risk. Those three participation claims (`drought`,
+  `dominance_streak`, `never_last`) ship live on `main` regardless of this slice, which is exactly
+  why the record has to stay accurate.
+- **And a defect this slice's own fix created**: the neutral standing sentence claimed "the most in
+  league history" over a population already narrowed by `MIN_CAREER_SEASONS` — a new instance of the
+  eligibility class, caught by review one round after I wrote it.
+
 ### INSIGHTS-030-LEAGUE-RECORD-POPULATION-v1
 
 - Purpose: A record is a fact about the league's history; membership decides only who may be NAMED.
