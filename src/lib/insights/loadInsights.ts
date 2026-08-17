@@ -121,11 +121,18 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  *    before the slice was narrowed at review and left stale afterwards — the
  *    exact drift the paragraph below says versioning the docblock prevents.)
  *
+ *  - INSIGHTS-025 v2 replaced the membership completeness gate. `generators:` in
+ *    this key cannot see it — the generator set is unchanged, only WHEN it may
+ *    speak — and the gate's whole purpose is withholding a card that names real
+ *    people as departed. A warm entry computed under v1 keeps serving that card
+ *    for a league the new rule refuses. This is the case the constant exists for,
+ *    and the reason `fingerprintGeneratorSet` does not replace it.
+ *
  * The docblock is versioned with the constant deliberately: it opened
  * "INSIGHTS-022" while the value already read `insights030`, which is the same
  * class of drift the constant exists to prevent.
  */
-const INSIGHT_COPY_POLICY_VERSION = 'insights025-membership-changes-v1';
+const INSIGHT_COPY_POLICY_VERSION = 'insights025-membership-changes-v2';
 
 /**
  * Membership policy version (INSIGHTS-023a). Same shape and same reason as the

@@ -10,6 +10,7 @@ import {
 } from '../insights/limits.ts';
 import { buildLeagueInsightContext } from '../insights/loadInsights.ts';
 import { applyInsightDecay } from '../insights/variants.ts';
+import type { MembershipCompleteness } from '../insights/membershipCompleteness.ts';
 import type {
   InsightContext,
   InsightGenerator,
@@ -150,6 +151,9 @@ export type InsightsDiagnostics = {
   membership: {
     owners: string[];
     source: LeagueMembersSource;
+    complete: boolean;
+    completenessEvidence: MembershipCompleteness['evidence'];
+    unlistedRosterOwners: string[];
   };
   generators: DiagnosticGenerator[];
   insights: DiagnosticInsight[];
@@ -264,7 +268,13 @@ export async function buildInsightsDiagnostics(
         renderedCap: OVERVIEW_INSIGHT_SLOTS,
         overviewSlotsUnfilledByEngine: OVERVIEW_INSIGHT_SLOTS,
       },
-      membership: { owners: [], source: 'none' },
+      membership: {
+        owners: [],
+        source: 'none',
+        complete: false,
+        completenessEvidence: 'none',
+        unlistedRosterOwners: [],
+      },
       generators: [],
       insights: [],
     };
@@ -329,6 +339,13 @@ export async function buildInsightsDiagnostics(
     membership: {
       owners: [...context.leagueMembers].sort(),
       source: context.leagueMembersSource,
+      // `source` says where the list came from; these say whether it is FINISHED,
+      // which is what any claim about who is absent depends on. Reported because
+      // the completeness gate's silence is otherwise indistinguishable from a
+      // generator that simply found nothing to say.
+      complete: context.membershipCompleteness.complete,
+      completenessEvidence: context.membershipCompleteness.evidence,
+      unlistedRosterOwners: context.membershipCompleteness.unlistedRosterOwners,
     },
     generators: perGenerator
       .map(({ generator, produced, skippedBy }) => ({

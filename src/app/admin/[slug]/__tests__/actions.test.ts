@@ -238,6 +238,27 @@ test('completeSetup writes one synchronized lifecycle record (no separate year w
   assert.equal(league?.year, 2026, 'top-level year synchronized by the same lifecycle write');
 });
 
+test('completeSetup invalidates the INSIGHTS feed, not only the admin pages', async () => {
+  // INSIGHTS-025. `setupComplete` is the evidence that licenses membership-change
+  // insights (`membershipCompleteness.ts`), and that answer is computed inside the
+  // insights cache — whose entries carry the canonical standings tags. Revalidating
+  // the admin paths does not reach it, so before this the public Overview kept
+  // serving the pre-completion pool (silent on arrivals and departures) for up to
+  // the 300s TTL after the commissioner clicked Complete Setup.
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }),
+  ]);
+  await seedAssignedTeams('alpha', 2026);
+
+  const tags = await runCapturingTags(() => completeSetup('alpha', 2026));
+
+  assert.ok(tags.includes('standings:alpha'), 'league umbrella tag invalidated');
+  assert.ok(
+    tags.includes('standings:alpha:2026'),
+    'and the YEAR tag — insights are cached per (slug, year)'
+  );
+});
+
 test('beginPreseason refuses outside offseason — re-invocation cannot re-increment the year', async () => {
   await setAppState('leagues', 'registry', [
     makeLeague('alpha', { state: 'preseason', year: 2026 }),

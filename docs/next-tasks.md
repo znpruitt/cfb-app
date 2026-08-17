@@ -1247,7 +1247,27 @@ Supersedes: (none)
     trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
     For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
 
-41. ✅ **Membership CHANGES as content — SHIPPED as INSIGHTS-025** (2026-08-17). Joined, returned and left, all derived from the archives. Arrivals and departures grouped; returners grouped only when there is more than one, so a single returner keeps the copy that names the year they last played. `MAX_NAMED_DEPARTURES` caps the PLACEMENT list at three — not the names, which are always all listed. An earlier version of this line claimed "capped at three named" and was wrong about the code it described. Original entry follows.
+41. ✅ **Membership CHANGES as content — SHIPPED as INSIGHTS-025** (2026-08-17). Joined, returned and left, all derived from the archives. Arrivals and departures grouped; returners grouped only when there is more than one, so a single returner keeps the copy that names the year they last played. `MAX_NAMED_DEPARTURES` caps the PLACEMENT list at three — not the names, which are always all listed. An earlier version of this line claimed "capped at three named" and was wrong about the code it described.
+
+    **v2 reconstruction (same branch, after review).** v1's safety gate was
+    `lifecycleState === 'preseason' && !preseasonSetupComplete`, and both reviewers broke it the same
+    way: `setupComplete` exists only on the preseason variant of `LeagueStatus`, and
+    `completeSeasonTransition` advances a league on state and year alone, so the transition DELETES
+    the field and the gate stops applying. Driven at the HTTP surface against both commits on one
+    seed, the pre-reconstruction code served "Heidi, Grace, Frank, Erin, Dave, and Carol have left the
+    league" for an unfinished league in `early_season`; the reconstruction is silent there and still
+    reports for a league whose roster corroborates its list. Rather than patch that edge, three
+    guards were replaced by one lifecycle-independent authority
+    (`src/lib/insights/membershipCompleteness.ts`) that requires POSITIVE evidence of completeness,
+    and owner identity was normalized once in `buildMembershipHistory` — which closed a second hole
+    in the same shape, a case-drifted RETURNER announced as a new owner because the old special case
+    only covered the joined∩left overlap. Also in v2: an empty newest archive no longer announces the
+    whole league as joining, the gate moved into `shouldSuppressGenerator` so `?bypassSuppression=1`
+    can show what production withheld, `completeSetup` now invalidates the insights cache, and two
+    comment claims that were measurably wrong (the engine's priority ceiling; "same contract" as
+    `positionOf`) were corrected. Binding rule recorded in AGENTS.md invariant 5.
+
+    Original entry follows.
 
     **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left
     is news — and it is the inverse of the trade 023a was agonising over: instead of losing content

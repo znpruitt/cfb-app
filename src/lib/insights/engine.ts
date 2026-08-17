@@ -92,6 +92,18 @@ export function shouldSuppressGenerator(g: InsightGenerator, context: InsightCon
   if (g.id === 'career:rookie_benchmark' && context.usingArchivedRoster) {
     return true;
   }
+  // The membership generator's every claim is about ABSENCE — "Carol has left the
+  // league" is derived from Carol not being listed — so it may only speak from a
+  // list known to be COMPLETE, not merely known. `membershipCompleteness.ts` holds
+  // the reasoning and the evidence rules.
+  //
+  // Here rather than inside `generate` because that is what this gate is for: a
+  // flag-based skip belongs where `bypassSuppression` can lift it, so the
+  // diagnostics page can show what production withheld and why. Shipped inside
+  // `generate` first, where the bypass could not reach it.
+  if (g.id === 'narrative:membership' && !context.membershipCompleteness.complete) {
+    return true;
+  }
   return false;
 }
 

@@ -3,6 +3,7 @@ import type { SeasonContext } from '../selectors/seasonContext';
 import type { LeagueRecords } from '../selectors/leagueRecords';
 import type { RankingsResponse } from '../rankings';
 import type { AppGame } from '../schedule';
+import type { MembershipCompleteness } from './membershipCompleteness';
 import type { SeasonArchive } from '../seasonArchive';
 import type { OwnerStandingsRow } from '../standings';
 import type { StandingsHistoryWeekSnapshot } from '../standingsHistory';
@@ -148,6 +149,14 @@ export type InsightContext = {
    * `false` outside preseason, where the question does not apply.
    */
   preseasonSetupComplete: boolean;
+  /**
+   * Whether the member list ACCOUNTS FOR EVERYONE playing, with the evidence that
+   * answered it. `leagueMembersSource` says where the list came from; this says
+   * whether it is finished, which is the question any claim about ABSENCE needs.
+   * Resolved once in `context.ts` so every consumer reads one answer — see
+   * `membershipCompleteness.ts`.
+   */
+  membershipCompleteness: MembershipCompleteness;
   seasonContext: SeasonContext;
   currentWeek: number | null;
   currentStandings: OwnerStandingsRow[];

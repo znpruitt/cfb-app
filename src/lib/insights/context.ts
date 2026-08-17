@@ -9,6 +9,7 @@ import { aggregateOwnerSeasonStats } from '../gameStats/ownerStats';
 import { projectAnalyticsPartition } from '../gameStats/publicProjection';
 import { MIN_CONFIRMED_OWNERS, type ConfirmedRosterSource } from '../selectors/confirmedRoster';
 import type { League } from '../league';
+import { resolveMembershipCompleteness } from './membershipCompleteness';
 import { parseOwnersCsv } from '../parseOwnersCsv';
 import type { RankingsResponse } from '../rankings';
 import type { AppGame } from '../schedule';
@@ -531,6 +532,21 @@ export async function buildInsightContext(
     usingArchivedRoster,
   });
 
+  // Resolved ONCE, here, so the generator and the diagnostics page cannot
+  // disagree about why a feed is silent.
+  const membershipCompleteness = resolveMembershipCompleteness({
+    members: leagueMembers,
+    source: leagueMembersSource,
+    currentRoster: resolvedRoster,
+    usingArchivedRoster,
+    // `setupComplete` exists only on the preseason variant of `LeagueStatus`, so
+    // this is false in every other state — including in season, where the field
+    // has been deleted rather than set false. That asymmetry is exactly why
+    // completeness cannot be read off this flag alone; see the module docblock.
+    preseasonSetupComplete:
+      leagueStatus.state === 'preseason' && leagueStatus.setupComplete === true,
+  });
+
   const { ownerCareerStats } = await buildOwnerCareerStats({
     leagueSlug,
     currentYear: league.year,
@@ -551,8 +567,8 @@ export async function buildInsightContext(
     leagueSlug,
     currentYear: league.year,
     lifecycleState,
-    preseasonSetupComplete:
-      leagueStatus.state === 'preseason' && leagueStatus.setupComplete === true,
+    preseasonSetupComplete: membershipCompleteness.evidence === 'setup-complete',
+    membershipCompleteness,
     seasonContext,
     currentWeek,
     currentStandings,

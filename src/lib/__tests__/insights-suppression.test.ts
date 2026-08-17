@@ -86,6 +86,11 @@ function makeContext(overrides: Partial<InsightContext> = {}): InsightContext {
     leagueSlug: overrides.leagueSlug ?? 'test',
     currentYear: overrides.currentYear ?? 2025,
     preseasonSetupComplete: false,
+    membershipCompleteness: {
+      complete: true,
+      evidence: 'setup-complete' as const,
+      unlistedRosterOwners: [],
+    },
     lifecycleState: overrides.lifecycleState ?? 'mid_season',
     seasonContext: overrides.seasonContext ?? 'in-season',
     currentWeek: overrides.currentWeek ?? null,

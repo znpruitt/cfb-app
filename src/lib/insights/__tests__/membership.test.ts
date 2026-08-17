@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 
 import { buildMembershipHistory, type MembershipEvent } from '@/lib/insights/membershipHistory';
 import { membershipGenerator } from '@/lib/insights/generators/membership';
+import { generateRawInsights } from '@/lib/insights/engine';
+import type { Insight } from '@/lib/selectors/insights';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import type { SeasonArchive } from '@/lib/seasonArchive';
 import type { InsightContext } from '@/lib/insights/types';
@@ -76,6 +78,14 @@ function contextFor(archives: SeasonArchive[], members: string[], year?: number)
     // tests override it to prove the gate bites.
     lifecycleState: 'preseason',
     preseasonSetupComplete: true,
+    // The gate reads this, not the flag above — completeness is one resolved
+    // answer on the context (`membershipCompleteness.ts`), so fixtures state it
+    // directly rather than restating the evidence rules.
+    membershipCompleteness: {
+      complete: true,
+      evidence: 'setup-complete' as const,
+      unlistedRosterOwners: [],
+    },
   } as unknown as InsightContext;
 }
 
@@ -314,6 +324,34 @@ test('no owner name or season is hardcoded anywhere in this feature', () => {
 // Completeness — the gate that "known" did not provide.
 // ---------------------------------------------------------------------------
 
+/**
+ * Production path for the completeness gate.
+ *
+ * The gate lives in `shouldSuppressGenerator`, not inside `generate`, so a test
+ * calling the generator directly cannot see it — and calling it directly is
+ * exactly how the first version of these tests passed while `?bypassSuppression=1`
+ * was silently unable to explain an empty feed. `generateRawInsights` is the
+ * function production calls.
+ */
+function servedMembership(context: InsightContext, bypassSuppression = false): Insight[] {
+  return generateRawInsights(context, { bypassSuppression }).filter((i) =>
+    i.id.startsWith('membership-')
+  );
+}
+
+/** A context whose member list omits half the league and has no completion evidence. */
+function midSetupContext(roster: string[], entered: string[]): InsightContext {
+  return {
+    ...contextFor([archive(2029, roster, roster)], entered),
+    preseasonSetupComplete: false,
+    membershipCompleteness: {
+      complete: false,
+      evidence: 'none' as const,
+      unlistedRosterOwners: [],
+    },
+  } as unknown as InsightContext;
+}
+
 test('a half-entered owner list publishes NOTHING', () => {
   // THE finding, reproduced. `membershipIsKnown` is satisfied at two names, so
   // while a commissioner is still typing the list everyone not yet entered is
@@ -321,33 +359,49 @@ test('a half-entered owner list publishes NOTHING', () => {
   // eight-owner league with two names entered produced a top-slot card naming six
   // real people as gone.
   const roster = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-  const midSetup = {
-    ...contextFor([archive(2029, roster, roster)], ['A', 'B']),
-    preseasonSetupComplete: false,
-  } as unknown as InsightContext;
+  assert.deepEqual(servedMembership(midSetupContext(roster, ['A', 'B'])), []);
 
-  assert.deepEqual(membershipGenerator.generate(midSetup), []);
-
-  // POSITIVE CONTROL: the identical fixture with setup FINISHED does report, so
+  // POSITIVE CONTROL: the identical fixture WITH completion evidence reports, so
   // the gate is rejecting incompleteness rather than the fixture.
-  const finished = membershipGenerator.generate(
-    contextFor([archive(2029, roster, roster)], ['A', 'B'])
+  const finished = servedMembership(contextFor([archive(2029, roster, roster)], ['A', 'B']));
+  assert.ok(finished.length > 0, 'a complete list still reports');
+
+  // And the suppression is VISIBLE to diagnostics, which is why the gate sits in
+  // `shouldSuppressGenerator` rather than inside `generate`.
+  assert.ok(
+    servedMembership(midSetupContext(roster, ['A', 'B']), true).length > 0,
+    'bypassSuppression must expose what production withheld'
   );
-  assert.ok(finished.length > 0, 'a finished list still reports');
 });
 
-test('outside preseason the completeness question does not apply', () => {
-  // `setupComplete` is only ever written for a preseason league. An in-season or
-  // offseason league's membership is settled by definition, so a false flag there
-  // must not block anything.
-  const roster = ['A', 'B', 'C'];
-  const inSeason = {
-    ...contextFor([archive(2029, roster, roster)], ['A', 'B']),
+test('THE TRANSITION does not launder an unfinished list into the season', () => {
+  // The P1 both reviewers found. `setupComplete` exists only on the preseason
+  // variant of `LeagueStatus`, and `completeSeasonTransition` advances a league on
+  // state and year alone — it never consults the flag. So an unfinished league is
+  // carried into `early_season` with the field DELETED, and a gate written as
+  // `lifecycleState === 'preseason' && !preseasonSetupComplete` stops applying
+  // there. The first version of this feature served the six-owners-departed card
+  // in season instead of preseason: relocated, not closed.
+  const roster = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+  const transitioned = {
+    ...midSetupContext(roster, ['A', 'B']),
     lifecycleState: 'early_season',
-    preseasonSetupComplete: false,
   } as unknown as InsightContext;
 
-  assert.ok(membershipGenerator.generate(inSeason).length > 0);
+  assert.deepEqual(
+    servedMembership(transitioned),
+    [],
+    'an unfinished list must not become trustworthy by crossing kickoff'
+  );
+
+  // POSITIVE CONTROL: an in-season league whose list IS corroborated reports. The
+  // gate must not simply silence the whole season, which is the failure mode a
+  // lifecycle-shaped fix would have.
+  const healthy = {
+    ...contextFor([archive(2029, roster, roster)], ['A', 'B']),
+    lifecycleState: 'early_season',
+  } as unknown as InsightContext;
+  assert.ok(servedMembership(healthy).length > 0);
 });
 
 test('several returners are GROUPED into one insight', () => {
@@ -371,18 +425,52 @@ test('several returners are GROUPED into one insight', () => {
   assert.match(one!.description, /last appeared in \d{4}/);
 });
 
-test('name drift produces SILENCE, not two contradictory claims', () => {
+test('a re-typed name is the SAME owner, in every shape drift can take', () => {
   // Owner identity is a raw string and nothing folds case, so a commissioner
-  // re-typing a name made this generator assert both "x joins the league" and
-  // "X has left the league" in the same feed. The app cannot tell a typo from two
-  // members whose names differ only in case, so it must not guess.
-  const events = history([archive(2029, ['A', 'Bee'], ['A', 'Bee'])], ['A', 'bee']);
-  assert.deepEqual(events, [], `expected silence, got ${JSON.stringify(events)}`);
+  // re-typing a name made this generator assert both "bee joins the league" and
+  // "Bee has left the league" in one feed. Identity is now normalized once, in
+  // `buildMembershipHistory`, which is why this is a table rather than a case.
+  //
+  // The first fix special-cased the joined∩left OVERLAP, and the second shape
+  // below is the one it missed: a returner is absent from last season's roster, so
+  // a re-typed name has nothing on the left side to collide with. "alice joins the
+  // league — no history to hide behind" was served next to a history page showing
+  // two prior seasons.
+  const lastSeason = [archive(2029, ['A', 'Bee'], ['A', 'Bee'])];
 
-  // POSITIVE CONTROL: a genuinely different name still produces both events.
-  const real = history([archive(2029, ['A', 'Bee'], ['A', 'Bee'])], ['A', 'Cee']);
-  const kinds = real.map((e) => e.kind).sort();
-  assert.deepEqual(kinds, ['joined', 'left']);
+  // 1. Drifted CONTINUING member: neither joined nor left.
+  assert.deepEqual(history(lastSeason, ['A', 'bee']), []);
+  // 2. Drifted RETURNER: a return, not an arrival. Absent from 2029, present 2028.
+  const returner = history(
+    [archive(2028, ['A', 'Alice'], ['A', 'Alice']), archive(2029, ['A'], ['A'])],
+    ['A', 'alice']
+  );
+  assert.deepEqual(
+    returner.map((e) => e.kind),
+    ['returned']
+  );
+  // Printed with the spelling in use THIS year, which is what the list now says.
+  assert.equal(returner[0]!.kind === 'returned' && returner[0]!.owner, 'alice');
+  // 3. Whitespace drift, the other half of what a human re-typing produces.
+  assert.deepEqual(history([archive(2029, ['A', 'Van  Dyke'], ['A'])], ['A', 'Van Dyke']), []);
+
+  // POSITIVE CONTROL: a genuinely different name still produces both events, so
+  // normalization is not swallowing real changes.
+  const real = history(lastSeason, ['A', 'Cee']);
+  assert.deepEqual(real.map((e) => e.kind).sort(), ['joined', 'left']);
+});
+
+test('an EMPTY newest archive announces nobody', () => {
+  // `buildSeasonArchive` defaults `ownersCsvText` to '' when the owners record is
+  // missing, and `finalStandings` then derives to []. Such an archive exists for
+  // exactly the right year and carries no membership at all — so every current
+  // member had no history and the whole league was announced as joining. The
+  // emptiest possible input produced the loudest possible claim.
+  const roster = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
+  assert.deepEqual(history([archive(2029, [], [])], roster), []);
+
+  // POSITIVE CONTROL: the same year with owners in it does derive events.
+  assert.notDeepEqual(history([archive(2029, ['A', 'Z'], ['A', 'Z'])], roster), []);
 });
 
 test('an archive gap stops the derivation rather than re-announcing old news', () => {

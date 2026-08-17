@@ -276,27 +276,15 @@ export const membershipGenerator: InsightGenerator = {
     // and anyone who merely sat a season out would be reported as departed. This
     // is the one generator where an unknown membership makes the whole subject
     // unanswerable rather than merely unsafe to word.
+    //
+    // KNOWN is not FINISHED, and the stronger question — is the list COMPLETE —
+    // lives in `shouldSuppressGenerator` rather than here, because AGENTS.md
+    // requires flag-based generator skips to sit in the bypassable gate so the
+    // diagnostics page can see what production suppressed. It was an
+    // unconditional return inside this function at first, which made
+    // `?bypassSuppression=1` silently unable to explain an empty feed.
     if (!membershipIsKnown(context.leagueMembersSource)) return [];
     if (context.archives.length === 0) return [];
-
-    // KNOWN is not FINISHED, and that distinction is the whole gate.
-    //
-    // `membershipIsKnown` is satisfied at MIN_CONFIRMED_OWNERS — two names. So
-    // while a commissioner is still typing the list, everyone not yet entered is
-    // absent from `leagueMembers` and computed as DEPARTED. Driven through the
-    // real loader on an 8-owner league with two names entered, the top card read
-    // "Heidi, Grace, Frank, Erin, Dave, and Carol have left the league" — six
-    // real people announced as gone, mid-setup.
-    //
-    // Only `completePreseasonSetup` writes `setupComplete`, so it is the one
-    // signal that answers "is the list finished". Outside preseason the question
-    // does not apply: an in-season or offseason league's membership is settled by
-    // definition, so the flag is false there and the check must not block it.
-    //
-    // This is the same defect INSIGHTS-031 had — a partially entered roster
-    // passing a count-based check — and the same fix: gate on completeness, not
-    // on quantity.
-    if (context.lifecycleState === 'preseason' && !context.preseasonSetupComplete) return [];
 
     const history = buildMembershipHistory({
       archives: context.archives,
@@ -314,9 +302,14 @@ export const membershipGenerator: InsightGenerator = {
     //
     // Emitting one each broke the rule stated three lines up in this same file —
     // "three arrivals must not consume three of the Overview's five slots" — and
-    // did it at `priorityScore: 84`, higher than any pre-existing insight in the
-    // engine, which topped out at 78. Four returners would have taken four of the
-    // five slots.
+    // did it at `priorityScore: 84`, near the top of the engine's range. Four
+    // returners would have taken four of the five slots.
+    //
+    // An earlier version of this sentence said 84 was "higher than any
+    // pre-existing insight in the engine, which topped out at 78". Measured, four
+    // caps sit above it and are all reachable: dynasty 90, lopsided 88, dominance
+    // 88, drought 85. The grouping decision does not depend on the figure, which
+    // is why the wrong one survived being written down.
     //
     // A single returner keeps the good copy, which names the year they last
     // played. Several cannot: the sentence would have to carry a year each, so
