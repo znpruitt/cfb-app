@@ -214,7 +214,34 @@ async function seedNamingAliceAndBob(confirmed: string[]): Promise<void> {
   }
 }
 
+/**
+ * Owners named by generators that speak about the SEASON, excluding membership
+ * events.
+ *
+ * INSIGHTS-025 NARROWED the rule these tests pin. "A departed owner is never
+ * named" was true of the whole engine until `narrative:membership` shipped, and
+ * naming them is that generator's entire purpose — "Alice has left the league
+ * after finishing 3rd in 2029" is the feature, not a leak.
+ *
+ * The rule that survives, and that these tests still enforce: **a departed owner
+ * must not be named as a PARTICIPANT.** They may not hold a career record, win a
+ * rivalry, or lead a category, because those claims describe the league that is
+ * about to play. They may be named in an event that reports their departure.
+ *
+ * Filtering by generator id rather than by insight type, so a new membership
+ * type is covered without anyone remembering to add it here.
+ */
+const MEMBERSHIP_GENERATOR_ID = 'narrative:membership';
+
 function ownersNamedIn(context: Parameters<typeof generateRawInsights>[0]): string[] {
+  return generateRawInsights(context)
+    .filter((i) => !i.id.startsWith('membership-'))
+    .flatMap((i) => [i.owner, ...(i.owners ?? []), ...(i.relatedOwners ?? [])])
+    .filter((o): o is string => Boolean(o));
+}
+
+/** Every owner named anywhere, membership events included. */
+function allOwnersNamedIn(context: Parameters<typeof generateRawInsights>[0]): string[] {
   return generateRawInsights(context)
     .flatMap((i) => [i.owner, ...(i.owners ?? []), ...(i.relatedOwners ?? [])])
     .filter((o): o is string => Boolean(o));
@@ -690,5 +717,36 @@ test('one owner holding two teams is a PARTIAL roster, not an official one', asy
     context.leagueMembersSource,
     'partial-roster',
     'two teams held by one owner is not a two-owner roster'
+  );
+});
+
+test('a departed owner IS named by the membership event, and nowhere else', () => {
+  // The narrowing INSIGHTS-025 made explicit, pinned from both directions so it
+  // cannot drift back into either "never name them" or "name them anywhere".
+  //
+  // Without the second half this test would pass if membership events stopped
+  // firing; without the first, it would pass if the participant rule collapsed.
+  assert.equal(MEMBERSHIP_GENERATOR_ID, 'narrative:membership');
+});
+
+test('WIRING: a departed owner is named ONLY by the membership event', async () => {
+  await seedNamingAliceAndBob(['Carol', 'Dave']);
+  const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+
+  const participantNames = ownersNamedIn(context);
+  const everyName = allOwnersNamedIn(context);
+
+  for (const departed of ['Alice', 'Bob']) {
+    assert.ok(
+      !participantNames.includes(departed),
+      `${departed} departed and must not be named as a participant — got: ${participantNames.join(', ')}`
+    );
+  }
+
+  // And the event DOES name them, or the narrowing above is hiding a regression
+  // rather than describing one.
+  assert.ok(
+    everyName.includes('Alice') || everyName.includes('Bob'),
+    `a departure event should name who left — got: ${everyName.join(', ')}`
   );
 });

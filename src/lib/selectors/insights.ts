@@ -38,7 +38,10 @@ export type InsightType =
   | 'milestone_watch'
   | 'perfect_against'
   | 'self_schedule_heavy'
-  | 'self_schedule_clean';
+  | 'self_schedule_clean'
+  | 'owners_joined'
+  | 'owner_returned'
+  | 'owners_left';
 
 export type Insight = {
   id: string;

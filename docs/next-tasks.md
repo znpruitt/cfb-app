@@ -1247,7 +1247,9 @@ Supersedes: (none)
     trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
     For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
 
-41. **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left
+41. ✅ **Membership CHANGES as content — SHIPPED as INSIGHTS-025** (2026-08-17). Joined, returned and left, all derived from the archives; departures grouped and capped at three named. Original entry follows.
+
+    **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left
     is news — and it is the inverse of the trade 023a was agonising over: instead of losing content
     when someone leaves, leaving becomes content.
 
