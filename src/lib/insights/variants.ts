@@ -39,9 +39,15 @@ const MS_PER_DAY = 86_400_000;
  * Which rotation bucket a moment falls in.
  *
  * Counted from the epoch rather than from a season or league start, so every
- * league advances on the same boundary and no league needs a stored anchor. The
- * boundary lands mid-week, which is deliberate: a Tuesday change is less likely
- * to overwrite a line mid-weekend while people are actually reading it.
+ * league advances on the same boundary and no league needs a stored anchor.
+ *
+ * Epoch day 0 is a THURSDAY, so with a 7-day cadence the boundary lands Thursday
+ * 00:00 UTC — Wednesday evening in the US. That happens to be a good place for
+ * it, mid-week and clear of the weekend when people are actually reading, but it
+ * is a CONSEQUENCE of the epoch anchor rather than a choice. An earlier version
+ * of this comment asserted a Tuesday boundary and reasoned from it; the intent
+ * survived, the stated fact did not. Changing `VARIANT_ROTATION_DAYS` moves this
+ * boundary, so re-derive it rather than trusting this paragraph.
  */
 export function rotationBucket(now: Date, rotationDays = VARIANT_ROTATION_DAYS): number {
   const days = Math.floor(now.getTime() / MS_PER_DAY);

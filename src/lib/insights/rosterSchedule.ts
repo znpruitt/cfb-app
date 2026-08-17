@@ -1,4 +1,5 @@
 import type { AppGame } from '../schedule';
+import { getGameOwners } from '../gameOwnership';
 import { NO_CLAIM_OWNER } from '../standings';
 
 /**
@@ -57,33 +58,38 @@ function emptyProfile(owner: string): OwnerScheduleProfile {
  * to discard.
  */
 /**
- * `NoClaim` is not an owner and must never be profiled as one.
+ * Resolve a game's two owners through the CANONICAL resolver, then drop
+ * `NoClaim`.
  *
- * `buildConfirmedOwnersCsv` writes a row for EVERY eligible team the draft did
- * not take, with the owner `NoClaim` — so a post-draft roster maps every
- * leftover team to it. Without this, games between two leftovers were counted as
- * one owner's self-games, and in a league with a big undrafted pool `NoClaim`
- * won outright: "NoClaim's teams play each other 30 times this year." It also
- * inflated the owner count past `MIN_OWNERS_FOR_COMPARISON` and defeated the
- * "somebody did worse" guard on the clean side.
+ * The first version of this file hand-rolled a two-field lookup —
+ * `roster.get(csvHome) ?? roster.get(canHome)`. `getGameOwners` walks an ordered
+ * candidate set that also covers the participant team id and its canonical,
+ * display and raw names, and AGENTS.md requires current-season attribution to
+ * flow through it. A roster keyed by any of those other identities silently read
+ * as undrafted and undercounted self-games.
  *
- * Every other generator already excludes it — `rivalry.ts`, `historical.ts`, the
- * narrative selector. This one did not, and my own verification fixture had
- * `NoClaim` rows in it: only ten leftover teams, so its self-game count stayed
- * under the reporting floor and the defect hid behind the threshold.
+ * ## Order matters: RESOLVE first, exclude second
+ *
+ * `NoClaim` is not an owner. `buildConfirmedOwnersCsv` writes a row for every
+ * eligible team the draft did not take, owned by `NoClaim`, so a post-draft
+ * roster maps every leftover to it — and counting leftover-vs-leftover games as
+ * one owner's self-games made `NoClaim` the league leader outright.
+ *
+ * The exclusion happens AFTER resolution, deliberately. An earlier fix made the
+ * per-key lookup return `undefined` for a `NoClaim` team, which is
+ * indistinguishable from "not in the roster" — so the next candidate in the
+ * chain was tried and could resolve the same side to a different owner. Letting
+ * the canonical resolver settle identity first, then asking whether the answer
+ * is a real owner, removes that question entirely.
  */
-function ownerOf(team: string, roster: Map<string, string>): string | undefined {
-  const owner = roster.get(team);
-  return owner === NO_CLAIM_OWNER ? undefined : owner;
-}
-
 function gameOwners(
   game: AppGame,
   roster: Map<string, string>
 ): { home: string | undefined; away: string | undefined } {
+  const { homeOwner, awayOwner } = getGameOwners(game, roster);
   return {
-    home: ownerOf(game.csvHome, roster) ?? ownerOf(game.canHome, roster),
-    away: ownerOf(game.csvAway, roster) ?? ownerOf(game.canAway, roster),
+    home: homeOwner === NO_CLAIM_OWNER ? undefined : homeOwner,
+    away: awayOwner === NO_CLAIM_OWNER ? undefined : awayOwner,
   };
 }
 

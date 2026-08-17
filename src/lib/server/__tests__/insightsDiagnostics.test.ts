@@ -264,7 +264,7 @@ test('an overflowing pool: the tail is cut before serving', () => {
   // 14 insights for 10 served slots and 5 rendered slots.
   const generated = Array.from({ length: 14 }, (_, i) => synthetic(`i-${i}`, 100 - i));
 
-  const { served, fateOf } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
+  const { served, fateOf } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS, 'preseason');
 
   assert.equal(served.length, MAX_SERVED_INSIGHTS, 'the loader cap applies');
 
@@ -289,7 +289,7 @@ test('the cut falls on the LOWEST priority, not on arrival order', () => {
     ...Array.from({ length: 12 }, (_, i) => synthetic(`mid-${i}`, 50 + i)),
   ];
 
-  const { fateOf } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
+  const { fateOf } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS, 'preseason');
 
   assert.equal(fateOf('highest'), 'on-overview', 'the best insight reaches the screen');
   assert.equal(fateOf('lowest'), 'not-served', 'the worst is cut');
@@ -297,7 +297,7 @@ test('the cut falls on the LOWEST priority, not on arrival order', () => {
 
 test('a pool smaller than the feed cuts nothing', () => {
   const generated = Array.from({ length: 3 }, (_, i) => synthetic(`i-${i}`, 10 - i));
-  const { served, fateOf } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
+  const { served, fateOf } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS, 'preseason');
 
   assert.equal(served.length, 3);
   assert.ok(
@@ -319,7 +319,7 @@ test('a pool smaller than the feed cuts nothing', () => {
 test('the Overview shortfall is reported, because fallback cards hide it', () => {
   // Two engine insights for five Overview slots: the reader sees five cards.
   const generated = Array.from({ length: 2 }, (_, i) => synthetic(`i-${i}`, 10 - i));
-  const { served } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
+  const { served } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS, 'preseason');
 
   const onOverview = Math.min(served.length, OVERVIEW_INSIGHT_SLOTS);
   const fillerSlots = Math.max(0, OVERVIEW_INSIGHT_SLOTS - served.length);
@@ -330,7 +330,7 @@ test('the Overview shortfall is reported, because fallback cards hide it', () =>
 
 test('a full engine feed reports no shortfall', () => {
   const generated = Array.from({ length: 8 }, (_, i) => synthetic(`i-${i}`, 100 - i));
-  const { served } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
+  const { served } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS, 'preseason');
 
   assert.equal(Math.max(0, OVERVIEW_INSIGHT_SLOTS - served.length), 0, 'no fallback needed');
 });
@@ -340,7 +340,7 @@ test('insights below the Overview cut are still on the All Insights page', () =>
   // Overview. Eight generated: five on the Overview, three All-Insights-only,
   // none cut, because eight is under the serving cap of ten.
   const generated = Array.from({ length: 8 }, (_, i) => synthetic(`i-${i}`, 100 - i));
-  const { fateOf } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
+  const { fateOf } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS, 'preseason');
 
   const fates = generated.map((i) => fateOf(i.id));
   assert.equal(fates.filter((f) => f === 'on-overview').length, OVERVIEW_INSIGHT_SLOTS);
@@ -357,7 +357,7 @@ test('the pool/feed verdict is measured against the OVERVIEW cap, not the loader
   // against the loader cap of 10, printed "nothing to rotate", and listed two
   // rows that do not reach the Overview on the very same screen.
   const generated = Array.from({ length: 7 }, (_, i) => synthetic(`i-${i}`, 100 - i));
-  const { fateOf } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
+  const { fateOf } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS, 'preseason');
 
   const beyondOverview = generated.filter((i) => fateOf(i.id) !== 'on-overview').length;
   assert.equal(beyondOverview, 2, 'two insights do not reach the Overview');
@@ -452,7 +452,7 @@ test('zero-and-negative-score insights are dropped, matching the engine', () => 
 
 test('the shortfall is a shortfall — it claims nothing about fallback', () => {
   const generated = Array.from({ length: 2 }, (_, i) => synthetic(`i-${i}`, 10 - i));
-  const { served } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS);
+  const { served } = classifyInsightFunnel(generated, OVERVIEW_INSIGHT_SLOTS, 'preseason');
 
   const unfilled = Math.max(0, OVERVIEW_INSIGHT_SLOTS - served.length);
   assert.equal(unfilled, 3, 'three slots the engine did not fill');
@@ -585,4 +585,46 @@ test('WIRING: a leaky store failure reaches the page redacted', async () => {
   } finally {
     __setAppStateReadFailureForTests(null);
   }
+});
+
+test('the funnel classifies against DECAYED scores, as production ranks them', () => {
+  // Removing the decay from `classifyInsightFunnel` failed nothing until this
+  // existed. Production decays before capping, so without the same projection
+  // this page reported a draft insight's score as 74 while production ranked it
+  // at 26 — and, because the sort order differed, could show "On the Overview"
+  // for a card production had cut. The page's own contract is that it cannot
+  // disagree with production about the funnel.
+  const draftInsight = {
+    id: 'draft-fact',
+    type: 'self_schedule_heavy',
+    title: 'Playing themselves',
+    description: 'x',
+    priorityScore: 74,
+    decay: 'draft',
+    newsHook: 'snapshot',
+    statValue: 8,
+  } as unknown as Insight;
+  const fresh = {
+    id: 'fresh',
+    type: 'drought',
+    title: 'Drought',
+    description: 'y',
+    priorityScore: 40,
+    newsHook: 'snapshot',
+    statValue: 1,
+  } as unknown as Insight;
+
+  // In PRESEASON the draft fact outranks the fresher one.
+  const pre = classifyInsightFunnel([fresh, draftInsight], 1, 'preseason');
+  assert.equal(pre.served[0]?.id, 'draft-fact', 'undecayed, it leads');
+  assert.equal(pre.fateOf('draft-fact'), 'on-overview');
+
+  // LATE SEASON it decays to 26 and the fresher insight takes the slot.
+  const late = classifyInsightFunnel([fresh, draftInsight], 1, 'late_season');
+  assert.equal(late.served[0]?.id, 'fresh', 'decayed, it loses the slot');
+  assert.equal(late.fateOf('draft-fact'), 'all-insights-only');
+  assert.ok(
+    (late.served.find((i) => i.id === 'draft-fact')?.priorityScore ?? 74) < 74,
+    'and the score the page reports is the decayed one'
+  );
 });

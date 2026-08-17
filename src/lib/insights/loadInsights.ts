@@ -352,7 +352,16 @@ export async function loadInsightsForLeague(
   if (options.bypassSuppression === true) {
     try {
       const context = await buildLeagueInsightContext(slug, resolvedYear, currentDate);
-      const insights = await runInsightsEngine(context, { bypassSuppression: true });
+      const raw = await runInsightsEngine(context, { bypassSuppression: true });
+      // The SAME two clock-dependent passes as the cached path. This branch
+      // skipped both, so a diagnostic run served undecayed scores and always
+      // variant zero — a second serving path silently opting out of the
+      // serving contract, which is how the diagnostics page came to disagree
+      // with production about the same league.
+      const insights = applyInsightVariants(
+        applyInsightDecay(raw, context.lifecycleState),
+        currentDate
+      );
       return {
         insights,
         lifecycleState: context.lifecycleState,

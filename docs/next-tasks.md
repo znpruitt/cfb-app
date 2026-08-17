@@ -1016,6 +1016,20 @@ Supersedes: (none)
     type-level ordering policy somewhere to live, and it matters more as the pool grows past the
     five Overview slots.
 
+    **SELF-GAMES ARE NOT STANDINGS-NEUTRAL — settled, do not re-litigate.** Both reviewers
+    challenged the premise and were technically right: `deriveStandings` sorts by WINS first, so a
+    self-game is a guaranteed +1 on the primary key and the paired loss only bites as a winPct
+    tiebreak. What is true is that two games against other owners could yield two wins, so a
+    self-game caps upside whenever a roster beats a coin flip, and denies nobody. **Owner ruling
+    (2026-08-17): keep the framing.** "Wins over others is still the goal — I understand the reviewer
+    is technically correct, but from a narrative framing perspective, aiming for .500 is lame." An
+    editorial decision about voice, not a claim about arithmetic; the copy stays inside it, and "one
+    way to stay above .500" is literally accurate. Recorded in the generator docblock too.
+
+    **`buildRosterScheduleProfile` belongs in `src/lib/selectors/`** (Codex, AGENTS.md invariant 9 —
+    a pure league-data derivation outside `selectors/`). Same class as `resolveLeagueMembers` and
+    `resolveSuperlative`, and it should move with them rather than one at a time.
+
     **CALIBRATION OPEN: `MIN_SELF_GAMES_TO_REPORT = 6` was set on SIMULATED data.** Twenty synthetic
     14-owner drafts over the real conference structure, with an approximated schedule — leaders ran
     5-8, league median 3, and ties at the top were the most common outcome (10 of 20). A full 2025

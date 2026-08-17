@@ -8,10 +8,27 @@ import type { InsightContext, InsightGenerator, LifecycleState } from '../types'
  * INSIGHTS-031 — what the season's schedule says about the board that was
  * drafted from it.
  *
- * A game between two of your own teams banks one win and one loss. In a league
- * where wins over OTHER owners decide the table, that is a wash — two
- * roster-games that cannot move you. Owner's framing (2026-08-16): "a roster
- * that doesn't maximize opportunity to win over others is a bad bet."
+ * A game between two of your own teams banks one win and one loss.
+ *
+ * ## The framing, and the mechanical caveat under it — settle this HERE
+ *
+ * Review challenged the premise and was technically right, so both halves are
+ * recorded to stop it being re-argued. `deriveStandings` sorts by WINS first,
+ * then win percentage, then points — so a self-game is a guaranteed +1 on the
+ * primary key, and the paired loss only bites as a tiebreak. It is NOT
+ * standings-neutral.
+ *
+ * What is true: two games against other owners could yield two wins, so a
+ * self-game caps your upside whenever your teams beat a coin flip — and unlike
+ * beating another owner, it denies nobody. For a weak roster it is a floor
+ * rather than a cost.
+ *
+ * **Owner ruling (2026-08-17), keeping the framing with the caveat understood:**
+ * "wins over others is still the goal — I understand the reviewer is technically
+ * correct, but from a narrative framing perspective, aiming for .500 is lame."
+ * That is an editorial decision about voice, not a claim about arithmetic, and
+ * the copy stays inside it: "one way to stay above .500" is literally accurate,
+ * because self-games do pull a record toward .500.
  *
  * So there are two insights here, not one: who made that bet most, and who
  * avoided it best. Same pass, opposite ends, the way `trending_up` and
@@ -110,7 +127,14 @@ function cleanVariants(names: string, count: number, tied: boolean): string[] {
   // zero-self-game league was told it had one. The count was right there.
   if (count === 0) {
     return [
-      `${names}'s teams never face each other all year. Nobody drafted cleaner.`,
+      // "never face each other" is TIE-UNSAFE and was shipped that way: with two
+      // owners at zero it renders "Cara and Dan's teams never face each other all
+      // year", which reads as Cara's teams versus Dan's — never measured, and
+      // usually false. The other two lines carry their own disambiguator; this
+      // one needed one. The zero test only ever exercised a single owner.
+      tied
+        ? `${names}'s teams never face their own all year. Nobody drafted cleaner.`
+        : `${names}'s teams never face each other all year. Nobody drafted cleaner.`,
       `Not one of ${names}'s games is against themselves. Best ${tied ? 'boards' : 'board'} in the league.`,
       `${names} avoided themselves entirely — no wasted matchups at all.`,
     ];
@@ -149,13 +173,42 @@ export const rosterScheduleGenerator: InsightGenerator = {
     const profile = buildRosterScheduleProfile(context.games, context.currentRoster);
     if (profile.byOwner.size < MIN_OWNERS_FOR_COMPARISON) return [];
 
+    // EVERY confirmed member must appear in the roster, or "most in the league"
+    // is measured over a partial population.
+    //
+    // I claimed this feature was structurally free of the population-vs-claim
+    // defect that produced INSIGHTS-030 and 023, because a count has no
+    // comparison set to get wrong. That was wrong: the comparison set is the
+    // LEAGUE, and a repaired or partially-entered current-year CSV can assign
+    // four owners while membership holds fourteen. `usingArchivedRoster` is
+    // false in that state and the owner-count floor passes, so both cards would
+    // have named a winner among a third of the league.
+    //
+    // Checked against `leagueMembers` rather than against a count, because the
+    // count cannot tell a small league from a half-entered one.
+    const members = context.leagueMembers;
+    if (members.size > 0) {
+      const rostered = profile.byOwner;
+      for (const member of members) {
+        if (!rostered.has(member)) return [];
+      }
+    }
+
     const insights: Insight[] = [];
     const ranked = rankBySelfGames(profile);
 
     // --- the bad bet -------------------------------------------------------
     const worst = ranked[0];
-    if (worst && worst.selfGames >= MIN_SELF_GAMES_TO_REPORT) {
-      const tiedWorst = ranked.filter((p) => p.selfGames === worst.selfGames);
+    const tiedWorst = worst ? ranked.filter((p) => p.selfGames === worst.selfGames) : [];
+    // The cap belongs on BOTH sides. Its docblock argued a wide tie here was rare
+    // because of the reporting floor — but five owners level at the floor is
+    // reachable and produces exactly the seven-name sentence the cap exists to
+    // prevent. "Rare" is not "impossible".
+    if (
+      worst &&
+      worst.selfGames >= MIN_SELF_GAMES_TO_REPORT &&
+      tiedWorst.length <= MAX_NAMED_OWNERS
+    ) {
       const owners = tiedWorst.map((p) => p.owner);
       const variants = heavyVariants(formatOwnerList(owners), worst.selfGames, owners.length > 1);
       insights.push({

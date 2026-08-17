@@ -31,7 +31,23 @@ import type { Insight } from '@/lib/selectors/insights';
 // matches the number it reports.
 // ---------------------------------------------------------------------------
 
+/**
+ * A game with its `participants` slots populated, as a real one always is.
+ *
+ * The first version of this helper omitted them, because the hand-rolled
+ * two-field lookup it was written against never read them. Adopting the
+ * canonical `getGameOwners` — which walks participant team id, canonical,
+ * display and raw names BEFORE the csv/can fields — made every test throw. A
+ * fixture missing a field production always sets is not testing production.
+ */
 function game(home: string, away: string, week = 1): AppGame {
+  const slot = (name: string): unknown => ({
+    kind: 'team',
+    teamId: `id-${name}`,
+    displayName: name,
+    canonicalName: name,
+    rawName: name,
+  });
   return {
     key: `${home}-${away}-${week}`,
     week,
@@ -40,6 +56,7 @@ function game(home: string, away: string, week = 1): AppGame {
     canHome: home,
     canAway: away,
     status: 'scheduled',
+    participants: { home: slot(home), away: slot(away) },
   } as unknown as AppGame;
 }
 
@@ -52,6 +69,9 @@ function contextWith(games: AppGame[], teamOwners: Array<[string, string]>): Ins
     games,
     currentRoster: roster(teamOwners),
     usingArchivedRoster: false,
+    // Membership matching the roster by default, so the completeness gate does
+    // not silently suppress every other fixture in this file.
+    leagueMembers: new Set(teamOwners.map(([, owner]) => owner)),
   } as unknown as InsightContext;
 }
 
@@ -451,7 +471,22 @@ test('the serving path decays BEFORE it caps, and applies variants', () => {
     /selectServedInsights\(\s*applyInsightDecay\(/,
     'decay must be applied to the RAW set, inside the call that caps it'
   );
-  assert.match(src, /applyInsightVariants\(/, 'and the variant pick still happens on the way out');
+
+  // EVERY serving path, not just the cached one. `loadInsightsForLeague` has a
+  // second branch — the `bypassSuppression` diagnostic route — which skipped both
+  // passes and served undecayed scores at variant zero. That is the same root as
+  // the diagnostics page disagreeing with production: two clock-dependent passes
+  // were added and one caller was wired. Counting occurrences pins both.
+  const decayCalls = src.match(/applyInsightDecay\(/g) ?? [];
+  const variantCalls = src.match(/applyInsightVariants\(/g) ?? [];
+  assert.ok(
+    decayCalls.length >= 2,
+    `every serving path must decay; found ${decayCalls.length} call(s)`
+  );
+  assert.ok(
+    variantCalls.length >= 2,
+    `every serving path must pick a variant; found ${variantCalls.length} call(s)`
+  );
 
   // Anti-vacuity: the detector must tell a present call from an absent one, and
   // comment-stripping must not be what makes it pass.
@@ -540,4 +575,52 @@ test('the cleanest-board list is capped rather than naming half the league', () 
     const names = (clean.relatedOwners?.length ?? 0) + 1;
     assert.ok(names <= MAX_NAMED_OWNERS, `named ${names} owners: ${clean.description}`);
   }
+});
+
+test('a partial roster produces nothing, even though it looks complete', () => {
+  // The population-vs-claim defect, in a feature I said was structurally immune
+  // to it. A repaired or half-entered current-year CSV can assign four owners
+  // while the confirmed membership holds more: `usingArchivedRoster` is false,
+  // the owner-count floor passes, and "most in the league" would be measured
+  // over a third of the league.
+  const base = leagueWhere({ A: 8, B: 2, C: 2, D: 1 });
+  const withAbsentMembers = {
+    ...base,
+    // Four owners hold teams; the league has six confirmed members.
+    leagueMembers: new Set(['A', 'B', 'C', 'D', 'E', 'F']),
+  } as unknown as InsightContext;
+
+  assert.deepEqual(rosterScheduleGenerator.generate(withAbsentMembers), []);
+
+  // POSITIVE CONTROL: the same roster with membership that matches DOES produce
+  // insights — so the gate above is rejecting incompleteness, not the fixture.
+  const complete = {
+    ...base,
+    leagueMembers: new Set(['A', 'B', 'C', 'D']),
+  } as unknown as InsightContext;
+  assert.ok(
+    rosterScheduleGenerator.generate(complete).length > 0,
+    'a complete roster still reports'
+  );
+});
+
+test('the BAD-BET tie list is capped too, not just the clean one', () => {
+  // Uncapping this failed nothing: the cap test above only exercised the clean
+  // side, so the heavy side's cap was unguarded the moment it was added. Five
+  // owners level at the reporting floor is reachable and produces exactly the
+  // sentence nobody reads.
+  const context = leagueWhere({ A: 7, B: 7, C: 7, D: 7, E: 7, F: 1 });
+  const heavy = rosterScheduleGenerator
+    .generate(context)
+    .find((i) => i.type === 'self_schedule_heavy');
+
+  assert.equal(heavy, undefined, 'five names is a list, not a distinction');
+
+  // POSITIVE CONTROL: at the cap it still fires, so this is a width limit and
+  // not an accidental suppression of every tie.
+  const narrow = leagueWhere({ A: 7, B: 7, C: 7, D: 1, E: 1, F: 1 });
+  const stillFires = rosterScheduleGenerator
+    .generate(narrow)
+    .find((i) => i.type === 'self_schedule_heavy');
+  assert.ok(stillFires, 'three tied owners is still worth naming');
 });
