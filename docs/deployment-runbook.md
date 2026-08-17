@@ -151,8 +151,33 @@ environment; `npm i -g vercel` if a command-line path is wanted.
   cron jobs to a production deployment, and it has not been confirmed here whether that is the
   promoted one or the newest production build. This matters: those two routes perform LIFECYCLE
   WRITES (preseason -> season, season rollover and archival), so if they bind to an unpromoted build,
-  a merge could change lifecycle behaviour with nothing promoted. **Check `Settings -> Cron Jobs`
-  after the next merge-without-promotion and record the answer here.**
+  a merge could change lifecycle behaviour with nothing promoted.
+
+  **The app now answers this itself.** Every scheduler receipt records
+  `buildCommitSha` — the commit the executing deployment was built from — and System Health shows it
+  per job as **Built from**.
+
+  **Read `Built from` TOGETHER WITH `Completed`. On its own it cannot tell you the safe answer.**
+  An earlier version of this procedure said to read the field alone, which could only ever confirm
+  the dangerous hypothesis:
+
+  | What you see | What it means |
+  | --- | --- |
+  | A commit, and it is the UNPROMOTED one | Crons follow the newest production build. An unpromoted merge CAN change lifecycle behaviour. |
+  | A commit, and it is the PROMOTED one | Crons follow the promoted deployment. The isolation holds. |
+  | No commit, and `Completed` is RECENT | Crons follow the promoted deployment, and that build predates this field — **also the isolation holding.** |
+  | No commit, and `Completed` is STALE | The job has not fired since this shipped. No conclusion yet; wait. |
+
+  Rows three and four render identically in the `Built from` cell, and only the run timestamp
+  separates "the answer is the safe one" from "nothing has happened yet". Until a build carrying this
+  field has itself been PROMOTED, row three is the expected reading of a healthy system — not a
+  fault, and not an absence of data.
+
+  Two prerequisites, or every receipt reads empty forever and feeds that same misreading: the
+  deployment must be Git-created (a CLI deploy supplies no commit), and Vercel's system environment
+  variables must be exposed to the runtime.
+
+  Record the answer here once observed.
 
 ### Consequence for the documentation ledgers
 

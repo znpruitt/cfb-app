@@ -49,6 +49,7 @@ export async function readSchedulerReceipt(
 
 /** The exact allowlisted top-level receipt keys, sorted. */
 export const RECEIPT_KEYS = [
+  'buildCommitSha',
   'completedAt',
   'durationMs',
   'invocationId',
