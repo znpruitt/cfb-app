@@ -233,6 +233,37 @@ export type SchedulerExecutionTarget =
       }>;
     };
 
+/**
+ * The commit this deployment was BUILT from, or null when unavailable.
+ *
+ * ## Why a receipt carries build identity at all
+ *
+ * `Auto-assign Custom Production Domains` was disabled on 2026-08-17 (see
+ * `docs/deployment-runbook.md` §6b), so merging to `main` no longer ships:
+ * a Production Deployment is built and then waits to be promoted. **"Merged" and
+ * "running" became different facts, and nothing in the app could tell them
+ * apart.** That matters most precisely here — `season-transition` and
+ * `season-rollover` perform lifecycle WRITES, and Vercel binds cron jobs to a
+ * production deployment without the app having any say in which one. Recording
+ * the SHA makes each run state the build that produced it, so the question is
+ * answered by data rather than inferred from a dashboard that may not show it.
+ *
+ * Read at BUILD time by Vercel and exposed to the runtime; read here per call
+ * rather than cached at module load so a test can vary it.
+ *
+ * Validated as a bounded hex string. This is environment content on its way into
+ * a durable record, and the surrounding module is deliberately strict about what
+ * can reach storage — an unset, malformed, or oversized value degrades to null
+ * rather than being stored, exactly like every other unusable input here.
+ */
+export function readBuildCommitSha(): string | null {
+  const raw = process.env.VERCEL_GIT_COMMIT_SHA;
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!/^[0-9a-f]{7,40}$/i.test(trimmed)) return null;
+  return trimmed.toLowerCase();
+}
+
 /** The exact durable record stored at `scheduler-execution-status/<job>`. */
 export type SchedulerExecutionReceipt = {
   version: 1;
@@ -246,6 +277,13 @@ export type SchedulerExecutionReceipt = {
   reason: SchedulerExecutionReason;
   providerCallAttempted: boolean;
   target: SchedulerExecutionTarget;
+  /**
+   * The commit the executing deployment was built from, or null when the
+   * environment did not supply a usable one. ALWAYS present after a parse — a
+   * receipt written before this field existed normalizes to null rather than
+   * being rejected, because a legacy receipt is still a truthful record of a run.
+   */
+  buildCommitSha: string | null;
 };
 
 /**
@@ -398,6 +436,9 @@ export function buildSchedulerExecutionReceipt(
     reason: input.reason,
     providerCallAttempted: input.providerCallAttempted,
     target,
+    // Read here rather than accepted from the caller: a route cannot claim to
+    // have been built from a commit it was not.
+    buildCommitSha: readBuildCommitSha(),
   };
 }
 
@@ -659,6 +700,9 @@ function rebuildReceipt(receipt: SchedulerExecutionReceipt): SchedulerExecutionR
     reason: receipt.reason,
     providerCallAttempted: receipt.providerCallAttempted,
     target,
+    // Normalized to null rather than left undefined, so every parsed receipt has
+    // the same shape whether or not the writer that produced it knew this field.
+    buildCommitSha: receipt.buildCommitSha ?? null,
   };
 }
 
@@ -837,6 +881,14 @@ export function parseSchedulerExecutionReceipt(
   if (typeof record.result !== 'string' || !RESULT_VALUES.has(record.result)) return null;
   if (typeof record.reason !== 'string' || record.reason.length === 0) return null;
   if (typeof record.providerCallAttempted !== 'boolean') return null;
+  // ABSENT or null is valid — receipts written before this field existed are
+  // still truthful records of a run, and rejecting them would blank the health
+  // surface for every job until each one next fires. A PRESENT value must be
+  // well-formed; a malformed one is corruption and the record is replaceable.
+  if (record.buildCommitSha !== undefined && record.buildCommitSha !== null) {
+    if (typeof record.buildCommitSha !== 'string') return null;
+    if (!/^[0-9a-f]{7,40}$/.test(record.buildCommitSha)) return null;
+  }
   if (!isValidStoredTarget(record.target, expectedJob)) return null;
   // REBUILD field-by-field through the allowlist so no extra top-level, target,
   // or nested target-entry property can escape — never return the raw stored

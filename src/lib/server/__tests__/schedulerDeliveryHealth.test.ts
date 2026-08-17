@@ -16,6 +16,8 @@ import {
 } from '@/lib/server/appStateStore';
 import {
   buildSchedulerExecutionReceipt,
+  parseSchedulerExecutionReceipt,
+  readBuildCommitSha,
   EXTERNAL_SCHEDULER_JOBS,
   rankingsYearsTarget,
   scheduleYearsTarget,
@@ -483,6 +485,10 @@ test('extra top-level, target, and nested target-entry fields never appear in ou
   const serialized = JSON.stringify(row.receipt);
   assert.ok(!serialized.includes('MARKER'), 'no canary escaped the parser');
   assert.deepEqual(Object.keys(row.receipt!).sort(), [
+    // Present even though the stored fixture omits it: the rebuild normalizes a
+    // legacy receipt to `buildCommitSha: null` rather than dropping the field, so
+    // every parsed receipt has one shape regardless of which writer produced it.
+    'buildCommitSha',
     'completedAt',
     'durationMs',
     'invocationId',
@@ -605,4 +611,90 @@ test('the default loader reads the real durable scheduler-execution scope', asyn
   assert.ok(live.receipt, 'the durable receipt was read and parsed');
   // Every job without a durable row is `missing`.
   assert.equal(snap.jobs.find((r) => r.job === 'odds')!.deliveryState, 'missing');
+});
+
+// ---------------------------------------------------------------------------
+// Build identity (2026-08-17). Production promotion became manual, so "merged"
+// and "running" are different facts and the app could not tell them apart.
+// ---------------------------------------------------------------------------
+
+test('a receipt records the commit the executing deployment was built from', () => {
+  const original = process.env.VERCEL_GIT_COMMIT_SHA;
+  try {
+    process.env.VERCEL_GIT_COMMIT_SHA = '44CC40AAbbccddeeff0011223344556677889900';
+    const receipt = buildSchedulerExecutionReceipt({
+      job: 'season-transition',
+      invocationId: '11111111-1111-4111-8111-111111111111',
+      startedAtMs: ms('2026-03-15T12:00:00Z'),
+      completedAtMs: ms('2026-03-15T12:00:01Z'),
+      result: 'success',
+      reason: 'season-transitioned',
+      providerCallAttempted: false,
+      target: {
+        kind: 'season-transition-years',
+        totalYears: 0,
+        truncated: false,
+        invalidLifecycleTargets: 0,
+        years: [],
+      },
+    });
+    // Lowercased, so a comparison against a git SHA never fails on case.
+    assert.equal(receipt?.buildCommitSha, '44cc40aabbccddeeff0011223344556677889900');
+  } finally {
+    if (original === undefined) delete process.env.VERCEL_GIT_COMMIT_SHA;
+    else process.env.VERCEL_GIT_COMMIT_SHA = original;
+  }
+});
+
+test('an unusable or absent commit degrades to null instead of reaching storage', () => {
+  const original = process.env.VERCEL_GIT_COMMIT_SHA;
+  try {
+    // Environment content on its way into a durable record: anything that is not
+    // a bounded hex string is refused, not stored.
+    for (const bad of ['', '   ', 'not-a-sha', 'zzzz111', 'a'.repeat(41), '123456']) {
+      process.env.VERCEL_GIT_COMMIT_SHA = bad;
+      assert.equal(readBuildCommitSha(), null, `refused: ${JSON.stringify(bad)}`);
+    }
+    delete process.env.VERCEL_GIT_COMMIT_SHA;
+    assert.equal(readBuildCommitSha(), null, 'absent is null, not a throw');
+
+    // POSITIVE CONTROL: a short-form SHA IS usable, so the guard above is
+    // rejecting malformed input rather than everything.
+    process.env.VERCEL_GIT_COMMIT_SHA = '44cc40a';
+    assert.equal(readBuildCommitSha(), '44cc40a');
+  } finally {
+    if (original === undefined) delete process.env.VERCEL_GIT_COMMIT_SHA;
+    else process.env.VERCEL_GIT_COMMIT_SHA = original;
+  }
+});
+
+test('a LEGACY receipt still parses — it is a truthful record of a run', () => {
+  // Every receipt stored before today omits this field. Rejecting them would
+  // blank the scheduler health surface for all seven jobs until each next fired,
+  // which for the two daily lifecycle jobs is up to 24 hours of false "missing".
+  const legacy = validReceipt('schedule-refresh', ms('2026-03-15T12:06:00Z')) as Record<
+    string,
+    unknown
+  >;
+  delete legacy.buildCommitSha;
+
+  const parsed = parseSchedulerExecutionReceipt(
+    legacy,
+    'schedule-refresh',
+    ms('2026-03-15T12:10:00Z')
+  );
+  assert.ok(parsed, 'a receipt without build identity is still valid');
+  assert.equal(parsed.buildCommitSha, null, 'normalized, not left undefined');
+});
+
+test('a MALFORMED stored commit is corruption, and the record is refused', () => {
+  const bad = validReceipt('schedule-refresh', ms('2026-03-15T12:06:00Z')) as Record<
+    string,
+    unknown
+  >;
+  bad.buildCommitSha = 'not-a-sha';
+  assert.equal(
+    parseSchedulerExecutionReceipt(bad, 'schedule-refresh', ms('2026-03-15T12:10:00Z')),
+    null
+  );
 });
