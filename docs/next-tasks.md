@@ -1231,8 +1231,21 @@ Supersedes: (none)
     owner roster in place"), and defensible: blanking a league's rosters on reset would be worse.
     Whether the summary should SAY so is the open question.
 
-40. **INSIGHTS-025 — rookie/returning claims (owner decision required, invariant amendment).**
-    Deliberately last, and deliberately separate.
+40. ✅ **RESOLVED by INSIGHTS-025** (2026-08-17, merged PR #487 / `0d28595b`) — the owner decision
+    this entry was waiting on. **Neither** of the triggers proposed below was the answer.
+
+    **Owner ruling: "a confirmed draft should be the gate to report results on who joined/left."**
+    The invariant-5 amendment shipped with the code.
+
+    Worth keeping the original text below, because this entry proposed **Setup Complete** as "the
+    stronger trigger, if one is wanted" — and that is precisely the model review broke twice.
+    `setupComplete` lives only on the preseason variant of `LeagueStatus`, so the season transition
+    DELETES it rather than clearing it, and re-confirming owners never resets it, so it can sit true
+    beside a roster that contradicts it. Four completeness models were built on that family of
+    signal and all four could be true while the fact was false. What settled it was that a confirmed
+    DRAFT enumerates the participants and cannot be half-finished, so it needs no proof at all.
+    Original entry follows: **INSIGHTS-025 — rookie/returning claims (owner decision required,
+    invariant amendment).** Deliberately last, and deliberately separate.
 
     AGENTS.md Insights invariant 5 currently says naming who is genuinely returning "requires
     comparing a FINALIZED upcoming roster against league history, which no generator has; **until such
@@ -1247,7 +1260,7 @@ Supersedes: (none)
     trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
     For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
 
-41. ✅ **Membership CHANGES as content — SHIPPED as INSIGHTS-025** (2026-08-17). Who joined, who
+41. ✅ **MERGED — Membership CHANGES as content, INSIGHTS-025** (PR #487, `0d28595b`, 2026-08-17). Who joined, who
     returned and who left, derived at request time from the archives and the season's CONFIRMED
     DRAFT. Gate: `context.seasonOwners` — owner ruling, "a confirmed draft should be the gate to
     report results on who joined/left." The execution record (six reconstructions, review rounds,

@@ -6313,7 +6313,7 @@ conditions the code no longer implements, with a reachable divergence; and two s
 blocks (one duplicated and garbled by a scripted edit, one still naming `setupComplete`) were
 corrected.
 
-STATUS: See `docs/next-tasks.md` item 41 for queue status.
+STATUS: MERGED — PR #487, merge commit `0d28595b`, 2026-08-17.
 
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
 
