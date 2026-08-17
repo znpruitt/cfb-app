@@ -151,16 +151,8 @@ environment; `npm i -g vercel` if a command-line path is wanted.
   cron jobs to a production deployment, and it has not been confirmed here whether that is the
   promoted one or the newest production build. This matters: those two routes perform LIFECYCLE
   WRITES (preseason -> season, season rollover and archival), so if they bind to an unpromoted build,
-  a merge could change lifecycle behaviour with nothing promoted.
-
-  **The app now answers this itself.** Every scheduler receipt records
-  `buildCommitSha` — the commit the executing deployment was built from — and System Health shows it
-  per job as **Built from**. So after the next merge-without-promotion, read that field on the two
-  lifecycle jobs once they have fired: if it names the UNPROMOTED commit, crons follow the newest
-  production build; if it names the promoted one, the isolation holds. Record the answer here.
-
-  Until each job next fires, its stored receipt predates the field and shows
-  `not reported by the runtime` — that is a legacy record, not a fault.
+  a merge could change lifecycle behaviour with nothing promoted. **Check `Settings -> Cron Jobs`
+  after the next merge-without-promotion and record the answer here.**
 
 ### Consequence for the documentation ledgers
 
