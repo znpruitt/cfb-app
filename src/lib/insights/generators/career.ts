@@ -333,6 +333,15 @@ function deriveCareerPointsLeader(context: InsightContext): Insight | null {
       : `${names} ${tied.length > 1 ? 'have' : 'has'} ${formatNumber(leaderPoints)} career league points${pointsClause}`;
   } else if (tied.length > 1) {
     description = `${formatOwnerList(ownerNames)} are tied for the all-time lead with ${formatNumber(leaderPoints)} career league points each.`;
+  } else if (!membersKnown) {
+    // INSIGHTS-023 — the `switch` below narrates an ONGOING race and was reached
+    // whenever a member holds the record, because `membersKnown` gated only the
+    // clause above it. Two of its branches name a SECOND owner — "N points clear
+    // of Bob", "Bob is closing in" — and with membership unknown either of them
+    // may have left. One sentence for the whole state, as at every other site in
+    // this file: the standing is a fact, the race is a claim about who is still
+    // running.
+    description = `${leaderOwner} has ${formatNumber(leaderPoints)} career league points, the most in league history.`;
   } else {
     switch (hook) {
       case 'extending_lead':

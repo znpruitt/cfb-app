@@ -639,7 +639,14 @@ Supersedes: (none)
     - Weekly rotation boundaries must be CHOSEN. `floor(days / 7)` puts them on Thursday because the
       epoch was a Thursday — ten hours from the Thursday pulse INSIGHTS-026 plans.
 
-31. **INSIGHTS-023 — preseason breadth. Now BEFORE rotation, not after** (reordered 2026-08-15 when
+31. **INSIGHTS-023 — preseason breadth. PARTIALLY SHIPPED, narrowed at review** (2026-08-16).
+    `career:points_leader` and `career:greatest_season` now run in preseason; `historical` and
+    `rivalry` were reverted out when both reviewers found four unconverted superlative sites in them
+    (see the INSIGHTS-030 remainder below). `career:turnover_margin` stays dark for the same reason
+    it always did. `existing:season_wrap` is its own slice — it reads current standings, not the
+    archive. The two-question rule and the audit below still stand; what changed is the order.
+
+    **INSIGHTS-023 — preseason breadth. Now BEFORE rotation, not after** (reordered 2026-08-15 when
     INSIGHTS-018 was deferred). Breadth is the prerequisite: it creates a pool larger than the feed,
     and rotation has no job until it exists.
 
@@ -936,6 +943,29 @@ Supersedes: (none)
       bridesmaids". Same shape.
 
     Each needs its own copy decision, which is why they were not widened into 030's guard.
+
+    **REMAINING after INSIGHTS-030 — FOUR MORE SITES, and my "verified by reading" was wrong**
+    (found by both reviewers during INSIGHTS-023, 2026-08-16). The 030 closeout listed six
+    superlatives as already-correct. At least three are not, and the error was systematic: I checked
+    whether each generator's ALL-TIME claim spanned everyone — it did — and never read the OTHER
+    branch of the same sentence, which makes a narrower claim over the member-only list.
+
+    - `historical:consistency` — "the most consistent performer in league history", `maxCount` taken
+      over `activeOwners`. REPRODUCED on INSIGHTS-023's own fixture: Carol is named while two
+      departed owners are level with her.
+    - `historical:improvement` — "the biggest improvement of the season" over member candidates only;
+      and its all-time branch uses `>=` seeded from the member max, so a departed owner with an EQUAL
+      leap still leaves the record claim true.
+    - `rivalry:even` — "the closest rivalry in the league" is wrong twice over. The population is
+      member pairs only, AND the selection loop keeps the pair with the MOST MEETINGS rather than the
+      closest, so a dead-even pair loses to a 4–3 pair that has met more often.
+    - `historical:drought` — the TITLE claims "Longest" over the member-only population, and claims a
+      singular longest over a tie the description deliberately words as shared.
+
+    **This is why INSIGHTS-023 shipped narrowed** to `career:points_leader` and
+    `career:greatest_season`: those two were genuinely converted. Opening `historical` and `rivalry`
+    exposes the four above, so their gates wait for this conversion. Convert them through
+    `resolveSuperlative` exactly as the four converted sites did.
 
     **REMAINING after INSIGHTS-030: the eligibility floor is invisible to the copy** (Codex,
     2026-08-16). Each generator filters its population by a floor — two career seasons, 100 games in

@@ -12,10 +12,6 @@ import type {
   NewsHook,
 } from '../types';
 
-// INSIGHTS-023 — every type this generator emits is drawn from ARCHIVED seasons
-// and needs no current-season evidence, so it answers the two-question rule the
-// same way its `offseason` entry already does. Preseason is a phase of the
-// offseason nearer kickoff, not a distinct data regime.
 const RIVALRY_LIFECYCLES: LifecycleState[] = [
   'early_season',
   'mid_season',
@@ -23,7 +19,6 @@ const RIVALRY_LIFECYCLES: LifecycleState[] = [
   'postseason',
   'fresh_offseason',
   'offseason',
-  'preseason',
 ];
 
 const NO_CLAIM_OWNER = 'NoClaim';
@@ -288,10 +283,8 @@ function deriveLopsidedInsight(
 function deriveEvenRivalryInsight(
   pairs: Map<string, HeadToHeadResult[]>,
   activeOwners: ReadonlySet<string>,
-  lifecycles: LifecycleState[],
-  membersSource: LeagueMembersSource
+  lifecycles: LifecycleState[]
 ): Insight | null {
-  const evenKnown = membershipIsKnown(membersSource);
   let bestKey: string | null = null;
   let bestMeetings = 0;
   let bestOwnerA: string | null = null;
@@ -328,22 +321,13 @@ function deriveEvenRivalryInsight(
     const trailer = bestWinsA > bestWinsB ? bestOwnerB : bestOwnerA;
     const leaderWins = Math.max(bestWinsA, bestWinsB);
     const trailerWins = Math.min(bestWinsA, bestWinsB);
-    // The search loop above skips any pair with a non-member, so the population
-    // is members-only. "the closest rivalry in the league" is true of that
-    // population when membership is known; "the closest in LEAGUE HISTORY" is
-    // not, and it is a WIDER claim than the one it replaced — a departed pair at
-    // 5–5 over ten meetings beats it and is never considered. That is the
-    // record-population class INSIGHTS-030 fixed at four sites; `even_rivalry`
-    // was never converted, so the honest move here is to claim nothing.
-    description = evenKnown
-      ? `${leader} leads ${trailer} ${leaderWins}–${trailerWins} across ${bestMeetings} meetings — the closest rivalry in the league.`
-      : `${leader} leads ${trailer} ${leaderWins}–${trailerWins} across ${bestMeetings} meetings.`;
+    description = `${leader} leads ${trailer} ${leaderWins}–${trailerWins} across ${bestMeetings} meetings — the closest rivalry in the league.`;
   }
 
   return toInsight({
     id: `rivalry-even-${ownerSlug(bestOwnerA)}-${ownerSlug(bestOwnerB)}`,
     type: 'even_rivalry',
-    title: evenKnown ? 'Most evenly matched rivalry' : 'An even rivalry',
+    title: 'Most evenly matched rivalry',
     description,
     owner: bestOwnerA,
     relatedOwners: [bestOwnerB],
@@ -371,10 +355,8 @@ function activeStreak(results: HeadToHeadResult[]): { winner: string; length: nu
 function deriveDominanceStreakInsight(
   pairs: Map<string, HeadToHeadResult[]>,
   activeOwners: ReadonlySet<string>,
-  lifecycles: LifecycleState[],
-  membersSource: LeagueMembersSource
+  lifecycles: LifecycleState[]
 ): Insight | null {
-  const dominanceKnown = membershipIsKnown(membersSource);
   let bestKey: string | null = null;
   let bestLength = 0;
   let bestWinner: string | null = null;
@@ -420,30 +402,22 @@ function deriveDominanceStreakInsight(
   let description: string;
   if (bestLength >= allTimeMaxStreak && allTimeMaxStreak > MIN_DOMINANCE_STREAK) {
     hook = 'new_record';
-    description = dominanceKnown
-      ? `${bestWinner} has beaten ${bestLoser} ${bestLength} straight — the longest active dominance streak in league history.`
-      : `${bestWinner} beat ${bestLoser} ${bestLength} straight times — the longest such run in league history.`;
+    description = `${bestWinner} has beaten ${bestLoser} ${bestLength} straight — the longest active dominance streak in league history.`;
   } else if (bestLength === MIN_DOMINANCE_STREAK) {
     hook = 'streak_started';
-    description = dominanceKnown
-      ? `${bestWinner} has won ${bestLength} straight against ${bestLoser}. A pattern is emerging.`
-      : `${bestWinner} won ${bestLength} straight against ${bestLoser}.`;
+    description = `${bestWinner} has won ${bestLength} straight against ${bestLoser}. A pattern is emerging.`;
   } else if (bestLength >= 8) {
     hook = 'streak_extended';
-    description = dominanceKnown
-      ? `${bestWinner} has lived rent-free in ${bestLoser}'s head for ${bestLength} straight meetings.`
-      : `${bestWinner} took ${bestLength} straight meetings off ${bestLoser}.`;
+    description = `${bestWinner} has lived rent-free in ${bestLoser}'s head for ${bestLength} straight meetings.`;
   } else {
     hook = 'streak_extended';
-    description = dominanceKnown
-      ? `${bestWinner} has beaten ${bestLoser} ${bestLength} straight times. At some point this is a subscription.`
-      : `${bestWinner} beat ${bestLoser} ${bestLength} straight times.`;
+    description = `${bestWinner} has beaten ${bestLoser} ${bestLength} straight times. At some point this is a subscription.`;
   }
 
   return toInsight({
     id: `rivalry-dominance-${ownerSlug(bestWinner)}-${ownerSlug(bestLoser)}`,
     type: 'dominance_streak',
-    title: dominanceKnown ? 'Active dominance streak' : 'Dominance streak',
+    title: 'Active dominance streak',
     description,
     owner: bestWinner,
     relatedOwners: [bestLoser],
@@ -477,20 +451,10 @@ export const rivalryGenerator: InsightGenerator = {
     );
     if (lopsided) insights.push(lopsided);
 
-    const even = deriveEvenRivalryInsight(
-      pairs,
-      activeOwners,
-      RIVALRY_LIFECYCLES,
-      context.leagueMembersSource
-    );
+    const even = deriveEvenRivalryInsight(pairs, activeOwners, RIVALRY_LIFECYCLES);
     if (even) insights.push(even);
 
-    const dominance = deriveDominanceStreakInsight(
-      pairs,
-      activeOwners,
-      RIVALRY_LIFECYCLES,
-      context.leagueMembersSource
-    );
+    const dominance = deriveDominanceStreakInsight(pairs, activeOwners, RIVALRY_LIFECYCLES);
     if (dominance) insights.push(dominance);
 
     return insights;
