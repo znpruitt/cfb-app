@@ -370,6 +370,34 @@ export function invalidateStandings(slug: string, year?: number): void {
 }
 
 /**
+ * `invalidateStandings`, tolerant of being called outside a request context.
+ *
+ * `revalidateTag` throws "static generation store missing" (`E263`) when no Next
+ * work-async-storage store is active. Every caller here runs after its durable
+ * write has COMMITTED, so letting that throw turns a successful state change into
+ * a 500 — the cache miss is the lesser failure by a wide margin.
+ *
+ * Lived privately in `api/owners/route.ts` until INSIGHTS-025 needed the same
+ * protection on the draft routes; extracted rather than copied, so the two cannot
+ * drift on which error codes count as "no context". Any OTHER error still
+ * surfaces.
+ */
+export function invalidateStandingsSafely(slug: string, year?: number): void {
+  try {
+    invalidateStandings(slug, year);
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.message.includes('static generation store missing') ||
+        (err as { __NEXT_ERROR_CODE?: unknown }).__NEXT_ERROR_CODE === 'E263')
+    ) {
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
  * Invalidate cached canonical standings for EVERY league, across all cached
  * years, by busting the shared `ALL_STANDINGS_TAG` that every snapshot carries.
  *

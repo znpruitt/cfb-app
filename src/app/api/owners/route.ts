@@ -6,7 +6,7 @@ import { resolveLeagueOperatingYear } from '../../../lib/selectors/leagueLifecyc
 import type { League } from '../../../lib/league.ts';
 import { OWNER_ROSTER_OVERWRITE_ERROR } from '../../../lib/ownerRosterGuard.ts';
 import { parseOwnersCsv } from '../../../lib/parseOwnersCsv.ts';
-import { invalidateStandings } from '../../../lib/selectors/leagueStandings.ts';
+import { invalidateStandingsSafely } from '../../../lib/selectors/leagueStandings.ts';
 import { getTeamDatabaseItems } from '../../../lib/server/teamDatabaseStore.ts';
 import { getScopedAliasMap } from '../../../lib/server/globalAliasStore.ts';
 import { validateRosterCSV } from '../../../lib/rosterUploadValidator.ts';
@@ -189,27 +189,4 @@ export async function PUT(req: Request): Promise<Response> {
   await setAppState(scope, 'csv', null);
   if (league) invalidateStandingsSafely(league, year);
   return Response.json({ year, league: league ?? null, csvText: null, hasStoredValue: true });
-}
-
-/**
- * Invalidate standings after a successful write, tolerating only the benign
- * out-of-request-context `revalidateTag` Invariant (`static generation store
- * missing`, NEXT code `E263`) raised when the handler runs outside a request —
- * i.e. scripts and `node:test`, where there is no data cache to bust. In
- * production the PUT handler always has a request context, so invalidation runs
- * exactly as before; any other (real) failure still surfaces.
- */
-function invalidateStandingsSafely(league: string, year: number): void {
-  try {
-    invalidateStandings(league, year);
-  } catch (err) {
-    if (
-      err instanceof Error &&
-      (err.message.includes('static generation store missing') ||
-        (err as { __NEXT_ERROR_CODE?: unknown }).__NEXT_ERROR_CODE === 'E263')
-    ) {
-      return;
-    }
-    throw err;
-  }
 }
