@@ -116,12 +116,22 @@ The architecture map lives in `AGENTS.md` → **Architecture overview** and
 
 ## Preview branch
 
-After completing an implementation and pushing the feature branch:
+**Push `preview` with EVERY commit on a feature branch — not once at the end, and never after a
+merge.** Owner rule, 2026-08-17.
 
 ```bash
-git push origin HEAD:preview --force
+git push origin HEAD                 # the branch
+git push origin HEAD:preview --force # and preview, same breath
 ```
 
-`preview` is a throwaway surface that always reflects the latest work in progress, so the force push
-is intentional. Never open a PR from `preview`; never merge `preview` into `main`. Do not push
-unreviewed work there.
+`preview` exists so the owner can click through whatever the branch currently is, at any point. That
+only works if it tracks the branch continuously, so the two pushes go together — including for
+docs-only and closeout commits, which otherwise leave preview a commit behind.
+
+**After a merge, do nothing.** `main` is production, so pushing `main:preview` makes preview a
+duplicate of what is already live: no new information and a wasted deployment. The one exception is
+clearing genuinely stale work — if `preview` still holds an abandoned branch, resetting it to `main`
+is housekeeping, not verification, and should be described as such.
+
+`preview` is a throwaway surface, so the force push is intentional. Never open a PR from `preview`;
+never merge `preview` into `main`. Do not push unreviewed work there.
