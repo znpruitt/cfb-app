@@ -1273,7 +1273,8 @@ Supersedes: (none)
     re-confirmed list was published as departed; and "the roster corroborates the list" is satisfied by
     a two-row roster against a two-name list, which is the ordinary mid-setup state — the very
     six-departures card the module exists to prevent. Two of my own tests pinned those as correct.
-    The evidence is now that THIS SEASON'S DRAFT IS PUBLISHED (`isDraftPublished` — durable,
+    **Owner ruling, 2026-08-17: "a confirmed draft should be the gate to report results on who
+    joined/left."** So the evidence is that THIS SEASON'S DRAFT IS PUBLISHED (`isDraftPublished` — durable,
     year-scoped, and untouched by the transition), with the contradiction check mandatory rather than a
     fallback. Probed at the HTTP surface across three seeded leagues: unfinished → silent,
     partial-list-and-partial-roster → silent, published → reports; and a published league whose roster

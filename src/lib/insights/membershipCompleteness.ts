@@ -59,6 +59,15 @@ import { identityKey } from './membershipHistory';
  * the season transition does not touch it. Partiality is impossible against it,
  * because a published draft assigns every eligible team.
  *
+ * **OWNER RULING, 2026-08-17: "a confirmed draft should be the gate to report
+ * results on who joined/left."** This is a product decision, not merely the
+ * soundest predicate available — do not relax it to something weaker (a count, a
+ * flag, an agreement between two records) because a league is waiting on content.
+ * All three of those were tried and all three published false departures. The
+ * ruling also settles the timing question it was asked in: a league sees no
+ * membership news until its draft is confirmed, and that is the intended
+ * behaviour rather than a delay to work around.
+ *
  * The second half is the contradiction check, and it is MANDATORY rather than a
  * fallback. A published draft is run over the confirmed owner list, so every
  * participant holds teams; if someone holds a team and is not listed, the list is
