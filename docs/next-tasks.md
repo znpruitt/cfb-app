@@ -1324,6 +1324,28 @@ Supersedes: (none)
     still correct, where `960083cf` published "Heidi, Grace, Frank, Erin, Dave, and Carol have left
     the league". That last case was Codex's P1 and it is closed by construction, not by a check.
 
+    **v6 (fifth review round).** One MEDIUM and six LOWs, and the MEDIUM partially reverses a v5
+    claim. v5 said the confirmed draft's owner set IS the league "with nothing left to verify" and
+    deleted the cross-check against `leagueMembers`. But `confirmPreseasonOwners` carries NO draft
+    guard — unlike `setAssignmentMethod` beside it — so a commissioner can re-confirm an eight-name
+    list after a seven-owner draft published: `seasonOwners` stays frozen, `leagueMembers` moves, and
+    the eighth owner is computed as having LEFT beside cards naming them an active owner, promptly,
+    because that action invalidates standings. The draft remains the authority; what was missing is
+    that a CONTRADICTION should silence the feature. `context.membershipDisagreement` restores that
+    without restoring a completeness proof, and AGENTS.md now states the distinction.
+
+    Three findings (Codex P2, plus two from `/code-review`) were one bug: invalidate when
+    `isDraftPublished` CHANGES, not when a route runs. v5 covered retraction and missed restoration —
+    unpick then re-pick the same team restores the retained signature, and `PUT {phase:'complete'}`
+    after a reopen does the same, neither invalidating; meanwhile every Undo press on a LIVE draft
+    was cold-starting the entire insights build for a flag that never moved. All five writers now
+    capture the flag before and after. Writing that test is what caught the fix landing in the wrong
+    file — `pick/[n]` (edit) rather than `pick` (live). Also: `autoCompleteDraft` still used the raw
+    `invalidateStandings` this branch had extracted a safe wrapper for; invariant 5 stated two
+    conditions the code no longer implements, with a reachable divergence; and two stale comment
+    blocks (one duplicated and garbled by a scripted edit, one still naming `setupComplete`) were
+    corrected.
+
     Original entry follows.
 
     **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left

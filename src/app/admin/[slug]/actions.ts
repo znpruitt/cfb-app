@@ -12,7 +12,7 @@ import {
   type TestLeagueLifecycleState,
 } from '@/lib/leagueRegistry';
 import { preseasonOwnerScope, savePreseasonOwners } from '@/lib/preseasonOwnerStore';
-import { invalidateStandings } from '@/lib/selectors/leagueStandings';
+import { invalidateStandings, invalidateStandingsSafely } from '@/lib/selectors/leagueStandings';
 import {
   listAppStateKeys,
   deleteAppState,
@@ -637,7 +637,7 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
   // inputs to the cached insight build since INSIGHTS-025 (`isDraftPublished` is
   // the evidence for membership-change cards). Revalidating the admin path does
   // not reach the public feed.
-  invalidateStandings(TEST_LEAGUE_SLUG, year);
+  invalidateStandingsSafely(TEST_LEAGUE_SLUG, year);
   revalidatePath(TEST_LEAGUE_ADMIN_PATH);
   // Vacancies filled count as work done — reporting only `newPicks` said zero
   // when the control had filled nothing but holes.

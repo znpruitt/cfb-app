@@ -51,10 +51,10 @@ async function seedLeague(opts: {
     year: YEAR,
     createdAt: '2026-01-01T00:00:00.000Z',
     foundedYear: 2023,
-    // `setupComplete` matters from INSIGHTS-025 onward: without it the
-    // membership generator treats the confirmed list as still being typed and
-    // stays silent, which is exactly what it should do mid-setup. These fixtures
-    // model a FINISHED preseason, so the flag is set.
+    // `setupComplete` is set because these fixtures model a FINISHED preseason.
+    // It is NOT what gates the membership generator — v5 moved that to the
+    // confirmed draft's owner set and the flag is not in the insight context at
+    // all. This comment claimed the dependency for two rounds after it was gone.
     status: { state: 'preseason', year: YEAR, setupComplete: true },
   });
 
@@ -199,10 +199,10 @@ async function seedNamingAliceAndBob(
     year: YEAR,
     createdAt: '2026-01-01T00:00:00.000Z',
     foundedYear: 2022,
-    // `setupComplete` matters from INSIGHTS-025 onward: without it the
-    // membership generator treats the confirmed list as still being typed and
-    // stays silent, which is exactly what it should do mid-setup. These fixtures
-    // model a FINISHED preseason, so the flag is set.
+    // `setupComplete` is set because these fixtures model a FINISHED preseason.
+    // It is NOT what gates the membership generator — v5 moved that to the
+    // confirmed draft's owner set and the flag is not in the insight context at
+    // all. This comment claimed the dependency for two rounds after it was gone.
     status: { state: 'preseason', year: YEAR, setupComplete: true },
   });
   await setAppState(`preseason-owners:${SLUG}`, String(YEAR), confirmed);
@@ -438,10 +438,10 @@ test('a RETURNING owner gets career history built, not just permission to appear
     year: YEAR,
     createdAt: '2026-01-01T00:00:00.000Z',
     foundedYear: 2022,
-    // `setupComplete` matters from INSIGHTS-025 onward: without it the
-    // membership generator treats the confirmed list as still being typed and
-    // stays silent, which is exactly what it should do mid-setup. These fixtures
-    // model a FINISHED preseason, so the flag is set.
+    // `setupComplete` is set because these fixtures model a FINISHED preseason.
+    // It is NOT what gates the membership generator — v5 moved that to the
+    // confirmed draft's owner set and the flag is not in the insight context at
+    // all. This comment claimed the dependency for two rounds after it was gone.
     status: { state: 'preseason', year: YEAR, setupComplete: true },
   });
   await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob', 'Erin']);
@@ -626,10 +626,10 @@ test('a departed record holder still sets the bar for a trend superlative', asyn
     year: YEAR,
     createdAt: '2026-01-01T00:00:00.000Z',
     foundedYear: 2022,
-    // `setupComplete` matters from INSIGHTS-025 onward: without it the
-    // membership generator treats the confirmed list as still being typed and
-    // stays silent, which is exactly what it should do mid-setup. These fixtures
-    // model a FINISHED preseason, so the flag is set.
+    // `setupComplete` is set because these fixtures model a FINISHED preseason.
+    // It is NOT what gates the membership generator — v5 moved that to the
+    // confirmed draft's owner set and the flag is not in the insight context at
+    // all. This comment claimed the dependency for two rounds after it was gone.
     status: { state: 'preseason', year: YEAR, setupComplete: true },
   });
   await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob', 'Carol']);
@@ -713,10 +713,10 @@ test('a NoClaim-bearing confirmation record does NOT crown a one-member league',
     displayName: 'Members League',
     year: YEAR,
     createdAt: '2026-01-01T00:00:00.000Z',
-    // `setupComplete` matters from INSIGHTS-025 onward: without it the
-    // membership generator treats the confirmed list as still being typed and
-    // stays silent, which is exactly what it should do mid-setup. These fixtures
-    // model a FINISHED preseason, so the flag is set.
+    // `setupComplete` is set because these fixtures model a FINISHED preseason.
+    // It is NOT what gates the membership generator — v5 moved that to the
+    // confirmed draft's owner set and the flag is not in the insight context at
+    // all. This comment claimed the dependency for two rounds after it was gone.
     status: { state: 'preseason', year: YEAR, setupComplete: true },
   });
   await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'NoClaim']);

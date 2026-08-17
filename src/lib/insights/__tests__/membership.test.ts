@@ -83,6 +83,9 @@ function contextFor(archives: SeasonArchive[], members: string[], year?: number)
     // was confirmed for. A confirmed draft cannot be half-finished, so there is
     // no completeness question left for a fixture to state.
     seasonOwners: { year: seasonYear, owners: members },
+    // No disagreement: these fixtures' member list and draft owners are the same
+    // people. Tests that need a contradiction state it explicitly.
+    membershipDisagreement: [],
   } as unknown as InsightContext;
 }
 
@@ -359,6 +362,7 @@ function unconfirmedContext(roster: string[], entered: string[]): InsightContext
   return {
     ...contextFor([archive(2029, roster, roster)], entered),
     seasonOwners: null,
+    membershipDisagreement: [],
   } as unknown as InsightContext;
 }
 
@@ -703,4 +707,29 @@ test('a withheld feed is LABELLED gated, not reported as an ordinary zero', () =
   );
   assert.equal(live.skippedBy, null);
   assert.ok(live.produced.length > 0);
+});
+
+test('a member the draft never named silences the feature entirely', () => {
+  // `confirmPreseasonOwners` carries no draft guard — unlike `setAssignmentMethod`
+  // beside it — and the owner editor stays reachable through preseason, which is
+  // the same phase the draft runs in. So a commissioner can confirm an extra name
+  // AFTER the draft published. `seasonOwners` stays frozen at what published;
+  // `leagueMembers` moves.
+  //
+  // Without this, the extra owner is computed as having LEFT (they are in last
+  // season's archive and not in the draft) while member-filtered generators on the
+  // same page name them as active — and that action invalidates standings, so the
+  // card appears promptly rather than being masked by a TTL.
+  const archives = [archive(2029, ['A', 'B', 'C'], ['A', 'B', 'C'])];
+  const contradicted = {
+    ...contextFor(archives, ['A', 'B']),
+    membershipDisagreement: ['C'],
+  } as unknown as InsightContext;
+
+  assert.deepEqual(membershipGenerator.generate(contradicted), []);
+  // Withheld VISIBLY, so the diagnostics table can say so.
+  assert.equal(runGeneratorForDiagnostics(membershipGenerator, contradicted).skippedBy, 'gated');
+
+  // POSITIVE CONTROL: the same fixture with the records agreeing does report.
+  assert.ok(membershipGenerator.generate(contextFor(archives, ['A', 'B'])).length > 0);
 });

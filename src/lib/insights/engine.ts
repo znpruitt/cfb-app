@@ -103,7 +103,10 @@ export function shouldSuppressGenerator(g: InsightGenerator, context: InsightCon
   // the generator carries its own non-bypassable copy of this check. See the long
   // note in `generators/membership.ts` — for one round this was the only
   // placement, and `?bypassSuppression=1` published the withheld card publicly.
-  if (g.id === 'narrative:membership' && context.seasonOwners === null) {
+  if (
+    g.id === 'narrative:membership' &&
+    (context.seasonOwners === null || context.membershipDisagreement.length > 0)
+  ) {
     return true;
   }
   return false;

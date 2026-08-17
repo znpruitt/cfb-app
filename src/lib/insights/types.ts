@@ -154,6 +154,27 @@ export type InsightContext = {
    * rather than guarded against.
    */
   seasonOwners: { year: number; owners: string[] } | null;
+
+  /**
+   * Members the league records as playing who are ABSENT from `seasonOwners` —
+   * i.e. the two records disagree about who is in the league.
+   *
+   * This is a CONTRADICTION check, not a completeness proof, and the difference
+   * is the whole reason it is allowed to exist. v2–v4 tried to prove
+   * `leagueMembers` complete and every proof could be true while the fact was
+   * false; v5 replaced that with the draft's owner set and needs no proof. But
+   * `confirmPreseasonOwners` carries NO draft guard — unlike `setAssignmentMethod`
+   * beside it — so a commissioner can re-confirm an eight-name list after a
+   * seven-owner draft was confirmed. `seasonOwners` stays frozen at what
+   * published; `leagueMembers` moves. The eighth owner is then computed as having
+   * LEFT while the member-filtered generators on the same page name them as
+   * active, and that action invalidates standings, so the card appears promptly
+   * rather than waiting out a TTL.
+   *
+   * The draft remains the authority on who is playing. This only says: when
+   * another record disagrees with it, say nothing about anyone.
+   */
+  membershipDisagreement: string[];
   seasonContext: SeasonContext;
   currentWeek: number | null;
   currentStandings: OwnerStandingsRow[];

@@ -107,16 +107,16 @@ function makeContext(overrides: Partial<InsightContext> = {}): InsightContext {
     leagueSlug: overrides.leagueSlug ?? 'test',
     currentYear: overrides.currentYear ?? 2026,
     lifecycleState: overrides.lifecycleState ?? 'fresh_offseason',
-    // `?? overrides` matters: every other field here honours them, and this one
-    // did not — so a future test passing `membershipCompleteness: { complete:
-    // false }` to exercise the gate would have type-checked, run, and silently
-    // `?? overrides` matters: every other field here honours them, and this one
-    // did not — so a test passing a null `seasonOwners` to exercise the withheld
-    // path would have type-checked, run, and silently asserted the other one.
+    // Honours `overrides`, unlike an earlier version that hardcoded the
+    // membership field while honouring every other one — a test written to
+    // exercise the withheld path would have passed vacuously. (This comment was
+    // itself two paragraphs pasted over each other, the first still naming the
+    // field v5 deleted.)
     seasonOwners:
       overrides.seasonOwners !== undefined
         ? overrides.seasonOwners
         : { year: overrides.currentYear ?? 2026, owners: ['Alice', 'Bob'] },
+    membershipDisagreement: overrides.membershipDisagreement ?? [],
     seasonContext: overrides.seasonContext ?? 'in-season',
     currentWeek: overrides.currentWeek ?? null,
     currentStandings: overrides.currentStandings ?? [],

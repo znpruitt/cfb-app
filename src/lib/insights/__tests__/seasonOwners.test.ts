@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { seasonOwnersFrom } from '@/lib/insights/loadInsights';
+import { buildInsightContext } from '@/lib/insights/context';
 import { draftPicksSignature } from '@/lib/selectors/draftPublication';
 import type { DraftPick, DraftState } from '@/lib/draft';
 
@@ -87,4 +88,57 @@ test('the YEAR travels with the owners', () => {
 test('a draft with no usable owner names yields nothing', () => {
   const blank = draft({ picks: [pick(1, ''), pick(2, '   ')] });
   assert.equal(seasonOwnersFrom(blank, 2026), null);
+});
+
+// ---------------------------------------------------------------------------
+// The disagreement derivation, exercised through the real context builder.
+// ---------------------------------------------------------------------------
+
+test('membershipDisagreement names members the confirmed draft never did', async () => {
+  const league = {
+    slug: 'l',
+    displayName: 'L',
+    year: 2026,
+    createdAt: '2024-01-01T00:00:00.000Z',
+    status: { state: 'preseason' as const, year: 2026 },
+  };
+  const build = (members: string[], owners: string[] | null) =>
+    buildInsightContext(
+      'l',
+      league,
+      [],
+      [],
+      [],
+      'in-season',
+      null,
+      new Map(),
+      new Date('2026-08-01T00:00:00.000Z'),
+      members,
+      'preseason-owners',
+      owners ? { year: 2026, owners } : null
+    );
+
+  // The re-confirmed-after-publication case: the list gained a name the draft
+  // never had.
+  assert.deepEqual(
+    (await build(['Alice', 'Bob', 'Carol'], ['Alice', 'Bob'])).membershipDisagreement,
+    ['Carol']
+  );
+
+  // Agreement is silence.
+  assert.deepEqual((await build(['Alice', 'Bob'], ['Alice', 'Bob'])).membershipDisagreement, []);
+
+  // A case drift is NOT a disagreement about who is playing — treating it as one
+  // would silence the feature for a typo, and the history layer already refuses
+  // to speak about an ambiguous identity.
+  assert.deepEqual((await build(['alice', 'BOB'], ['Alice', 'Bob'])).membershipDisagreement, []);
+
+  // With no confirmed draft there is nothing to disagree WITH, and the generator
+  // is already withheld by `seasonOwners === null`.
+  assert.deepEqual((await build(['Alice', 'Bob', 'Carol'], null)).membershipDisagreement, []);
+
+  // A member list SHORTER than the draft is not a contradiction: the draft is the
+  // authority on who is playing, and a list that lags behind it takes nothing
+  // away. Only a name the draft never knew does.
+  assert.deepEqual((await build(['Alice'], ['Alice', 'Bob'])).membershipDisagreement, []);
 });

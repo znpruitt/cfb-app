@@ -294,6 +294,14 @@ export const membershipGenerator: InsightGenerator = {
     if (!context.seasonOwners) return [];
     if (context.archives.length === 0) return [];
 
+    // The two records disagree about who is in the league, so this feature says
+    // nothing about anyone — see `membershipDisagreement`. Withholding on a
+    // CONTRADICTION is not the completeness proof v5 deleted: the draft is still
+    // the authority, and this only declines to speak when something contradicts
+    // it. Without it, a list re-confirmed after the draft published names a
+    // current member as having left, beside cards calling them an active owner.
+    if (context.membershipDisagreement.length > 0) return [];
+
     const { year, owners } = context.seasonOwners;
 
     const history = buildMembershipHistory({
