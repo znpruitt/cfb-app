@@ -257,7 +257,54 @@ function storageIssues(storage: StorageHealthFact): SystemHealthIssue[] {
   ];
 }
 
-function schedulerDeliveryIssues(snapshot: SchedulerDeliveryHealthSnapshot): SystemHealthIssue[] {
+/**
+ * A duration an operator can act on, at the granularity that changes the decision.
+ *
+ * "Late" spans four orders of magnitude here — a live-scores run can miss its slot
+ * by ninety seconds, and a preview store can be three days behind — and the only
+ * question being asked is "minutes or days". So the largest two units are enough
+ * and the smallest is a minute; seconds add noise to a judgement nobody makes on
+ * seconds.
+ */
+function formatLateness(ms: number): string {
+  // Thresholded on the RAW span, not on the rounded minute count: rounding first
+  // turned 30 seconds into "1m", so the sub-minute case could never be reached
+  // and a job that missed its slot by half a minute was reported in the same
+  // units as one that missed it by an hour.
+  if (ms < 60_000) return 'under a minute';
+  const totalMinutes = Math.max(1, Math.round(ms / 60_000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${minutes}m`;
+}
+
+/**
+ * An ABSOLUTE UTC instant, because the reader is comparing two of these and a
+ * relative rendering defeats that.
+ *
+ * The System Health page renders `Required slot` and `Completed` as relative
+ * moments in two different sections, so working out how late a job actually was
+ * meant diffing "7m ago" against "Friday" by eye — which is how a three-day gap
+ * read as routine. Everything in this app schedules in UTC (`vercel.json` crons,
+ * the QStash schedules, and every cadence label), so UTC is also the unit the
+ * schedules are written in.
+ */
+function utcInstant(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return 'an unreadable time';
+  return new Date(ms)
+    .toISOString()
+    .replace('T', ' ')
+    .replace(/:\d{2}\.\d{3}Z$/, ' UTC');
+}
+
+function schedulerDeliveryIssues(
+  snapshot: SchedulerDeliveryHealthSnapshot,
+  nowMs: number
+): SystemHealthIssue[] {
   const jobs = snapshot.jobs;
   const allUnavailable =
     jobs.length > 0 && jobs.every((row) => row.deliveryState === 'unavailable');
@@ -286,18 +333,32 @@ function schedulerDeliveryIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sys
           code: 'scheduler-delivery-missing',
           severity: 'warning',
           title: `${row.job} has not delivered on schedule`,
-          explanation: `No recent authenticated ${row.job} invocation (${row.cadenceLabel}) is recorded. This cannot distinguish a scheduler (${row.source}) failure from a best-effort receipt-write failure.`,
+          // HOW LONG is the whole question here too — "no recent invocation" is
+          // the same sentence for a job that missed one slot and one that has
+          // been silent for a week.
+          explanation: `No recent authenticated ${row.job} invocation (${row.cadenceLabel}) is recorded; one was due by ${utcInstant(row.requiredStartedAt)}, ${formatLateness(nowMs - Date.parse(row.requiredStartedAt))} ago. This cannot distinguish a scheduler (${row.source}) failure from a best-effort receipt-write failure.`,
         });
         break;
-      case 'late':
+      case 'late': {
+        // WHEN IT WAS DUE, WHEN IT ARRIVED, AND BY HOW MUCH. All three facts are
+        // on `row` and none of them used to reach the reader: the warning said
+        // only "later than its schedule allows", and reconstructing the gap meant
+        // diffing `Required slot` against `Completed` by eye, in two different
+        // sections, in two different relative formats. A three-day gap and a
+        // ninety-second one read identically.
+        const arrived = row.receipt ? utcInstant(row.receipt.startedAt) : 'never';
+        const lateBy = row.receipt
+          ? formatLateness(Date.parse(row.receipt.startedAt) - Date.parse(row.requiredStartedAt))
+          : null;
         issues.push({
           ...base,
           code: 'scheduler-delivery-late',
           severity: 'warning',
           title: `${row.job} delivered later than scheduled`,
-          explanation: `The last authenticated ${row.job} invocation (${row.cadenceLabel}) arrived later than its schedule allows. This cannot distinguish a scheduler (${row.source}) delay from a delayed receipt write.`,
+          explanation: `The last authenticated ${row.job} invocation (${row.cadenceLabel}) was due by ${utcInstant(row.requiredStartedAt)} and arrived ${arrived}${lateBy ? ` — ${lateBy} late` : ''}. This cannot distinguish a scheduler (${row.source}) delay from a delayed receipt write.`,
         });
         break;
+      }
       case 'invalid':
         issues.push({
           ...base,
@@ -763,7 +824,7 @@ function compareIssues(a: SystemHealthIssue, b: SystemHealthIssue): number {
 export function deriveSystemHealthIssues(inputs: SystemHealthIssueInputs): SystemHealthIssue[] {
   const all: SystemHealthIssue[] = [
     ...storageIssues(inputs.storage),
-    ...schedulerDeliveryIssues(inputs.schedulerDelivery),
+    ...schedulerDeliveryIssues(inputs.schedulerDelivery, inputs.nowMs),
     ...schedulerExecutionIssues(inputs.schedulerDelivery),
     ...providerAttemptIssues(inputs.providerRefresh, inputs.cacheStates, inputs.nowMs),
     ...canonicalDataIssues(inputs.diagnostics),
