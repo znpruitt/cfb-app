@@ -9,6 +9,8 @@ import {
 } from '@/lib/server/appStateStore';
 import { buildLeagueInsightContext } from '@/lib/insights/loadInsights';
 import { generateRawInsights } from '@/lib/insights/engine';
+import { draftPicksSignature } from '@/lib/selectors/draftPublication';
+import type { DraftPick } from '@/lib/draft';
 import '@/lib/insights/generators';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -175,7 +177,22 @@ test('NoClaim never becomes a member, from either source', async () => {
  * `never_last` and `title_chaser` pick them out of these archives — established
  * by running it, not by reading the generators.
  */
-async function seedNamingAliceAndBob(confirmed: string[]): Promise<void> {
+/**
+ * `publishDraft` decides which of two GENUINELY different states the fixture
+ * models, and INSIGHTS-025 v3 made the difference load-bearing:
+ *
+ *  - `false` (default) — no current-year roster, so `computeRosterFallback`
+ *    borrows last season's. Membership CHANGES are withheld, because a borrowed
+ *    roster is last season's membership and cannot say who is playing now. This
+ *    is what the member-filtering tests want: all four owners still in the roster
+ *    map, so "a departed owner is not named" cannot pass vacuously.
+ *  - `true` — a published draft and a matching current-year roster, which is the
+ *    only evidence that licenses membership-change cards.
+ */
+async function seedNamingAliceAndBob(
+  confirmed: string[],
+  options: { publishDraft?: boolean } = {}
+): Promise<void> {
   await addLeague({
     slug: SLUG,
     displayName: 'Members League',
@@ -220,6 +237,44 @@ async function seedNamingAliceAndBob(confirmed: string[]): Promise<void> {
       scoresByKey: {},
     });
   }
+
+  if (options.publishDraft !== true) return;
+
+  // The current-year roster, and the PUBLISHED draft that makes it final.
+  //
+  // INSIGHTS-025 v3: completeness is no longer an assertion on the league status
+  // — `setupComplete` is deleted by the season transition, and a re-confirm can
+  // shrink the list without clearing it. The evidence is that this season's draft
+  // is published, which is durable and year-scoped. These fixtures model a league
+  // whose draft is done, so they seed one; the roster names exactly the confirmed
+  // members, because an owner holding a team but missing from the list is a
+  // contradiction that (correctly) withholds every membership card.
+  const currentRows = confirmed.map((owner, i) => `Team${i},${owner}`).join('\n');
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', `team,owner\n${currentRows}`);
+
+  const picks: DraftPick[] = confirmed.map((owner, i) => ({
+    round: 1,
+    roundPick: i + 1,
+    pickNumber: i + 1,
+    owner,
+    team: `Team${i}`,
+    pickedAt: '2026-08-01T00:00:00.000Z',
+    autoSelected: false,
+  }));
+  await setAppState(`draft:${SLUG}`, String(YEAR), {
+    leagueSlug: SLUG,
+    year: YEAR,
+    phase: 'complete',
+    owners: confirmed,
+    settings: { rounds: 1, timerSeconds: 60, order: confirmed },
+    picks,
+    currentPickIndex: picks.length,
+    timerState: 'off',
+    timerExpiresAt: null,
+    createdAt: '2026-08-01T00:00:00.000Z',
+    updatedAt: '2026-08-01T00:00:00.000Z',
+    publishedPicks: draftPicksSignature(picks),
+  });
 }
 
 /**
@@ -742,7 +797,9 @@ test('one owner holding two teams is a PARTIAL roster, not an official one', asy
 });
 
 test('WIRING: a departed owner is named ONLY by the membership event', async () => {
-  await seedNamingAliceAndBob(['Carol', 'Dave']);
+  // Publication seeded: this is the one test here that asserts a membership card
+  // EXISTS, and v3 requires a final roster before any such card is published.
+  await seedNamingAliceAndBob(['Carol', 'Dave'], { publishDraft: true });
   const context = await buildLeagueInsightContext(SLUG, YEAR, new Date());
 
   const participantNames = ownersNamedIn(context);
@@ -761,4 +818,25 @@ test('WIRING: a departed owner is named ONLY by the membership event', async () 
     everyName.includes('Alice') || everyName.includes('Bob'),
     `a departure event should name who left — got: ${everyName.join(', ')}`
   );
+});
+
+test('ONLY the membership generator may emit a `membership-` insight id', () => {
+  // `ownersNamedIn` exempts every `membership-*` insight from this file's
+  // participant checks, which makes the prefix load-bearing for a binding
+  // invariant — and nothing enforced it. A future generator picking the same
+  // prefix would silently inherit the exemption.
+  const dir = fileURLToPath(new URL('../generators', import.meta.url));
+  const offenders: string[] = [];
+  for (const file of readdirSync(dir).filter((f) => f.endsWith('.ts'))) {
+    if (file === 'membership.ts') continue;
+    const source = readFileSync(join(dir, file), 'utf8');
+    // Template or plain string, anywhere an id is built.
+    if (/id:\s*[`'"]membership-/.test(source)) offenders.push(file);
+  }
+  assert.deepEqual(offenders, [], `these generators claim the exempt prefix: ${offenders}`);
+
+  // POSITIVE CONTROL: the scan can see the prefix where it IS used, so an empty
+  // result means "nobody else uses it" rather than "the pattern never matches".
+  const membershipSource = readFileSync(join(dir, 'membership.ts'), 'utf8');
+  assert.match(membershipSource, /id:\s*[`'"]membership-/);
 });

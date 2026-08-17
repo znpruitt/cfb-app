@@ -110,7 +110,7 @@ function makeContext(overrides: Partial<InsightContext> = {}): InsightContext {
     preseasonSetupComplete: overrides.preseasonSetupComplete ?? false,
     membershipCompleteness: {
       complete: true,
-      evidence: 'setup-complete' as const,
+      evidence: 'published-roster' as const,
       unlistedRosterOwners: [],
     },
     seasonContext: overrides.seasonContext ?? 'in-season',

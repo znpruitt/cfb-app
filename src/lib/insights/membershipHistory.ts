@@ -36,11 +36,18 @@ import type { SeasonArchive } from '../seasonArchive';
  * on the left side to collide with, and "alice joins the league — no history to
  * hide behind" was served next to a history page showing her two prior seasons.
  *
- * So identity is normalized once, at the point every set is built, and the
- * special case is gone. Two owners whose names differ only in case or spacing
- * collapse into one — they are already indistinguishable to the rest of the app,
- * and collapsing means saying nothing about one of them, while not collapsing
- * means announcing arrivals and departures that did not happen.
+ * So drift is detected once, over EVERY name this module compares, and an
+ * ambiguous identity is dropped from all three event kinds.
+ *
+ * Detected rather than MERGED, which is the correction review made to the first
+ * attempt at this. Merging keyed every set by the normalized name, which resolved
+ * the drift but also collapsed two genuinely distinct owners — `cleanOwnerNames`
+ * trims without folding case precisely so a league may contain both `Mike` and
+ * `mike`, and AGENTS.md invariant 11 records a canonical owner-identity mapping
+ * as DEFERRED. Merging would have decided that deferral here, in a content
+ * feature, and could attach one owner's placement to the other. Dropping instead
+ * decides nothing: raw names stay the identity everywhere, and the one thing this
+ * module does with a collision is refuse to speak about either name.
  *
  * ## Placement comes from archive ORDER
  *
@@ -92,8 +99,8 @@ export type MembershipEvent =
 
 export type MembershipHistory = {
   /**
-   * Every season each owner appears in, oldest first, keyed by NORMALIZED
-   * identity (see `identityKey`) rather than by the name as typed.
+   * Every season each owner appears in, oldest first, keyed by the owner's name
+   * AS WRITTEN in the archives — identity stays raw here (see the docblock).
    */
   seasonsByOwner: Map<string, OwnerSeason[]>;
   /** The most recent archived year, or `null` when there is no history at all. */
@@ -110,6 +117,31 @@ export function identityKey(name: string): string {
 }
 
 /**
+ * Names whose normalized form is shared by two or more DIFFERENT raw names
+ * anywhere in the comparison — the current member list or any archived season.
+ *
+ * Either a re-typed name (one owner, two spellings) or two owners the app cannot
+ * tell apart. Both are unanswerable here, so both are excluded.
+ */
+function ambiguousIdentities(
+  members: ReadonlySet<string>,
+  archived: Iterable<string>
+): Set<string> {
+  const spellingsByKey = new Map<string, Set<string>>();
+  for (const raw of [...members, ...archived]) {
+    if (!raw || raw === NO_CLAIM_OWNER) continue;
+    const key = identityKey(raw);
+    if (!key) continue;
+    const seen = spellingsByKey.get(key) ?? new Set<string>();
+    seen.add(raw);
+    spellingsByKey.set(key, seen);
+  }
+  return new Set(
+    [...spellingsByKey.entries()].filter(([, spellings]) => spellings.size > 1).map(([key]) => key)
+  );
+}
+
+/**
  * Owners taking part in an archived season, keyed by identity with the name as
  * spelled in that archive kept for display.
  *
@@ -121,21 +153,23 @@ export function identityKey(name: string): string {
 function ownersInArchive(
   archive: SeasonArchive,
   parseCsv: (csv: string) => { owner: string }[]
-): Map<string, string> {
-  const owners = new Map<string, string>();
+): Set<string> {
+  const owners = new Set<string>();
   const add = (raw: string | undefined): void => {
     if (!raw || raw === NO_CLAIM_OWNER) return;
-    const key = identityKey(raw);
-    if (key && !owners.has(key)) owners.set(key, raw);
+    if (raw.trim()) owners.add(raw);
   };
   for (const row of parseCsv(archive.ownerRosterSnapshot)) add(row.owner);
   for (const row of archive.finalStandings) add(row.owner);
   return owners;
 }
 
-function seasonFor(archive: SeasonArchive, key: string): OwnerSeason {
+function seasonFor(archive: SeasonArchive, owner: string): OwnerSeason {
   const ranked = archive.finalStandings.filter((row) => row.owner && row.owner !== NO_CLAIM_OWNER);
-  const index = ranked.findIndex((row) => identityKey(row.owner) === key);
+  // RAW equality. Matching on the normalized key would attribute one owner's
+  // placement to another whose name differs only in case — the merge this module
+  // deliberately does not perform.
+  const index = ranked.findIndex((row) => row.owner === owner);
   const row = index >= 0 ? ranked[index] : undefined;
   return {
     year: archive.year,
@@ -165,12 +199,16 @@ export function buildMembershipHistory(params: {
   const { archives, members, parseCsv, currentYear } = params;
   const sorted = [...archives].sort((a, b) => a.year - b.year);
 
+  // Keyed by the owner's name AS WRITTEN. Keying by normalized identity resolved
+  // name drift but silently merged two owners the app treats as distinct, which
+  // is the deferral AGENTS.md invariant 11 records — not a content feature's call
+  // to make. Drift is handled by refusing to speak, below.
   const seasonsByOwner = new Map<string, OwnerSeason[]>();
   for (const archive of sorted) {
-    for (const key of ownersInArchive(archive, parseCsv).keys()) {
-      const list = seasonsByOwner.get(key) ?? [];
-      list.push(seasonFor(archive, key));
-      seasonsByOwner.set(key, list);
+    for (const owner of ownersInArchive(archive, parseCsv)) {
+      const list = seasonsByOwner.get(owner) ?? [];
+      list.push(seasonFor(archive, owner));
+      seasonsByOwner.set(owner, list);
     }
   }
 
@@ -204,29 +242,37 @@ export function buildMembershipHistory(params: {
   const lastSeasonOwners = ownersInArchive(latest, parseCsv);
   if (lastSeasonOwners.size === 0) return empty;
 
-  // Current members, keyed by identity, keeping the spelling the commissioner
-  // typed THIS year — that is the name to print for anyone still in the league.
-  const memberNames = new Map<string, string>();
-  for (const raw of members) {
-    if (!raw || raw === NO_CLAIM_OWNER) continue;
-    const key = identityKey(raw);
-    if (key && !memberNames.has(key)) memberNames.set(key, raw);
-  }
+  // Current members, as written. NO_CLAIM is not an owner.
+  const memberNames = [...members].filter((raw) => raw && raw !== NO_CLAIM_OWNER && raw.trim());
+
+  // Any normalized identity that two DIFFERENT spellings share, anywhere in the
+  // comparison — the member list or any archived season.
+  //
+  // Either one owner re-typed or two owners the app cannot tell apart, and this
+  // module can distinguish neither, so it speaks about neither. Computed across
+  // every name below, which is what makes it cover a drifted RETURNER: they are
+  // absent from last season's roster, so a re-typed name has nothing on the
+  // departure side to collide with, and the first version of this rule (which
+  // examined only the joined∩left overlap) announced them as a brand-new owner
+  // beside their own history.
+  const ambiguous = ambiguousIdentities(members, seasonsByOwner.keys());
+  const isAmbiguous = (name: string): boolean => ambiguous.has(identityKey(name));
 
   const events: MembershipEvent[] = [];
 
-  // JOINED — no history under this identity. Grouped into ONE event: three
+  // JOINED — no history under this exact name. Grouped into ONE event: three
   // arrivals must not consume three of the Overview's five slots.
-  const joined = [...memberNames.entries()]
-    .filter(([key]) => !seasonsByOwner.has(key))
-    .map(([, name]) => name)
+  const joined = memberNames
+    .filter((name) => !isAmbiguous(name))
+    .filter((name) => !seasonsByOwner.has(name))
     .sort((a, b) => a.localeCompare(b));
   if (joined.length > 0) events.push({ kind: 'joined', owners: joined });
 
   // RETURNED — has history, missed the most recent season.
-  for (const [key, name] of [...memberNames.entries()].sort((a, b) => a[1].localeCompare(b[1]))) {
-    if (lastSeasonOwners.has(key)) continue;
-    const seasons = seasonsByOwner.get(key);
+  for (const name of [...memberNames].sort((a, b) => a.localeCompare(b))) {
+    if (isAmbiguous(name)) continue;
+    if (lastSeasonOwners.has(name)) continue;
+    const seasons = seasonsByOwner.get(name);
     if (!seasons || seasons.length === 0) continue;
     const lastPlayed = seasons[seasons.length - 1]!;
     // Best = lowest placement number among seasons they were actually RANKED in.
@@ -254,17 +300,17 @@ export function buildMembershipHistory(params: {
     });
   }
 
-  // LEFT — on the most recent roster, not a member now. Printed with the archive's
-  // spelling, which is the only one there is for someone no longer listed.
-  const left = [...lastSeasonOwners.entries()]
-    .filter(([key]) => !memberNames.has(key))
-    .sort((a, b) => a[1].localeCompare(b[1]));
-  for (const [key, name] of left) {
+  // LEFT — on the most recent roster, not a member now.
+  const left = [...lastSeasonOwners]
+    .filter((name) => !isAmbiguous(name))
+    .filter((name) => !members.has(name))
+    .sort((a, b) => a.localeCompare(b));
+  for (const name of left) {
     events.push({
       kind: 'left',
       owner: name,
-      finalSeason: seasonFor(latest, key),
-      seasonsPlayed: seasonsByOwner.get(key)?.length ?? 1,
+      finalSeason: seasonFor(latest, name),
+      seasonsPlayed: seasonsByOwner.get(name)?.length ?? 1,
     });
   }
 

@@ -88,7 +88,7 @@ function makeContext(overrides: Partial<InsightContext> = {}): InsightContext {
     preseasonSetupComplete: false,
     membershipCompleteness: {
       complete: true,
-      evidence: 'setup-complete' as const,
+      evidence: 'published-roster' as const,
       unlistedRosterOwners: [],
     },
     lifecycleState: overrides.lifecycleState ?? 'mid_season',

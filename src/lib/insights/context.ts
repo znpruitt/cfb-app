@@ -496,7 +496,15 @@ export async function buildInsightContext(
    * module keeps doing no store access of its own.
    */
   confirmedOwners: readonly string[] = [],
-  confirmedSource: ConfirmedRosterSource = 'none'
+  confirmedSource: ConfirmedRosterSource = 'none',
+  /** `isDraftPublished` for this league and this season — see `membershipCompleteness.ts`. */
+  rosterIsPublished = false,
+  /**
+   * The year the caller ASKED for, which is not always the league's own year:
+   * `/api/insights/{slug}?year=2024` is reachable by any caller on a passwordless
+   * league. Membership facts must not mix the two — see the guard below.
+   */
+  resolvedYear: number = league.year
 ): Promise<InsightContext> {
   const regularWeeks = deriveRegularWeeks(games);
   const currentWeek = chooseDefaultWeek({ games, regularWeeks });
@@ -534,18 +542,28 @@ export async function buildInsightContext(
 
   // Resolved ONCE, here, so the generator and the diagnostics page cannot
   // disagree about why a feed is silent.
-  const membershipCompleteness = resolveMembershipCompleteness({
-    members: leagueMembers,
-    source: leagueMembersSource,
-    currentRoster: resolvedRoster,
-    usingArchivedRoster,
-    // `setupComplete` exists only on the preseason variant of `LeagueStatus`, so
-    // this is false in every other state — including in season, where the field
-    // has been deleted rather than set false. That asymmetry is exactly why
-    // completeness cannot be read off this flag alone; see the module docblock.
-    preseasonSetupComplete:
-      leagueStatus.state === 'preseason' && leagueStatus.setupComplete === true,
-  });
+  // A REQUESTED year that is not the league's own year makes every membership
+  // fact incoherent, and the mixture is silent: `leagueMembers` and
+  // `currentRoster` are read for `resolvedYear` while the league record — and so
+  // `currentYear`, which decides which archive counts as "last season" — comes
+  // from the league. `?year=2024` on a 2027 league therefore diffed the 2024
+  // roster against the 2026 archive and announced everyone who joined since as
+  // departed, in copy dated 2027. Membership is a fact about the CURRENT season
+  // only; asking about another year is a question this feature cannot answer.
+  const membershipYearIsCoherent = resolvedYear === league.year;
+
+  const membershipCompleteness = membershipYearIsCoherent
+    ? resolveMembershipCompleteness({
+        members: leagueMembers,
+        currentRoster: resolvedRoster,
+        usingArchivedRoster,
+        rosterIsPublished,
+      })
+    : {
+        complete: false,
+        evidence: 'roster-not-final' as const,
+        unlistedRosterOwners: [] as string[],
+      };
 
   const { ownerCareerStats } = await buildOwnerCareerStats({
     leagueSlug,
@@ -567,7 +585,11 @@ export async function buildInsightContext(
     leagueSlug,
     currentYear: league.year,
     lifecycleState,
-    preseasonSetupComplete: membershipCompleteness.evidence === 'setup-complete',
+    // The FLAG, read from the league status — not re-derived from the
+    // completeness evidence, which happened to agree only because of branch
+    // order and would have silently diverged if that order ever changed.
+    preseasonSetupComplete:
+      leagueStatus.state === 'preseason' && leagueStatus.setupComplete === true,
     membershipCompleteness,
     seasonContext,
     currentWeek,

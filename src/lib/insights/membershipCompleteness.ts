@@ -1,5 +1,5 @@
 import { NO_CLAIM_OWNER } from '../standings';
-import type { LeagueMembersSource } from './types';
+import { identityKey } from './membershipHistory';
 
 /**
  * Is the league's member list COMPLETE — does it account for everyone playing?
@@ -19,130 +19,128 @@ import type { LeagueMembersSource } from './types';
  *
  *   "Heidi, Grace, Frank, Erin, Dave, and Carol have left the league."
  *
- * Six owners announced as gone, mid-setup. Absence is only evidence when the list
- * is known to be finished.
+ * Six owners announced as gone. Absence is only evidence when the list is known
+ * to be finished.
  *
- * ## Why the first version of this gate did not hold
+ * ## Two failed models preceded this one, and both failed the same way
  *
- * INSIGHTS-025 shipped `lifecycleState === 'preseason' && !preseasonSetupComplete`
- * and both reviewers broke it the same way. `setupComplete` exists ONLY on the
- * preseason variant of `LeagueStatus` (`src/lib/league.ts`), and
- * `completeSeasonTransition` advances a league on `state` and `year` alone — it
- * never consults it. So the transition does not set the flag false, it DELETES
- * the field: an unfinished league is carried into `early_season`, the
- * preseason-only condition stops applying, and the same false card is served in
- * season instead of preseason. The gate relocated the defect rather than closing
- * it.
+ * **v1 — a lifecycle and a flag.** `lifecycleState === 'preseason' &&
+ * !preseasonSetupComplete`. `setupComplete` exists only on the preseason variant
+ * of `LeagueStatus`, and `completeSeasonTransition` advances a league on state and
+ * year alone, so the transition DELETES the field: the gate silently stopped
+ * applying and the same false card was served in season instead. Relocated, not
+ * closed.
  *
- * That is the third slice on this project where a predicate grew a new edge per
- * review round, and the lesson recorded from the previous two is that the INPUT
- * is wrong rather than the edges. So this module asks its question of facts that
- * survive the transition, and asks it the same way in every lifecycle state.
+ * **v2 — an assertion plus an independent witness.** `setupComplete` OR "the
+ * roster corroborates a confirmed list". Both halves were wrong, and review
+ * reproduced both end to end:
  *
- * ## The rule: POSITIVE evidence, never the absence of a problem
+ *  - The assertion IGNORED A VISIBLE CONTRADICTION. `confirmPreseasonOwners` is
+ *    not gated on `setupComplete` and never resets it, and the owner editor stays
+ *    reachable all preseason — so a re-confirm that drops a name leaves
+ *    `setupComplete: true` beside a roster naming someone the list omits. That
+ *    owner was then published as departed while still holding a team.
+ *  - The witness COULD NOT SEE PARTIALITY. "Every roster owner appears in the
+ *    list" is satisfied by a two-row roster against a two-name list, and
+ *    `PUT /api/owners` enforces no minimum row count, so a mid-setup save is an
+ *    ordinary state. Two independent records that are each half-finished agree
+ *    perfectly. Independence is not completeness — a roster witnesses PRESENCE,
+ *    never the absence of anyone it does not mention.
  *
- * A list is complete only when something affirms it. Two facts can, and between
- * them they cover the whole year:
+ * ## The rule
  *
- *  1. **The commissioner said so** — `setupComplete` is written by exactly one
- *     action (`completePreseasonSetup`) and means the setup checklist was
- *     finished. Available in preseason, where no roster exists yet to corroborate
- *     anything.
+ * One question, asked the same way in every lifecycle state:
  *
- *  2. **The roster corroborates it** — every owner holding a team this season
- *     appears in the list. This is what survives the transition: an in-season
- *     league has an assigned roster, and an unfinished one does not have one at
- *     all (no draft ⇒ no owners CSV ⇒ the roster is borrowed from an archive, and
- *     a borrowed roster is last season's membership, so it cannot corroborate
- *     this season's).
+ *   **Is the roster FINAL, and does the member list account for everyone on it?**
  *
- * Anything else is `incomplete`, including every case this module cannot see. A
- * feature that publishes claims about who is gone must fail closed.
+ * `isDraftPublished` answers the first half. A published draft is the app's own
+ * statement that team assignment is finished, it is stored per (slug, year) in
+ * `draft:{slug}`, and — the property both previous models lacked — it is durable:
+ * the season transition does not touch it. Partiality is impossible against it,
+ * because a published draft assigns every eligible team.
  *
- * ## Corroboration requires an INDEPENDENT list, which is the subtle part
+ * The second half is the contradiction check, and it is MANDATORY rather than a
+ * fallback. A published draft is run over the confirmed owner list, so every
+ * participant holds teams; if someone holds a team and is not listed, the list is
+ * missing a participant, whatever else may assert otherwise.
  *
- * Rule 2 is only evidence when the member list did not come FROM the roster. When
- * members are derived from the roster (`official-roster`, `partial-roster`), the
- * comparison is a tautology — a half-assigned roster of four owners produces four
- * members who all appear in it, "corroborating" a list that omits ten people.
- * That is precisely the defect INSIGHTS-031 shipped, where a count-based check
- * passed on a partially entered roster.
+ * Everything else is `incomplete`, including every case this module cannot see. A
+ * feature that publishes claims about who is gone fails closed.
  *
- * So corroboration counts only for `confirmed`, where the list is an independent
- * record (`preseason-owners:{slug}:{year}`) and the roster is a second witness to
- * it. A league that has never used the confirmation screen therefore publishes no
- * membership changes at all, and that is the correct answer rather than a
- * limitation: with one source there is no way to tell "typed four of fourteen"
- * from "shrank to four".
+ * A consequence worth stating plainly: a league that assigns teams by hand rather
+ * than by draft publishes no membership changes at all. That is the correct
+ * answer rather than a gap — a hand-uploaded CSV carries no signal that it is
+ * finished, which is exactly what v2 got wrong.
  *
  * ## What this deliberately does NOT do
  *
  * It does not change `membershipIsKnown` or any other generator's use of it. This
  * is a strictly stronger question asked by the one feature whose claims are about
  * absence; widening it to the career and rivalry generators would change content
- * those slices' owner rulings settled, and belongs to its own slice if it belongs
- * anywhere.
+ * those slices' owner rulings settled.
  */
 
 export type MembershipCompleteness = {
   complete: boolean;
   /**
-   * Which fact answered the question. Surfaced so the diagnostics page can say
-   * WHY a feed is silent — the previous gate's silence was indistinguishable
-   * from a generator that had simply produced nothing.
+   * Why the answer is what it is. Surfaced on the diagnostics page, because the
+   * gate's silence is otherwise indistinguishable from a generator that simply
+   * found nothing to say.
    */
-  evidence: 'setup-complete' | 'roster-corroborates' | 'none';
+  evidence: 'published-roster' | 'roster-not-final' | 'list-contradicted';
   /** Owners holding a team this season who are absent from the member list. */
   unlistedRosterOwners: string[];
 };
 
 export function resolveMembershipCompleteness(params: {
   members: ReadonlySet<string>;
-  source: LeagueMembersSource;
   /** Current-year team→owner map, as resolved for insight generation. */
   currentRoster: ReadonlyMap<string, string>;
   /**
    * True when `currentRoster` was borrowed from the most recent archive because
    * this season has no roster yet. A borrowed roster describes LAST season's
-   * membership, so it can never corroborate this season's list — and the owners
-   * it names are exactly the people who might have left.
+   * membership, so it can neither be final for this one nor contradict this
+   * season's list — and the owners it names are exactly the people who might have
+   * left.
    */
   usingArchivedRoster: boolean;
   /**
-   * `status.setupComplete === true` for a preseason league; false everywhere
-   * else, including in season, where the field does not exist. Passed as a plain
-   * boolean rather than read here so this module holds no lifecycle knowledge.
+   * `isDraftPublished(draft)` for THIS league and THIS season. The app's own
+   * statement that team assignment is finished, and the only completeness fact
+   * that survives the season transition.
    */
-  preseasonSetupComplete: boolean;
+  rosterIsPublished: boolean;
 }): MembershipCompleteness {
-  const { members, source, currentRoster, usingArchivedRoster, preseasonSetupComplete } = params;
+  const { members, currentRoster, usingArchivedRoster, rosterIsPublished } = params;
 
-  // Computed before the early return so the diagnostics field is populated on
-  // both paths — a caller reading `unlistedRosterOwners` to explain a silence
-  // must not get an empty array merely because the other evidence answered first.
-  const unlistedRosterOwners =
-    usingArchivedRoster || currentRoster.size === 0
-      ? []
-      : [
-          ...new Set(
-            [...currentRoster.values()].filter(
-              (owner) => owner && owner !== NO_CLAIM_OWNER && !members.has(owner)
+  // Compared on NORMALIZED identity, matching `buildMembershipHistory`. Compared
+  // raw at first, which meant a case drift between the CSV and the confirmed list
+  // — the exact drift the history layer resolves — put a name here and silenced
+  // the whole feed. Failing closed, but silently and for no reason.
+  const memberKeys = new Set([...members].map(identityKey));
+  const unlistedRosterOwners = usingArchivedRoster
+    ? []
+    : [
+        ...new Map(
+          [...currentRoster.values()]
+            .filter(
+              (owner) => owner && owner !== NO_CLAIM_OWNER && !memberKeys.has(identityKey(owner))
             )
-          ),
-        ].sort((a, b) => a.localeCompare(b));
+            .map((owner) => [identityKey(owner), owner])
+        ).values(),
+      ].sort((a, b) => a.localeCompare(b));
 
-  if (preseasonSetupComplete) {
-    return { complete: true, evidence: 'setup-complete', unlistedRosterOwners };
+  // Checked FIRST and unconditionally. v2 made this a fallback that a
+  // `setupComplete` assertion could skip, and a commissioner re-confirming a
+  // shortened list then published an owner as departed while they still held a
+  // team. A visible contradiction defeats any assertion of completeness.
+  if (unlistedRosterOwners.length > 0) {
+    return { complete: false, evidence: 'list-contradicted', unlistedRosterOwners };
   }
 
-  if (
-    source === 'confirmed' &&
-    !usingArchivedRoster &&
-    currentRoster.size > 0 &&
-    unlistedRosterOwners.length === 0
-  ) {
-    return { complete: true, evidence: 'roster-corroborates', unlistedRosterOwners };
+  if (!rosterIsPublished || usingArchivedRoster) {
+    return { complete: false, evidence: 'roster-not-final', unlistedRosterOwners };
   }
 
-  return { complete: false, evidence: 'none', unlistedRosterOwners };
+  return { complete: true, evidence: 'published-roster', unlistedRosterOwners };
 }

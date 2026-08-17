@@ -47,6 +47,21 @@ const FATE_ROW_CLASS: Record<InsightFate, string> = {
  * `Record<LeagueMembersSource, string>` makes the compiler refuse a new source
  * without a caption.
  */
+/**
+ * Each evidence value in the operator's terms, because the answer alone does not
+ * say what to DO about it.
+ */
+const MEMBERSHIP_COMPLETENESS_CAPTION: Record<
+  InsightsDiagnostics['membership']['completenessEvidence'],
+  string
+> = {
+  'published-roster': 'this season\u2019s draft is published and every owner on it is listed.',
+  'roster-not-final':
+    'this season\u2019s roster is not published yet, so who is playing is not settled. Nothing to fix \u2014 the cards appear once the draft is confirmed.',
+  'list-contradicted':
+    'someone holds a team this season but is missing from the owner list. Until that is resolved they would be announced as having LEFT.',
+};
+
 const MEMBERSHIP_SOURCE_CAPTION: Record<LeagueMembersSource, string> = {
   confirmed: 'From the confirmed owner list — a new roster has been named for this season.',
   'official-roster':
@@ -142,6 +157,23 @@ export default function InsightsDiagnosticsView({
           <p className="text-sm">{model.membership.owners.join(', ')}</p>
         ) : (
           <p className="text-sm text-gray-500 dark:text-zinc-400">Nobody.</p>
+        )}
+        {/* WHY membership-change cards are or are not published. The generic
+            `gated` badge in the generator table cannot distinguish "the roster
+            isn't final yet" from "the list contradicts the roster", and those
+            need opposite responses from the operator — wait, versus fix the list.
+            `unlistedRosterOwners` names exactly who broke the check. */}
+        <p className="mt-2 text-xs text-gray-500 dark:text-zinc-400">
+          Membership changes:{' '}
+          <span className="font-medium text-gray-700 dark:text-zinc-200">
+            {model.membership.complete ? 'publishable' : 'withheld'}
+          </span>{' '}
+          — {MEMBERSHIP_COMPLETENESS_CAPTION[model.membership.completenessEvidence]}
+        </p>
+        {model.membership.unlistedRosterOwners.length > 0 && (
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-500">
+            Holds a team but is not in the list: {model.membership.unlistedRosterOwners.join(', ')}
+          </p>
         )}
       </section>
 

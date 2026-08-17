@@ -272,7 +272,7 @@ export async function buildInsightsDiagnostics(
         owners: [],
         source: 'none',
         complete: false,
-        completenessEvidence: 'none',
+        completenessEvidence: 'roster-not-final',
         unlistedRosterOwners: [],
       },
       generators: [],

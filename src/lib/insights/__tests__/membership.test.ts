@@ -83,7 +83,7 @@ function contextFor(archives: SeasonArchive[], members: string[], year?: number)
     // directly rather than restating the evidence rules.
     membershipCompleteness: {
       complete: true,
-      evidence: 'setup-complete' as const,
+      evidence: 'published-roster' as const,
       unlistedRosterOwners: [],
     },
   } as unknown as InsightContext;
@@ -346,7 +346,7 @@ function midSetupContext(roster: string[], entered: string[]): InsightContext {
     preseasonSetupComplete: false,
     membershipCompleteness: {
       complete: false,
-      evidence: 'none' as const,
+      evidence: 'roster-not-final' as const,
       unlistedRosterOwners: [],
     },
   } as unknown as InsightContext;
@@ -425,39 +425,56 @@ test('several returners are GROUPED into one insight', () => {
   assert.match(one!.description, /last appeared in \d{4}/);
 });
 
-test('a re-typed name is the SAME owner, in every shape drift can take', () => {
+test('a DRIFTED name produces silence, in every shape drift can take', () => {
   // Owner identity is a raw string and nothing folds case, so a commissioner
   // re-typing a name made this generator assert both "bee joins the league" and
-  // "Bee has left the league" in one feed. Identity is now normalized once, in
-  // `buildMembershipHistory`, which is why this is a table rather than a case.
+  // "Bee has left the league" in one feed.
   //
-  // The first fix special-cased the joined∩left OVERLAP, and the second shape
-  // below is the one it missed: a returner is absent from last season's roster, so
-  // a re-typed name has nothing on the left side to collide with. "alice joins the
-  // league — no history to hide behind" was served next to a history page showing
-  // two prior seasons.
+  // Detected once over every name compared, and DROPPED — not merged. Merging by
+  // normalized name resolved the drift but also collapsed two genuinely distinct
+  // owners: `cleanOwnerNames` trims without folding case precisely so a league may
+  // hold both `Mike` and `mike`, and AGENTS.md invariant 11 records canonical
+  // owner identity as deferred. Deciding that deferral inside a content feature is
+  // not this module's call, and merging can attach one owner's placement to the
+  // other. Refusing to speak about a collision decides nothing.
   const lastSeason = [archive(2029, ['A', 'Bee'], ['A', 'Bee'])];
 
   // 1. Drifted CONTINUING member: neither joined nor left.
   assert.deepEqual(history(lastSeason, ['A', 'bee']), []);
-  // 2. Drifted RETURNER: a return, not an arrival. Absent from 2029, present 2028.
-  const returner = history(
-    [archive(2028, ['A', 'Alice'], ['A', 'Alice']), archive(2029, ['A'], ['A'])],
-    ['A', 'alice']
-  );
+
+  // 2. Drifted RETURNER — the shape the first version of this rule missed. It
+  //    only examined the joined∩left overlap, and a returner is absent from last
+  //    season's roster, so the re-typed name had nothing to collide with there:
+  //    "alice joins the league — no history to hide behind" was served beside a
+  //    history page showing two prior seasons.
   assert.deepEqual(
-    returner.map((e) => e.kind),
-    ['returned']
+    history(
+      [archive(2028, ['A', 'Alice'], ['A', 'Alice']), archive(2029, ['A'], ['A'])],
+      ['A', 'alice']
+    ),
+    []
   );
-  // Printed with the spelling in use THIS year, which is what the list now says.
-  assert.equal(returner[0]!.kind === 'returned' && returner[0]!.owner, 'alice');
+
   // 3. Whitespace drift, the other half of what a human re-typing produces.
   assert.deepEqual(history([archive(2029, ['A', 'Van  Dyke'], ['A'])], ['A', 'Van Dyke']), []);
 
+  // 4. Two GENUINELY distinct owners the app cannot tell apart are equally
+  //    unanswerable, and are equally left alone — no event, and no merged
+  //    placement attributed from one to the other.
+  const bothSpellings = history(
+    [archive(2029, ['A', 'Mike', 'mike'], ['A', 'Mike', 'mike'])],
+    ['A', 'Mike', 'mike']
+  );
+  assert.deepEqual(bothSpellings, []);
+
   // POSITIVE CONTROL: a genuinely different name still produces both events, so
-  // normalization is not swallowing real changes.
-  const real = history(lastSeason, ['A', 'Cee']);
-  assert.deepEqual(real.map((e) => e.kind).sort(), ['joined', 'left']);
+  // drift detection is not swallowing real changes.
+  assert.deepEqual(
+    history(lastSeason, ['A', 'Cee'])
+      .map((e) => e.kind)
+      .sort(),
+    ['joined', 'left']
+  );
 });
 
 test('an EMPTY newest archive announces nobody', () => {
@@ -557,5 +574,52 @@ test('a "best finish" needs more than one RANKED season to be a best', () => {
       .generate(contextFor(twoRanked, ['A', 'B']))
       .find((i) => i.type === 'owner_returned')
       ?.descriptionVariants?.some((v) => /best finish was 1st in 2027/.test(v))
+  );
+});
+
+test('two owners the app cannot tell apart are kept SEPARATE, not merged', () => {
+  // Codex's finding, pinned on the data structure rather than on the copy —
+  // because the events for an ambiguous identity are suppressed, so a merge is
+  // invisible there and a test written against the copy passes either way.
+  //
+  // `cleanOwnerNames` trims without folding case, deliberately, so a league may
+  // hold both `Mike` and `mike`; AGENTS.md invariant 11 records a canonical
+  // owner-identity mapping as DEFERRED. An earlier version of this module keyed
+  // every map by the normalized name, which decided that deferral here and could
+  // attach one owner's placement to the other.
+  const built = buildMembershipHistory({
+    archives: [archive(2029, ['Mike', 'mike'], ['Mike', 'mike'])],
+    members: new Set(['Mike', 'mike']),
+    parseCsv: parseOwnersCsv,
+    currentYear: 2030,
+  });
+
+  assert.equal(built.seasonsByOwner.size, 2, 'two owners, two histories');
+  assert.equal(built.seasonsByOwner.get('Mike')?.[0]?.placement, 1);
+  assert.equal(
+    built.seasonsByOwner.get('mike')?.[0]?.placement,
+    2,
+    'its OWN placement, not the other one’s'
+  );
+});
+
+test('a member list holding BOTH spellings says nothing about either', () => {
+  // The shape where the returned-side ambiguity check bites: `Alice` matches the
+  // archive exactly and would return, while `alice` has no history and would
+  // join — one owner announced as two different events in one feed.
+  const events = history(
+    [archive(2028, ['A', 'Alice'], ['A', 'Alice']), archive(2029, ['A'], ['A'])],
+    ['A', 'Alice', 'alice']
+  );
+  assert.deepEqual(events, [], `expected silence, got ${JSON.stringify(events)}`);
+
+  // POSITIVE CONTROL: with only the unambiguous spelling, the return IS reported.
+  const single = history(
+    [archive(2028, ['A', 'Alice'], ['A', 'Alice']), archive(2029, ['A'], ['A'])],
+    ['A', 'Alice']
+  );
+  assert.deepEqual(
+    single.map((e) => e.kind),
+    ['returned']
   );
 });

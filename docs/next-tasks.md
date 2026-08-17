@@ -1267,6 +1267,24 @@ Supersedes: (none)
     comment claims that were measurably wrong (the engine's priority ceiling; "same contract" as
     `positionOf`) were corrected. Binding rule recorded in AGENTS.md invariant 5.
 
+    **v3 reconstruction (same branch, second review).** v2's authority was itself wrong, in both of its
+    rules, and review reproduced both end to end. Its `setupComplete` branch returned complete while
+    DISCARDING the contradiction it had just computed, so an owner holding a team but dropped from a
+    re-confirmed list was published as departed; and "the roster corroborates the list" is satisfied by
+    a two-row roster against a two-name list, which is the ordinary mid-setup state — the very
+    six-departures card the module exists to prevent. Two of my own tests pinned those as correct.
+    The evidence is now that THIS SEASON'S DRAFT IS PUBLISHED (`isDraftPublished` — durable,
+    year-scoped, and untouched by the transition), with the contradiction check mandatory rather than a
+    fallback. Probed at the HTTP surface across three seeded leagues: unfinished → silent,
+    partial-list-and-partial-roster → silent, published → reports; and a published league whose roster
+    names an owner the list omits → silent. Also in v3: owner identity is kept RAW (v2 keyed its maps
+    by the normalized name, which merged two owners the app treats as distinct and could attach one's
+    placement to the other — AGENTS.md invariant 11 records that mapping as deferred), with drift now
+    handled by refusing to speak about any identity two spellings share; a foreign `?year=` no longer
+    diffs one year's roster against another year's archive; the completeness evidence is rendered on
+    the diagnostics page; and the `membership-` id prefix, which exempts insights from a binding
+    participant check, is now enforced by a test.
+
     Original entry follows.
 
     **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left
