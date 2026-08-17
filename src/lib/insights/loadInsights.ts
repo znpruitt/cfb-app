@@ -4,7 +4,9 @@ import { cache } from 'react';
 import { buildInsightContext } from '@/lib/insights/context';
 import { applyInsightDecay, applyInsightVariants } from './variants';
 import {
+  fingerprintGeneratorSet,
   generateRawInsights,
+  getRegisteredGenerators,
   runInsightsEngine,
   selectServedInsights,
 } from '@/lib/insights/engine';
@@ -12,6 +14,9 @@ import '@/lib/insights/generators';
 import { getLeague } from '@/lib/leagueRegistry';
 import { readConfirmedRosterInputs } from '@/lib/server/confirmedRosterStore';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
+import { draftScope, type DraftState } from '@/lib/draft';
+import { isDraftPublished } from '@/lib/selectors/draftPublication';
+import { getAppState } from '@/lib/server/appStateStore';
 import { loadSeasonRankings } from '@/lib/server/rankings';
 import { getScopedAliasMap, SEED_ALIASES_HASH } from '@/lib/server/globalAliasStore';
 import { ALIAS_OVERRIDES_HASH } from '@/lib/teamDatabase';
@@ -119,11 +124,18 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  *    before the slice was narrowed at review and left stale afterwards — the
  *    exact drift the paragraph below says versioning the docblock prevents.)
  *
+ *  - INSIGHTS-025 v2 replaced the membership completeness gate. `generators:` in
+ *    this key cannot see it — the generator set is unchanged, only WHEN it may
+ *    speak — and the gate's whole purpose is withholding a card that names real
+ *    people as departed. A warm entry computed under v1 keeps serving that card
+ *    for a league the new rule refuses. This is the case the constant exists for,
+ *    and the reason `fingerprintGeneratorSet` does not replace it.
+ *
  * The docblock is versioned with the constant deliberately: it opened
  * "INSIGHTS-022" while the value already read `insights030`, which is the same
  * class of drift the constant exists to prevent.
  */
-const INSIGHT_COPY_POLICY_VERSION = 'insights031-roster-schedule-v1';
+const INSIGHT_COPY_POLICY_VERSION = 'insights025-membership-changes-v7';
 
 /**
  * Membership policy version (INSIGHTS-023a). Same shape and same reason as the
@@ -138,6 +150,16 @@ const INSIGHT_COPY_POLICY_VERSION = 'insights031-roster-schedule-v1';
  */
 const INSIGHT_MEMBERSHIP_POLICY_VERSION = 'insights023a-league-membership-v1';
 
+/**
+ * Frozen at module load, AFTER `import '@/lib/insights/generators'` above has run
+ * every registration — imports evaluate before this body, so this sees the
+ * complete production set. Frozen rather than computed per call so that a test
+ * calling `clearGenerators()` cannot change the key a later assertion reads.
+ *
+ * See `fingerprintGeneratorSet` for what this does and does not cover.
+ */
+const GENERATOR_SET_FINGERPRINT = fingerprintGeneratorSet(getRegisteredGenerators());
+
 export function insightsCacheKeyParts(slug: string, resolvedYear: number): string[] {
   // `alias-overrides:` mirrors canonical standings: the curated catalog-alias
   // policy is applied at read time and feeds identity resolution here, so it is
@@ -151,6 +173,9 @@ export function insightsCacheKeyParts(slug: string, resolvedYear: number): strin
     `analytics:${ANALYTICS_PROJECTION_VERSION}`,
     `copy:${INSIGHT_COPY_POLICY_VERSION}`,
     `membership:${INSIGHT_MEMBERSHIP_POLICY_VERSION}`,
+    // Computed, not remembered — the generator SET is part of cache identity and
+    // I proved twice that I will forget to say so by hand.
+    `generators:${GENERATOR_SET_FINGERPRINT}`,
   ];
 }
 
@@ -190,6 +215,29 @@ type RawInsightsPayload = {
  * reach for this from a public surface — that is precisely what PLATFORM-101 is
  * about.
  */
+/**
+ * Owners named by a CONFIRMED draft, or null when it is not confirmed.
+ *
+ * Derived from the PICKS rather than `draft.owners`, because `isDraftPublished`
+ * verifies the publication signature against the picks — so the pick list is the
+ * part known to be the published one. `draft.owners` is set at setup and nothing
+ * re-verifies it.
+ */
+export function seasonOwnersFrom(
+  draft: DraftState | null,
+  year: number
+): { year: number; owners: string[] } | null {
+  if (!isDraftPublished(draft)) return null;
+  const owners = [
+    ...new Set(
+      (draft?.picks ?? [])
+        .map((pick) => pick?.owner)
+        .filter((owner): owner is string => typeof owner === 'string' && owner.trim() !== '')
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+  return owners.length > 0 ? { year, owners } : null;
+}
+
 export async function buildLeagueInsightContext(
   slug: string,
   resolvedYear: number,
@@ -202,23 +250,42 @@ export async function buildLeagueInsightContext(
     throw new Error(`League '${slug}' not found`);
   }
 
-  const [scheduleItems, teams, scopedAliasMap, manualOverrides, rankings, confirmedRoster] =
-    await Promise.all([
-      loadCachedScheduleItems(resolvedYear).catch(() => []),
-      getTeamDatabaseItems().catch(() => [] as Awaited<ReturnType<typeof getTeamDatabaseItems>>),
-      getScopedAliasMap(slug, resolvedYear).catch(() => ({}) as AliasMap),
-      loadPostseasonOverrides(slug, resolvedYear).catch(() => ({})),
-      loadSeasonRankings(resolvedYear).catch(() => null),
-      // A store failure here must NOT degrade membership to "nobody" — that
-      // would silently empty every member-filtered insight and look identical
-      // to a league with no confirmed owners. Let it propagate, like the other
-      // authoritative reads (PLATFORM-084A: failures are never cached).
-      // ONE read of `owners:{slug}:{year}`, serving BOTH the confirmed roster and
-      // the team→owner map below. They were separate concurrent reads of the same
-      // row, so a roster write landing between them gave the two different
-      // generations of one CSV.
-      readConfirmedRosterInputs(slug, resolvedYear),
-    ]);
+  const [
+    scheduleItems,
+    teams,
+    scopedAliasMap,
+    manualOverrides,
+    rankings,
+    confirmedRoster,
+    draftRecord,
+  ] = await Promise.all([
+    loadCachedScheduleItems(resolvedYear).catch(() => []),
+    getTeamDatabaseItems().catch(() => [] as Awaited<ReturnType<typeof getTeamDatabaseItems>>),
+    getScopedAliasMap(slug, resolvedYear).catch(() => ({}) as AliasMap),
+    loadPostseasonOverrides(slug, resolvedYear).catch(() => ({})),
+    loadSeasonRankings(resolvedYear).catch(() => null),
+    // A store failure here must NOT degrade membership to "nobody" — that
+    // would silently empty every member-filtered insight and look identical
+    // to a league with no confirmed owners. Let it propagate, like the other
+    // authoritative reads (PLATFORM-084A: failures are never cached).
+    // ONE read of `owners:{slug}:{year}`, serving BOTH the confirmed roster and
+    // the team→owner map below. They were separate concurrent reads of the same
+    // row, so a roster write landing between them gave the two different
+    // generations of one CSV.
+    readConfirmedRosterInputs(slug, resolvedYear),
+    // The completeness fact for membership claims: has this season's roster
+    // been PUBLISHED. Read here with the other authoritative reads rather than
+    // in `context.ts`, which does no store access of its own. Year-scoped and
+    // durable, which is what makes it survive the season transition — the
+    // property that sank two previous versions of the gate.
+    // NO `.catch`. `getAppState` returns null only for genuine absence and THROWS
+    // on a real store failure, and the policy stated above governs this read too:
+    // failures propagate so `unstable_cache` never persists them. Caught at first,
+    // which turned "the store is down" into "the draft is unpublished", withheld
+    // every membership card, and cached that for the full TTL — the one thing the
+    // paragraph a few lines up forbids.
+    getAppState<DraftState>(draftScope(slug), String(resolvedYear)),
+  ]);
 
   const roster = parseOwnersCsv(confirmedRoster.ownersCsv ?? '');
   const currentRoster = new Map(roster.map((r) => [r.team, r.owner]));
@@ -266,7 +333,14 @@ export async function buildLeagueInsightContext(
     // from who owns which team. Read here rather than in `context.ts` so that
     // module keeps doing no store access of its own.
     confirmedRoster.roster.owners,
-    confirmedRoster.roster.source
+    confirmedRoster.roster.source,
+    // WHO the confirmed draft named, paired with the year it was confirmed for.
+    // A confirmed draft cannot be partial and every owner drafts, so this set IS
+    // the league for that season — there is nothing further to verify, which is
+    // why no completeness authority exists any more. Reading it for
+    // `resolvedYear` and carrying that year along is also what makes a
+    // `?year=` request coherent by construction.
+    seasonOwnersFrom(draftRecord?.value ?? null, resolvedYear)
   );
 }
 

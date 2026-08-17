@@ -12,7 +12,7 @@ import {
 } from '@/lib/draft';
 import { createTeamIdentityResolver, type TeamCatalogItem } from '@/lib/teamIdentity';
 import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
-import { invalidateStandings } from '@/lib/selectors/leagueStandings';
+import { invalidateStandingsSafely } from '@/lib/selectors/leagueStandings';
 import teamsData from '@/data/teams.json';
 import {
   draftPicksSignature,
@@ -145,6 +145,9 @@ export async function PUT(
   // `confirm-eligibility.test.ts` pins the same rule for the publish path.
   type Refusal = { error: string; status: number };
   let outcome: Refusal | { ok: true; draft: DraftState; pick: DraftPick } | null = null;
+  // Captured inside the transaction, read after it — publication can flip here
+  // without any roster write, and the insights cache depends on that flag.
+  let publishedBefore = false;
   let rosterPatched = false;
 
   await withAppStateKeyTransaction(draftScope(slug), String(year), async (txn) => {
@@ -254,6 +257,7 @@ export async function PUT(
     // Whether the stored roster described THIS DRAFT before the edit. Publication
     // provenance, kept separate from "a roster exists" — see the stamp below.
     const wasPublished = isDraftPublished(current);
+    publishedBefore = wasPublished;
 
     // Sync the stored roster whenever the draft is COMPLETE and a roster exists
     // — not when it is "published".
@@ -339,7 +343,15 @@ export async function PUT(
     return NextResponse.json({ error: settled.error }, { status: settled.status });
   }
 
-  if (rosterPatched) invalidateStandings(slug, year);
+  // Publication is an INPUT to the cached insights build (INSIGHTS-025), so any
+  // transition of `isDraftPublished` has to bust the tag — not just the roster
+  // patch. Re-selecting the final team of a draft that was unpicked restores the
+  // retained `publishedPicks` signature and `phase: 'complete'`, so publication
+  // goes false→true here with no roster write, and membership cards stayed
+  // withheld for the full TTL.
+  if (rosterPatched || publishedBefore !== isDraftPublished(settled.draft)) {
+    invalidateStandingsSafely(slug, year);
+  }
 
   return NextResponse.json({ draft: settled.draft, pick: settled.pick });
 }

@@ -643,7 +643,7 @@ test('Undo still behaves correctly through the serialized path', async () => {
     })
   );
 
-  const res = await UNPICK(undoRequest(1), { params });
+  const res = await runWithRevalidateContext(() => UNPICK(undoRequest(1), { params }));
   assert.equal(res.status, 200);
 
   const persisted = await readPersisted();
@@ -686,7 +686,7 @@ test('Undo works in a LIVE draft with the timer running, mid-round', async () =>
   );
 
   // 2 is this fixture's last pick.
-  const res = await UNPICK(undoRequest(2), { params });
+  const res = await runWithRevalidateContext(() => UNPICK(undoRequest(2), { params }));
   assert.equal(res.status, 200, 'Undo must succeed in a live draft');
 
   const persisted = await readPersisted();
@@ -708,9 +708,17 @@ test('Undo works repeatedly, and after a pick lands through the same lock', asyn
   );
 
   assert.equal((await PICK(pickRequest('Georgia'), { params })).status, 200, 'first pick');
-  assert.equal((await UNPICK(undoRequest(1), { params })).status, 200, 'undo it');
+  assert.equal(
+    (await runWithRevalidateContext(() => UNPICK(undoRequest(1), { params }))).status,
+    200,
+    'undo it'
+  );
   assert.equal((await PICK(pickRequest('Clemson'), { params })).status, 200, 'pick again');
-  assert.equal((await UNPICK(undoRequest(1), { params })).status, 200, 'undo again');
+  assert.equal(
+    (await runWithRevalidateContext(() => UNPICK(undoRequest(1), { params }))).status,
+    200,
+    'undo again'
+  );
 
   const persisted = await readPersisted();
   assert.equal(persisted.picks.length, 0);
@@ -915,13 +923,13 @@ test('IDEMPOTENCE: a repeated Undo cannot consume a second pick', async () => {
     })
   );
 
-  const first = await UNPICK(undoRequest(2), { params });
+  const first = await runWithRevalidateContext(() => UNPICK(undoRequest(2), { params }));
   assert.equal(first.status, 200, 'the intended undo lands');
   assert.equal((await readPersisted()).picks.length, 1);
 
   // The same click, submitted again — second tab, or a retry after a lost
   // response. It still names pick 2, which is gone.
-  const second = await UNPICK(undoRequest(2), { params });
+  const second = await runWithRevalidateContext(() => UNPICK(undoRequest(2), { params }));
   assert.equal(second.status, 409, 'the duplicate is refused, not applied');
   const persisted = await readPersisted();
   assert.equal(persisted.picks.length, 1, 'Georgia survives — this is the regression');
@@ -946,7 +954,7 @@ test('Undo without an expected pick number is refused rather than guessing', asy
     })
   );
 
-  const res = await UNPICK(postRequest('unpick'), { params });
+  const res = await runWithRevalidateContext(() => UNPICK(postRequest('unpick'), { params }));
   assert.equal(res.status, 400, 'a stale caller must reload rather than undo blind');
   assert.equal((await readPersisted()).picks.length, 1, 'nothing was removed');
 });

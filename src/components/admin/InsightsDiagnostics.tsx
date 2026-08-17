@@ -143,6 +143,37 @@ export default function InsightsDiagnosticsView({
         ) : (
           <p className="text-sm text-gray-500 dark:text-zinc-400">Nobody.</p>
         )}
+        {/* WHY membership-change cards are or are not published. The generic
+            `gated` badge in the generator table cannot say whether the draft is
+            simply not confirmed yet — the ordinary preseason state, with nothing
+            to fix — or whether something else stopped it. Neutral emphasis, not
+            amber: DESIGN.md reserves amber/gold for champion/podium signals. */}
+        <p className="mt-2 text-xs text-gray-500 dark:text-zinc-400">
+          Membership changes:{' '}
+          {model.membership.membershipDisagreement.length > 0 ? (
+            <>
+              <span className="font-medium text-gray-700 dark:text-zinc-200">withheld</span> — the
+              owner list and the confirmed draft name different people:{' '}
+              {model.membership.membershipDisagreement.join(', ')}{' '}
+              {model.membership.membershipDisagreement.length === 1 ? 'is' : 'are'} in the list but
+              did not draft. Nothing is published while the two disagree, because anyone the draft
+              never named would otherwise be reported as having LEFT.
+            </>
+          ) : model.membership.seasonOwners ? (
+            <>
+              <span className="font-medium text-gray-700 dark:text-zinc-200">publishable</span> —{' '}
+              {model.membership.seasonOwners.year} draft confirmed, naming{' '}
+              {model.membership.seasonOwners.owners.length} owners. (Cards still need archived
+              seasons to compare against, so this is what the feed MAY say, not what it will.)
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-gray-700 dark:text-zinc-200">withheld</span> — no
+              confirmed draft for this season, so who is playing is not settled. Nothing to fix; the
+              cards appear once the draft is confirmed.
+            </>
+          )}
+        </p>
       </section>
 
       {/* The funnel. Three numbers, in the order the feed passes through them. */}

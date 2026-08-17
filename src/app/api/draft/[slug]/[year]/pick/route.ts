@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 
+import { isDraftPublished } from '@/lib/selectors/draftPublication';
+import { invalidateStandingsSafely } from '@/lib/selectors/leagueStandings';
+
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
 import { getLeague } from '@/lib/leagueRegistry';
@@ -33,7 +36,9 @@ function getPickOwner(draftOrder: string[], pickIndex: number): string {
  * the callback, so every validation returns one of these and the caller maps it.
  */
 type Refusal = { error: string; status: number };
-type PickOutcome = Refusal | { ok: true; draft: DraftState; pick: DraftPick };
+type PickOutcome =
+  | Refusal
+  | { ok: true; draft: DraftState; pick: DraftPick; publishedBefore: boolean };
 
 export async function POST(
   req: Request,
@@ -237,12 +242,23 @@ export async function POST(
 
       await txn.write<DraftState>(updated);
 
-      return { ok: true, draft: updated, pick };
+      return { ok: true, draft: updated, pick, publishedBefore: isDraftPublished(draft) };
     }
   );
 
   if (!('ok' in outcome)) {
     return NextResponse.json({ error: outcome.error }, { status: outcome.status });
+  }
+
+  // Making a pick can RESTORE publication: re-selecting the final team of a draft
+  // that was unpicked matches the retained `publishedPicks` signature again and
+  // returns `phase: 'complete'`, with no roster write anywhere. INSIGHTS-025 made
+  // `isDraftPublished` an input to the cached insights build, so that transition
+  // has to bust the tag or membership cards stay withheld for the full TTL. The
+  // ordinary pick — live draft, unpublished before and after — invalidates
+  // nothing, which is the common case and stays cheap.
+  if (outcome.publishedBefore !== isDraftPublished(outcome.draft)) {
+    invalidateStandingsSafely(slug, year);
   }
 
   return NextResponse.json({ draft: outcome.draft, pick: outcome.pick });

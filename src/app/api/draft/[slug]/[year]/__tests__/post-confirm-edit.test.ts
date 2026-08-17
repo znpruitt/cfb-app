@@ -11,6 +11,7 @@ import { PUT } from '../pick/[n]/route';
 import { POST as CONFIRM, DELETE as REOPEN } from '../confirm/route';
 import { POST as RESET } from '../reset/route';
 import { POST as UNPICK } from '../unpick/route';
+import { POST as PICK } from '../pick/route';
 import { PUT as PUT_DRAFT } from '../route';
 import { addLeague } from '@/lib/leagueRegistry';
 import {
@@ -327,38 +328,52 @@ test('resetting a published draft retracts its publication', async () => {
   // publication; clearing the picks is what retracts it.
   await seedConfirmed();
 
-  const res = await RESET(
-    new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/reset`, {
-      method: 'POST',
-      headers: { 'x-admin-token': TOKEN },
-    }),
-    { params: confirmParams }
+  const { result: res, tags } = await runCapturingTags(() =>
+    RESET(
+      new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/reset`, {
+        method: 'POST',
+        headers: { 'x-admin-token': TOKEN },
+      }),
+      { params: confirmParams }
+    )
   );
   assert.equal(res.status, 200, await res.text());
 
   const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
   assert.equal(after?.phase, 'setup');
   assert.equal(isDraftPublished(after), false, 'the old roster no longer speaks for it');
+
+  // INSIGHTS-025 made publication an INPUT to the cached insight build, so
+  // retracting it has to bust that cache. Before this the Overview kept serving
+  // membership-change cards derived from a roster that no longer counted, for the
+  // full 300s TTL.
+  assert.ok(
+    tags.includes(`standings:${SLUG}`),
+    `retraction must invalidate standings — got ${tags.join(', ') || 'no tags'}`
+  );
 });
 
 test('undoing the last pick of a published draft retracts its publication', async () => {
   // Same class, second path — and Undo last pick is offered at `complete` too.
   await seedConfirmed();
 
-  const res = await UNPICK(
-    new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/unpick`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
-      // PLATFORM-102 — Undo names the pick it removes, so a duplicate press
-      // cannot consume the one before it.
-      body: JSON.stringify({ expectedPickNumber: 2 }),
-    }),
-    { params: confirmParams }
+  const { result: res, tags } = await runCapturingTags(() =>
+    UNPICK(
+      new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/unpick`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
+        // PLATFORM-102 — Undo names the pick it removes, so a duplicate press
+        // cannot consume the one before it.
+        body: JSON.stringify({ expectedPickNumber: 2 }),
+      }),
+      { params: confirmParams }
+    )
   );
   assert.equal(res.status, 200, await res.text());
 
   const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
   assert.equal(isDraftPublished(after), false);
+  assert.ok(tags.includes(`standings:${SLUG}`), 'same reason as reset — see above');
 });
 
 test('changing the pick timer on a published draft does NOT retract it', async () => {
@@ -544,10 +559,96 @@ test('an edit does not claim publication when there was no roster to carry', asy
   const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
   assert.equal(after?.picks[0]?.team, TEAM_C, 'the edit itself still lands');
   assert.equal(isDraftPublished(after), false, 'no roster was carried, so no claim');
+  // The ROSTER was not rewritten, so the standings CONTENT did not change — that
+  // is what this test originally pinned. But publication went true→false here
+  // (the edit could carry no roster, so the signature no longer matches), and
+  // INSIGHTS-025 made `isDraftPublished` an input to the cached insights build.
+  // A transition therefore must invalidate, or the feed keeps serving
+  // membership-change cards derived from a roster that no longer counts.
+  assert.equal(isDraftPublished(after), false);
+  assert.ok(
+    tags.includes(`standings:${SLUG}`),
+    `a publication transition must invalidate — got ${tags.join(', ') || 'no tags'}`
+  );
+});
+
+test('Undo on a LIVE draft invalidates nothing — publication never moved', async () => {
+  // Undo is a button on the live draft board, so this is the common case by a
+  // wide margin. Invalidating unconditionally cold-started canonical standings
+  // AND the whole insights build — archives, schedule, team database, rankings,
+  // alias map — on every press, for a flag that was false before and after.
+  await seedConfirmed();
+  const published = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  // Strip the publication so this is an ordinary live draft.
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    ...published,
+    phase: 'live',
+    publishedPicks: undefined,
+  } as unknown as DraftState);
+
+  const { tags } = await runCapturingTags(() =>
+    UNPICK(
+      new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/unpick`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
+        body: JSON.stringify({ expectedPickNumber: 2 }),
+      }),
+      { params: confirmParams }
+    )
+  );
+
+  const after = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(after?.picks.length, 1, 'control: the undo really happened');
   assert.deepEqual(
     tags.filter((t) => t.startsWith('standings:')),
     [],
-    'and nothing was invalidated'
+    `publication did not move, so nothing should be invalidated — got ${tags.join(', ')}`
+  );
+});
+
+test('RESTORING publication invalidates too, not only retracting it', async () => {
+  // The mirror of the reset/unpick case, and the one that survived that fix.
+  // Undo the last pick of a confirmed draft (publication retracted, cards
+  // withheld, cache warmed by any public request), then re-select the SAME team:
+  // the retained `publishedPicks` signature matches the picks again and
+  // `phase: 'complete'` returns, so publication goes false→true with no roster
+  // write. The pick route invalidated only on `rosterPatched`, so the cards
+  // stayed withheld for the full 300s TTL.
+  await seedConfirmed();
+  const before = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  const lastTeam = before?.picks[1]?.team;
+  assert.ok(lastTeam, 'fixture has a second pick to undo');
+
+  await runCapturingTags(() =>
+    UNPICK(
+      new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/unpick`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
+        body: JSON.stringify({ expectedPickNumber: 2 }),
+      }),
+      { params: confirmParams }
+    )
+  );
+  const retracted = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(isDraftPublished(retracted), false, 'control: publication really was retracted');
+
+  // Re-pick the same team through the live-draft route.
+  const { tags } = await runCapturingTags(() =>
+    PICK(
+      new Request(`http://localhost/api/draft/${SLUG}/${YEAR}/pick`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-admin-token': TOKEN },
+        body: JSON.stringify({ team: lastTeam }),
+      }),
+      { params: confirmParams }
+    )
+  );
+
+  const restored = (await getAppState<DraftState>(draftScope(SLUG), String(YEAR)))?.value;
+  assert.equal(isDraftPublished(restored), true, 'control: publication came back');
+  assert.ok(
+    tags.includes(`standings:${SLUG}`),
+    `restoring publication must invalidate — got ${tags.join(', ') || 'no tags'}`
   );
 });
 

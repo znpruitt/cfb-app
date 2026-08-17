@@ -150,6 +150,10 @@ export type InsightsDiagnostics = {
   membership: {
     owners: string[];
     source: LeagueMembersSource;
+    /** Owners named by this season's confirmed draft, or null if none is confirmed. */
+    seasonOwners: { year: number; owners: string[] } | null;
+    /** Members the draft never named — a contradiction that withholds everything. */
+    membershipDisagreement: string[];
   };
   generators: DiagnosticGenerator[];
   insights: DiagnosticInsight[];
@@ -264,7 +268,12 @@ export async function buildInsightsDiagnostics(
         renderedCap: OVERVIEW_INSIGHT_SLOTS,
         overviewSlotsUnfilledByEngine: OVERVIEW_INSIGHT_SLOTS,
       },
-      membership: { owners: [], source: 'none' },
+      membership: {
+        owners: [],
+        source: 'none',
+        seasonOwners: null,
+        membershipDisagreement: [],
+      },
       generators: [],
       insights: [],
     };
@@ -329,6 +338,12 @@ export async function buildInsightsDiagnostics(
     membership: {
       owners: [...context.leagueMembers].sort(),
       source: context.leagueMembersSource,
+      // `source` says where the general member list came from. This says whether a
+      // CONFIRMED DRAFT exists for the season, which is the only thing membership
+      // CHANGE cards speak from — reported because that silence is otherwise
+      // indistinguishable from a generator that found nothing to say.
+      seasonOwners: context.seasonOwners,
+      membershipDisagreement: context.membershipDisagreement,
     },
     generators: perGenerator
       .map(({ generator, produced, skippedBy }) => ({

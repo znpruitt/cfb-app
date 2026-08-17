@@ -85,6 +85,16 @@ function makeContext(overrides: Partial<InsightContext> = {}): InsightContext {
   return {
     leagueSlug: overrides.leagueSlug ?? 'test',
     currentYear: overrides.currentYear ?? 2025,
+    // Honours `overrides`, unlike an earlier version that hardcoded the
+    // membership field while honouring every other one — a test written to
+    // exercise the withheld path would have passed vacuously. (This comment was
+    // itself two paragraphs pasted over each other, the first still naming the
+    // field v5 deleted.)
+    seasonOwners:
+      overrides.seasonOwners !== undefined
+        ? overrides.seasonOwners
+        : { year: overrides.currentYear ?? 2026, owners: ['Alice', 'Bob'] },
+    membershipDisagreement: overrides.membershipDisagreement ?? [],
     lifecycleState: overrides.lifecycleState ?? 'mid_season',
     seasonContext: overrides.seasonContext ?? 'in-season',
     currentWeek: overrides.currentWeek ?? null,
@@ -419,4 +429,12 @@ test('describeSuppressionStore: a record written AFTER retirement is flagged lou
   assert.match(msg, /UNEXPECTED/);
   assert.match(msg, /1 of 2 record\(s\) were written AFTER/);
   assert.match(msg, /may be draining/);
+});
+
+test('ANTI-VACUITY: makeContext honours a seasonOwners override', () => {
+  // This helper hardcoded the membership field while honouring every other
+  // override, so any test written to exercise the WITHHELD path would have passed
+  // vacuously — in the file that would be used to regression-test that gate.
+  assert.equal(makeContext({ seasonOwners: null }).seasonOwners, null);
+  assert.deepEqual(makeContext({}).seasonOwners?.owners, ['Alice', 'Bob']);
 });

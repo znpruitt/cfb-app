@@ -4,7 +4,10 @@ import test from 'node:test';
 import {
   applySuppression,
   clearGenerators,
+  fingerprintGeneratorSet,
+  selectServedInsights,
   generateRawInsights,
+  getRegisteredGenerators,
   registerGenerator,
 } from '@/lib/insights/engine';
 import { insightsCacheKeyParts, insightsCacheTags } from '@/lib/insights/loadInsights';
@@ -42,7 +45,7 @@ test('insights cache key includes slug, year, the seed-alias hash, and the overr
     // "Returning owner" prefix and widening the rookie card's lifecycle are
     // policy changes that touch no standings input, so no tag fires and warm
     // entries would otherwise keep serving retracted copy until the TTL lapsed.
-    'copy:insights031-roster-schedule-v1',
+    'copy:insights025-membership-changes-v7',
     // INSIGHTS-023a — membership is part of cache IDENTITY for the same reason.
     // Membership now comes from the league's roster/confirmed list instead of
     // being reconstructed from the team→owner map, so a warm entry computed
@@ -50,7 +53,75 @@ test('insights cache key includes slug, year, the seed-alias hash, and the overr
     // exact defect the slice fixes — until the TTL lapses. Deployment fires no
     // tag.
     'membership:insights023a-league-membership-v1',
+    // Computed from the live registry rather than written down here, because a
+    // literal would have to be updated by hand — the exact step this part exists
+    // to remove. Sensitivity is proven in the three tests below.
+    `generators:${fingerprintGeneratorSet(getRegisteredGenerators())}`,
   ]);
+
+  // ANTI-VACUITY: the line above compares the key to a value derived the same
+  // way, so on its own it would pass against an empty registry. Assert the
+  // registry the assertion ran against was the real, fully-imported one.
+  assert.ok(
+    getRegisteredGenerators().length >= 8,
+    `expected the production generator set, got ${getRegisteredGenerators().length}`
+  );
+});
+
+test('the generator fingerprint moves when the POOL moves', () => {
+  // What the two forgotten `INSIGHT_COPY_POLICY_VERSION` bumps would have needed.
+  const base: InsightGenerator = {
+    id: 'test:one',
+    category: 'narrative',
+    supportedLifecycles: ['preseason'],
+    generate: () => [],
+  };
+  const other: InsightGenerator = {
+    id: 'test:two',
+    category: 'narrative',
+    supportedLifecycles: ['preseason'],
+    generate: () => [],
+  };
+
+  const one = fingerprintGeneratorSet([base]);
+  assert.notEqual(one, fingerprintGeneratorSet([base, other]), 'adding a generator must move it');
+  assert.notEqual(one, fingerprintGeneratorSet([]), 'removing the last one must move it');
+  assert.notEqual(
+    one,
+    fingerprintGeneratorSet([{ ...base, supportedLifecycles: ['preseason', 'early_season'] }]),
+    'opening a lifecycle gate must move it — that changes which cards can appear'
+  );
+});
+
+test('the generator fingerprint does NOT move on registration order', () => {
+  // `generators/index.ts` is a list of bare imports. Reordering them changes
+  // nothing a reader sees, so it must not cold-start every league's insights.
+  const a: InsightGenerator = {
+    id: 'test:a',
+    category: 'narrative',
+    supportedLifecycles: ['preseason'],
+    generate: () => [],
+  };
+  const b: InsightGenerator = {
+    id: 'test:b',
+    category: 'narrative',
+    supportedLifecycles: ['early_season', 'preseason'],
+    generate: () => [],
+  };
+  assert.equal(fingerprintGeneratorSet([a, b]), fingerprintGeneratorSet([b, a]));
+  // Nor on the order of a generator's declared lifecycles, for the same reason.
+  assert.equal(
+    fingerprintGeneratorSet([b]),
+    fingerprintGeneratorSet([{ ...b, supportedLifecycles: ['preseason', 'early_season'] }])
+  );
+});
+
+test('the fingerprint carries the generator COUNT, so a hash collision cannot pass alone', () => {
+  // 32-bit FNV is narrow and a collision here means a stale insight pool keeps
+  // serving. The count is a second, exact discriminator for the commonest change
+  // (a generator added or removed).
+  const set = getRegisteredGenerators();
+  assert.match(fingerprintGeneratorSet(set), new RegExp(`^${set.length}:[0-9a-f]+$`));
 });
 
 test('different leagues and different years produce different insights cache keys', () => {
@@ -160,5 +231,29 @@ test('applySuppression scopes records by league and season', async () => {
   assert.deepEqual(
     (await applySuppression(raw, 'tsc', 2025)).map((i) => i.id),
     ['x']
+  );
+});
+
+test('served ordering does not depend on generator registration order', () => {
+  // The property `fingerprintGeneratorSet` asserts by ignoring import order, made
+  // true rather than assumed. `Array.prototype.sort` is stable, so before the
+  // explicit tie-break the ORDER GENERATORS REGISTERED IN decided ties — meaning
+  // reordering `generators/index.ts` changed which cards survived the cap while
+  // the cache key deliberately held still.
+  const mk = (id: string, priorityScore: number) =>
+    ({ id, priorityScore, type: 't', title: id, description: id }) as unknown as Insight;
+
+  const registeredOneWay = [mk('bravo', 50), mk('alpha', 50), mk('charlie', 90)];
+  const registeredTheOther = [mk('alpha', 50), mk('bravo', 50), mk('charlie', 90)];
+
+  assert.deepEqual(
+    selectServedInsights(registeredOneWay).map((i) => i.id),
+    selectServedInsights(registeredTheOther).map((i) => i.id),
+    'the same set in a different registration order must serve identically'
+  );
+  // And the order is the one a reader can predict.
+  assert.deepEqual(
+    selectServedInsights(registeredOneWay).map((i) => i.id),
+    ['charlie', 'alpha', 'bravo']
   );
 });

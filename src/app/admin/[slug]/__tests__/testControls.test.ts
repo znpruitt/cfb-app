@@ -50,7 +50,12 @@ function runWithRevalidateContext<T>(fn: () => Promise<T>): Promise<T> {
   );
 }
 
-import { autoCompleteDraft, resetTestLeague, setTestLeagueStatus } from '../actions';
+import {
+  autoCompleteDraft,
+  resetTestDraft,
+  resetTestLeague,
+  setTestLeagueStatus,
+} from '../actions';
 import { TEST_LEAGUE_SLUG, type League } from '../../../../lib/league.ts';
 import { TEST_LEAGUE_RESET_YEAR } from '../../../../lib/leagueRegistry.ts';
 import { draftScope, type DraftState } from '../../../../lib/draft.ts';
@@ -676,5 +681,72 @@ test('autoCompleteDraft fills a hole in an already-complete draft', async () => 
   assert.ok(
     draft?.picks.every((p) => p.team != null),
     'the hole is filled'
+  );
+});
+
+test('resetTestDraft busts the insights cache, not just the admin path', async () => {
+  // INSIGHTS-025 made `isDraftPublished` an input to the cached insights build,
+  // so deleting the draft RETRACTS publication — and this action deletes the
+  // owners CSV with it, which moves canonical standings too. Revalidating the
+  // admin path reaches neither, so the public Overview kept serving "X has left
+  // the league" for a draft that no longer existed, for the full 300s TTL.
+  //
+  // Missed when every other publication-changing writer was wired, because this
+  // one DELETES rather than writes.
+  await setAppState(draftScope(TEST_LEAGUE_SLUG), '2026', {
+    leagueSlug: TEST_LEAGUE_SLUG,
+    year: 2026,
+    phase: 'complete',
+    owners: ['Alice', 'Bob'],
+    settings: { rounds: 1, timerSeconds: 60, order: ['Alice', 'Bob'] },
+    picks: [],
+    currentPickIndex: 0,
+    timerState: 'off',
+    timerExpiresAt: null,
+    createdAt: '2026-08-01T00:00:00.000Z',
+    updatedAt: '2026-08-01T00:00:00.000Z',
+  } as unknown as Parameters<typeof setAppState>[2]);
+
+  const { tags, threw } = await runCapturingRevalidatedTags(() =>
+    __withAdminActionAuthorizerForTests(
+      () => true,
+      () => resetTestDraft()
+    )
+  );
+
+  assert.equal(threw, false, 'control: the action itself succeeded');
+  assert.ok(
+    tags.includes(standingsSlugTag(TEST_LEAGUE_SLUG)),
+    `deleting the draft must invalidate — got ${tags.join(', ') || 'no tags'}`
+  );
+});
+
+test('flipping the demo league to PRESEASON invalidates standings, like the season flip', async () => {
+  // `clearTestLeagueYear` deletes the preseason owners, the roster CSV AND the
+  // draft record on this branch — so the flip retracts publication exactly as a
+  // reset does. INSIGHTS-025 made publication an input to the cached insights
+  // build, but the invalidation flag was still `state === 'season'` only, so the
+  // demo feed kept serving membership cards against a draft that had been
+  // deleted.
+  // season 2026 -> preseason 2027, so 2027 is the year the flip cleans up.
+  await seed(makeLeague(TEST_LEAGUE_SLUG, 2026, { state: 'season', year: 2026 }));
+  await seedDemoScopes(2027);
+
+  const { tags, threw } = await runCapturingRevalidatedTags(() =>
+    __withAdminActionAuthorizerForTests(
+      () => true,
+      () => setTestLeagueStatus('preseason')
+    )
+  );
+
+  assert.equal(threw, false, 'control: the flip itself succeeded');
+  assert.deepEqual(
+    await demoScopesPresent(2027),
+    [false, false, false],
+    'control: the flip really did delete the draft and roster'
+  );
+  assert.ok(
+    tags.includes(standingsSlugTag(TEST_LEAGUE_SLUG)),
+    `deleting the draft must invalidate — got ${tags.join(', ') || 'no tags'}`
   );
 });

@@ -107,6 +107,16 @@ function makeContext(overrides: Partial<InsightContext> = {}): InsightContext {
     leagueSlug: overrides.leagueSlug ?? 'test',
     currentYear: overrides.currentYear ?? 2026,
     lifecycleState: overrides.lifecycleState ?? 'fresh_offseason',
+    // Honours `overrides`, unlike an earlier version that hardcoded the
+    // membership field while honouring every other one — a test written to
+    // exercise the withheld path would have passed vacuously. (This comment was
+    // itself two paragraphs pasted over each other, the first still naming the
+    // field v5 deleted.)
+    seasonOwners:
+      overrides.seasonOwners !== undefined
+        ? overrides.seasonOwners
+        : { year: overrides.currentYear ?? 2026, owners: ['Alice', 'Bob'] },
+    membershipDisagreement: overrides.membershipDisagreement ?? [],
     seasonContext: overrides.seasonContext ?? 'in-season',
     currentWeek: overrides.currentWeek ?? null,
     currentStandings: overrides.currentStandings ?? [],
@@ -708,4 +718,12 @@ test('runInsightsEngine respects bypassSuppression for the generator-level filte
     clearGenerators();
     for (const g of original) registerGenerator(g);
   }
+});
+
+test('ANTI-VACUITY: makeContext honours a seasonOwners override', () => {
+  // This helper hardcoded the membership field while honouring every other
+  // override, so any test written to exercise the WITHHELD path would have passed
+  // vacuously — in the file that would be used to regression-test that gate.
+  assert.equal(makeContext({ seasonOwners: null }).seasonOwners, null);
+  assert.deepEqual(makeContext({}).seasonOwners?.owners, ['Alice', 'Bob']);
 });

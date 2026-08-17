@@ -2,13 +2,17 @@ import { NextResponse } from 'next/server';
 
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { withAppStateKeyTransaction } from '@/lib/server/appStateStore';
+import { invalidateStandingsSafely } from '@/lib/selectors/leagueStandings';
+import { isDraftPublished } from '@/lib/selectors/draftPublication';
 import { getLeague } from '@/lib/leagueRegistry';
 import { type DraftState, draftScope } from '@/lib/draft';
 
 export const dynamic = 'force-dynamic';
 
 /** A refusal decided inside the transaction; see the pick route for the shape. */
-type ResetOutcome = { error: string; status: number } | { ok: true; draft: DraftState };
+type ResetOutcome =
+  | { error: string; status: number }
+  | { ok: true; draft: DraftState; wasPublished: boolean };
 
 function parseYear(raw: string): number | null {
   const n = Number.parseInt(raw, 10);
@@ -71,12 +75,29 @@ export async function POST(
 
       await txn.write<DraftState>(updated);
 
-      return { ok: true, draft: updated };
+      return { ok: true, draft: updated, wasPublished: isDraftPublished(draft) };
     }
   );
 
   if (!('ok' in outcome)) {
     return NextResponse.json({ error: outcome.error }, { status: outcome.status });
+  }
+
+  // PUBLICATION CHANGED, so the Insights cache must be busted with the standings
+  // one. INSIGHTS-025 made `isDraftPublished` an input to the cached insight
+  // build — it is the evidence that licenses membership-change cards — and this
+  // route retracts publication by moving `phase` off `complete`. Without this the
+  // feed keeps serving joined/left cards for a roster that is no longer final,
+  // for the full 300s TTL. The `confirm` and reopen paths already do this; these
+  // two did not, because before INSIGHTS-025 a draft phase change altered no
+  // cached public output.
+  // Only on a TRANSITION of `isDraftPublished`, which is what the insights cache
+  // actually depends on. Firing unconditionally cold-started canonical standings
+  // AND the whole insights build (archives, schedule, team database, rankings,
+  // alias map) on every Undo press of a LIVE draft — the common case, where
+  // publication was false before and after.
+  if (outcome.wasPublished !== isDraftPublished(outcome.draft)) {
+    invalidateStandingsSafely(slug, year);
   }
 
   return NextResponse.json({ draft: outcome.draft });

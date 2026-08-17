@@ -348,12 +348,17 @@ export async function getCanonicalStandings(
  * carried by every snapshot — no registry enumeration (PLATFORM-070).
  *
  * Remaining un-wired lifecycle mutators (intentional): `completeSetup` (flips a
- * setupComplete flag; no standings-content change) and the `slug='test'` dev-
- * tooling actions in `admin/[slug]/actions.ts` — EXCEPT the manual demo
- * transition to `season`, which DOES invalidate. PLATFORM-086F2H1T2 removed the
- * demo league from the season-transition cron, making that control its only
- * preseason→season path, so it inherited the invalidation the cron performed;
- * preseason/offseason and reset remain un-wired. Note that those paths share
+ * setupComplete flag; no standings-content change).
+ *
+ * The `slug='test'` dev-tooling actions in `admin/[slug]/actions.ts` are now
+ * WIRED, not exempt — INSIGHTS-025 made draft publication an input to the cached
+ * insights build, so anything that creates, deletes or retracts a draft changes
+ * cached public output. That covers the manual demo transition (both the `season`
+ * and `preseason` branches, the latter because `clearTestLeagueYear` deletes the
+ * draft and roster), `resetTestDraft`, and `autoCompleteDraft`. This paragraph
+ * listed them as intentionally un-wired for one round after they were wired,
+ * which would have hidden two genuine gaps from anyone auditing by reading it.
+ * Note that those paths share
  * the SAME key-collision property that justified wiring the season branch —
  * `resolveStandingsYear` returns the same resolved year across a preseason
  * re-click, and an offseason write projects `league.year` to the outgoing
@@ -366,6 +371,34 @@ export function invalidateStandings(slug: string, year?: number): void {
   revalidateTag(standingsSlugTag(slug));
   if (year != null) {
     revalidateTag(standingsYearTag(slug, year));
+  }
+}
+
+/**
+ * `invalidateStandings`, tolerant of being called outside a request context.
+ *
+ * `revalidateTag` throws "static generation store missing" (`E263`) when no Next
+ * work-async-storage store is active. Every caller here runs after its durable
+ * write has COMMITTED, so letting that throw turns a successful state change into
+ * a 500 — the cache miss is the lesser failure by a wide margin.
+ *
+ * Lived privately in `api/owners/route.ts` until INSIGHTS-025 needed the same
+ * protection on the draft routes; extracted rather than copied, so the two cannot
+ * drift on which error codes count as "no context". Any OTHER error still
+ * surfaces.
+ */
+export function invalidateStandingsSafely(slug: string, year?: number): void {
+  try {
+    invalidateStandings(slug, year);
+  } catch (err) {
+    if (
+      err instanceof Error &&
+      (err.message.includes('static generation store missing') ||
+        (err as { __NEXT_ERROR_CODE?: unknown }).__NEXT_ERROR_CODE === 'E263')
+    ) {
+      return;
+    }
+    throw err;
   }
 }
 

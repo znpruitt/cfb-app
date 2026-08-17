@@ -12,7 +12,7 @@ import {
   type TestLeagueLifecycleState,
 } from '@/lib/leagueRegistry';
 import { preseasonOwnerScope, savePreseasonOwners } from '@/lib/preseasonOwnerStore';
-import { invalidateStandings } from '@/lib/selectors/leagueStandings';
+import { invalidateStandings, invalidateStandingsSafely } from '@/lib/selectors/leagueStandings';
 import {
   listAppStateKeys,
   deleteAppState,
@@ -189,7 +189,14 @@ export async function setTestLeagueStatus(
   // the unguarded `revalidatePath` to throw immediately afterwards, so
   // `cacheStale` could never reach a real operator; it was reachable only under
   // an injected tag-specific failure that does not occur in production.
-  const cacheStale = !revalidateAfterCommit(result.status.state === 'season');
+  // `clearTestLeagueYear` above deletes the preseason owners, the roster CSV AND
+  // the draft record for a flip to `preseason` — so that branch retracts
+  // publication exactly like a reset does, and needs the standings tag as much as
+  // the `season` branch does. Passing only `state === 'season'` left the cached
+  // membership cards alive against a deleted draft.
+  const cacheStale = !revalidateAfterCommit(
+    result.status.state === 'season' || result.status.state === 'preseason'
+  );
 
   const year = result.status.state === 'offseason' ? null : result.status.year;
   // `no-change` requires BOTH an unmoved lifecycle and no cleanup. A repeated
@@ -218,6 +225,14 @@ export async function resetTestDraft(): Promise<void> {
       await deleteAppState(`owners:test:${year}`, 'csv');
     })
   );
+  // Deleting the draft RETRACTS publication, and deleting the owners CSV changes
+  // canonical standings — both are inputs to the cached insights build since
+  // INSIGHTS-025 (`isDraftPublished` is what licenses membership-change cards).
+  // Revalidating the admin path reaches neither, so the public Overview kept
+  // serving "X has left the league" for a draft that no longer exists, for the
+  // full 300s TTL. Every other publication-changing writer on this branch
+  // invalidates; this one was missed because it deletes rather than writes.
+  invalidateStandingsSafely(TEST_LEAGUE_SLUG);
   revalidatePath(TEST_LEAGUE_ADMIN_PATH);
 }
 
@@ -633,6 +648,11 @@ export async function autoCompleteDraft(): Promise<AutoCompleteDraftResult> {
     await txn.write<DraftState>(completed);
   });
 
+  // ESTABLISHES publication, and writes the official roster besides — both are
+  // inputs to the cached insight build since INSIGHTS-025 (`isDraftPublished` is
+  // the evidence for membership-change cards). Revalidating the admin path does
+  // not reach the public feed.
+  invalidateStandingsSafely(TEST_LEAGUE_SLUG, year);
   revalidatePath(TEST_LEAGUE_ADMIN_PATH);
   // Vacancies filled count as work done — reporting only `newPicks` said zero
   // when the control had filled nothing but holes.

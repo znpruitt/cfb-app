@@ -9,6 +9,7 @@ import { aggregateOwnerSeasonStats } from '../gameStats/ownerStats';
 import { projectAnalyticsPartition } from '../gameStats/publicProjection';
 import { MIN_CONFIRMED_OWNERS, type ConfirmedRosterSource } from '../selectors/confirmedRoster';
 import type { League } from '../league';
+import { identityKey } from './membershipHistory';
 import { parseOwnersCsv } from '../parseOwnersCsv';
 import type { RankingsResponse } from '../rankings';
 import type { AppGame } from '../schedule';
@@ -495,7 +496,12 @@ export async function buildInsightContext(
    * module keeps doing no store access of its own.
    */
   confirmedOwners: readonly string[] = [],
-  confirmedSource: ConfirmedRosterSource = 'none'
+  confirmedSource: ConfirmedRosterSource = 'none',
+  /**
+   * Owners named by this season's CONFIRMED DRAFT, or null if none is confirmed.
+   * Passed in rather than read here so this module keeps doing no store access.
+   */
+  seasonOwners: { year: number; owners: string[] } | null = null
 ): Promise<InsightContext> {
   const regularWeeks = deriveRegularWeeks(games);
   const currentWeek = chooseDefaultWeek({ games, regularWeeks });
@@ -531,6 +537,21 @@ export async function buildInsightContext(
     usingArchivedRoster,
   });
 
+  // Resolved ONCE, here, so the generator and the diagnostics page cannot
+  // disagree about why a feed is silent.
+  // Computed here because it is the one place both records are in scope. Compared
+  // on NORMALIZED identity, matching `buildMembershipHistory` — a case drift
+  // between the confirmation screen and the draft is not a disagreement about WHO
+  // is playing, and treating it as one would silence the feature for a typo.
+  const draftedKeys = new Set((seasonOwners?.owners ?? []).map(identityKey));
+  const membershipDisagreement =
+    seasonOwners === null
+      ? []
+      : [...leagueMembers]
+          .filter((owner) => owner && owner !== NO_CLAIM_OWNER && owner.trim())
+          .filter((owner) => !draftedKeys.has(identityKey(owner)))
+          .sort((a, b) => a.localeCompare(b));
+
   const { ownerCareerStats } = await buildOwnerCareerStats({
     leagueSlug,
     currentYear: league.year,
@@ -551,6 +572,8 @@ export async function buildInsightContext(
     leagueSlug,
     currentYear: league.year,
     lifecycleState,
+    seasonOwners,
+    membershipDisagreement,
     seasonContext,
     currentWeek,
     currentStandings,

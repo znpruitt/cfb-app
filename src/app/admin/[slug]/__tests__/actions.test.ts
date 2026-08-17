@@ -238,6 +238,38 @@ test('completeSetup writes one synchronized lifecycle record (no separate year w
   assert.equal(league?.year, 2026, 'top-level year synchronized by the same lifecycle write');
 });
 
+test('completeSetup does NOT invalidate standings, and that is deliberate', async () => {
+  // `leagueStandings.ts` records `completeSetup` as an intentionally un-wired
+  // lifecycle mutator: it flips a flag with no standings-content change.
+  //
+  // INSIGHTS-025 v2 briefly made that false — `setupComplete` was the evidence
+  // licensing membership-change cards, so completing setup DID change cached
+  // public output — and this test asserted the invalidation. v3 moved the
+  // evidence to draft publication and deleted the field from the insight context
+  // entirely, so the dependency is gone and the invalidation with it. Asserted
+  // rather than dropped, because the two files disagreed for a whole round and
+  // nothing would have caught it.
+  await setAppState('leagues', 'registry', [
+    makeLeague('alpha', { state: 'preseason', year: 2026 }),
+  ]);
+  await seedAssignedTeams('alpha', 2026);
+
+  const tags = await runCapturingTags(() => completeSetup('alpha', 2026));
+
+  // The admin PATH tags are expected — the checklist and banner must refresh.
+  // What must NOT appear is a standings tag, which is what the insights cache
+  // listens to.
+  assert.deepEqual(
+    tags.filter((t) => t.startsWith('standings')),
+    [],
+    `no standings tags — see leagueStandings.ts; got ${tags.join(', ')}`
+  );
+  assert.ok(
+    tags.some((t) => t.includes('/admin/alpha')),
+    'control: the action DID revalidate, so the filter above is not passing on an empty capture'
+  );
+});
+
 test('beginPreseason refuses outside offseason — re-invocation cannot re-increment the year', async () => {
   await setAppState('leagues', 'registry', [
     makeLeague('alpha', { state: 'preseason', year: 2026 }),

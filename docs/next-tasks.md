@@ -1247,7 +1247,17 @@ Supersedes: (none)
     trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
     For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
 
-41. **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left
+41. ✅ **Membership CHANGES as content — SHIPPED as INSIGHTS-025** (2026-08-17). Who joined, who
+    returned and who left, derived at request time from the archives and the season's CONFIRMED
+    DRAFT. Gate: `context.seasonOwners` — owner ruling, "a confirmed draft should be the gate to
+    report results on who joined/left." The execution record (six reconstructions, review rounds,
+    verification) lives in `docs/prompt-registry.md` → INSIGHTS-025, per **Ledger ownership during
+    closeout**; this entry had accumulated ~100 lines of exactly the narrative that section forbids
+    here. Remaining follow-up: item 51(a), the second evidence source for manual-assignment leagues.
+
+    Original entry follows.
+
+    **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left
     is news — and it is the inverse of the trade 023a was agonising over: instead of losing content
     when someone leaves, leaving becomes content.
 
@@ -1475,6 +1485,41 @@ Supersedes: (none)
 50. Nonblocking operational observation (not implementation work): the passive **PLATFORM-086E1C2
     §8i** schedule-presentation observation checkpoint (`docs/deployment-runbook.md` §8i) records its
     first qualifying automatic presentation refresh from production evidence when it occurs.
+
+51. 🔴 **Manual team assignment is unimplemented, and choosing it STRANDS a league.**
+    `League.manualAssignmentComplete` is declared in `src/lib/league.ts` and READ in four places
+    (`selectors/teamAssignment.ts`, `server/teamAssignmentStore.ts`, the preseason checklist, the
+    preseason banner). Measured 2026-08-17: it has **zero writers** outside tests. So
+    `selectTeamAssignment` returns `blocked('manual-assignment-incomplete')` for every manual league,
+    forever; `completeSetup` refuses any league whose teams are not assigned; and a commissioner who
+    switches assignment method to manual can never finish preseason. The admin UI offers the switch
+    (`setAssignmentMethod`), and the only way back is switching to draft. The existing code comments
+    state the no-writer fact plainly and were correct — this entry records the CONSEQUENCE, which is
+    that the option is a dead end rather than merely an unfinished feature.
+
+    Two things depend on this and should ship with it, not before:
+
+    (a) **OWNER RULING, 2026-08-17: "'complete setup' should be the fallback gate — that way a
+    commissioner assigned team roster still has full insight access."** INSIGHTS-025 gates
+    membership-change content on a PUBLISHED DRAFT (`context.seasonOwners`, derived in
+    `loadInsights.ts`), which a manual
+    league never has, so such a league publishes no joined/returned/left cards. The ruling is
+    accepted and the second evidence source belongs in that authority — but it cannot be added yet,
+    because setup completion is unreachable for manual leagues, so the branch would be provably
+    dead code. That matters more than usual here: this gate went through three models in one day,
+    two of which review broke, and both failures were evidence rules that looked sound with no real
+    state behind them. Add it when a manual league can actually reach the state.
+
+    (b) **The completion signal must be DURABLE and per-season.** `setupComplete` lives on the
+    preseason variant of `LeagueStatus`, and `completeSeasonTransition` advances a league on state
+    and year alone — the transition DELETES the field rather than clearing it. This is the exact
+    defect that broke INSIGHTS-025 v1. A manual league marked complete in preseason would therefore
+    get membership news in August and silently lose it at kickoff. Record completion the way draft
+    publication is recorded: a per-`(slug, year)` durable fact that nothing about starting the
+    season can erase.
+
+    Also worth deciding when this is picked up: whether `assignmentMethod: 'manual'` should be
+    offered at all until it works, or refused at `setAssignmentMethod` with a reason.
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the

@@ -135,6 +135,46 @@ export type InsightContext = {
   leagueSlug: string;
   currentYear: number;
   lifecycleState: LifecycleState;
+  /**
+   * The owners named by THIS SEASON'S CONFIRMED DRAFT, with the year they were
+   * confirmed for — or `null` when no draft has been confirmed for that year.
+   *
+   * This is the membership authority for anything that reasons about who is
+   * playing versus who played before, and it exists because the question
+   * "is the owner list complete?" has no answer anywhere else in the app. A
+   * confirmed draft cannot be half-finished, rosters must be balanced so every
+   * owner drafts, and the record is durable and year-scoped — so its owner set
+   * IS the league for that season, with nothing left to verify.
+   *
+   * The YEAR travels with the owners deliberately. Membership facts previously
+   * mixed the requested year (which `leagueMembers` and `currentRoster` follow)
+   * with the league's own year (which `currentYear` follows), and
+   * `?year=2024` on a 2027 league diffed one year's roster against another
+   * year's archive. Carrying both together makes that incoherence unrepresentable
+   * rather than guarded against.
+   */
+  seasonOwners: { year: number; owners: string[] } | null;
+
+  /**
+   * Members the league records as playing who are ABSENT from `seasonOwners` —
+   * i.e. the two records disagree about who is in the league.
+   *
+   * This is a CONTRADICTION check, not a completeness proof, and the difference
+   * is the whole reason it is allowed to exist. v2–v4 tried to prove
+   * `leagueMembers` complete and every proof could be true while the fact was
+   * false; v5 replaced that with the draft's owner set and needs no proof. But
+   * `confirmPreseasonOwners` carries NO draft guard — unlike `setAssignmentMethod`
+   * beside it — so a commissioner can re-confirm an eight-name list after a
+   * seven-owner draft was confirmed. `seasonOwners` stays frozen at what
+   * published; `leagueMembers` moves. The eighth owner is then computed as having
+   * LEFT while the member-filtered generators on the same page name them as
+   * active, and that action invalidates standings, so the card appears promptly
+   * rather than waiting out a TTL.
+   *
+   * The draft remains the authority on who is playing. This only says: when
+   * another record disagrees with it, say nothing about anyone.
+   */
+  membershipDisagreement: string[];
   seasonContext: SeasonContext;
   currentWeek: number | null;
   currentStandings: OwnerStandingsRow[];

@@ -1,5 +1,8 @@
 import { NextResponse } from 'next/server';
 
+import { isDraftPublished } from '@/lib/selectors/draftPublication';
+import { invalidateStandingsSafely } from '@/lib/selectors/leagueStandings';
+
 import { isAuthorizedForLeague } from '@/lib/leagueAuth';
 import { requireAdminRequest } from '@/lib/server/adminAuth';
 import { getAppState, setAppState, withAppStateKeyTransaction } from '@/lib/server/appStateStore';
@@ -64,7 +67,7 @@ type ExpiryRefusal = { error: string; status: number };
  * back to a response.
  */
 type PutRefusal = { body: Record<string, unknown>; status: number };
-type PutOutcome = PutRefusal | { ok: true; draft: DraftState };
+type PutOutcome = PutRefusal | { ok: true; draft: DraftState; publishedBefore: boolean };
 
 /**
  * PLATFORM-102 — the timer state machine, named and lifted out of the handler.
@@ -531,6 +534,10 @@ export async function PUT(
       }
 
       const original = record.value;
+      // Publication can be RESTORED here (`live|paused -> complete` with the
+      // reopened draft's `publishedPicks` intact), and the insights cache depends
+      // on that flag.
+      const publishedBefore = isDraftPublished(original);
 
       // PLATFORM-102 round 3 — the confirmed roster is read INSIDE the lock.
       //
@@ -870,12 +877,23 @@ export async function PUT(
       draft = { ...draft, updatedAt: new Date().toISOString() };
       await txn.write<DraftState>(draft);
 
-      return { ok: true, draft };
+      return { ok: true, draft, publishedBefore };
     }
   );
 
   if (!('ok' in outcome)) {
     return NextResponse.json(outcome.body, { status: outcome.status });
+  }
+
+  // `VALID_PHASE_TRANSITIONS` permits `live|paused -> complete`, and
+  // `publishedPicks` survives a Reopen — so this route can restore
+  // `isDraftPublished` to true with the picks untouched. Publication is an input
+  // to the cached insights build (INSIGHTS-025), so that transition has to bust
+  // the tag or membership cards stay withheld for the full TTL. Not reachable
+  // from the current UI, but this is an authenticated API path and it is the
+  // mirror of the reset/unpick case.
+  if (outcome.publishedBefore !== isDraftPublished(outcome.draft)) {
+    invalidateStandingsSafely(slug, year);
   }
 
   return NextResponse.json({ draft: outcome.draft });
