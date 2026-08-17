@@ -10,7 +10,6 @@ import {
 } from '../insights/limits.ts';
 import { buildLeagueInsightContext } from '../insights/loadInsights.ts';
 import { applyInsightDecay } from '../insights/variants.ts';
-import type { MembershipCompleteness } from '../insights/membershipCompleteness.ts';
 import type {
   InsightContext,
   InsightGenerator,
@@ -151,10 +150,8 @@ export type InsightsDiagnostics = {
   membership: {
     owners: string[];
     source: LeagueMembersSource;
-    complete: boolean;
-    completenessEvidence: MembershipCompleteness['evidence'];
-    unlistedRosterOwners: string[];
-    unrosteredMembers: string[];
+    /** Owners named by this season's confirmed draft, or null if none is confirmed. */
+    seasonOwners: { year: number; owners: string[] } | null;
   };
   generators: DiagnosticGenerator[];
   insights: DiagnosticInsight[];
@@ -272,10 +269,7 @@ export async function buildInsightsDiagnostics(
       membership: {
         owners: [],
         source: 'none',
-        complete: false,
-        completenessEvidence: 'roster-not-final',
-        unlistedRosterOwners: [],
-        unrosteredMembers: [],
+        seasonOwners: null,
       },
       generators: [],
       insights: [],
@@ -341,14 +335,11 @@ export async function buildInsightsDiagnostics(
     membership: {
       owners: [...context.leagueMembers].sort(),
       source: context.leagueMembersSource,
-      // `source` says where the list came from; these say whether it is FINISHED,
-      // which is what any claim about who is absent depends on. Reported because
-      // the completeness gate's silence is otherwise indistinguishable from a
-      // generator that simply found nothing to say.
-      complete: context.membershipCompleteness.complete,
-      completenessEvidence: context.membershipCompleteness.evidence,
-      unlistedRosterOwners: context.membershipCompleteness.unlistedRosterOwners,
-      unrosteredMembers: context.membershipCompleteness.unrosteredMembers,
+      // `source` says where the general member list came from. This says whether a
+      // CONFIRMED DRAFT exists for the season, which is the only thing membership
+      // CHANGE cards speak from — reported because that silence is otherwise
+      // indistinguishable from a generator that found nothing to say.
+      seasonOwners: context.seasonOwners,
     },
     generators: perGenerator
       .map(({ generator, produced, skippedBy }) => ({

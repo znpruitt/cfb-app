@@ -92,10 +92,10 @@ export function shouldSuppressGenerator(g: InsightGenerator, context: InsightCon
   if (g.id === 'career:rookie_benchmark' && context.usingArchivedRoster) {
     return true;
   }
-  // The membership generator's every claim is about ABSENCE — "Carol has left the
-  // league" is derived from Carol not being listed — so it may only speak from a
-  // list known to be COMPLETE, not merely known. `membershipCompleteness.ts` holds
-  // the reasoning and the evidence rules.
+  // The membership generator speaks only from a CONFIRMED DRAFT's owner set —
+  // the one membership record in the app that cannot be half-finished. Without
+  // one there is no answer to "who is playing", and its claims about who LEFT are
+  // inferred from absence.
   //
   // This entry LABELS the skip so the diagnostics table can say `gated` instead of
   // reporting an ordinary zero. It does not enforce it: `bypassSuppression` lifts
@@ -103,7 +103,7 @@ export function shouldSuppressGenerator(g: InsightGenerator, context: InsightCon
   // the generator carries its own non-bypassable copy of this check. See the long
   // note in `generators/membership.ts` — for one round this was the only
   // placement, and `?bypassSuppression=1` published the withheld card publicly.
-  if (g.id === 'narrative:membership' && !context.membershipCompleteness.complete) {
+  if (g.id === 'narrative:membership' && context.seasonOwners === null) {
     return true;
   }
   return false;

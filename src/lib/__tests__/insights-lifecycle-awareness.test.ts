@@ -110,13 +110,13 @@ function makeContext(overrides: Partial<InsightContext> = {}): InsightContext {
     // `?? overrides` matters: every other field here honours them, and this one
     // did not — so a future test passing `membershipCompleteness: { complete:
     // false }` to exercise the gate would have type-checked, run, and silently
-    // asserted the `complete: true` path instead.
-    membershipCompleteness: overrides.membershipCompleteness ?? {
-      complete: true,
-      evidence: 'published-roster' as const,
-      unlistedRosterOwners: [],
-      unrosteredMembers: [],
-    },
+    // `?? overrides` matters: every other field here honours them, and this one
+    // did not — so a test passing a null `seasonOwners` to exercise the withheld
+    // path would have type-checked, run, and silently asserted the other one.
+    seasonOwners:
+      overrides.seasonOwners !== undefined
+        ? overrides.seasonOwners
+        : { year: overrides.currentYear ?? 2026, owners: ['Alice', 'Bob'] },
     seasonContext: overrides.seasonContext ?? 'in-season',
     currentWeek: overrides.currentWeek ?? null,
     currentStandings: overrides.currentStandings ?? [],
@@ -720,19 +720,10 @@ test('runInsightsEngine respects bypassSuppression for the generator-level filte
   }
 });
 
-test('ANTI-VACUITY: makeContext honours a membershipCompleteness override', () => {
-  // This helper hardcoded the field while every other one honoured `overrides`,
-  // so any future test written to exercise the WITHHELD path would have
-  // type-checked, run, and silently asserted the complete path — a vacuous pass
-  // in the file that would be used to regression-test the gate.
-  const ctx = makeContext({
-    membershipCompleteness: {
-      complete: false,
-      evidence: 'roster-not-final',
-      unlistedRosterOwners: [],
-      unrosteredMembers: [],
-    },
-  });
-  assert.equal(ctx.membershipCompleteness.complete, false);
-  assert.equal(ctx.membershipCompleteness.evidence, 'roster-not-final');
+test('ANTI-VACUITY: makeContext honours a seasonOwners override', () => {
+  // This helper hardcoded the membership field while honouring every other
+  // override, so any test written to exercise the WITHHELD path would have passed
+  // vacuously — in the file that would be used to regression-test that gate.
+  assert.equal(makeContext({ seasonOwners: null }).seasonOwners, null);
+  assert.deepEqual(makeContext({}).seasonOwners?.owners, ['Alice', 'Bob']);
 });

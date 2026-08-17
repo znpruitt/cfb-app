@@ -3,7 +3,6 @@ import type { SeasonContext } from '../selectors/seasonContext';
 import type { LeagueRecords } from '../selectors/leagueRecords';
 import type { RankingsResponse } from '../rankings';
 import type { AppGame } from '../schedule';
-import type { MembershipCompleteness } from './membershipCompleteness';
 import type { SeasonArchive } from '../seasonArchive';
 import type { OwnerStandingsRow } from '../standings';
 import type { StandingsHistoryWeekSnapshot } from '../standingsHistory';
@@ -137,13 +136,24 @@ export type InsightContext = {
   currentYear: number;
   lifecycleState: LifecycleState;
   /**
-   * Whether the member list ACCOUNTS FOR EVERYONE playing, with the evidence that
-   * answered it. `leagueMembersSource` says where the list came from; this says
-   * whether it is finished, which is the question any claim about ABSENCE needs.
-   * Resolved once in `context.ts` so every consumer reads one answer — see
-   * `membershipCompleteness.ts`.
+   * The owners named by THIS SEASON'S CONFIRMED DRAFT, with the year they were
+   * confirmed for — or `null` when no draft has been confirmed for that year.
+   *
+   * This is the membership authority for anything that reasons about who is
+   * playing versus who played before, and it exists because the question
+   * "is the owner list complete?" has no answer anywhere else in the app. A
+   * confirmed draft cannot be half-finished, rosters must be balanced so every
+   * owner drafts, and the record is durable and year-scoped — so its owner set
+   * IS the league for that season, with nothing left to verify.
+   *
+   * The YEAR travels with the owners deliberately. Membership facts previously
+   * mixed the requested year (which `leagueMembers` and `currentRoster` follow)
+   * with the league's own year (which `currentYear` follows), and
+   * `?year=2024` on a 2027 league diffed one year's roster against another
+   * year's archive. Carrying both together makes that incoherence unrepresentable
+   * rather than guarded against.
    */
-  membershipCompleteness: MembershipCompleteness;
+  seasonOwners: { year: number; owners: string[] } | null;
   seasonContext: SeasonContext;
   currentWeek: number | null;
   currentStandings: OwnerStandingsRow[];

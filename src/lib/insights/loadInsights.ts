@@ -135,7 +135,7 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  * "INSIGHTS-022" while the value already read `insights030`, which is the same
  * class of drift the constant exists to prevent.
  */
-const INSIGHT_COPY_POLICY_VERSION = 'insights025-membership-changes-v4';
+const INSIGHT_COPY_POLICY_VERSION = 'insights025-membership-changes-v5';
 
 /**
  * Membership policy version (INSIGHTS-023a). Same shape and same reason as the
@@ -215,6 +215,29 @@ type RawInsightsPayload = {
  * reach for this from a public surface — that is precisely what PLATFORM-101 is
  * about.
  */
+/**
+ * Owners named by a CONFIRMED draft, or null when it is not confirmed.
+ *
+ * Derived from the PICKS rather than `draft.owners`, because `isDraftPublished`
+ * verifies the publication signature against the picks — so the pick list is the
+ * part known to be the published one. `draft.owners` is set at setup and nothing
+ * re-verifies it.
+ */
+export function seasonOwnersFrom(
+  draft: DraftState | null,
+  year: number
+): { year: number; owners: string[] } | null {
+  if (!isDraftPublished(draft)) return null;
+  const owners = [
+    ...new Set(
+      (draft?.picks ?? [])
+        .map((pick) => pick?.owner)
+        .filter((owner): owner is string => typeof owner === 'string' && owner.trim() !== '')
+    ),
+  ].sort((a, b) => a.localeCompare(b));
+  return owners.length > 0 ? { year, owners } : null;
+}
+
 export async function buildLeagueInsightContext(
   slug: string,
   resolvedYear: number,
@@ -311,8 +334,13 @@ export async function buildLeagueInsightContext(
     // module keeps doing no store access of its own.
     confirmedRoster.roster.owners,
     confirmedRoster.roster.source,
-    isDraftPublished(draftRecord?.value ?? null),
-    resolvedYear
+    // WHO the confirmed draft named, paired with the year it was confirmed for.
+    // A confirmed draft cannot be partial and every owner drafts, so this set IS
+    // the league for that season — there is nothing further to verify, which is
+    // why no completeness authority exists any more. Reading it for
+    // `resolvedYear` and carrying that year along is also what makes a
+    // `?year=` request coherent by construction.
+    seasonOwnersFrom(draftRecord?.value ?? null, resolvedYear)
   );
 }
 

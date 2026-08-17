@@ -2,7 +2,7 @@ import type { Insight } from '../../selectors/insights';
 import { registerGenerator } from '../engine';
 import { buildMembershipHistory, type MembershipEvent } from '../membershipHistory';
 import { parseOwnersCsv } from '../../parseOwnersCsv';
-import { formatOwnerList, membershipIsKnown } from '../superlative';
+import { formatOwnerList } from '../superlative';
 import type { InsightContext, InsightGenerator, LifecycleState } from '../types';
 
 /**
@@ -271,46 +271,49 @@ export const membershipGenerator: InsightGenerator = {
   supportedLifecycles: MEMBERSHIP_LIFECYCLES,
   tone: 'factual',
   generate(context: InsightContext): Insight[] {
-    // Membership must be KNOWN. With `previous-roster` the "members" ARE last
-    // season's roster, so nobody could ever be computed as joining or leaving —
-    // and anyone who merely sat a season out would be reported as departed. This
-    // is the one generator where an unknown membership makes the whole subject
-    // unanswerable rather than merely unsafe to word.
+    // THE WHOLE GATE, and it is non-bypassable on purpose.
     //
-    if (!membershipIsKnown(context.leagueMembersSource)) return [];
+    // `seasonOwners` is the owner set of this season's CONFIRMED DRAFT. A
+    // confirmed draft cannot be half-finished, and rosters must be balanced so
+    // every owner drafts — so this set IS the league for that season and there is
+    // nothing left to verify. Owner ruling, 2026-08-17: "a confirmed draft should
+    // be the gate to report results on who joined/left."
+    //
+    // Four review rounds of this feature were spent proving the CONFIRMED OWNER
+    // LIST (`context.leagueMembers`) complete, because claims about who LEFT are
+    // inferred from absence and a half-typed list makes them false about real
+    // people. Every version of that proof — a lifecycle flag, an assertion, two
+    // records agreeing — could be true while the fact was false. This input needs
+    // no proof, which is why the completeness authority that used to sit here is
+    // deleted rather than fixed.
+    //
+    // Non-bypassable because `shouldSuppressGenerator` is lifted by
+    // `?bypassSuppression=1`, which any caller can set on a passwordless league
+    // (PLATFORM-101). The entry there LABELS the skip for diagnostics; this
+    // ENFORCES it.
+    if (!context.seasonOwners) return [];
     if (context.archives.length === 0) return [];
 
-    // NON-BYPASSABLE, and deliberately duplicated with `shouldSuppressGenerator`.
-    //
-    // The completeness gate lived ONLY in the suppression layer for one round,
-    // because AGENTS.md asks flag-based skips to sit there so diagnostics can see
-    // what production withheld. That was wrong twice over. `bypassSuppression` is
-    // read straight off the query string and `isAuthorizedForLeague` returns true
-    // for ANY caller on a passwordless league, so
-    // `?bypassSuppression=1` published the exact card this gate exists to
-    // withhold — "Heidi, Grace, Frank, Erin, Dave, and Carol have left the
-    // league" — to anyone who typed it. (That flag's lack of an admin gate is
-    // filed separately as PLATFORM-101; this generator must not depend on it
-    // being fixed.) And the diagnostics benefit was imaginary:
-    // `runGeneratorForDiagnostics` calls `shouldSuppressGenerator` WITHOUT the
-    // bypass, so the page shows `gated` and never rendered the withheld cards.
-    //
-    // So the two placements do different jobs and both are needed. The
-    // suppression entry LABELS the skip for the diagnostics table; this return
-    // ENFORCES it. A diagnostic surface may explain a withheld claim about real
-    // people; nothing may publish one.
-    if (!context.membershipCompleteness.complete) return [];
+    const { year, owners } = context.seasonOwners;
 
     const history = buildMembershipHistory({
       archives: context.archives,
-      members: context.leagueMembers,
+      // The draft's owners, not `context.leagueMembers`. The confirmed list is a
+      // commissioner's work-in-progress until the draft is confirmed; the draft
+      // is the record of who actually took part.
+      members: new Set(owners),
       parseCsv: parseOwnersCsv,
-      currentYear: context.currentYear,
+      // The year the DRAFT was confirmed for, carried with its owners. Reading
+      // both from one place is what makes `?year=` coherent by construction: an
+      // earlier version took membership from the requested year and `currentYear`
+      // from the league record, and diffed the 2024 roster against the 2026
+      // archive.
+      currentYear: year,
     });
 
     const insights: Insight[] = [];
     for (const event of history.events) {
-      if (event.kind === 'joined') insights.push(joinedInsight(event.owners, context.currentYear));
+      if (event.kind === 'joined') insights.push(joinedInsight(event.owners, year));
     }
 
     // RETURNERS: one insight when there is one, GROUPED when there are several.
@@ -333,15 +336,15 @@ export const membershipGenerator: InsightGenerator = {
       (e): e is Extract<MembershipEvent, { kind: 'returned' }> => e.kind === 'returned'
     );
     if (returners.length === 1) {
-      insights.push(returnedInsight(returners[0]!, context.currentYear));
+      insights.push(returnedInsight(returners[0]!, year));
     } else if (returners.length > 1) {
-      insights.push(groupedReturnInsight(returners, context.currentYear));
+      insights.push(groupedReturnInsight(returners, year));
     }
     // Departures are collected and emitted as ONE insight — see `leftInsight`.
     const departures = history.events.filter(
       (e): e is Extract<MembershipEvent, { kind: 'left' }> => e.kind === 'left'
     );
-    if (departures.length > 0) insights.push(leftInsight(departures, context.currentYear));
+    if (departures.length > 0) insights.push(leftInsight(departures, year));
 
     return insights;
   },

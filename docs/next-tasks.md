@@ -1309,6 +1309,21 @@ Supersedes: (none)
     were hardcoding `membershipCompleteness`, so a future test of the gate would have passed
     vacuously — fixed and pinned with anti-vacuity tests.
 
+    **v5 — the simplification, on the owner's challenge: "how is 'draft was confirmed' not a simple
+    answer?"** It is. Four review rounds and five HIGH/P1 findings were all one question — is
+    `context.leagueMembers` complete? — and every proof of that could be true while the fact was
+    false. The confirmed DRAFT enumerates who played, cannot be half-finished, and is durable and
+    year-scoped, so it needs no proof. Membership for a season is now the owner set of that season's
+    confirmed draft (`seasonOwnersFrom`, from the PUBLISHED picks), and departures are the plain set
+    difference against the previous year's archive, per the owner's follow-up: "a simple compare
+    between the confirmed roster and the previous year's owners." `membershipCompleteness.ts` and its
+    tests are DELETED; the slice is 504 lines smaller than v4. The year now travels with the owners,
+    so the `?year=` incoherence is unrepresentable rather than guarded. Probed across three seeded
+    leagues: no draft → silent; confirmed → names the two owners who genuinely did not draft; and a
+    league whose roster CSV was overwritten by a supported `?override=1` repair AFTER publication →
+    still correct, where `960083cf` published "Heidi, Grace, Frank, Erin, Dave, and Carol have left
+    the league". That last case was Codex's P1 and it is closed by construction, not by a check.
+
     Original entry follows.
 
     **Membership CHANGES as content** (owner idea, 2026-08-16). Who joined, who returned, who left

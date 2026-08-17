@@ -47,25 +47,6 @@ const FATE_ROW_CLASS: Record<InsightFate, string> = {
  * `Record<LeagueMembersSource, string>` makes the compiler refuse a new source
  * without a caption.
  */
-/**
- * Each evidence value in the operator's terms, because the answer alone does not
- * say what to DO about it.
- */
-const MEMBERSHIP_COMPLETENESS_CAPTION: Record<
-  InsightsDiagnostics['membership']['completenessEvidence'],
-  string
-> = {
-  'published-roster': 'this season\u2019s draft is published and every owner on it is listed.',
-  'roster-not-final':
-    'this season\u2019s roster is not published yet, so who is playing is not settled. Nothing to fix \u2014 the cards appear once the draft is confirmed.',
-  'list-contradicted':
-    'someone holds a team this season but is missing from the owner list. Until that is resolved they would be announced as having LEFT.',
-  'roster-behind-list':
-    'someone is in the owner list but holds no team in the published roster \u2014 the list has changed since the draft was published. Re-publish the draft, or remove them.',
-  'identity-ambiguous':
-    'two owner names differ only in capitalisation or spacing, so the app cannot tell whether that is one person or two. Make the spellings consistent.',
-};
-
 const MEMBERSHIP_SOURCE_CAPTION: Record<LeagueMembersSource, string> = {
   confirmed: 'From the confirmed owner list — a new roster has been named for this season.',
   'official-roster':
@@ -163,27 +144,27 @@ export default function InsightsDiagnosticsView({
           <p className="text-sm text-gray-500 dark:text-zinc-400">Nobody.</p>
         )}
         {/* WHY membership-change cards are or are not published. The generic
-            `gated` badge in the generator table cannot distinguish "the roster
-            isn't final yet" from "the list contradicts the roster", and those
-            need opposite responses from the operator — wait, versus fix the list.
-            `unlistedRosterOwners` names exactly who broke the check. */}
+            `gated` badge in the generator table cannot say whether the draft is
+            simply not confirmed yet — the ordinary preseason state, with nothing
+            to fix — or whether something else stopped it. Neutral emphasis, not
+            amber: DESIGN.md reserves amber/gold for champion/podium signals. */}
         <p className="mt-2 text-xs text-gray-500 dark:text-zinc-400">
           Membership changes:{' '}
-          <span className="font-medium text-gray-700 dark:text-zinc-200">
-            {model.membership.complete ? 'publishable' : 'withheld'}
-          </span>{' '}
-          — {MEMBERSHIP_COMPLETENESS_CAPTION[model.membership.completenessEvidence]}
+          {model.membership.seasonOwners ? (
+            <>
+              <span className="font-medium text-gray-700 dark:text-zinc-200">publishable</span> —{' '}
+              {model.membership.seasonOwners.year} draft confirmed, naming{' '}
+              {model.membership.seasonOwners.owners.length} owners. (Cards still need archived
+              seasons to compare against, so this is what the feed MAY say, not what it will.)
+            </>
+          ) : (
+            <>
+              <span className="font-medium text-gray-700 dark:text-zinc-200">withheld</span> — no
+              confirmed draft for this season, so who is playing is not settled. Nothing to fix; the
+              cards appear once the draft is confirmed.
+            </>
+          )}
         </p>
-        {model.membership.unrosteredMembers.length > 0 && (
-          <p className="mt-1 text-xs text-amber-700 dark:text-amber-500">
-            In the list but holds no team: {model.membership.unrosteredMembers.join(', ')}
-          </p>
-        )}
-        {model.membership.unlistedRosterOwners.length > 0 && (
-          <p className="mt-1 text-xs text-amber-700 dark:text-amber-500">
-            Holds a team but is not in the list: {model.membership.unlistedRosterOwners.join(', ')}
-          </p>
-        )}
       </section>
 
       {/* The funnel. Three numbers, in the order the feed passes through them. */}

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { buildMembershipHistory, type MembershipEvent } from '@/lib/insights/membershipHistory';
 import { membershipGenerator } from '@/lib/insights/generators/membership';
 import { generateRawInsights } from '@/lib/insights/engine';
+import { runGeneratorForDiagnostics } from '@/lib/server/insightsDiagnostics';
 import type { Insight } from '@/lib/selectors/insights';
 import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
 import type { SeasonArchive } from '@/lib/seasonArchive';
@@ -69,22 +70,19 @@ function history(
 
 function contextFor(archives: SeasonArchive[], members: string[], year?: number): InsightContext {
   const newest = Math.max(...archives.map((a) => a.year), 0);
+  const seasonYear = year ?? newest + 1;
   return {
     archives,
-    currentYear: year ?? newest + 1,
+    currentYear: seasonYear,
+    // Still set, because other generators read it — the membership generator no
+    // longer does.
     leagueMembers: new Set(members),
     leagueMembersSource: 'confirmed',
-    // Setup FINISHED, not merely known — the gate this slice needed. Individual
-    // tests override it to prove the gate bites.
     lifecycleState: 'preseason',
-    // The gate reads this, not the flag above — completeness is one resolved
-    // answer on the context (`membershipCompleteness.ts`), so fixtures state it
-    // directly rather than restating the evidence rules.
-    membershipCompleteness: {
-      complete: true,
-      evidence: 'published-roster' as const,
-      unlistedRosterOwners: [],
-    },
+    // THE input: the owner set of this season's CONFIRMED DRAFT, with the year it
+    // was confirmed for. A confirmed draft cannot be half-finished, so there is
+    // no completeness question left for a fixture to state.
+    seasonOwners: { year: seasonYear, owners: members },
   } as unknown as InsightContext;
 }
 
@@ -192,15 +190,33 @@ test('NoClaim is never an owner, joining, leaving or returning', () => {
 // Gating.
 // ---------------------------------------------------------------------------
 
-test('membership must be KNOWN or the subject is unanswerable', () => {
-  // With `previous-roster` the members ARE last season's roster, so nobody could
-  // ever be computed as joining or leaving — and anyone who merely sat a season
-  // out would be reported as departed.
-  const context = {
+test('the member LIST is not consulted at all — only the confirmed draft', () => {
+  // This replaces a test that pinned `membershipIsKnown`, which this generator no
+  // longer calls. That gate existed because `leagueMembers` walks a fallback
+  // chain, and with `previous-roster` the "members" ARE last season's roster — so
+  // nobody could be computed as joining, and anyone who sat a season out would be
+  // reported as departed.
+  //
+  // Sourcing from the confirmed draft makes that unreachable rather than guarded:
+  // there is no fallback chain to land in. Pinned from both sides, because "the
+  // generator ignores field X" is exactly the claim that rots silently.
+  const withWorstPossibleList = {
     ...contextFor([archive(2029, ['A', 'B'], ['A', 'B'])], ['A', 'C']),
+    // The worst case the old gate defended against, stated explicitly.
+    leagueMembers: new Set(['A', 'B']),
     leagueMembersSource: 'previous-roster',
   } as unknown as InsightContext;
-  assert.deepEqual(membershipGenerator.generate(context), []);
+
+  const produced = membershipGenerator.generate(withWorstPossibleList);
+  // `contextFor` confirmed a draft naming A and C, so B left and C joined —
+  // derived from the DRAFT, with a member list that says otherwise.
+  assert.deepEqual(
+    produced.map((i) => i.type).sort(),
+    ['owners_joined', 'owners_left'],
+    'the draft decides, not the list'
+  );
+  assert.ok(produced.some((i) => i.description.includes('C')));
+  assert.ok(produced.some((i) => i.description.includes('B')));
 });
 
 // ---------------------------------------------------------------------------
@@ -338,15 +354,11 @@ function servedMembership(context: InsightContext, bypassSuppression = false): I
   );
 }
 
-/** A context whose member list omits half the league and has no completion evidence. */
-function midSetupContext(roster: string[], entered: string[]): InsightContext {
+/** A season whose draft has NOT been confirmed — the withheld state. */
+function unconfirmedContext(roster: string[], entered: string[]): InsightContext {
   return {
     ...contextFor([archive(2029, roster, roster)], entered),
-    membershipCompleteness: {
-      complete: false,
-      evidence: 'roster-not-final' as const,
-      unlistedRosterOwners: [],
-    },
+    seasonOwners: null,
   } as unknown as InsightContext;
 }
 
@@ -357,7 +369,7 @@ test('a half-entered owner list publishes NOTHING', () => {
   // eight-owner league with two names entered produced a top-slot card naming six
   // real people as gone.
   const roster = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
-  assert.deepEqual(servedMembership(midSetupContext(roster, ['A', 'B'])), []);
+  assert.deepEqual(servedMembership(unconfirmedContext(roster, ['A', 'B'])), []);
 
   // POSITIVE CONTROL: the identical fixture WITH completion evidence reports, so
   // the gate is rejecting incompleteness rather than the fixture.
@@ -376,7 +388,7 @@ test('a half-entered owner list publishes NOTHING', () => {
   // `shouldSuppressGenerator` WITHOUT the bypass, so the page reports `gated`
   // either way.
   assert.deepEqual(
-    servedMembership(midSetupContext(roster, ['A', 'B']), true),
+    servedMembership(unconfirmedContext(roster, ['A', 'B']), true),
     [],
     'a query parameter must not be able to publish a claim about real people'
   );
@@ -392,7 +404,7 @@ test('THE TRANSITION does not launder an unfinished list into the season', () =>
   // in season instead of preseason: relocated, not closed.
   const roster = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'];
   const transitioned = {
-    ...midSetupContext(roster, ['A', 'B']),
+    ...unconfirmedContext(roster, ['A', 'B']),
     lifecycleState: 'early_season',
   } as unknown as InsightContext;
 
@@ -630,4 +642,65 @@ test('a member list holding BOTH spellings says nothing about either', () => {
     single.map((e) => e.kind),
     ['returned']
   );
+});
+
+test('the gate RETURNS, it does not throw — and the year comes from the draft', () => {
+  // Two mutations survived the first pass here, and both were test gaps rather
+  // than code gaps.
+  //
+  // 1. Deleting the `seasonOwners` guard did not fail anything, because the
+  //    destructure below it throws and `generateRawInsights` catches generator
+  //    exceptions into `[]`. Same output, opposite meaning: a deliberate silence
+  //    versus a crash, and the diagnostics page reports the second as `error`.
+  const withheld = unconfirmedContext(['A', 'B', 'C'], ['A', 'B']);
+  assert.doesNotThrow(() => membershipGenerator.generate(withheld));
+  assert.deepEqual(membershipGenerator.generate(withheld), []);
+
+  // 2. Every fixture had `seasonOwners.year` equal to `context.currentYear`, so
+  //    nothing distinguished the two sources. They are only equal by coincidence:
+  //    `currentYear` follows the LEAGUE, `seasonOwners.year` follows the draft
+  //    that was actually read, and `?year=` is what pulls them apart.
+  const skewed = {
+    ...contextFor([archive(2029, ['A', 'B'], ['A', 'B'])], ['A', 'C'], 2030),
+    // The league says one thing; the draft that was read says another.
+    currentYear: 2026,
+  } as unknown as InsightContext;
+
+  const produced = membershipGenerator.generate(skewed);
+  assert.ok(produced.length > 0, 'control: this fixture does produce cards');
+  for (const insight of produced) {
+    assert.ok(
+      !insight.id.includes('2026') && !insight.description.includes('2026'),
+      `the LEAGUE year must not appear — the draft's year is 2030: ${insight.description}`
+    );
+  }
+  assert.ok(
+    produced.some((i) => i.id.includes('2030')),
+    "the draft's year identifies the insight"
+  );
+});
+
+test('a withheld feed is LABELLED gated, not reported as an ordinary zero', () => {
+  // The engine's suppression entry does not enforce anything — the generator's own
+  // return does that, because `?bypassSuppression=1` lifts the engine gate and any
+  // caller can set it on a passwordless league. The entry exists purely so the
+  // diagnostics table can distinguish "withheld on purpose" from "ran and found
+  // nothing", which are the same row otherwise and want opposite responses.
+  //
+  // Pinned because deleting the entry changes no published output, so nothing else
+  // would have noticed.
+  const withheld = runGeneratorForDiagnostics(
+    membershipGenerator,
+    unconfirmedContext(['A', 'B', 'C'], ['A', 'B'])
+  );
+  assert.equal(withheld.skippedBy, 'gated');
+  assert.deepEqual(withheld.produced, []);
+
+  // POSITIVE CONTROL: a confirmed season is not gated, and does produce.
+  const live = runGeneratorForDiagnostics(
+    membershipGenerator,
+    contextFor([archive(2029, ['A', 'B', 'C'], ['A', 'B', 'C'])], ['A', 'B'])
+  );
+  assert.equal(live.skippedBy, null);
+  assert.ok(live.produced.length > 0);
 });

@@ -9,7 +9,6 @@ import { aggregateOwnerSeasonStats } from '../gameStats/ownerStats';
 import { projectAnalyticsPartition } from '../gameStats/publicProjection';
 import { MIN_CONFIRMED_OWNERS, type ConfirmedRosterSource } from '../selectors/confirmedRoster';
 import type { League } from '../league';
-import { resolveMembershipCompleteness } from './membershipCompleteness';
 import { parseOwnersCsv } from '../parseOwnersCsv';
 import type { RankingsResponse } from '../rankings';
 import type { AppGame } from '../schedule';
@@ -497,14 +496,11 @@ export async function buildInsightContext(
    */
   confirmedOwners: readonly string[] = [],
   confirmedSource: ConfirmedRosterSource = 'none',
-  /** `isDraftPublished` for this league and this season — see `membershipCompleteness.ts`. */
-  rosterIsPublished = false,
   /**
-   * The year the caller ASKED for, which is not always the league's own year:
-   * `/api/insights/{slug}?year=2024` is reachable by any caller on a passwordless
-   * league. Membership facts must not mix the two — see the guard below.
+   * Owners named by this season's CONFIRMED DRAFT, or null if none is confirmed.
+   * Passed in rather than read here so this module keeps doing no store access.
    */
-  resolvedYear: number = league.year
+  seasonOwners: { year: number; owners: string[] } | null = null
 ): Promise<InsightContext> {
   const regularWeeks = deriveRegularWeeks(games);
   const currentWeek = chooseDefaultWeek({ games, regularWeeks });
@@ -542,30 +538,6 @@ export async function buildInsightContext(
 
   // Resolved ONCE, here, so the generator and the diagnostics page cannot
   // disagree about why a feed is silent.
-  // A REQUESTED year that is not the league's own year makes every membership
-  // fact incoherent, and the mixture is silent: `leagueMembers` and
-  // `currentRoster` are read for `resolvedYear` while the league record — and so
-  // `currentYear`, which decides which archive counts as "last season" — comes
-  // from the league. `?year=2024` on a 2027 league therefore diffed the 2024
-  // roster against the 2026 archive and announced everyone who joined since as
-  // departed, in copy dated 2027. Membership is a fact about the CURRENT season
-  // only; asking about another year is a question this feature cannot answer.
-  const membershipYearIsCoherent = resolvedYear === league.year;
-
-  const membershipCompleteness = membershipYearIsCoherent
-    ? resolveMembershipCompleteness({
-        members: leagueMembers,
-        currentRoster: resolvedRoster,
-        usingArchivedRoster,
-        rosterIsPublished,
-      })
-    : {
-        complete: false,
-        evidence: 'roster-not-final' as const,
-        unlistedRosterOwners: [] as string[],
-        unrosteredMembers: [] as string[],
-      };
-
   const { ownerCareerStats } = await buildOwnerCareerStats({
     leagueSlug,
     currentYear: league.year,
@@ -586,7 +558,7 @@ export async function buildInsightContext(
     leagueSlug,
     currentYear: league.year,
     lifecycleState,
-    membershipCompleteness,
+    seasonOwners,
     seasonContext,
     currentWeek,
     currentStandings,
