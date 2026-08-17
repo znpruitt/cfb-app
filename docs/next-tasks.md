@@ -639,7 +639,7 @@ Supersedes: (none)
     - Weekly rotation boundaries must be CHOSEN. `floor(days / 7)` puts them on Thursday because the
       epoch was a Thursday — ten hours from the Thursday pulse INSIGHTS-026 plans.
 
-31. **INSIGHTS-023 — preseason breadth. PARTIALLY SHIPPED, narrowed at review** (2026-08-16).
+31. ✅ **INSIGHTS-023 — PARTIALLY COMPLETE** (PR #485, `389765fa`, 2026-08-16), narrowed at review.
     `career:points_leader` and `career:greatest_season` now run in preseason; `historical` and
     `rivalry` were reverted out when both reviewers found four unconverted superlative sites in them
     (see the INSIGHTS-030 remainder below). `career:turnover_margin` stays dark for the same reason

@@ -77,7 +77,7 @@ Rules:
   wrong:** I checked whether each generator's ALL-TIME claim spanned everyone, and never read the
   OTHER branch of the same sentence, which claims something narrower over the member-only list.
   Rather than convert four more sites inside a gate slice, those two generators were reverted.
-- Status: Implemented — PR #485 open, not merged.
+- Status: MERGED — PR #485 (`389765fa`), 2026-08-16. Three remediation rounds; narrowed at review from four gate groups to two.
 - **Also corrected here: a ledger entry claiming a fix that had been reverted.** The narrowing backed
   out gating for `drought` and `dominance_streak`, and `docs/next-tasks.md` still recorded it as
   done — dropping a known-unresolved risk. Those three participation claims (`drought`,
