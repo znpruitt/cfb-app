@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { addLeague } from '@/lib/leagueRegistry';
+import { draftScope } from '@/lib/draft';
+import { draftPicksSignature } from '@/lib/selectors/draftPublication';
 import {
   setAppState,
   __deleteAppStateFileForTests,
@@ -626,5 +628,58 @@ test('the funnel classifies against DECAYED scores, as production ranks them', (
   assert.ok(
     (late.served.find((i) => i.id === 'draft-fact')?.priorityScore ?? 74) < 74,
     'and the score the page reports is the decayed one'
+  );
+});
+
+test('the page reports a membership CONTRADICTION rather than calling it publishable', async () => {
+  // The field exists so "the generator and the diagnostics page cannot disagree
+  // about why a feed is silent" (context.ts). For one round it was resolved and
+  // then never put on the diagnostics model, so in the exact state it was added
+  // for — a list re-confirmed after the draft published — the generator returned
+  // nothing while the page said "publishable ... naming N owners" and the
+  // generator row showed a bare `gated`.
+  await seedLeagueWithHistory();
+
+  // A confirmed draft naming three owners...
+  const picks = ['Alice', 'Bob', 'Carol'].map((owner, i) => ({
+    pickNumber: i + 1,
+    round: 1,
+    roundPick: i + 1,
+    owner,
+    team: ['Georgia', 'Clemson', 'Alabama'][i]!,
+    pickedAt: '2026-08-01T00:00:00.000Z',
+    autoSelected: false,
+  }));
+  await setAppState(draftScope(SLUG), String(YEAR), {
+    leagueSlug: SLUG,
+    year: YEAR,
+    phase: 'complete',
+    owners: ['Alice', 'Bob', 'Carol'],
+    settings: { rounds: 1, timerSeconds: 60, order: ['Alice', 'Bob', 'Carol'] },
+    picks,
+    currentPickIndex: picks.length,
+    timerState: 'off',
+    timerExpiresAt: null,
+    createdAt: '2026-08-01T00:00:00.000Z',
+    updatedAt: '2026-08-01T00:00:00.000Z',
+    publishedPicks: draftPicksSignature(picks),
+  } as unknown as Parameters<typeof setAppState>[2]);
+  // ...and a confirmed owner list naming a FOURTH who never drafted.
+  await setAppState(`preseason-owners:${SLUG}`, String(YEAR), ['Alice', 'Bob', 'Carol', 'Dave']);
+
+  const model = await buildInsightsDiagnostics(SLUG, YEAR);
+
+  assert.deepEqual(
+    model.membership.membershipDisagreement,
+    ['Dave'],
+    'the page must name who the two records disagree about'
+  );
+  // Not asserting `skippedBy` here: this fixture's lifecycle skips the generator
+  // BEFORE the contradiction gate is reached, so the field reports `lifecycle`
+  // and would pin the wrong thing. The `gated` labelling is covered directly, on
+  // a lifecycle that runs, in `membership.test.ts`.
+  assert.ok(
+    model.membership.seasonOwners,
+    'control: a confirmed draft IS present, so this is the contradiction case and not the ordinary withheld one'
   );
 });

@@ -150,7 +150,16 @@ export default function InsightsDiagnosticsView({
             amber: DESIGN.md reserves amber/gold for champion/podium signals. */}
         <p className="mt-2 text-xs text-gray-500 dark:text-zinc-400">
           Membership changes:{' '}
-          {model.membership.seasonOwners ? (
+          {model.membership.membershipDisagreement.length > 0 ? (
+            <>
+              <span className="font-medium text-gray-700 dark:text-zinc-200">withheld</span> — the
+              owner list and the confirmed draft name different people:{' '}
+              {model.membership.membershipDisagreement.join(', ')}{' '}
+              {model.membership.membershipDisagreement.length === 1 ? 'is' : 'are'} in the list but
+              did not draft. Nothing is published while the two disagree, because anyone the draft
+              never named would otherwise be reported as having LEFT.
+            </>
+          ) : model.membership.seasonOwners ? (
             <>
               <span className="font-medium text-gray-700 dark:text-zinc-200">publishable</span> —{' '}
               {model.membership.seasonOwners.year} draft confirmed, naming{' '}

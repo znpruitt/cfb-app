@@ -1247,104 +1247,13 @@ Supersedes: (none)
     trigger, if one is wanted, is **Setup Complete** — which means teams are actually assigned.
     For TSC the claim would have a real subject: one brand-new owner, who otherwise gets no content.
 
-41. ✅ **Membership CHANGES as content — SHIPPED as INSIGHTS-025** (2026-08-17). Joined, returned and left, all derived from the archives. Arrivals and departures grouped; returners grouped only when there is more than one, so a single returner keeps the copy that names the year they last played. `MAX_NAMED_DEPARTURES` caps the PLACEMENT list at three — not the names, which are always all listed. An earlier version of this line claimed "capped at three named" and was wrong about the code it described.
-
-    **v2 reconstruction (same branch, after review).** v1's safety gate was
-    `lifecycleState === 'preseason' && !preseasonSetupComplete`, and both reviewers broke it the same
-    way: `setupComplete` exists only on the preseason variant of `LeagueStatus`, and
-    `completeSeasonTransition` advances a league on state and year alone, so the transition DELETES
-    the field and the gate stops applying. Driven at the HTTP surface against both commits on one
-    seed, the pre-reconstruction code served "Heidi, Grace, Frank, Erin, Dave, and Carol have left the
-    league" for an unfinished league in `early_season`; the reconstruction is silent there and still
-    reports for a league whose roster corroborates its list. Rather than patch that edge, three
-    guards were replaced by one lifecycle-independent authority
-    (`src/lib/insights/membershipCompleteness.ts`) that requires POSITIVE evidence of completeness,
-    and owner identity was normalized once in `buildMembershipHistory` — which closed a second hole
-    in the same shape, a case-drifted RETURNER announced as a new owner because the old special case
-    only covered the joined∩left overlap. Also in v2: an empty newest archive no longer announces the
-    whole league as joining, the gate moved into `shouldSuppressGenerator` so `?bypassSuppression=1`
-    can show what production withheld, `completeSetup` now invalidates the insights cache, and two
-    comment claims that were measurably wrong (the engine's priority ceiling; "same contract" as
-    `positionOf`) were corrected. Binding rule recorded in AGENTS.md invariant 5.
-
-    **v3 reconstruction (same branch, second review).** v2's authority was itself wrong, in both of its
-    rules, and review reproduced both end to end. Its `setupComplete` branch returned complete while
-    DISCARDING the contradiction it had just computed, so an owner holding a team but dropped from a
-    re-confirmed list was published as departed; and "the roster corroborates the list" is satisfied by
-    a two-row roster against a two-name list, which is the ordinary mid-setup state — the very
-    six-departures card the module exists to prevent. Two of my own tests pinned those as correct.
-    **Owner ruling, 2026-08-17: "a confirmed draft should be the gate to report results on who
-    joined/left."** So the evidence is that THIS SEASON'S DRAFT IS PUBLISHED (`isDraftPublished` — durable,
-    year-scoped, and untouched by the transition), with the contradiction check mandatory rather than a
-    fallback. Probed at the HTTP surface across three seeded leagues: unfinished → silent,
-    partial-list-and-partial-roster → silent, published → reports; and a published league whose roster
-    names an owner the list omits → silent. Also in v3: owner identity is kept RAW (v2 keyed its maps
-    by the normalized name, which merged two owners the app treats as distinct and could attach one's
-    placement to the other — AGENTS.md invariant 11 records that mapping as deferred), with drift now
-    handled by refusing to speak about any identity two spellings share; a foreign `?year=` no longer
-    diffs one year's roster against another year's archive; the completeness evidence is rendered on
-    the diagnostics page; and the `membership-` id prefix, which exempts insights from a binding
-    participant check, is now enforced by a test.
-
-    **v4 (third review round).** Two HIGHs and seven smaller findings. The gate had been moved into
-    `shouldSuppressGenerator` at the previous round's request, so that AGENTS.md's bypassable-skip
-    rule was satisfied — but `?bypassSuppression=1` is read off the query string and
-    `isAuthorizedForLeague` returns true for any caller on a passwordless league, so that URL
-    published the withheld card to anyone. Verified against both commits on one seed: `775fee19`
-    returns "Heidi, Grace, Frank, Erin, Dave, and Carol have left the league" for
-    `?bypassSuppression=1`; this commit returns nothing, on that and on
-    `?year=2024&bypassSuppression=1`. The relocation's stated benefit was also imaginary —
-    `runGeneratorForDiagnostics` calls `shouldSuppressGenerator` WITHOUT the bypass, so the page
-    reported `gated` either way. The check is now duplicated deliberately: the suppression entry
-    LABELS, the in-generator return ENFORCES. (`?bypassSuppression=1` lacking an admin gate at all is
-    item 47.) Also: the roster/list match became TWO-WAY, because publication is a past event —
-    publishing an A/B draft then re-confirming A/B/C left the publication valid while C was announced
-    as joining, and a blanked roster passed the same way since an empty set is contained in
-    everything; identity ambiguity now fails closed WITH a named diagnostics reason, resolving two
-    review rounds that pulled opposite ways on normalized-vs-raw comparison; `reset` and `unpick`
-    retract publication and now invalidate standings, as does `autoCompleteDraft` which establishes
-    it; the draft read no longer swallows a store failure into "unpublished" and caches it; the
-    `completeSetup` invalidation added in v2 was REVERTED along with the test asserting its
-    now-false rationale; `preseasonSetupComplete` was deleted as dead; and both shared test helpers
-    were hardcoding `membershipCompleteness`, so a future test of the gate would have passed
-    vacuously — fixed and pinned with anti-vacuity tests.
-
-    **v5 — the simplification, on the owner's challenge: "how is 'draft was confirmed' not a simple
-    answer?"** It is. Four review rounds and five HIGH/P1 findings were all one question — is
-    `context.leagueMembers` complete? — and every proof of that could be true while the fact was
-    false. The confirmed DRAFT enumerates who played, cannot be half-finished, and is durable and
-    year-scoped, so it needs no proof. Membership for a season is now the owner set of that season's
-    confirmed draft (`seasonOwnersFrom`, from the PUBLISHED picks), and departures are the plain set
-    difference against the previous year's archive, per the owner's follow-up: "a simple compare
-    between the confirmed roster and the previous year's owners." `membershipCompleteness.ts` and its
-    tests are DELETED; the slice is 504 lines smaller than v4. The year now travels with the owners,
-    so the `?year=` incoherence is unrepresentable rather than guarded. Probed across three seeded
-    leagues: no draft → silent; confirmed → names the two owners who genuinely did not draft; and a
-    league whose roster CSV was overwritten by a supported `?override=1` repair AFTER publication →
-    still correct, where `960083cf` published "Heidi, Grace, Frank, Erin, Dave, and Carol have left
-    the league". That last case was Codex's P1 and it is closed by construction, not by a check.
-
-    **v6 (fifth review round).** One MEDIUM and six LOWs, and the MEDIUM partially reverses a v5
-    claim. v5 said the confirmed draft's owner set IS the league "with nothing left to verify" and
-    deleted the cross-check against `leagueMembers`. But `confirmPreseasonOwners` carries NO draft
-    guard — unlike `setAssignmentMethod` beside it — so a commissioner can re-confirm an eight-name
-    list after a seven-owner draft published: `seasonOwners` stays frozen, `leagueMembers` moves, and
-    the eighth owner is computed as having LEFT beside cards naming them an active owner, promptly,
-    because that action invalidates standings. The draft remains the authority; what was missing is
-    that a CONTRADICTION should silence the feature. `context.membershipDisagreement` restores that
-    without restoring a completeness proof, and AGENTS.md now states the distinction.
-
-    Three findings (Codex P2, plus two from `/code-review`) were one bug: invalidate when
-    `isDraftPublished` CHANGES, not when a route runs. v5 covered retraction and missed restoration —
-    unpick then re-pick the same team restores the retained signature, and `PUT {phase:'complete'}`
-    after a reopen does the same, neither invalidating; meanwhile every Undo press on a LIVE draft
-    was cold-starting the entire insights build for a flag that never moved. All five writers now
-    capture the flag before and after. Writing that test is what caught the fix landing in the wrong
-    file — `pick/[n]` (edit) rather than `pick` (live). Also: `autoCompleteDraft` still used the raw
-    `invalidateStandings` this branch had extracted a safe wrapper for; invariant 5 stated two
-    conditions the code no longer implements, with a reachable divergence; and two stale comment
-    blocks (one duplicated and garbled by a scripted edit, one still naming `setupComplete`) were
-    corrected.
+41. ✅ **Membership CHANGES as content — SHIPPED as INSIGHTS-025** (2026-08-17). Who joined, who
+    returned and who left, derived at request time from the archives and the season's CONFIRMED
+    DRAFT. Gate: `context.seasonOwners` — owner ruling, "a confirmed draft should be the gate to
+    report results on who joined/left." The execution record (six reconstructions, review rounds,
+    verification) lives in `docs/prompt-registry.md` → INSIGHTS-025, per **Ledger ownership during
+    closeout**; this entry had accumulated ~100 lines of exactly the narrative that section forbids
+    here. Remaining follow-up: item 51(a), the second evidence source for manual-assignment leagues.
 
     Original entry follows.
 
@@ -1592,7 +1501,8 @@ Supersedes: (none)
 
     (a) **OWNER RULING, 2026-08-17: "'complete setup' should be the fallback gate — that way a
     commissioner assigned team roster still has full insight access."** INSIGHTS-025 gates
-    membership-change content on a PUBLISHED DRAFT (`membershipCompleteness.ts`), which a manual
+    membership-change content on a PUBLISHED DRAFT (`context.seasonOwners`, derived in
+    `loadInsights.ts`), which a manual
     league never has, so such a league publishes no joined/returned/left cards. The ruling is
     accepted and the second evidence source belongs in that authority — but it cannot be added yet,
     because setup completion is unreachable for manual leagues, so the branch would be provably

@@ -135,7 +135,7 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  * "INSIGHTS-022" while the value already read `insights030`, which is the same
  * class of drift the constant exists to prevent.
  */
-const INSIGHT_COPY_POLICY_VERSION = 'insights025-membership-changes-v6';
+const INSIGHT_COPY_POLICY_VERSION = 'insights025-membership-changes-v7';
 
 /**
  * Membership policy version (INSIGHTS-023a). Same shape and same reason as the

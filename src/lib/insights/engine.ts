@@ -54,7 +54,16 @@ export function getRegisteredGenerators(): readonly InsightGenerator[] {
  *
  * Sorted so the hash is a function of the SET, not of import order in
  * `generators/index.ts` — reordering those imports changes nothing observable
- * and must not cold-start every league. The count is carried alongside the hash
+ * and must not cold-start every league.
+ *
+ * That claim was ASPIRATIONAL until INSIGHTS-025 v7. `selectServedInsights` sorted
+ * on `priorityScore` alone, and JavaScript's sort is stable, so registration order
+ * silently broke ties — reordering imports changed which cards appear and which
+ * survive the cap, while this fingerprint deliberately held still. Production
+ * would have kept serving the old tie order from a warm entry while the uncached
+ * diagnostics page showed the new one. Fixed by making the tie-break explicit
+ * (`id` ascending) rather than by folding import order into the key: the point is
+ * that order genuinely does not matter, not that the cache tracks it. The count is carried alongside the hash
  * because 32 bits is narrow: a collision here means a stale pool survives, and
  * requiring the count to match as well costs nothing. Same FNV-1a construction
  * as `ALIAS_OVERRIDES_HASH`, which sits beside it in the key.
@@ -215,7 +224,9 @@ export async function applySuppression(
  * which the pool question gets settled and the retirement can be made properly.
  */
 export function selectServedInsights(rawInsights: Insight[]): Insight[] {
-  return [...rawInsights].sort((a, b) => b.priorityScore - a.priorityScore).slice(0, MAX_INSIGHTS);
+  return [...rawInsights]
+    .sort((a, b) => b.priorityScore - a.priorityScore || a.id.localeCompare(b.id))
+    .slice(0, MAX_INSIGHTS);
 }
 
 /**

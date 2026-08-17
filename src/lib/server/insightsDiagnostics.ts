@@ -152,6 +152,8 @@ export type InsightsDiagnostics = {
     source: LeagueMembersSource;
     /** Owners named by this season's confirmed draft, or null if none is confirmed. */
     seasonOwners: { year: number; owners: string[] } | null;
+    /** Members the draft never named — a contradiction that withholds everything. */
+    membershipDisagreement: string[];
   };
   generators: DiagnosticGenerator[];
   insights: DiagnosticInsight[];
@@ -270,6 +272,7 @@ export async function buildInsightsDiagnostics(
         owners: [],
         source: 'none',
         seasonOwners: null,
+        membershipDisagreement: [],
       },
       generators: [],
       insights: [],
@@ -340,6 +343,7 @@ export async function buildInsightsDiagnostics(
       // CHANGE cards speak from — reported because that silence is otherwise
       // indistinguishable from a generator that found nothing to say.
       seasonOwners: context.seasonOwners,
+      membershipDisagreement: context.membershipDisagreement,
     },
     generators: perGenerator
       .map(({ generator, produced, skippedBy }) => ({

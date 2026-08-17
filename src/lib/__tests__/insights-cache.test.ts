@@ -5,6 +5,7 @@ import {
   applySuppression,
   clearGenerators,
   fingerprintGeneratorSet,
+  selectServedInsights,
   generateRawInsights,
   getRegisteredGenerators,
   registerGenerator,
@@ -44,7 +45,7 @@ test('insights cache key includes slug, year, the seed-alias hash, and the overr
     // "Returning owner" prefix and widening the rookie card's lifecycle are
     // policy changes that touch no standings input, so no tag fires and warm
     // entries would otherwise keep serving retracted copy until the TTL lapsed.
-    'copy:insights025-membership-changes-v6',
+    'copy:insights025-membership-changes-v7',
     // INSIGHTS-023a — membership is part of cache IDENTITY for the same reason.
     // Membership now comes from the league's roster/confirmed list instead of
     // being reconstructed from the team→owner map, so a warm entry computed
@@ -230,5 +231,29 @@ test('applySuppression scopes records by league and season', async () => {
   assert.deepEqual(
     (await applySuppression(raw, 'tsc', 2025)).map((i) => i.id),
     ['x']
+  );
+});
+
+test('served ordering does not depend on generator registration order', () => {
+  // The property `fingerprintGeneratorSet` asserts by ignoring import order, made
+  // true rather than assumed. `Array.prototype.sort` is stable, so before the
+  // explicit tie-break the ORDER GENERATORS REGISTERED IN decided ties — meaning
+  // reordering `generators/index.ts` changed which cards survived the cap while
+  // the cache key deliberately held still.
+  const mk = (id: string, priorityScore: number) =>
+    ({ id, priorityScore, type: 't', title: id, description: id }) as unknown as Insight;
+
+  const registeredOneWay = [mk('bravo', 50), mk('alpha', 50), mk('charlie', 90)];
+  const registeredTheOther = [mk('alpha', 50), mk('bravo', 50), mk('charlie', 90)];
+
+  assert.deepEqual(
+    selectServedInsights(registeredOneWay).map((i) => i.id),
+    selectServedInsights(registeredTheOther).map((i) => i.id),
+    'the same set in a different registration order must serve identically'
+  );
+  // And the order is the one a reader can predict.
+  assert.deepEqual(
+    selectServedInsights(registeredOneWay).map((i) => i.id),
+    ['charlie', 'alpha', 'bravo']
   );
 });

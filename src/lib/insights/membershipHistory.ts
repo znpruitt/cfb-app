@@ -17,8 +17,9 @@ import type { SeasonArchive } from '../seasonArchive';
  * one — true until INSIGHTS-023a put the confirmed owner list on the context, and
  * INSIGHTS-023 established (owner ruling) that a confirmed list is finalized
  * enough to speak from. This is the feature that clause was waiting for.
- * Whether that list is FINISHED is a separate question, answered by
- * `membershipCompleteness.ts` before this module is called.
+ * Whether the list can be trusted at all is a separate question, answered before
+ * this module is called: `generators/membership.ts` speaks only from
+ * `context.seasonOwners` — the owner set of a CONFIRMED DRAFT.
  *
  * ## Owner identity is normalized ONCE, here
  *
