@@ -187,20 +187,25 @@ environment; `npm i -g vercel` if a command-line path is wanted.
   a build that had no such field. Both prerequisites therefore hold: the deployment is Git-created and
   the runtime supplies `VERCEL_GIT_COMMIT_SHA`.
 
-  **The BINDING question is still open, and this is why.** At that moment the promoted build was also
-  the newest build, so "crons follow the promoted deployment" and "crons follow the newest production
-  build" predict the same SHA. The two only separate once a build exists that is newer than the
-  promoted one.
+  **ANSWERED, 2026-08-18 04:00 UTC: crons follow the PROMOTED deployment.**
 
-  **The test, now set up:** the commit that added this paragraph was pushed to `main` and deliberately
-  NOT promoted. So after the next `live-scores` tick, read `Built from` on System Health:
+  The test: `6bf38538` was pushed to `main` and deliberately not promoted, giving two Ready
+  production builds — `43f0eed6` serving the domains, `6bf38538` newer and idle. The `live-scores`
+  tick at 04:00 reported `Built from: 43f0eed6`. Two earlier ticks were discarded as inconclusive:
+  03:51 predated the promotion, and 03:57 fired fifteen seconds before the newer build was even
+  created, so in both cases only one Ready build existed and the hypotheses could not separate.
 
-  | Reads | Meaning |
-  | --- | --- |
-  | `43f0eed6…` (the PROMOTED build) | Crons follow the promoted deployment. The isolation holds; an unpromoted merge cannot change lifecycle behaviour. |
-  | this commit's SHA (the NEWER build) | Crons follow the newest production build. An unpromoted merge CAN move season state, and that is a real exposure. |
+  This matches Vercel's documented behaviour — a cron is triggered by an HTTP request to the
+  project's production deployment URL, which with `Auto-assign Custom Production Domains` disabled
+  resolves to the promoted deployment.
 
-  Record the answer here once observed.
+  **The consequence, and it is the reassuring one:** an unpromoted merge CANNOT change lifecycle
+  behaviour. `season-transition` and `season-rollover` execute the promoted build, so `main` can
+  accumulate work — including changes to those very routes — without any of it running until
+  promotion. Merging is genuinely safe; shipping is the deliberate act.
+
+  Recorded from ONE clean observation rather than a series. If a future reading contradicts it, trust
+  the reading and correct this paragraph.
 
 ### Consequence for the documentation ledgers
 
