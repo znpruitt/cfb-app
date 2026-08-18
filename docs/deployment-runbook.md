@@ -213,6 +213,42 @@ A slice is not "in production" at merge. `docs/next-tasks.md` and `docs/prompt-r
 MERGE status; anything asserting production behaviour (activation checkpoints in §8e-§8j, and any
 "PRODUCTION-ACTIVE" claim) now additionally requires that the deployment carrying it was promoted.
 
+## 6d) Docs-only commits do not build
+
+**`vercel.json` → `ignoreCommand`**, added 2026-08-18. Kept in version control rather than the
+dashboard's Ignored Build Step field so it is reviewable and travels with the repo.
+
+```sh
+files=$(git diff --name-only HEAD^ HEAD) || exit 1;
+[ -z "$files" ] && exit 1;
+echo "$files" | grep -qvE "^docs/|\.md$" && exit 1;
+exit 0
+```
+
+**The exit codes are inverted from intuition: 0 SKIPS the build, 1 continues it.** Getting that
+backwards would silently stop deploying real code, which is the single worst failure this repo can
+have — a merge that produces no build is exactly the confusion that cost an hour on 2026-08-17.
+
+So every branch FAILS SAFE toward building:
+
+| Situation | Result |
+| --- | --- |
+| `git diff` errors (shallow clone, no parent) | BUILD |
+| No files changed (an empty trigger commit) | BUILD |
+| Any changed file outside `docs/` and `*.md` | BUILD |
+| Every changed file is `docs/` or `*.md` | skip |
+
+Verified before shipping against real commits — `de58cc27`, `ebcef626` (docs) skip; `873fa2da`,
+`8585d844`, `43f0eed6` (code, a merge, and an empty commit) build. Nothing in `src/` reads a markdown
+file at runtime, so a skipped docs commit cannot change application behaviour.
+
+**What this does NOT do.** A skipped build still creates a deployment record, marked `Canceled`, and
+Vercel counts it toward deployment quotas and concurrent build slots. It saves build minutes and
+noise, not deployment entries.
+
+**If a docs commit ever needs to deploy anyway** — say the ignore rule itself is wrong — an empty
+commit forces it, because a commit with no changed files falls through to BUILD.
+
 ## 6c) Preview reads a CHILD BRANCH of the database, not production
 
 **Deliberate, owner-confirmed 2026-08-17.** Vercel/Neon is allowed to spin off child branches of the
