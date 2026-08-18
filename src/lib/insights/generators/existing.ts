@@ -1,6 +1,6 @@
 import {
   deriveChampionMarginInsight,
-  deriveFailedChaseInsight,
+  deriveClosingChaseInsight,
   deriveFinalCollapseInsight,
   deriveMovementInsights,
   deriveRecentSurgeInsight,
@@ -13,7 +13,6 @@ import { selectResolvedStandingsWeeks } from '../../selectors/historyResolution'
 import type { OwnerStandingsRow } from '../../standings';
 import type { StandingsHistory } from '../../standingsHistory';
 import { registerGenerator } from '../engine';
-import { applyLastSeasonFraming } from '../framing';
 import type { InsightContext, InsightGenerator, LifecycleState } from '../types';
 
 const TRAJECTORY_LIFECYCLES: LifecycleState[] = ['early_season', 'mid_season', 'late_season'];
@@ -155,67 +154,69 @@ export const seasonWrapGenerator: InsightGenerator = {
     if (!source) return [];
     const { rows, standingsHistory } = source;
     if (!seasonWasPlayed(rows)) return [];
+
+    // The season these cards describe. On the archive path it is the archived
+    // year; otherwise the current one, which in `postseason` and
+    // `fresh_offseason` IS the season that just finished.
+    //
+    // Passing it is what switches every card to completed-season copy, and the
+    // titles then STATE the year: "How 2025 finished", "Who owns the porcelain
+    // throne in 2025?". That replaces `applyLastSeasonFraming` here — owner
+    // ruling, 2026-08-18, "it's clear and leaves no ambiguity about the year
+    // being referenced". A stated year is also stronger framing than a relative
+    // prefix: it survives being read out of context, which matters because
+    // AGENTS.md Insights invariant 5 exempts these cards from the departed-owner
+    // rule only while their framing is unambiguous.
+    const completedSeason = source.archivedYear ?? context.currentYear;
     const insights: Insight[] = [];
 
-    const championMargin = deriveChampionMarginInsight(rows);
+    const championMargin = deriveChampionMarginInsight(rows, completedSeason);
     if (championMargin) insights.push(championMargin);
-
-    const failedChase = deriveFailedChaseInsight(rows);
-    if (failedChase) insights.push(failedChase);
 
     if (standingsHistory) {
       const { resolvedWeeks } = selectResolvedStandingsWeeks(standingsHistory);
       if (resolvedWeeks.length > 0) {
-        const collapse = deriveFinalCollapseInsight({ standingsHistory, resolvedWeeks, rows });
+        const chase = deriveClosingChaseInsight({
+          standingsHistory,
+          resolvedWeeks,
+          rows,
+          completedSeason,
+        });
+        if (chase) insights.push(chase);
+
+        const collapse = deriveFinalCollapseInsight({
+          standingsHistory,
+          resolvedWeeks,
+          rows,
+          completedSeason,
+        });
         if (collapse) insights.push(collapse);
 
-        const toiletBowl = deriveToiletBowlInsight({ standingsHistory, resolvedWeeks });
+        const toiletBowl = deriveToiletBowlInsight({
+          standingsHistory,
+          resolvedWeeks,
+          completedSeason,
+        });
         if (toiletBowl) insights.push(toiletBowl);
       }
     }
 
-    // Two different ways this generator ends up describing the prior season, and
-    // BOTH have to be framed or the title reads as a current-year claim:
-    //
-    //  - the rollover window (current CSV empty, archived roster borrowed), and
-    //  - preseason, where the source above is the archive by construction.
-    //
-    // Preseason is the one that cannot rely on `usingArchivedRoster`: once the
-    // draft is confirmed the current roster exists, the flag goes false, and the
-    // unframed title "Toilet bowl leader" would sit on the Overview of a season
-    // whose first game has not kicked off.
     // A finished season is the headline while it is the most recent thing that
     // happened, and background once the next one is being set up. The generator
     // DECLARES that policy and never applies it — a decayed score computed
     // inside the cache freezes at whatever lifecycle warmed the entry.
-    const recap = insights.map((insight) => ({ ...insight, decay: 'season_recap' as const }));
-
-    // Two different ways this generator ends up describing the prior season, and
-    // BOTH have to be framed or the title reads as a current-year claim:
-    //
-    //  - the rollover window (current CSV empty, archived roster borrowed), and
-    //  - preseason, where the source above is the archive by construction.
-    //
-    // Preseason is the one that cannot rely on `usingArchivedRoster`: once the
-    // draft is confirmed the current roster exists, the flag goes false, and the
-    // unframed title "Toilet bowl leader" would sit on the Overview of a season
-    // whose first game has not kicked off.
     //
     // NOTE — these cards are deliberately NOT filtered by current membership,
     // and that is a decision rather than an omission. An earlier revision
     // withheld any card naming a departed owner, which made the whole recap dark
     // until owners were confirmed and silently deleted the champion card
     // whenever last season's champion did not come back. AGENTS.md Insights
-    // invariant 5 clause (b) governs instead: a framed report of a COMPLETED
-    // season states historical fact and asserts nothing about who is playing, so
-    // it is already safe and must not be given a membership gate. Owner ruling,
-    // 2026-08-18. The INSIGHTS-025 rule that a departed owner is named only by
-    // the membership event still binds every generator whose claim is about the
-    // CURRENT season.
-    if (source.archivedYear !== null || context.usingArchivedRoster) {
-      return recap.map(applyLastSeasonFraming);
-    }
-    return recap;
+    // invariant 5 clause (b) governs instead: a report of a COMPLETED season
+    // states historical fact and asserts nothing about who is playing. Owner
+    // ruling, 2026-08-18. The INSIGHTS-025 rule that a departed owner is named
+    // only by the membership event still binds every generator whose claim is
+    // about the CURRENT season.
+    return insights.map((insight) => ({ ...insight, decay: 'season_recap' as const }));
   },
 };
 

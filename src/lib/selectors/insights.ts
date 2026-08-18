@@ -324,8 +324,9 @@ export function deriveMovementInsights(args: {
 export function deriveToiletBowlInsight(args: {
   standingsHistory: StandingsHistory;
   resolvedWeeks: number[];
+  completedSeason?: number;
 }): Insight | null {
-  const { standingsHistory, resolvedWeeks } = args;
+  const { standingsHistory, resolvedWeeks, completedSeason } = args;
   if (resolvedWeeks.length === 0) return null;
 
   const finishesByOwner = new Map<string, number>();
@@ -348,8 +349,12 @@ export function deriveToiletBowlInsight(args: {
   return toInsight({
     id: `toilet-bowl-${ownerSlug(owner)}`,
     type: 'toilet_bowl',
-    title: 'Toilet bowl leader',
-    description: `${owner} recorded ${lastPlaceCount} last-place week${lastPlaceCount === 1 ? '' : 's'}.`,
+    title: completedSeason
+      ? `Who owns the porcelain throne in ${completedSeason}?`
+      : 'Toilet bowl leader',
+    description: completedSeason
+      ? `${owner} captured the toilet bowl ${lastPlaceCount} time${lastPlaceCount === 1 ? '' : 's'}.`
+      : `${owner} recorded ${lastPlaceCount} last-place week${lastPlaceCount === 1 ? '' : 's'}.`,
     owner,
     priorityScore: 50 + lastPlaceCount * 6,
     navigationTarget: 'trends',
@@ -477,7 +482,10 @@ export function deriveRecentSurgeInsight(args: {
   });
 }
 
-export function deriveChampionMarginInsight(rows: OwnerStandingsRow[]): Insight | null {
+export function deriveChampionMarginInsight(
+  rows: OwnerStandingsRow[],
+  completedSeason?: number
+): Insight | null {
   if (rows.length < 2) return null;
   const leader = rows[0];
   const runnerUp = rows[1];
@@ -493,11 +501,14 @@ export function deriveChampionMarginInsight(rows: OwnerStandingsRow[]): Insight 
   const margin = runnerUp.gamesBack;
   const variant =
     margin <= 1 ? 'tight finish' : margin <= 3 ? 'comfortable margin' : 'dominant season';
+  const games = `${margin} game${margin === 1 ? '' : 's'}`;
   return toInsight({
     id: `champion-margin-${ownerSlug(leader.owner)}-${ownerSlug(runnerUp.owner)}`,
     type: 'champion_margin',
-    title: 'Champion margin',
-    description: `Title secured by ${leader.owner} over ${runnerUp.owner} by ${margin} game${margin === 1 ? '' : 's'} (${variant}).`,
+    title: completedSeason ? `How ${completedSeason} finished` : 'Champion margin',
+    description: completedSeason
+      ? `${leader.owner} took it by ${games} over ${runnerUp.owner}.`
+      : `Title secured by ${leader.owner} over ${runnerUp.owner} by ${games} (${variant}).`,
     owner: leader.owner,
     relatedOwners: [runnerUp.owner],
     priorityScore: 125 + margin * 4,
@@ -509,39 +520,89 @@ export function deriveChampionMarginInsight(rows: OwnerStandingsRow[]): Insight 
   });
 }
 
-export function deriveFailedChaseInsight(rows: OwnerStandingsRow[]): Insight | null {
-  if (rows.length < 2) return null;
+/**
+ * INSIGHTS-032 — who was actually CLOSING, not merely who placed second.
+ *
+ * The previous derivation read the final table alone: it took the best record
+ * among rows 2-4 that finished at least two back. That is a FINISHING-POSITION
+ * fact wearing a chase's name — it can only restate the champion card from the
+ * other side, and it is structurally blind to the thing that makes a chase worth
+ * reporting. An owner who trailed by eight in October and closed to two by the
+ * end never scored differently from one who sat two back all year.
+ *
+ * Owner ruling (2026-08-18): "it's more interesting when framed as a look at the
+ * slope of the games-back line to see if anyone was actively closing the gap to
+ * the leader but came up short."
+ *
+ * So this reads the SLOPE. `standingsHistory.byOwner[owner]` carries `gamesBack`
+ * per week, so the ground an owner made up over the final stretch is the
+ * difference between the baseline week and the last one. Two conditions make it
+ * a chase rather than a finish: ground was actually gained
+ * (`MIN_CHASE_GAIN`), and the owner still ended behind — a chase that SUCCEEDS
+ * is the champion, and that story already has a card.
+ */
+const MIN_CHASE_GAIN = 2;
+
+export function deriveClosingChaseInsight(args: {
+  standingsHistory: StandingsHistory;
+  resolvedWeeks: number[];
+  rows: OwnerStandingsRow[];
+  completedSeason?: number;
+}): Insight | null {
+  const { standingsHistory, resolvedWeeks, rows, completedSeason } = args;
+  if (resolvedWeeks.length < 3 || rows.length < 2) return null;
+
+  const latestWeek = resolvedWeeks[resolvedWeeks.length - 1]!;
+  const baselineWeek = resolvedWeeks[Math.max(0, resolvedWeeks.length - FINAL_WEEKS_WINDOW)]!;
+  if (baselineWeek === latestWeek) return null;
+
   const leader = rows[0];
   if (!leader || !canUseReferenceOwner(leader.owner)) return null;
 
-  const candidates = rows
-    .slice(1, 4)
+  const chases = rows
+    .slice(1)
     .filter((row) => isNarrativeEligibleOwner(row.owner))
-    .filter((row) => row.gamesBack >= 2)
-    .filter((row) => row.wins >= Math.max(2, leader.wins - 2));
+    .map((row) => {
+      const series = standingsHistory.byOwner[row.owner];
+      const start = series?.find((point) => point.week === baselineWeek);
+      const end = series?.find((point) => point.week === latestWeek);
+      if (!start || !end) return null;
+      return {
+        owner: row.owner,
+        closed: start.gamesBack - end.gamesBack,
+        finishedBack: end.gamesBack,
+      };
+    })
+    .filter((entry): entry is { owner: string; closed: number; finishedBack: number } =>
+      Boolean(entry && entry.closed >= MIN_CHASE_GAIN && entry.finishedBack > 0)
+    );
 
-  candidates.sort((left, right) => {
-    if (right.wins !== left.wins) return right.wins - left.wins;
-    if (left.gamesBack !== right.gamesBack) return left.gamesBack - right.gamesBack;
+  chases.sort((left, right) => {
+    if (right.closed !== left.closed) return right.closed - left.closed;
+    if (left.finishedBack !== right.finishedBack) return left.finishedBack - right.finishedBack;
     return left.owner.localeCompare(right.owner);
   });
 
-  const top = candidates[0];
+  const top = chases[0];
   if (!top) return null;
 
+  const weeks = latestWeek - baselineWeek;
+  const gained = `${top.closed} game${top.closed === 1 ? '' : 's'}`;
+  const short = `${top.finishedBack} game${top.finishedBack === 1 ? '' : 's'}`;
   return toInsight({
-    id: `failed-chase-${ownerSlug(top.owner)}-${ownerSlug(leader.owner)}`,
+    id: `closing-chase-${ownerSlug(top.owner)}-wk${latestWeek}`,
     type: 'failed_chase',
-    title: 'Failed chase',
-    description: `Despite ${top.wins} wins, ${top.owner} couldn't close the gap to ${leader.owner}.`,
+    title: completedSeason ? `Who was closing in ${completedSeason}?` : 'Closing the gap',
+    description: `${top.owner} cut ${gained} off ${leader.owner}'s lead over the final ${weeks} weeks and still finished ${short} back.`,
     owner: top.owner,
     relatedOwners: [leader.owner],
-    priorityScore: 108 + top.wins * 2 + Math.round(top.gamesBack * 2),
-    navigationTarget: 'standings',
+    priorityScore: 104 + top.closed * 5,
+    week: latestWeek,
+    navigationTarget: 'trends',
     category: 'season_wrap',
     lifecycle: SEASON_WRAP_LIFECYCLES,
     newsHook: 'narrowing_gap',
-    statValue: Math.round(top.gamesBack),
+    statValue: top.closed,
   });
 }
 
@@ -549,8 +610,9 @@ export function deriveFinalCollapseInsight(args: {
   standingsHistory: StandingsHistory;
   resolvedWeeks: number[];
   rows: OwnerStandingsRow[];
+  completedSeason?: number;
 }): Insight | null {
-  const { standingsHistory, resolvedWeeks, rows } = args;
+  const { standingsHistory, resolvedWeeks, rows, completedSeason } = args;
   if (resolvedWeeks.length < 3 || rows.length === 0) return null;
 
   const latestWeek = resolvedWeeks[resolvedWeeks.length - 1]!;
@@ -585,8 +647,12 @@ export function deriveFinalCollapseInsight(args: {
   return toInsight({
     id: `final-collapse-${ownerSlug(top.owner)}-wk${latestWeek}`,
     type: 'collapse',
-    title: 'Late collapse',
-    description: `${top.owner} dropped ${top.dropSpots} spots over the final ${weeks} weeks.`,
+    title: completedSeason
+      ? `How ${completedSeason} slipped away for ${top.owner}`
+      : 'Late collapse',
+    description: completedSeason
+      ? `Dropped ${top.dropSpots} spots over the final ${weeks} weeks.`
+      : `${top.owner} dropped ${top.dropSpots} spots over the final ${weeks} weeks.`,
     owner: top.owner,
     priorityScore: 100 + top.dropSpots * 7,
     week: latestWeek,
@@ -679,7 +745,6 @@ export function deriveLeagueInsights(args: {
 
   if (seasonContext === 'final') {
     pushInsightUnique(insights, seenIds, deriveChampionMarginInsight(rows));
-    pushInsightUnique(insights, seenIds, deriveFailedChaseInsight(rows));
     pushInsightUnique(insights, seenIds, deriveTightClusterInsight(rows));
 
     if (standingsHistory && resolvedWeeks.length > 0) {
@@ -699,6 +764,11 @@ export function deriveLeagueInsights(args: {
         insights,
         seenIds,
         deriveFinalCollapseInsight({ standingsHistory, resolvedWeeks, rows })
+      );
+      pushInsightUnique(
+        insights,
+        seenIds,
+        deriveClosingChaseInsight({ standingsHistory, resolvedWeeks, rows })
       );
       pushInsightUnique(
         insights,

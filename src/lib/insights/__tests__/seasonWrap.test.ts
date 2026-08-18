@@ -121,8 +121,13 @@ test('the season wrap survives rollover: preseason serves last season from the a
   assert.equal(champion.statValue, 3, 'the margin must be read off the archived table');
   assert.equal(
     champion.title,
-    "Last season's champion margin",
-    'an unframed title on a season that has not kicked off is a current-year claim'
+    'How 2025 finished',
+    'the title must name the ARCHIVED season, not the one about to start'
+  );
+  assert.equal(
+    champion.description,
+    'Zoe took it by 3 games over Yuri.',
+    'the recap copy is owner-authored; a mechanical prefix is not a substitute'
   );
 });
 

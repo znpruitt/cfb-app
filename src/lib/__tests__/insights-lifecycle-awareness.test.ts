@@ -280,11 +280,18 @@ test('championshipRaceGenerator fires normally when rows have games', () => {
 // seasonWrapGenerator: "Last season's" framing in rollover window
 // ---------------------------------------------------------------------------
 
-test('seasonWrapGenerator applies "Last season\'s" framing when usingArchivedRoster=true', () => {
+test('seasonWrapGenerator STATES the season year on every recap title', () => {
+  // INSIGHTS-032 (owner ruling, 2026-08-18) replaced the "Last season's" prefix
+  // with the year itself — "it's clear and leaves no ambiguity about the year
+  // being referenced". A stated year is also stronger framing than a relative
+  // prefix because it survives being read out of context, which is what
+  // AGENTS.md Insights invariant 5 leans on when it exempts these cards from the
+  // departed-owner rule.
   const rows = [row('Alex', 12, 0, 0, 100), row('Blake', 8, 4, 4, 30)];
   const context = makeContext({
     lifecycleState: 'fresh_offseason',
     seasonContext: 'final',
+    currentYear: 2026,
     currentStandings: rows,
     usingArchivedRoster: true,
   });
@@ -292,15 +299,20 @@ test('seasonWrapGenerator applies "Last season\'s" framing when usingArchivedRos
   // At minimum, champion_margin should fire on a 12-0 vs 8-4 row set.
   assert.equal(insights.length > 0, true);
   for (const insight of insights) {
-    assert.equal(
-      insight.title.toLowerCase().startsWith("last season's "),
-      true,
-      `Expected "Last season's" prefix on insight title, got: ${insight.title}`
+    assert.match(
+      insight.title,
+      /2026/,
+      `every recap title must name the season it describes, got: ${insight.title}`
+    );
+    assert.doesNotMatch(
+      insight.title.toLowerCase(),
+      /last season/,
+      `the relative prefix was replaced, not layered on: ${insight.title}`
     );
   }
 });
 
-test('seasonWrapGenerator does NOT apply framing when usingArchivedRoster=false', () => {
+test('seasonWrapGenerator names the CURRENT year when the season just finished', () => {
   const rows = [row('Alex', 12, 0, 0, 100), row('Blake', 8, 4, 4, 30)];
   const context = makeContext({
     lifecycleState: 'postseason',
@@ -311,11 +323,9 @@ test('seasonWrapGenerator does NOT apply framing when usingArchivedRoster=false'
   const insights = seasonWrapGenerator.generate(context);
   assert.equal(insights.length > 0, true);
   for (const insight of insights) {
-    assert.equal(
-      insight.title.toLowerCase().startsWith("last season's "),
-      false,
-      `Did not expect "Last season's" prefix on insight title: ${insight.title}`
-    );
+    // In postseason the CURRENT year is the season being described, so the same
+    // rule produces the current year rather than the prior one.
+    assert.match(insight.title, /2026/, `expected the current season named: ${insight.title}`);
   }
 });
 
@@ -402,9 +412,17 @@ test('INSIGHTS-032: preseason frames the wrap as last season WITHOUT usingArchiv
 
   assert.ok(insights.length > 0, 'the fixture must produce something to frame');
   for (const insight of insights) {
-    assert.ok(
-      insight.title.toLowerCase().startsWith("last season's "),
-      `preseason wrap titles must self-frame; got: ${insight.title}`
+    // The ARCHIVED year (2025), not the current one (2026) — naming the wrong
+    // year would be worse than naming none.
+    assert.match(
+      insight.title,
+      /2025/,
+      `preseason recap titles must self-frame; got: ${insight.title}`
+    );
+    assert.doesNotMatch(
+      insight.title,
+      /2026/,
+      `that is the season about to start: ${insight.title}`
     );
   }
 });
@@ -507,9 +525,10 @@ test('INSIGHTS-032: the recap NAMES a departed owner, framed as last season', ()
 
   // The framing is what makes naming her safe, so it is asserted HERE and not
   // taken on trust from the filter's absence.
-  assert.ok(
-    champion.title.toLowerCase().startsWith("last season's "),
-    `naming a departed owner is only safe when framed; got: ${champion.title}`
+  assert.match(
+    champion.title,
+    /2025/,
+    `naming a departed owner is only safe when the season is named; got: ${champion.title}`
   );
 });
 

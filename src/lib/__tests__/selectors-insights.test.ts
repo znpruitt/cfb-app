@@ -1331,15 +1331,94 @@ test('deriveLeagueInsights emits completed season narratives', () => {
     standingsRow('Blake', 7, 5, 3, 4),
     standingsRow('Alex', 6, 6, 4, 0),
   ];
+  // INSIGHTS-032 — `failed_chase` now measures the SLOPE of the games-back
+  // line: it reports an owner who was actively closing on the leader and still
+  // came up short. The old derivation read the final table alone, so a fixture
+  // where nobody gained ground satisfied it anyway. `historyFixture()`'s Casey
+  // holds level (0, 0, 1 games back over the final stretch), which is a finish
+  // and not a chase, so this test supplies a series where she actually closes.
+  const base = historyFixture();
+  const closingGaps: Record<number, number> = { 1: 5, 2: 4, 3: 3, 4: 2 };
+  const history = {
+    ...base,
+    byOwner: {
+      ...base.byOwner,
+      Casey: base.byOwner.Casey!.map((point) => ({
+        ...point,
+        gamesBack: closingGaps[point.week] ?? point.gamesBack,
+      })),
+    },
+  };
+
   const insights = deriveLeagueInsights({
     rows,
-    standingsHistory: historyFixture(),
+    standingsHistory: history,
     seasonContext: 'final',
   });
 
   assert.ok(insights.some((entry) => entry.type === 'champion_margin'));
-  assert.ok(insights.some((entry) => entry.type === 'failed_chase'));
+  assert.ok(
+    insights.some((entry) => entry.type === 'failed_chase'),
+    `expected a closing chase; got ${insights.map((i) => i.type).join(', ')}`
+  );
   assert.ok(insights.some((entry) => entry.type === 'surge' || entry.type === 'collapse'));
+
+  // Anti-vacuity: the UNMODIFIED fixture must NOT produce it, or the override
+  // above proves nothing about the slope being what the card measures.
+  const level = deriveLeagueInsights({ rows, standingsHistory: base, seasonContext: 'final' });
+  assert.equal(
+    level.some((entry) => entry.type === 'failed_chase'),
+    false,
+    'an owner who never gained ground is a finish, not a chase'
+  );
+});
+
+test('a chase that CAUGHT the leader is not a failed chase', () => {
+  // The card's whole claim is "closed ground and still came up short". An owner
+  // who erased the gap entirely finished level, so "still finished 0 games back"
+  // is not a thin story — it is a false one. Mutation-found: removing the
+  // `finishedBack > 0` condition survived every other test in this suite.
+  const rows = [
+    standingsRow('Drew', 10, 2, 0, 12),
+    standingsRow('Casey', 8, 4, 2, 8),
+    standingsRow('Blake', 7, 5, 3, 4),
+    standingsRow('Alex', 6, 6, 4, 0),
+  ];
+  const base = historyFixture();
+  const withSeries = (gaps: Record<number, number>) => ({
+    ...base,
+    byOwner: {
+      ...base.byOwner,
+      Casey: base.byOwner.Casey!.map((point) => ({
+        ...point,
+        gamesBack: gaps[point.week] ?? point.gamesBack,
+      })),
+    },
+  });
+
+  // Closed four games and drew level by the final week.
+  const caught = deriveLeagueInsights({
+    rows,
+    standingsHistory: withSeries({ 1: 5, 2: 4, 3: 2, 4: 0 }),
+    seasonContext: 'final',
+  });
+  assert.equal(
+    caught.some((entry) => entry.type === 'failed_chase'),
+    false,
+    'an owner level with the leader did not come up short'
+  );
+
+  // Anti-vacuity: the SAME closing slope that stops one game short does fire, so
+  // the exclusion above is the `finishedBack > 0` rule and not an inert fixture.
+  const short = deriveLeagueInsights({
+    rows,
+    standingsHistory: withSeries({ 1: 5, 2: 4, 3: 2, 4: 1 }),
+    seasonContext: 'final',
+  });
+  assert.ok(
+    short.some((entry) => entry.type === 'failed_chase'),
+    `finishing one back after closing ground IS the card; got ${short.map((i) => i.type).join(', ')}`
+  );
 });
 
 test('overview and standings insights are context differentiated', () => {
