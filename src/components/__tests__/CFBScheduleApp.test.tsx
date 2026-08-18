@@ -112,11 +112,11 @@ test('league surface shows compact fatal fallback for schedule bootstrap failure
   assert.doesNotMatch(html, /schedule load failed/, 'no raw issue string');
   assert.doesNotMatch(html, /Rebuild schedule/, 'no admin-only action a member cannot perform');
   assert.doesNotMatch(html, /Open Data Management/, 'no admin link');
-  assert.doesNotMatch(
-    html,
-    /Try again/,
-    'no retry: the cached data is the defect, so it cannot succeed'
-  );
+  // The fixture is `CFBD schedule load failed:` — a FETCH failure, which a plain
+  // cache-only retry can fix. This slice first dropped the retry entirely on the
+  // reasoning that fatal issues are always cached-data defects; that was wrong,
+  // and this very fixture is the counter-example.
+  assert.match(html, /Try again/, 'a transient fetch failure is retryable');
   assert.doesNotMatch(html, /Commissioner tools and diagnostics/);
 });
 
@@ -561,7 +561,7 @@ test('standings drill-down focus helper scrolls focused owner row', () => {
 
 test('POLISH-005: the live-status section stays silent when nothing is live', () => {
   assert.equal(
-    shouldRenderLiveStatusSection({ hasLiveGames: false, loadingLive: false }),
+    shouldRenderLiveStatusSection({ hasLiveGames: false }),
     false,
     'preseason, offseason and between slates show no data-state chrome at all'
   );
@@ -569,19 +569,22 @@ test('POLISH-005: the live-status section stays silent when nothing is live', ()
 
 test('POLISH-005: the live-status section appears while a game is live', () => {
   assert.equal(
-    shouldRenderLiveStatusSection({ hasLiveGames: true, loadingLive: false }),
+    shouldRenderLiveStatusSection({ hasLiveGames: true }),
     true,
     'a live game is what makes an "app is alive" signal meaningful'
   );
 });
 
-test('POLISH-005: an in-flight live poll also mounts it', () => {
-  // The pulsing state. Without this the indicator would flicker out between a
-  // poll starting and its scores landing.
+test('POLISH-005: an in-flight poll alone does NOT mount it', () => {
+  // `loadingLive` is not live-scoped: `getBootstrapScoreHydrationGames` returns
+  // EVERY canonical game with no kickoff window, so an ordinary schedule
+  // bootstrap sets it. Including it lit a pulsing "Live" badge and a scores
+  // freshness stamp on a PRESEASON page — the defect this slice exists to
+  // remove, reintroduced by its own first fix.
   assert.equal(
-    shouldRenderLiveStatusSection({ hasLiveGames: false, loadingLive: true }),
-    true,
-    'a live refresh in flight is itself evidence the app is working'
+    shouldRenderLiveStatusSection({ hasLiveGames: false }),
+    false,
+    'a bootstrap score fetch is not a live game'
   );
 });
 
@@ -759,6 +762,42 @@ test('POLISH-005: internal issue strings never reach a member surface', () => {
   assert.doesNotMatch(html, /identity-unresolved/, 'no raw issue string');
   assert.doesNotMatch(html, /CFBD/, 'no provider name');
 });
+
+test('POLISH-005: a cached-data defect offers NO retry', () => {
+  // Mutation-found. The only fatal fixture used `CFBD schedule load failed:`,
+  // which IS retryable — so "always offer retry" and "classify everything as
+  // retryable" both passed. `invalid-schedule-row:` is a defect in the CACHED
+  // data: re-reading returns the same result forever, so a button here is an
+  // invitation to click until you give up.
+  const html = renderWithAppContext(
+    <CFBScheduleApp initialIssues={['invalid-schedule-row: week 4 row 12']} />
+  );
+  assert.match(html, /schedule isn.{0,8}t available right now/, 'the fatal state must render');
+  assert.doesNotMatch(html, /Try again/, 'a cached-data defect cannot be retried away');
+  assert.doesNotMatch(html, /invalid-schedule-row/, 'and the raw string still never renders');
+});
+
+test('POLISH-005: a MIXED failure offers no retry either', () => {
+  // One unfixable issue is enough. If any fatal issue cannot be retried away,
+  // the button could never clear the state.
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      initialIssues={[
+        'CFBD schedule load failed: upstream CFBD returned 503',
+        'identity-unresolved: Directional State',
+      ]}
+    />
+  );
+  assert.match(html, /schedule isn.{0,8}t available right now/);
+  assert.doesNotMatch(html, /Try again/, 'every fatal issue must be retryable, not just one');
+});
+
+// The postseason override's admin gating is pinned in `GameWeekPanel.test.tsx`,
+// where the button actually renders. A CFBScheduleApp-level `doesNotMatch` was
+// VACUOUS: the control only appears on an `isPlaceholder` postseason card, and
+// there is no prop to select the postseason tab in a static render, so the
+// button never rendered whether or not the gate existed. Mutation-found —
+// handing the callback back to members unconditionally left it green.
 
 test('POLISH-005: no admin-only affordance is offered to a member', () => {
   // Both are refused server-side, so rendering them only produced buttons that

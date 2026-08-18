@@ -20,6 +20,29 @@ export function isScheduleIssue(issue: string): boolean {
   );
 }
 
+/**
+ * Can retrying possibly help?
+ *
+ * `isScheduleIssue` mixes two very different causes. `invalid-schedule-row:`,
+ * `identity-unresolved:` and `out-of-scope-postseason-row:` are defects in the
+ * CACHED data — re-reading the same cache returns the same result forever, so a
+ * retry is a dead loop. `CFBD schedule load failed:` and `hydrate:` are FETCH
+ * failures: a transient upstream blip, where a plain retry succeeds.
+ *
+ * POLISH-005 first dropped the retry entirely on the reasoning that the fatal
+ * state is always a cached-data defect. That was wrong — the list plainly
+ * includes the fetch failure, and the slice's own test fixture was
+ * `upstream CFBD returned 503`. A retry is offered only when EVERY fatal issue
+ * is retryable; one unfixable row means the button could never work.
+ *
+ * The retry is cache-only. The old control forced `bypassCache: true`, which
+ * `/api/schedule` refuses without admin — which is why it always failed for
+ * members, not because retrying is inherently useless.
+ */
+export function isRetryableScheduleIssue(issue: string): boolean {
+  return issue.startsWith('CFBD schedule load failed:') || issue.startsWith('hydrate:');
+}
+
 export function isTransientScheduleIssue(issue: string): boolean {
   return issue.startsWith('out-of-scope-postseason-row:');
 }

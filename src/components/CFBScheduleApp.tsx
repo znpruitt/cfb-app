@@ -65,6 +65,7 @@ import {
   deriveScheduleLoadApplicationResult,
   dedupeIssues,
   isScheduleIssue,
+  isRetryableScheduleIssue,
   summarizeGames,
 } from '../lib/cfbScheduleAppHelpers';
 import {
@@ -239,18 +240,6 @@ export function resolveHighlightDrilldownNavigation(params: {
 }
 
 /**
- * Whether the live-status section (loading chips, partial-scores note, odds
- * availability, odds freshness label, and live-issue notice) should mount.
- *
- * Extracted as a pure predicate so it is unit-testable (the section itself only
- * mounts under effect-populated client state, which static rendering never
- * exercises). It intentionally includes `oddsSnapshotAt` and `scoresSnapshotAt`:
- * in the normal clean state — scores complete, every game has odds, no issues —
- * the section would otherwise stay unmounted and a served-data freshness label
- * would never show despite a valid timestamp (odds: 4th-review finding #5;
- * scores: PLATFORM-086B2B).
- */
-/**
  * POLISH-005 — the league surface shows members ONE thing about data state: that
  * scores are moving while games are being played.
  *
@@ -269,11 +258,14 @@ export function resolveHighlightDrilldownNavigation(params: {
  * ruling, 2026-08-18: "show some kind of indicator that the app is alive to the
  * user, especially when games are live and users want to see score updates."
  */
-export function shouldRenderLiveStatusSection(input: {
-  hasLiveGames: boolean;
-  loadingLive: boolean;
-}): boolean {
-  return input.hasLiveGames || input.loadingLive;
+export function shouldRenderLiveStatusSection(input: { hasLiveGames: boolean }): boolean {
+  // ONLY a live game. `loadingLive` was included on the reasoning that an
+  // in-flight poll is evidence the app is working — but it is not live-scoped:
+  // `getBootstrapScoreHydrationGames` returns EVERY canonical game with no
+  // kickoff window, so an ordinary schedule bootstrap sets it. That lit a
+  // pulsing "Live" badge, and a scores freshness stamp, on a preseason page —
+  // the exact defect this slice exists to remove, reintroduced by its own fix.
+  return input.hasLiveGames;
 }
 
 export default function CFBScheduleApp({
@@ -1241,6 +1233,13 @@ export default function CFBScheduleApp({
   const canRenderPrimarySurface =
     canRenderLeagueSurface || weekViewMode === 'owner' || weekViewMode === 'rankings';
   const fatalBootstrapIssues = issues.filter(isScheduleIssue);
+  // A retry is offered ONLY when every fatal issue is a fetch failure. A single
+  // cached-data defect (`invalid-schedule-row:`, `identity-unresolved:`) means
+  // re-reading returns the same result forever, and the button would be an
+  // invitation to click until you give up. Cache-only: no `bypassCache`, so it
+  // needs no admin and cannot spend provider quota.
+  const canRetryBootstrap =
+    fatalBootstrapIssues.length > 0 && fatalBootstrapIssues.every(isRetryableScheduleIssue);
   const hasFatalLeagueBootstrapFailure =
     !isPreseason && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
   // POLISH-005 — the single data-state fact a member is shown. Coverage counts
@@ -1572,7 +1571,18 @@ export default function CFBScheduleApp({
           <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
             This league&rsquo;s schedule isn&rsquo;t available right now
           </h2>
-          <p className="text-sm text-gray-600 dark:text-zinc-400">Please check back shortly.</p>
+          <p className="text-sm text-gray-600 dark:text-zinc-400">
+            {canRetryBootstrap ? 'This is usually temporary.' : 'Please check back shortly.'}
+          </p>
+          {canRetryBootstrap ? (
+            <button
+              type="button"
+              className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+              onClick={() => void loadScheduleFromApi()}
+            >
+              Try again
+            </button>
+          ) : null}
         </section>
       ) : null}
 
@@ -1637,7 +1647,7 @@ export default function CFBScheduleApp({
 
       {canRenderPrimarySurface && (
         <>
-          {shouldRenderLiveStatusSection({ hasLiveGames, loadingLive }) ? (
+          {shouldRenderLiveStatusSection({ hasLiveGames }) ? (
             <section className="flex flex-wrap items-center gap-1.5 text-xs">
               <span
                 aria-hidden="true"
@@ -1841,7 +1851,7 @@ export default function CFBScheduleApp({
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
                   teamCatalogById={teamCatalogById}
-                  onSavePostseasonOverride={savePostseasonOverride}
+                  onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
                   focusedGameId={focusedGameId}
                 />
               ) : primarySurfaceKind === 'rankings' ? (
@@ -1887,7 +1897,7 @@ export default function CFBScheduleApp({
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
                   teamCatalogById={teamCatalogById}
-                  onSavePostseasonOverride={savePostseasonOverride}
+                  onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
                   displayTimeZone={presentationTimeZone}
                   rankingsByTeamId={rankingsByTeamId}
                   focusedGameId={focusedGameId}
