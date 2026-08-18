@@ -297,7 +297,7 @@ export function formatLateness(ms: number): string {
  * the QStash schedules, and every cadence label), so UTC is also the unit the
  * schedules are written in.
  */
-function utcInstant(iso: string): string {
+export function utcInstant(iso: string): string {
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return 'an unreadable time';
   return new Date(ms)
@@ -373,7 +373,11 @@ function schedulerDeliveryIssues(
           ...base,
           code: 'scheduler-delivery-late',
           severity: 'warning',
-          title: `${row.job} delivered later than scheduled`,
+          // NOT "delivered later than scheduled": in this state nothing was
+          // delivered for the required slot at all, and the timestamp below is
+          // the last receipt from BEFORE it. The explanation was corrected and
+          // the title left behind — and the title renders first, and larger.
+          title: `${row.job} has not delivered since its required slot`,
           // "was due ... and arrived ..." also implied the arrival ANSWERED that
           // slot. It did not: the slot has no delivery at all, and the timestamp
           // shown is the last one on record from before it.

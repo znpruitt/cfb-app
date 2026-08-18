@@ -28,6 +28,7 @@ import {
   safeStatus,
   unavailableDelivery,
   YEAR,
+  assertRowIsClassifiable,
 } from './systemHealthFixtures.ts';
 import { EXTERNAL_SCHEDULER_JOBS } from '../schedulerExecutionStatus.ts';
 import { oddsTargetScope, weekPartitionScope } from '../../providerRefreshScope.ts';
@@ -1049,6 +1050,49 @@ test('a late warning names the slot, the last start, and how long ago that was',
   assert.doesNotMatch(late!.explanation, /due by/);
 });
 
+test('the late TITLE does not claim a delivery answered the slot', () => {
+  // The title renders first and larger than the explanation, so it is the
+  // sentence an operator reads. It said "delivered later than scheduled" while
+  // the corrected explanation said nothing was delivered for that slot at all —
+  // the headline asserting exactly what the body had just been fixed to deny.
+  const rows = healthyDelivery().jobs.map((row) =>
+    row.job === 'live-scores'
+      ? deliveryRow(
+          'live-scores',
+          'late',
+          receiptFor('live-scores', 'success', NOW - 86_400_000),
+          new Date(NOW - 60_000).toISOString()
+        )
+      : row
+  );
+  const late = find(
+    deriveSystemHealthIssues(baseInputs({ schedulerDelivery: deliverySnapshot(rows) })),
+    'scheduler-delivery-late'
+  );
+  assert.match(late!.title, /has not delivered since its required slot/);
+  assert.doesNotMatch(late!.title, /delivered later than scheduled/);
+});
+
+test('a run that is barely late is still a row the helper accepts', () => {
+  // The derived slot used to be `startedAt + 60s`, which for a recent receipt
+  // lands in the FUTURE — and the guard then refused a row the classifier can
+  // genuinely emit, telling a future author their legitimate case was impossible.
+  assert.doesNotThrow(() =>
+    deliveryRow('live-scores', 'late', receiptFor('live-scores', 'success', NOW - 30_000))
+  );
+  // ...and the clamp must not break the ordering that makes it late.
+  const row = deliveryRow(
+    'live-scores',
+    'late',
+    receiptFor('live-scores', 'success', NOW - 30_000)
+  );
+  assert.ok(
+    Date.parse(row.receipt!.startedAt) < Date.parse(row.requiredStartedAt),
+    'still classifies late'
+  );
+  assert.ok(Date.parse(row.requiredStartedAt) <= NOW, 'and the slot is never in the future');
+});
+
 test('a missing delivery names its deadline and claims no elapsed figure', () => {
   // No receipt means no silence to measure. `now - slot` is floored by the grace
   // window, so for hourly odds it reads the same whether one slot was missed or
@@ -1095,17 +1139,24 @@ test('an incoherent row cannot enter a snapshot, however it was built', () => {
   // 3. A required slot in the FUTURE. Production computes it as
   //    `previousSlot(now - grace)`, so it never is — and a future slot let a
   //    seconds-old run be labelled late and render "under a minute ago".
-  assert.throws(
+  // Built from a PAST receipt so `deliveryRow` accepts it, then pushed into the
+  // future by the override — otherwise the helper's own guard throws first and
+  // the assertion passes on the inner error, proving nothing about the choke
+  // point. (It did exactly that: delete `rows.forEach(...)` and this case still
+  // went green.)
+  const futureSlot = {
+    ...deliveryRow('odds', 'late', receiptFor('odds', 'success', NOW - 3_600_000)),
+    requiredStartedAt: new Date(NOW + 60_000).toISOString(),
+  };
+  assert.doesNotThrow(
     () =>
-      deliverySnapshot([
-        {
-          ...deliveryRow('odds', 'late', receiptFor('odds', 'success', NOW)),
-          requiredStartedAt: new Date(NOW + 60_000).toISOString(),
-        },
-      ]),
-    /is after now/,
-    'future required slot'
+      assertRowIsClassifiable({
+        ...futureSlot,
+        requiredStartedAt: new Date(NOW - 60_000).toISOString(),
+      }),
+    'control: the row is otherwise coherent, so the future slot is what fails'
   );
+  assert.throws(() => deliverySnapshot([futureSlot]), /is after now/, 'future required slot');
 
   // 4. `invalid` carrying a receipt — emits both a receipt-invalid issue and an
   //    execution issue, a pair no real snapshot produces.

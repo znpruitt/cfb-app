@@ -183,7 +183,13 @@ export function deliveryRow(
     startedMs === null
       ? new Date(NOW).toISOString()
       : deliveryState === 'late'
-        ? new Date(startedMs + 60_000).toISOString() // required slot AFTER the last run
+        ? // AFTER the last run, but never after NOW: production computes the slot as
+          // `previousSlot(now - grace)`, so a future slot is impossible and the
+          // guard rejects it. Without the clamp a receipt 30s old derived a slot
+          // 30s in the future and the helper refused a row the classifier CAN
+          // emit — a trap for the next author, telling them a legitimate case is
+          // unreachable.
+          new Date(Math.min(startedMs + 60_000, NOW)).toISOString()
         : new Date(startedMs).toISOString(); // on-time: the run met its slot exactly
 
   const row: SchedulerDeliveryHealthRow = {

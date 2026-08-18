@@ -442,3 +442,38 @@ test('scheduler rows show WHICH BUILD executed each run, and say nothing more wh
   // procedure: a RECENT run with no commit is itself the answer.
   assert.ok(html.includes('Completed'), 'the disambiguating field is on the row');
 });
+
+test('scheduler timestamps render absolute AND relative, not relative alone', () => {
+  // The complaint this branch started from: "we know enough to say it was
+  // delivered later than scheduled, but not when it was planned vs when it
+  // arrived". The issue text was fixed first, and the row detail kept showing the
+  // same two instants relatively — so the page carried both formats and an
+  // operator diffing "7m ago" against "Friday" still could not separate a
+  // three-minute gap from a three-day one.
+  const startedMs = NOW - 3 * 86_400_000;
+  const rows = healthyDelivery().jobs.map((row) =>
+    row.job === 'live-scores'
+      ? deliveryRow(
+          'live-scores',
+          'late',
+          receiptFor('live-scores', 'success', startedMs),
+          new Date(NOW - 60_000).toISOString()
+        )
+      : row
+  );
+  const html = renderToStaticMarkup(
+    <SchedulerHealthSection jobs={deliverySnapshot(rows).jobs} nowMs={NOW} />
+  );
+
+  // Asserted PER FIELD. A count across the whole section proves nothing here:
+  // seven rows render three instants each, so dropping one field still leaves
+  // roughly twenty and the assertion passes — which it did, until a mutation
+  // showed it surviving the revert.
+  for (const label of ['Required slot', 'Started', 'Completed']) {
+    const cell = new RegExp(`${label}[\\s\\S]{0,200}?\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2} UTC`);
+    assert.match(html, cell, `${label} must render an absolute instant`);
+  }
+  assert.ok(html.includes('Started'), 'the value the delivery contract actually compares');
+  // Relative kept ALONGSIDE — it is the faster read when the answer is "minutes".
+  assert.match(html, /\(\s*[^)]*ago\s*\)/, 'relative form retained in parentheses');
+});
