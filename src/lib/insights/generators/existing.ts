@@ -87,6 +87,18 @@ function selectSeasonWrapSource(context: InsightContext): SeasonWrapSource | nul
       archivedYear: null,
     };
   }
+  // `context.currentYear` is `league.year`, the SYNCHRONIZED PROJECTION of the
+  // lifecycle authority rather than the authority itself (`league.status.year`).
+  // `applyLifecycleStatus` writes both in one registry transaction, so they agree
+  // for any record the current authority has written — but a legacy
+  // desynchronized record would put this generator a year behind and label a
+  // two-year-old champion "last season's".
+  //
+  // The archive set settles it without a new context field: the season being
+  // wrapped must be the most recent one archived. If anything at or after
+  // `currentYear` is already archived, the projection is stale and the adjacent
+  // year cannot be trusted, so the wrap is withheld rather than guessed.
+  if (context.archives.some((entry) => entry.year >= context.currentYear)) return null;
   const archive = context.archives.find((entry) => entry.year === context.currentYear - 1);
   if (!archive) return null;
   return {

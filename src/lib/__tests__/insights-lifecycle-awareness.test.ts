@@ -424,6 +424,33 @@ test('INSIGHTS-032: preseason requires the ADJACENT archive, not merely the newe
   assert.ok(adjacent.length > 0, 'the same archive one year later must produce the wrap');
 });
 
+test('INSIGHTS-032: a STALE year projection withholds rather than mislabels', () => {
+  // `context.currentYear` is `league.year` — the synchronized projection, not
+  // the lifecycle authority. A legacy record left at 2025 while the league is
+  // actually in preseason for 2026 would make `currentYear - 1` select 2024 and
+  // present a two-year-old champion as last season's.
+  //
+  // The archive set contradicts the stale year: 2025 is already archived, which
+  // cannot be true of a league still IN 2025.
+  const stale = seasonWrapGenerator.generate(
+    preseasonWrapContext({
+      currentYear: 2025,
+      archives: [wrapArchive(2024, ARCHIVED_2025), wrapArchive(2025, ARCHIVED_2025)],
+    })
+  );
+  assert.equal(stale.length, 0, `a stale projection must withhold; got ${stale.length}`);
+
+  // Anti-vacuity: the SAME archive set one year forward is a consistent record,
+  // and produces the wrap from 2025.
+  const consistent = seasonWrapGenerator.generate(
+    preseasonWrapContext({
+      currentYear: 2026,
+      archives: [wrapArchive(2024, ARCHIVED_2025), wrapArchive(2025, ARCHIVED_2025)],
+    })
+  );
+  assert.ok(consistent.length > 0, 'a consistent year and archive set must produce the wrap');
+});
+
 test('INSIGHTS-032: a season nobody played produces no wrap, from either source', () => {
   // Reachable both ways: an archive can be written for a league created and
   // rolled straight over, and a live postseason table reads 0-0 across the board
