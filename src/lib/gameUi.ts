@@ -22,13 +22,30 @@ export function formatGameMatchupLabel(
 /**
  * Is this game happening RIGHT NOW?
  *
- * The schedule's own status is authoritative when it says so, but a provider can
- * lag behind the score feed, so an attached in-progress score counts too. Shared
- * rather than duplicated: `ownerView` and the league surface both ask this
- * question, and two copies of a liveness rule drift.
+ * The ATTACHED SCORE decides, and nothing else. `game.status` used to be ORed in
+ * on the premise that "the schedule is authoritative when it says so" — that was
+ * backwards. Schedule status is written by the weekly `schedule-refresh` cron and
+ * never rewritten by the live-scores engine, which polls every three minutes, so
+ * it can only ever be EQUAL TO or STALER THAN the score feed. It is never the
+ * leading signal, and it cannot be: at kickoff the schedule row was written days
+ * earlier saying `scheduled`.
+ *
+ * What it could do is lie. A schedule snapshot taken mid-slate leaves rows marked
+ * `in_progress`; hours later those games are over and their scores say `final`,
+ * but the OR short-circuited before ever consulting the score — so an owner card
+ * rendered "Live" beside a final scoreboard until the next weekly refresh.
+ *
+ * Consequence worth stating: a game with NO attached score is not live here.
+ * Absence of data is not evidence of play, and callers that then read
+ * `scoresByKey[game.key]` are now guaranteed a score when this returns true.
+ *
+ * The league surface asks a related but DIFFERENT question — "is the poller
+ * delivering right now" — and answers it with `deriveLiveTrackingState`. Do not
+ * merge the two: one annotates a row, the other makes a claim about the whole
+ * page, and a single stale row must not light the page.
  */
-export function isLiveGame(game: { status?: string }, score?: ScorePack): boolean {
-  return game.status === 'in_progress' || gameStateFromScore(score) === 'inprogress';
+export function isLiveGame(_game: { status?: string }, score?: ScorePack): boolean {
+  return gameStateFromScore(score) === 'inprogress';
 }
 
 export function gameStateFromScore(
