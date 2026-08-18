@@ -1,5 +1,5 @@
 import { getGameSideForTeam } from './gameOwnership.ts';
-import { gameStateFromScore, usesNeutralSiteSemantics } from './gameUi.ts';
+import { gameStateFromScore, isLiveGame, usesNeutralSiteSemantics } from './gameUi.ts';
 import { deriveOwnerWeekSlates, deriveWeekMatchupSections } from './matchups.ts';
 import type { ScorePack } from './scores.ts';
 import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
@@ -92,10 +92,6 @@ function getOpponentProviderName(teamName: string, game: AppGame): string {
 
 function isAttachedFinalGame(score?: ScorePack): boolean {
   return gameStateFromScore(score) === 'final';
-}
-
-function isLiveGame(game: AppGame, score?: ScorePack): boolean {
-  return game.status === 'in_progress' || gameStateFromScore(score) === 'inprogress';
 }
 
 function buildNextGameLabel(teamName: string, game: AppGame): string {

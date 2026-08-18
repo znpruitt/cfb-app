@@ -21,6 +21,7 @@ import type { StandingsSubview } from './StandingsPanel';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { type CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
+import { isLiveGame } from '../lib/gameUi';
 import { type ScorePack } from '../lib/scores';
 import type { AliasMap } from '../lib/teamNames';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
@@ -32,7 +33,7 @@ import {
 } from '../lib/overview';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
-import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
+
 import { resolveOverviewCanonicalInputs } from '../lib/selectors/overview';
 import {
   formatDraftScheduleDetail,
@@ -249,28 +250,30 @@ export function resolveHighlightDrilldownNavigation(params: {
  * would never show despite a valid timestamp (odds: 4th-review finding #5;
  * scores: PLATFORM-086B2B).
  */
+/**
+ * POLISH-005 — the league surface shows members ONE thing about data state: that
+ * scores are moving while games are being played.
+ *
+ * It previously rendered coverage counters ("Scores available for 98/100
+ * games."), an odds availability summary, freshness stamps and a degraded-data
+ * warning, in every lifecycle. In preseason that answers a question nobody asked
+ * — no game is in progress, so there is nothing to be fresh about, and a member
+ * reading "Scores updated Jun 25" in August learns only that something is odd.
+ *
+ * Every condition those controls reported is already carried by System Health
+ * (`scores-terminal-coverage-missing`/`-partial`, `schedule-cache-*`,
+ * `rankings-cache-*`), so removing them loses no operational signal — it removes
+ * a SECOND, worse-worded copy of it aimed at the wrong audience.
+ *
+ * The section therefore renders only while a game is actually live. Owner
+ * ruling, 2026-08-18: "show some kind of indicator that the app is alive to the
+ * user, especially when games are live and users want to see score updates."
+ */
 export function shouldRenderLiveStatusSection(input: {
-  loadingSchedule: boolean;
-  scheduleLoaded: boolean;
+  hasLiveGames: boolean;
   loadingLive: boolean;
-  visibleGames: number;
-  visibleScoresCount: number;
-  oddsAvailabilitySummary: string | null;
-  oddsSnapshotAt: string | null;
-  scoresSnapshotAt: string | null;
-  userFacingLiveIssuesCount: number;
 }): boolean {
-  return (
-    (input.loadingSchedule && !input.scheduleLoaded) ||
-    input.loadingLive ||
-    (!input.loadingLive &&
-      input.visibleGames > 0 &&
-      input.visibleScoresCount < input.visibleGames) ||
-    (!input.loadingLive && input.oddsAvailabilitySummary != null) ||
-    (!input.loadingLive && input.oddsSnapshotAt != null) ||
-    (!input.loadingLive && input.scoresSnapshotAt != null) ||
-    input.userFacingLiveIssuesCount > 0
-  );
+  return input.hasLiveGames || input.loadingLive;
 }
 
 export default function CFBScheduleApp({
@@ -322,7 +325,11 @@ export default function CFBScheduleApp({
   const [oddsByKey, setOddsByKey] = useState<Record<string, CombinedOdds>>({});
   const [scoresByKey, setScoresByKey] = useState<Record<string, ScorePack>>({});
   const [loadingLive, setLoadingLive] = useState<boolean>(false);
-  const [loadingSchedule, setLoadingSchedule] = useState<boolean>(false);
+  // Written by the schedule loader; no longer READ. POLISH-005 removed the
+  // "Loading schedule…" pill along with the rest of the data-state chrome — the
+  // surface renders content as soon as it has any, rather than narrating its
+  // own fetch to a member.
+  const [, setLoadingSchedule] = useState<boolean>(false);
   const [issues, setIssues] = useState<string[]>(initialIssues);
   // Two DISTINCT scores freshness signals (PLATFORM-086B2B):
   //  - `scoresSnapshotAt`: durable `meta.generatedAt` of the contributing
@@ -347,7 +354,10 @@ export default function CFBScheduleApp({
   // time — NOT the global quota snapshot (`oddsUsage.capturedAt`) or the admin
   // usage poll, so a historical/cold-cache season never inherits another season's
   // recency. Null when nothing is cached for the season → the label is omitted.
-  const [oddsSnapshotAt, setOddsSnapshotAt] = useState<string | null>(null);
+  // Written by the odds hydration path; no longer READ. The odds freshness label
+  // was operator-facing detail on a member surface (POLISH-005); scores
+  // freshness survives because it is the live signal members actually use.
+  const [, setOddsSnapshotAt] = useState<string | null>(null);
   const [rankings, setRankings] = useState<RankingsResponse | null>(null);
 
   // Effective resolver map (stored global > year > SEED_ALIASES) — used to build
@@ -1233,42 +1243,13 @@ export default function CFBScheduleApp({
   const fatalBootstrapIssues = issues.filter(isScheduleIssue);
   const hasFatalLeagueBootstrapFailure =
     !isPreseason && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
-  const visibleScoresCount = useMemo(
-    () => visibleGames.filter((game) => Boolean(scoresByKey[game.key])).length,
+  // POLISH-005 — the single data-state fact a member is shown. Coverage counts
+  // ("Scores available for 98/100 games.") were operator metrics and are carried
+  // by System Health; this is the one signal that belongs on a league page,
+  // because a member watching a slate wants to know the app is still updating.
+  const hasLiveGames = useMemo(
+    () => visibleGames.some((game) => isLiveGame(game, scoresByKey[game.key])),
     [scoresByKey, visibleGames]
-  );
-  const visibleOddsCount = useMemo(
-    () => visibleGames.filter((game) => Boolean(oddsByKey[game.key])).length,
-    [oddsByKey, visibleGames]
-  );
-  const oddsAvailabilitySummary = useMemo(
-    () =>
-      deriveOddsAvailabilitySummary({
-        gamesCount: visibleGames.length,
-        oddsAvailableCount: visibleOddsCount,
-      }),
-    [visibleGames.length, visibleOddsCount]
-  );
-  const userFacingLiveIssues = useMemo(
-    () =>
-      issues.filter(
-        (issue) =>
-          issue.startsWith('Odds ') ||
-          issue.startsWith('Scores ') ||
-          issue.startsWith('Odds fetch failed:') ||
-          issue.startsWith('Scores fetch failed:')
-      ),
-    [issues]
-  );
-  // Rankings errors aren't actionable in preseason — CFBD hasn't published
-  // rankings for the upcoming season — so suppress them from the Data notes
-  // surface to avoid clutter.
-  const standingsIssues = useMemo(
-    () =>
-      isPreseason
-        ? issues.filter((issue) => !issue.startsWith('CFBD rankings load failed:'))
-        : issues,
-    [isPreseason, issues]
   );
 
   return (
@@ -1574,46 +1555,24 @@ export default function CFBScheduleApp({
         })()}
 
       {hasFatalLeagueBootstrapFailure ? (
-        <section className="space-y-4 rounded-2xl border border-red-200 bg-red-50/80 p-4 shadow-sm dark:border-red-900/50 dark:bg-red-950/30">
-          <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-widest text-red-700 dark:text-red-300">
-              League view unavailable
-            </p>
-            <h2 className="text-xl font-semibold text-red-950 dark:text-red-100">
-              We couldn’t load the schedule needed to render the league view
-            </h2>
-            <p className="max-w-3xl text-sm text-red-800 dark:text-red-200">
-              Try rebuilding the schedule from CFBD below. If the issue persists, open the admin
-              area for deeper diagnostics and repair tools.
-            </p>
-          </div>
-
-          <ul className="space-y-2 text-sm text-red-900 dark:text-red-100">
-            {fatalBootstrapIssues.map((issue) => (
-              <li
-                key={issue}
-                className="rounded border border-red-200 bg-white/80 px-3 py-2 dark:border-red-900/60 dark:bg-zinc-950/60"
-              >
-                {issue}
-              </li>
-            ))}
-          </ul>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              className="rounded border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-900 transition hover:bg-red-100 disabled:opacity-60 dark:border-red-800 dark:bg-zinc-950 dark:text-red-100 dark:hover:bg-red-950/40"
-              onClick={() => void loadScheduleFromApi(undefined, undefined, { bypassCache: true })}
-              disabled={loadingSchedule}
-            >
-              {loadingSchedule ? 'Rebuilding…' : 'Rebuild schedule'}
-            </button>
-            <Link
-              href="/admin/data/cache"
-              className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-            >
-              Open Data Management
-            </Link>
-          </div>
+        // POLISH-005 — a member sees IMPACT, not diagnosis. This previously
+        // named CFBD, listed raw issue strings verbatim, and offered "Rebuild
+        // schedule" plus a Data Management link. Both actions are admin-only
+        // server-side (`/api/schedule` refuses `bypassCache` without admin), so
+        // for a member they were buttons that always failed.
+        //
+        // No retry either. The issues that reach this state are things like
+        // `invalid-schedule-row:` and `identity-unresolved:` — defects in the
+        // CACHED data, so re-reading the same cache returns the same failure
+        // forever. The app's own `isTransientScheduleIssue` classifies exactly
+        // one issue kind as transient and is not wired here, so nothing it knows
+        // justifies offering a retry. Recovery is an operator task; System
+        // Health carries `schedule-cache-missing`/`-stale`/`-partial`.
+        <section className="space-y-2 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
+            This league&rsquo;s schedule isn&rsquo;t available right now
+          </h2>
+          <p className="text-sm text-gray-600 dark:text-zinc-400">Please check back shortly.</p>
         </section>
       ) : null}
 
@@ -1678,64 +1637,26 @@ export default function CFBScheduleApp({
 
       {canRenderPrimarySurface && (
         <>
-          {shouldRenderLiveStatusSection({
-            loadingSchedule,
-            scheduleLoaded,
-            loadingLive,
-            visibleGames: visibleGames.length,
-            visibleScoresCount,
-            oddsAvailabilitySummary,
-            oddsSnapshotAt,
-            scoresSnapshotAt,
-            userFacingLiveIssuesCount: userFacingLiveIssues.length,
-          }) ? (
-            <section className="space-y-1">
-              <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                {loadingSchedule && !scheduleLoaded ? (
-                  <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 font-medium text-sky-700 dark:border-sky-900 dark:bg-sky-950/25 dark:text-sky-200">
-                    Loading schedule…
+          {shouldRenderLiveStatusSection({ hasLiveGames, loadingLive }) ? (
+            <section className="flex flex-wrap items-center gap-1.5 text-xs">
+              <span
+                aria-hidden="true"
+                className={`inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 ${
+                  loadingLive ? 'animate-pulse' : ''
+                }`}
+              />
+              <span className="font-medium text-emerald-700 dark:text-emerald-300">Live</span>
+              {scoresSnapshotAt ? (
+                <>
+                  <span aria-hidden="true" className="text-gray-400 dark:text-zinc-600">
+                    ·
                   </span>
-                ) : null}
-                {loadingLive ? (
-                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
-                    Refreshing scores and odds…
-                  </span>
-                ) : null}
-                {!loadingLive &&
-                visibleGames.length > 0 &&
-                visibleScoresCount < visibleGames.length ? (
-                  <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                    Scores available for {visibleScoresCount}/{visibleGames.length} games.
-                  </span>
-                ) : null}
-                {!loadingLive && oddsAvailabilitySummary ? (
-                  <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                    {oddsAvailabilitySummary}
-                  </span>
-                ) : null}
-                {!loadingLive && scoresSnapshotAt ? (
-                  // Subtle scores data-freshness (PLATFORM-086B2B): the served
-                  // scores cache's last materially-changed timestamp. This is the
-                  // DATA-freshness signal (distinct from the live-overlay staleness,
-                  // which tracks successful observation) — honest "as of" recency.
                   <FreshnessLabel
                     timestamp={scoresSnapshotAt}
-                    label="Scores"
+                    label="scores"
                     className="self-center"
                   />
-                ) : null}
-                {!loadingLive && oddsSnapshotAt ? (
-                  // Subtle, dataset-specific freshness (PLATFORM-086A): the SERVED
-                  // odds cache entry's capture time for THIS season (rereview
-                  // finding #2) — never the global quota snapshot or admin usage
-                  // poll, which could inherit another season's recency.
-                  <FreshnessLabel timestamp={oddsSnapshotAt} label="Odds" className="self-center" />
-                ) : null}
-              </div>
-              {userFacingLiveIssues.length > 0 ? (
-                <p className="text-xs text-amber-700 dark:text-amber-300">
-                  Some live data could not be updated. Showing the latest available results.
-                </p>
+                </>
               ) : null}
             </section>
           ) : null}
@@ -1895,7 +1816,6 @@ export default function CFBScheduleApp({
                   focusedOwner={focusedOwner}
                   standingsHistory={canonicalHistory}
                   seasonContext={seasonContext}
-                  trendIssues={standingsIssues}
                   onOwnerSelect={(owner) => {
                     setSelectedOwner(owner);
                     setWeekViewMode('owner');

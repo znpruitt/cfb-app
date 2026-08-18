@@ -1085,7 +1085,6 @@ export default function TrendsDetailSurface({
   standingsHistory,
   season,
   seasonContext,
-  issues,
   ownerColorMap = {},
   layoutMode = 'standalone',
   compact = false,
@@ -1098,7 +1097,6 @@ export default function TrendsDetailSurface({
   standingsHistory: StandingsHistory | null;
   season: number;
   seasonContext: SeasonContext | null;
-  issues: string[];
   ownerColorMap?: Record<string, string>;
   layoutMode?: LayoutMode;
   compact?: boolean;
@@ -1286,17 +1284,6 @@ export default function TrendsDetailSurface({
               ? `${selectedMomentum.deltaWins >= 0 ? '+' : ''}${selectedMomentum.deltaWins} wins, ${formatSignedMetricValue('games-back', selectedMomentum.deltaGamesBack)} GB`
               : 'No momentum data'}
           </p>
-        </section>
-      ) : null}
-
-      {issues.length > 0 ? (
-        <section className="rounded-xl border border-amber-300 bg-amber-50/70 p-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
-          <p className="font-semibold">Data notes</p>
-          <ul className="mt-1 list-inside list-disc space-y-0.5">
-            {issues.slice(0, 5).map((issue) => (
-              <li key={issue}>{issue}</li>
-            ))}
-          </ul>
         </section>
       ) : null}
 

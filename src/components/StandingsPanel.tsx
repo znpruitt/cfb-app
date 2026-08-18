@@ -41,7 +41,6 @@ type StandingsPanelProps = {
   focusedOwner?: string | null;
   standingsHistory?: StandingsHistory | null;
   seasonContext?: SeasonContext | null;
-  trendIssues?: string[];
   initialSubview?: StandingsSubview;
   leagueSlug?: string;
 };
@@ -163,7 +162,6 @@ export default function StandingsPanel({
   focusedOwner = null,
   standingsHistory = null,
   seasonContext = null,
-  trendIssues = [],
   initialSubview = 'table',
   leagueSlug,
 }: StandingsPanelProps): React.ReactElement {
@@ -523,7 +521,6 @@ export default function StandingsPanel({
             standingsHistory={historyForRender}
             season={season}
             seasonContext={seasonContext}
-            issues={trendIssues}
             ownerColorMap={ownerColorMap}
             layoutMode="embedded"
             compact

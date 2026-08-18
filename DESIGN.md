@@ -15,6 +15,33 @@ Supersedes: (none)
 - Interaction over decoration — use hover/click states to reveal context rather than cluttering the resting state
 - Information density is a feature, not a risk — tighter layouts with less redundancy serve users better
 
+## Member surface boundary
+
+`/league/*` is a MEMBER surface. Operators reach their tooling through the admin gear; members never
+see the machinery.
+
+- **No operator diagnostics.** No provider names (CFBD), status codes, raw error strings, cache
+  terminology, or coverage counters ("Scores available for 98/100 games."). Every one of those
+  conditions is already reported by System Health — rendering a second, worse-worded copy on a
+  league page serves nobody and answers a question the member did not ask.
+- **No actions a member cannot perform.** The server guards are sound (`/api/schedule` refuses
+  `bypassCache` without admin; `/api/postseason-overrides` requires admin on write), so an
+  admin-only control on a member surface is not a security hole — it is a button that always fails.
+  Do not render one.
+- **No retry a failure cannot answer.** Offer a retry only where the app can distinguish a transient
+  failure from a permanent one. A schedule failure caused by a malformed CACHED row returns the same
+  result on every attempt, so a "Try again" button is an invitation to click forever.
+- **Messages state impact and a safe next step**, in that order, and stop. "This league's schedule
+  isn't available right now. Please check back shortly." — not what failed, where, or how to repair
+  it.
+- **One data-state signal is allowed, and only when it is live.** While a game is in progress the
+  league surface may show that scores are updating and how recently. Outside a live slate it shows
+  nothing: in preseason there is no game to be fresh about, and a stale timestamp there teaches a
+  member only that something is odd.
+
+Internal issue strings are still produced, logged, and used for detection — this boundary governs
+what reaches member JSX, not what the app knows.
+
 ## Layout
 
 - Two-column layouts should feel intentional — column headers align, vertical rhythm matches across columns

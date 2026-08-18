@@ -19,6 +19,18 @@ export function formatGameMatchupLabel(
   return `${game.csvAway} ${options?.homeAwaySeparator ?? 'at'} ${game.csvHome}`;
 }
 
+/**
+ * Is this game happening RIGHT NOW?
+ *
+ * The schedule's own status is authoritative when it says so, but a provider can
+ * lag behind the score feed, so an attached in-progress score counts too. Shared
+ * rather than duplicated: `ownerView` and the league surface both ask this
+ * question, and two copies of a liveness rule drift.
+ */
+export function isLiveGame(game: { status?: string }, score?: ScorePack): boolean {
+  return game.status === 'in_progress' || gameStateFromScore(score) === 'inprogress';
+}
+
 export function gameStateFromScore(
   score?: ScorePack
 ): 'final' | 'inprogress' | 'scheduled' | 'unknown' {

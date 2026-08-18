@@ -349,7 +349,6 @@ test('standings panel embeds shared trend charts alongside table', () => {
       rows={[]}
       standingsHistory={history}
       seasonContext="in-season"
-      trendIssues={[]}
       initialSubview="table"
     />
   );
@@ -388,7 +387,6 @@ test('standings panel renders contextual insights below table in left column', (
       ]}
       standingsHistory={history}
       seasonContext="in-season"
-      trendIssues={[]}
     />
   );
 
@@ -648,7 +646,6 @@ test('standings panel renders at most two standings-relevant shared insights and
       rows={richHistory.byWeek[3]!.standings}
       standingsHistory={richHistory}
       seasonContext="in-season"
-      trendIssues={[]}
     />
   );
 
@@ -681,7 +678,6 @@ test('standings panel renders trends section regardless of deep-link initial sub
       rows={[]}
       standingsHistory={history}
       seasonContext="in-season"
-      trendIssues={[]}
       initialSubview="trends"
     />
   );
@@ -700,7 +696,6 @@ test('standings panel keeps embedded trends rendered when initialSubview prop ch
       initialSubview="table"
       standingsHistory={history}
       seasonContext="in-season"
-      trendIssues={[]}
     />
   );
 
@@ -715,7 +710,6 @@ test('standings panel keeps embedded trends rendered when initialSubview prop ch
       initialSubview="trends"
       standingsHistory={history}
       seasonContext="in-season"
-      trendIssues={[]}
     />
   );
 
@@ -751,7 +745,6 @@ test('deep-link trends initial subview highlights and anchors embedded trends pa
       initialSubview="trends"
       standingsHistory={history}
       seasonContext="in-season"
-      trendIssues={[]}
     />
   );
 
@@ -783,7 +776,6 @@ test('query param view=trends deep link highlights and scrolls to embedded trend
       initialSubview="table"
       standingsHistory={history}
       seasonContext="in-season"
-      trendIssues={[]}
     />
   );
 

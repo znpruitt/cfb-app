@@ -104,10 +104,19 @@ test('league surface shows compact fatal fallback for schedule bootstrap failure
     <CFBScheduleApp initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']} />
   );
 
-  assert.match(html, /League view unavailable/);
-  assert.match(html, /CFBD schedule load failed: upstream CFBD returned 503/);
-  assert.match(html, /Rebuild schedule/);
-  assert.match(html, /Open Data Management/);
+  // POLISH-005 — a member sees IMPACT, not diagnosis. The fixture feeds a raw
+  // upstream failure; none of it may reach the page.
+  assert.match(html, /schedule isn.{0,8}t available right now/);
+  assert.doesNotMatch(html, /CFBD/, 'no provider name');
+  assert.doesNotMatch(html, /503/, 'no upstream status code');
+  assert.doesNotMatch(html, /schedule load failed/, 'no raw issue string');
+  assert.doesNotMatch(html, /Rebuild schedule/, 'no admin-only action a member cannot perform');
+  assert.doesNotMatch(html, /Open Data Management/, 'no admin link');
+  assert.doesNotMatch(
+    html,
+    /Try again/,
+    'no retry: the cached data is the defect, so it cannot succeed'
+  );
   assert.doesNotMatch(html, /Commissioner tools and diagnostics/);
 });
 
@@ -152,7 +161,8 @@ test('owner surface remains reachable with owner data even when no week is selec
   assert.match(html, /Alice/);
   assert.match(html, /the currently selected week slate/);
   assert.match(html, /No teams from this selection are attached to the selected week\./);
-  assert.match(html, /League view unavailable/);
+  // POLISH-005 — the fatal fallback is now member copy, not an operator console.
+  assert.match(html, /schedule isn.{0,8}t available right now/);
 });
 
 test('owner surface wires liveDelta to OwnerPanel; no live badge without in-progress scores (PLATFORM-046)', () => {
@@ -533,78 +543,46 @@ test('standings drill-down focus helper scrolls focused owner row', () => {
 // normal clean state, gated by `oddsSnapshotAt` in the section predicate.
 // ---------------------------------------------------------------------------
 
-const cleanLiveStatusInput = {
-  loadingSchedule: false,
-  scheduleLoaded: true,
-  loadingLive: false,
-  visibleGames: 5,
-  visibleScoresCount: 5, // scores complete
-  oddsAvailabilitySummary: null, // every game has odds
-  oddsSnapshotAt: null,
-  scoresSnapshotAt: null,
-  userFacingLiveIssuesCount: 0, // no issues
-};
+// ---------------------------------------------------------------------------
+// POLISH-005 — the live-status section is a MEMBER signal, not an operator one.
+//
+// It used to mount for any of: partial score coverage, an odds availability
+// summary, a freshness snapshot, or a live issue — in every lifecycle. On a
+// preseason Overview that produced "Scores available for 98/100 games.",
+// "Scores updated Jun 25" and "Some live data could not be updated." above a
+// table where nobody had played. Every one of those conditions is already
+// reported by System Health; the member-facing copies were a second, worse
+// -worded audience for operator data.
+//
+// It now mounts only when a game is actually live (or a live poll is in
+// flight), which is the one moment a member benefits from knowing the app is
+// still updating.
+// ---------------------------------------------------------------------------
 
-test('live-status section renders in the clean state when an odds snapshot exists (finding #5)', () => {
-  // The clean state: complete scores, full odds coverage, no issues. Before the
-  // fix nothing here mounts the section, so the freshness label never shows.
+test('POLISH-005: the live-status section stays silent when nothing is live', () => {
   assert.equal(
-    shouldRenderLiveStatusSection({ ...cleanLiveStatusInput, oddsSnapshotAt: null }),
+    shouldRenderLiveStatusSection({ hasLiveGames: false, loadingLive: false }),
     false,
-    'nothing to show when there is no odds snapshot and the surface is otherwise clean'
-  );
-  assert.equal(
-    shouldRenderLiveStatusSection({
-      ...cleanLiveStatusInput,
-      oddsSnapshotAt: '2026-10-15T12:00:00.000Z',
-    }),
-    true,
-    'a valid odds snapshot alone mounts the section so the freshness label shows'
-  );
-  // Same reasoning for the scores freshness label (PLATFORM-086B2B).
-  assert.equal(
-    shouldRenderLiveStatusSection({
-      ...cleanLiveStatusInput,
-      scoresSnapshotAt: '2026-10-15T12:00:00.000Z',
-    }),
-    true,
-    'a valid scores snapshot alone mounts the section so the scores freshness label shows'
+    'preseason, offseason and between slates show no data-state chrome at all'
   );
 });
 
-test('live-status section still renders for the other live signals (finding #5 regression)', () => {
-  // A warning alongside the label.
+test('POLISH-005: the live-status section appears while a game is live', () => {
   assert.equal(
-    shouldRenderLiveStatusSection({
-      ...cleanLiveStatusInput,
-      oddsSnapshotAt: '2026-10-15T12:00:00.000Z',
-      userFacingLiveIssuesCount: 1,
-    }),
-    true
+    shouldRenderLiveStatusSection({ hasLiveGames: true, loadingLive: false }),
+    true,
+    'a live game is what makes an "app is alive" signal meaningful'
   );
-  // Partial scores.
+});
+
+test('POLISH-005: an in-flight live poll also mounts it', () => {
+  // The pulsing state. Without this the indicator would flicker out between a
+  // poll starting and its scores landing.
   assert.equal(
-    shouldRenderLiveStatusSection({ ...cleanLiveStatusInput, visibleScoresCount: 3 }),
-    true
+    shouldRenderLiveStatusSection({ hasLiveGames: false, loadingLive: true }),
+    true,
+    'a live refresh in flight is itself evidence the app is working'
   );
-  // Odds availability summary present.
-  assert.equal(
-    shouldRenderLiveStatusSection({
-      ...cleanLiveStatusInput,
-      oddsAvailabilitySummary: 'Odds available for 3/5 games.',
-    }),
-    true
-  );
-  // Loading states.
-  assert.equal(
-    shouldRenderLiveStatusSection({
-      ...cleanLiveStatusInput,
-      loadingSchedule: true,
-      scheduleLoaded: false,
-    }),
-    true
-  );
-  assert.equal(shouldRenderLiveStatusSection({ ...cleanLiveStatusInput, loadingLive: true }), true);
 });
 
 // ---------------------------------------------------------------------------
@@ -738,4 +716,58 @@ test('other preseason surfaces keep the roster grid the members fix excludes', (
   );
 
   assert.match(html, /2026 Rosters/);
+});
+
+// ---------------------------------------------------------------------------
+// POLISH-005 — the member surface boundary (DESIGN.md).
+//
+// `/league/*` is a MEMBER surface. Every condition these controls reported is
+// already carried by System Health (`scores-terminal-coverage-*`,
+// `schedule-cache-*`, `rankings-cache-*`), so rendering a second, worse-worded
+// copy on a league page served nobody. These pin the removals: a regression here
+// means operator detail reached a member again.
+// ---------------------------------------------------------------------------
+
+// The counters ("Scores available for 98/100 games.", the odds availability
+// summary) were DELETED, and the live-status section they lived in only mounts
+// when `visibleGames` is non-empty — which needs a selected week, set by
+// post-load effects a static render never runs. So no fixture in this file can
+// make them appear, and a `doesNotMatch` on them would pass whether or not the
+// code came back. The real contract is the predicate above (silent unless live),
+// which IS reachable and mutation-proven. Mutation-found: an earlier version of
+// this test passed with the counter re-introduced verbatim.
+
+test('POLISH-005: internal issue strings never reach a member surface', () => {
+  // The fixture feeds raw internal strings of exactly the shapes the app
+  // produces. None may render.
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      initialIssues={[
+        'CFBD schedule load failed: upstream CFBD returned 503',
+        'invalid-schedule-row: week 4 row 12',
+        'identity-unresolved: Directional State',
+        'Odds fetch failed: unable to load current odds.',
+      ]}
+    />
+  );
+  // NOTE: "Data notes" is not asserted here. Its input path — the
+  // `issues -> standingsIssues -> trendIssues -> TrendsDetailSurface.issues`
+  // prop chain — was DELETED, so no fixture can make it render and a
+  // `doesNotMatch` on it would be decorative. Its enforcement is the compiler:
+  // the prop no longer exists.
+  assert.doesNotMatch(html, /invalid-schedule-row/, 'no raw issue string');
+  assert.doesNotMatch(html, /identity-unresolved/, 'no raw issue string');
+  assert.doesNotMatch(html, /CFBD/, 'no provider name');
+});
+
+test('POLISH-005: no admin-only affordance is offered to a member', () => {
+  // Both are refused server-side, so rendering them only produced buttons that
+  // always fail: `/api/schedule` rejects `bypassCache` without admin, and
+  // `/api/postseason-overrides` requires admin on write.
+  const html = renderWithAppContext(
+    <CFBScheduleApp initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']} />
+  );
+  assert.doesNotMatch(html, /Rebuild schedule/);
+  assert.doesNotMatch(html, /Open Data Management/);
+  assert.doesNotMatch(html, /\/admin\//, 'no admin deep link');
 });

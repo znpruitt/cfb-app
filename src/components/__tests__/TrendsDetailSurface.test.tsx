@@ -502,12 +502,7 @@ afterEach(() => cleanup());
 
 test('trends detail surface renders key sections without crashing', () => {
   const html = renderToStaticMarkup(
-    <TrendsDetailSurface
-      standingsHistory={null}
-      season={2026}
-      seasonContext="in-season"
-      issues={[]}
-    />
+    <TrendsDetailSurface standingsHistory={null} season={2026} seasonContext="in-season" />
   );
 
   assert.match(html, /Games Back/);
@@ -518,12 +513,7 @@ test('trends detail surface renders key sections without crashing', () => {
 test('owner selection propagates emphasis across charts, labels, momentum, and owner focus summary', async () => {
   const user = userEvent.setup({ document: dom.window.document });
   const rendered = render(
-    <TrendsDetailSurface
-      standingsHistory={history}
-      season={2026}
-      seasonContext="final"
-      issues={[]}
-    />
+    <TrendsDetailSurface standingsHistory={history} season={2026} seasonContext="final" />
   );
 
   // The Games Back chart is the active metric tab on initial render.
@@ -583,12 +573,7 @@ test('owner selection propagates emphasis across charts, labels, momentum, and o
 test('clicking same owner toggles selection off and removes owner focus summary', async () => {
   const user = userEvent.setup({ document: dom.window.document });
   const rendered = render(
-    <TrendsDetailSurface
-      standingsHistory={history}
-      season={2026}
-      seasonContext="final"
-      issues={[]}
-    />
+    <TrendsDetailSurface standingsHistory={history} season={2026} seasonContext="final" />
   );
 
   const legendAlice = rendered.container.querySelector('[aria-label="Alice"]');
@@ -609,12 +594,7 @@ test('clicking same owner toggles selection off and removes owner focus summary'
 test('point hover shows compact chart tooltip content', async () => {
   const user = userEvent.setup({ document: dom.window.document });
   const rendered = render(
-    <TrendsDetailSurface
-      standingsHistory={history}
-      season={2026}
-      seasonContext="final"
-      issues={[]}
-    />
+    <TrendsDetailSurface standingsHistory={history} season={2026} seasonContext="final" />
   );
 
   const legendAlice = rendered.container.querySelector('[aria-label="Alice"]');
@@ -647,12 +627,7 @@ test('point hover shows compact chart tooltip content', async () => {
 test('focus mode controls switch between all, top 5, and selected rendering states', async () => {
   const user = userEvent.setup({ document: dom.window.document });
   const rendered = render(
-    <TrendsDetailSurface
-      standingsHistory={history}
-      season={2026}
-      seasonContext="final"
-      issues={[]}
-    />
+    <TrendsDetailSurface standingsHistory={history} season={2026} seasonContext="final" />
   );
 
   const allControl = rendered.container.querySelector('[data-focus-mode-control="all"]');
@@ -693,12 +668,7 @@ test('focus mode controls switch between all, top 5, and selected rendering stat
 
 test('top focus renders only top 5 series and excludes non-focused owners from DOM', () => {
   const rendered = render(
-    <TrendsDetailSurface
-      standingsHistory={history}
-      season={2026}
-      seasonContext="final"
-      issues={[]}
-    />
+    <TrendsDetailSurface standingsHistory={history} season={2026} seasonContext="final" />
   );
 
   const topControl = rendered.container.querySelector('[data-focus-mode-control="top"]');
@@ -720,12 +690,7 @@ test('top focus renders only top 5 series and excludes non-focused owners from D
 test('selected focus mode follows active owner selection from chart interactions', async () => {
   const user = userEvent.setup({ document: dom.window.document });
   const rendered = render(
-    <TrendsDetailSurface
-      standingsHistory={history}
-      season={2026}
-      seasonContext="final"
-      issues={[]}
-    />
+    <TrendsDetailSurface standingsHistory={history} season={2026} seasonContext="final" />
   );
 
   // Enter selected focus mode first; the legend then drives the multi-select set
@@ -779,12 +744,7 @@ test('selected focus mode follows active owner selection from chart interactions
 
 test('long owner names render as full series and surface full name + formatted values on hover', () => {
   const rendered = render(
-    <TrendsDetailSurface
-      standingsHistory={history}
-      season={2026}
-      seasonContext="final"
-      issues={[]}
-    />
+    <TrendsDetailSurface standingsHistory={history} season={2026} seasonContext="final" />
   );
   // "all" focus mode renders every owner, including the long-named owner that is
   // not in the top 5.
@@ -913,12 +873,7 @@ test('deriveEndpointLabelLayout is deterministic and supports three-lane width-a
 test('selected owner summary still uses standings-derived rank and win metrics', async () => {
   const user = userEvent.setup({ document: dom.window.document });
   const rendered = render(
-    <TrendsDetailSurface
-      standingsHistory={history}
-      season={2026}
-      seasonContext="final"
-      issues={[]}
-    />
+    <TrendsDetailSurface standingsHistory={history} season={2026} seasonContext="final" />
   );
 
   const aliceLegend = rendered.container.querySelector('[aria-label="Alice"]');
@@ -939,12 +894,7 @@ test('selection helper toggles selected owner deterministically', () => {
 test('games back chart includes inverted axis domain marker and week ticks', () => {
   const longHistory = buildHistoryWithWeekCount(8);
   const rendered = render(
-    <TrendsDetailSurface
-      standingsHistory={longHistory}
-      season={2026}
-      seasonContext="final"
-      issues={[]}
-    />
+    <TrendsDetailSurface standingsHistory={longHistory} season={2026} seasonContext="final" />
   );
   const gamesBackChart = rendered.container.querySelector(
     '[aria-label="Games Back shared trend chart"]'
@@ -989,12 +939,7 @@ test('deriveWeekTicks increases density for long seasons and preserves first/las
 
 test('win pct chart tooltip formats percentage values on hover', () => {
   const rendered = render(
-    <TrendsDetailSurface
-      standingsHistory={history}
-      season={2026}
-      seasonContext="final"
-      issues={[]}
-    />
+    <TrendsDetailSurface standingsHistory={history} season={2026} seasonContext="final" />
   );
   // Win % lives behind its metric tab; activate it before querying the chart.
   const winPctTab = rendered.container.querySelector('[data-chart-tab="win-pct"]');
@@ -1095,23 +1040,13 @@ test('chart auto-scrolls to the most recent week only once on initial mount', ()
 
   try {
     const rendered = render(
-      <TrendsDetailSurface
-        standingsHistory={longHistory}
-        season={2026}
-        seasonContext="final"
-        issues={[]}
-      />
+      <TrendsDetailSurface standingsHistory={longHistory} season={2026} seasonContext="final" />
     );
     assert.equal(gamesBackScrollLeft, 800);
     assert.equal(gamesBackSetCount, 1);
 
     rendered.rerender(
-      <TrendsDetailSurface
-        standingsHistory={longHistory}
-        season={2026}
-        seasonContext="final"
-        issues={['non-blocking note']}
-      />
+      <TrendsDetailSurface standingsHistory={longHistory} season={2026} seasonContext="final" />
     );
 
     assert.equal(gamesBackSetCount, 1);
@@ -1164,12 +1099,7 @@ test('mobile layout suppresses right-edge labels and adapts chart height', () =>
   fireEvent(window, new window.Event('resize'));
 
   const rendered = render(
-    <TrendsDetailSurface
-      standingsHistory={history}
-      season={2026}
-      seasonContext="final"
-      issues={[]}
-    />
+    <TrendsDetailSurface standingsHistory={history} season={2026} seasonContext="final" />
   );
 
   const gamesBackChart = rendered.container.querySelector(
@@ -1189,13 +1119,7 @@ test('mobile layout suppresses right-edge labels and adapts chart height', () =>
 test('compact mode reduces wrapper padding while preserving shared chart interactions', async () => {
   const user = userEvent.setup({ document: dom.window.document });
   const rendered = render(
-    <TrendsDetailSurface
-      standingsHistory={history}
-      season={2026}
-      seasonContext="final"
-      issues={[]}
-      compact
-    />
+    <TrendsDetailSurface standingsHistory={history} season={2026} seasonContext="final" compact />
   );
 
   assert.match(rendered.container.firstElementChild?.getAttribute('class') ?? '', /p-3 sm:p-4/);
