@@ -257,7 +257,59 @@ function storageIssues(storage: StorageHealthFact): SystemHealthIssue[] {
   ];
 }
 
-function schedulerDeliveryIssues(snapshot: SchedulerDeliveryHealthSnapshot): SystemHealthIssue[] {
+/**
+ * A duration an operator can act on, at the granularity that changes the decision.
+ *
+ * "Late" spans four orders of magnitude here — a live-scores run can miss its slot
+ * by ninety seconds, and a preview store can be three days behind — and the only
+ * question being asked is "minutes or days". So the largest two units are enough
+ * and the smallest is a minute; seconds add noise to a judgement nobody makes on
+ * seconds.
+ */
+export function formatLateness(ms: number): string {
+  // A NEGATIVE span is a caller bug, not a small one, and it must not render as
+  // a small one. The first version of this took `arrived - due`, which is
+  // negative for every late row — `late` means the receipt is OLDER than the
+  // required slot — and `ms < 60_000` then swallowed a four-day gap into "under
+  // a minute late". Production read: "due by 2026-08-18 00:03 UTC and arrived
+  // 2026-08-14 00:48 UTC — under a minute late".
+  if (!Number.isFinite(ms) || ms < 0) return 'an unknown interval';
+  // Thresholded on the RAW span, not on the rounded minute count: rounding first
+  // turned 30 seconds into "1m", so the sub-minute case could never be reached.
+  if (ms < 60_000) return 'under a minute';
+  const totalMinutes = Math.max(1, Math.round(ms / 60_000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${minutes}m`;
+}
+
+/**
+ * An ABSOLUTE UTC instant, because the reader is comparing two of these and a
+ * relative rendering defeats that.
+ *
+ * The System Health page renders `Required slot` and `Completed` as relative
+ * moments in two different sections, so working out how late a job actually was
+ * meant diffing "7m ago" against "Friday" by eye — which is how a three-day gap
+ * read as routine. Everything in this app schedules in UTC (`vercel.json` crons,
+ * the QStash schedules, and every cadence label), so UTC is also the unit the
+ * schedules are written in.
+ */
+export function utcInstant(iso: string): string {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return 'an unreadable time';
+  return new Date(ms)
+    .toISOString()
+    .replace('T', ' ')
+    .replace(/:\d{2}\.\d{3}Z$/, ' UTC');
+}
+
+function schedulerDeliveryIssues(
+  snapshot: SchedulerDeliveryHealthSnapshot,
+  nowMs: number
+): SystemHealthIssue[] {
   const jobs = snapshot.jobs;
   const allUnavailable =
     jobs.length > 0 && jobs.every((row) => row.deliveryState === 'unavailable');
@@ -286,18 +338,53 @@ function schedulerDeliveryIssues(snapshot: SchedulerDeliveryHealthSnapshot): Sys
           code: 'scheduler-delivery-missing',
           severity: 'warning',
           title: `${row.job} has not delivered on schedule`,
-          explanation: `No recent authenticated ${row.job} invocation (${row.cadenceLabel}) is recorded. This cannot distinguish a scheduler (${row.source}) failure from a best-effort receipt-write failure.`,
+          // `missing` has NO receipt, so there is no "silent since" to state — the
+          // only instant available is the required slot, and `now - slot` is
+          // floored by the grace window plus up to one cron period. For hourly
+          // odds with a 2h grace that reads "2h 30m" whether the job missed one
+          // slot or has never run at all, because the slot is recomputed from
+          // `now` on every render. So state the deadline and STOP: an elapsed
+          // figure here would imply a precision this state cannot carry.
+          explanation: `No authenticated ${row.job} invocation (${row.cadenceLabel}) is recorded at or after ${utcInstant(row.requiredStartedAt)}, the most recent slot whose grace period has expired. This cannot distinguish a scheduler (${row.source}) failure from a best-effort receipt-write failure.`,
         });
         break;
-      case 'late':
+      case 'late': {
+        // WHEN IT WAS DUE, WHEN IT ARRIVED, AND BY HOW MUCH. All three facts are
+        // on `row` and none of them used to reach the reader: the warning said
+        // only "later than its schedule allows", and reconstructing the gap meant
+        // diffing `Required slot` against `Completed` by eye, in two different
+        // sections, in two different relative formats. A three-day gap and a
+        // ninety-second one read identically.
+        // HOW LONG SINCE THE LAST DELIVERY — `now - startedAt`, not a difference
+        // against the required slot.
+        //
+        // `late` means the most recent receipt is OLDER than the required slot, so
+        // `arrived - required` is negative for every row reaching here; the first
+        // version computed exactly that and `ms < 60_000` swallowed a four-day
+        // silence into "under a minute late". `required - arrived` fixes the sign
+        // but is still the wrong quantity: it is short by the grace window, and it
+        // answers a question nobody asks. "When did we last hear from this job,
+        // and how long ago was that" is the question, and it is unambiguous.
+        const arrived = row.receipt ? utcInstant(row.receipt.startedAt) : 'never';
+        const silentFor = row.receipt
+          ? formatLateness(nowMs - Date.parse(row.receipt.startedAt))
+          : null;
         issues.push({
           ...base,
           code: 'scheduler-delivery-late',
           severity: 'warning',
-          title: `${row.job} delivered later than scheduled`,
-          explanation: `The last authenticated ${row.job} invocation (${row.cadenceLabel}) arrived later than its schedule allows. This cannot distinguish a scheduler (${row.source}) delay from a delayed receipt write.`,
+          // NOT "delivered later than scheduled": in this state nothing was
+          // delivered for the required slot at all, and the timestamp below is
+          // the last receipt from BEFORE it. The explanation was corrected and
+          // the title left behind — and the title renders first, and larger.
+          title: `${row.job} has not delivered since its required slot`,
+          // "was due ... and arrived ..." also implied the arrival ANSWERED that
+          // slot. It did not: the slot has no delivery at all, and the timestamp
+          // shown is the last one on record from before it.
+          explanation: `An authenticated ${row.job} invocation (${row.cadenceLabel}) was expected to start at or after ${utcInstant(row.requiredStartedAt)}; the most recent on record started ${arrived}${silentFor ? `, ${silentFor} ago` : ''}. This cannot distinguish a scheduler (${row.source}) delay from a delayed receipt write.`,
         });
         break;
+      }
       case 'invalid':
         issues.push({
           ...base,
@@ -763,7 +850,7 @@ function compareIssues(a: SystemHealthIssue, b: SystemHealthIssue): number {
 export function deriveSystemHealthIssues(inputs: SystemHealthIssueInputs): SystemHealthIssue[] {
   const all: SystemHealthIssue[] = [
     ...storageIssues(inputs.storage),
-    ...schedulerDeliveryIssues(inputs.schedulerDelivery),
+    ...schedulerDeliveryIssues(inputs.schedulerDelivery, inputs.nowMs),
     ...schedulerExecutionIssues(inputs.schedulerDelivery),
     ...providerAttemptIssues(inputs.providerRefresh, inputs.cacheStates, inputs.nowMs),
     ...canonicalDataIssues(inputs.diagnostics),

@@ -206,6 +206,21 @@ function requiredStartedAtMs(policy: SchedulerDeliveryPolicy, nowMs: number): nu
   return previousScheduleSlotMs(policy.cron, nowMs - policy.graceMs);
 }
 
+/**
+ * The required slot for a job, as PRODUCTION computes it.
+ *
+ * Exported so a fixture derives this instead of approximating it. Grace ranges
+ * from six minutes (live-scores) to twenty-four hours (schedule-refresh), so a
+ * hand-written offset is wrong per job and wrong by a different amount each time:
+ * a fixture using `startedAt + 60s` certified a 30-second-old `live-scores`
+ * receipt as `late` when production, with a six-minute grace, classifies it
+ * on-time. The guard then blessed a state the classifier can never emit, which is
+ * the whole failure the guard exists to prevent.
+ */
+export function requiredStartedAtForJob(job: ExternalSchedulerJob, nowMs: number): number {
+  return requiredStartedAtMs(schedulerDeliveryPolicy(job), nowMs);
+}
+
 // ---------------------------------------------------------------------------
 // Cache-only reader (PLATFORM-086F2E2B §6).
 

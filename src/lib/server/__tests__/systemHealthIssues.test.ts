@@ -11,6 +11,7 @@ import {
   deriveSystemHealthIssues,
   summarizeSystemHealthIssues,
   type SystemHealthIssue,
+  formatLateness,
 } from '../systemHealthIssues.ts';
 import { INTERRUPTED_ATTEMPT_AFTER_MS } from '../../providerRefreshConstants.ts';
 import {
@@ -22,11 +23,13 @@ import {
   healthyDelivery,
   NOW,
   receiptFor,
+  lateReceiptFor,
   receiptWithRefusals,
   refreshSnapshot,
   safeStatus,
   unavailableDelivery,
   YEAR,
+  assertRowIsClassifiable,
 } from './systemHealthFixtures.ts';
 import { EXTERNAL_SCHEDULER_JOBS } from '../schedulerExecutionStatus.ts';
 import { oddsTargetScope, weekPartitionScope } from '../../providerRefreshScope.ts';
@@ -78,7 +81,7 @@ test('timely failed receipt → execution-failed issue, no delivery issue', () =
 // Case 5 — late successful receipt → delivery-late, no execution-failed.
 test('late successful receipt → delivery-late issue, no execution fault', () => {
   const rows = healthyDelivery().jobs.map((row) =>
-    row.job === 'odds' ? deliveryRow('odds', 'late', receiptFor('odds', 'success')) : row
+    row.job === 'odds' ? deliveryRow('odds', 'late', lateReceiptFor('odds', 'success')) : row
   );
   const issues = deriveSystemHealthIssues(
     baseInputs({ schedulerDelivery: deliverySnapshot(rows) })
@@ -976,5 +979,221 @@ test('the new issue does not disturb deterministic ordering or dedup', () => {
     first.filter((c) => c === 'lifecycle-data-unusable').length,
     1,
     'exactly one, never duplicated'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Two different questions, deliberately split.
+//
+// `formatLateness` is a pure function: test it DIRECTLY across every magnitude,
+// where reachability is not a claim anyone has to make. Building a fake row to
+// reach a formatter is what produced three tests that asserted states the
+// classifier can never emit — including a `30_000ms` case whose receipt sits
+// AFTER its required slot, which is the on-time shape.
+//
+// The row-level behaviour then needs exactly ONE test, built through
+// `deliveryRow`, which now refuses a row the classifier would not produce.
+// ---------------------------------------------------------------------------
+
+test('formatLateness reports the granularity an operator acts on', () => {
+  // Largest two units, one-minute floor: the question is "minutes or days", and
+  // nobody decides anything on seconds.
+  assert.equal(formatLateness(30_000), 'under a minute');
+  assert.equal(formatLateness(7 * 60_000), '7m');
+  assert.equal(formatLateness(95 * 60_000), '1h 35m');
+  assert.equal(formatLateness(26 * 3_600_000), '1d 2h');
+  assert.equal(formatLateness(3 * 86_400_000), '3d');
+  assert.equal(formatLateness(60_000), '1m', 'the floor boundary itself');
+});
+
+test('formatLateness refuses a span that is not a duration', () => {
+  // THE SHIPPED BUG'S SHAPE. A negative span slid through the `< 60_000` check
+  // and printed "under a minute", so a four-day silence read as trivial. NaN took
+  // the other path and printed the literal "NaNm".
+  //
+  // Tested here rather than through a row because no row can carry these values —
+  // and a test that invents one to reach this branch is the failure this file has
+  // already made three times.
+  assert.equal(formatLateness(-1), 'an unknown interval');
+  assert.equal(formatLateness(-3 * 86_400_000), 'an unknown interval');
+  assert.equal(formatLateness(Number.NaN), 'an unknown interval');
+  assert.equal(formatLateness(Number.POSITIVE_INFINITY), 'an unknown interval');
+});
+
+test('a late warning names the slot, the last start, and how long ago that was', () => {
+  // ONE row-level test, and `deliveryRow` refuses it if the label and the
+  // timestamps disagree — so this fixture is a shape production can emit.
+  const startedMs = NOW - (3 * 86_400_000 + 11 * 3_600_000);
+  const rows = healthyDelivery().jobs.map((row) =>
+    row.job === 'live-scores'
+      ? deliveryRow(
+          'live-scores',
+          'late',
+          receiptFor('live-scores', 'success', startedMs),
+          new Date(NOW - 60_000).toISOString() // slot AFTER the last run: that is what late means
+        )
+      : row
+  );
+  const late = find(
+    deriveSystemHealthIssues(baseInputs({ schedulerDelivery: deliverySnapshot(rows) })),
+    'scheduler-delivery-late'
+  );
+  assert.ok(late);
+
+  // Absolute UTC on both instants — the reader is comparing them, and relative
+  // rendering ("7m ago" against "Friday") is what hid a three-day gap.
+  assert.match(late!.explanation, /at or after \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/);
+  assert.match(late!.explanation, /started \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/);
+  assert.match(late!.explanation, /3d 11h ago/);
+  // The regression guard: this row rendered "under a minute late" in production.
+  assert.doesNotMatch(late!.explanation, /under a minute/);
+  // And it must not read as an EARLY arrival, which "due by X ... arrived before X" did.
+  assert.doesNotMatch(late!.explanation, /due by/);
+});
+
+test('the late TITLE does not claim a delivery answered the slot', () => {
+  // The title renders first and larger than the explanation, so it is the
+  // sentence an operator reads. It said "delivered later than scheduled" while
+  // the corrected explanation said nothing was delivered for that slot at all —
+  // the headline asserting exactly what the body had just been fixed to deny.
+  const rows = healthyDelivery().jobs.map((row) =>
+    row.job === 'live-scores'
+      ? deliveryRow(
+          'live-scores',
+          'late',
+          receiptFor('live-scores', 'success', NOW - 86_400_000),
+          new Date(NOW - 60_000).toISOString()
+        )
+      : row
+  );
+  const late = find(
+    deriveSystemHealthIssues(baseInputs({ schedulerDelivery: deliverySnapshot(rows) })),
+    'scheduler-delivery-late'
+  );
+  assert.match(late!.title, /has not delivered since its required slot/);
+  assert.doesNotMatch(late!.title, /delivered later than scheduled/);
+});
+
+test('a receipt inside the grace window cannot be labelled late', () => {
+  // The claim this test used to make was FALSE, and asserting it was the defect:
+  // AGENTS.md — "Test names, comments... are verification assertions. Claim only
+  // what was observed."
+  //
+  // `live-scores` has six minutes of grace, so a 30-second-old receipt is on-time
+  // in production and a `late` label on it describes a row the classifier can
+  // never emit. An earlier fixture derived its slot as `startedAt + 60s`, which
+  // manufactured exactly that row and then certified it.
+  assert.throws(
+    () => deliveryRow('live-scores', 'late', receiptFor('live-scores', 'success', NOW - 30_000)),
+    /classifies 'on-time'/
+  );
+
+  // POSITIVE CONTROL: past the grace window it IS late, and the helper accepts it
+  // — so the guard is applying the real policy rather than refusing everything.
+  const genuinelyLate = deliveryRow('live-scores', 'late', lateReceiptFor('live-scores'));
+  assert.ok(
+    Date.parse(genuinelyLate.receipt!.startedAt) < Date.parse(genuinelyLate.requiredStartedAt)
+  );
+  assert.equal(
+    genuinelyLate.graceMs,
+    6 * 60_000,
+    'and the row carries the job REAL grace, not a placeholder zero'
+  );
+});
+
+test('a missing delivery names its deadline and claims no elapsed figure', () => {
+  // No receipt means no silence to measure. `now - slot` is floored by the grace
+  // window, so for hourly odds it reads the same whether one slot was missed or
+  // the job has never run.
+  const rows = healthyDelivery().jobs.map((row) =>
+    row.job === 'odds' ? deliveryRow('odds', 'missing', null) : row
+  );
+  const missing = find(
+    deriveSystemHealthIssues(baseInputs({ schedulerDelivery: deliverySnapshot(rows) })),
+    'scheduler-delivery-missing'
+  );
+  assert.ok(missing);
+  assert.match(missing!.explanation, /at or after \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/);
+  assert.match(missing!.explanation, /grace period has expired/, 'names the field accurately');
+  assert.doesNotMatch(missing!.explanation, /ago/, 'no figure this state cannot support');
+});
+
+test('an incoherent row cannot enter a snapshot, however it was built', () => {
+  // The guard lives at the CHOKE POINT — `deliverySnapshot` — because checking
+  // only at construction let a caller spread the built row and replace a
+  // timestamp afterwards, which is exactly how the shipped fixture was written.
+  // Each case below is a bypass a reviewer found or a defect that reached the
+  // page, and each must now be impossible to get into a snapshot.
+  // Old enough to be late under live-scores' own six-minute grace.
+  const ok = () => lateReceiptFor('live-scores');
+
+  // 1. The ORIGINAL: spread the row, then override the slot so the label lies.
+  assert.throws(
+    () =>
+      deliverySnapshot([
+        {
+          ...deliveryRow('live-scores', 'late', ok()),
+          requiredStartedAt: new Date(NOW - 7_200_000).toISOString(), // now on-time
+        },
+      ]),
+    /classifies 'on-time'/,
+    'inline spread-override'
+  );
+
+  // 2. The HOISTED form, which a source scan for the inline spelling missed.
+  const built = deliveryRow('live-scores', 'late', ok());
+  const hoisted = { ...built, requiredStartedAt: new Date(NOW - 7_200_000).toISOString() };
+  assert.throws(() => deliverySnapshot([hoisted]), /classifies 'on-time'/, 'hoisted override');
+
+  // 3. A required slot in the FUTURE. Production computes it as
+  //    `previousSlot(now - grace)`, so it never is — and a future slot let a
+  //    seconds-old run be labelled late and render "under a minute ago".
+  // Built from a PAST receipt so `deliveryRow` accepts it, then pushed into the
+  // future by the override — otherwise the helper's own guard throws first and
+  // the assertion passes on the inner error, proving nothing about the choke
+  // point. (It did exactly that: delete `rows.forEach(...)` and this case still
+  // went green.)
+  const futureSlot = {
+    ...deliveryRow('odds', 'late', lateReceiptFor('odds')),
+    requiredStartedAt: new Date(NOW + 60_000).toISOString(),
+  };
+  assert.doesNotThrow(
+    () =>
+      assertRowIsClassifiable({
+        ...futureSlot,
+        requiredStartedAt: new Date(NOW - 60_000).toISOString(),
+      }),
+    'control: the row is otherwise coherent, so the future slot is what fails'
+  );
+  assert.throws(() => deliverySnapshot([futureSlot]), /is after now/, 'future required slot');
+
+  // 4. `invalid` carrying a receipt — emits both a receipt-invalid issue and an
+  //    execution issue, a pair no real snapshot produces.
+  assert.throws(
+    () => deliverySnapshot([{ ...deliveryRow('odds', 'invalid', null), receipt: ok() }]),
+    /must carry no receipt/,
+    'invalid with a receipt'
+  );
+
+  // 5. An unparseable instant. NaN comparisons are false, so this classified as
+  //    `late` and slipped past the ordering check entirely.
+  assert.throws(
+    () =>
+      deliverySnapshot([
+        {
+          ...deliveryRow('odds', 'late', lateReceiptFor('odds')),
+          requiredStartedAt: 'not-a-timestamp',
+        },
+      ]),
+    /unparseable/,
+    'unparseable required slot'
+  );
+
+  // POSITIVE CONTROL: a coherent row passes, so the guard is rejecting
+  // incoherence rather than everything handed to it.
+  assert.doesNotThrow(() =>
+    deliverySnapshot([
+      deliveryRow('live-scores', 'late', ok(), new Date(NOW - 60_000).toISOString()),
+    ])
   );
 });

@@ -20,6 +20,7 @@ import type {
   SchedulerDeliveryHealthRow,
   SchedulerDeliveryHealthSnapshot,
 } from '../schedulerDeliveryHealth.ts';
+import { requiredStartedAtForJob, schedulerDeliveryPolicy } from '../schedulerDeliveryHealth.ts';
 import {
   buildSchedulerExecutionReceipt,
   EXTERNAL_SCHEDULER_JOBS,
@@ -142,26 +143,145 @@ function buildReceipt(
   return receipt;
 }
 
+/**
+ * A receipt old enough to be LATE for this job, by the job's own policy.
+ *
+ * "Late" is not a fixed offset: it means the last run predates
+ * `previousSlot(now - graceMs)`, and grace runs from six minutes to twenty-four
+ * hours across the seven jobs. A test that picks its own offset is guessing at a
+ * per-job number and will be wrong for most of them — which is how a 30-second-old
+ * `live-scores` receipt came to be labelled late in a fixture when production
+ * calls it on-time.
+ */
+export function lateReceiptFor(
+  job: ExternalSchedulerJob,
+  result: SchedulerExecutionResult = 'success'
+): SchedulerExecutionReceipt {
+  // One minute before the slot it needed to reach.
+  return receiptFor(job, result, requiredStartedAtForJob(job, NOW) - 60_000);
+}
+
+/**
+ * A delivery row whose `deliveryState` CANNOT contradict its own timestamps.
+ *
+ * `deliveryState` is DERIVED in production (`schedulerDeliveryHealth`):
+ * `startedAt >= requiredStartedAt` is on-time, earlier is late. A test that hand-
+ * labels a row is asserting an answer instead of producing one, and if the label
+ * disagrees with the timestamps the row is a shape the classifier can never emit —
+ * so the test exercises the branch with impossible inputs and cannot fail.
+ *
+ * That is not hypothetical. A late warning shipped computing its gap as
+ * `arrived - due`, which is negative for every real late row; the fixture had the
+ * timestamps reversed in exactly the same way, the two errors cancelled, and 48
+ * tests passed while the page told operators a four-day silence was "under a
+ * minute late". The fixture agreed with the bug.
+ *
+ * So the label is CHECKED here. Pass `requiredStartedAt` when the ordering is the
+ * point of the test; the default keeps every existing caller working.
+ */
 export function deliveryRow(
   job: ExternalSchedulerJob,
   deliveryState: SchedulerDeliveryHealthRow['deliveryState'],
-  receipt: SchedulerExecutionReceipt | null
+  receipt: SchedulerExecutionReceipt | null,
+  requiredStartedAt?: string
 ): SchedulerDeliveryHealthRow {
-  return {
+  // DERIVED THROUGH PRODUCTION'S OWN FUNCTION, never approximated here.
+  //
+  // `requiredStartedAtForJob` is `previousSlot(now - graceMs)` — the same call
+  // `readSchedulerDeliveryHealth` makes. Grace ranges from six minutes
+  // (live-scores) to twenty-four hours (schedule-refresh), so ANY hand-written
+  // offset is wrong per job and wrong by a different amount each time.
+  //
+  // Two previous attempts got this wrong in opposite directions. `NOW` against a
+  // receipt at `NOW - 60s` made every `on-time` fixture a shape the classifier
+  // calls late. `startedAt + 60s` then certified a 30-second-old `live-scores`
+  // receipt as LATE, when six minutes of grace makes it on-time — the guard
+  // blessing a state production cannot emit, which is the failure the guard
+  // exists to prevent. Deriving removes the judgement call entirely.
+  const derived = new Date(requiredStartedAtForJob(job, NOW)).toISOString();
+
+  const row: SchedulerDeliveryHealthRow = {
     job,
     source: schedulerSourceForJob(job),
-    cron: '* * * * *',
+    cron: schedulerDeliveryPolicy(job).cron,
     cadenceLabel: 'test cadence',
-    graceMs: 0,
-    requiredStartedAt: new Date(NOW).toISOString(),
+    graceMs: schedulerDeliveryPolicy(job).graceMs,
+    requiredStartedAt: requiredStartedAt ?? derived,
     deliveryState,
     receipt,
   };
+  assertRowIsClassifiable(row);
+  return row;
 }
 
+/**
+ * Refuse a row whose `deliveryState` the real classifier would not produce from
+ * its own fields. Exported because a test that SPREADS a row and overrides a
+ * timestamp bypasses the check in `deliveryRow` — call this after any such edit.
+ */
+export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
+  const fail = (why: string): never => {
+    throw new Error(
+      `${row.job}: ${why}. The classifier can never emit this row, so a test using it proves nothing.`
+    );
+  };
+
+  if (row.deliveryState === 'missing' || row.deliveryState === 'unavailable') {
+    if (row.receipt !== null) fail(`'${row.deliveryState}' must carry no receipt`);
+    return;
+  }
+  // `buildDeliveryRow` nulls the receipt whenever the parse fails, so an INVALID
+  // row with a receipt attached is unreachable — and accepted, it emits both
+  // `scheduler-receipt-invalid` and an execution issue, a pair no real snapshot
+  // produces. Previously this branch returned before checking anything.
+  if (row.deliveryState === 'invalid') {
+    if (row.receipt !== null) fail(`'invalid' must carry no receipt`);
+    return;
+  }
+  if (row.receipt === null) fail(`'${row.deliveryState}' requires a receipt`);
+
+  const started = Date.parse(row.receipt!.startedAt);
+  const required = Date.parse(row.requiredStartedAt);
+  // NaN comparisons are FALSE, so an unparseable instant silently classified as
+  // `late` and slipped through the ordering check entirely.
+  if (!Number.isFinite(started))
+    fail(`receipt startedAt '${row.receipt!.startedAt}' is unparseable`);
+  if (!Number.isFinite(required)) {
+    fail(`requiredStartedAt '${row.requiredStartedAt}' is unparseable`);
+  }
+  // The required slot is `previousSlot(now - grace)` in production, so it can
+  // never be in the future. A future slot let a row be labelled `late` while its
+  // run was seconds old — rendering "under a minute ago" against a deadline that
+  // has not arrived, which is the reading this whole change exists to prevent.
+  if (required > NOW) fail(`requiredStartedAt ${row.requiredStartedAt} is after now`);
+
+  const wouldBe = started >= required ? 'on-time' : 'late';
+  if (wouldBe !== row.deliveryState) {
+    fail(
+      `labelled '${row.deliveryState}' but startedAt ${row.receipt!.startedAt} vs ` +
+        `requiredStartedAt ${row.requiredStartedAt} classifies '${wouldBe}'`
+    );
+  }
+}
+
+/**
+ * THE CHOKE POINT. Every row reaching `deriveSystemHealthIssues` passes through
+ * here, so validating at this boundary catches an incoherent row however it was
+ * produced — built by hand, spread and overridden inline, or hoisted into a
+ * variable and overridden later.
+ *
+ * Checking only inside `deliveryRow` was not enough: the helper has already
+ * returned by the time a caller spreads its result and replaces a timestamp, and
+ * that spread is exactly how the shipped defect's fixture was written. A source
+ * scan for the bypass was tried and removed — it matched syntax rather than
+ * meaning, missed the hoisted form, and AGENTS.md is explicit that proof
+ * machinery is a last resort when an invariant cannot be observed behaviorally.
+ * This one can.
+ */
 export function deliverySnapshot(
   rows: SchedulerDeliveryHealthRow[]
 ): SchedulerDeliveryHealthSnapshot {
+  rows.forEach(assertRowIsClassifiable);
   return { generatedAt: new Date(NOW).toISOString(), jobs: rows };
 }
 

@@ -1,5 +1,7 @@
 import React from 'react';
 
+import { utcInstant } from '@/lib/server/systemHealthIssues';
+
 import type { SchedulerDeliveryHealthRow } from '@/lib/server/schedulerDeliveryHealth';
 import {
   deliveryRowStatus,
@@ -95,9 +97,16 @@ export default function SchedulerHealthSection({
                 <dl className="grid grid-cols-1 gap-x-4 gap-y-0.5 pb-2 pl-5 text-[11px] text-gray-500 dark:text-zinc-400 sm:grid-cols-2">
                   <Detail label="Source" value={schedulerSourceLabel(row.source)} />
                   <Detail label="Cadence" value={row.cadenceLabel} />
+                  {/* ABSOLUTE, with the relative form alongside. These two
+                      instants are compared against each other, and rendering
+                      both relatively is what this change exists to fix — an
+                      operator diffing "7m ago" against "Friday" cannot separate a
+                      three-minute gap from a three-day one. The issues list was
+                      corrected first; the row detail showed the same two values
+                      in the old format on the same page. */}
                   <Detail
                     label="Required slot"
-                    value={formatMoment(row.requiredStartedAt, nowMs)}
+                    value={`${utcInstant(row.requiredStartedAt)} (${formatMoment(row.requiredStartedAt, nowMs)})`}
                   />
                   {receipt && <Detail label="Reason" value={receipt.reason} />}
                   {receipt && (
@@ -107,7 +116,21 @@ export default function SchedulerHealthSection({
                     />
                   )}
                   {receipt && (
-                    <Detail label="Completed" value={formatMoment(receipt.completedAt, nowMs)} />
+                    <Detail
+                      label="Completed"
+                      value={`${utcInstant(receipt.completedAt)} (${formatMoment(receipt.completedAt, nowMs)})`}
+                    />
+                  )}
+                  {/* `startedAt` is the value the delivery contract compares
+                      against the required slot, and the issue text quotes it —
+                      but the row only showed `completedAt` under an
+                      arrival-sounding label, so the two disagreed by the run's
+                      duration with nothing saying why. */}
+                  {receipt && (
+                    <Detail
+                      label="Started"
+                      value={`${utcInstant(receipt.startedAt)} (${formatMoment(receipt.startedAt, nowMs)})`}
+                    />
                   )}
                   {receipt && <Detail label="Invocation id" value={receipt.invocationId} />}
                   {/* WHICH BUILD executed this run. Since production promotion
