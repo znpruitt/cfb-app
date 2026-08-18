@@ -146,8 +146,11 @@ const DRAFT_DECAY: Record<string, number> = {
  * draft results outrank it once they exist, because they are new, timely and
  * event-based.
  *
- * The generator only runs in these three states, so the table covers exactly
- * them. `0.55` is derived rather than picked: it is the largest factor that
+ * The generator runs in exactly these three states, so the table covers them
+ * all. `postseason: 1` is full weight and correct: the recap reaches that
+ * lifecycle only when `seasonContext === 'final'`, i.e. the season is over and
+ * rollover simply has not run yet, which is when it is the freshest news there
+ * is. `0.55` is derived rather than picked: it is the largest factor that
  * keeps a typical champion-margin score (125 + margin x 4) below the membership
  * cards that report the draft (80-84), while staying above the career and
  * milestone pool (60-74) so the recap is present rather than buried. An

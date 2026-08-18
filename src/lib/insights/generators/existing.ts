@@ -79,6 +79,17 @@ type SeasonWrapSource = {
  */
 function selectSeasonWrapSource(context: InsightContext): SeasonWrapSource | null {
   if (context.lifecycleState !== 'preseason') {
+    // A recap may only speak once the season it describes is OVER.
+    // `lifecycleState` cannot answer that on its own: it reads `postseason` from
+    // the moment the postseason STARTS, so the live path would otherwise
+    // announce "How 2026 finished" and name a champion mid-bracket.
+    // `seasonContext` answers it directly — `'final'` means no week is still
+    // unresolved. Checked only for `postseason`, because that is the one
+    // lifecycle whose season may still be running; narrowing it further would
+    // risk silencing `fresh_offseason`, where the season is over by definition.
+    if (context.lifecycleState === 'postseason' && context.seasonContext !== 'final') {
+      return null;
+    }
     return {
       rows: selectCurrentRows(context),
       standingsHistory: reconstructStandingsHistory(context),

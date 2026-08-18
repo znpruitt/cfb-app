@@ -30,7 +30,7 @@ const INSIGHT_TYPE_PREFIXES: ReadonlyArray<readonly [InsightType, string]> = (
     ['perfect_against', 'perfect-against-'],
     ['team_identity', 'team-identity-'],
     ['ball_security', 'ball-security-'],
-    ['failed_chase', 'failed-chase-'],
+    ['failed_chase', 'closing-chase-'],
     ['champion_margin', 'champion-margin-'],
     ['takeaway_king', 'takeaway-king-'],
     ['tight_cluster', 'tight-cluster-'],

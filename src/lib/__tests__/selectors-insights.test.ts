@@ -1494,6 +1494,60 @@ test('the chase names the leader ONLY when the same owner led throughout', () =>
   assert.match(changed.description, /cut 2 games off the lead/, 'the deficit itself is still true');
 });
 
+test('the chase states one consistent deficit when the final week is unresolved', () => {
+  // Mutation-found. `closed` and `finishedBack` used to come from DIFFERENT
+  // endpoints: the slope was measured to the last RESOLVED week while the finish
+  // was read off the final table. Those agree in every ordinary fixture, which
+  // is why nothing caught it — they diverge only when the last week's coverage
+  // is incomplete and `selectResolvedStandingsWeeks` drops it. The card could
+  // then contradict itself inside one sentence.
+  const rows = [
+    standingsRow('Drew', 10, 2, 0, 12),
+    standingsRow('Casey', 8, 4, 2, 8),
+    standingsRow('Blake', 7, 5, 3, 4),
+    standingsRow('Alex', 6, 6, 4, 0),
+  ];
+  const base = historyFixture();
+  const lastWeek = base.weeks[base.weeks.length - 1]!;
+  // Casey closes from 5 back to the 2 the FINAL TABLE records; the last week is
+  // unresolved, and its snapshot disagrees with both.
+  const history = {
+    ...base,
+    byWeek: {
+      ...base.byWeek,
+      [lastWeek]: {
+        ...base.byWeek[lastWeek]!,
+        coverage: { state: 'partial' as const, message: null },
+      },
+    },
+    byOwner: {
+      ...base.byOwner,
+      Casey: base.byOwner.Casey!.map((point) => ({
+        ...point,
+        gamesBack: point.week === lastWeek ? 9 : 5,
+      })),
+    },
+  };
+
+  const chase = deriveLeagueInsights({
+    rows,
+    standingsHistory: history,
+    seasonContext: 'final',
+  }).find((entry) => entry.type === 'failed_chase');
+  assert.ok(chase, 'an unresolved final week must not silence the card');
+
+  // 5 back at the baseline, 2 in the final table => cut 3, finished 2 back.
+  // Reading the dropped week instead would compute a 4-game LOSS and emit
+  // nothing, or pair a slope with a finish it does not belong to.
+  assert.match(chase.description, /cut 3 games/, chase.description);
+  assert.match(chase.description, /finished 2 games back/, chase.description);
+  assert.doesNotMatch(
+    chase.description,
+    /9 games/,
+    `the dropped week must not surface: ${chase.description}`
+  );
+});
+
 test('overview and standings insights are context differentiated', () => {
   const rows = [
     standingsRow('Drew', 10, 2, 0, 12),

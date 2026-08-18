@@ -181,13 +181,24 @@ const RACE_LIFECYCLES: LifecycleState[] = [
  * archive-served card carried metadata saying it must not appear in the state it
  * was being served in.
  *
- * `postseason` was REMOVED (Codex review P1, owner ruling 2026-08-18).
- * `lifecycleState` becomes `postseason` the moment `seasonContext` does — that
- * is, when the postseason STARTS — so the recap was free to announce "How 2026
- * finished" and name a champion while those games were still being played.
- * A card that says a season finished may only appear once it has.
+ * `postseason` is SUPPORTED, but the generator additionally requires
+ * `seasonContext === 'final'` there. Removing the lifecycle outright was the
+ * first attempt and it was too blunt: `deriveLifecycleState` maps BOTH
+ * `seasonContext === 'postseason'` and `'final'` onto lifecycle `postseason`,
+ * so dropping it silenced the recap for the entire window in which the season
+ * is genuinely over but rollover has not run — `ROLLOVER_DELAY_MS` is seven
+ * days after the championship kickoff, and longer if rollover is delayed. That
+ * is precisely when last season is the freshest thing there is to say.
+ *
+ * The owner's rule is unchanged and now enforced more precisely: a card that
+ * says a season finished may only appear once it has. `seasonContext` answers
+ * that directly — it is `'final'` only when NO week remains unresolved.
  */
-export const SEASON_WRAP_LIFECYCLES: LifecycleState[] = ['preseason', 'fresh_offseason'];
+export const SEASON_WRAP_LIFECYCLES: LifecycleState[] = [
+  'preseason',
+  'postseason',
+  'fresh_offseason',
+];
 
 /**
  * Which ranked criterion actually separated these two, phrased for copy. Mirrors
@@ -635,15 +646,17 @@ export function deriveClosingChaseInsight(args: {
       const start = series?.find((point) => point.week === baselineWeek);
       const end = series?.find((point) => point.week === latestWeek);
       if (!start || !end) return null;
+      // BOTH endpoints come from the final table, deliberately. An earlier
+      // version measured `closed` to the last RESOLVED week while reading
+      // `finishedBack` off the final table, which let one sentence contradict
+      // itself — "cut 3 games off the lead ... and still finished 6 games back"
+      // — whenever the last week's coverage was incomplete and
+      // `selectResolvedStandingsWeeks` dropped it. The baseline still comes from
+      // the weekly series, which is the only place a historical deficit exists.
+      if (!end) return null;
       return {
         owner: row.owner,
-        // The SLOPE is measured across resolved weeks...
-        closed: start.gamesBack - end.gamesBack,
-        // ...but "finished N back" is a statement about the FINISH, so it reads
-        // the final table. The two disagree whenever the last week's coverage is
-        // incomplete: `selectResolvedStandingsWeeks` drops that week, so
-        // `end.gamesBack` is an earlier week's deficit and the champion card in
-        // the same feed would state a different number for the same owner.
+        closed: start.gamesBack - row.gamesBack,
         finishedBack: row.gamesBack,
       };
     })
