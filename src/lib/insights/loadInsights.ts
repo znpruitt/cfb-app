@@ -124,6 +124,15 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  *    before the slice was narrowed at review and left stale afterwards — the
  *    exact drift the paragraph below says versioning the docblock prevents.)
  *
+ *  - INSIGHTS-032 changed the season wrap's DATA SOURCE (archive in preseason)
+ *    and its framing trigger. The lifecycle half of that slice does move
+ *    `generators:` — the fingerprint encodes each generator's sorted lifecycles
+ *    — but the other two halves do not: a warm entry computed before it would
+ *    serve an UNFRAMED "Toilet bowl leader" on a season that has not kicked off,
+ *    and would keep serving a wrap derived from a table nobody played. Both are
+ *    content-policy changes invisible to every other part of the key, which is
+ *    the case this constant exists for.
+ *
  *  - INSIGHTS-025 v2 replaced the membership completeness gate. `generators:` in
  *    this key cannot see it — the generator set is unchanged, only WHEN it may
  *    speak — and the gate's whole purpose is withholding a card that names real
@@ -135,7 +144,7 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  * "INSIGHTS-022" while the value already read `insights030`, which is the same
  * class of drift the constant exists to prevent.
  */
-const INSIGHT_COPY_POLICY_VERSION = 'insights025-membership-changes-v7';
+const INSIGHT_COPY_POLICY_VERSION = 'insights032-season-wrap-archive-v1';
 
 /**
  * Membership policy version (INSIGHTS-023a). Same shape and same reason as the

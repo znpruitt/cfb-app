@@ -30,6 +30,7 @@ import {
   deriveTightRaceInsight,
   type Insight,
 } from '../selectors/insights';
+import type { SeasonArchive } from '../seasonArchive';
 import type { OwnerStandingsRow } from '../standings';
 
 // ---------------------------------------------------------------------------
@@ -315,6 +316,213 @@ test('seasonWrapGenerator does NOT apply framing when usingArchivedRoster=false'
       `Did not expect "Last season's" prefix on insight title: ${insight.title}`
     );
   }
+});
+
+// ---------------------------------------------------------------------------
+// INSIGHTS-032 — the season wrap survives rollover by reading the ARCHIVE.
+//
+// Before this slice the wrap ran only in `postseason` and `fresh_offseason`,
+// where `context.currentStandings` still holds the finished season's finals. The
+// rollover advances the league to the new year, the wrap went dark, and members
+// arriving in preseason found no record of how the year they just played ended.
+//
+// The fix is a data-source change, not a wider gate: in preseason the current
+// standings belong to the season about to start. These tests exist to keep those
+// two halves attached to each other.
+// ---------------------------------------------------------------------------
+
+function wrapArchive(year: number, rows: OwnerStandingsRow[]): SeasonArchive {
+  return {
+    leagueSlug: 'test',
+    year,
+    archivedAt: `${year + 1}-01-05T00:00:00.000Z`,
+    ownerRosterSnapshot: 'team,owner\n' + rows.map((r, i) => `Team${i}, ${r.owner}`).join('\n'),
+    standingsHistory: { weeks: [], byWeek: {}, byOwner: {} },
+    finalStandings: rows.map((r) => ({ ...r, ties: 0 })),
+    games: [],
+    scoresByKey: {},
+  };
+}
+
+/** The season just played: Zoe took it, Yuri finished four back. */
+const ARCHIVED_2025 = [row('Zoe', 12, 0, 0, 140), row('Yuri', 8, 4, 4, 40)];
+
+/**
+ * What the NEW season's table looks like on the day the draft ends: every owner
+ * present, nobody has played. Deliberately led by a different owner than the
+ * archive, so "which table did it read" is answerable from the copy alone.
+ */
+const UNPLAYED_2026 = [row('Aaron', 0, 0, 0, 0), row('Bex', 0, 0, 0, 0)];
+
+/**
+ * The post-draft preseason state: rollover done, roster confirmed, nobody has
+ * played. `leagueMembers` carries BOTH archived owners, so the membership gate
+ * is satisfied and these fixtures test source selection rather than it.
+ */
+function preseasonWrapContext(overrides: Partial<InsightContext> = {}): InsightContext {
+  return makeContext({
+    lifecycleState: 'preseason',
+    currentYear: 2026,
+    currentStandings: UNPLAYED_2026,
+    archives: [wrapArchive(2025, ARCHIVED_2025)],
+    usingArchivedRoster: false,
+    leagueMembers: new Set(['Zoe', 'Yuri']),
+    leagueMembersSource: 'confirmed',
+    ...overrides,
+  });
+}
+
+test('INSIGHTS-032: in preseason the wrap describes the ARCHIVE, not the new table', () => {
+  const insights = seasonWrapGenerator.generate(preseasonWrapContext());
+
+  const champion = insights.find((i) => i.type === 'champion_margin');
+  assert.ok(
+    champion,
+    `champion_margin must fire from the archive; saw ${insights.length} insights`
+  );
+  // Names the archive's finishers, not the new season's. This is the assertion
+  // that fails if the source silently reverts to `currentStandings`: that table
+  // is led by Aaron, and every margin in it is zero.
+  assert.match(champion.description, /Zoe/, 'the archived champion must be the one named');
+  assert.match(champion.description, /Yuri/, 'the archived runner-up must be the one named');
+  assert.doesNotMatch(champion.description, /Aaron|Bex/, 'the new season has not been played');
+  assert.equal(champion.statValue, 4, 'the margin must come from the archived table');
+});
+
+test('INSIGHTS-032: preseason frames the wrap as last season WITHOUT usingArchivedRoster', () => {
+  // The trap this test exists for. Framing used to hang on `usingArchivedRoster`,
+  // which is FALSE the moment the draft is confirmed and a current roster
+  // exists — precisely the preseason state most members will be looking at. An
+  // unframed "Toilet bowl leader" on the Overview of a season whose first game
+  // has not kicked off is a current-year claim.
+  const insights = seasonWrapGenerator.generate(
+    preseasonWrapContext({ usingArchivedRoster: false })
+  );
+
+  assert.ok(insights.length > 0, 'the fixture must produce something to frame');
+  for (const insight of insights) {
+    assert.ok(
+      insight.title.toLowerCase().startsWith("last season's "),
+      `preseason wrap titles must self-frame; got: ${insight.title}`
+    );
+  }
+});
+
+test('INSIGHTS-032: preseason requires the ADJACENT archive, not merely the newest', () => {
+  // A league that skipped 2025 has 2024 as its newest archive. "Last season's
+  // champion" would then name a champion from two years ago.
+  const stale = seasonWrapGenerator.generate(
+    preseasonWrapContext({ archives: [wrapArchive(2024, ARCHIVED_2025)] })
+  );
+  assert.equal(stale.length, 0, `a non-adjacent archive must produce nothing; got ${stale.length}`);
+
+  // Anti-vacuity: the ONLY difference is the year, so the zero above is the
+  // adjacency rule and not a fixture that could never produce anything.
+  const adjacent = seasonWrapGenerator.generate(
+    preseasonWrapContext({ archives: [wrapArchive(2025, ARCHIVED_2025)] })
+  );
+  assert.ok(adjacent.length > 0, 'the same archive one year later must produce the wrap');
+});
+
+test('INSIGHTS-032: a season nobody played produces no wrap, from either source', () => {
+  // Reachable both ways: an archive can be written for a league created and
+  // rolled straight over, and a live postseason table reads 0-0 across the board
+  // when score attachment has failed. "Title secured by X over Y by 0 games" is
+  // a fabricated result in both.
+  const unplayedArchive = seasonWrapGenerator.generate(
+    preseasonWrapContext({ archives: [wrapArchive(2025, UNPLAYED_2026)] })
+  );
+  assert.equal(unplayedArchive.length, 0, 'an unplayed archive must produce nothing');
+
+  const unplayedLive = seasonWrapGenerator.generate(
+    makeContext({
+      lifecycleState: 'postseason',
+      seasonContext: 'final',
+      currentStandings: UNPLAYED_2026,
+    })
+  );
+  assert.equal(unplayedLive.length, 0, 'an unplayed live table must produce nothing');
+
+  // Anti-vacuity for both: the guard reads records, so the identical fixture
+  // with games played must produce the wrap.
+  assert.ok(
+    seasonWrapGenerator.generate(preseasonWrapContext()).length > 0,
+    'the archive path must fire once the rows show play'
+  );
+  assert.ok(
+    seasonWrapGenerator.generate(
+      makeContext({
+        lifecycleState: 'postseason',
+        seasonContext: 'final',
+        currentStandings: ARCHIVED_2025,
+      })
+    ).length > 0,
+    'the live path must fire once the rows show play'
+  );
+});
+
+test('INSIGHTS-032: the preseason wrap withholds a card that names a DEPARTED owner', () => {
+  // The archive names LAST season's field. Zoe won it and has since left, so
+  // "Last season's champion margin: title secured by Zoe" would name a departed
+  // owner outside the membership event — AGENTS.md Insights invariant 5.
+  //
+  // Withheld, not rewritten: Yuri is still here, but handing HIM the title
+  // because the actual champion left would be a false result. A missing card is
+  // the only honest option.
+  const insights = seasonWrapGenerator.generate(
+    preseasonWrapContext({ leagueMembers: new Set(['Yuri']), leagueMembersSource: 'confirmed' })
+  );
+  const named = insights.flatMap((i) => [i.owner, ...(i.relatedOwners ?? [])]);
+  assert.ok(!named.includes('Zoe'), `a departed owner must not be named; got ${named.join(', ')}`);
+  assert.ok(
+    !insights.some((i) => i.type === 'champion_margin'),
+    'the champion card names the departed champion, so it must be withheld entirely'
+  );
+
+  // Anti-vacuity: the SAME fixture with Zoe still a member produces the card, so
+  // the absence above is the membership filter and not an inert fixture.
+  const withZoe = seasonWrapGenerator.generate(preseasonWrapContext());
+  assert.ok(
+    withZoe.some((i) => i.type === 'champion_margin'),
+    'the champion card must return once the champion is a member again'
+  );
+});
+
+test('INSIGHTS-032: an UNKNOWN membership withholds the preseason wrap entirely', () => {
+  // Without a confirmed list there is no answer to who left, so every archived
+  // name is unverifiable. `previous-roster` is the source in exactly that state
+  // — it is last season's roster standing in — and it is what an unconfirmed
+  // preseason league reads.
+  const unknown = seasonWrapGenerator.generate(
+    preseasonWrapContext({ leagueMembersSource: 'previous-roster' })
+  );
+  assert.equal(unknown.length, 0, `unknown membership must withhold; got ${unknown.length}`);
+
+  // Anti-vacuity: only the SOURCE differs from the passing fixture.
+  assert.ok(
+    seasonWrapGenerator.generate(preseasonWrapContext()).length > 0,
+    'the same fixture with a confirmed source must produce the wrap'
+  );
+});
+
+test('INSIGHTS-032: outside preseason the wrap still reads the CURRENT standings', () => {
+  // The refactor routed every lifecycle through one selector, so the untouched
+  // branch needs its own pin: with BOTH a live table and an archive present,
+  // postseason must describe the live one.
+  const insights = seasonWrapGenerator.generate(
+    makeContext({
+      lifecycleState: 'postseason',
+      seasonContext: 'final',
+      currentYear: 2026,
+      currentStandings: [row('Alex', 12, 0, 0, 100), row('Blake', 8, 4, 4, 30)],
+      archives: [wrapArchive(2025, ARCHIVED_2025)],
+    })
+  );
+
+  const champion = insights.find((i) => i.type === 'champion_margin');
+  assert.ok(champion, 'postseason must still produce a champion margin');
+  assert.match(champion.description, /Alex/, 'postseason describes the season just finished');
+  assert.doesNotMatch(champion.description, /Zoe/, 'the archive must not win over the live table');
 });
 
 // ---------------------------------------------------------------------------
@@ -638,11 +846,22 @@ test('ballSecurityGenerator does NOT apply framing in mid_season even with using
 // Lifecycle assertions — guards for the supportedLifecycles config we rely on
 // ---------------------------------------------------------------------------
 
-test('seasonWrapGenerator declares only post-current-season lifecycles', () => {
-  const allowed: LifecycleState[] = ['postseason', 'fresh_offseason'];
+// CONTRACT PIN — INSIGHTS-032 added `preseason`, and that addition is only safe
+// alongside the archive source below. `preseason` is the one state in this list
+// where the CURRENT standings are not the season being described, so a future
+// change that widens this gate without touching `selectSeasonWrapSource` would
+// wrap a table nobody has played in. The two halves ship together or not at all.
+test('seasonWrapGenerator declares only lifecycles where a finished season exists', () => {
+  const allowed: LifecycleState[] = ['preseason', 'postseason', 'fresh_offseason'];
   for (const lc of seasonWrapGenerator.supportedLifecycles) {
     assert.equal(allowed.includes(lc), true, `seasonWrapGenerator should not run in ${lc}`);
   }
+  // Asserted positively too: the loop above passes on an EMPTY gate, so it can
+  // never catch preseason being removed again.
+  assert.ok(
+    seasonWrapGenerator.supportedLifecycles.includes('preseason'),
+    'preseason is the whole point of INSIGHTS-032 — the wrap must survive rollover'
+  );
 });
 
 // CONTRACT PIN — INSIGHTS-022 added `offseason`. The card reports a COMPLETED
