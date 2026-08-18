@@ -110,7 +110,7 @@ test('league surface shows compact fatal fallback for schedule bootstrap failure
   assert.doesNotMatch(html, /CFBD/, 'no provider name');
   assert.doesNotMatch(html, /503/, 'no upstream status code');
   assert.doesNotMatch(html, /schedule load failed/, 'no raw issue string');
-  assert.doesNotMatch(html, /Rebuild schedule/, 'no admin-only action a member cannot perform');
+  assert.doesNotMatch(html, /Rebuild schedule/, 'a MEMBER gets no operator action');
   assert.doesNotMatch(html, /Open Data Management/, 'no admin link');
   // NO retry, and the fixture is why the reasoning took three attempts to get
   // right. `CFBD schedule load failed:` IS a transient fetch error — but
@@ -739,6 +739,32 @@ test('POLISH-005: internal issue strings never reach a member surface', () => {
 // there is no prop to select the postseason tab in a static render, so the
 // button never rendered whether or not the gate existed. Mutation-found —
 // handing the callback back to members unconditionally left it green.
+
+test('POLISH-005: an ADMIN keeps the rebuild path on a fatal schedule failure', () => {
+  // The rebuild forces `bypassCache`, which `/api/schedule` refuses only when
+  // the admin check FAILS — so for an admin it succeeds. An earlier version of
+  // this slice removed it on the rationale that "both were server-refused
+  // anyway", which is true for a member and false for an admin, and left the one
+  // person who could repair a broken league page with nothing to click.
+  const admin = renderWithAppContext(
+    <CFBScheduleApp
+      isAdmin
+      initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']}
+    />
+  );
+  assert.match(admin, /Rebuild schedule/, 'the operator keeps their repair path');
+  // The MEMBER copy is unchanged for them — an affordance, not a console.
+  assert.match(admin, /schedule isn.{0,8}t available right now/);
+  assert.doesNotMatch(admin, /CFBD/, 'still no provider name, even for an admin');
+  assert.doesNotMatch(admin, /schedule load failed/, 'still no raw issue string');
+
+  // Control: the identical failure without `isAdmin` offers nothing to click,
+  // so the assertion above is the gate and not an inert fixture.
+  const member = renderWithAppContext(
+    <CFBScheduleApp initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']} />
+  );
+  assert.doesNotMatch(member, /Rebuild schedule/);
+});
 
 test('POLISH-005: no admin-only affordance is offered to a member', () => {
   // Both are refused server-side, so rendering them only produced buttons that

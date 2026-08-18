@@ -1581,15 +1581,36 @@ export default function CFBScheduleApp({
         // explicitly require an operator refresh. The distinction is destroyed
         // before any predicate sees it.
         //
-        // So the retry is not offered until the error carries structure. That is
-        // a change to the schedule loader, not to this boundary — filed as
+        // So no MEMBER retry until the error carries structure — filed as
         // `docs/next-tasks.md` 55. Reloading the page is the universal retry and
-        // needs no affordance.
+        // needs no affordance. An admin rebuild is a different thing: it forces
+        // `bypassCache`, which actually refetches, and is gated below.
         <section className="space-y-2 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
           <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
             This league&rsquo;s schedule isn&rsquo;t available right now
           </h2>
           <p className="text-sm text-gray-600 dark:text-zinc-400">Please check back shortly.</p>
+          {isAdmin ? (
+            // ADMINS keep their repair path. An earlier version of this slice
+            // removed it with the rationale "both were server-refused anyway" —
+            // true for a member, FALSE for an admin: `/api/schedule` refuses
+            // `bypassCache` only when the admin check FAILS (route.ts:649), so
+            // for an admin the rebuild succeeds. Deleting it left the one person
+            // who could fix a fatally broken league page with nothing to click.
+            //
+            // This is the same `isAdmin` gate the postseason override uses. The
+            // member copy above is unchanged: no provider name, no raw issue
+            // text, no diagnosis — an operator affordance, not an operator
+            // console.
+            <button
+              type="button"
+              className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
+              onClick={() => void loadScheduleFromApi(undefined, undefined, { bypassCache: true })}
+              disabled={loadingSchedule}
+            >
+              {loadingSchedule ? 'Rebuilding…' : 'Rebuild schedule'}
+            </button>
+          ) : null}
         </section>
       ) : null}
 

@@ -1627,6 +1627,12 @@ Supersedes: (none)
       never reaches the error copy. A member on the Rankings tab during a CFBD outage sees
       "Loading rankings…" indefinitely. The gate PREDATES POLISH-005, which only rewrote the copy in
       the unreachable branch.
+    - **Click BEHAVIOUR on the league surface is untestable in the current harness.** These tests
+      render statically, so no handler fires. Two consequences are pinned only by rendering, not by
+      effect: the admin rebuild forcing `bypassCache` (without it the button is a cache re-read that
+      cannot repair a cold cache — the useless-button problem, moved to the admin), and the
+      postseason override's save path. Mutating either survives. Closing this needs an interaction
+      harness for `CFBScheduleApp`, which is its own decision.
     - **The `isAdmin` gate on the postseason override is not exercised through its real caller.**
       `GameWeekPanel` tests pin the rendering contract (callback ⇒ button, and a positive control),
       but mutating the ternary at the two `CFBScheduleApp` call sites survives, because the

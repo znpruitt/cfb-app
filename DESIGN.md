@@ -27,7 +27,10 @@ see the machinery.
 - **No actions a member cannot perform.** The server guards are sound (`/api/schedule` refuses
   `bypassCache` without admin; `/api/postseason-overrides` requires admin on write), so an
   admin-only control on a member surface is not a security hole — it is a button that always fails.
-  Do not render one.
+  Gate it on `isAdmin` rather than deleting it: the same control that is useless to a member is the
+  operator's repair path, and removing it outright leaves the one person who can fix a broken page
+  with nothing to click. That mistake was made once here, justified by "server-refused anyway" —
+  which is true for a member and false for the admin the guard admits.
 - **No retry a failure cannot answer.** Offer a retry only where the app can distinguish a transient
   failure from a permanent one. A schedule failure caused by a malformed CACHED row returns the same
   result on every attempt, so a "Try again" button is an invitation to click forever.
