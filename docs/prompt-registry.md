@@ -50,6 +50,68 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-032-SEASON-RECAP-v2
+
+- Purpose: the season recap survives rollover. It read `context.currentStandings`, which holds the
+  finished season's finals in `postseason` and `fresh_offseason` but becomes the NEW season's 0-0
+  table the moment the year advances — so members arriving in preseason found no record of the year
+  they had just played. In preseason it now reads the ADJACENT archive, and every card names its
+  season.
+- Scope: `selectors/insights.ts` (the four recap derivations, a `completedSeason` parameter, the
+  tiebreak authority, and the chase re-derived from the games-back slope), `generators/existing.ts`
+  (source selection, finality gate, decay and season metadata), `insights/variants.ts` (a
+  `season_recap` decay curve), `insights/context.ts` + `loadInsights.ts` (`describedYear` and its
+  paired provenance), `OverviewPanel.tsx` (archived cards route to their own season), the suppression
+  debug route, and two new suites (20 unit + 8 e2e) plus routing tests.
+- **v1 ABANDONED and SUPERSEDED — `feat/insights-032-v1-abandoned`, 7 commits, not merged.** It took
+  three remediation rounds and a third review round still produced credible findings, two of them on
+  code written WHILE remediating. Per AGENTS.md that is the reconstruction trigger, and the owner
+  called it. v2 was RE-DERIVED from clean `main`, not cherry-picked. The v1 branch is retained for
+  its review history only; nothing in it should be revived as-is.
+- Owner rulings implemented (2026-08-18): the recap may NAME A DEPARTED OWNER, because a stated year
+  makes the claim historical — withholding instead made the recap dark until owners were confirmed
+  and silently deleted the champion card whenever last season's champion did not return. Copy is
+  owner-authored with the year worked into the phrasing and no parentheticals ("How 2025 finished",
+  "Who owns the porcelain throne in 2025?"). The recap DECAYS once preseason arrives so draft results
+  outrank it. The chase measures the SLOPE of the games-back line, not finishing position — the old
+  derivation could only restate the champion card from the other side. A title decided level on wins
+  EXPLAINS the deciding factor rather than printing "by 0 games", and one separated ONLY by owner
+  name is withheld outright, because an alphabetical fallback is not a reason anyone won.
+- The four structural changes that distinguish v2 from a re-application of v1, each removing a defect
+  class v1 shipped: the margin phrase is built ONCE and shared by both copy paths (v1 corrected the
+  engine sentence and left the Standings tab printing "by 0 games"); the chase measures baseline ->
+  FINAL TABLE for amount, shortfall AND duration (v1 mixed endpoints and could contradict itself in
+  one sentence); the gate is the lifecycle list AND `seasonContext === 'final'` (v1 was wrong twice
+  in opposite directions — a champion mid-bracket, then dark for the seven days between the
+  championship and rollover); and the described year moves WITH its provenance.
+- Review / verification: tsc 0, `lint:all` 0, full suite 4039/4039 with 0 cancelled (4008 on `main`;
+  +31). Mutation: 27 mutations, 26 killed — the survivor mutates a TEST helper, which no test can
+  catch by construction. Verified over HTTP: a seeded 2026 preseason league serves 2025's recap from
+  the archive, a departed owner is named, decay lands the three cards at 75/63/41 (below the 80-84
+  draft-result band), and a level-on-wins archive prints "Zoe took it on point differential over
+  Yuri".
+- **Codex's NoClaim P2 was REFUTED with evidence**, and `/code-review` cleared it independently:
+  `deriveStandingsHistory` builds every weekly snapshot from `deriveStandings(...).rows`, which splits
+  `NoClaim` out before returning, and `seasonRollover.ts` is the only archive writer in the repo.
+- One remediation round taken on v2, covering: archive provenance scoped to a year OTHER than the
+  league's own (a REGRESSION — rollover archives year Y and leaves `league.year` at Y, so year-only
+  matching blanked every stats generator in `fresh_offseason` against a pre-H3E1 archive with no
+  slate); the chase duration sharing the amount's endpoint; the invariant-5 exemption narrowed from
+  the whole `season_wrap` category to four id prefixes; and a dead `failed_chase` routing arm.
+- Deferred deliberately, recorded as `docs/next-tasks.md` 36a/36b: `selectSeasonContext` conflates
+  "in progress" with "incomplete" (four surfaces misreport a finished-but-incomplete season as live —
+  the recap is the one consumer already correct, so it was NOT patched), and `?year=<archived>`
+  returning no recap during preseason (fails closed; needs a decision about the operating year).
+  Also open: `StandingsPanel` keeps a private `insightHref` without the `season` branch, unreachable
+  today; and the season-long "biggest turnaround" card, deliberately not folded in because widening
+  the chase window would silently change which owner the existing card names.
+- **The lesson worth carrying: three tests in this slice were VACUOUS and passing.** A leader-change
+  fixture where the leader never changed; an e2e fixture whose archive had an empty weekly history,
+  so the card that names the departed owner never fired; and a provenance test where both branches
+  resolved null, so it could not fail for its stated reason. Each was caught by a mutation or by the
+  assertion failing for the wrong reason — never by reading the test. AGENTS.md invariant 5 and
+  clause (b) were AMENDED for the completed-season exemption; see the invariant text for the limits.
+
 ### INSIGHTS-031-ROSTER-SCHEDULE-CONTENT-v1
 
 - Purpose: The first insight content about the DRAFT rather than about college football. A game

@@ -1061,29 +1061,13 @@ Supersedes: (none)
     Check `season_wrap`'s existing `applyLastSeasonFraming` call for the pattern to follow — it is
     the one generator that already does this correctly.
 
-36. **Season wrap from the ARCHIVE, and `never_last`'s "and counting"** (split out of INSIGHTS-023
-    at its audit, 2026-08-16; owner said YES to wanting last season's wrap during preseason).
+36. **THREE ungated participation claims, live on `main`** (split out of INSIGHTS-023 at its audit,
+    2026-08-16; the season-wrap half of this item SHIPPED as INSIGHTS-032 — see the registry).
 
-    **`existing:season_wrap` does not read what the INSIGHTS-023 entry assumed.** That entry argued
-    it should extend to preseason because it "describes a season that has FINISHED". It does not read
-    the archive — `selectCurrentRows` returns `context.currentStandings`. In `postseason` and
-    `fresh_offseason` those ARE the finished season's rows, which is why it works there. After
-    rollover the current standings are the NEW season's synthesized rows, so flipping its gate would
-    compute champion margin and failed chase from a table where nobody has played. **A data-source
-    change, not a constant** — which is why it was split rather than folded in.
-
-    Already solved for it: the invariant-5 half. `seasonWrapGenerator` calls
-    `applyLastSeasonFraming` when `usingArchivedRoster`, so the copy self-frames.
-
-    Carries the owner's `toilet_bowl` ruling (2026-08-15): last season's toilet-bowl champion is
-    legitimate preseason content, and per the single-season-extreme rule it is news once, not
-    rotating content.
-
-    **Also here — THREE ungated participation claims, all live on `main` today.** An earlier version
-    of this entry said INSIGHTS-023 had "gated the `drought` and `dominance_streak` phrasings on
-    `membershipIsKnown`". **It did not.** 023 wrote that gating and then REVERTED both generators
-    when review found unconverted superlatives in them, so the ledger recorded a fix that was backed
-    out — dropping a known-unresolved risk, which AGENTS.md forbids.
+    An earlier version of this entry said INSIGHTS-023 had "gated the `drought` and
+    `dominance_streak` phrasings on `membershipIsKnown`". **It did not.** 023 wrote that gating and
+    then REVERTED both generators when review found unconverted superlatives in them, so the ledger
+    recorded a fix that was backed out — dropping a known-unresolved risk, which AGENTS.md forbids.
 
     What is actually unresolved:
     - `historical:drought` — `title: 'Longest active title drought'` is a constant, and the
@@ -1098,6 +1082,10 @@ Supersedes: (none)
     `usingArchivedRoster` short-circuits the `official-roster` branch — so an owner who merely sat a
     season out is described as active. That is what the invariant-5 amendment forbids, and it ships
     live regardless of INSIGHTS-023, which is precisely why the record has to stay accurate.
+
+    **INSIGHTS-032 does NOT cover these.** Its exemption is for reports of a COMPLETED season, whose
+    copy names the year and asserts nothing about who is playing. These three make present-tense
+    claims and are exactly what the departed-owner rule still binds.
 
     The gating code 023 wrote is recoverable from `cf26ef2d` if it helps, but re-apply it as part of
     the superlative conversion, not on its own — the conversion is what those generators actually
@@ -1533,6 +1521,47 @@ Supersedes: (none)
 
     Also worth deciding when this is picked up: whether `assignmentMethod: 'manual'` should be
     offered at all until it works, or refused at `setAssignmentMethod` with a reason.
+
+52. **`selectSeasonContext` conflates "in progress" with "incomplete"** (found by `/code-review`
+    during INSIGHTS-032, 2026-08-18; owner adjudicated the same day — do NOT patch the recap for it).
+
+    `selectSeasonContext` returns `'final'` only when NO week is unresolved, and `'in-season'`
+    otherwise. Those are two different facts wearing one value: a season genuinely in progress, and a
+    season that ENDED but has a week whose scores never attached. A week goes unresolved when a game
+    the schedule calls `final` has no final score in `scoresByKey` — mostly a provider or timing
+    condition, though a key/identity mismatch would put it on us.
+
+    Four surfaces inherit the confusion, months after the season is over:
+    - `TrendsDetailSurface` labels the season **"In season"**.
+    - `StandingsPanel` keeps the week-over-week **move column** (`seasonContext !== 'final'`).
+    - `deriveLeagueInsights` takes the `else` branch — **no** champion/collapse/throne cards at all.
+    - `deriveTightRaceInsight` keeps emitting a live **title race**.
+
+    **The recap is the one consumer already correct**, because it trusts the LIFECYCLE — rollover
+    fired, so the season is over — rather than this derived signal. Adding a coverage gate to it was
+    considered and REJECTED: it would have made the recap agree with the broken signal, and requiring
+    `'final'` in every state would blank the recap for an entire offseason over one unresolved week,
+    which is the dead-window failure INSIGHTS-032 v1 shipped twice.
+
+    The condition is already REPORTED — System Health carries
+    `scores-terminal-coverage-missing`/`-partial`, and the standings panels receive a member-facing
+    coverage message. Nothing is hidden; the defect is only that the season's STATE is misreported.
+    Fix at the source (distinguish "final but incomplete" from "in progress"), never per consumer.
+
+53. **`?year=<archived>` returns no recap during preseason** (found by Codex during INSIGHTS-032,
+    2026-08-18; fails CLOSED, so it is a missing card and never a false one).
+
+    Two things INSIGHTS-032 built read the same field for different purposes. `describedYear` makes
+    `context.currentYear` follow an explicit `?year=`, and the recap's stale-projection guard
+    (`archives.some((entry) => entry.year >= context.currentYear)`) reads `currentYear` to decide
+    whether the league's own year can be trusted. Request `?year=2025` on a league in preseason 2026
+    and the guard sees 2025 already archived, concludes the projection is stale, and withholds — even
+    though canonical rows and history were built for exactly that season.
+
+    Only a direct API caller can reach it: the insights page passes `league.year`. Fixing it needs a
+    DECISION, not just code — either keep an operating year (`league.year`) for lifecycle and
+    adjacency separate from the described year, or accept an archive matching the explicitly
+    requested year. Do not widen the guard without answering which.
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
