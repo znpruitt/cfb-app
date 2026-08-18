@@ -312,3 +312,80 @@ test('deriveLiveTrackingState: one live game among finals still tracks', () => {
     'tracking'
   );
 });
+
+test('deriveLiveTrackingState: a score OUTAGE does not read as live play', () => {
+  // Review-found. Treating "not final" as live counts a game with NO attached
+  // score as outstanding, so an empty `scoresByKey` — a dead feed or a cold
+  // cache — made every game that kicked off in the last 24h read as live. The
+  // surface then asserted "Tracking scores" while nothing was updating, and this
+  // slice had already deleted the hedge that used to cover that state.
+  const started = makeGame({
+    key: 'started',
+    date: new Date(NOW_MS - 45 * 60 * 1000).toISOString(),
+  });
+  assert.equal(
+    deriveLiveTrackingState(trackingArgs([started], {})),
+    null,
+    'absence of score data is not evidence of play'
+  );
+
+  // Anti-vacuity: the SAME game with an in-progress score does track, so the
+  // null above is the evidence rule and not an inert fixture.
+  assert.equal(
+    deriveLiveTrackingState(trackingArgs([started], { started: scorePack('Q3 2:00') })),
+    'tracking'
+  );
+});
+
+test('deriveLiveTrackingState: a FINAL game never reads as awaiting kickoff', () => {
+  // Mutation-found. Normally redundant — a final game's kickoff is in the past,
+  // so the clock comparison already excludes it. This covers contradictory
+  // provider data (a final result carrying a future timestamp), where dropping
+  // the guard would promise a kickoff for a game that is already over.
+  // +10 minutes: inside the 15-minute arming window, so the poller IS running.
+  // (+20 would sit outside it, nothing would be armed, and the control below
+  // could not prepare — which is exactly how this fixture failed first.)
+  const finished = makeGame({
+    key: 'finished',
+    date: new Date(NOW_MS + 10 * 60 * 1000).toISOString(),
+  });
+  assert.equal(
+    deriveLiveTrackingState(trackingArgs([finished], { finished: scorePack('Final') })),
+    null,
+    'a finished game is not preparing, whatever its timestamp claims'
+  );
+
+  // Anti-vacuity: the identical future-kickoff game WITHOUT a final score does
+  // prepare, so the null above is the final-score guard.
+  assert.equal(deriveLiveTrackingState(trackingArgs([finished])), 'preparing');
+});
+
+test('deriveLiveTrackingState: a placeholder TBD clock is not a kickoff promise', () => {
+  // Review-found. `startTimeTBD` marks the provider's placeholder hour, which
+  // `formatExpandedKickoff` already refuses to render as a real time. Parsing it
+  // as a kickoff promised a start the app cannot stand behind.
+  const tbd = makeGame({
+    key: 'tbd',
+    startTimeTBD: true,
+    date: new Date(NOW_MS + 10 * 60 * 1000).toISOString(),
+  });
+  assert.equal(
+    deriveLiveTrackingState(trackingArgs([tbd])),
+    null,
+    'a placeholder clock cannot promise a kickoff'
+  );
+
+  // Anti-vacuity: the identical game with a CONFIRMED time does prepare.
+  const confirmed = makeGame({
+    key: 'confirmed',
+    date: new Date(NOW_MS + 10 * 60 * 1000).toISOString(),
+  });
+  assert.equal(deriveLiveTrackingState(trackingArgs([confirmed])), 'preparing');
+
+  // And a TBD game that is genuinely underway still tracks — the guard bounds
+  // the PROMISE, not the observation.
+  assert.equal(
+    deriveLiveTrackingState(trackingArgs([tbd], { tbd: scorePack('Q1 9:30') })),
+    'tracking'
+  );
+});

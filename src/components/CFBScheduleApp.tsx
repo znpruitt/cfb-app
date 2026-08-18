@@ -1572,8 +1572,8 @@ export default function CFBScheduleApp({
         // before any predicate sees it.
         //
         // So the retry is not offered until the error carries structure. That is
-        // a change to the schedule loader, not to this boundary — see
-        // `docs/next-tasks.md`. Reloading the page is the universal retry and
+        // a change to the schedule loader, not to this boundary — filed as
+        // `docs/next-tasks.md` 55. Reloading the page is the universal retry and
         // needs no affordance.
         <section className="space-y-2 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
           <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">

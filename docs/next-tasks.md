@@ -1600,6 +1600,41 @@ Supersedes: (none)
       attaches ~20 lines of rationale to the constant and the exported function reads as
       undocumented. Move the constant above the docblock.
 
+55. **Schedule load errors are unstructured, so no retry can be gated correctly** (POLISH-005,
+    2026-08-18; the retry was attempted THREE times and removed rather than classified a fourth).
+
+    `loadScheduleFromApi` catches every rejection — schedule, teams, conferences — and formats one
+    `CFBD schedule load failed: …` string. That flattens two cases a member-facing retry must tell
+    apart: a transient upstream blip, where a plain cache-only retry succeeds, and the public routes'
+    `503` cold-cache response, which explicitly requires an operator refresh and can never be fixed
+    by retrying. `isScheduleIssue` also matches `invalid-schedule-row:` and `identity-unresolved:`,
+    which are defects in the CACHED data and equally unfixable by retry.
+
+    Attempts so far, all wrong: a "Rebuild schedule" button forcing `bypassCache` (refused without
+    admin, so it always failed for members); removing the retry entirely (wrong — some failures ARE
+    transient); and an `isRetryableScheduleIssue` prefix classifier (wrong — the prefix cannot
+    distinguish 503-needs-admin from a blip). **The input is lossy; the condition was never the
+    problem.** Fixing this means the loader preserving structured error information, which is a
+    change to the schedule loader and not to the member boundary.
+
+    Until then the fatal state offers no retry, and reloading the page is the universal one.
+
+56. **POLISH-005 residue — three findings accepted but out of scope** (both reviewers, 2026-08-18).
+
+    - **The Rankings error branch is unreachable.** `CFBScheduleApp` passes
+      `loading={rankings === null}` and `loadRankings`'s catch never calls `setRankings`, so on any
+      failure `rankings` stays null, `loading` stays true, and the `loading ? … : error ? …` ladder
+      never reaches the error copy. A member on the Rankings tab during a CFBD outage sees
+      "Loading rankings…" indefinitely. The gate PREDATES POLISH-005, which only rewrote the copy in
+      the unreachable branch.
+    - **The `isAdmin` gate on the postseason override is not exercised through its real caller.**
+      `GameWeekPanel` tests pin the rendering contract (callback ⇒ button, and a positive control),
+      but mutating the ternary at the two `CFBScheduleApp` call sites survives, because the
+      postseason tab is not reachable in a static render — there is no prop to select it.
+    - **`setOddsSnapshotAt` is write-only.** No reader remains, but the setter still fires on season
+      reset and every odds hydration, re-rendering a very large component for a value nothing
+      consumes. The setter, its call sites, and the hook params that thread it should go together.
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.

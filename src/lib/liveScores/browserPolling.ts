@@ -137,21 +137,34 @@ export function deriveLiveTrackingState(params: {
   const { games, scoresByKey, season, now = new Date() } = params;
   const armed = selectLiveScorePollGames({ games, scoresByKey, season, now });
 
-  // A final score ends coverage for that game even though the poll window stays
-  // open for corrections — otherwise the badge would run the full 24 hours after
-  // a Saturday slate.
-  const outstanding = armed.filter(
-    (game) => classifyScorePackStatus(scoresByKey[game.key]) !== 'final'
-  );
-  if (outstanding.length === 0) return null;
+  // `tracking` requires POSITIVE EVIDENCE — an attached score that says the game
+  // is in progress. An earlier version treated "not final" as live, which counts
+  // a game with NO attached score as outstanding: during a score-feed outage
+  // `scoresByKey` is empty, so every game that kicked off in the last 24 hours
+  // read as live and the surface asserted "Tracking scores" while nothing was
+  // updating. Absence of data is not evidence of play, and this slice removed
+  // the hedge that used to cover that state.
+  if (armed.some((game) => classifyScorePackStatus(scoresByKey[game.key]) === 'inprogress')) {
+    return 'tracking';
+  }
 
+  // `preparing` requires a CONFIRMED future kickoff. `startTimeTBD` marks the
+  // provider's placeholder clock, which `formatExpandedKickoff` already refuses
+  // to display as a real time — so it cannot be used to promise one here either.
   const nowMs = now.getTime();
-  const kickedOff = outstanding.some((game) => {
+  const awaitingKickoff = armed.some((game) => {
+    if (game.startTimeTBD) return false;
+    if (classifyScorePackStatus(scoresByKey[game.key]) === 'final') return false;
     if (!game.date) return false;
     const kickoffMs = Date.parse(game.date);
-    return Number.isFinite(kickoffMs) && kickoffMs <= nowMs;
+    return Number.isFinite(kickoffMs) && kickoffMs > nowMs;
   });
-  return kickedOff ? 'tracking' : 'preparing';
+  if (awaitingKickoff) return 'preparing';
+
+  // Everything armed is finished, or kicked off with no live evidence (an outage
+  // or a coverage gap). Claiming either state would be a guess, so say nothing —
+  // System Health carries the coverage condition for whoever can act on it.
+  return null;
 }
 
 /** Deduped `(providerWeek, seasonType)` partitions for the exact-partition read. */

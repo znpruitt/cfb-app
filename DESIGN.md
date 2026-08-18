@@ -39,8 +39,12 @@ see the machinery.
   nothing: in preseason there is no game to be fresh about, and a stale timestamp there teaches a
   member only that something is odd.
 
-Internal issue strings are still produced, logged, and used for detection — this boundary governs
-what reaches member JSX, not what the app knows.
+Internal issue strings are still produced and available to the app; this boundary governs what
+reaches member JSX. Note what that does NOT currently mean: for the rankings and schedule failures
+this rule covers, the producing catches call only `setIssues` — there is no console, telemetry, or
+server hop, so once the member render is removed the string is received and dropped. The operator's
+channel is System Health, which derives those conditions independently from durable state. Do not
+read this rule as a promise that anything logs them; wiring that is separate work.
 
 ## Layout
 
