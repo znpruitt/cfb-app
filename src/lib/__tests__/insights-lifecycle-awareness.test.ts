@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { applyLastSeasonFraming } from '../insights/framing';
+import { decayFactor } from '../insights/variants';
 import {
   clearGenerators,
   getRegisteredGenerators,
@@ -488,47 +489,69 @@ test('INSIGHTS-032: a season nobody played produces no wrap, from either source'
   );
 });
 
-test('INSIGHTS-032: the preseason wrap withholds a card that names a DEPARTED owner', () => {
-  // The archive names LAST season's field. Zoe won it and has since left, so
-  // "Last season's champion margin: title secured by Zoe" would name a departed
-  // owner outside the membership event — AGENTS.md Insights invariant 5.
+test('INSIGHTS-032: the recap NAMES a departed owner, framed as last season', () => {
+  // Owner ruling, 2026-08-18. An earlier revision withheld any card naming an
+  // owner who had left, which made the recap dark until owners were confirmed
+  // and silently deleted the champion card whenever last season's champion did
+  // not come back. A framed report of a COMPLETED season asserts nothing about
+  // who is playing — AGENTS.md Insights invariant 5 clause (b) — so it ships.
   //
-  // Withheld, not rewritten: Yuri is still here, but handing HIM the title
-  // because the actual champion left would be a false result. A missing card is
-  // the only honest option.
+  // Zoe won last season and is NOT in this season's member set.
   const insights = seasonWrapGenerator.generate(
     preseasonWrapContext({ leagueMembers: new Set(['Yuri']), leagueMembersSource: 'confirmed' })
   );
-  const named = insights.flatMap((i) => [i.owner, ...(i.relatedOwners ?? [])]);
-  assert.ok(!named.includes('Zoe'), `a departed owner must not be named; got ${named.join(', ')}`);
-  assert.ok(
-    !insights.some((i) => i.type === 'champion_margin'),
-    'the champion card names the departed champion, so it must be withheld entirely'
-  );
 
-  // Anti-vacuity: the SAME fixture with Zoe still a member produces the card, so
-  // the absence above is the membership filter and not an inert fixture.
-  const withZoe = seasonWrapGenerator.generate(preseasonWrapContext());
+  const champion = insights.find((i) => i.type === 'champion_margin');
+  assert.ok(champion, 'the champion card must survive its champion leaving the league');
+  assert.match(champion.description, /Zoe/, 'the departed champion is still the champion');
+
+  // The framing is what makes naming her safe, so it is asserted HERE and not
+  // taken on trust from the filter's absence.
   assert.ok(
-    withZoe.some((i) => i.type === 'champion_margin'),
-    'the champion card must return once the champion is a member again'
+    champion.title.toLowerCase().startsWith("last season's "),
+    `naming a departed owner is only safe when framed; got: ${champion.title}`
   );
 });
 
-test('INSIGHTS-032: an UNKNOWN membership withholds the preseason wrap entirely', () => {
-  // Without a confirmed list there is no answer to who left, so every archived
-  // name is unverifiable. `previous-roster` is the source in exactly that state
-  // — it is last season's roster standing in — and it is what an unconfirmed
-  // preseason league reads.
+test('INSIGHTS-032: an UNKNOWN membership does not withhold the recap', () => {
+  // Before the draft, membership resolves to `previous-roster`. The recap makes
+  // no participation claim, so it does not wait for confirmation — this is what
+  // makes the feature visible in the window between rollover and the draft.
   const unknown = seasonWrapGenerator.generate(
-    preseasonWrapContext({ leagueMembersSource: 'previous-roster' })
+    preseasonWrapContext({ leagueMembers: new Set(), leagueMembersSource: 'previous-roster' })
   );
-  assert.equal(unknown.length, 0, `unknown membership must withhold; got ${unknown.length}`);
+  assert.ok(unknown.length > 0, 'the recap must not depend on knowing who is playing this season');
+});
 
-  // Anti-vacuity: only the SOURCE differs from the passing fixture.
+test('INSIGHTS-032: the recap declares season_recap decay and fades in preseason', () => {
+  // The generator DECLARES the policy; `applyInsightDecay` applies it at request
+  // time. A score decayed inside the generator would be cached and freeze at
+  // whatever lifecycle warmed the entry.
+  const insights = seasonWrapGenerator.generate(preseasonWrapContext());
+  assert.ok(insights.length > 0, 'fixture must produce cards to tag');
+  for (const insight of insights) {
+    assert.equal(insight.decay, 'season_recap', `${insight.type} must declare its decay policy`);
+  }
+
+  // Full strength while the finished season is the most recent thing that
+  // happened; reduced once the next one is being set up.
+  assert.equal(decayFactor('season_recap', 'postseason'), 1);
+  assert.equal(decayFactor('season_recap', 'fresh_offseason'), 1);
+  const preseasonFactor = decayFactor('season_recap', 'preseason');
   assert.ok(
-    seasonWrapGenerator.generate(preseasonWrapContext()).length > 0,
-    'the same fixture with a confirmed source must produce the wrap'
+    preseasonFactor < 1,
+    `the recap must fade once preseason arrives; got ${preseasonFactor}`
+  );
+
+  // The ruling was that DRAFT results outrank the recap once they exist. The
+  // membership cards that report the draft score 80-84, so a typical champion
+  // margin must land below that band after decay.
+  const champion = insights.find((i) => i.type === 'champion_margin');
+  assert.ok(champion, 'champion margin must be present to measure');
+  const decayed = Math.round(champion.priorityScore * preseasonFactor);
+  assert.ok(
+    decayed < 80,
+    `the recap must rank below the draft-result cards (80-84); got ${decayed}`
   );
 });
 

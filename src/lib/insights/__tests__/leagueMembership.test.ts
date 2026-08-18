@@ -297,9 +297,33 @@ async function seedNamingAliceAndBob(
  * that emits a `membership-*` id is exempted from the participant checks in this
  * file, so that prefix is now load-bearing and must not be reused.
  */
+/**
+ * NARROWED by INSIGHTS-032 (owner ruling, 2026-08-18) to exempt `season_wrap`.
+ *
+ * The rule this file enforces is that a departed owner is named only by the
+ * membership event. It was written for generators whose claims are about the
+ * CURRENT season — "Alice leads the league in career points" reads as a claim
+ * about a current member, which is why filtering those by `leagueMembers` was
+ * the fix.
+ *
+ * A season recap is a different kind of statement. "Last season's champion
+ * margin: title secured by Zoe over Yuri by 3 games" is a framed report of a
+ * COMPLETED season; it asserts nothing about who is playing now, which is
+ * exactly the already-safe copy AGENTS.md Insights invariant 5 clause (b)
+ * describes. Gating it on membership made the recap dark until owners were
+ * confirmed and silently deleted the champion card whenever last season's
+ * champion did not return.
+ *
+ * The exemption is by CATEGORY and deliberately narrow: any other generator that
+ * starts naming a departed owner still fails here, and a `season_wrap` card that
+ * made a present-tense claim would be a violation this filter could not catch —
+ * which is why the framing itself is pinned in
+ * `insights-lifecycle-awareness.test.ts` rather than assumed.
+ */
 function ownersNamedIn(context: Parameters<typeof generateRawInsights>[0]): string[] {
   return generateRawInsights(context)
     .filter((i) => !i.id.startsWith('membership-'))
+    .filter((i) => i.category !== 'season_wrap')
     .flatMap((i) => [i.owner, ...(i.owners ?? []), ...(i.relatedOwners ?? [])])
     .filter((o): o is string => Boolean(o));
 }

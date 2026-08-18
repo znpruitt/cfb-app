@@ -13,7 +13,6 @@ import { selectResolvedStandingsWeeks } from '../../selectors/historyResolution'
 import type { OwnerStandingsRow } from '../../standings';
 import type { StandingsHistory } from '../../standingsHistory';
 import { registerGenerator } from '../engine';
-import { membershipIsKnown } from '../superlative';
 import { applyLastSeasonFraming } from '../framing';
 import type { InsightContext, InsightGenerator, LifecycleState } from '../types';
 
@@ -125,31 +124,6 @@ function seasonWasPlayed(rows: OwnerStandingsRow[]): boolean {
   return rows.some((row) => row.finalGames > 0 || row.wins + row.losses > 0);
 }
 
-/**
- * The archive names LAST season's field, and some of those owners have left.
- *
- * On the live path this cannot happen — the table is this season's participants
- * by construction — which is why the wrap never needed the check before. Reading
- * an archive introduces it: last season's champion may not be in the league, and
- * AGENTS.md Insights invariant 5 (with INSIGHTS-025's wiring tests behind it)
- * says a departed owner is named ONLY by the membership event.
- *
- * The filter is applied to FINISHED insights, never to the input rows. Dropping
- * a departed owner from the table before deriving would hand the title to
- * whoever placed second — a false result, which is worse than a missing card.
- * So the facts are computed from the complete season and the card is WITHHELD
- * when it would name someone who is gone.
- */
-function namesOnlyCurrentMembers(insight: Insight, members: ReadonlySet<string>): boolean {
-  const named = [insight.owner, ...(insight.owners ?? []), ...(insight.relatedOwners ?? [])];
-  return named.every((owner) => {
-    if (!owner) return true;
-    // NoClaim is a bucket for unowned teams, not a person who can depart.
-    if (owner === 'NoClaim') return true;
-    return members.has(owner);
-  });
-}
-
 export const trajectoryGenerator: InsightGenerator = {
   id: 'existing:trajectory',
   category: 'trajectory',
@@ -210,20 +184,38 @@ export const seasonWrapGenerator: InsightGenerator = {
     // draft is confirmed the current roster exists, the flag goes false, and the
     // unframed title "Toilet bowl leader" would sit on the Overview of a season
     // whose first game has not kicked off.
-    if (source.archivedYear !== null) {
-      // Reading an archive puts BOTH membership questions in play, in order:
-      // do we know who is playing this season, and does this card name only
-      // owners who still are. Without a known list "who left" is unanswerable,
-      // so the wrap is withheld entirely rather than guessed at.
-      if (!membershipIsKnown(context.leagueMembersSource)) return [];
-      return insights
-        .filter((insight) => namesOnlyCurrentMembers(insight, context.leagueMembers))
-        .map(applyLastSeasonFraming);
+    // A finished season is the headline while it is the most recent thing that
+    // happened, and background once the next one is being set up. The generator
+    // DECLARES that policy and never applies it — a decayed score computed
+    // inside the cache freezes at whatever lifecycle warmed the entry.
+    const recap = insights.map((insight) => ({ ...insight, decay: 'season_recap' as const }));
+
+    // Two different ways this generator ends up describing the prior season, and
+    // BOTH have to be framed or the title reads as a current-year claim:
+    //
+    //  - the rollover window (current CSV empty, archived roster borrowed), and
+    //  - preseason, where the source above is the archive by construction.
+    //
+    // Preseason is the one that cannot rely on `usingArchivedRoster`: once the
+    // draft is confirmed the current roster exists, the flag goes false, and the
+    // unframed title "Toilet bowl leader" would sit on the Overview of a season
+    // whose first game has not kicked off.
+    //
+    // NOTE — these cards are deliberately NOT filtered by current membership,
+    // and that is a decision rather than an omission. An earlier revision
+    // withheld any card naming a departed owner, which made the whole recap dark
+    // until owners were confirmed and silently deleted the champion card
+    // whenever last season's champion did not come back. AGENTS.md Insights
+    // invariant 5 clause (b) governs instead: a framed report of a COMPLETED
+    // season states historical fact and asserts nothing about who is playing, so
+    // it is already safe and must not be given a membership gate. Owner ruling,
+    // 2026-08-18. The INSIGHTS-025 rule that a departed owner is named only by
+    // the membership event still binds every generator whose claim is about the
+    // CURRENT season.
+    if (source.archivedYear !== null || context.usingArchivedRoster) {
+      return recap.map(applyLastSeasonFraming);
     }
-    if (context.usingArchivedRoster) {
-      return insights.map(applyLastSeasonFraming);
-    }
-    return insights;
+    return recap;
   },
 };
 

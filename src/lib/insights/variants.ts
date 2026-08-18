@@ -119,7 +119,7 @@ export function applyInsightVariants(insights: readonly Insight[], now: Date): I
  * separate insight with the final standings in hand, not a decay curve that
  * bends back up.
  */
-export type InsightDecay = 'draft';
+export type InsightDecay = 'draft' | 'season_recap';
 
 /**
  * Multipliers by lifecycle rather than by week number, because the lifecycle is
@@ -136,12 +136,37 @@ const DRAFT_DECAY: Record<string, number> = {
   offseason: 0.35,
 };
 
+/**
+ * INSIGHTS-032 — the same shape as `draft`, pointed the other way.
+ *
+ * A finished season is the headline while it is the most recent thing that
+ * happened, and background once the next one is being set up. Owner ruling
+ * (2026-08-18): "the recap is the most important from end of season to start of
+ * preseason, but I'd expect it to rapidly decay now that preseason is here" —
+ * draft results outrank it once they exist, because they are new, timely and
+ * event-based.
+ *
+ * The generator only runs in these three states, so the table covers exactly
+ * them. `0.55` is derived rather than picked: it is the largest factor that
+ * keeps a typical champion-margin score (125 + margin x 4) below the membership
+ * cards that report the draft (80-84), while staying above the career and
+ * milestone pool (60-74) so the recap is present rather than buried. An
+ * unusually large margin can still edge up into that band; INSIGHTS-018's
+ * rotation is what removes the need to tune this precisely.
+ */
+const SEASON_RECAP_DECAY: Record<string, number> = {
+  postseason: 1,
+  fresh_offseason: 1,
+  preseason: 0.55,
+};
+
 /** The floor any decaying insight keeps, so it never disappears outright. */
 export const DECAY_FLOOR = 0.35;
 
 export function decayFactor(decay: InsightDecay | undefined, lifecycleState: string): number {
-  if (decay !== 'draft') return 1;
-  return DRAFT_DECAY[lifecycleState] ?? DECAY_FLOOR;
+  if (decay === 'draft') return DRAFT_DECAY[lifecycleState] ?? DECAY_FLOOR;
+  if (decay === 'season_recap') return SEASON_RECAP_DECAY[lifecycleState] ?? DECAY_FLOOR;
+  return 1;
 }
 
 /**

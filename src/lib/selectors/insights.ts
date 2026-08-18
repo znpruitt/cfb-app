@@ -1,6 +1,7 @@
 import type { SeasonContext } from './seasonContext';
 import { selectResolvedStandingsWeeks } from './historyResolution';
 import type { InsightCategory, LifecycleState, NewsHook } from '../insights/types';
+import type { InsightDecay } from '../insights/variants';
 import type { OwnerStandingsRow } from '../standings';
 import type { StandingsHistory } from '../standingsHistory';
 
@@ -83,8 +84,12 @@ export type Insight = {
    * away from the draft. The generator declares the policy and never applies it:
    * a decayed score inside the cache would freeze at whatever lifecycle warmed
    * the entry. `applyInsightDecay` runs at request time.
+   *
+   * `season_recap` is the same shape pointed the other way (INSIGHTS-032): a
+   * finished season is the headline while it is the most recent thing that
+   * happened, and background once the next one is being set up.
    */
-  decay?: 'draft';
+  decay?: InsightDecay;
   // Backward-compatible aliases used by existing tests/UI until full migration.
   score?: number;
   owners?: string[];
