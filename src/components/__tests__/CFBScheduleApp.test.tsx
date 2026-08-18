@@ -545,6 +545,138 @@ test('standings drill-down focus helper scrolls focused owner row', () => {
 // normal clean state, gated by `oddsSnapshotAt` in the section predicate.
 // ---------------------------------------------------------------------------
 
+// PRESEASON-STATUS-BANNER-TRUTHFULNESS — the banner is rendered from
+// `selectPreseasonBannerState`, so the claim ledger lives in that module's
+// tests. These render tests prove the WIRING: that the canonical snapshot's
+// `ownersRosterSource` actually reaches the decision, and that the fabricated
+// `Draft scheduled · Date TBD` claim is gone from the rendered surface.
+//
+// Only the no-draft-record states are reachable here: `draftPhase` and
+// `draftScheduledAt` arrive from a client fetch effect that never runs under
+// `renderToStaticMarkup`, which leaves `draftPhase` null — exactly the
+// production shape of the regression.
+// ---------------------------------------------------------------------------
+
+function preseasonSnapshot(
+  ownersRosterSource: CanonicalStandings['ownersRosterSource'],
+  owners: string[] = ownersRosterSource === 'none' ? [] : ['Alice', 'Bob']
+): CanonicalStandings {
+  const base = canonicalStandings(owners);
+  return {
+    ...base,
+    source: ownersRosterSource === 'none' ? 'preseason-awaiting-kickoff' : 'preseason-names',
+    lifecycle: 'preseason',
+    ownersRosterSource,
+  };
+}
+
+test('preseason with no current-season roster states the real stage instead of claiming a scheduled draft', () => {
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      leagueSlug="tsc"
+      leagueStatus={{ state: 'preseason', year: 2026 }}
+      canonicalStandings={preseasonSnapshot('none')}
+      initialGames={[]}
+    />
+  );
+
+  assert.match(html, /Awaiting 2026 roster confirmation · Contact your commissioner/);
+  assert.doesNotMatch(html, /Draft scheduled/);
+  assert.doesNotMatch(html, /Date TBD/);
+});
+
+test('confirmed preseason owners advance the banner without promising a draft', () => {
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      leagueSlug="tsc"
+      leagueStatus={{ state: 'preseason', year: 2026 }}
+      canonicalStandings={preseasonSnapshot('preseason-owners')}
+      initialGames={[]}
+    />
+  );
+
+  assert.match(html, /Roster confirmed · Season setup in progress/);
+  assert.doesNotMatch(html, /Awaiting 2026 roster confirmation/);
+  assert.doesNotMatch(html, /Draft scheduled/);
+});
+
+test('a prior season archive roster does not advance the preseason banner', () => {
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      leagueSlug="tsc"
+      leagueStatus={{ state: 'preseason', year: 2026 }}
+      canonicalStandings={preseasonSnapshot('archive')}
+      initialGames={[]}
+    />
+  );
+
+  assert.match(html, /Awaiting 2026 roster confirmation/);
+  assert.doesNotMatch(html, /Roster confirmed/);
+});
+
+test('a current-season source with no real owners does not read as a confirmed roster', () => {
+  // The NoClaim-only CSV shape: `ownersRosterSource: 'csv'` with zero rows.
+  // Wired through the real component to prove the owner COUNT reaches the
+  // decision, not just the source tag.
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      leagueSlug="tsc"
+      leagueStatus={{ state: 'preseason', year: 2026 }}
+      canonicalStandings={preseasonSnapshot('csv', [])}
+      initialGames={[]}
+    />
+  );
+
+  assert.match(html, /Awaiting 2026 roster confirmation/);
+  assert.doesNotMatch(html, /Roster confirmed/);
+});
+
+test('the members surface does not stack the preseason roster grid on top of OwnerPanel', () => {
+  // `canRenderPrimarySurface` is unconditionally true for the owner view, so the
+  // preseason section must exclude it or the same owners render twice. Passing
+  // `leagueStatus` to this route is what made that reachable.
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      leagueSlug="tsc"
+      initialWeekViewMode="owner"
+      leagueStatus={{ state: 'preseason', year: 2026 }}
+      canonicalStandings={preseasonSnapshot('preseason-owners')}
+      // The grid only renders when there IS a roster to draw, so this must be
+      // supplied or the assertion below would pass vacuously — it has to be able
+      // to see the thing it denies.
+      initialRoster={[{ team: 'Texas', owner: 'Alice' }]}
+      initialGames={[]}
+    />
+  );
+
+  // The banner still rides on this surface...
+  assert.match(html, /Roster confirmed/);
+  // ...but the preseason-only roster grid does not.
+  assert.doesNotMatch(html, /2026 Rosters/);
+  // The exclusion is scoped to the grid, not the whole section: the schedule
+  // placeholder is the only thing explaining the empty owner surface here, and
+  // it was reachable on this route before this work. Dropping it with the grid
+  // would have been a net removal.
+  assert.match(html, /season schedule not yet available/);
+});
+
+test('other preseason surfaces keep the roster grid the members fix excludes', () => {
+  // Proves the exclusion is scoped to the owner view rather than deleting the
+  // preseason section outright.
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      leagueSlug="tsc"
+      initialWeekViewMode="overview"
+      leagueStatus={{ state: 'preseason', year: 2026 }}
+      canonicalStandings={preseasonSnapshot('preseason-owners')}
+      initialRoster={[{ team: 'Texas', owner: 'Alice' }]}
+      initialGames={[]}
+    />
+  );
+
+  assert.match(html, /2026 Rosters/);
+});
+
 // ---------------------------------------------------------------------------
 // POLISH-005 — the live-status section is a MEMBER signal, not an operator one.
 //
