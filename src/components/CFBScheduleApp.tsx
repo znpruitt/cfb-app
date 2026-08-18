@@ -1190,44 +1190,61 @@ export default function CFBScheduleApp({
         sources: { ...base.sources, ...(override.sources ?? {}) },
       });
 
-      let nextOverrides: Record<string, Partial<AppGame>> | null = null;
-      setManualPostseasonOverrides((prev) => {
-        const next = { ...prev, [eventId]: { ...(prev[eventId] ?? {}), ...patch } };
-        window.localStorage.setItem(storageKeys.postseasonOverrides, JSON.stringify(next));
-        nextOverrides = next;
+      const nextOverrides: Record<string, Partial<AppGame>> = {
+        ...manualPostseasonOverrides,
+        [eventId]: { ...(manualPostseasonOverrides[eventId] ?? {}), ...patch },
+      };
 
-        const override = next[eventId];
-        if (override) {
-          // Optimistic in-place patch only — this keeps each game's existing
-          // canonical `key` (it does not recompute identity), so it does NOT bump
-          // `scheduleGeneration`: the authoritative re-hydration for a key-changing
-          // override happens on the next `loadScheduleFromApi` rebuild (which
-          // recomputes keys from the overridden participants and bumps generation).
-          // Bumping here would only trigger a redundant cache read against unchanged
-          // keys (PLATFORM-086C3 review remediation).
-          setGames((prevGames) =>
-            prevGames.map((g) => (g.eventId === eventId ? applyOverride(g, override) : g))
+      // CONFIRM FIRST. This used to write `localStorage` and patch `games`
+      // optimistically, then PUT. When the PUT failed the local edit stayed —
+      // persisted across reloads — so the author saw a postseason label nobody
+      // else had, indefinitely. The only failure signal was an `issues` string,
+      // and POLISH-005 removed its last renderer, making the lie silent.
+      //
+      // Nothing local changes until the durable write succeeds, so there is no
+      // divergent state to roll back and no phantom edit to discover later.
+      void saveServerPostseasonOverrides(selectedSeason, nextOverrides, leagueSlug)
+        .then(() => {
+          setManualPostseasonOverrides(nextOverrides);
+          window.localStorage.setItem(
+            storageKeys.postseasonOverrides,
+            JSON.stringify(nextOverrides)
           );
-        }
 
-        return next;
-      });
+          const override = nextOverrides[eventId];
+          if (override) {
+            // In-place patch only — this keeps each game's existing canonical
+            // `key`, so it does NOT bump `scheduleGeneration`: the authoritative
+            // re-hydration for a key-changing override happens on the
+            // `loadScheduleFromApi` rebuild below, which recomputes keys from the
+            // overridden participants and bumps generation.
+            setGames((prevGames) =>
+              prevGames.map((g) => (g.eventId === eventId ? applyOverride(g, override) : g))
+            );
+          }
 
-      if (nextOverrides) {
-        void saveServerPostseasonOverrides(selectedSeason, nextOverrides, leagueSlug)
-          .then(() => {
-            // Refresh the current RSC tree so canonical standings (server-
-            // rendered) pick up the postseason override; the postseason-
-            // overrides API route already invalidates the standings cache tag.
-            router.refresh();
-          })
-          .catch((err) => {
-            setIssues((p) => [...p, `Postseason override save failed: ${(err as Error).message}`]);
-          });
-        void loadScheduleFromApi(undefined, nextOverrides);
-      }
+          // Refresh the RSC tree so canonical standings pick the override up; the
+          // overrides route already invalidates the standings cache tag.
+          router.refresh();
+          void loadScheduleFromApi(undefined, nextOverrides);
+        })
+        .catch((err: unknown) => {
+          const detail = err instanceof Error ? err.message : String(err);
+          // This control is admin-only, and the flow it belongs to already blocks
+          // on `window.prompt`, so an alert is the idiom already in use here — and
+          // an author who changed nothing must be told, not left guessing.
+          console.error('Postseason override save failed', err);
+          window.alert(`Couldn't save that label — nothing was changed.\n\n${detail}`);
+        });
     },
-    [leagueSlug, loadScheduleFromApi, router, selectedSeason, storageKeys.postseasonOverrides]
+    [
+      leagueSlug,
+      loadScheduleFromApi,
+      manualPostseasonOverrides,
+      router,
+      selectedSeason,
+      storageKeys.postseasonOverrides,
+    ]
   );
 
   const canRenderLeagueSurface = weeks.length > 0 || hasPostseasonGames;

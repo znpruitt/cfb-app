@@ -1631,8 +1631,10 @@ Supersedes: (none)
       render statically, so no handler fires. Two consequences are pinned only by rendering, not by
       effect: the admin rebuild forcing `bypassCache` (without it the button is a cache re-read that
       cannot repair a cold cache — the useless-button problem, moved to the admin), and the
-      postseason override's save path. Mutating either survives. Closing this needs an interaction
-      harness for `CFBScheduleApp`, which is its own decision.
+      postseason override's save path — now CONFIRM-FIRST (the durable write must land before any
+      local state or `localStorage` changes), which is a sequencing property a static render cannot
+      observe at all. Mutating any of them survives. Closing this needs an interaction harness for
+      `CFBScheduleApp`, which is its own decision.
     - **The `isAdmin` gate on the postseason override is not exercised through its real caller.**
       `GameWeekPanel` tests pin the rendering contract (callback ⇒ button, and a positive control),
       but mutating the ternary at the two `CFBScheduleApp` call sites survives, because the
