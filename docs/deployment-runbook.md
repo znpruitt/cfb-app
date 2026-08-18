@@ -180,6 +180,26 @@ environment; `npm i -g vercel` if a command-line path is wanted.
   deployment must be Git-created (a CLI deploy supplies no commit), and Vercel's system environment
   variables must be exposed to the runtime.
 
+  **Instrumentation VERIFIED in production, 2026-08-18 03:54 UTC.** The first receipt ever written by
+  a build carrying this field reported
+  `Built from: 43f0eed6be1f4432a40c7cbac404f364b5b9326a` — the exact commit promoted minutes earlier.
+  The run one tick before it (03:51, a minute pre-promotion) correctly read `not recorded`, written by
+  a build that had no such field. Both prerequisites therefore hold: the deployment is Git-created and
+  the runtime supplies `VERCEL_GIT_COMMIT_SHA`.
+
+  **The BINDING question is still open, and this is why.** At that moment the promoted build was also
+  the newest build, so "crons follow the promoted deployment" and "crons follow the newest production
+  build" predict the same SHA. The two only separate once a build exists that is newer than the
+  promoted one.
+
+  **The test, now set up:** the commit that added this paragraph was pushed to `main` and deliberately
+  NOT promoted. So after the next `live-scores` tick, read `Built from` on System Health:
+
+  | Reads | Meaning |
+  | --- | --- |
+  | `43f0eed6…` (the PROMOTED build) | Crons follow the promoted deployment. The isolation holds; an unpromoted merge cannot change lifecycle behaviour. |
+  | this commit's SHA (the NEWER build) | Crons follow the newest production build. An unpromoted merge CAN move season state, and that is a real exposure. |
+
   Record the answer here once observed.
 
 ### Consequence for the documentation ledgers
