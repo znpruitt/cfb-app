@@ -206,31 +206,68 @@ export function deliveryRow(
  * timestamp bypasses the check in `deliveryRow` — call this after any such edit.
  */
 export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
+  const fail = (why: string): never => {
+    throw new Error(
+      `${row.job}: ${why}. The classifier can never emit this row, so a test using it proves nothing.`
+    );
+  };
+
   if (row.deliveryState === 'missing' || row.deliveryState === 'unavailable') {
-    if (row.receipt !== null) {
-      throw new Error(`${row.job}: '${row.deliveryState}' must carry no receipt`);
-    }
+    if (row.receipt !== null) fail(`'${row.deliveryState}' must carry no receipt`);
     return;
   }
-  if (row.deliveryState === 'invalid') return; // an unparseable record, receipt already null
-  if (row.receipt === null) {
-    throw new Error(`${row.job}: '${row.deliveryState}' requires a receipt`);
+  // `buildDeliveryRow` nulls the receipt whenever the parse fails, so an INVALID
+  // row with a receipt attached is unreachable — and accepted, it emits both
+  // `scheduler-receipt-invalid` and an execution issue, a pair no real snapshot
+  // produces. Previously this branch returned before checking anything.
+  if (row.deliveryState === 'invalid') {
+    if (row.receipt !== null) fail(`'invalid' must carry no receipt`);
+    return;
   }
-  const started = Date.parse(row.receipt.startedAt);
+  if (row.receipt === null) fail(`'${row.deliveryState}' requires a receipt`);
+
+  const started = Date.parse(row.receipt!.startedAt);
   const required = Date.parse(row.requiredStartedAt);
+  // NaN comparisons are FALSE, so an unparseable instant silently classified as
+  // `late` and slipped through the ordering check entirely.
+  if (!Number.isFinite(started))
+    fail(`receipt startedAt '${row.receipt!.startedAt}' is unparseable`);
+  if (!Number.isFinite(required)) {
+    fail(`requiredStartedAt '${row.requiredStartedAt}' is unparseable`);
+  }
+  // The required slot is `previousSlot(now - grace)` in production, so it can
+  // never be in the future. A future slot let a row be labelled `late` while its
+  // run was seconds old — rendering "under a minute ago" against a deadline that
+  // has not arrived, which is the reading this whole change exists to prevent.
+  if (required > NOW) fail(`requiredStartedAt ${row.requiredStartedAt} is after now`);
+
   const wouldBe = started >= required ? 'on-time' : 'late';
   if (wouldBe !== row.deliveryState) {
-    throw new Error(
-      `${row.job}: labelled '${row.deliveryState}' but startedAt ${row.receipt.startedAt} vs ` +
-        `requiredStartedAt ${row.requiredStartedAt} classifies '${wouldBe}'. ` +
-        `The classifier can never emit this row, so a test using it proves nothing.`
+    fail(
+      `labelled '${row.deliveryState}' but startedAt ${row.receipt!.startedAt} vs ` +
+        `requiredStartedAt ${row.requiredStartedAt} classifies '${wouldBe}'`
     );
   }
 }
 
+/**
+ * THE CHOKE POINT. Every row reaching `deriveSystemHealthIssues` passes through
+ * here, so validating at this boundary catches an incoherent row however it was
+ * produced — built by hand, spread and overridden inline, or hoisted into a
+ * variable and overridden later.
+ *
+ * Checking only inside `deliveryRow` was not enough: the helper has already
+ * returned by the time a caller spreads its result and replaces a timestamp, and
+ * that spread is exactly how the shipped defect's fixture was written. A source
+ * scan for the bypass was tried and removed — it matched syntax rather than
+ * meaning, missed the hoisted form, and AGENTS.md is explicit that proof
+ * machinery is a last resort when an invariant cannot be observed behaviorally.
+ * This one can.
+ */
 export function deliverySnapshot(
   rows: SchedulerDeliveryHealthRow[]
 ): SchedulerDeliveryHealthSnapshot {
+  rows.forEach(assertRowIsClassifiable);
   return { generatedAt: new Date(NOW).toISOString(), jobs: rows };
 }
 

@@ -1066,21 +1066,71 @@ test('a missing delivery names its deadline and claims no elapsed figure', () =>
   assert.doesNotMatch(missing!.explanation, /ago/, 'no figure this state cannot support');
 });
 
-test('deliveryRow REFUSES a row the classifier could never produce', () => {
-  // The guard itself. Tonight's bug survived because the fixture carried the same
-  // reversed ordering as the code, so the two agreed and 48 tests passed.
+test('an incoherent row cannot enter a snapshot, however it was built', () => {
+  // The guard lives at the CHOKE POINT — `deliverySnapshot` — because checking
+  // only at construction let a caller spread the built row and replace a
+  // timestamp afterwards, which is exactly how the shipped fixture was written.
+  // Each case below is a bypass a reviewer found or a defect that reached the
+  // page, and each must now be impossible to get into a snapshot.
+  const ok = () => receiptFor('live-scores', 'success', NOW - 3_600_000);
+
+  // 1. The ORIGINAL: spread the row, then override the slot so the label lies.
   assert.throws(
     () =>
-      deliveryRow(
-        'live-scores',
-        'late',
-        receiptFor('live-scores', 'success', NOW),
-        new Date(NOW - 60_000).toISOString() // run AFTER the slot — that is on-time
-      ),
-    /classifies 'on-time'/
+      deliverySnapshot([
+        {
+          ...deliveryRow('live-scores', 'late', ok()),
+          requiredStartedAt: new Date(NOW - 7_200_000).toISOString(), // now on-time
+        },
+      ]),
+    /classifies 'on-time'/,
+    'inline spread-override'
   );
+
+  // 2. The HOISTED form, which a source scan for the inline spelling missed.
+  const built = deliveryRow('live-scores', 'late', ok());
+  const hoisted = { ...built, requiredStartedAt: new Date(NOW - 7_200_000).toISOString() };
+  assert.throws(() => deliverySnapshot([hoisted]), /classifies 'on-time'/, 'hoisted override');
+
+  // 3. A required slot in the FUTURE. Production computes it as
+  //    `previousSlot(now - grace)`, so it never is — and a future slot let a
+  //    seconds-old run be labelled late and render "under a minute ago".
   assert.throws(
-    () => deliveryRow('odds', 'missing', receiptFor('odds', 'success')),
-    /must carry no receipt/
+    () =>
+      deliverySnapshot([
+        {
+          ...deliveryRow('odds', 'late', receiptFor('odds', 'success', NOW)),
+          requiredStartedAt: new Date(NOW + 60_000).toISOString(),
+        },
+      ]),
+    /is after now/,
+    'future required slot'
+  );
+
+  // 4. `invalid` carrying a receipt — emits both a receipt-invalid issue and an
+  //    execution issue, a pair no real snapshot produces.
+  assert.throws(
+    () => deliverySnapshot([{ ...deliveryRow('odds', 'invalid', null), receipt: ok() }]),
+    /must carry no receipt/,
+    'invalid with a receipt'
+  );
+
+  // 5. An unparseable instant. NaN comparisons are false, so this classified as
+  //    `late` and slipped past the ordering check entirely.
+  assert.throws(
+    () =>
+      deliverySnapshot([
+        { ...deliveryRow('odds', 'late', ok()), requiredStartedAt: 'not-a-timestamp' },
+      ]),
+    /unparseable/,
+    'unparseable required slot'
+  );
+
+  // POSITIVE CONTROL: a coherent row passes, so the guard is rejecting
+  // incoherence rather than everything handed to it.
+  assert.doesNotThrow(() =>
+    deliverySnapshot([
+      deliveryRow('live-scores', 'late', ok(), new Date(NOW - 60_000).toISOString()),
+    ])
   );
 });
