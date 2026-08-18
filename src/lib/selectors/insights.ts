@@ -174,7 +174,33 @@ const RACE_LIFECYCLES: LifecycleState[] = [
   'late_season',
   'postseason',
 ];
-const SEASON_WRAP_LIFECYCLES: LifecycleState[] = ['postseason', 'fresh_offseason'];
+/**
+ * Where a COMPLETED-season story may appear. Exported because
+ * `generators/existing.ts` gates the recap on the same list — it kept its own
+ * copy until INSIGHTS-032, and only one of the two was updated, so every
+ * archive-served card carried metadata saying it must not appear in the state it
+ * was being served in.
+ *
+ * `postseason` was REMOVED (Codex review P1, owner ruling 2026-08-18).
+ * `lifecycleState` becomes `postseason` the moment `seasonContext` does — that
+ * is, when the postseason STARTS — so the recap was free to announce "How 2026
+ * finished" and name a champion while those games were still being played.
+ * A card that says a season finished may only appear once it has.
+ */
+export const SEASON_WRAP_LIFECYCLES: LifecycleState[] = ['preseason', 'fresh_offseason'];
+
+/**
+ * Which ranked criterion actually separated these two, phrased for copy. Mirrors
+ * the standings sort in `src/lib/standings.ts`; `null` means only the
+ * alphabetical fallback did, which is not a winning factor.
+ */
+function titleDecider(leader: OwnerStandingsRow, runnerUp: OwnerStandingsRow): string | null {
+  if (leader.wins !== runnerUp.wins) return 'wins';
+  if (leader.winPct !== runnerUp.winPct) return 'win percentage';
+  if (leader.pointDifferential !== runnerUp.pointDifferential) return 'point differential';
+  if (leader.pointsFor !== runnerUp.pointsFor) return 'points scored';
+  return null;
+}
 
 function ownerSlug(owner: string): string {
   return owner.trim().toLowerCase().replace(/\s+/gu, '-');
@@ -512,16 +538,33 @@ export function deriveChampionMarginInsight(
     return null;
   }
 
+  const marginCheck = runnerUp.gamesBack;
+  if (marginCheck === 0 && titleDecider(leader, runnerUp) === null) {
+    // Level on every ranked criterion: the standings sort separates them by
+    // owner NAME. That is a deterministic tiebreak for display, not a reason
+    // anyone won, so there is no honest way to report a champion here.
+    return null;
+  }
   const margin = runnerUp.gamesBack;
   const variant =
     margin <= 1 ? 'tight finish' : margin <= 3 ? 'comfortable margin' : 'dominant season';
   const games = `${margin} game${margin === 1 ? '' : 's'}`;
+
+  // `gamesBack` is `leaderWins - wins`, so a title decided between two owners
+  // level on wins has a margin of ZERO and "took it by 0 games" is the result.
+  // Owner ruling (2026-08-18): "we should explain what the winning factor was."
+  // The standings sort is the authority on that — wins, then win percentage,
+  // then point differential, then points scored — so the deciding factor is the
+  // first of those the two owners actually differ on.
+  const decider = titleDecider(leader, runnerUp);
   return toInsight({
     id: `champion-margin-${ownerSlug(leader.owner)}-${ownerSlug(runnerUp.owner)}`,
     type: 'champion_margin',
     title: completedSeason ? `How ${completedSeason} finished` : 'Champion margin',
     description: completedSeason
-      ? `${leader.owner} took it by ${games} over ${runnerUp.owner}.`
+      ? margin > 0
+        ? `${leader.owner} took it by ${games} over ${runnerUp.owner}.`
+        : `${leader.owner} and ${runnerUp.owner} finished level on wins; ${leader.owner} took it on ${decider}.`
       : `Title secured by ${leader.owner} over ${runnerUp.owner} by ${games} (${variant}).`,
     owner: leader.owner,
     relatedOwners: [runnerUp.owner],
@@ -549,11 +592,22 @@ export function deriveChampionMarginInsight(
  * the leader but came up short."
  *
  * So this reads the SLOPE. `standingsHistory.byOwner[owner]` carries `gamesBack`
- * per week, so the ground an owner made up over the final stretch is the
- * difference between the baseline week and the last one. Two conditions make it
- * a chase rather than a finish: ground was actually gained
- * (`MIN_CHASE_GAIN`), and the owner still ended behind — a chase that SUCCEEDS
- * is the champion, and that story already has a card.
+ * per week, so the ground an owner made up is the difference between the
+ * baseline week and the last one. Two conditions make it a chase rather than a
+ * finish: ground was actually gained (`MIN_CHASE_GAIN`), and the owner still
+ * ended behind — a chase that SUCCEEDS is the champion, and that story already
+ * has a card.
+ *
+ * SCOPE, stated precisely because an earlier version of this note oversold it:
+ * the window is `FINAL_WEEKS_WINDOW`, so this is the LATE CHARGE, not the
+ * season-long climb. An owner who closed six games between October and late
+ * November and then held steady scores zero here and produces no card. That is
+ * a real gap and it is deliberate for now — the owner's answer was that both
+ * stories are worth telling ("the final chase and the biggest turnaround"), and
+ * the season-long turnaround is queued as its own card rather than folded in
+ * here, because widening this window would silently change which owner the
+ * existing card names. The copy says "over the final N weeks", so what ships is
+ * truthful about what it measured.
  */
 const MIN_CHASE_GAIN = 2;
 
@@ -583,8 +637,14 @@ export function deriveClosingChaseInsight(args: {
       if (!start || !end) return null;
       return {
         owner: row.owner,
+        // The SLOPE is measured across resolved weeks...
         closed: start.gamesBack - end.gamesBack,
-        finishedBack: end.gamesBack,
+        // ...but "finished N back" is a statement about the FINISH, so it reads
+        // the final table. The two disagree whenever the last week's coverage is
+        // incomplete: `selectResolvedStandingsWeeks` drops that week, so
+        // `end.gamesBack` is an earlier week's deficit and the champion card in
+        // the same feed would state a different number for the same owner.
+        finishedBack: row.gamesBack,
       };
     })
     .filter((entry): entry is { owner: string; closed: number; finishedBack: number } =>

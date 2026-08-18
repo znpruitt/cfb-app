@@ -1378,12 +1378,6 @@ test('a chase that CAUGHT the leader is not a failed chase', () => {
   // who erased the gap entirely finished level, so "still finished 0 games back"
   // is not a thin story — it is a false one. Mutation-found: removing the
   // `finishedBack > 0` condition survived every other test in this suite.
-  const rows = [
-    standingsRow('Drew', 10, 2, 0, 12),
-    standingsRow('Casey', 8, 4, 2, 8),
-    standingsRow('Blake', 7, 5, 3, 4),
-    standingsRow('Alex', 6, 6, 4, 0),
-  ];
   const base = historyFixture();
   const withSeries = (gaps: Record<number, number>) => ({
     ...base,
@@ -1396,10 +1390,19 @@ test('a chase that CAUGHT the leader is not a failed chase', () => {
     },
   });
 
-  // Closed four games and drew level by the final week.
+  // "Finished N back" is a statement about the FINISH, so it reads the final
+  // table rather than the last resolved week — those disagree whenever the final
+  // week's coverage is incomplete. The caught-the-leader case is therefore a
+  // level FINAL ROW, with the same closing slope in both halves below.
+  const closingSeries = withSeries({ 1: 5, 2: 4, 3: 3, 4: 2 });
   const caught = deriveLeagueInsights({
-    rows,
-    standingsHistory: withSeries({ 1: 5, 2: 4, 3: 2, 4: 0 }),
+    rows: [
+      standingsRow('Drew', 10, 2, 0, 12),
+      standingsRow('Casey', 10, 2, 0, 8),
+      standingsRow('Blake', 7, 5, 3, 4),
+      standingsRow('Alex', 6, 6, 4, 0),
+    ],
+    standingsHistory: closingSeries,
     seasonContext: 'final',
   });
   assert.equal(
@@ -1408,11 +1411,17 @@ test('a chase that CAUGHT the leader is not a failed chase', () => {
     'an owner level with the leader did not come up short'
   );
 
-  // Anti-vacuity: the SAME closing slope that stops one game short does fire, so
-  // the exclusion above is the `finishedBack > 0` rule and not an inert fixture.
+  // Anti-vacuity: the SAME slope and fixture, with the chaser finishing one game
+  // back, DOES fire — so the exclusion above is the finishedBack rule and not an
+  // inert fixture.
   const short = deriveLeagueInsights({
-    rows,
-    standingsHistory: withSeries({ 1: 5, 2: 4, 3: 2, 4: 1 }),
+    rows: [
+      standingsRow('Drew', 10, 2, 0, 12),
+      standingsRow('Casey', 9, 3, 1, 8),
+      standingsRow('Blake', 7, 5, 3, 4),
+      standingsRow('Alex', 6, 6, 4, 0),
+    ],
+    standingsHistory: closingSeries,
     seasonContext: 'final',
   });
   assert.ok(

@@ -342,6 +342,10 @@ test('seasonWrapGenerator names the CURRENT year when the season just finished',
 // two halves attached to each other.
 // ---------------------------------------------------------------------------
 
+function generatorRunsIn(generator: InsightGenerator, context: InsightContext): boolean {
+  return generator.supportedLifecycles.includes(context.lifecycleState);
+}
+
 function wrapArchive(year: number, rows: OwnerStandingsRow[]): SeasonArchive {
   return {
     leagueSlug: 'test',
@@ -932,7 +936,7 @@ test('ballSecurityGenerator does NOT apply framing in mid_season even with using
 // change that widens this gate without touching `selectSeasonWrapSource` would
 // wrap a table nobody has played in. The two halves ship together or not at all.
 test('seasonWrapGenerator declares only lifecycles where a finished season exists', () => {
-  const allowed: LifecycleState[] = ['preseason', 'postseason', 'fresh_offseason'];
+  const allowed: LifecycleState[] = ['preseason', 'fresh_offseason'];
   for (const lc of seasonWrapGenerator.supportedLifecycles) {
     assert.equal(allowed.includes(lc), true, `seasonWrapGenerator should not run in ${lc}`);
   }
@@ -941,6 +945,75 @@ test('seasonWrapGenerator declares only lifecycles where a finished season exist
   assert.ok(
     seasonWrapGenerator.supportedLifecycles.includes('preseason'),
     'preseason is the whole point of INSIGHTS-032 — the wrap must survive rollover'
+  );
+
+  // Codex review P1 (owner ruling, 2026-08-18). `lifecycleState` becomes
+  // `postseason` when the postseason STARTS, so a recap running there announced
+  // "How 2026 finished" and named a champion while those games were still being
+  // played. A card that says a season finished may only appear once it has.
+  assert.ok(
+    !seasonWrapGenerator.supportedLifecycles.includes('postseason'),
+    'the recap must not publish a champion while the postseason is still running'
+  );
+});
+
+test('INSIGHTS-032: the recap is silent during the postseason', () => {
+  // Behavioural half of the pin above: the gate is what stops it, so this fails
+  // if `supportedLifecycles` is widened without anyone noticing.
+  const rows = [row('Alex', 12, 0, 0, 100), row('Blake', 8, 4, 4, 30)];
+  const context = makeContext({
+    lifecycleState: 'postseason',
+    seasonContext: 'postseason',
+    currentYear: 2026,
+    currentStandings: rows,
+  });
+  assert.ok(
+    !generatorRunsIn(seasonWrapGenerator, context),
+    'a partial postseason table cannot support "How 2026 finished"'
+  );
+});
+
+test('INSIGHTS-032: a title decided level on wins EXPLAINS the deciding factor', () => {
+  // `gamesBack` is `leaderWins - wins`, so two owners level on wins produce a
+  // margin of zero and the copy read "took it by 0 games". Owner ruling
+  // (2026-08-18): "we should explain what the winning factor was." The standings
+  // sort is the authority — wins, win percentage, point differential, points
+  // scored — so the first criterion they actually differ on is the answer.
+  const leader = { ...row('Zoe', 10, 2, 0, 90), pointsFor: 400 };
+  const runnerUp = { ...row('Yuri', 10, 2, 0, 40), pointsFor: 380 };
+  const insights = seasonWrapGenerator.generate(
+    preseasonWrapContext({
+      archives: [wrapArchive(2025, [leader, runnerUp])],
+      leagueMembers: new Set(['Zoe', 'Yuri']),
+    })
+  );
+
+  const champion = insights.find((i) => i.type === 'champion_margin');
+  assert.ok(champion, 'a level finish still has a champion');
+  assert.doesNotMatch(champion.description, /by 0 games/, champion.description);
+  assert.match(champion.description, /level on wins/, champion.description);
+  assert.match(
+    champion.description,
+    /point differential/,
+    `the deciding factor must be named; got: ${champion.description}`
+  );
+});
+
+test('INSIGHTS-032: a title separated ONLY by owner name is withheld', () => {
+  // Level on every ranked criterion: the standings sort falls back to the owner
+  // NAME. That is a deterministic tiebreak for display, not a reason anyone won,
+  // so there is no honest champion to report.
+  const a = { ...row('Zoe', 10, 2, 0, 50), pointsFor: 400 };
+  const b = { ...row('Yuri', 10, 2, 0, 50), pointsFor: 400 };
+  const insights = seasonWrapGenerator.generate(
+    preseasonWrapContext({
+      archives: [wrapArchive(2025, [a, b])],
+      leagueMembers: new Set(['Zoe', 'Yuri']),
+    })
+  );
+  assert.ok(
+    !insights.some((i) => i.type === 'champion_margin'),
+    'an alphabetical tiebreak is not a winning factor'
   );
 });
 

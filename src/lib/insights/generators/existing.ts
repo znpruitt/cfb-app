@@ -7,6 +7,7 @@ import {
   deriveTightClusterInsight,
   deriveTightRaceInsight,
   deriveToiletBowlInsight,
+  SEASON_WRAP_LIFECYCLES,
   type Insight,
 } from '../../selectors/insights';
 import { selectResolvedStandingsWeeks } from '../../selectors/historyResolution';
@@ -22,7 +23,6 @@ const RACE_LIFECYCLES: LifecycleState[] = [
   'late_season',
   'postseason',
 ];
-const SEASON_WRAP_LIFECYCLES: LifecycleState[] = ['preseason', 'postseason', 'fresh_offseason'];
 
 function reconstructStandingsHistory(context: InsightContext): StandingsHistory | null {
   if (context.weeklyStandings.length === 0) return null;
