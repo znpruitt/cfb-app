@@ -243,8 +243,31 @@ Verified before shipping against real commits — `de58cc27`, `ebcef626` (docs) 
 file at runtime, so a skipped docs commit cannot change application behaviour.
 
 **What this does NOT do.** A skipped build still creates a deployment record, marked `Canceled`, and
-Vercel counts it toward deployment quotas and concurrent build slots. It saves build minutes and
-noise, not deployment entries.
+Vercel counts it toward the limits below. It saves build minutes and noise, not quota.
+
+### The limits it counts against (Hobby, verified 2026-08-18)
+
+| Limit | Value | Window |
+| --- | --- | --- |
+| Deployments per day | 100 | 86,400s |
+| Deployments per hour | 100 | 3,600s |
+| Concurrent builds | 1 | — |
+
+Two things the headline number hides:
+
+- **Scope is `owner`, not project** — the whole Vercel account, every project, not just `cfb-app`.
+- **86,400 seconds is a ROLLING window**, not a midnight reset. It drains continuously. Vercel's own
+  phrasing ("wait another day") reads like a daily reset and is misleading.
+
+**Measured 2026-08-17: 42 deployments in 24 hours**, comfortably under — and that was an unusually
+heavy day, because `CLAUDE.md` requires pushing `preview` with every branch commit and that day had
+an unusual number of them. A normal day is a fraction of it.
+
+**Concurrency of 1 explains the `Canceled` 3-second entries** in the deployment list: a new push
+supersedes an in-flight build. Those are not failures.
+
+**If quota ever becomes the binding constraint, `ignoreCommand` is the wrong lever** — it cannot help,
+since the record is created before the cancel. The lever is pushing `preview` less often.
 
 **If a docs commit ever needs to deploy anyway** — say the ignore rule itself is wrong — an empty
 commit forces it, because a commit with no changed files falls through to BUILD.
