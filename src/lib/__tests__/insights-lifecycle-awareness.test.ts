@@ -278,27 +278,34 @@ test('championshipRaceGenerator fires normally when rows have games', () => {
 // seasonWrapGenerator: "Last season's" framing in rollover window
 // ---------------------------------------------------------------------------
 
-test('seasonWrapGenerator applies "Last season\'s" framing when usingArchivedRoster=true', () => {
+test('seasonWrapGenerator STATES the season year on every recap title', () => {
+  // INSIGHTS-032 replaced the relative "Last season's" prefix with the year
+  // itself (owner ruling, 2026-08-18: it "leaves no ambiguity about the year
+  // being referenced"). A stated year is also the stronger guarantee, because it
+  // survives being read out of context — which is what invariant 5 leans on when
+  // it exempts these cards from the departed-owner rule.
   const rows = [row('Alex', 12, 0, 0, 100), row('Blake', 8, 4, 4, 30)];
-  const context = makeContext({
-    lifecycleState: 'fresh_offseason',
-    seasonContext: 'final',
-    currentStandings: rows,
-    usingArchivedRoster: true,
-  });
-  const insights = seasonWrapGenerator.generate(context);
-  // At minimum, champion_margin should fire on a 12-0 vs 8-4 row set.
+  const insights = seasonWrapGenerator.generate(
+    makeContext({
+      lifecycleState: 'fresh_offseason',
+      seasonContext: 'final',
+      currentYear: 2026,
+      currentStandings: rows,
+      usingArchivedRoster: true,
+    })
+  );
   assert.equal(insights.length > 0, true);
   for (const insight of insights) {
-    assert.equal(
-      insight.title.toLowerCase().startsWith("last season's "),
-      true,
-      `Expected "Last season's" prefix on insight title, got: ${insight.title}`
+    assert.match(insight.title, /2026/, `recap titles must name their season: ${insight.title}`);
+    assert.doesNotMatch(
+      insight.title.toLowerCase(),
+      /last season/,
+      `the relative prefix was replaced, not layered on: ${insight.title}`
     );
   }
 });
 
-test('seasonWrapGenerator does NOT apply framing when usingArchivedRoster=false', () => {
+test('seasonWrapGenerator names the CURRENT year when that season just finished', () => {
   const rows = [row('Alex', 12, 0, 0, 100), row('Blake', 8, 4, 4, 30)];
   const context = makeContext({
     lifecycleState: 'postseason',
@@ -309,10 +316,11 @@ test('seasonWrapGenerator does NOT apply framing when usingArchivedRoster=false'
   const insights = seasonWrapGenerator.generate(context);
   assert.equal(insights.length > 0, true);
   for (const insight of insights) {
+    assert.match(insight.title, /2026/, `the season just finished is named: ${insight.title}`);
     assert.equal(
-      insight.title.toLowerCase().startsWith("last season's "),
-      false,
-      `Did not expect "Last season's" prefix on insight title: ${insight.title}`
+      insight.season,
+      undefined,
+      'a card describing the viewed season carries no override'
     );
   }
 });
@@ -638,11 +646,18 @@ test('ballSecurityGenerator does NOT apply framing in mid_season even with using
 // Lifecycle assertions — guards for the supportedLifecycles config we rely on
 // ---------------------------------------------------------------------------
 
-test('seasonWrapGenerator declares only post-current-season lifecycles', () => {
-  const allowed: LifecycleState[] = ['postseason', 'fresh_offseason'];
-  for (const lc of seasonWrapGenerator.supportedLifecycles) {
-    assert.equal(allowed.includes(lc), true, `seasonWrapGenerator should not run in ${lc}`);
-  }
+test('seasonWrapGenerator declares every state in which a finished season exists', () => {
+  // INSIGHTS-032. `preseason` is the point of the slice — the recap must survive
+  // rollover. `offseason` is here so it cannot vanish mid-offseason and reappear
+  // later at a lower weight. `postseason` is present but NOT sufficient: the
+  // generator additionally requires `seasonContext === 'final'` there, because
+  // the lifecycle alone cannot tell a finished postseason from one in progress.
+  const expected: LifecycleState[] = ['preseason', 'postseason', 'fresh_offseason', 'offseason'];
+  assert.deepEqual(
+    [...seasonWrapGenerator.supportedLifecycles].sort(),
+    [...expected].sort(),
+    'the recap gate must cover every state where a completed season exists'
+  );
 });
 
 // CONTRACT PIN — INSIGHTS-022 added `offseason`. The card reports a COMPLETED

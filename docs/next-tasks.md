@@ -1061,29 +1061,13 @@ Supersedes: (none)
     Check `season_wrap`'s existing `applyLastSeasonFraming` call for the pattern to follow — it is
     the one generator that already does this correctly.
 
-36. **Season wrap from the ARCHIVE, and `never_last`'s "and counting"** (split out of INSIGHTS-023
-    at its audit, 2026-08-16; owner said YES to wanting last season's wrap during preseason).
+36. **THREE ungated participation claims, live on `main`** (split out of INSIGHTS-023 at its audit,
+    2026-08-16; the season-wrap half of this item SHIPPED as INSIGHTS-032 — see the registry).
 
-    **`existing:season_wrap` does not read what the INSIGHTS-023 entry assumed.** That entry argued
-    it should extend to preseason because it "describes a season that has FINISHED". It does not read
-    the archive — `selectCurrentRows` returns `context.currentStandings`. In `postseason` and
-    `fresh_offseason` those ARE the finished season's rows, which is why it works there. After
-    rollover the current standings are the NEW season's synthesized rows, so flipping its gate would
-    compute champion margin and failed chase from a table where nobody has played. **A data-source
-    change, not a constant** — which is why it was split rather than folded in.
-
-    Already solved for it: the invariant-5 half. `seasonWrapGenerator` calls
-    `applyLastSeasonFraming` when `usingArchivedRoster`, so the copy self-frames.
-
-    Carries the owner's `toilet_bowl` ruling (2026-08-15): last season's toilet-bowl champion is
-    legitimate preseason content, and per the single-season-extreme rule it is news once, not
-    rotating content.
-
-    **Also here — THREE ungated participation claims, all live on `main` today.** An earlier version
-    of this entry said INSIGHTS-023 had "gated the `drought` and `dominance_streak` phrasings on
-    `membershipIsKnown`". **It did not.** 023 wrote that gating and then REVERTED both generators
-    when review found unconverted superlatives in them, so the ledger recorded a fix that was backed
-    out — dropping a known-unresolved risk, which AGENTS.md forbids.
+    An earlier version of this entry said INSIGHTS-023 had "gated the `drought` and
+    `dominance_streak` phrasings on `membershipIsKnown`". **It did not.** 023 wrote that gating and
+    then REVERTED both generators when review found unconverted superlatives in them, so the ledger
+    recorded a fix that was backed out — dropping a known-unresolved risk, which AGENTS.md forbids.
 
     What is actually unresolved:
     - `historical:drought` — `title: 'Longest active title drought'` is a constant, and the
@@ -1098,6 +1082,10 @@ Supersedes: (none)
     `usingArchivedRoster` short-circuits the `official-roster` branch — so an owner who merely sat a
     season out is described as active. That is what the invariant-5 amendment forbids, and it ships
     live regardless of INSIGHTS-023, which is precisely why the record has to stay accurate.
+
+    **INSIGHTS-032 does NOT cover these.** Its exemption is for reports of a COMPLETED season, whose
+    copy names the year and asserts nothing about who is playing. These three make present-tense
+    claims and are exactly what the departed-owner rule still binds.
 
     The gating code 023 wrote is recoverable from `cf26ef2d` if it helps, but re-apply it as part of
     the superlative conversion, not on its own — the conversion is what those generators actually
@@ -1533,6 +1521,84 @@ Supersedes: (none)
 
     Also worth deciding when this is picked up: whether `assignmentMethod: 'manual'` should be
     offered at all until it works, or refused at `setAssignmentMethod` with a reason.
+
+52. **`selectSeasonContext` conflates "in progress" with "incomplete"** (found by `/code-review`
+    during INSIGHTS-032, 2026-08-18; owner adjudicated the same day — do NOT patch the recap for it).
+
+    `selectSeasonContext` returns `'final'` only when NO week is unresolved, and `'in-season'`
+    otherwise. Those are two different facts wearing one value: a season genuinely in progress, and a
+    season that ENDED but has a week whose scores never attached. A week goes unresolved when a game
+    the schedule calls `final` has no final score in `scoresByKey` — mostly a provider or timing
+    condition, though a key/identity mismatch would put it on us.
+
+    Four surfaces inherit the confusion, months after the season is over:
+    - `TrendsDetailSurface` labels the season **"In season"**.
+    - `StandingsPanel` keeps the week-over-week **move column** (`seasonContext !== 'final'`).
+    - `deriveLeagueInsights` takes the `else` branch — **no** champion/collapse/throne cards at all.
+    - `deriveTightRaceInsight` keeps emitting a live **title race**.
+
+    **The recap is the one consumer already correct**, because it trusts the LIFECYCLE — rollover
+    fired, so the season is over — rather than this derived signal. Adding a coverage gate to it was
+    considered and REJECTED: it would have made the recap agree with the broken signal, and requiring
+    `'final'` in every state would blank the recap for an entire offseason over one unresolved week,
+    which is the dead-window failure INSIGHTS-032 v1 shipped twice.
+
+    The condition is already REPORTED — System Health carries
+    `scores-terminal-coverage-missing`/`-partial`, and the standings panels receive a member-facing
+    coverage message. Nothing is hidden; the defect is only that the season's STATE is misreported.
+    Fix at the source (distinguish "final but incomplete" from "in progress"), never per consumer.
+
+53. **`context.currentYear` fuses two different questions** (surfaced across four INSIGHTS-032
+    review rounds, 2026-08-18; owner chose to REMOVE the partial fix rather than keep extending it).
+
+    `currentYear` is read by roughly a dozen consumers and they do not all mean the same thing:
+    - _which season is this league OPERATING in_ — lifecycle, archive adjacency, the rookie
+      baseline, "who is playing";
+    - _which season's DATA am I looking at_ — standings, weekly history, games.
+
+    It has always been the first. INSIGHTS-032 briefly made it the second (`describedYear`, threaded
+    from `/api/insights/[slug]?year=`) to fix a real mislabel, and every review round afterwards
+    found another consumer the change had reached: analytics provenance, then provenance firing on
+    the league's OWN year, then career stats receiving archives newer than the described year, then
+    archived stats attributed with the mutable roster instead of the archive's snapshot, then the
+    recap's own staleness guard withholding for `?year=<archived>`. **That change was REVERTED**;
+    `currentYear` is `league.year` again, which is `main`'s long-standing behaviour.
+
+    What remains, unchanged from before the slice: `loadInsightsForLeague` builds year-scoped data
+    for the REQUESTED year while the context is numbered `league.year`, so a caller passing a
+    divergent `?year=` gets data for one season described with another's number. Not reachable by a
+    member — `CFBScheduleApp` sends `resolveLeagueSeason(...)`, which tracks `league.year`, and there
+    is no season picker for Insights — so this needs a direct API call or a desynchronized legacy
+    record.
+
+    The fix is to stop overloading one field: carry an operating year AND an as-of year, and make
+    each consumer choose. **Do NOT re-attempt it by threading one value through `currentYear`** —
+    that is precisely what produced the five findings above, one round at a time.
+
+54. **INSIGHTS-032 review residue — four findings accepted but out of scope** (both reviewers,
+    2026-08-18; recorded rather than patched because the slice had reached its remediation limit).
+
+    - **`deriveFinalCollapseInsight` has the endpoint mismatch that was fixed for the chase.** It
+      measures `dropSpots` from the baseline snapshot to the FINAL TABLE but computes
+      `weeks = latestWeek - baselineWeek` from RESOLVED weeks. With an archive whose last week has
+      incomplete coverage the two cards render side by side off the same baseline and disagree — the
+      chase says "over the final 3 weeks", the collapse says 2, and the collapse's span is
+      understated. Same defect class as the chase fix, one card over: the instance was fixed and the
+      sibling never checked.
+    - **The champion card is WITHHELD when the top two are level on every ranked criterion**
+      (wins, win pct, point differential, points scored), because only the owner name separates them
+      and that is not a reason anyone won. But the rest of the app still treats `finalStandings[0]`
+      as the champion — `draft/summary/page.tsx` and `draft/setup/page.tsx` both read it — so
+      Insights now disagrees with the draft pages and the history table about whether a champion
+      exists. Naming the co-leaders would keep the recap honest without asserting a decider.
+    - **`StandingsPanel` keeps a private `insightHref`** that never received the `insight.season`
+      branch and still carries the now-dead `failed_chase` arm. Unreachable today — that panel
+      renders only `deriveLeagueInsights` output, which never sets `season` — but the two functions
+      have diverged, so the moment engine insights reach the panel an archived recap routes to the
+      current year.
+    - **The `deriveClosingChaseInsight` docblock sits above `const MIN_CHASE_GAIN`**, so TSDoc
+      attaches ~20 lines of rationale to the constant and the exported function reads as
+      undocumented. Move the constant above the docblock.
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the

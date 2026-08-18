@@ -30,7 +30,13 @@ const INSIGHT_TYPE_PREFIXES: ReadonlyArray<readonly [InsightType, string]> = (
     ['perfect_against', 'perfect-against-'],
     ['team_identity', 'team-identity-'],
     ['ball_security', 'ball-security-'],
+    // BOTH prefixes map to `failed_chase`. INSIGHTS-032 renamed the derivation's
+    // ids to `closing-chase-`, but the suppression serving path has had no writer
+    // since INSIGHTS-029, so every record this endpoint can show is pre-029
+    // residue carrying the OLD id for its 180-day lifetime. Replacing the prefix
+    // rather than adding to it classifies exactly those records as `unknown`.
     ['failed_chase', 'failed-chase-'],
+    ['failed_chase', 'closing-chase-'],
     ['champion_margin', 'champion-margin-'],
     ['takeaway_king', 'takeaway-king-'],
     ['tight_cluster', 'tight-cluster-'],

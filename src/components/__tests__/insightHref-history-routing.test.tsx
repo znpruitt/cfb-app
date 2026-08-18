@@ -121,3 +121,55 @@ test('insightHref routes rivalry insights to /history#rivalries', () => {
     assert.equal(href, '/league/tsc/history#rivalries', `type=${type}`);
   }
 });
+
+// ---------------------------------------------------------------------------
+// INSIGHTS-032 — an archived recap navigates to the season it DESCRIBES.
+//
+// The recap survives rollover by reading the prior season's archive, so a card
+// titled "How 2025 finished" renders on the 2026 page. Routing that followed the
+// PAGE sent the champion card to 2026's history and the chase, collapse and
+// throne cards to a 2026 trends view where nobody has played.
+// ---------------------------------------------------------------------------
+
+test('INSIGHTS-032: an archived recap routes to its own season, not the page year', () => {
+  const insight = makeInsight({
+    id: 'champion-margin-zoe-yuri',
+    type: 'champion_margin',
+    category: 'season_wrap',
+    season: 2025,
+    navigationTarget: 'standings',
+  });
+  assert.equal(insightHref('standings', 'tsc', insight, 2026), '/league/tsc/history/2025');
+});
+
+test('INSIGHTS-032: every archived recap target follows the card, including trends', () => {
+  // `trends` resolves to the CURRENT standings view, so these are the cards that
+  // landed readers on a season nobody had played.
+  for (const type of ['failed_chase', 'collapse', 'toilet_bowl'] as const) {
+    const insight = makeInsight({
+      id: `${type}-yuri`,
+      type,
+      category: 'season_wrap',
+      season: 2025,
+      navigationTarget: 'trends',
+    });
+    const href = insightHref('trends', 'tsc', insight, 2026);
+    assert.equal(href, '/league/tsc/history/2025', `${type} must follow the card's season`);
+    assert.doesNotMatch(String(href), /2026/, `${type} must not route to the viewed season`);
+  }
+});
+
+test('INSIGHTS-032: a recap describing the CURRENT season keeps existing routing', () => {
+  // `season` is set only when the card describes a season other than the one on
+  // screen. This control proves the branch is scoped, not a blanket redirect.
+  const live = makeInsight({
+    id: 'toilet-bowl-xavier',
+    type: 'toilet_bowl',
+    category: 'season_wrap',
+    navigationTarget: 'trends',
+  });
+  assert.equal(
+    insightHref('trends', 'tsc', live, 2026),
+    '/league/tsc/standings?view=trends#trends'
+  );
+});
