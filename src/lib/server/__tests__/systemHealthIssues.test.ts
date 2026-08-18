@@ -11,6 +11,7 @@ import {
   deriveSystemHealthIssues,
   summarizeSystemHealthIssues,
   type SystemHealthIssue,
+  formatLateness,
 } from '../systemHealthIssues.ts';
 import { INTERRUPTED_ATTEMPT_AFTER_MS } from '../../providerRefreshConstants.ts';
 import {
@@ -980,31 +981,56 @@ test('the new issue does not disturb deterministic ordering or dedup', () => {
 });
 
 // ---------------------------------------------------------------------------
-// A late warning has to say WHEN, not just THAT — and the fixture has to be a
-// row the classifier could actually emit.
+// Two different questions, deliberately split.
 //
-// `late` means `receipt.startedAt < requiredStartedAt` (schedulerDeliveryHealth:
-// "a valid receipt at/after it is on-time"). The first version of these tests
-// built the OPPOSITE — receipt AFTER the slot, with `deliveryState: 'late'` set
-// by hand — which is a combination production never produces. They passed on an
-// unreachable sign while the real page rendered "under a minute late" for a
-// four-day silence. The owner caught it by reading the deployed page.
+// `formatLateness` is a pure function: test it DIRECTLY across every magnitude,
+// where reachability is not a claim anyone has to make. Building a fake row to
+// reach a formatter is what produced three tests that asserted states the
+// classifier can never emit — including a `30_000ms` case whose receipt sits
+// AFTER its required slot, which is the on-time shape.
+//
+// The row-level behaviour then needs exactly ONE test, built through
+// `deliveryRow`, which now refuses a row the classifier would not produce.
 // ---------------------------------------------------------------------------
 
-/** A row shaped the way the classifier actually produces `late`: receipt BEFORE the slot. */
-function lateRow(job: 'live-scores' | 'odds', silentForMs: number) {
-  const arrivedMs = NOW - silentForMs;
-  return {
-    ...deliveryRow(job, 'late', receiptFor(job, 'success', arrivedMs)),
-    // The most recent required slot is RECENT — it is derived from `now` — and the
-    // last receipt sits behind it. That ordering is what makes the row `late`.
-    requiredStartedAt: new Date(NOW - 60_000).toISOString(),
-  };
-}
+test('formatLateness reports the granularity an operator acts on', () => {
+  // Largest two units, one-minute floor: the question is "minutes or days", and
+  // nobody decides anything on seconds.
+  assert.equal(formatLateness(30_000), 'under a minute');
+  assert.equal(formatLateness(7 * 60_000), '7m');
+  assert.equal(formatLateness(95 * 60_000), '1h 35m');
+  assert.equal(formatLateness(26 * 3_600_000), '1d 2h');
+  assert.equal(formatLateness(3 * 86_400_000), '3d');
+  assert.equal(formatLateness(60_000), '1m', 'the floor boundary itself');
+});
 
-test('a late delivery states the deadline, the last arrival, and how long ago that was', () => {
+test('formatLateness refuses a span that is not a duration', () => {
+  // THE SHIPPED BUG'S SHAPE. A negative span slid through the `< 60_000` check
+  // and printed "under a minute", so a four-day silence read as trivial. NaN took
+  // the other path and printed the literal "NaNm".
+  //
+  // Tested here rather than through a row because no row can carry these values —
+  // and a test that invents one to reach this branch is the failure this file has
+  // already made three times.
+  assert.equal(formatLateness(-1), 'an unknown interval');
+  assert.equal(formatLateness(-3 * 86_400_000), 'an unknown interval');
+  assert.equal(formatLateness(Number.NaN), 'an unknown interval');
+  assert.equal(formatLateness(Number.POSITIVE_INFINITY), 'an unknown interval');
+});
+
+test('a late warning names the slot, the last start, and how long ago that was', () => {
+  // ONE row-level test, and `deliveryRow` refuses it if the label and the
+  // timestamps disagree — so this fixture is a shape production can emit.
+  const startedMs = NOW - (3 * 86_400_000 + 11 * 3_600_000);
   const rows = healthyDelivery().jobs.map((row) =>
-    row.job === 'live-scores' ? lateRow('live-scores', 3 * 86_400_000 + 2 * 3_600_000) : row
+    row.job === 'live-scores'
+      ? deliveryRow(
+          'live-scores',
+          'late',
+          receiptFor('live-scores', 'success', startedMs),
+          new Date(NOW - 60_000).toISOString() // slot AFTER the last run: that is what late means
+        )
+      : row
   );
   const late = find(
     deriveSystemHealthIssues(baseInputs({ schedulerDelivery: deliverySnapshot(rows) })),
@@ -1012,23 +1038,21 @@ test('a late delivery states the deadline, the last arrival, and how long ago th
   );
   assert.ok(late);
 
-  // Both instants, absolute and in UTC — the reader is comparing two of them, and
-  // relative rendering ("7m ago" against "Friday") is what made a three-day gap
-  // read as routine.
-  assert.match(late!.explanation, /due by \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/, 'the deadline');
-  assert.match(late!.explanation, /arrived \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/, 'the last arrival');
-
-  // THE REGRESSION GUARD. A three-day silence must never render as a small
-  // number; the shipped bug reported exactly this row as "under a minute late".
-  assert.match(late!.explanation, /3d 2h ago/, 'how long since the last delivery');
-  assert.doesNotMatch(late!.explanation, /under a minute/, 'a multi-day gap is not sub-minute');
+  // Absolute UTC on both instants — the reader is comparing them, and relative
+  // rendering ("7m ago" against "Friday") is what hid a three-day gap.
+  assert.match(late!.explanation, /at or after \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/);
+  assert.match(late!.explanation, /started \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/);
+  assert.match(late!.explanation, /3d 11h ago/);
+  // The regression guard: this row rendered "under a minute late" in production.
+  assert.doesNotMatch(late!.explanation, /under a minute/);
+  // And it must not read as an EARLY arrival, which "due by X ... arrived before X" did.
+  assert.doesNotMatch(late!.explanation, /due by/);
 });
 
-test('a MISSING delivery names its deadline and claims no elapsed figure', () => {
-  // There is no receipt, so there is no "silent since". The only instant
-  // available is the required slot, and `now - slot` is floored by the grace
-  // window — for hourly odds with a 2h grace it reads the same whether the job
-  // missed one slot or has never run, because the slot is recomputed from `now`.
+test('a missing delivery names its deadline and claims no elapsed figure', () => {
+  // No receipt means no silence to measure. `now - slot` is floored by the grace
+  // window, so for hourly odds it reads the same whether one slot was missed or
+  // the job has never run.
   const rows = healthyDelivery().jobs.map((row) =>
     row.job === 'odds' ? deliveryRow('odds', 'missing', null) : row
   );
@@ -1038,76 +1062,25 @@ test('a MISSING delivery names its deadline and claims no elapsed figure', () =>
   );
   assert.ok(missing);
   assert.match(missing!.explanation, /at or after \d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC/);
-  assert.doesNotMatch(missing!.explanation, /ago/, 'no elapsed figure this state cannot support');
+  assert.match(missing!.explanation, /grace period has expired/, 'names the field accurately');
+  assert.doesNotMatch(missing!.explanation, /ago/, 'no figure this state cannot support');
 });
 
-test('lateness is reported at a granularity an operator acts on', () => {
-  // Every case built through `lateRow`, so each one is a row production can emit.
-  const cases: Array<[number, RegExp]> = [
-    [30_000, /under a minute ago/],
-    [7 * 60_000, /7m ago/],
-    [95 * 60_000, /1h 35m ago/],
-    [26 * 3_600_000, /1d 2h ago/],
-    [3 * 86_400_000, /3d ago/],
-  ];
-  for (const [silentMs, expected] of cases) {
-    const rows = healthyDelivery().jobs.map((row) =>
-      row.job === 'live-scores' ? lateRow('live-scores', silentMs) : row
-    );
-    const late = find(
-      deriveSystemHealthIssues(baseInputs({ schedulerDelivery: deliverySnapshot(rows) })),
-      'scheduler-delivery-late'
-    );
-    assert.match(late!.explanation, expected, `${silentMs}ms should read as ${expected}`);
-  }
-});
-
-test('a nonsensical span never renders as a plausible small one', () => {
-  // The shape of the shipped bug: a negative interval passed `ms < 60_000` and
-  // printed "under a minute". NaN took the other path and printed "NaNm". Both
-  // must be visibly wrong rather than quietly wrong.
-  const rows = healthyDelivery().jobs.map((row) =>
-    row.job === 'live-scores'
-      ? {
-          ...deliveryRow(
-            'live-scores',
-            'late',
-            receiptFor('live-scores', 'success', NOW - 86_400_000)
-          ),
-          requiredStartedAt: 'not-a-timestamp',
-        }
-      : row
+test('deliveryRow REFUSES a row the classifier could never produce', () => {
+  // The guard itself. Tonight's bug survived because the fixture carried the same
+  // reversed ordering as the code, so the two agreed and 48 tests passed.
+  assert.throws(
+    () =>
+      deliveryRow(
+        'live-scores',
+        'late',
+        receiptFor('live-scores', 'success', NOW),
+        new Date(NOW - 60_000).toISOString() // run AFTER the slot — that is on-time
+      ),
+    /classifies 'on-time'/
   );
-  const late = find(
-    deriveSystemHealthIssues(baseInputs({ schedulerDelivery: deliverySnapshot(rows) })),
-    'scheduler-delivery-late'
+  assert.throws(
+    () => deliveryRow('odds', 'missing', receiptFor('odds', 'success')),
+    /must carry no receipt/
   );
-  assert.ok(late);
-  assert.doesNotMatch(late!.explanation, /NaN/, 'never prints NaN');
-  assert.match(late!.explanation, /an unreadable time/, 'says the instant is unreadable');
-});
-
-test('a receipt dated slightly AHEAD of now does not render as a small lateness', () => {
-  // Reachable, not hypothetical: the receipt parser admits a `startedAt` up to
-  // `PRIOR_FUTURE_SKEW_TOLERANCE_MS` in the future, so clock skew between the
-  // writer and this render can put `now - startedAt` below zero.
-  //
-  // That is the same shape as the bug that shipped — a negative span sliding
-  // through `ms < 60_000` and printing "under a minute". It must be visibly
-  // unknown instead of plausibly small.
-  const rows = healthyDelivery().jobs.map((row) =>
-    row.job === 'live-scores'
-      ? {
-          ...deliveryRow('live-scores', 'late', receiptFor('live-scores', 'success', NOW + 30_000)),
-          requiredStartedAt: new Date(NOW + 60_000).toISOString(),
-        }
-      : row
-  );
-  const late = find(
-    deriveSystemHealthIssues(baseInputs({ schedulerDelivery: deliverySnapshot(rows) })),
-    'scheduler-delivery-late'
-  );
-  assert.ok(late);
-  assert.match(late!.explanation, /an unknown interval ago/);
-  assert.doesNotMatch(late!.explanation, /under a minute/, 'never plausible-but-wrong');
 });

@@ -266,7 +266,7 @@ function storageIssues(storage: StorageHealthFact): SystemHealthIssue[] {
  * and the smallest is a minute; seconds add noise to a judgement nobody makes on
  * seconds.
  */
-function formatLateness(ms: number): string {
+export function formatLateness(ms: number): string {
   // A NEGATIVE span is a caller bug, not a small one, and it must not render as
   // a small one. The first version of this took `arrived - due`, which is
   // negative for every late row — `late` means the receipt is OLDER than the
@@ -345,7 +345,7 @@ function schedulerDeliveryIssues(
           // slot or has never run at all, because the slot is recomputed from
           // `now` on every render. So state the deadline and STOP: an elapsed
           // figure here would imply a precision this state cannot carry.
-          explanation: `No authenticated ${row.job} invocation (${row.cadenceLabel}) is recorded at or after ${utcInstant(row.requiredStartedAt)}, its most recent required slot. This cannot distinguish a scheduler (${row.source}) failure from a best-effort receipt-write failure.`,
+          explanation: `No authenticated ${row.job} invocation (${row.cadenceLabel}) is recorded at or after ${utcInstant(row.requiredStartedAt)}, the most recent slot whose grace period has expired. This cannot distinguish a scheduler (${row.source}) failure from a best-effort receipt-write failure.`,
         });
         break;
       case 'late': {
@@ -377,7 +377,7 @@ function schedulerDeliveryIssues(
           // "was due ... and arrived ..." also implied the arrival ANSWERED that
           // slot. It did not: the slot has no delivery at all, and the timestamp
           // shown is the last one on record from before it.
-          explanation: `An authenticated ${row.job} invocation (${row.cadenceLabel}) was due by ${utcInstant(row.requiredStartedAt)}; the most recent on record arrived ${arrived}${silentFor ? `, ${silentFor} ago` : ''}. This cannot distinguish a scheduler (${row.source}) delay from a delayed receipt write.`,
+          explanation: `An authenticated ${row.job} invocation (${row.cadenceLabel}) was expected to start at or after ${utcInstant(row.requiredStartedAt)}; the most recent on record started ${arrived}${silentFor ? `, ${silentFor} ago` : ''}. This cannot distinguish a scheduler (${row.source}) delay from a delayed receipt write.`,
         });
         break;
       }

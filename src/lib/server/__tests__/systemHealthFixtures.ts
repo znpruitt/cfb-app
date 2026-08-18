@@ -142,21 +142,90 @@ function buildReceipt(
   return receipt;
 }
 
+function row_startedMs(receipt: SchedulerExecutionReceipt | null): number | null {
+  if (!receipt) return null;
+  const ms = Date.parse(receipt.startedAt);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * A delivery row whose `deliveryState` CANNOT contradict its own timestamps.
+ *
+ * `deliveryState` is DERIVED in production (`schedulerDeliveryHealth`):
+ * `startedAt >= requiredStartedAt` is on-time, earlier is late. A test that hand-
+ * labels a row is asserting an answer instead of producing one, and if the label
+ * disagrees with the timestamps the row is a shape the classifier can never emit —
+ * so the test exercises the branch with impossible inputs and cannot fail.
+ *
+ * That is not hypothetical. A late warning shipped computing its gap as
+ * `arrived - due`, which is negative for every real late row; the fixture had the
+ * timestamps reversed in exactly the same way, the two errors cancelled, and 48
+ * tests passed while the page told operators a four-day silence was "under a
+ * minute late". The fixture agreed with the bug.
+ *
+ * So the label is CHECKED here. Pass `requiredStartedAt` when the ordering is the
+ * point of the test; the default keeps every existing caller working.
+ */
 export function deliveryRow(
   job: ExternalSchedulerJob,
   deliveryState: SchedulerDeliveryHealthRow['deliveryState'],
-  receipt: SchedulerExecutionReceipt | null
+  receipt: SchedulerExecutionReceipt | null,
+  requiredStartedAt?: string
 ): SchedulerDeliveryHealthRow {
-  return {
+  // DERIVED from the receipt and the requested state when not supplied, so the
+  // default row is coherent instead of merely conventional. The previous default
+  // (`NOW`, against a receipt at `NOW - 60s`) made every `on-time` fixture in the
+  // suite a shape the classifier would have called `late` — harmless while
+  // nothing read the two fields together, and exactly the confusion that let a
+  // sign-inverted lateness calculation pass 48 tests.
+  const startedMs = row_startedMs(receipt);
+  const derived =
+    startedMs === null
+      ? new Date(NOW).toISOString()
+      : deliveryState === 'late'
+        ? new Date(startedMs + 60_000).toISOString() // required slot AFTER the last run
+        : new Date(startedMs).toISOString(); // on-time: the run met its slot exactly
+
+  const row: SchedulerDeliveryHealthRow = {
     job,
     source: schedulerSourceForJob(job),
     cron: '* * * * *',
     cadenceLabel: 'test cadence',
     graceMs: 0,
-    requiredStartedAt: new Date(NOW).toISOString(),
+    requiredStartedAt: requiredStartedAt ?? derived,
     deliveryState,
     receipt,
   };
+  assertRowIsClassifiable(row);
+  return row;
+}
+
+/**
+ * Refuse a row whose `deliveryState` the real classifier would not produce from
+ * its own fields. Exported because a test that SPREADS a row and overrides a
+ * timestamp bypasses the check in `deliveryRow` — call this after any such edit.
+ */
+export function assertRowIsClassifiable(row: SchedulerDeliveryHealthRow): void {
+  if (row.deliveryState === 'missing' || row.deliveryState === 'unavailable') {
+    if (row.receipt !== null) {
+      throw new Error(`${row.job}: '${row.deliveryState}' must carry no receipt`);
+    }
+    return;
+  }
+  if (row.deliveryState === 'invalid') return; // an unparseable record, receipt already null
+  if (row.receipt === null) {
+    throw new Error(`${row.job}: '${row.deliveryState}' requires a receipt`);
+  }
+  const started = Date.parse(row.receipt.startedAt);
+  const required = Date.parse(row.requiredStartedAt);
+  const wouldBe = started >= required ? 'on-time' : 'late';
+  if (wouldBe !== row.deliveryState) {
+    throw new Error(
+      `${row.job}: labelled '${row.deliveryState}' but startedAt ${row.receipt.startedAt} vs ` +
+        `requiredStartedAt ${row.requiredStartedAt} classifies '${wouldBe}'. ` +
+        `The classifier can never emit this row, so a test using it proves nothing.`
+    );
+  }
 }
 
 export function deliverySnapshot(
