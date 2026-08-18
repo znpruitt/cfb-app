@@ -20,6 +20,7 @@ import type {
   SchedulerDeliveryHealthRow,
   SchedulerDeliveryHealthSnapshot,
 } from '../schedulerDeliveryHealth.ts';
+import { requiredStartedAtForJob, schedulerDeliveryPolicy } from '../schedulerDeliveryHealth.ts';
 import {
   buildSchedulerExecutionReceipt,
   EXTERNAL_SCHEDULER_JOBS,
@@ -142,10 +143,22 @@ function buildReceipt(
   return receipt;
 }
 
-function row_startedMs(receipt: SchedulerExecutionReceipt | null): number | null {
-  if (!receipt) return null;
-  const ms = Date.parse(receipt.startedAt);
-  return Number.isFinite(ms) ? ms : null;
+/**
+ * A receipt old enough to be LATE for this job, by the job's own policy.
+ *
+ * "Late" is not a fixed offset: it means the last run predates
+ * `previousSlot(now - graceMs)`, and grace runs from six minutes to twenty-four
+ * hours across the seven jobs. A test that picks its own offset is guessing at a
+ * per-job number and will be wrong for most of them — which is how a 30-second-old
+ * `live-scores` receipt came to be labelled late in a fixture when production
+ * calls it on-time.
+ */
+export function lateReceiptFor(
+  job: ExternalSchedulerJob,
+  result: SchedulerExecutionResult = 'success'
+): SchedulerExecutionReceipt {
+  // One minute before the slot it needed to reach.
+  return receiptFor(job, result, requiredStartedAtForJob(job, NOW) - 60_000);
 }
 
 /**
@@ -172,32 +185,27 @@ export function deliveryRow(
   receipt: SchedulerExecutionReceipt | null,
   requiredStartedAt?: string
 ): SchedulerDeliveryHealthRow {
-  // DERIVED from the receipt and the requested state when not supplied, so the
-  // default row is coherent instead of merely conventional. The previous default
-  // (`NOW`, against a receipt at `NOW - 60s`) made every `on-time` fixture in the
-  // suite a shape the classifier would have called `late` — harmless while
-  // nothing read the two fields together, and exactly the confusion that let a
-  // sign-inverted lateness calculation pass 48 tests.
-  const startedMs = row_startedMs(receipt);
-  const derived =
-    startedMs === null
-      ? new Date(NOW).toISOString()
-      : deliveryState === 'late'
-        ? // AFTER the last run, but never after NOW: production computes the slot as
-          // `previousSlot(now - grace)`, so a future slot is impossible and the
-          // guard rejects it. Without the clamp a receipt 30s old derived a slot
-          // 30s in the future and the helper refused a row the classifier CAN
-          // emit — a trap for the next author, telling them a legitimate case is
-          // unreachable.
-          new Date(Math.min(startedMs + 60_000, NOW)).toISOString()
-        : new Date(startedMs).toISOString(); // on-time: the run met its slot exactly
+  // DERIVED THROUGH PRODUCTION'S OWN FUNCTION, never approximated here.
+  //
+  // `requiredStartedAtForJob` is `previousSlot(now - graceMs)` — the same call
+  // `readSchedulerDeliveryHealth` makes. Grace ranges from six minutes
+  // (live-scores) to twenty-four hours (schedule-refresh), so ANY hand-written
+  // offset is wrong per job and wrong by a different amount each time.
+  //
+  // Two previous attempts got this wrong in opposite directions. `NOW` against a
+  // receipt at `NOW - 60s` made every `on-time` fixture a shape the classifier
+  // calls late. `startedAt + 60s` then certified a 30-second-old `live-scores`
+  // receipt as LATE, when six minutes of grace makes it on-time — the guard
+  // blessing a state production cannot emit, which is the failure the guard
+  // exists to prevent. Deriving removes the judgement call entirely.
+  const derived = new Date(requiredStartedAtForJob(job, NOW)).toISOString();
 
   const row: SchedulerDeliveryHealthRow = {
     job,
     source: schedulerSourceForJob(job),
-    cron: '* * * * *',
+    cron: schedulerDeliveryPolicy(job).cron,
     cadenceLabel: 'test cadence',
-    graceMs: 0,
+    graceMs: schedulerDeliveryPolicy(job).graceMs,
     requiredStartedAt: requiredStartedAt ?? derived,
     deliveryState,
     receipt,

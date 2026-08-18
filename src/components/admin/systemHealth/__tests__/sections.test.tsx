@@ -22,6 +22,7 @@ import {
   deliverySnapshot,
   healthyDelivery,
   receiptFor,
+  lateReceiptFor,
   refreshSnapshot,
   canonicalOutcome,
   canonicalScopeFor,
@@ -147,7 +148,8 @@ test('scheduler renders 7 human-named rows keeping delivery and execution separa
           EXTERNAL_SCHEDULER_JOBS.map((job) => {
             if (job === 'game-stats')
               return deliveryRow('game-stats', 'on-time', receiptFor('game-stats', 'failure'));
-            if (job === 'odds') return deliveryRow('odds', 'late', receiptFor('odds', 'success'));
+            if (job === 'odds')
+              return deliveryRow('odds', 'late', lateReceiptFor('odds', 'success'));
             if (job === 'live-scores') return deliveryRow('live-scores', 'missing', null);
             return deliveryRow(job, 'on-time', receiptFor(job, 'success'));
           })

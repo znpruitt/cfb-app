@@ -23,6 +23,7 @@ import {
   healthyDelivery,
   NOW,
   receiptFor,
+  lateReceiptFor,
   receiptWithRefusals,
   refreshSnapshot,
   safeStatus,
@@ -80,7 +81,7 @@ test('timely failed receipt → execution-failed issue, no delivery issue', () =
 // Case 5 — late successful receipt → delivery-late, no execution-failed.
 test('late successful receipt → delivery-late issue, no execution fault', () => {
   const rows = healthyDelivery().jobs.map((row) =>
-    row.job === 'odds' ? deliveryRow('odds', 'late', receiptFor('odds', 'success')) : row
+    row.job === 'odds' ? deliveryRow('odds', 'late', lateReceiptFor('odds', 'success')) : row
   );
   const issues = deriveSystemHealthIssues(
     baseInputs({ schedulerDelivery: deliverySnapshot(rows) })
@@ -1073,24 +1074,31 @@ test('the late TITLE does not claim a delivery answered the slot', () => {
   assert.doesNotMatch(late!.title, /delivered later than scheduled/);
 });
 
-test('a run that is barely late is still a row the helper accepts', () => {
-  // The derived slot used to be `startedAt + 60s`, which for a recent receipt
-  // lands in the FUTURE — and the guard then refused a row the classifier can
-  // genuinely emit, telling a future author their legitimate case was impossible.
-  assert.doesNotThrow(() =>
-    deliveryRow('live-scores', 'late', receiptFor('live-scores', 'success', NOW - 30_000))
+test('a receipt inside the grace window cannot be labelled late', () => {
+  // The claim this test used to make was FALSE, and asserting it was the defect:
+  // AGENTS.md — "Test names, comments... are verification assertions. Claim only
+  // what was observed."
+  //
+  // `live-scores` has six minutes of grace, so a 30-second-old receipt is on-time
+  // in production and a `late` label on it describes a row the classifier can
+  // never emit. An earlier fixture derived its slot as `startedAt + 60s`, which
+  // manufactured exactly that row and then certified it.
+  assert.throws(
+    () => deliveryRow('live-scores', 'late', receiptFor('live-scores', 'success', NOW - 30_000)),
+    /classifies 'on-time'/
   );
-  // ...and the clamp must not break the ordering that makes it late.
-  const row = deliveryRow(
-    'live-scores',
-    'late',
-    receiptFor('live-scores', 'success', NOW - 30_000)
-  );
+
+  // POSITIVE CONTROL: past the grace window it IS late, and the helper accepts it
+  // — so the guard is applying the real policy rather than refusing everything.
+  const genuinelyLate = deliveryRow('live-scores', 'late', lateReceiptFor('live-scores'));
   assert.ok(
-    Date.parse(row.receipt!.startedAt) < Date.parse(row.requiredStartedAt),
-    'still classifies late'
+    Date.parse(genuinelyLate.receipt!.startedAt) < Date.parse(genuinelyLate.requiredStartedAt)
   );
-  assert.ok(Date.parse(row.requiredStartedAt) <= NOW, 'and the slot is never in the future');
+  assert.equal(
+    genuinelyLate.graceMs,
+    6 * 60_000,
+    'and the row carries the job REAL grace, not a placeholder zero'
+  );
 });
 
 test('a missing delivery names its deadline and claims no elapsed figure', () => {
@@ -1116,7 +1124,8 @@ test('an incoherent row cannot enter a snapshot, however it was built', () => {
   // timestamp afterwards, which is exactly how the shipped fixture was written.
   // Each case below is a bypass a reviewer found or a defect that reached the
   // page, and each must now be impossible to get into a snapshot.
-  const ok = () => receiptFor('live-scores', 'success', NOW - 3_600_000);
+  // Old enough to be late under live-scores' own six-minute grace.
+  const ok = () => lateReceiptFor('live-scores');
 
   // 1. The ORIGINAL: spread the row, then override the slot so the label lies.
   assert.throws(
@@ -1145,7 +1154,7 @@ test('an incoherent row cannot enter a snapshot, however it was built', () => {
   // point. (It did exactly that: delete `rows.forEach(...)` and this case still
   // went green.)
   const futureSlot = {
-    ...deliveryRow('odds', 'late', receiptFor('odds', 'success', NOW - 3_600_000)),
+    ...deliveryRow('odds', 'late', lateReceiptFor('odds')),
     requiredStartedAt: new Date(NOW + 60_000).toISOString(),
   };
   assert.doesNotThrow(
@@ -1171,7 +1180,10 @@ test('an incoherent row cannot enter a snapshot, however it was built', () => {
   assert.throws(
     () =>
       deliverySnapshot([
-        { ...deliveryRow('odds', 'late', ok()), requiredStartedAt: 'not-a-timestamp' },
+        {
+          ...deliveryRow('odds', 'late', lateReceiptFor('odds')),
+          requiredStartedAt: 'not-a-timestamp',
+        },
       ]),
     /unparseable/,
     'unparseable required slot'
