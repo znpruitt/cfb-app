@@ -198,17 +198,31 @@ production database.
 A preview deployment therefore reads a SEPARATE STORE from production: league records, rosters,
 drafts, archives, cached provider data, and scheduler receipts are all its own.
 
-**How far that store lags production is NOT established, and the obvious assumption is wrong.** If
-the branch were created from production on each preview push, preview would hold data current as of
-that push. Measured 2026-08-17, it did not: the preview deployment was running that day's code (the
-`Built from` row only exists in `18660a4b`) while its scheduler receipts were three days old. So the
-branch is not being recreated from production per push.
+**The mechanism, confirmed in the Neon console 2026-08-17.** Vercel creates ONE Neon branch per GIT
+BRANCH, all children of `main`. Pushing a feature branch cuts a fresh branch (`preview/feat/...`)
+holding `main`'s data as of that push. But the long-lived `preview` git branch already HAS a branch —
+named `preview` — so pushing to it creates nothing and reuses the existing one, whose data is frozen
+at whenever it was last created.
 
-Candidate explanations, none confirmed: a long-lived branch created once for the `preview` git branch
-and reused; per-deployment branches seeded from a stale parent rather than from production; or a
-store that is not a child of production at all. **Settle it in the Neon console — the branch list
-shows each branch's parent and creation time — and record the answer here.** It matters for anything
-that reasons about preview data being representative.
+**A preview branch lives only while it has non-expired Vercel deployments.** Old preview deployments
+are pruned after a week and Neon auto-deletes the branch once none remain; the next push then cuts a
+fresh branch from current `main`. So the age of preview data is not a fixed lag — it is **"however
+long since that branch was last recreated"**, which depends on whether preview pushes ever paused for
+a week. Measured 2026-08-17: the `preview` branch held three-day-old scheduler receipts and had
+0.8 CU-hrs of compute against 0.02 for the per-feature branches, consistent with continuous reuse.
+
+**The counter-intuitive consequence: the more actively `preview` is used, the staler its data gets.**
+Daily pushes keep the branch alive, so it never expires and never refreshes.
+
+**The two preview URLs are therefore NOT equivalent.**
+
+| URL | Neon branch | Data |
+| --- | --- | --- |
+| `cfb-app-preview.vercel.app` | long-lived `preview` | stale, by design |
+| the branch's own deployment URL | `preview/<git-branch>` | copied from `main` at push time |
+
+Use the per-branch URL when preview needs to reflect anything like current league state, or reset the
+`preview` branch from `main` in the Neon console.
 
 ### What this makes MEANINGLESS on preview
 
