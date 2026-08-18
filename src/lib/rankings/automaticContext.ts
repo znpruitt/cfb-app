@@ -105,9 +105,11 @@ export type RankingsRefusalSink = { invalidLifecycleTargets: number };
  *     and a `.catch(() => null)`), degrading to no annotation;
  *   - the league app does NOT. `loadSeasonRankings` THROWS on a total cache
  *     miss, `/api/rankings` maps that to 503, and `CFBScheduleApp` records
- *     `CFBD rankings load failed: …`. That string is suppressed only while the
- *     league is in PRESEASON, so a demo league in `season(Y)` on a demo-only
- *     year surfaces a standing, operator-visible error.
+ *     `CFBD rankings load failed: …`. POLISH-005 removed that string's
+ *     member-facing render AND the preseason-only suppression that used to
+ *     filter it, so a demo league in `season(Y)` on a demo-only year now
+ *     surfaces NOTHING to a member; the exposure is operator-side only, through
+ *     System Health's `rankings-cache-missing`/`-stale` codes.
  * The authorized manual refresh (`/api/rankings?year=<Y>&bypassCache=1`) is the
  * upkeep path, and it is ungated by the automation settings — but it is NOT
  * unconditionally reachable: that route rejects any year above

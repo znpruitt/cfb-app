@@ -10,6 +10,7 @@ import {
   deriveLiveScorePartitions,
   isCurrentLiveScoreSeason,
   isLiveScoreEligibleGame,
+  deriveLiveTrackingState,
   selectLiveScorePollGames,
 } from '../browserPolling.ts';
 
@@ -201,4 +202,113 @@ test('deriveLiveScorePartitions dedupes (providerWeek, seasonType) and maps stag
 
 test('the poll cadence constant is 3 minutes', () => {
   assert.equal(LIVE_SCORE_POLL_INTERVAL_MS, 3 * 60 * 1000);
+});
+
+// ---------------------------------------------------------------------------
+// POLISH-005 — what the league surface tells a member about live coverage.
+//
+// Owner design, 2026-08-18: tie the indicator to whether the live-scores poller
+// is actually being ACTED UPON, rather than inferring liveness from a field.
+// `deriveLiveTrackingState` therefore derives from the poller's own arming rule.
+//
+// The first attempt read `game.status`, which the schedule-refresh cron writes
+// and the live-scores engine never rewrites — so a schedule snapshotted mid-slate
+// lit a "Live" badge for hours over a week of finals. Schedule status is not
+// consulted here at all, which is why these tests never set it.
+// ---------------------------------------------------------------------------
+
+const trackingArgs = (games: AppGame[], scoresByKey: Record<string, ScorePack> = {}) => ({
+  games,
+  scoresByKey,
+  season: CURRENT_SEASON,
+  now: NOW,
+});
+
+test('deriveLiveTrackingState: nothing armed → no badge', () => {
+  // Kickoff two days out: outside the -15m window, so the poller is not running
+  // and there is nothing to claim.
+  const future = makeGame({
+    key: 'future',
+    date: new Date(NOW_MS + 48 * 60 * 60 * 1000).toISOString(),
+  });
+  assert.equal(deriveLiveTrackingState(trackingArgs([future])), null);
+});
+
+test('deriveLiveTrackingState: armed before kickoff → preparing', () => {
+  // Polling starts 15 minutes early, so the app IS working and has nothing to
+  // report yet. "Preparing for kickoff" is the honest claim.
+  const soon = makeGame({ key: 'soon', date: new Date(NOW_MS + 10 * 60 * 1000).toISOString() });
+  assert.equal(deriveLiveTrackingState(trackingArgs([soon])), 'preparing');
+});
+
+test('deriveLiveTrackingState: kicked off and not final → tracking', () => {
+  const started = makeGame({
+    key: 'started',
+    date: new Date(NOW_MS - 30 * 60 * 1000).toISOString(),
+  });
+  assert.equal(
+    deriveLiveTrackingState(trackingArgs([started], { started: scorePack('Q2 4:11') })),
+    'tracking'
+  );
+});
+
+test('deriveLiveTrackingState: every armed game final → no badge', () => {
+  // The poll window stays open 24h for corrections, but coverage is over. This
+  // is what stops the badge running until Sunday after a Saturday slate.
+  const done = makeGame({ key: 'done', date: new Date(NOW_MS - 3 * 60 * 60 * 1000).toISOString() });
+  assert.equal(deriveLiveTrackingState(trackingArgs([done], { done: scorePack('Final') })), null);
+
+  // Anti-vacuity: the SAME game still in progress does produce the badge, so the
+  // null above is the final-score rule and not an inert fixture.
+  assert.equal(
+    deriveLiveTrackingState(trackingArgs([done], { done: scorePack('Q4 0:32') })),
+    'tracking'
+  );
+});
+
+test('deriveLiveTrackingState: a stale in_progress SCHEDULE row cannot light it', () => {
+  // The defect both reviewers found. The schedule was cached mid-slate, so the
+  // row still says `in_progress`; the games ended hours ago and the score feed
+  // says so. Schedule status must not participate.
+  const stale = makeGame({
+    key: 'stale',
+    status: 'in_progress',
+    date: new Date(NOW_MS - 6 * 60 * 60 * 1000).toISOString(),
+  });
+  assert.equal(
+    deriveLiveTrackingState(trackingArgs([stale], { stale: scorePack('Final') })),
+    null,
+    'a terminal score ends coverage regardless of what the schedule still says'
+  );
+});
+
+test('deriveLiveTrackingState: schedule status never decides preparing vs tracking', () => {
+  // Mutation-found. The stale-schedule test above pairs `in_progress` with a
+  // FINAL score, so the final-score filter removes that game before status could
+  // matter — re-adding status as a term survived it. This pins the design
+  // decision itself: the kickoff CLOCK decides, never the schedule field.
+  //
+  // A row marked `in_progress` whose kickoff is still ahead is contradictory
+  // data, and exactly what a mid-slate schedule snapshot can leave behind.
+  const contradictory = makeGame({
+    key: 'contradictory',
+    status: 'in_progress',
+    date: new Date(NOW_MS + 10 * 60 * 1000).toISOString(),
+  });
+  assert.equal(
+    deriveLiveTrackingState(trackingArgs([contradictory])),
+    'preparing',
+    'kickoff has not happened, whatever the schedule row claims'
+  );
+});
+
+test('deriveLiveTrackingState: one live game among finals still tracks', () => {
+  const done = makeGame({ key: 'done', date: new Date(NOW_MS - 4 * 60 * 60 * 1000).toISOString() });
+  const live = makeGame({ key: 'live', date: new Date(NOW_MS - 20 * 60 * 1000).toISOString() });
+  assert.equal(
+    deriveLiveTrackingState(
+      trackingArgs([done, live], { done: scorePack('Final'), live: scorePack('Q1 12:00') })
+    ),
+    'tracking'
+  );
 });

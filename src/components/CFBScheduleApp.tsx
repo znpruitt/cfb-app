@@ -21,7 +21,7 @@ import type { StandingsSubview } from './StandingsPanel';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { type CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
-import { isLiveGame } from '../lib/gameUi';
+import { deriveLiveTrackingState, type LiveTrackingState } from '../lib/liveScores/browserPolling';
 import { type ScorePack } from '../lib/scores';
 import type { AliasMap } from '../lib/teamNames';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
@@ -65,7 +65,6 @@ import {
   deriveScheduleLoadApplicationResult,
   dedupeIssues,
   isScheduleIssue,
-  isRetryableScheduleIssue,
   summarizeGames,
 } from '../lib/cfbScheduleAppHelpers';
 import {
@@ -258,14 +257,16 @@ export function resolveHighlightDrilldownNavigation(params: {
  * ruling, 2026-08-18: "show some kind of indicator that the app is alive to the
  * user, especially when games are live and users want to see score updates."
  */
-export function shouldRenderLiveStatusSection(input: { hasLiveGames: boolean }): boolean {
+export function shouldRenderLiveStatusSection(input: {
+  trackingState: LiveTrackingState | null;
+}): boolean {
   // ONLY a live game. `loadingLive` was included on the reasoning that an
   // in-flight poll is evidence the app is working — but it is not live-scoped:
   // `getBootstrapScoreHydrationGames` returns EVERY canonical game with no
   // kickoff window, so an ordinary schedule bootstrap sets it. That lit a
   // pulsing "Live" badge, and a scores freshness stamp, on a preseason page —
   // the exact defect this slice exists to remove, reintroduced by its own fix.
-  return input.hasLiveGames;
+  return input.trackingState !== null;
 }
 
 export default function CFBScheduleApp({
@@ -317,11 +318,7 @@ export default function CFBScheduleApp({
   const [oddsByKey, setOddsByKey] = useState<Record<string, CombinedOdds>>({});
   const [scoresByKey, setScoresByKey] = useState<Record<string, ScorePack>>({});
   const [loadingLive, setLoadingLive] = useState<boolean>(false);
-  // Written by the schedule loader; no longer READ. POLISH-005 removed the
-  // "Loading schedule…" pill along with the rest of the data-state chrome — the
-  // surface renders content as soon as it has any, rather than narrating its
-  // own fetch to a member.
-  const [, setLoadingSchedule] = useState<boolean>(false);
+  const [loadingSchedule, setLoadingSchedule] = useState<boolean>(false);
   const [issues, setIssues] = useState<string[]>(initialIssues);
   // Two DISTINCT scores freshness signals (PLATFORM-086B2B):
   //  - `scoresSnapshotAt`: durable `meta.generatedAt` of the contributing
@@ -1233,22 +1230,29 @@ export default function CFBScheduleApp({
   const canRenderPrimarySurface =
     canRenderLeagueSurface || weekViewMode === 'owner' || weekViewMode === 'rankings';
   const fatalBootstrapIssues = issues.filter(isScheduleIssue);
-  // A retry is offered ONLY when every fatal issue is a fetch failure. A single
-  // cached-data defect (`invalid-schedule-row:`, `identity-unresolved:`) means
-  // re-reading returns the same result forever, and the button would be an
-  // invitation to click until you give up. Cache-only: no `bypassCache`, so it
-  // needs no admin and cannot spend provider quota.
-  const canRetryBootstrap =
-    fatalBootstrapIssues.length > 0 && fatalBootstrapIssues.every(isRetryableScheduleIssue);
+
   const hasFatalLeagueBootstrapFailure =
     !isPreseason && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
   // POLISH-005 — the single data-state fact a member is shown. Coverage counts
   // ("Scores available for 98/100 games.") were operator metrics and are carried
   // by System Health; this is the one signal that belongs on a league page,
   // because a member watching a slate wants to know the app is still updating.
-  const hasLiveGames = useMemo(
-    () => visibleGames.some((game) => isLiveGame(game, scoresByKey[game.key])),
-    [scoresByKey, visibleGames]
+  // Derived from the POLLER'S arming rule over the whole loaded schedule — not
+  // `visibleGames`, which is the selected/filtered week and would suppress the
+  // signal while Overview renders a live game from a different scope.
+  //
+  // `liveStaleClock` ticks every 60s once the schedule loads, so `preparing`
+  // becomes `tracking` at kickoff with no data arriving, and the arming window
+  // closes on its own. It is `0` until armed, which keeps SSR deterministic.
+  const trackingState = useMemo(
+    () =>
+      deriveLiveTrackingState({
+        games,
+        scoresByKey,
+        season: selectedSeason,
+        now: liveStaleClock ? new Date(liveStaleClock) : undefined,
+      }),
+    [games, liveStaleClock, scoresByKey, selectedSeason]
   );
 
   return (
@@ -1554,35 +1558,28 @@ export default function CFBScheduleApp({
         })()}
 
       {hasFatalLeagueBootstrapFailure ? (
-        // POLISH-005 — a member sees IMPACT, not diagnosis. This previously
-        // named CFBD, listed raw issue strings verbatim, and offered "Rebuild
-        // schedule" plus a Data Management link. Both actions are admin-only
-        // server-side (`/api/schedule` refuses `bypassCache` without admin), so
-        // for a member they were buttons that always failed.
+        // A member sees IMPACT, not diagnosis: no provider name, no raw issue
+        // strings, no admin-only actions (both were server-refused anyway).
         //
-        // No retry either. The issues that reach this state are things like
-        // `invalid-schedule-row:` and `identity-unresolved:` — defects in the
-        // CACHED data, so re-reading the same cache returns the same failure
-        // forever. The app's own `isTransientScheduleIssue` classifies exactly
-        // one issue kind as transient and is not wired here, so nothing it knows
-        // justifies offering a retry. Recovery is an operator task; System
-        // Health carries `schedule-cache-missing`/`-stale`/`-partial`.
+        // NO RETRY. Three attempts got this wrong. A "Rebuild schedule" button
+        // forced `bypassCache`, which `/api/schedule` refuses without admin.
+        // Removing it entirely was wrong too — `isScheduleIssue` also matches
+        // `CFBD schedule load failed:`, a genuinely transient fetch error. But a
+        // classifier over that prefix cannot work either: `loadScheduleFromApi`
+        // flattens EVERY rejection — schedule, teams, conferences — into that one
+        // string, including the public routes' 503 cold-cache responses that
+        // explicitly require an operator refresh. The distinction is destroyed
+        // before any predicate sees it.
+        //
+        // So the retry is not offered until the error carries structure. That is
+        // a change to the schedule loader, not to this boundary — see
+        // `docs/next-tasks.md`. Reloading the page is the universal retry and
+        // needs no affordance.
         <section className="space-y-2 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
           <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
             This league&rsquo;s schedule isn&rsquo;t available right now
           </h2>
-          <p className="text-sm text-gray-600 dark:text-zinc-400">
-            {canRetryBootstrap ? 'This is usually temporary.' : 'Please check back shortly.'}
-          </p>
-          {canRetryBootstrap ? (
-            <button
-              type="button"
-              className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-              onClick={() => void loadScheduleFromApi()}
-            >
-              Try again
-            </button>
-          ) : null}
+          <p className="text-sm text-gray-600 dark:text-zinc-400">Please check back shortly.</p>
         </section>
       ) : null}
 
@@ -1647,16 +1644,29 @@ export default function CFBScheduleApp({
 
       {canRenderPrimarySurface && (
         <>
-          {shouldRenderLiveStatusSection({ hasLiveGames }) ? (
+          {loadingSchedule && !scheduleLoaded ? (
+            // In-season first paint. No page passes `initialGames`, so games are
+            // always fetched client-side after mount; without this the content
+            // area is simply empty while the request is in flight. A loading
+            // state is not an operator diagnostic — the boundary never required
+            // removing it, and doing so was collateral from gating the section
+            // on liveness.
+            <section className="text-xs text-gray-500 dark:text-zinc-400">
+              Loading schedule&hellip;
+            </section>
+          ) : null}
+          {shouldRenderLiveStatusSection({ trackingState }) ? (
             <section className="flex flex-wrap items-center gap-1.5 text-xs">
               <span
                 aria-hidden="true"
-                className={`inline-block h-1.5 w-1.5 rounded-full bg-emerald-500 ${
-                  loadingLive ? 'animate-pulse' : ''
-                }`}
+                className={`inline-block h-1.5 w-1.5 rounded-full ${
+                  trackingState === 'tracking' ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-zinc-500'
+                } ${loadingLive ? 'animate-pulse' : ''}`}
               />
-              <span className="font-medium text-emerald-700 dark:text-emerald-300">Live</span>
-              {scoresSnapshotAt ? (
+              <span className="font-medium text-emerald-700 dark:text-emerald-300">
+                {trackingState === 'preparing' ? 'Preparing for kickoff' : 'Tracking scores'}
+              </span>
+              {trackingState === 'tracking' && scoresSnapshotAt ? (
                 <>
                   <span aria-hidden="true" className="text-gray-400 dark:text-zinc-600">
                     ·

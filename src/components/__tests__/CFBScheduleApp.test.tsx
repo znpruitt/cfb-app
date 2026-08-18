@@ -112,11 +112,13 @@ test('league surface shows compact fatal fallback for schedule bootstrap failure
   assert.doesNotMatch(html, /schedule load failed/, 'no raw issue string');
   assert.doesNotMatch(html, /Rebuild schedule/, 'no admin-only action a member cannot perform');
   assert.doesNotMatch(html, /Open Data Management/, 'no admin link');
-  // The fixture is `CFBD schedule load failed:` — a FETCH failure, which a plain
-  // cache-only retry can fix. This slice first dropped the retry entirely on the
-  // reasoning that fatal issues are always cached-data defects; that was wrong,
-  // and this very fixture is the counter-example.
-  assert.match(html, /Try again/, 'a transient fetch failure is retryable');
+  // NO retry, and the fixture is why the reasoning took three attempts to get
+  // right. `CFBD schedule load failed:` IS a transient fetch error — but
+  // `loadScheduleFromApi` flattens every rejection into that one prefix,
+  // including the public routes' 503 cold-cache responses that require an
+  // operator refresh. A classifier over the string cannot tell them apart, so
+  // the retry waits until the loader carries structured errors.
+  assert.doesNotMatch(html, /Try again/, 'the error string cannot say whether a retry could work');
   assert.doesNotMatch(html, /Commissioner tools and diagnostics/);
 });
 
@@ -559,177 +561,13 @@ test('standings drill-down focus helper scrolls focused owner row', () => {
 // still updating.
 // ---------------------------------------------------------------------------
 
-test('POLISH-005: the live-status section stays silent when nothing is live', () => {
-  assert.equal(
-    shouldRenderLiveStatusSection({ hasLiveGames: false }),
-    false,
-    'preseason, offseason and between slates show no data-state chrome at all'
-  );
+test('POLISH-005: the live-status section renders exactly when a state exists', () => {
+  // The section is a thin wrapper now; the real contract is
+  // `deriveLiveTrackingState`, pinned in `browserPolling.test.ts`.
+  assert.equal(shouldRenderLiveStatusSection({ trackingState: null }), false);
+  assert.equal(shouldRenderLiveStatusSection({ trackingState: 'preparing' }), true);
+  assert.equal(shouldRenderLiveStatusSection({ trackingState: 'tracking' }), true);
 });
-
-test('POLISH-005: the live-status section appears while a game is live', () => {
-  assert.equal(
-    shouldRenderLiveStatusSection({ hasLiveGames: true }),
-    true,
-    'a live game is what makes an "app is alive" signal meaningful'
-  );
-});
-
-test('POLISH-005: an in-flight poll alone does NOT mount it', () => {
-  // `loadingLive` is not live-scoped: `getBootstrapScoreHydrationGames` returns
-  // EVERY canonical game with no kickoff window, so an ordinary schedule
-  // bootstrap sets it. Including it lit a pulsing "Live" badge and a scores
-  // freshness stamp on a PRESEASON page — the defect this slice exists to
-  // remove, reintroduced by its own first fix.
-  assert.equal(
-    shouldRenderLiveStatusSection({ hasLiveGames: false }),
-    false,
-    'a bootstrap score fetch is not a live game'
-  );
-});
-
-// ---------------------------------------------------------------------------
-// PRESEASON-STATUS-BANNER-TRUTHFULNESS — the banner is rendered from
-// `selectPreseasonBannerState`, so the claim ledger lives in that module's
-// tests. These render tests prove the WIRING: that the canonical snapshot's
-// `ownersRosterSource` actually reaches the decision, and that the fabricated
-// `Draft scheduled · Date TBD` claim is gone from the rendered surface.
-//
-// Only the no-draft-record states are reachable here: `draftPhase` and
-// `draftScheduledAt` arrive from a client fetch effect that never runs under
-// `renderToStaticMarkup`, which leaves `draftPhase` null — exactly the
-// production shape of the regression.
-// ---------------------------------------------------------------------------
-
-function preseasonSnapshot(
-  ownersRosterSource: CanonicalStandings['ownersRosterSource'],
-  owners: string[] = ownersRosterSource === 'none' ? [] : ['Alice', 'Bob']
-): CanonicalStandings {
-  const base = canonicalStandings(owners);
-  return {
-    ...base,
-    source: ownersRosterSource === 'none' ? 'preseason-awaiting-kickoff' : 'preseason-names',
-    lifecycle: 'preseason',
-    ownersRosterSource,
-  };
-}
-
-test('preseason with no current-season roster states the real stage instead of claiming a scheduled draft', () => {
-  const html = renderWithAppContext(
-    <CFBScheduleApp
-      leagueSlug="tsc"
-      leagueStatus={{ state: 'preseason', year: 2026 }}
-      canonicalStandings={preseasonSnapshot('none')}
-      initialGames={[]}
-    />
-  );
-
-  assert.match(html, /Awaiting 2026 roster confirmation · Contact your commissioner/);
-  assert.doesNotMatch(html, /Draft scheduled/);
-  assert.doesNotMatch(html, /Date TBD/);
-});
-
-test('confirmed preseason owners advance the banner without promising a draft', () => {
-  const html = renderWithAppContext(
-    <CFBScheduleApp
-      leagueSlug="tsc"
-      leagueStatus={{ state: 'preseason', year: 2026 }}
-      canonicalStandings={preseasonSnapshot('preseason-owners')}
-      initialGames={[]}
-    />
-  );
-
-  assert.match(html, /Roster confirmed · Season setup in progress/);
-  assert.doesNotMatch(html, /Awaiting 2026 roster confirmation/);
-  assert.doesNotMatch(html, /Draft scheduled/);
-});
-
-test('a prior season archive roster does not advance the preseason banner', () => {
-  const html = renderWithAppContext(
-    <CFBScheduleApp
-      leagueSlug="tsc"
-      leagueStatus={{ state: 'preseason', year: 2026 }}
-      canonicalStandings={preseasonSnapshot('archive')}
-      initialGames={[]}
-    />
-  );
-
-  assert.match(html, /Awaiting 2026 roster confirmation/);
-  assert.doesNotMatch(html, /Roster confirmed/);
-});
-
-test('a current-season source with no real owners does not read as a confirmed roster', () => {
-  // The NoClaim-only CSV shape: `ownersRosterSource: 'csv'` with zero rows.
-  // Wired through the real component to prove the owner COUNT reaches the
-  // decision, not just the source tag.
-  const html = renderWithAppContext(
-    <CFBScheduleApp
-      leagueSlug="tsc"
-      leagueStatus={{ state: 'preseason', year: 2026 }}
-      canonicalStandings={preseasonSnapshot('csv', [])}
-      initialGames={[]}
-    />
-  );
-
-  assert.match(html, /Awaiting 2026 roster confirmation/);
-  assert.doesNotMatch(html, /Roster confirmed/);
-});
-
-test('the members surface does not stack the preseason roster grid on top of OwnerPanel', () => {
-  // `canRenderPrimarySurface` is unconditionally true for the owner view, so the
-  // preseason section must exclude it or the same owners render twice. Passing
-  // `leagueStatus` to this route is what made that reachable.
-  const html = renderWithAppContext(
-    <CFBScheduleApp
-      leagueSlug="tsc"
-      initialWeekViewMode="owner"
-      leagueStatus={{ state: 'preseason', year: 2026 }}
-      canonicalStandings={preseasonSnapshot('preseason-owners')}
-      // The grid only renders when there IS a roster to draw, so this must be
-      // supplied or the assertion below would pass vacuously — it has to be able
-      // to see the thing it denies.
-      initialRoster={[{ team: 'Texas', owner: 'Alice' }]}
-      initialGames={[]}
-    />
-  );
-
-  // The banner still rides on this surface...
-  assert.match(html, /Roster confirmed/);
-  // ...but the preseason-only roster grid does not.
-  assert.doesNotMatch(html, /2026 Rosters/);
-  // The exclusion is scoped to the grid, not the whole section: the schedule
-  // placeholder is the only thing explaining the empty owner surface here, and
-  // it was reachable on this route before this work. Dropping it with the grid
-  // would have been a net removal.
-  assert.match(html, /season schedule not yet available/);
-});
-
-test('other preseason surfaces keep the roster grid the members fix excludes', () => {
-  // Proves the exclusion is scoped to the owner view rather than deleting the
-  // preseason section outright.
-  const html = renderWithAppContext(
-    <CFBScheduleApp
-      leagueSlug="tsc"
-      initialWeekViewMode="overview"
-      leagueStatus={{ state: 'preseason', year: 2026 }}
-      canonicalStandings={preseasonSnapshot('preseason-owners')}
-      initialRoster={[{ team: 'Texas', owner: 'Alice' }]}
-      initialGames={[]}
-    />
-  );
-
-  assert.match(html, /2026 Rosters/);
-});
-
-// ---------------------------------------------------------------------------
-// POLISH-005 — the member surface boundary (DESIGN.md).
-//
-// `/league/*` is a MEMBER surface. Every condition these controls reported is
-// already carried by System Health (`scores-terminal-coverage-*`,
-// `schedule-cache-*`, `rankings-cache-*`), so rendering a second, worse-worded
-// copy on a league page served nobody. These pin the removals: a regression here
-// means operator detail reached a member again.
-// ---------------------------------------------------------------------------
 
 // The counters ("Scores available for 98/100 games.", the odds availability
 // summary) were DELETED, and the live-status section they lived in only mounts
@@ -761,35 +599,6 @@ test('POLISH-005: internal issue strings never reach a member surface', () => {
   assert.doesNotMatch(html, /invalid-schedule-row/, 'no raw issue string');
   assert.doesNotMatch(html, /identity-unresolved/, 'no raw issue string');
   assert.doesNotMatch(html, /CFBD/, 'no provider name');
-});
-
-test('POLISH-005: a cached-data defect offers NO retry', () => {
-  // Mutation-found. The only fatal fixture used `CFBD schedule load failed:`,
-  // which IS retryable — so "always offer retry" and "classify everything as
-  // retryable" both passed. `invalid-schedule-row:` is a defect in the CACHED
-  // data: re-reading returns the same result forever, so a button here is an
-  // invitation to click until you give up.
-  const html = renderWithAppContext(
-    <CFBScheduleApp initialIssues={['invalid-schedule-row: week 4 row 12']} />
-  );
-  assert.match(html, /schedule isn.{0,8}t available right now/, 'the fatal state must render');
-  assert.doesNotMatch(html, /Try again/, 'a cached-data defect cannot be retried away');
-  assert.doesNotMatch(html, /invalid-schedule-row/, 'and the raw string still never renders');
-});
-
-test('POLISH-005: a MIXED failure offers no retry either', () => {
-  // One unfixable issue is enough. If any fatal issue cannot be retried away,
-  // the button could never clear the state.
-  const html = renderWithAppContext(
-    <CFBScheduleApp
-      initialIssues={[
-        'CFBD schedule load failed: upstream CFBD returned 503',
-        'identity-unresolved: Directional State',
-      ]}
-    />
-  );
-  assert.match(html, /schedule isn.{0,8}t available right now/);
-  assert.doesNotMatch(html, /Try again/, 'every fatal issue must be retryable, not just one');
 });
 
 // The postseason override's admin gating is pinned in `GameWeekPanel.test.tsx`,

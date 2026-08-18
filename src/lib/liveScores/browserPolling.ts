@@ -101,6 +101,59 @@ export function selectLiveScorePollGames(params: {
   return games.filter((game) => isLiveScoreEligibleGame(game, scoresByKey[game.key], now));
 }
 
+/**
+ * What the league surface tells a member about live coverage.
+ *
+ * Owner design, 2026-08-18. This is deliberately derived from the POLLER'S OWN
+ * ARMING RULE rather than from game status: `selectLiveScorePollGames` is the
+ * set the app is actually refreshing, so the claim is grounded in work being
+ * done rather than inferred from a field.
+ *
+ * That also removes the defect both reviewers found in the first attempt. The
+ * previous predicate read `game.status`, which is written by the schedule-refresh
+ * cron and never rewritten by the live-scores engine — so a schedule snapshotted
+ * mid-slate left rows marked `in_progress` and lit a "Live" badge for hours over
+ * a week of finals. Schedule status is not consulted here at all, so there is
+ * nothing to go stale.
+ *
+ *  - `null`      nothing armed, or every armed game is final. No badge.
+ *  - `preparing` armed, kickoff still ahead. Polling starts 15 minutes early, so
+ *                the app IS working and has nothing to report yet.
+ *  - `tracking`  at least one armed, non-final game has kicked off.
+ *
+ * The two states are clock-driven, so both self-expire: the arming window closes
+ * on its own, and `preparing` becomes `tracking` at kickoff without any data
+ * arriving. Callers must pass a ticking `now` (AGENTS.md: time-dependent
+ * classification belongs in the consumer, never inside a cached selector).
+ */
+export type LiveTrackingState = 'preparing' | 'tracking';
+
+export function deriveLiveTrackingState(params: {
+  games: AppGame[];
+  scoresByKey: Record<string, ScorePack>;
+  season: number;
+  now?: Date;
+}): LiveTrackingState | null {
+  const { games, scoresByKey, season, now = new Date() } = params;
+  const armed = selectLiveScorePollGames({ games, scoresByKey, season, now });
+
+  // A final score ends coverage for that game even though the poll window stays
+  // open for corrections — otherwise the badge would run the full 24 hours after
+  // a Saturday slate.
+  const outstanding = armed.filter(
+    (game) => classifyScorePackStatus(scoresByKey[game.key]) !== 'final'
+  );
+  if (outstanding.length === 0) return null;
+
+  const nowMs = now.getTime();
+  const kickedOff = outstanding.some((game) => {
+    if (!game.date) return false;
+    const kickoffMs = Date.parse(game.date);
+    return Number.isFinite(kickoffMs) && kickoffMs <= nowMs;
+  });
+  return kickedOff ? 'tracking' : 'preparing';
+}
+
 /** Deduped `(providerWeek, seasonType)` partitions for the exact-partition read. */
 export function deriveLiveScorePartitions(games: AppGame[]): LiveScorePartition[] {
   const byKey = new Map<string, LiveScorePartition>();
