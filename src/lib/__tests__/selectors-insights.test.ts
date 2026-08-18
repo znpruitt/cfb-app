@@ -1421,6 +1421,70 @@ test('a chase that CAUGHT the leader is not a failed chase', () => {
   );
 });
 
+test('the chase names the leader ONLY when the same owner led throughout', () => {
+  // `gamesBack` is measured against whoever led IN THAT WEEK. When the lead
+  // changes inside the measured window, ground gained on an earlier leader is
+  // not ground gained on the eventual champion — saying so is a false claim
+  // about two named people. Codex review, P2.
+  const rows = [
+    standingsRow('Drew', 10, 2, 0, 12),
+    standingsRow('Casey', 8, 4, 2, 8),
+    standingsRow('Blake', 7, 5, 3, 4),
+    standingsRow('Alex', 6, 6, 4, 0),
+  ];
+  const base = historyFixture();
+  const closing = { 1: 5, 2: 4, 3: 3, 4: 2 };
+  const build = (leaderByWeek: Record<number, string>) => ({
+    ...base,
+    byWeek: Object.fromEntries(
+      base.weeks.map((week) => [
+        week,
+        {
+          ...base.byWeek[week]!,
+          standings: [
+            snapshotRow(leaderByWeek[week] ?? 'Drew', 1, 10, 0),
+            ...base.byWeek[week]!.standings.filter(
+              (entry) => entry.owner !== (leaderByWeek[week] ?? 'Drew')
+            ),
+          ],
+        },
+      ])
+    ),
+    byOwner: {
+      ...base.byOwner,
+      Casey: base.byOwner.Casey!.map((point) => ({
+        ...point,
+        gamesBack: closing[point.week as keyof typeof closing] ?? point.gamesBack,
+      })),
+    },
+  });
+
+  // Drew led at the baseline week and won: naming him is true.
+  const steady = deriveLeagueInsights({
+    rows,
+    standingsHistory: build({ 1: 'Drew', 2: 'Drew', 3: 'Drew', 4: 'Drew' }),
+    seasonContext: 'final',
+  }).find((entry) => entry.type === 'failed_chase');
+  assert.ok(steady, 'the chase must fire when the leader held throughout');
+  assert.match(steady.description, /Drew's lead/, 'a constant leader may be named');
+  assert.deepEqual(steady.relatedOwners, ['Drew']);
+
+  // Blake led at the baseline week; Drew won. Casey's gains came off Blake.
+  const changed = deriveLeagueInsights({
+    rows,
+    standingsHistory: build({ 1: 'Blake', 2: 'Blake', 3: 'Drew', 4: 'Drew' }),
+    seasonContext: 'final',
+  }).find((entry) => entry.type === 'failed_chase');
+  assert.ok(changed, 'the chase still fires — only the attribution changes');
+  assert.doesNotMatch(
+    changed.description,
+    /Drew/,
+    `ground gained on an earlier leader must not be credited to the champion: ${changed.description}`
+  );
+  assert.deepEqual(changed.relatedOwners, [], 'no owner may be implied by metadata either');
+  assert.match(changed.description, /cut 2 games off the lead/, 'the deficit itself is still true');
+});
+
 test('overview and standings insights are context differentiated', () => {
   const rows = [
     standingsRow('Drew', 10, 2, 0, 12),

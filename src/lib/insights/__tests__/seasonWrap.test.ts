@@ -150,6 +150,43 @@ test('a preseason league whose current standings are empty still reaches the arc
   );
 });
 
+test('INSIGHTS-032: the context describes the REQUESTED year, not the league projection', async () => {
+  // `/api/insights/[slug]?year=` is reachable by any caller on a passwordless
+  // league. The standings, weekly history and games are built for the requested
+  // year while `league.year` stays put, so anything keyed off `currentYear` —
+  // league records, rookie detection, and the recap's own title — described one
+  // season using another's number. The wrap made it visible: "How 2026 finished"
+  // printed over 2024 results. Codex review, P2.
+  await seedLeague();
+  const context = await buildLeagueInsightContext(SLUG, PRIOR, new Date());
+  assert.equal(
+    context.currentYear,
+    PRIOR,
+    'the context must be numbered for the season it was BUILT from'
+  );
+
+  // Control: the ordinary path is unchanged, so this is a divergence fix and
+  // not a redefinition of `currentYear`.
+  const ordinary = await buildLeagueInsightContext(SLUG, YEAR, new Date());
+  assert.equal(ordinary.currentYear, YEAR, 'the default path still follows the league year');
+});
+
+test('INSIGHTS-032: archive-served recap cards CARRY the season they describe', async () => {
+  // The wiring half of the navigation fix. `insightHref` routes on
+  // `insight.season`, and tests that hand-build an insight prove only that the
+  // router reads the field — not that the generator ever sets it. Mutation-found:
+  // deleting the assignment here left every routing test green.
+  const insights = await wrapInsights();
+  assert.ok(insights.length > 0, 'the fixture must produce cards to check');
+  for (const insight of insights) {
+    assert.equal(
+      insight.season,
+      PRIOR,
+      `${insight.type} must carry the season it describes, not the one on screen`
+    );
+  }
+});
+
 test('without the ADJACENT archive, preseason serves no wrap', async () => {
   // Same league, same rows, archived one year earlier. A 2024 champion is not
   // "last season's" champion, and the copy has no way to say otherwise.

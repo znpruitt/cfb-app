@@ -501,7 +501,19 @@ export async function buildInsightContext(
    * Owners named by this season's CONFIRMED DRAFT, or null if none is confirmed.
    * Passed in rather than read here so this module keeps doing no store access.
    */
-  seasonOwners: { year: number; owners: string[] } | null = null
+  seasonOwners: { year: number; owners: string[] } | null = null,
+  /**
+   * INSIGHTS-032 — the season this context DESCRIBES.
+   *
+   * `league.year` is the league's current projection; the standings, weekly
+   * history and games passed in above are built for the year the CALLER
+   * resolved, and `/api/insights/[slug]?year=` lets those differ. Everything
+   * keyed off `currentYear` — league records, rookie detection, and now the
+   * recap's own title — then describes one season using another's number, which
+   * the season wrap makes visible as "How 2026 finished" printed over 2024
+   * results. Defaults to `league.year`, so the ordinary path is unchanged.
+   */
+  describedYear: number = league.year
 ): Promise<InsightContext> {
   const regularWeeks = deriveRegularWeeks(games);
   const currentWeek = chooseDefaultWeek({ games, regularWeeks });
@@ -522,7 +534,7 @@ export async function buildInsightContext(
 
   let ownerGameStats: OwnerSeasonStats[] | null = null;
   if (lifecycleState !== 'preseason' && lifecycleState !== 'offseason') {
-    const load = await loadOwnerSeasonStats(leagueSlug, league.year, resolvedRoster, {
+    const load = await loadOwnerSeasonStats(leagueSlug, describedYear, resolvedRoster, {
       kind: 'live',
     });
     ownerGameStats = load.status === 'available' ? load.stats : null;
@@ -554,7 +566,7 @@ export async function buildInsightContext(
 
   const { ownerCareerStats } = await buildOwnerCareerStats({
     leagueSlug,
-    currentYear: league.year,
+    currentYear: describedYear,
     archives,
     historicalRosters,
     currentRoster: resolvedRoster,
@@ -564,13 +576,13 @@ export async function buildInsightContext(
   const records = selectAllRecords({
     archives,
     historicalRosters,
-    currentYear: league.year,
+    currentYear: describedYear,
     currentRoster: resolvedRoster,
   });
 
   return {
     leagueSlug,
-    currentYear: league.year,
+    currentYear: describedYear,
     lifecycleState,
     seasonOwners,
     membershipDisagreement,

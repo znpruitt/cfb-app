@@ -349,7 +349,8 @@ export async function buildLeagueInsightContext(
     // why no completeness authority exists any more. Reading it for
     // `resolvedYear` and carrying that year along is also what makes a
     // `?year=` request coherent by construction.
-    seasonOwnersFrom(draftRecord?.value ?? null, resolvedYear)
+    seasonOwnersFrom(draftRecord?.value ?? null, resolvedYear),
+    resolvedYear
   );
 }
 

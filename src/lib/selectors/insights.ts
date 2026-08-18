@@ -53,6 +53,13 @@ export type Insight = {
   relatedOwners?: string[];
   priorityScore: number;
   week?: number;
+  /**
+   * INSIGHTS-032 — the season this insight DESCRIBES, when that is not the
+   * season being viewed. Set only by completed-season recap cards served from
+   * an archive; navigation reads it so a card about 2025 does not land the
+   * reader on 2026.
+   */
+  season?: number;
   navigationTarget?: 'standings' | 'trends' | 'matchup' | 'history';
   category?: InsightCategory;
   lifecycle?: LifecycleState[];
@@ -193,6 +200,13 @@ function toInsight(params: {
   relatedOwners?: string[];
   priorityScore: number;
   week?: number;
+  /**
+   * INSIGHTS-032 — the season this insight DESCRIBES, when that is not the
+   * season being viewed. Set only by completed-season recap cards served from
+   * an archive; navigation reads it so a card about 2025 does not land the
+   * reader on 2026.
+   */
+  season?: number;
   navigationTarget?: 'standings' | 'trends' | 'matchup' | 'history';
   category?: InsightCategory;
   lifecycle?: LifecycleState[];
@@ -589,13 +603,25 @@ export function deriveClosingChaseInsight(args: {
   const weeks = latestWeek - baselineWeek;
   const gained = `${top.closed} game${top.closed === 1 ? '' : 's'}`;
   const short = `${top.finishedBack} game${top.finishedBack === 1 ? '' : 's'}`;
+
+  // `gamesBack` is measured against whoever led IN THAT WEEK, not against the
+  // owner who eventually won. When the lead changed hands inside the window,
+  // "cut 3 games off Zoe's lead" attributes ground gained on someone else to
+  // the final champion — a false claim about two named people. So the leader is
+  // named only when the SAME owner led at both ends of the window; otherwise the
+  // copy states the deficit, which is true regardless of who held the lead.
+  const baselineSnapshot = standingsHistory.byWeek[baselineWeek];
+  const baselineLeader = baselineSnapshot?.standings[0]?.owner ?? null;
+  const leaderHeldThroughout = baselineLeader !== null && baselineLeader === leader.owner;
   return toInsight({
     id: `closing-chase-${ownerSlug(top.owner)}-wk${latestWeek}`,
     type: 'failed_chase',
     title: completedSeason ? `Who was closing in ${completedSeason}?` : 'Closing the gap',
-    description: `${top.owner} cut ${gained} off ${leader.owner}'s lead over the final ${weeks} weeks and still finished ${short} back.`,
+    description: leaderHeldThroughout
+      ? `${top.owner} cut ${gained} off ${leader.owner}'s lead over the final ${weeks} weeks and still finished ${short} back.`
+      : `${top.owner} cut ${gained} off the lead over the final ${weeks} weeks and still finished ${short} back.`,
     owner: top.owner,
-    relatedOwners: [leader.owner],
+    relatedOwners: leaderHeldThroughout ? [leader.owner] : [],
     priorityScore: 104 + top.closed * 5,
     week: latestWeek,
     navigationTarget: 'trends',

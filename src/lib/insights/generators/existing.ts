@@ -216,7 +216,17 @@ export const seasonWrapGenerator: InsightGenerator = {
     // ruling, 2026-08-18. The INSIGHTS-025 rule that a departed owner is named
     // only by the membership event still binds every generator whose claim is
     // about the CURRENT season.
-    return insights.map((insight) => ({ ...insight, decay: 'season_recap' as const }));
+    // `season` travels with the card ONLY when it describes a season other than
+    // the one being viewed. Navigation reads it: without it a "How 2025 finished"
+    // card served on the 2026 page routes the reader to 2026's history and an
+    // empty 2026 trends view — the card's own text disagreeing with where it
+    // lands. On the live path the described season IS the viewed one, so the
+    // field stays absent and existing routing is untouched.
+    return insights.map((insight) => ({
+      ...insight,
+      decay: 'season_recap' as const,
+      ...(source.archivedYear !== null ? { season: source.archivedYear } : {}),
+    }));
   },
 };
 

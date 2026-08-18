@@ -592,6 +592,17 @@ test('INSIGHTS-032: outside preseason the wrap still reads the CURRENT standings
   assert.ok(champion, 'postseason must still produce a champion margin');
   assert.match(champion.description, /Alex/, 'postseason describes the season just finished');
   assert.doesNotMatch(champion.description, /Zoe/, 'the archive must not win over the live table');
+
+  // `season` marks a card as describing a season OTHER than the one on screen.
+  // On the live path they are the same, so it must stay absent or navigation
+  // would redirect a current-season card into the history view.
+  for (const insight of insights) {
+    assert.equal(
+      insight.season,
+      undefined,
+      `${insight.type} describes the season being viewed and must not be redirected`
+    );
+  }
 });
 
 // ---------------------------------------------------------------------------
