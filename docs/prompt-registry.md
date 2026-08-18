@@ -60,9 +60,9 @@ Rules:
 - Scope: `selectors/insights.ts` (the four recap derivations, a `completedSeason` parameter, the
   tiebreak authority, and the chase re-derived from the games-back slope), `generators/existing.ts`
   (source selection, finality gate, decay and season metadata), `insights/variants.ts` (a
-  `season_recap` decay curve), `insights/context.ts` + `loadInsights.ts` (`describedYear` and its
-  paired provenance), `OverviewPanel.tsx` (archived cards route to their own season), the suppression
-  debug route, and two new suites (20 unit + 8 e2e) plus routing tests.
+  `season_recap` decay curve), `OverviewPanel.tsx` (archived cards route to their own season), the
+  suppression debug route, and two new suites (20 unit + 5 e2e) plus routing tests. AGENTS.md
+  Insights invariant 5 carries the completed-season exemption this behaviour depends on.
 - **v1 ABANDONED and SUPERSEDED — `feat/insights-032-v1-abandoned`, 7 commits, not merged.** It took
   three remediation rounds and a third review round still produced credible findings, two of them on
   code written WHILE remediating. Per AGENTS.md that is the reconstruction trigger, and the owner
@@ -105,6 +105,22 @@ Rules:
   Also open: `StandingsPanel` keeps a private `insightHref` without the `season` branch, unreachable
   today; and the season-long "biggest turnaround" card, deliberately not folded in because widening
   the chase window would silently change which owner the existing card names.
+- **`describedYear` was adopted mid-slice and then REVERTED, by owner decision (2026-08-18).** It
+  threaded `/api/insights/[slug]?year=` into `context.currentYear` to fix a genuine mislabel — the
+  recap printing "How 2026 finished" over 2024 results. Every review round afterwards found another
+  consumer the change had reached: analytics provenance; provenance then firing on the league's OWN
+  year and blanking stats in `fresh_offseason`; career stats receiving archives newer than the
+  described year; archived stats attributed with the mutable roster; and the recap's own staleness
+  guard withholding for `?year=<archived>`. Five findings across four rounds, all one cause. The
+  owner chose to remove it rather than keep extending it, which deleted three open findings and the
+  class they came from. `currentYear` is `league.year` again — `main`'s long-standing behaviour — and
+  the underlying ambiguity (one field answering both "which season is the league operating in" and
+  "which season's data is this") is recorded as `docs/next-tasks.md` 53 with an explicit warning not
+  to re-attempt it by threading a single value.
+- **The AGENTS.md amendment was DROPPED BY THE RECONSTRUCTION and caught by review.** v1 amended
+  invariant 5; v2 re-derived the code from clean `main` and did not re-apply the doc change, so the
+  shipped comments and tests cited an exemption that existed only on the abandoned branch. Re-derive
+  means the DOCS too, not just the code.
 - **The lesson worth carrying: three tests in this slice were VACUOUS and passing.** A leader-change
   fixture where the leader never changed; an e2e fixture whose archive had an empty weekly history,
   so the card that names the departed owner never fired; and a provenance test where both branches

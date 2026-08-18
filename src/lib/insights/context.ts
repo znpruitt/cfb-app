@@ -501,18 +501,7 @@ export async function buildInsightContext(
    * Owners named by this season's CONFIRMED DRAFT, or null if none is confirmed.
    * Passed in rather than read here so this module keeps doing no store access.
    */
-  seasonOwners: { year: number; owners: string[] } | null = null,
-  /**
-   * The season this context DESCRIBES.
-   *
-   * `league.year` is the league's current projection, but the standings, weekly
-   * history and games passed in above are built for the year the CALLER
-   * resolved, and `/api/insights/[slug]?year=` lets those differ. Everything
-   * keyed off `currentYear` — league records, rookie detection, and the recap's
-   * own title — would otherwise describe one season using another's number.
-   * Defaults to `league.year`, so the ordinary path is unchanged.
-   */
-  describedYear: number = league.year
+  seasonOwners: { year: number; owners: string[] } | null = null
 ): Promise<InsightContext> {
   const regularWeeks = deriveRegularWeeks(games);
   const currentWeek = chooseDefaultWeek({ games, regularWeeks });
@@ -533,28 +522,9 @@ export async function buildInsightContext(
 
   let ownerGameStats: OwnerSeasonStats[] | null = null;
   if (lifecycleState !== 'preseason' && lifecycleState !== 'offseason') {
-    // Provenance must match the year. `loadOwnerSeasonStats` pairs a season with
-    // ONE source, and `{ kind: 'live' }` rebuilds analytics from mutable
-    // schedule and score caches. For an ARCHIVED year that would let a later
-    // cache or identity change make historical cards disagree with the immutable
-    // archive they sit beside, so an archived year loads against its archive.
-    // Scoped to a year OTHER than the league's own. Rollover archives year Y
-    // while `league.year` STAYS at Y, so matching on the year alone flips
-    // `fresh_offseason` from live to archive provenance — and archives written
-    // before PLATFORM-086H3E1 legitimately carry no `gameStatSlate`, so that
-    // returns `archive-slate-missing` and blanks every stats generator in a
-    // state where the live caches are still populated. A historical request is
-    // the only case where live provenance would be wrong.
-    const archiveForYear =
-      describedYear === league.year
-        ? null
-        : (archives.find((entry) => entry.year === describedYear) ?? null);
-    const load = await loadOwnerSeasonStats(
-      leagueSlug,
-      describedYear,
-      resolvedRoster,
-      archiveForYear ? { kind: 'archive', archive: archiveForYear } : { kind: 'live' }
-    );
+    const load = await loadOwnerSeasonStats(leagueSlug, league.year, resolvedRoster, {
+      kind: 'live',
+    });
     ownerGameStats = load.status === 'available' ? load.stats : null;
   }
 
@@ -584,7 +554,7 @@ export async function buildInsightContext(
 
   const { ownerCareerStats } = await buildOwnerCareerStats({
     leagueSlug,
-    currentYear: describedYear,
+    currentYear: league.year,
     archives,
     historicalRosters,
     currentRoster: resolvedRoster,
@@ -594,13 +564,13 @@ export async function buildInsightContext(
   const records = selectAllRecords({
     archives,
     historicalRosters,
-    currentYear: describedYear,
+    currentYear: league.year,
     currentRoster: resolvedRoster,
   });
 
   return {
     leagueSlug,
-    currentYear: describedYear,
+    currentYear: league.year,
     lifecycleState,
     seasonOwners,
     membershipDisagreement,
