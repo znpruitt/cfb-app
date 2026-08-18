@@ -447,6 +447,16 @@ test('the chase states ONE deficit when the final week is unresolved', () => {
   assert.equal(chase.statValue, 3, 'ground gained is measured to the FINAL TABLE');
   assert.match(chase.description, /cut 3 games/, chase.description);
   assert.match(chase.description, /finished 3 games back/, chase.description);
+
+  // The DURATION must share that endpoint. Both reviewers caught this against
+  // the first version of this very test: the amount was corrected to the final
+  // table while the week count still stopped at the last RESOLVED week, so the
+  // card reported a weeks 3->6 change "over the final 2 weeks".
+  assert.match(
+    chase.description,
+    /over the final 3 weeks/,
+    `the span must reach the final table, not the last resolved week: ${chase.description}`
+  );
 });
 
 test('a chase that CAUGHT the leader is not a failed chase', () => {

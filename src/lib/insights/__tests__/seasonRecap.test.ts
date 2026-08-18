@@ -284,6 +284,55 @@ test('an ARCHIVED year loads analytics from its archive, not from live caches', 
   assert.equal(live.ownerGameStats, null, 'the live path is unavailable in this fixture');
 });
 
+test('the league OWN year keeps live provenance even once it is archived', async () => {
+  // Rollover archives year Y and leaves `league.year` at Y, so matching on the
+  // year alone flips the league's own current view from live to archive
+  // provenance. Archives written before PLATFORM-086H3E1 carry no
+  // `gameStatSlate`, so that returns `archive-slate-missing` and blanks every
+  // stats generator in a state where the live caches are still populated.
+  await addLeague({
+    slug: 'ownyear',
+    displayName: 'Own Year League',
+    year: PRIOR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    foundedYear: 2021,
+    status: { state: 'season', year: PRIOR },
+  });
+  // An archive for the league's OWN year WITH a valid slate. That inverts the
+  // discriminator: archive provenance would be AVAILABLE here, so if the switch
+  // matched on the year alone the stats would resolve non-null. Live provenance
+  // is unavailable in this fixture, so `null` can only mean the league's own
+  // year stayed on the live path.
+  await setAppState('standings-archive:ownyear', String(PRIOR), {
+    leagueSlug: 'ownyear',
+    year: PRIOR,
+    archivedAt: '2026-01-05T00:00:00.000Z',
+    ownerRosterSnapshot: 'team,owner\nGeorgia,Zoe',
+    standingsHistory: { weeks: [], byWeek: {}, byOwner: {} },
+    finalStandings: [],
+    games: [],
+    scoresByKey: {},
+    gameStatSlate: { snapshotVersion: 1, year: PRIOR, games: [] },
+  });
+  await setAppState('owners:ownyear:2025', 'csv', 'team,owner\nGeorgia,Zoe');
+  await setAppState('game-stats', `${PRIOR}:1:regular`, {
+    year: PRIOR,
+    week: 1,
+    seasonType: 'regular',
+    fetchedAt: new Date().toISOString(),
+    games: [],
+  });
+
+  const context = await buildLeagueInsightContext('ownyear', PRIOR, new Date());
+  assert.equal(context.currentYear, PRIOR, 'the described year is the league year');
+  assert.equal(
+    context.ownerGameStats,
+    null,
+    'the league own year must stay on the LIVE path; a non-null result here means ' +
+      'the archive claimed a year it should not have'
+  );
+});
+
 test('the context describes the REQUESTED year, with matching provenance', async () => {
   // `/api/insights/[slug]?year=` is reachable by any caller on a passwordless
   // league. The standings and history are built for the requested year while

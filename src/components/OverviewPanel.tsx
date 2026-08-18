@@ -963,8 +963,10 @@ export function insightHref(
 
   if (target === 'standings') {
     if (
+      // `failed_chase` no longer reaches here — `deriveClosingChaseInsight` routes
+      // to `trends` — so only the champion card can take this arm.
       insight?.category === 'season_wrap' &&
-      (insight.type === 'champion_margin' || insight.type === 'failed_chase') &&
+      insight.type === 'champion_margin' &&
       typeof panelYear === 'number' &&
       Number.isFinite(panelYear)
     ) {

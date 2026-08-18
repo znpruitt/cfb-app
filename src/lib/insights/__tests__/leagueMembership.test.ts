@@ -297,6 +297,13 @@ async function seedNamingAliceAndBob(
  * that emits a `membership-*` id is exempted from the participant checks in this
  * file, so that prefix is now load-bearing and must not be reused.
  */
+const RECAP_ID_PREFIXES = [
+  'champion-margin-',
+  'closing-chase-',
+  'final-collapse-',
+  'toilet-bowl-',
+] as const;
+
 /**
  * NARROWED by INSIGHTS-032 (owner ruling, 2026-08-18) to exempt `season_wrap`.
  *
@@ -318,11 +325,17 @@ async function seedNamingAliceAndBob(
  * `insights-lifecycle-awareness.test.ts` rather than assumed.
  */
 function ownersNamedIn(context: Parameters<typeof generateRawInsights>[0]): string[] {
-  return generateRawInsights(context)
-    .filter((i) => !i.id.startsWith('membership-'))
-    .filter((i) => i.category !== 'season_wrap')
-    .flatMap((i) => [i.owner, ...(i.owners ?? []), ...(i.relatedOwners ?? [])])
-    .filter((o): o is string => Boolean(o));
+  return (
+    generateRawInsights(context)
+      .filter((i) => !i.id.startsWith('membership-'))
+      // Narrowed to the FOUR recap cards by id rather than the whole category:
+      // exempting `season_wrap` wholesale would silently cover any future card
+      // that adopts it, including one whose copy does NOT name its season — and
+      // that framing is what makes naming a departed owner safe at all.
+      .filter((i) => !RECAP_ID_PREFIXES.some((prefix) => i.id.startsWith(prefix)))
+      .flatMap((i) => [i.owner, ...(i.owners ?? []), ...(i.relatedOwners ?? [])])
+      .filter((o): o is string => Boolean(o))
+  );
 }
 
 /** Every owner named anywhere, membership events included. */

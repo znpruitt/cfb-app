@@ -661,7 +661,13 @@ export function deriveClosingChaseInsight(args: {
   const baselineLeader = standingsHistory.byWeek[baselineWeek]?.standings[0]?.owner ?? null;
   const leaderHeld = baselineLeader !== null && baselineLeader === leader.owner;
 
-  const weeks = latestWeek - baselineWeek;
+  // The DURATION must share the amount's endpoint. `closed` and `finishedBack`
+  // are measured baseline -> FINAL TABLE, so counting weeks to the last RESOLVED
+  // week understates the span whenever the final week's coverage is incomplete:
+  // the card would report a three-week change "over the final 2 weeks". The
+  // history's own last week is the final table's week, resolved or not.
+  const finalWeek = standingsHistory.weeks[standingsHistory.weeks.length - 1] ?? latestWeek;
+  const weeks = finalWeek - baselineWeek;
   const gained = `${top.closed} game${top.closed === 1 ? '' : 's'}`;
   const short = `${top.finishedBack} game${top.finishedBack === 1 ? '' : 's'}`;
   return toInsight({

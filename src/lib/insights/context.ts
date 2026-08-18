@@ -538,7 +538,17 @@ export async function buildInsightContext(
     // schedule and score caches. For an ARCHIVED year that would let a later
     // cache or identity change make historical cards disagree with the immutable
     // archive they sit beside, so an archived year loads against its archive.
-    const archiveForYear = archives.find((entry) => entry.year === describedYear) ?? null;
+    // Scoped to a year OTHER than the league's own. Rollover archives year Y
+    // while `league.year` STAYS at Y, so matching on the year alone flips
+    // `fresh_offseason` from live to archive provenance — and archives written
+    // before PLATFORM-086H3E1 legitimately carry no `gameStatSlate`, so that
+    // returns `archive-slate-missing` and blanks every stats generator in a
+    // state where the live caches are still populated. A historical request is
+    // the only case where live provenance would be wrong.
+    const archiveForYear =
+      describedYear === league.year
+        ? null
+        : (archives.find((entry) => entry.year === describedYear) ?? null);
     const load = await loadOwnerSeasonStats(
       leagueSlug,
       describedYear,
