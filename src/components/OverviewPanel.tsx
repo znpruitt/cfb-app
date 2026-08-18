@@ -946,6 +946,21 @@ export function insightHref(
   panelYear?: number
 ): string | null {
   const base = leagueSlug ? `/league/${leagueSlug}` : '';
+
+  // A recap served from an archive describes a season the reader is NOT viewing
+  // and carries it on `insight.season`. EVERY one of its targets must follow the
+  // card rather than the page: the champion card would open the current year's
+  // history, and the chase, collapse and throne cards would open a trends view
+  // for a season in which nobody has played. `season` is absent whenever the
+  // card describes the season on screen, so live routing is untouched.
+  const archivedSeason =
+    insight?.category === 'season_wrap' &&
+    typeof insight.season === 'number' &&
+    Number.isFinite(insight.season)
+      ? insight.season
+      : null;
+  if (archivedSeason !== null) return `${base}/history/${archivedSeason}`;
+
   if (target === 'standings') {
     if (
       insight?.category === 'season_wrap' &&
