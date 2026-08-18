@@ -329,7 +329,11 @@ export default function CFBScheduleApp({
   //    live-overlay staleness — a poll that succeeds with an unchanged score
   //    (halftime, delay) keeps the overlay fresh even though the snapshot does not
   //    advance. Using the snapshot here would false-dim the overlay every halftime.
-  const [scoresSnapshotAt, setScoresSnapshotAt] = useState<string | null>(null);
+  // Written by the live path; no longer READ. The member-facing stamp moved to
+  // `scoresObservedAt`, which is the observation signal the "Tracking scores"
+  // sentence actually claims. Retired alongside `setOddsSnapshotAt` — see
+  // `docs/next-tasks.md` 56.
+  const [, setScoresSnapshotAt] = useState<string | null>(null);
   const [scoresObservedAt, setScoresObservedAt] = useState<string | null>(null);
   // Periodically-updated clock so the live overlay's time-based staleness
   // re-evaluates even when scores/inputs are static (e.g. a network outage that
@@ -1241,18 +1245,24 @@ export default function CFBScheduleApp({
   // `visibleGames`, which is the selected/filtered week and would suppress the
   // signal while Overview renders a live game from a different scope.
   //
-  // `liveStaleClock` ticks every 60s once the schedule loads, so `preparing`
-  // becomes `tracking` at kickoff with no data arriving, and the arming window
-  // closes on its own. It is `0` until armed, which keeps SSR deterministic.
+  // `liveStaleClock` ticks every 60s once the schedule loads, so the state
+  // re-evaluates as the clock moves and the arming window closes on its own.
+  // While it is `0` the derivation falls back to real wall-clock time — that is
+  // NOT deterministic; SSR is stable here only because no page passes
+  // `initialGames`, so `games` is empty on the server.
   const trackingState = useMemo(
     () =>
       deriveLiveTrackingState({
         games,
         scoresByKey,
         season: selectedSeason,
+        // The "poller is being acted upon" signal: client time of the last CLEAN
+        // poll. A failed or partial poll leaves it alone, so it ages toward
+        // stale on its own and the claim retires itself.
+        scoresObservedAt,
         now: liveStaleClock ? new Date(liveStaleClock) : undefined,
       }),
-    [games, liveStaleClock, scoresByKey, selectedSeason]
+    [games, liveStaleClock, scoresByKey, scoresObservedAt, selectedSeason]
   );
 
   return (
@@ -1666,13 +1676,17 @@ export default function CFBScheduleApp({
               <span className="font-medium text-emerald-700 dark:text-emerald-300">
                 {trackingState === 'preparing' ? 'Preparing for kickoff' : 'Tracking scores'}
               </span>
-              {trackingState === 'tracking' && scoresSnapshotAt ? (
+              {trackingState === 'tracking' && scoresObservedAt ? (
                 <>
                   <span aria-hidden="true" className="text-gray-400 dark:text-zinc-600">
                     ·
                   </span>
+                  {/* `scoresObservedAt`, not `scoresSnapshotAt`: the sentence
+                      claims we are OBSERVING, and the durable snapshot does not
+                      advance during a halftime or a scoreless stretch — it would
+                      read "updated 47m ago" beside "Tracking scores". */}
                   <FreshnessLabel
-                    timestamp={scoresSnapshotAt}
+                    timestamp={scoresObservedAt}
                     label="scores"
                     className="self-center"
                   />

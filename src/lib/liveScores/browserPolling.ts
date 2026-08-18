@@ -2,6 +2,7 @@ import { classifyScorePackStatus, normalizeStatusTokens } from '@/lib/gameStatus
 import type { AppGame } from '@/lib/schedule';
 import type { ScorePack } from '@/lib/scores';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
+import { DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS } from '@/lib/selectors/liveDelta';
 
 /**
  * PLATFORM-086B2B — client-safe eligibility for BROWSER live-score polling.
@@ -132,38 +133,67 @@ export function deriveLiveTrackingState(params: {
   games: AppGame[];
   scoresByKey: Record<string, ScorePack>;
   season: number;
+  /**
+   * Client time of the last CLEAN successful score poll (`scoresObservedAt`).
+   * Set only when a poll returned with no partition read failures, and
+   * deliberately left alone on a failed or partial one so it ages toward stale
+   * (PLATFORM-086B2B). This is the "the poller is being ACTED UPON" signal.
+   */
+  scoresObservedAt?: string | null;
   now?: Date;
 }): LiveTrackingState | null {
-  const { games, scoresByKey, season, now = new Date() } = params;
+  const { games, scoresByKey, season, scoresObservedAt = null, now = new Date() } = params;
   const armed = selectLiveScorePollGames({ games, scoresByKey, season, now });
-
-  // `tracking` requires POSITIVE EVIDENCE — an attached score that says the game
-  // is in progress. An earlier version treated "not final" as live, which counts
-  // a game with NO attached score as outstanding: during a score-feed outage
-  // `scoresByKey` is empty, so every game that kicked off in the last 24 hours
-  // read as live and the surface asserted "Tracking scores" while nothing was
-  // updating. Absence of data is not evidence of play, and this slice removed
-  // the hedge that used to cover that state.
-  if (armed.some((game) => classifyScorePackStatus(scoresByKey[game.key]) === 'inprogress')) {
-    return 'tracking';
-  }
-
-  // `preparing` requires a CONFIRMED future kickoff. `startTimeTBD` marks the
-  // provider's placeholder clock, which `formatExpandedKickoff` already refuses
-  // to display as a real time — so it cannot be used to promise one here either.
   const nowMs = now.getTime();
-  const awaitingKickoff = armed.some((game) => {
-    if (game.startTimeTBD) return false;
-    if (classifyScorePackStatus(scoresByKey[game.key]) === 'final') return false;
-    if (!game.date) return false;
-    const kickoffMs = Date.parse(game.date);
-    return Number.isFinite(kickoffMs) && kickoffMs > nowMs;
+
+  // Games the poller is watching that have not finished.
+  const outstanding = armed.filter(
+    (game) => classifyScorePackStatus(scoresByKey[game.key]) !== 'final'
+  );
+
+  /** A confirmed kickoff time. `startTimeTBD` is the provider's placeholder hour,
+   * which `formatExpandedKickoff` already refuses to render as a real time, so it
+   * may never be used to judge that a game has started or to promise that it
+   * will. */
+  const confirmedKickoffMs = (game: AppGame): number | null => {
+    if (game.startTimeTBD || !game.date) return null;
+    const parsed = Date.parse(game.date);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  // "Tracking scores" claims data is FLOWING, so it needs the poller to be
+  // WORKING — not merely armed, and not a score pack that happens to be sitting
+  // in the cache. Three earlier versions inferred liveness from game data
+  // (schedule status; a missing score; a cached in-progress score) and each one
+  // kept claiming live coverage after the feed died, because cached data does
+  // not expire. A clean poll does.
+  const observedMs = scoresObservedAt === null ? NaN : Date.parse(scoresObservedAt);
+  const observing =
+    Number.isFinite(observedMs) && nowMs - observedMs <= DEFAULT_LIVE_DELTA_STALE_THRESHOLD_MS;
+
+  // Underway means either the clock says so on a CONFIRMED kickoff, or the score
+  // feed says so directly. The second half is what lets a TBD-time game track
+  // once it is actually being played — the placeholder guard bounds the promise,
+  // not the observation.
+  const underway = outstanding.some((game) => {
+    if (classifyScorePackStatus(scoresByKey[game.key]) === 'inprogress') return true;
+    const kickoffMs = confirmedKickoffMs(game);
+    return kickoffMs !== null && kickoffMs <= nowMs;
+  });
+  if (observing && underway) return 'tracking';
+
+  // Before kickoff the claim is about the CALENDAR, not about data, so it does
+  // not require an observation — polling starts 15 minutes early and there is
+  // nothing to have observed yet.
+  const awaitingKickoff = outstanding.some((game) => {
+    const kickoffMs = confirmedKickoffMs(game);
+    return kickoffMs !== null && kickoffMs > nowMs;
   });
   if (awaitingKickoff) return 'preparing';
 
-  // Everything armed is finished, or kicked off with no live evidence (an outage
-  // or a coverage gap). Claiming either state would be a guess, so say nothing —
-  // System Health carries the coverage condition for whoever can act on it.
+  // Everything finished, or games are on and the poller is not delivering.
+  // Saying nothing is the only honest option; System Health carries the coverage
+  // condition for whoever can act on it.
   return null;
 }
 

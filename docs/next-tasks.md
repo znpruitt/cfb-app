@@ -1631,9 +1631,13 @@ Supersedes: (none)
       `GameWeekPanel` tests pin the rendering contract (callback ⇒ button, and a positive control),
       but mutating the ternary at the two `CFBScheduleApp` call sites survives, because the
       postseason tab is not reachable in a static render — there is no prop to select it.
-    - **`setOddsSnapshotAt` is write-only.** No reader remains, but the setter still fires on season
-      reset and every odds hydration, re-rendering a very large component for a value nothing
-      consumes. The setter, its call sites, and the hook params that thread it should go together.
+    - **`setOddsSnapshotAt` and `setScoresSnapshotAt` are write-only.** No reader remains for either,
+      but the setters still fire on season reset and on every odds/score poll, re-rendering a very
+      large component for values nothing consumes. `scoresSnapshotAt` was retired when the member
+      freshness stamp moved to `scoresObservedAt` (the observation signal the "Tracking scores"
+      sentence actually claims; the durable snapshot does not advance during a halftime, so it would
+      read "updated 47m ago" beside a live badge). Both setters, their call sites, and the hook
+      params that thread them should go together.
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the

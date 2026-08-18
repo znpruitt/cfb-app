@@ -217,12 +217,13 @@ test('the poll cadence constant is 3 minutes', () => {
 // consulted here at all, which is why these tests never set it.
 // ---------------------------------------------------------------------------
 
-const trackingArgs = (games: AppGame[], scoresByKey: Record<string, ScorePack> = {}) => ({
-  games,
-  scoresByKey,
-  season: CURRENT_SEASON,
-  now: NOW,
-});
+// `scoresObservedAt` defaults to a CLEAN POLL JUST NOW — the state a working
+// poller is in. Tests that model a dead feed pass a stale one explicitly.
+const trackingArgs = (
+  games: AppGame[],
+  scoresByKey: Record<string, ScorePack> = {},
+  scoresObservedAt: string | null = new Date(NOW_MS - 30 * 1000).toISOString()
+) => ({ games, scoresByKey, season: CURRENT_SEASON, scoresObservedAt, now: NOW });
 
 test('deriveLiveTrackingState: nothing armed → no badge', () => {
   // Kickoff two days out: outside the -15m window, so the poller is not running
@@ -313,28 +314,35 @@ test('deriveLiveTrackingState: one live game among finals still tracks', () => {
   );
 });
 
-test('deriveLiveTrackingState: a score OUTAGE does not read as live play', () => {
-  // Review-found. Treating "not final" as live counts a game with NO attached
-  // score as outstanding, so an empty `scoresByKey` — a dead feed or a cold
-  // cache — made every game that kicked off in the last 24h read as live. The
-  // surface then asserted "Tracking scores" while nothing was updating, and this
-  // slice had already deleted the hedge that used to cover that state.
+test('deriveLiveTrackingState: a dead poller stops the claim, even with a live score cached', () => {
+  // Owner design: tie the badge to whether the poller is being ACTED UPON.
+  // `scoresObservedAt` advances only on a CLEAN poll and is deliberately left
+  // alone on a failed one, so it ages toward stale by itself.
+  //
+  // This is the case three earlier versions all got wrong from different
+  // directions: a cached in-progress pack does NOT expire, so inferring liveness
+  // from game data kept asserting live coverage long after the feed died.
   const started = makeGame({
     key: 'started',
     date: new Date(NOW_MS - 45 * 60 * 1000).toISOString(),
   });
+  const live = { started: scorePack('Q3 2:00') };
+  const staleObservation = new Date(NOW_MS - 20 * 60 * 1000).toISOString();
+
   assert.equal(
-    deriveLiveTrackingState(trackingArgs([started], {})),
+    deriveLiveTrackingState(trackingArgs([started], live, staleObservation)),
     null,
-    'absence of score data is not evidence of play'
+    'a stale observation cannot claim live coverage, whatever the cached score says'
+  );
+  assert.equal(
+    deriveLiveTrackingState(trackingArgs([started], live, null)),
+    null,
+    'and neither can never having observed at all'
   );
 
-  // Anti-vacuity: the SAME game with an in-progress score does track, so the
-  // null above is the evidence rule and not an inert fixture.
-  assert.equal(
-    deriveLiveTrackingState(trackingArgs([started], { started: scorePack('Q3 2:00') })),
-    'tracking'
-  );
+  // Anti-vacuity: identical inputs with a RECENT clean poll do track, so the
+  // nulls above are the observation rule and not an inert fixture.
+  assert.equal(deriveLiveTrackingState(trackingArgs([started], live)), 'tracking');
 });
 
 test('deriveLiveTrackingState: a FINAL game never reads as awaiting kickoff', () => {
@@ -383,7 +391,8 @@ test('deriveLiveTrackingState: a placeholder TBD clock is not a kickoff promise'
   assert.equal(deriveLiveTrackingState(trackingArgs([confirmed])), 'preparing');
 
   // And a TBD game that is genuinely underway still tracks — the guard bounds
-  // the PROMISE, not the observation.
+  // the PROMISE, not the observation. (An earlier implementation excluded TBD
+  // games from every judgement, which silently made them untrackable.)
   assert.equal(
     deriveLiveTrackingState(trackingArgs([tbd], { tbd: scorePack('Q1 9:30') })),
     'tracking'
