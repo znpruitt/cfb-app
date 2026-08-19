@@ -116,30 +116,33 @@ The architecture map lives in `AGENTS.md` → **Architecture overview** and
 
 ## Preview branch
 
-**Push your preview branch with EVERY commit on a feature branch — not once at the end, and never
-after a merge.** Owner rule, 2026-08-17.
-
-**Two agents, two preview branches.** Claude owns `preview`; Codex owns `preview-codex`. Split made
-2026-08-18, when parallel worktrees (`cfb-app` and `cfb-app-codex`) made a single force-pushed
-`preview` unusable — it showed whichever agent committed last, changing under the owner mid-review
-with no indication of which branch was on screen. **Never push the branch that is not yours.** A
-force push there destroys the other agent's surface while the owner may be clicking through it.
-
-| Agent | Preview branch | URL |
-| --- | --- | --- |
-| Claude | `preview` | <https://cfb-app-preview.vercel.app> |
-| Codex | `preview-codex` | <https://cfb-app-git-preview-codex-zachary-pruitts-projects.vercel.app> |
+**Push `preview` with EVERY commit on a feature branch — not once at the end, and never after a
+merge.** Owner rule, 2026-08-17.
 
 ```bash
-git push origin HEAD                        # the branch
-git push origin HEAD:preview --force        # and YOUR preview branch, same breath
-# Codex substitutes preview-codex for preview on the second push.
+git push origin HEAD                 # the branch
+git push origin HEAD:preview --force # and preview, same breath
 ```
 
-**A preview branch only builds if the project allows it by name.** The Vercel project carries a
-dashboard-level Ignored Build Step that skips any ref outside an explicit allowlist, so pushing a
-new preview branch silently produces no deployment and a 404 alias — the push succeeds and nothing
-tells you the build was skipped. Adding a third preview branch means editing that setting first.
+**`preview` belongs to Claude alone.** Decided 2026-08-18, when parallel worktrees (`cfb-app` and
+`cfb-app-codex`) raised the question. Two agents force-pushing one branch would show whichever
+committed last, changing under the owner mid-review with no indication of which branch was on
+screen — so Codex does not push `preview`, or any preview branch, and verifies locally instead.
+Codex work reaches the owner as a branch to pull and run, not as a URL.
+
+That holds because Codex currently owns test-suite and internal work, which has no surface to click
+through. **If Codex takes a slice with a user-visible surface, this decision is due for review** —
+a deployed URL is how the owner has caught what reviews did not.
+
+**A preview branch only builds if the Vercel project allows it by name.** The project carries a
+dashboard-level Ignored Build Step that skips any ref outside an explicit allowlist (`main` and
+`preview`). Pushing any other preview branch silently produces no deployment and a 404 alias — the
+push succeeds and nothing reports that the build was skipped. Giving a second agent a preview branch
+means editing that setting first; the branch alone does nothing.
+
+**Two worktrees need two dev-server ports.** Both default to 3000, and killing a dev server can
+orphan the `next-server` child, which then serves stale code from that port. Fix a port per
+worktree (`cfb-app` on 3000, `cfb-app-codex` on 3010) so a local check never reads the other tree.
 
 `preview` exists so the owner can click through whatever the branch currently is, at any point. That
 only works if it tracks the branch continuously, so the two pushes go together — including for
@@ -156,5 +159,5 @@ writes scheduler receipts there. System Health on preview always reports schedul
 and provider data as stale — correct about its snapshot, and silent about production. Diagnose
 platform health on production only; `docs/deployment-runbook.md` §6c has the detail.
 
-Both preview branches are throwaway surfaces, so the force push is intentional. Never open a PR from
-a preview branch; never merge one into `main`. Do not push unreviewed work there.
+`preview` is a throwaway surface, so the force push is intentional. Never open a PR from `preview`;
+never merge `preview` into `main`. Do not push unreviewed work there.
