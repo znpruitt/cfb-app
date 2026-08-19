@@ -1628,12 +1628,13 @@ Supersedes: (none)
       "Loading rankings…" indefinitely. The gate PREDATES POLISH-005, which only rewrote the copy in
       the unreachable branch.
     - **Click BEHAVIOUR on the league surface is untestable in the current harness.** These tests
-      render statically, so no handler fires. Two consequences are pinned only by rendering, not by
-      effect: the admin rebuild forcing `bypassCache` (without it the button is a cache re-read that
-      cannot repair a cold cache — the useless-button problem, moved to the admin), and the
-      postseason override's save path — now CONFIRM-FIRST (the durable write must land before any
-      local state or `localStorage` changes), which is a sequencing property a static render cannot
-      observe at all. Mutating any of them survives. Closing this needs an interaction harness for
+      render statically, so no handler fires, so the admin rebuild forcing `bypassCache` is pinned
+      only by rendering (without it the button is a cache re-read that cannot repair a cold cache —
+      the useless-button problem, moved to the admin). Mutating it survives. The postseason
+      override's confirm-first sequencing, save serialization, and cache-failure isolation were
+      pulled OUT of the component into `createPostseasonOverrideSaver` for exactly this reason and
+      are now mutation-proven directly; what remains unpinned there is only the WIRING — that the
+      component hands the saver the right effects. Closing the rest needs an interaction harness for
       `CFBScheduleApp`, which is its own decision.
     - **The `isAdmin` gate on the postseason override is not exercised through its real caller.**
       `GameWeekPanel` tests pin the rendering contract (callback ⇒ button, and a positive control),
@@ -1680,6 +1681,24 @@ Supersedes: (none)
     Owner copy already settled, if it helps: "Preparing for kickoff" before kickoff, "Tracking
     scores" once underway. Do NOT reuse `isLiveGame` — that annotates one row, and a single stale row
     must not light the whole page.
+
+58. **A member's own team reads "Upcoming" while its game is being played** (POLISH-005 review,
+    2026-08-18; a PRODUCT decision, deliberately not guessed at).
+
+    `isLiveGame` is now score-only, on the reasoning in its docblock: schedule status is written by
+    the weekly cron and never rewritten by the live-scores engine, so it can only be equal to or
+    staler than the score feed. The consequence is that a game with no attached score is not live,
+    and `buildOwnerRosterRows` then falls through to `teamGames.find((g) => !isAttachedFinalGame(…))`
+    — which selects that same game and labels it `Upcoming` with a kickoff in the past.
+
+    Both alternatives are wrong, which is why this is queued rather than patched. `main`'s OR on
+    `game.status` showed a false "Live" for a WEEK after any schedule snapshot taken mid-slate; the
+    current form shows a false "Upcoming" for the minutes between kickoff and the first score
+    attachment, and for the whole game if attachment fails. The window is narrow and self-closing,
+    but a card that contradicts itself is worse than one that says nothing.
+
+    The likely answer is a third state for "kicked off, no score yet" rather than either existing
+    label, which is the same evidence problem as 57 and probably wants the same input.
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the

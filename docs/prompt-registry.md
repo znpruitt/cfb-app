@@ -6393,6 +6393,76 @@ corrected.
 
 STATUS: MERGED — PR #487, merge commit `0d28595b`, 2026-08-17.
 
+### POLISH-005-MEMBER-SURFACE-BOUNDARY-v1
+
+- Purpose: Remove operator and debug data-state UI from member-facing surfaces, so a member sees the
+  app rather than its plumbing. Owner framing, 2026-08-18: "I just want to cleanup the debug/data
+  state UI that users see across various surfaces… the system health dashboard should flag all of
+  this stuff — no need to expose users to the nitty gritty."
+- Scope: `CFBScheduleApp`, `GameWeekPanel`, `MatchupsWeekPanel`, `TrendsDetailSurface`,
+  `RankingsPageContent`, `gameUi`, `ownerView`, the matchups/gameWeek selectors, `presentationCopy`,
+  a new `postseasonOverrideSaver` module, focused tests, `DESIGN.md`, and the queue/registry entries.
+- **Removed from member surfaces:** the `Scores: n/total` and odds coverage counters, the third
+  matchups counter behind an alias, the "Data notes" block and its four-layer prop chain, raw
+  provider/issue strings, and the fatal-bootstrap detail (now generic, with the admin rebuild control
+  behind `isAdmin`). `DESIGN.md` carries the boundary as a rule so it is re-derivable.
+- **THE LIVE INDICATOR WAS BUILT AND CUT.** The owner also asked for "some kind of indicator that the
+  app is alive… especially when games are live." It failed FIVE distinct ways across four rounds —
+  stale `game.status`; a missing score read as live; a cached in-progress score outliving the feed; an
+  unbounded clock fallback that REGRESSED the second fix two commits later; and a successful
+  cache-only read of deliberately-served prior-good rows counted as fresh data. Cut at the owner's
+  direction; the slice became removal-only. Every failure mode, the settled owner copy, and the
+  `cache: 'hit'` vs `'stale'` signal a correct version needs are recorded in `docs/next-tasks.md` 57.
+  **The root cause is one sentence: the client has no evidence that provider data actually refreshed,
+  and every proxy for it can lie.**
+- **`isLiveGame` is score-only, and that is a decision not a simplification.** Schedule status is
+  written by the weekly `schedule-refresh` cron and never rewritten by the live-scores engine, which
+  polls every three minutes — so it can only ever be equal to or staler than the score feed. The old
+  OR short-circuited before consulting the score, so a snapshot taken mid-slate burned "Live" over a
+  board of finals for a week. The consequence is stated rather than hidden: a game with no attached
+  score is not live here, which leaves an owner card reading `Upcoming` between kickoff and the first
+  score attachment. Queued as 58 as a PRODUCT question — both available labels are wrong, and the
+  answer is probably a third state.
+- **The postseason override became confirm-first, and that fix carried two defects of its own** —
+  both reported independently by Codex and `/code-review`, twice. Overlapping saves erased each other
+  durably, because each payload was built from the render-closure map and the overrides route STORES
+  THE PAYLOAD WHOLESALE rather than merging; and a `localStorage` throw after a committed durable
+  write rejected the shared chain, alerting "nothing was changed" while the server held the edit and
+  skipping the schedule rebuild. Fixed by extracting `createPostseasonOverrideSaver`, which
+  serializes saves and builds each payload at SEND time from the last CONFIRMED map — so a failed
+  save still leaves the next payload based on what actually persisted.
+- **The extraction is the proof infrastructure, not a refactor for taste.** These paths live in a
+  client callback `renderWithAppContext` cannot reach: it renders with `renderToStaticMarkup`, so no
+  handler ever fires and every mutation survives. That harness gap is why both defects shipped past
+  every gate twice, and it is recorded as still-open in `docs/next-tasks.md` 56 for what remains
+  inside the component.
+- **Two comments asserted things that were false about the file**, both caught in the final review and
+  both deleted in the cleanup commit: an orphaned block describing the live indicator after it was
+  cut, and the restored "Loading schedule…" claiming to cover first paint while nested inside
+  `canRenderPrimarySurface` — a gate that needs `weeks.length > 0`, which is exactly what is absent
+  during that window. Moved above the gate, where the comment is now true. **Nine false claims in
+  comments and docs were caught across this slice.** That is the recurring defect of this branch, not
+  an incident.
+- Dead code removed once its consumers were gone: `FreshnessLabel`, `deriveMatchupsHeaderCopy`,
+  `deriveOddsAvailabilitySummary`, `deriveOddsSummaryCopy`, the gameWeek view model's
+  `scoresAvailableCount` / `oddsAvailableCount`, and `isLiveGame`'s unused first parameter.
+- **A HIGH finding: six unrelated regression tests were deleted** by an index-based slice whose end
+  anchor matched a comment far below its start. The guard asserted what the block CONTAINED, which
+  cannot detect over-deletion. Restored in `22df5b99`; the same class recurred in the cut commit and
+  was caught by `tsc`. Reinforces the standing rule that scripted edits assert occurrence counts.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, and `npm test` each run as their own command
+  with unmasked exit status, all clean. Full suite 4042 → 4046: +6 for the new saver tests, −2 for
+  `presentationCopy.test.ts` losing both tests for the deleted builder. Both saver guarantees are
+  mutation-proven — reverting the base selection fails only the composition test, removing the cache
+  `try`/`catch` fails only the isolation test — and one of those tests needed a microtask flush
+  before its positive control, without which it passed for the wrong reason.
+- **Process note, recorded because the owner named it.** Both reviewers were run every round and each
+  report was treated as a fresh work queue, so every fix generated findings on the fix and the slice
+  did not converge. The owner's words: "you're killing me here with running in circles with all these
+  reviews." The cleanup was landed with no further review by explicit agreement.
+
+STATUS: pending merge — branch `polish/005-member-surface-boundary`.
+
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
 
 - Purpose: [one sentence]
