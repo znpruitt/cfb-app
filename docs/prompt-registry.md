@@ -6677,6 +6677,38 @@ STATUS: MERGED — PR #493, merge commit `fc64391d`, 2026-08-18.
 
 STATUS: MERGED — PR #494, merge commit `cb2bd7f0`, 2026-08-19.
 
+### POLISH-008-POLL-MOVEMENT-COLUMN-v1
+
+- Purpose: Stop the FBS Polls tab claiming every ranked team was unranked a week ago. Owner,
+  2026-08-19, looking at preview: "do we need a 'Last' or a 'Last Week' or 'Previous' above the
+  right column?" — the header question surfaced a column that should not have been rendering.
+- Scope: `RankingsPageContent` and its tests. No selector, route, data-model or cache change.
+- **`NR` is a claim about the PREVIOUS poll, and preseason has none.** `deriveRankDeltas` treated
+  "no prior poll exists" and "this team was absent from the prior poll" as one case: `previous` was
+  empty, so `prevByTeam` was empty, so every team resolved to `new` and rendered `NR` — 25 times in
+  each of the AP and Coaches columns, asserting something untrue of all of them.
+- **The app already knew the difference and this surface disagreed with it.** `OverviewPanel` draws
+  the distinction explicitly, in a comment: "No previous week data at all → show — (not NR)". Two
+  surfaces answered one question differently; this was the wrong half.
+- Fix: `deriveRankDeltas` returns `null` when no prior poll exists, and `PollColumn` omits the
+  movement column entirely rather than filling it with placeholder dashes. `DESIGN.md`: "Redundant
+  columns should be hidden when they carry no information (e.g. MOVE column at season end)" — a
+  movement column with nothing to move from is that case, so replacing false `NR`s with em-dashes
+  would have left the column still carrying nothing.
+- **The column is labelled `vs last`, and only when shown.** Chosen over the owner's "Last" / "Last
+  Week" / "Previous" because the values are DELTAS (`↑2`, `—`, `NR`), not last week's rank — a
+  "Last Week" header would imply a rank number. Nothing is labelled in preseason because nothing is
+  rendered.
+- In-season behaviour is unchanged: movement renders against the prior poll, and a genuinely new
+  entrant is still `NR`.
+- Verification: `npx tsc --noEmit`, `npm run lint:all` and `npm test` each run as their own command
+  with unmasked exit status, all clean. Suite 4101 → 4103 (+2), both totals run. Each test carries a
+  positive control so its absence assertions cannot pass on an empty page, and both halves are
+  mutation-proven: removing the no-prior-poll guard fails the preseason test, and so does rendering
+  the label without the column.
+
+STATUS: pending merge — branch `polish/008-poll-movement-column`.
+
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
 
 - Purpose: [one sentence]
