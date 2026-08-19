@@ -124,9 +124,19 @@ function mergeWeekRankings(params: {
     coaches: [],
   };
 
+  // FIRST poll wins a source, and the claim is tracked separately from the row
+  // count so a poll that resolves to zero rows still holds its column. CFBD
+  // publishes one poll per source per week, so a second is a provider change
+  // rather than something to merge — and assigning unconditionally is how the
+  // `FCS Coaches Poll` silently REPLACED the FBS `Coaches Poll` for every week
+  // since 2014, leaving whichever of its schools happened to resolve against an
+  // FBS-only registry. Exact name matching closes that; this keeps it closed if
+  // the provider ever emits a duplicate name.
+  const claimed = new Set<RankSource>();
   for (const poll of week.polls ?? []) {
     const source = normalizePollSource(poll.poll);
-    if (!source) continue;
+    if (!source || claimed.has(source)) continue;
+    claimed.add(source);
     polls[source] = toCanonicalPollEntries(poll.ranks ?? [], source, resolver);
   }
 
