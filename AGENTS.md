@@ -246,8 +246,8 @@ When practical, verify key runtime flows still behave:
 
 1. **The full `npm test` suite is a valid verification gate; scoped suites are the fast path.**
    - The historical Overview-related full-suite hang was fixed under the `TEST-SUITE-BASELINE-CLEANUP` arc (`--test-timeout` + baseline cleanup + per-process app-state isolation), so `npm test` now runs deterministically to completion. Do not repeat the old "the full suite hangs / gives no signal" warning.
-   - For tightly-scoped changes, `npm run test:file -- <path...>` plus selector tests in `src/lib/selectors/__tests__/` is the quickest way to iterate; the subsystem scripts provide broader intermediate gates.
-   - Keep helpers used only by one domain beside that domain's suites. Put fixtures or harnesses imported across subsystem boundaries under `src/test/`; do not use another subsystem's `__tests__/` directory as a shared library.
+   - For tightly-scoped changes, `npm run test:file -- <path-or-glob...>` plus selector tests in `src/lib/selectors/__tests__/` is the quickest way to iterate; the subsystem scripts provide broader, intentionally overlapping intermediate slices rather than a partition of the full suite.
+   - Keep helpers used only by one domain beside that domain's suites. New or relocated fixtures and harnesses imported across subsystem boundaries belong under `src/test/`; do not create more cross-domain imports from another subsystem's `__tests__/` directory. Existing violations are tracked as cleanup debt in `docs/next-tasks.md` item 48.
    - Report the TEST DELTA and the risk each new test protects, not a raw suite total — see **Verification → Test accounting**. The historical "71-failure" full-suite baseline is obsolete; do not compare against it.
 
 2. **Visual references must exist at the path a prompt references.**

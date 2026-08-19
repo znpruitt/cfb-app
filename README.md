@@ -67,10 +67,12 @@ All commands are defined in [`package.json`](package.json):
 - `npm test` — full test suite (Node's built-in test runner via the `tsx`
   loader). Executable tests live under the nearest `__tests__/`; the full glob
   is deliberately broader so a misplaced test cannot silently disappear.
-- `npm run test:file -- <path...>` — run one or more exact test files with the
-  same isolation, TypeScript config, and timeout as the full suite.
+- `npm run test:file -- <path-or-glob...>` — run one or more exact test files or
+  globs with the same isolation, TypeScript config, and timeout as the full
+  suite. Exact App Router paths containing `[brackets]` are handled literally.
 - `npm run test:lib`, `npm run test:api`, and `npm run test:components` — focused
-  subsystem suites for local iteration.
+  subsystem slices for local iteration; they overlap with and do not partition
+  the full suite.
 - `npm run lint` — fast, scoped ESLint + Prettier + markdown lint for local
   iteration (skips test/data paths).
 - `npm run lint:all` — full-project lint (includes test files). **Run this

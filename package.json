@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "test": "npm run test:file -- 'src/**/*.test.ts' 'src/**/*.test.tsx'",
-    "test:file": "APP_STATE_TEST_ISOLATION=1 TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx --test --test-timeout=30000",
+    "test:file": "node scripts/run-tests.mjs",
     "test:lib": "npm run test:file -- 'src/lib/**/*.test.ts' 'src/lib/**/*.test.tsx'",
     "test:api": "npm run test:file -- 'src/app/api/**/*.test.ts' 'src/app/api/**/*.test.tsx'",
     "test:components": "npm run test:file -- 'src/components/**/*.test.ts' 'src/components/**/*.test.tsx'",

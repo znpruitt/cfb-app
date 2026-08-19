@@ -108,8 +108,9 @@ The binding rules now live in `AGENTS.md` → **Lifecycle Authority Invariants**
 - ✅ **CLOSED by PLATFORM-103 — test-convention drift.** F2D removed the drifted co-located
   Team Database duplicate; PLATFORM-103 relocated the four remaining route suites under their
   nearest `__tests__/` directories without weakening their assertions. The canonical test command
-  now discovers every `src/**/*.test.ts[x]` file, while a layout guard rejects any future test left
-  outside `__tests__/`, so convention drift cannot make a suite silently disappear again.
+  now discovers every executable test below `src/`, including a misplaced one; the separate layout
+  guard then rejects any such file outside `__tests__/`. The canonical suite and convention are both
+  scoped to `src/` — tests elsewhere in the repository are not covered by this guarantee.
 
 ## Target information architecture
 

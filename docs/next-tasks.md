@@ -1468,8 +1468,11 @@ Supersedes: (none)
     the public flag has no remaining reason to exist and deletion is the smaller change. Sequence
     accordingly rather than bolting an admin check onto a route that may not keep the flag.
 
-48. **Resolved maintenance slot.** The clock-boundary flake was removed by PLATFORM-103; this line
-    remains only to preserve the stable numbering referenced by later items.
+48. **Cross-domain test-fixture boundaries** (non-blocking cleanup): existing suites import shared
+    scheduler, game-stats, system-health, and request-context helpers from other subsystems'
+    `__tests__/` directories. Move only genuinely cross-domain helpers to `src/test/`, keeping
+    domain-private fixtures beside their suites; do not mix that broader import migration into
+    PLATFORM-103's discovery correction. New cross-domain helpers already follow this rule.
 49. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
@@ -2992,6 +2995,5 @@ record under Active priorities above).
 
 ## Non-blocking maintenance
 
-- Revisit TypeScript import/test-runner cleanup separately from active campaign work.
 - Keep optional decomposition of `CFBScheduleApp.tsx` and `scoreAttachment.ts` as non-blocking
   technical debt unless explicitly scheduled.
