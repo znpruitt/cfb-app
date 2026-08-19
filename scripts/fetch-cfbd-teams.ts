@@ -9,6 +9,8 @@ import path from 'node:path';
 import process from 'node:process';
 import dotenv from 'dotenv';
 
+import { parseSeasonArg } from '../src/lib/cli/seasonArg.ts';
+
 // Load .env.local explicitly (fallback .env)
 const root = process.cwd();
 const envLocal = path.join(root, '.env.local');
@@ -56,11 +58,17 @@ type CatalogItem = {
  * Defaulting to `new Date().getFullYear()` is NOT equivalent — in the Jan-July
  * offseason that names a season CFBD has no roster for yet.
  */
-const yearArg = (() => {
-  const i = process.argv.indexOf('--year');
-  if (i >= 0 && process.argv[i + 1]) return Number.parseInt(process.argv[i + 1]!, 10);
-  return null;
+const season = (() => {
+  const parsed = parseSeasonArg(process.argv);
+  if (parsed.kind === 'invalid') {
+    console.error(`✗ fetch-cfbd-teams: ${parsed.message}`);
+    process.exit(1);
+  }
+  return parsed;
 })();
+
+/** The pinned season, or `null` when the fetch takes CFBD's current one. */
+const yearArg = season.kind === 'pinned' ? season.year : null;
 
 /** Lightweight normalizers & alias builders **/
 const stripDiacritics = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -229,11 +237,25 @@ async function main(): Promise<void> {
 
   const outFile = path.join(outDir, 'teams.json');
 
-  const payload = { year: yearArg ?? new Date().getFullYear(), items };
+  // Record a season ONLY when one was explicitly pinned. An unpinned fetch omits
+  // the year parameter, so CFBD chooses the season and never reports which one it
+  // chose — no row in the response carries a season. Stamping
+  // `new Date().getFullYear()` here would assert a season nobody verified: in the
+  // Jan-July offseason it names the season AFTER the roster actually served, and a
+  // silently-wrong season label is the exact drift this file exists to repair.
+  // `fetchedAt` records what we DO know, and is the staleness signal the year
+  // field was wrongly standing in for.
+  const payload = {
+    ...(yearArg !== null ? { year: yearArg } : {}),
+    fetchedAt: new Date().toISOString(),
+    items,
+  };
   fs.writeFileSync(outFile, JSON.stringify(payload, null, 2), 'utf8');
 
   console.log(
-    `✓ Saved ${items.length} teams with aliases to:\n  - ${path.relative(root, outFile)}`
+    `✓ Saved ${items.length} teams (${
+      yearArg !== null ? `pinned season ${yearArg}` : "CFBD's current season"
+    }) with aliases to:\n  - ${path.relative(root, outFile)}`
   );
   // `JSON.stringify(…, 2)` is not Prettier's JSON style, and `src/data` IS covered
   // by `lint:all:format` — so regenerating without reformatting fails the pre-merge
