@@ -125,10 +125,10 @@ git push origin HEAD                 # the branch
 git push origin HEAD:preview --force # and preview, same breath
 ```
 
-**`preview` is Claude's alone — Codex does not push it, and verifies locally instead.** The rule,
-its rationale, and the Vercel Ignored Build Step allowlist that makes a second preview branch a
-no-op live in `AGENTS.md` → **Preview branch**, which is the file Codex reads. Do not restate the
-rule here; a duplicate is how these two files drifted apart in the first place.
+Who pushes `preview`, on what cadence, and what a docs-only push does and does not redeploy are
+stated in `AGENTS.md` → **Preview branch**, which is the file Codex reads and the file binding rules
+belong in. `docs/deployment-runbook.md` §6d is canonical for the build gate itself. Do not restate
+either here; the duplicate is how these files drifted apart in the first place.
 
 `preview` exists so the owner can click through whatever the branch currently is, at any point. That
 only works if it tracks the branch continuously, so the two pushes go together — including for

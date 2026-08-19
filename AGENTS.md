@@ -478,7 +478,7 @@ These rules apply from PLATFORM-086F2B onward and must not be violated:
 
 ## Preview branch
 
-**`preview` belongs to Claude alone.** Claude pushes it with EVERY commit on a feature branch — not once at the end of a session, and never after a merge (owner rule, 2026-08-17). The two pushes go together, including for docs-only and closeout commits:
+**`preview` belongs to Claude alone.** Claude pushes it with EVERY commit on a feature branch — not once at the end of a session, and never after a merge (owner rule, 2026-08-17). The two pushes go together, docs-only and closeout commits included:
 
 ```bash
 git push origin HEAD                 # the branch
@@ -487,7 +487,9 @@ git push origin HEAD:preview --force # and preview, same breath
 
 **Codex does not push `preview`, or any other preview branch.** Decided 2026-08-18, when parallel worktrees (`cfb-app` and `cfb-app-codex`) made a single force-pushed branch ambiguous: it shows whichever agent committed last, changing under the owner mid-review with no indication of which branch is on screen. Codex verifies locally instead, and its work reaches the owner as a branch to pull and run rather than as a URL. Run the Codex worktree's dev server on port 3010 — both worktrees default to 3000, and killing a dev server can orphan the `next-server` child, which then serves stale code from that port. **This decision is due for review if Codex takes a slice with a user-visible surface**; a deployed URL is how the owner has caught defects that reviews did not.
 
-Standing up a second preview branch is not a self-serve workaround. The Vercel project gates preview builds through a dashboard-level Ignored Build Step that allowlists refs by name (`main` and `preview` only), so pushing any other preview branch silently produces no deployment and a 404 alias — the push succeeds and nothing reports that the build was skipped. The project setting has to be changed first; creating the branch alone does nothing.
+**A docs-only push advances the ref without redeploying, and nothing says so.** `vercel.json`'s `ignoreCommand` skips the build for any commit touching only `^docs/` or `*.md` — see `docs/deployment-runbook.md` §6d, which is canonical for the gate. So for a closeout commit the push above succeeds, no build runs, and the preview URL keeps serving the previous deployment. Push both anyway: the rule is one habit rather than a judgement call about which commits count, and the ref staying current is what makes the next code commit deploy the right tree. Just do not read a green push as a redeployed surface. A skipped build shows in the Vercel dashboard as `Canceled` after a few seconds, with no alias assigned.
+
+The project ALSO carries a dashboard-level Ignored Build Step that allowlists refs by name (`main` and `preview`), but `vercel.json` overrides it, so that field is not the gate in force — do not reason from it. A second preview branch would therefore build like any other; what it would lack is a stable alias, which is a project-settings change and not something a branch alone provides.
 
 This keeps the `preview` branch current for UI validation on a stable Vercel URL. The `--force` flag is intentional — `preview` is a throwaway testing surface that always reflects the latest work in progress. Never open a PR from `preview`. Never merge `preview` into `main`. Do not push unreviewed work there.
 
