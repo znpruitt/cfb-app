@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import FeedbackForm from './FeedbackForm';
-import FreshnessLabel from './FreshnessLabel';
 import GameWeekPanel from './GameWeekPanel';
 import AppHeaderActions from './menu/AppHeaderActions';
 import MatchupMatrixView from './MatchupMatrixView';
@@ -21,7 +20,6 @@ import type { StandingsSubview } from './StandingsPanel';
 import { parseOwnersCsv, type OwnerRow } from '../lib/parseOwnersCsv';
 import { type CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
-import { deriveLiveTrackingState, type LiveTrackingState } from '../lib/liveScores/browserPolling';
 import { type ScorePack } from '../lib/scores';
 import type { AliasMap } from '../lib/teamNames';
 import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
@@ -236,37 +234,6 @@ export function resolveHighlightDrilldownNavigation(params: {
     focusedOwner: null,
     focusedOwnerPair: target.kind === 'owner_pair' ? target.owners : null,
   };
-}
-
-/**
- * POLISH-005 — the league surface shows members ONE thing about data state: that
- * scores are moving while games are being played.
- *
- * It previously rendered coverage counters ("Scores available for 98/100
- * games."), an odds availability summary, freshness stamps and a degraded-data
- * warning, in every lifecycle. In preseason that answers a question nobody asked
- * — no game is in progress, so there is nothing to be fresh about, and a member
- * reading "Scores updated Jun 25" in August learns only that something is odd.
- *
- * Every condition those controls reported is already carried by System Health
- * (`scores-terminal-coverage-missing`/`-partial`, `schedule-cache-*`,
- * `rankings-cache-*`), so removing them loses no operational signal — it removes
- * a SECOND, worse-worded copy of it aimed at the wrong audience.
- *
- * The section therefore renders only while a game is actually live. Owner
- * ruling, 2026-08-18: "show some kind of indicator that the app is alive to the
- * user, especially when games are live and users want to see score updates."
- */
-export function shouldRenderLiveStatusSection(input: {
-  trackingState: LiveTrackingState | null;
-}): boolean {
-  // ONLY a live game. `loadingLive` was included on the reasoning that an
-  // in-flight poll is evidence the app is working — but it is not live-scoped:
-  // `getBootstrapScoreHydrationGames` returns EVERY canonical game with no
-  // kickoff window, so an ordinary schedule bootstrap sets it. That lit a
-  // pulsing "Live" badge, and a scores freshness stamp, on a preseason page —
-  // the exact defect this slice exists to remove, reintroduced by its own fix.
-  return input.trackingState !== null;
 }
 
 export default function CFBScheduleApp({
@@ -1258,29 +1225,6 @@ export default function CFBScheduleApp({
   // ("Scores available for 98/100 games.") were operator metrics and are carried
   // by System Health; this is the one signal that belongs on a league page,
   // because a member watching a slate wants to know the app is still updating.
-  // Derived from the POLLER'S arming rule over the whole loaded schedule — not
-  // `visibleGames`, which is the selected/filtered week and would suppress the
-  // signal while Overview renders a live game from a different scope.
-  //
-  // `liveStaleClock` ticks every 60s once the schedule loads, so the state
-  // re-evaluates as the clock moves and the arming window closes on its own.
-  // While it is `0` the derivation falls back to real wall-clock time — that is
-  // NOT deterministic; SSR is stable here only because no page passes
-  // `initialGames`, so `games` is empty on the server.
-  const trackingState = useMemo(
-    () =>
-      deriveLiveTrackingState({
-        games,
-        scoresByKey,
-        season: selectedSeason,
-        // The "poller is being acted upon" signal: client time of the last CLEAN
-        // poll. A failed or partial poll leaves it alone, so it ages toward
-        // stale on its own and the claim retires itself.
-        scoresObservedAt,
-        now: liveStaleClock ? new Date(liveStaleClock) : undefined,
-      }),
-    [games, liveStaleClock, scoresByKey, scoresObservedAt, selectedSeason]
-  );
 
   return (
     <div className="space-y-5 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
@@ -1701,35 +1645,6 @@ export default function CFBScheduleApp({
             // on liveness.
             <section className="text-xs text-gray-500 dark:text-zinc-400">
               Loading schedule&hellip;
-            </section>
-          ) : null}
-          {shouldRenderLiveStatusSection({ trackingState }) ? (
-            <section className="flex flex-wrap items-center gap-1.5 text-xs">
-              <span
-                aria-hidden="true"
-                className={`inline-block h-1.5 w-1.5 rounded-full ${
-                  trackingState === 'tracking' ? 'bg-emerald-500' : 'bg-gray-400 dark:bg-zinc-500'
-                } ${loadingLive ? 'animate-pulse' : ''}`}
-              />
-              <span className="font-medium text-emerald-700 dark:text-emerald-300">
-                {trackingState === 'preparing' ? 'Preparing for kickoff' : 'Tracking scores'}
-              </span>
-              {trackingState === 'tracking' && scoresObservedAt ? (
-                <>
-                  <span aria-hidden="true" className="text-gray-400 dark:text-zinc-600">
-                    ·
-                  </span>
-                  {/* `scoresObservedAt`, not `scoresSnapshotAt`: the sentence
-                      claims we are OBSERVING, and the durable snapshot does not
-                      advance during a halftime or a scoreless stretch — it would
-                      read "updated 47m ago" beside "Tracking scores". */}
-                  <FreshnessLabel
-                    timestamp={scoresObservedAt}
-                    label="scores"
-                    className="self-center"
-                  />
-                </>
-              ) : null}
             </section>
           ) : null}
 

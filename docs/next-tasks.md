@@ -1647,6 +1647,40 @@ Supersedes: (none)
       read "updated 47m ago" beside a live badge). Both setters, their call sites, and the hook
       params that thread them should go together.
 
+57. **A live "scores are updating" indicator, built on evidence of an actual refresh** (owner wants
+    it — 2026-08-18: "show some kind of indicator that the app is alive to the user, especially when
+    games are live"; BUILT AND CUT from POLISH-005 after failing five ways).
+
+    Every input the client currently has can claim live coverage falsely. All five were reached by
+    review or by execution, not by reasoning:
+
+    1. **`game.status`** — written by the WEEKLY `schedule-refresh` cron and never rewritten by the
+       live-scores engine, so a schedule snapshotted mid-slate keeps rows marked `in_progress` and
+       the badge burns for hours over a board of finals.
+    2. **A missing score treated as "not final"** — absence of data read as evidence of play, so an
+       empty cache lit every game that had kicked off.
+    3. **A cached in-progress score** — score packs do not expire, so once a game reported `Q3` the
+       claim persisted for the whole 24-hour arming window after the feed died.
+    4. **An unbounded clock fallback** — added to close the few-minute gap between kickoff and the
+       first score, it reinstated (2) at 24-hour scale. A REGRESSION of a fix made two commits
+       earlier; the fallback must be bounded to the gap it exists for.
+    5. **A successful score read** — `scoresObservedAt` advances on a CLEAN read, and a cache-only
+       read succeeds against the prior-good rows the API deliberately serves when CFBD fails
+       (AGENTS.md, API-first). "A read succeeded" is not "fresh data arrived".
+
+    Also unresolved when it was cut: a `Delayed`/disrupted game stays armed and passed a clock check,
+    so it read as underway while not in progress.
+
+    **What a correct version needs:** evidence that provider data actually CHANGED or was refreshed.
+    `/api/scores` already distinguishes `cache: 'hit'` from `cache: 'stale'` in its response meta —
+    that distinction is not threaded through `useLiveRefresh` to the component, and doing so is the
+    real work. Pair it with the poller's own arming rule (`selectLiveScorePollGames`, a kickoff
+    window that self-expires) rather than with any game-status field.
+
+    Owner copy already settled, if it helps: "Preparing for kickoff" before kickoff, "Tracking
+    scores" once underway. Do NOT reuse `isLiveGame` — that annotates one row, and a single stale row
+    must not light the whole page.
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.

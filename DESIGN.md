@@ -37,10 +37,15 @@ see the machinery.
 - **Messages state impact and a safe next step**, in that order, and stop. "This league's schedule
   isn't available right now. Please check back shortly." — not what failed, where, or how to repair
   it.
-- **One data-state signal is allowed, and only when it is live.** While a game is in progress the
-  league surface may show that scores are updating and how recently. Outside a live slate it shows
-  nothing: in preseason there is no game to be fresh about, and a stale timestamp there teaches a
-  member only that something is odd.
+- **No data-state signal ships today, and adding one needs evidence of an actual refresh.** A
+  "scores are updating right now" badge is wanted (owner, 2026-08-18) and was built and then CUT,
+  because every available client-side input can claim it falsely: schedule status is written weekly
+  and goes stale mid-slate; a missing score is absence of data, not evidence of play; a cached
+  in-progress score never expires; a clock fallback is unbounded; and a successful score read is
+  satisfied by the prior-good cache the API deliberately serves during a provider outage. Anything
+  built here must consume evidence that provider data actually CHANGED — the scores response already
+  distinguishes `cache: 'hit'` from `'stale'`, and that is not threaded to the client. Until it is,
+  the league surface says nothing about data state. See `docs/next-tasks.md` 57.
 
 Internal issue strings are still produced and available to the app; this boundary governs what
 reaches member JSX. Note what that does NOT currently mean: for the rankings and schedule failures

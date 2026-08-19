@@ -39,10 +39,10 @@ export function formatGameMatchupLabel(
  * Absence of data is not evidence of play, and callers that then read
  * `scoresByKey[game.key]` are now guaranteed a score when this returns true.
  *
- * The league surface asks a related but DIFFERENT question — "is the poller
- * delivering right now" — and answers it with `deriveLiveTrackingState`. Do not
- * merge the two: one annotates a row, the other makes a claim about the whole
- * page, and a single stale row must not light the page.
+ * Scope: this annotates ONE ROW. It is not a basis for any page-wide "we are
+ * live" claim — a single stale or missing row would light the whole surface, and
+ * answering that question needs evidence that provider data actually refreshed,
+ * which the client does not currently receive. See `docs/next-tasks.md` 57.
  */
 export function isLiveGame(_game: { status?: string }, score?: ScorePack): boolean {
   return gameStateFromScore(score) === 'inprogress';

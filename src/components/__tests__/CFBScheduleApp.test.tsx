@@ -7,7 +7,6 @@ import CFBScheduleApp, {
   clearDrilldownFocusState,
   deriveWeeklyMatchupsDrilldownState,
   resolveHighlightDrilldownNavigation,
-  shouldRenderLiveStatusSection,
 } from '../CFBScheduleApp';
 import { scrollFocusedGameIntoView } from '../GameWeekPanel';
 import { scrollFocusedOwnerPairIntoView } from '../MatchupMatrixView';
@@ -677,29 +676,12 @@ test('other preseason surfaces keep the roster grid the members fix excludes', (
   assert.match(html, /2026 Rosters/);
 });
 
-// ---------------------------------------------------------------------------
-// POLISH-005 — the live-status section is a MEMBER signal, not an operator one.
-//
-// It used to mount for any of: partial score coverage, an odds availability
-// summary, a freshness snapshot, or a live issue — in every lifecycle. On a
-// preseason Overview that produced "Scores available for 98/100 games.",
-// "Scores updated Jun 25" and "Some live data could not be updated." above a
-// table where nobody had played. Every one of those conditions is already
-// reported by System Health; the member-facing copies were a second, worse
-// -worded audience for operator data.
-//
-// It now mounts only when a game is actually live (or a live poll is in
-// flight), which is the one moment a member benefits from knowing the app is
-// still updating.
-// ---------------------------------------------------------------------------
-
-test('POLISH-005: the live-status section renders exactly when a state exists', () => {
-  // The section is a thin wrapper now; the real contract is
-  // `deriveLiveTrackingState`, pinned in `browserPolling.test.ts`.
-  assert.equal(shouldRenderLiveStatusSection({ trackingState: null }), false);
-  assert.equal(shouldRenderLiveStatusSection({ trackingState: 'preparing' }), true);
-  assert.equal(shouldRenderLiveStatusSection({ trackingState: 'tracking' }), true);
-});
+// The live indicator was CUT from POLISH-005 (2026-08-18). It claimed live
+// coverage falsely five different ways across four rounds — stale schedule
+// status, a missing score, a cached in-progress score, a missing score again via
+// an unbounded clock, and a successful read of deliberately-stale prior-good
+// cache. The signals it needs are real but not yet threaded to the client; see
+// `docs/next-tasks.md` 57. What remains of POLISH-005 is removal only.
 
 // The counters ("Scores available for 98/100 games.", the odds availability
 // summary) were DELETED, and the live-status section they lived in only mounts
