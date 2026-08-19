@@ -175,8 +175,18 @@ export default function RankingsPageContent({
           Loading rankings…
         </section>
       ) : error ? (
-        <section className="rounded-xl border border-red-200 bg-red-50/80 p-4 text-sm text-red-800 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-200">
-          Rankings could not be loaded: {error}
+        // POLISH-005 — the upstream failure text is an operator artefact: it can
+        // carry provider names, status codes and URLs, and a member can act on
+        // none of it. System Health carries the same condition as
+        // `rankings-cache-missing`/`-stale`, which is the operator's channel.
+        //
+        // An earlier version of this comment claimed the string was "still
+        // received and logged". It is NOT: the producing catch in
+        // `CFBScheduleApp` only calls `setIssues` — no console, no telemetry, no
+        // server hop. It is received and dropped. Stating an unverified
+        // behaviour in a comment is exactly what AGENTS.md forbids.
+        <section className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-300">
+          Rankings aren&rsquo;t available right now.
         </section>
       ) : weeks.length === 0 ? (
         <section className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 text-sm text-gray-600 dark:border-zinc-700 dark:bg-zinc-900/60 dark:text-zinc-300">

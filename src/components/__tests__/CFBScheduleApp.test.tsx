@@ -7,7 +7,6 @@ import CFBScheduleApp, {
   clearDrilldownFocusState,
   deriveWeeklyMatchupsDrilldownState,
   resolveHighlightDrilldownNavigation,
-  shouldRenderLiveStatusSection,
 } from '../CFBScheduleApp';
 import { scrollFocusedGameIntoView } from '../GameWeekPanel';
 import { scrollFocusedOwnerPairIntoView } from '../MatchupMatrixView';
@@ -104,10 +103,21 @@ test('league surface shows compact fatal fallback for schedule bootstrap failure
     <CFBScheduleApp initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']} />
   );
 
-  assert.match(html, /League view unavailable/);
-  assert.match(html, /CFBD schedule load failed: upstream CFBD returned 503/);
-  assert.match(html, /Rebuild schedule/);
-  assert.match(html, /Open Data Management/);
+  // POLISH-005 — a member sees IMPACT, not diagnosis. The fixture feeds a raw
+  // upstream failure; none of it may reach the page.
+  assert.match(html, /schedule isn.{0,8}t available right now/);
+  assert.doesNotMatch(html, /CFBD/, 'no provider name');
+  assert.doesNotMatch(html, /503/, 'no upstream status code');
+  assert.doesNotMatch(html, /schedule load failed/, 'no raw issue string');
+  assert.doesNotMatch(html, /Rebuild schedule/, 'a MEMBER gets no operator action');
+  assert.doesNotMatch(html, /Open Data Management/, 'no admin link');
+  // NO retry, and the fixture is why the reasoning took three attempts to get
+  // right. `CFBD schedule load failed:` IS a transient fetch error — but
+  // `loadScheduleFromApi` flattens every rejection into that one prefix,
+  // including the public routes' 503 cold-cache responses that require an
+  // operator refresh. A classifier over the string cannot tell them apart, so
+  // the retry waits until the loader carries structured errors.
+  assert.doesNotMatch(html, /Try again/, 'the error string cannot say whether a retry could work');
   assert.doesNotMatch(html, /Commissioner tools and diagnostics/);
 });
 
@@ -152,7 +162,8 @@ test('owner surface remains reachable with owner data even when no week is selec
   assert.match(html, /Alice/);
   assert.match(html, /the currently selected week slate/);
   assert.match(html, /No teams from this selection are attached to the selected week\./);
-  assert.match(html, /League view unavailable/);
+  // POLISH-005 — the fatal fallback is now member copy, not an operator console.
+  assert.match(html, /schedule isn.{0,8}t available right now/);
 });
 
 test('owner surface wires liveDelta to OwnerPanel; no live badge without in-progress scores (PLATFORM-046)', () => {
@@ -533,81 +544,6 @@ test('standings drill-down focus helper scrolls focused owner row', () => {
 // normal clean state, gated by `oddsSnapshotAt` in the section predicate.
 // ---------------------------------------------------------------------------
 
-const cleanLiveStatusInput = {
-  loadingSchedule: false,
-  scheduleLoaded: true,
-  loadingLive: false,
-  visibleGames: 5,
-  visibleScoresCount: 5, // scores complete
-  oddsAvailabilitySummary: null, // every game has odds
-  oddsSnapshotAt: null,
-  scoresSnapshotAt: null,
-  userFacingLiveIssuesCount: 0, // no issues
-};
-
-test('live-status section renders in the clean state when an odds snapshot exists (finding #5)', () => {
-  // The clean state: complete scores, full odds coverage, no issues. Before the
-  // fix nothing here mounts the section, so the freshness label never shows.
-  assert.equal(
-    shouldRenderLiveStatusSection({ ...cleanLiveStatusInput, oddsSnapshotAt: null }),
-    false,
-    'nothing to show when there is no odds snapshot and the surface is otherwise clean'
-  );
-  assert.equal(
-    shouldRenderLiveStatusSection({
-      ...cleanLiveStatusInput,
-      oddsSnapshotAt: '2026-10-15T12:00:00.000Z',
-    }),
-    true,
-    'a valid odds snapshot alone mounts the section so the freshness label shows'
-  );
-  // Same reasoning for the scores freshness label (PLATFORM-086B2B).
-  assert.equal(
-    shouldRenderLiveStatusSection({
-      ...cleanLiveStatusInput,
-      scoresSnapshotAt: '2026-10-15T12:00:00.000Z',
-    }),
-    true,
-    'a valid scores snapshot alone mounts the section so the scores freshness label shows'
-  );
-});
-
-test('live-status section still renders for the other live signals (finding #5 regression)', () => {
-  // A warning alongside the label.
-  assert.equal(
-    shouldRenderLiveStatusSection({
-      ...cleanLiveStatusInput,
-      oddsSnapshotAt: '2026-10-15T12:00:00.000Z',
-      userFacingLiveIssuesCount: 1,
-    }),
-    true
-  );
-  // Partial scores.
-  assert.equal(
-    shouldRenderLiveStatusSection({ ...cleanLiveStatusInput, visibleScoresCount: 3 }),
-    true
-  );
-  // Odds availability summary present.
-  assert.equal(
-    shouldRenderLiveStatusSection({
-      ...cleanLiveStatusInput,
-      oddsAvailabilitySummary: 'Odds available for 3/5 games.',
-    }),
-    true
-  );
-  // Loading states.
-  assert.equal(
-    shouldRenderLiveStatusSection({
-      ...cleanLiveStatusInput,
-      loadingSchedule: true,
-      scheduleLoaded: false,
-    }),
-    true
-  );
-  assert.equal(shouldRenderLiveStatusSection({ ...cleanLiveStatusInput, loadingLive: true }), true);
-});
-
-// ---------------------------------------------------------------------------
 // PRESEASON-STATUS-BANNER-TRUTHFULNESS — the banner is rendered from
 // `selectPreseasonBannerState`, so the claim ledger lives in that module's
 // tests. These render tests prove the WIRING: that the canonical snapshot's
@@ -738,4 +674,88 @@ test('other preseason surfaces keep the roster grid the members fix excludes', (
   );
 
   assert.match(html, /2026 Rosters/);
+});
+
+// The live indicator was CUT from POLISH-005 (2026-08-18). It claimed live
+// coverage falsely five different ways across four rounds — stale schedule
+// status, a missing score, a cached in-progress score, a missing score again via
+// an unbounded clock, and a successful read of deliberately-stale prior-good
+// cache. The signals it needs are real but not yet threaded to the client; see
+// `docs/next-tasks.md` 57. What remains of POLISH-005 is removal only.
+
+// The counters ("Scores available for 98/100 games.", the odds availability
+// summary) were DELETED, and the live-status section they lived in only mounts
+// when `visibleGames` is non-empty — which needs a selected week, set by
+// post-load effects a static render never runs. So no fixture in this file can
+// make them appear, and a `doesNotMatch` on them would pass whether or not the
+// code came back. The real contract is the predicate above (silent unless live),
+// which IS reachable and mutation-proven. Mutation-found: an earlier version of
+// this test passed with the counter re-introduced verbatim.
+
+test('POLISH-005: internal issue strings never reach a member surface', () => {
+  // The fixture feeds raw internal strings of exactly the shapes the app
+  // produces. None may render.
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      initialIssues={[
+        'CFBD schedule load failed: upstream CFBD returned 503',
+        'invalid-schedule-row: week 4 row 12',
+        'identity-unresolved: Directional State',
+        'Odds fetch failed: unable to load current odds.',
+      ]}
+    />
+  );
+  // NOTE: "Data notes" is not asserted here. Its input path — the
+  // `issues -> standingsIssues -> trendIssues -> TrendsDetailSurface.issues`
+  // prop chain — was DELETED, so no fixture can make it render and a
+  // `doesNotMatch` on it would be decorative. Its enforcement is the compiler:
+  // the prop no longer exists.
+  assert.doesNotMatch(html, /invalid-schedule-row/, 'no raw issue string');
+  assert.doesNotMatch(html, /identity-unresolved/, 'no raw issue string');
+  assert.doesNotMatch(html, /CFBD/, 'no provider name');
+});
+
+// The postseason override's admin gating is pinned in `GameWeekPanel.test.tsx`,
+// where the button actually renders. A CFBScheduleApp-level `doesNotMatch` was
+// VACUOUS: the control only appears on an `isPlaceholder` postseason card, and
+// there is no prop to select the postseason tab in a static render, so the
+// button never rendered whether or not the gate existed. Mutation-found —
+// handing the callback back to members unconditionally left it green.
+
+test('POLISH-005: an ADMIN keeps the rebuild path on a fatal schedule failure', () => {
+  // The rebuild forces `bypassCache`, which `/api/schedule` refuses only when
+  // the admin check FAILS — so for an admin it succeeds. An earlier version of
+  // this slice removed it on the rationale that "both were server-refused
+  // anyway", which is true for a member and false for an admin, and left the one
+  // person who could repair a broken league page with nothing to click.
+  const admin = renderWithAppContext(
+    <CFBScheduleApp
+      isAdmin
+      initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']}
+    />
+  );
+  assert.match(admin, /Rebuild schedule/, 'the operator keeps their repair path');
+  // The MEMBER copy is unchanged for them — an affordance, not a console.
+  assert.match(admin, /schedule isn.{0,8}t available right now/);
+  assert.doesNotMatch(admin, /CFBD/, 'still no provider name, even for an admin');
+  assert.doesNotMatch(admin, /schedule load failed/, 'still no raw issue string');
+
+  // Control: the identical failure without `isAdmin` offers nothing to click,
+  // so the assertion above is the gate and not an inert fixture.
+  const member = renderWithAppContext(
+    <CFBScheduleApp initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']} />
+  );
+  assert.doesNotMatch(member, /Rebuild schedule/);
+});
+
+test('POLISH-005: no admin-only affordance is offered to a member', () => {
+  // Both are refused server-side, so rendering them only produced buttons that
+  // always fail: `/api/schedule` rejects `bypassCache` without admin, and
+  // `/api/postseason-overrides` requires admin on write.
+  const html = renderWithAppContext(
+    <CFBScheduleApp initialIssues={['CFBD schedule load failed: upstream CFBD returned 503']} />
+  );
+  assert.doesNotMatch(html, /Rebuild schedule/);
+  assert.doesNotMatch(html, /Open Data Management/);
+  assert.doesNotMatch(html, /\/admin\//, 'no admin deep link');
 });

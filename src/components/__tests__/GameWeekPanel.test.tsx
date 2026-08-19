@@ -1734,3 +1734,65 @@ test('missing presentation enrichment preserves the existing card output', () =>
   assert.doesNotMatch(html, /Radio ·/);
   assert.doesNotMatch(html, /Time TBD/);
 });
+
+// ---------------------------------------------------------------------------
+// POLISH-005 — the postseason label override is an ADMIN authoring control.
+//
+// It is server-guarded already (`/api/postseason-overrides` requires admin on
+// write), so rendering it to a member produced a button that always failed —
+// and worse, the client writes the label to `localStorage` optimistically
+// first, leaving that member a postseason label nobody else can see, persisted
+// across reloads.
+//
+// `CFBScheduleApp` decides by passing the callback only when `isAdmin`. This
+// pins the RENDERING half, which is what a member actually encounters.
+// ---------------------------------------------------------------------------
+
+function placeholderBowl() {
+  return game({
+    key: 'placeholder-bowl',
+    stage: 'bowl',
+    postseasonRole: 'bowl',
+    isPlaceholder: true,
+    label: 'Placeholder Bowl',
+    date: null,
+    csvAway: 'Team TBD',
+    csvHome: 'Team TBD',
+  });
+}
+
+test('POLISH-005: no override control without the callback (the member case)', () => {
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[placeholderBowl()]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="Pacific/Honolulu"
+    />
+  );
+  assert.ok(html.includes('Placeholder Bowl'), 'the placeholder card must render');
+  assert.doesNotMatch(html, /Save label override/, 'members never author overrides');
+});
+
+test('POLISH-005: the control appears WITH the callback (the admin case)', () => {
+  // The positive control. Without it the assertion above would pass against a
+  // card that simply never offers the button, proving nothing about gating.
+  const html = renderToStaticMarkup(
+    <GameWeekPanel
+      games={[placeholderBowl()]}
+      byes={[]}
+      oddsByKey={{}}
+      scoresByKey={{}}
+      rosterByTeam={new Map()}
+      isDebug={false}
+      hideByes={true}
+      displayTimeZone="Pacific/Honolulu"
+      onSavePostseasonOverride={() => {}}
+    />
+  );
+  assert.match(html, /Save label override/, 'an admin still gets the authoring control');
+});

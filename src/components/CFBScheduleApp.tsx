@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import FeedbackForm from './FeedbackForm';
-import FreshnessLabel from './FreshnessLabel';
 import GameWeekPanel from './GameWeekPanel';
 import AppHeaderActions from './menu/AppHeaderActions';
 import MatchupMatrixView from './MatchupMatrixView';
@@ -32,7 +31,7 @@ import {
 } from '../lib/overview';
 import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
-import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
+
 import { resolveOverviewCanonicalInputs } from '../lib/selectors/overview';
 import {
   formatDraftScheduleDetail,
@@ -47,6 +46,10 @@ import { seasonStorageKeys } from '../lib/storageKeys';
 import { type OddsUsageSnapshot } from '../lib/apiUsage';
 import { useAdminOddsUsage } from './hooks/useAdminOddsUsage';
 import { saveServerPostseasonOverrides } from '../lib/postseasonOverridesApi';
+import {
+  createPostseasonOverrideSaver,
+  type PostseasonOverrideSaver,
+} from '../lib/postseasonOverrideSaver';
 import { filterGamesForWeek } from '../lib/weekSelection';
 import { deriveWeekDateMetadataByWeek, getPresentationTimeZone } from '../lib/weekPresentation';
 import {
@@ -237,42 +240,6 @@ export function resolveHighlightDrilldownNavigation(params: {
   };
 }
 
-/**
- * Whether the live-status section (loading chips, partial-scores note, odds
- * availability, odds freshness label, and live-issue notice) should mount.
- *
- * Extracted as a pure predicate so it is unit-testable (the section itself only
- * mounts under effect-populated client state, which static rendering never
- * exercises). It intentionally includes `oddsSnapshotAt` and `scoresSnapshotAt`:
- * in the normal clean state — scores complete, every game has odds, no issues —
- * the section would otherwise stay unmounted and a served-data freshness label
- * would never show despite a valid timestamp (odds: 4th-review finding #5;
- * scores: PLATFORM-086B2B).
- */
-export function shouldRenderLiveStatusSection(input: {
-  loadingSchedule: boolean;
-  scheduleLoaded: boolean;
-  loadingLive: boolean;
-  visibleGames: number;
-  visibleScoresCount: number;
-  oddsAvailabilitySummary: string | null;
-  oddsSnapshotAt: string | null;
-  scoresSnapshotAt: string | null;
-  userFacingLiveIssuesCount: number;
-}): boolean {
-  return (
-    (input.loadingSchedule && !input.scheduleLoaded) ||
-    input.loadingLive ||
-    (!input.loadingLive &&
-      input.visibleGames > 0 &&
-      input.visibleScoresCount < input.visibleGames) ||
-    (!input.loadingLive && input.oddsAvailabilitySummary != null) ||
-    (!input.loadingLive && input.oddsSnapshotAt != null) ||
-    (!input.loadingLive && input.scoresSnapshotAt != null) ||
-    input.userFacingLiveIssuesCount > 0
-  );
-}
-
 export default function CFBScheduleApp({
   leagueSlug,
   leagueDisplayName,
@@ -333,7 +300,11 @@ export default function CFBScheduleApp({
   //    live-overlay staleness — a poll that succeeds with an unchanged score
   //    (halftime, delay) keeps the overlay fresh even though the snapshot does not
   //    advance. Using the snapshot here would false-dim the overlay every halftime.
-  const [scoresSnapshotAt, setScoresSnapshotAt] = useState<string | null>(null);
+  // Written by the live path; no longer READ. The member-facing stamp moved to
+  // `scoresObservedAt`, which is the observation signal the "Tracking scores"
+  // sentence actually claims. Retired alongside `setOddsSnapshotAt` — see
+  // `docs/next-tasks.md` 56.
+  const [, setScoresSnapshotAt] = useState<string | null>(null);
   const [scoresObservedAt, setScoresObservedAt] = useState<string | null>(null);
   // Periodically-updated clock so the live overlay's time-based staleness
   // re-evaluates even when scores/inputs are static (e.g. a network outage that
@@ -347,7 +318,10 @@ export default function CFBScheduleApp({
   // time — NOT the global quota snapshot (`oddsUsage.capturedAt`) or the admin
   // usage poll, so a historical/cold-cache season never inherits another season's
   // recency. Null when nothing is cached for the season → the label is omitted.
-  const [oddsSnapshotAt, setOddsSnapshotAt] = useState<string | null>(null);
+  // Written by the odds hydration path; no longer READ. The odds freshness label
+  // was operator-facing detail on a member surface (POLISH-005); scores
+  // freshness survives because it is the live signal members actually use.
+  const [, setOddsSnapshotAt] = useState<string | null>(null);
   const [rankings, setRankings] = useState<RankingsResponse | null>(null);
 
   // Effective resolver map (stored global > year > SEED_ALIASES) — used to build
@@ -357,6 +331,11 @@ export default function CFBScheduleApp({
   const [manualPostseasonOverrides, setManualPostseasonOverrides] = useState<
     Record<string, Partial<AppGame>>
   >({});
+
+  // Serializes durable override saves so two edits made before the first PUT
+  // resolves compose instead of deleting each other. See the module docblock.
+  const overrideSaverRef = useRef<PostseasonOverrideSaver | null>(null);
+  overrideSaverRef.current ??= createPostseasonOverrideSaver();
 
   const [scheduleLoaded, setScheduleLoaded] = useState<boolean>(false);
   // Monotonic counter bumped on every full schedule (re)build (`loadScheduleFromApi`
@@ -558,6 +537,14 @@ export default function CFBScheduleApp({
     loadScheduleFromApi,
     tryParseOwnersCSV,
   });
+
+  // A confirmed map belongs to the season and league it was written for. Once
+  // either changes, `useScheduleBootstrap` reloads the overrides into state and
+  // that state is again the freshest thing we know — holding the old map would
+  // seed the next payload with another season's labels.
+  useEffect(() => {
+    overrideSaverRef.current?.reset();
+  }, [selectedSeason, leagueSlug]);
 
   useEffect(() => {
     if (selectedTab == null && selectedWeek != null) {
@@ -1187,90 +1174,73 @@ export default function CFBScheduleApp({
         sources: { ...base.sources, ...(override.sources ?? {}) },
       });
 
-      let nextOverrides: Record<string, Partial<AppGame>> | null = null;
-      setManualPostseasonOverrides((prev) => {
-        const next = { ...prev, [eventId]: { ...(prev[eventId] ?? {}), ...patch } };
-        window.localStorage.setItem(storageKeys.postseasonOverrides, JSON.stringify(next));
-        nextOverrides = next;
+      // CONFIRM FIRST. This used to write `localStorage` and patch `games`
+      // optimistically, then PUT. When the PUT failed the local edit stayed —
+      // persisted across reloads — so the author saw a postseason label nobody
+      // else had, indefinitely. The only failure signal was an `issues` string,
+      // and POLISH-005 removed its last renderer, making the lie silent.
+      //
+      // Nothing local changes until the durable write succeeds, so there is no
+      // divergent state to roll back and no phantom edit to discover later.
+      void overrideSaverRef.current?.enqueue({
+        eventId,
+        patch,
+        fallbackBase: manualPostseasonOverrides,
+        effects: {
+          save: (map) => saveServerPostseasonOverrides(selectedSeason, map, leagueSlug),
+          onSaveFailed: (error) => {
+            const detail = error instanceof Error ? error.message : String(error);
+            // This control is admin-only, and the flow it belongs to already
+            // blocks on `window.prompt`, so an alert is the idiom already in use
+            // here — and an author who changed nothing must be told, not left
+            // guessing.
+            console.error('Postseason override save failed', error);
+            window.alert(`Couldn't save that label — nothing was changed.\n\n${detail}`);
+          },
+          onCommitted: setManualPostseasonOverrides,
+          writeCache: (map) =>
+            window.localStorage.setItem(storageKeys.postseasonOverrides, JSON.stringify(map)),
+          onCacheFailed: (error) => {
+            console.warn('Postseason override cache write failed; durable save held', error);
+          },
+          onApplied: (map) => {
+            const override = map[eventId];
+            if (override) {
+              // In-place patch only — this keeps each game's existing canonical
+              // `key`, so it does NOT bump `scheduleGeneration`: the
+              // authoritative re-hydration for a key-changing override happens
+              // on the `loadScheduleFromApi` rebuild below, which recomputes
+              // keys from the overridden participants and bumps generation.
+              setGames((prevGames) =>
+                prevGames.map((g) => (g.eventId === eventId ? applyOverride(g, override) : g))
+              );
+            }
 
-        const override = next[eventId];
-        if (override) {
-          // Optimistic in-place patch only — this keeps each game's existing
-          // canonical `key` (it does not recompute identity), so it does NOT bump
-          // `scheduleGeneration`: the authoritative re-hydration for a key-changing
-          // override happens on the next `loadScheduleFromApi` rebuild (which
-          // recomputes keys from the overridden participants and bumps generation).
-          // Bumping here would only trigger a redundant cache read against unchanged
-          // keys (PLATFORM-086C3 review remediation).
-          setGames((prevGames) =>
-            prevGames.map((g) => (g.eventId === eventId ? applyOverride(g, override) : g))
-          );
-        }
-
-        return next;
-      });
-
-      if (nextOverrides) {
-        void saveServerPostseasonOverrides(selectedSeason, nextOverrides, leagueSlug)
-          .then(() => {
-            // Refresh the current RSC tree so canonical standings (server-
-            // rendered) pick up the postseason override; the postseason-
-            // overrides API route already invalidates the standings cache tag.
+            // Refresh the RSC tree so canonical standings pick the override up;
+            // the overrides route already invalidates the standings cache tag.
             router.refresh();
-          })
-          .catch((err) => {
-            setIssues((p) => [...p, `Postseason override save failed: ${(err as Error).message}`]);
-          });
-        void loadScheduleFromApi(undefined, nextOverrides);
-      }
+            void loadScheduleFromApi(undefined, map);
+          },
+        },
+      });
     },
-    [leagueSlug, loadScheduleFromApi, router, selectedSeason, storageKeys.postseasonOverrides]
+    [
+      leagueSlug,
+      loadScheduleFromApi,
+      manualPostseasonOverrides,
+      router,
+      selectedSeason,
+      storageKeys.postseasonOverrides,
+    ]
   );
 
   const canRenderLeagueSurface = weeks.length > 0 || hasPostseasonGames;
   const canRenderPrimarySurface =
     canRenderLeagueSurface || weekViewMode === 'owner' || weekViewMode === 'rankings';
   const fatalBootstrapIssues = issues.filter(isScheduleIssue);
+
   const hasFatalLeagueBootstrapFailure =
     !isPreseason && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
-  const visibleScoresCount = useMemo(
-    () => visibleGames.filter((game) => Boolean(scoresByKey[game.key])).length,
-    [scoresByKey, visibleGames]
-  );
-  const visibleOddsCount = useMemo(
-    () => visibleGames.filter((game) => Boolean(oddsByKey[game.key])).length,
-    [oddsByKey, visibleGames]
-  );
-  const oddsAvailabilitySummary = useMemo(
-    () =>
-      deriveOddsAvailabilitySummary({
-        gamesCount: visibleGames.length,
-        oddsAvailableCount: visibleOddsCount,
-      }),
-    [visibleGames.length, visibleOddsCount]
-  );
-  const userFacingLiveIssues = useMemo(
-    () =>
-      issues.filter(
-        (issue) =>
-          issue.startsWith('Odds ') ||
-          issue.startsWith('Scores ') ||
-          issue.startsWith('Odds fetch failed:') ||
-          issue.startsWith('Scores fetch failed:')
-      ),
-    [issues]
-  );
-  // Rankings errors aren't actionable in preseason — CFBD hasn't published
-  // rankings for the upcoming season — so suppress them from the Data notes
-  // surface to avoid clutter.
-  const standingsIssues = useMemo(
-    () =>
-      isPreseason
-        ? issues.filter((issue) => !issue.startsWith('CFBD rankings load failed:'))
-        : issues,
-    [isPreseason, issues]
-  );
-
   return (
     <div className="space-y-5 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
       <header className="flex flex-col gap-2">
@@ -1574,46 +1544,49 @@ export default function CFBScheduleApp({
         })()}
 
       {hasFatalLeagueBootstrapFailure ? (
-        <section className="space-y-4 rounded-2xl border border-red-200 bg-red-50/80 p-4 shadow-sm dark:border-red-900/50 dark:bg-red-950/30">
-          <div className="space-y-1">
-            <p className="text-xs font-semibold uppercase tracking-widest text-red-700 dark:text-red-300">
-              League view unavailable
-            </p>
-            <h2 className="text-xl font-semibold text-red-950 dark:text-red-100">
-              We couldn’t load the schedule needed to render the league view
-            </h2>
-            <p className="max-w-3xl text-sm text-red-800 dark:text-red-200">
-              Try rebuilding the schedule from CFBD below. If the issue persists, open the admin
-              area for deeper diagnostics and repair tools.
-            </p>
-          </div>
-
-          <ul className="space-y-2 text-sm text-red-900 dark:text-red-100">
-            {fatalBootstrapIssues.map((issue) => (
-              <li
-                key={issue}
-                className="rounded border border-red-200 bg-white/80 px-3 py-2 dark:border-red-900/60 dark:bg-zinc-950/60"
-              >
-                {issue}
-              </li>
-            ))}
-          </ul>
-
-          <div className="flex flex-wrap items-center gap-2">
+        // A member sees IMPACT, not diagnosis: no provider name, no raw issue
+        // strings, no admin-only actions (both were server-refused anyway).
+        //
+        // NO RETRY. Three attempts got this wrong. A "Rebuild schedule" button
+        // forced `bypassCache`, which `/api/schedule` refuses without admin.
+        // Removing it entirely was wrong too — `isScheduleIssue` also matches
+        // `CFBD schedule load failed:`, a genuinely transient fetch error. But a
+        // classifier over that prefix cannot work either: `loadScheduleFromApi`
+        // flattens EVERY rejection — schedule, teams, conferences — into that one
+        // string, including the public routes' 503 cold-cache responses that
+        // explicitly require an operator refresh. The distinction is destroyed
+        // before any predicate sees it.
+        //
+        // So no MEMBER retry until the error carries structure — filed as
+        // `docs/next-tasks.md` 55. Reloading the page is the universal retry and
+        // needs no affordance. An admin rebuild is a different thing: it forces
+        // `bypassCache`, which actually refetches, and is gated below.
+        <section className="space-y-2 rounded-2xl border border-gray-200 bg-gray-50 p-4 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-950">
+          <h2 className="text-base font-semibold text-gray-900 dark:text-zinc-100">
+            This league&rsquo;s schedule isn&rsquo;t available right now
+          </h2>
+          <p className="text-sm text-gray-600 dark:text-zinc-400">Please check back shortly.</p>
+          {isAdmin ? (
+            // ADMINS keep their repair path. An earlier version of this slice
+            // removed it with the rationale "both were server-refused anyway" —
+            // true for a member, FALSE for an admin: `/api/schedule` refuses
+            // `bypassCache` only when the admin check FAILS (route.ts:649), so
+            // for an admin the rebuild succeeds. Deleting it left the one person
+            // who could fix a fatally broken league page with nothing to click.
+            //
+            // This is the same `isAdmin` gate the postseason override uses. The
+            // member copy above is unchanged: no provider name, no raw issue
+            // text, no diagnosis — an operator affordance, not an operator
+            // console.
             <button
-              className="rounded border border-red-300 bg-white px-3 py-2 text-sm font-medium text-red-900 transition hover:bg-red-100 disabled:opacity-60 dark:border-red-800 dark:bg-zinc-950 dark:text-red-100 dark:hover:bg-red-950/40"
+              type="button"
+              className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 disabled:opacity-60 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
               onClick={() => void loadScheduleFromApi(undefined, undefined, { bypassCache: true })}
               disabled={loadingSchedule}
             >
               {loadingSchedule ? 'Rebuilding…' : 'Rebuild schedule'}
             </button>
-            <Link
-              href="/admin/data/cache"
-              className="rounded border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-900 transition hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100 dark:hover:bg-zinc-800"
-            >
-              Open Data Management
-            </Link>
-          </div>
+          ) : null}
         </section>
       ) : null}
 
@@ -1676,70 +1649,23 @@ export default function CFBScheduleApp({
         </section>
       ) : null}
 
+      {loadingSchedule && !scheduleLoaded ? (
+        // First paint. No page passes `initialGames`, so games are always
+        // fetched client-side after mount; without this the content area is
+        // simply empty while the request is in flight.
+        //
+        // It sits ABOVE `canRenderPrimarySurface` deliberately. That gate needs
+        // `weeks.length > 0` or the owner/rankings view, and during this exact
+        // window `games` is still `[]` — so nesting it inside meant the schedule,
+        // matchups, standings and overview surfaces showed nothing at all, which
+        // is the state it exists to cover.
+        <section className="text-xs text-gray-500 dark:text-zinc-400">
+          Loading schedule&hellip;
+        </section>
+      ) : null}
+
       {canRenderPrimarySurface && (
         <>
-          {shouldRenderLiveStatusSection({
-            loadingSchedule,
-            scheduleLoaded,
-            loadingLive,
-            visibleGames: visibleGames.length,
-            visibleScoresCount,
-            oddsAvailabilitySummary,
-            oddsSnapshotAt,
-            scoresSnapshotAt,
-            userFacingLiveIssuesCount: userFacingLiveIssues.length,
-          }) ? (
-            <section className="space-y-1">
-              <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                {loadingSchedule && !scheduleLoaded ? (
-                  <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 font-medium text-sky-700 dark:border-sky-900 dark:bg-sky-950/25 dark:text-sky-200">
-                    Loading schedule…
-                  </span>
-                ) : null}
-                {loadingLive ? (
-                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 font-medium text-amber-700 dark:border-amber-900 dark:bg-amber-950/25 dark:text-amber-200">
-                    Refreshing scores and odds…
-                  </span>
-                ) : null}
-                {!loadingLive &&
-                visibleGames.length > 0 &&
-                visibleScoresCount < visibleGames.length ? (
-                  <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                    Scores available for {visibleScoresCount}/{visibleGames.length} games.
-                  </span>
-                ) : null}
-                {!loadingLive && oddsAvailabilitySummary ? (
-                  <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 font-medium text-gray-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
-                    {oddsAvailabilitySummary}
-                  </span>
-                ) : null}
-                {!loadingLive && scoresSnapshotAt ? (
-                  // Subtle scores data-freshness (PLATFORM-086B2B): the served
-                  // scores cache's last materially-changed timestamp. This is the
-                  // DATA-freshness signal (distinct from the live-overlay staleness,
-                  // which tracks successful observation) — honest "as of" recency.
-                  <FreshnessLabel
-                    timestamp={scoresSnapshotAt}
-                    label="Scores"
-                    className="self-center"
-                  />
-                ) : null}
-                {!loadingLive && oddsSnapshotAt ? (
-                  // Subtle, dataset-specific freshness (PLATFORM-086A): the SERVED
-                  // odds cache entry's capture time for THIS season (rereview
-                  // finding #2) — never the global quota snapshot or admin usage
-                  // poll, which could inherit another season's recency.
-                  <FreshnessLabel timestamp={oddsSnapshotAt} label="Odds" className="self-center" />
-                ) : null}
-              </div>
-              {userFacingLiveIssues.length > 0 ? (
-                <p className="text-xs text-amber-700 dark:text-amber-300">
-                  Some live data could not be updated. Showing the latest available results.
-                </p>
-              ) : null}
-            </section>
-          ) : null}
-
           {!isSeasonScopedView ? (
             <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-6 text-gray-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
               {selectedTab === 'postseason' ? (
@@ -1895,7 +1821,6 @@ export default function CFBScheduleApp({
                   focusedOwner={focusedOwner}
                   standingsHistory={canonicalHistory}
                   seasonContext={seasonContext}
-                  trendIssues={standingsIssues}
                   onOwnerSelect={(owner) => {
                     setSelectedOwner(owner);
                     setWeekViewMode('owner');
@@ -1921,7 +1846,7 @@ export default function CFBScheduleApp({
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
                   teamCatalogById={teamCatalogById}
-                  onSavePostseasonOverride={savePostseasonOverride}
+                  onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
                   focusedGameId={focusedGameId}
                 />
               ) : primarySurfaceKind === 'rankings' ? (
@@ -1967,7 +1892,7 @@ export default function CFBScheduleApp({
                   rosterByTeam={rosterByTeam}
                   isDebug={IS_DEBUG}
                   teamCatalogById={teamCatalogById}
-                  onSavePostseasonOverride={savePostseasonOverride}
+                  onSavePostseasonOverride={isAdmin ? savePostseasonOverride : undefined}
                   displayTimeZone={presentationTimeZone}
                   rankingsByTeamId={rankingsByTeamId}
                   focusedGameId={focusedGameId}

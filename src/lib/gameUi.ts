@@ -19,6 +19,35 @@ export function formatGameMatchupLabel(
   return `${game.csvAway} ${options?.homeAwaySeparator ?? 'at'} ${game.csvHome}`;
 }
 
+/**
+ * Is this game happening RIGHT NOW?
+ *
+ * The ATTACHED SCORE decides, and nothing else. `game.status` used to be ORed in
+ * on the premise that "the schedule is authoritative when it says so" — that was
+ * backwards. Schedule status is written by the weekly `schedule-refresh` cron and
+ * never rewritten by the live-scores engine, which polls every three minutes, so
+ * it can only ever be EQUAL TO or STALER THAN the score feed. It is never the
+ * leading signal, and it cannot be: at kickoff the schedule row was written days
+ * earlier saying `scheduled`.
+ *
+ * What it could do is lie. A schedule snapshot taken mid-slate leaves rows marked
+ * `in_progress`; hours later those games are over and their scores say `final`,
+ * but the OR short-circuited before ever consulting the score — so an owner card
+ * rendered "Live" beside a final scoreboard until the next weekly refresh.
+ *
+ * Consequence worth stating: a game with NO attached score is not live here.
+ * Absence of data is not evidence of play, and callers that then read
+ * `scoresByKey[game.key]` are now guaranteed a score when this returns true.
+ *
+ * Scope: this annotates ONE ROW. It is not a basis for any page-wide "we are
+ * live" claim — a single stale or missing row would light the whole surface, and
+ * answering that question needs evidence that provider data actually refreshed,
+ * which the client does not currently receive. See `docs/next-tasks.md` 57.
+ */
+export function isLiveGame(score?: ScorePack): boolean {
+  return gameStateFromScore(score) === 'inprogress';
+}
+
 export function gameStateFromScore(
   score?: ScorePack
 ): 'final' | 'inprogress' | 'scheduled' | 'unknown' {

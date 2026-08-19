@@ -88,8 +88,6 @@ export type GameWeekCardViewModel = {
 export type GameWeekPanelViewModel = {
   hasNoGames: boolean;
   totalGames: number;
-  scoresAvailableCount: number;
-  oddsAvailableCount: number;
   groupedGames: Array<{
     dateKey: string;
     label: string;
@@ -168,8 +166,6 @@ export function deriveGameWeekPanelViewModel(params: {
   return {
     hasNoGames: totalGames === 0,
     totalGames,
-    scoresAvailableCount: games.filter((game) => Boolean(scoresByKey[game.key])).length,
-    oddsAvailableCount: games.filter((game) => Boolean(oddsByKey[game.key])).length,
     groupedGames,
   };
 }

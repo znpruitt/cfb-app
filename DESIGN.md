@@ -15,6 +15,45 @@ Supersedes: (none)
 - Interaction over decoration — use hover/click states to reveal context rather than cluttering the resting state
 - Information density is a feature, not a risk — tighter layouts with less redundancy serve users better
 
+## Member surface boundary
+
+`/league/*` is a MEMBER surface. Operators reach their tooling through the admin gear; members never
+see the machinery.
+
+- **No operator diagnostics.** No provider names (CFBD), status codes, raw error strings, cache
+  terminology, or coverage counters ("Scores available for 98/100 games."). Every one of those
+  conditions is already reported by System Health — rendering a second, worse-worded copy on a
+  league page serves nobody and answers a question the member did not ask.
+- **No actions a member cannot perform.** The server guards are sound (`/api/schedule` refuses
+  `bypassCache` without admin; `/api/postseason-overrides` requires admin on write), so an
+  admin-only control on a member surface is not a security hole — it is a button that always fails.
+  Gate it on `isAdmin` rather than deleting it: the same control that is useless to a member is the
+  operator's repair path, and removing it outright leaves the one person who can fix a broken page
+  with nothing to click. That mistake was made once here, justified by "server-refused anyway" —
+  which is true for a member and false for the admin the guard admits.
+- **No retry a failure cannot answer.** Offer a retry only where the app can distinguish a transient
+  failure from a permanent one. A schedule failure caused by a malformed CACHED row returns the same
+  result on every attempt, so a "Try again" button is an invitation to click forever.
+- **Messages state impact and a safe next step**, in that order, and stop. "This league's schedule
+  isn't available right now. Please check back shortly." — not what failed, where, or how to repair
+  it.
+- **No data-state signal ships today, and adding one needs evidence of an actual refresh.** A
+  "scores are updating right now" badge is wanted (owner, 2026-08-18) and was built and then CUT,
+  because every available client-side input can claim it falsely: schedule status is written weekly
+  and goes stale mid-slate; a missing score is absence of data, not evidence of play; a cached
+  in-progress score never expires; a clock fallback is unbounded; and a successful score read is
+  satisfied by the prior-good cache the API deliberately serves during a provider outage. Anything
+  built here must consume evidence that provider data actually CHANGED — the scores response already
+  distinguishes `cache: 'hit'` from `'stale'`, and that is not threaded to the client. Until it is,
+  the league surface says nothing about data state. See `docs/next-tasks.md` 57.
+
+Internal issue strings are still produced and available to the app; this boundary governs what
+reaches member JSX. Note what that does NOT currently mean: for the rankings and schedule failures
+this rule covers, the producing catches call only `setIssues` — there is no console, telemetry, or
+server hop, so once the member render is removed the string is received and dropped. The operator's
+channel is System Health, which derives those conditions independently from durable state. Do not
+read this rule as a promise that anything logs them; wiring that is separate work.
+
 ## Layout
 
 - Two-column layouts should feel intentional — column headers align, vertical rhythm matches across columns

@@ -94,8 +94,6 @@ test('deriveGameWeekPanelViewModel groups games and computes counts', () => {
   });
 
   assert.equal(vm.totalGames, 2);
-  assert.equal(vm.scoresAvailableCount, 1);
-  assert.equal(vm.oddsAvailableCount, 1);
   assert.equal(vm.hasNoGames, false);
   assert.equal(vm.groupedGames.length, 1);
   assert.equal(vm.groupedGames[0]?.games.length, 2);

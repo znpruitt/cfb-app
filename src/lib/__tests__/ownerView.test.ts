@@ -238,3 +238,70 @@ test('NoClaim is not surfaced as a Members owner entry', () => {
   assert.ok(!snapshot.ownerOptions.includes('NoClaim'));
   assert.deepEqual(snapshot.ownerOptions, ['Alice', 'Bob']);
 });
+
+// ---------------------------------------------------------------------------
+// POLISH-005 — the owner card's Live badge follows the SCORE, not the schedule.
+//
+// `game.status` is written by the WEEKLY `schedule-refresh` cron and never
+// rewritten by the live-scores engine, which polls every three minutes. It can
+// therefore only be equal to or staler than the score feed — never ahead of it.
+// A schedule snapshot taken mid-slate leaves rows marked `in_progress`, and the
+// old predicate short-circuited on that before consulting the score, so an owner
+// card rendered "Live" beside a final scoreboard until the next weekly refresh.
+//
+// This path had NO coverage, which is why changing it broke nothing.
+// ---------------------------------------------------------------------------
+
+test('POLISH-005: a stale in_progress schedule row does not render Live over a final score', () => {
+  const finalScore: Record<string, ScorePack> = {
+    g: {
+      status: 'Final',
+      time: 'Final',
+      away: { team: 'Wash St', score: 31 },
+      home: { team: 'Oregon', score: 17 },
+    },
+  };
+
+  // The schedule still claims the game is underway; the score says it is over.
+  const rows = deriveOwnerRoster(
+    'Alice',
+    [mismatchGame({ key: 'g', status: 'in_progress' })],
+    roster,
+    finalScore
+  );
+
+  assert.equal(rows.length, 1);
+  assert.notEqual(rows[0]?.currentStatus, 'Live', 'the score is the authority, not the schedule');
+});
+
+test('POLISH-005: an in-progress SCORE does render Live', () => {
+  // Positive control. Without it the assertion above would pass against a card
+  // that never renders Live at all.
+  const liveScore: Record<string, ScorePack> = {
+    g: {
+      status: 'Q3 8:14',
+      time: 'Q3 8:14',
+      away: { team: 'Wash St', score: 14 },
+      home: { team: 'Oregon', score: 10 },
+    },
+  };
+
+  const rows = deriveOwnerRoster('Alice', [mismatchGame({ key: 'g' })], roster, liveScore);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0]?.currentStatus, 'Live', 'an attached in-progress score is what Live means');
+});
+
+test('POLISH-005: no attached score is not evidence of play', () => {
+  // The stale row with no score at all — the coverage-gap case. Absence of data
+  // cannot support a Live claim.
+  const rows = deriveOwnerRoster(
+    'Alice',
+    [mismatchGame({ key: 'g', status: 'in_progress' })],
+    roster,
+    {}
+  );
+
+  assert.equal(rows.length, 1);
+  assert.notEqual(rows[0]?.currentStatus, 'Live');
+});

@@ -6,7 +6,6 @@ import type { CombinedOdds } from '../lib/odds';
 import { formatGameMatchupLabel, usesNeutralSiteSemantics } from '../lib/gameUi';
 import { LEAGUE_TAG_LABELS } from '../lib/gameTags';
 import { deriveGameWeekPanelViewModel } from '../lib/selectors/gameWeek';
-import { deriveOddsAvailabilitySummary } from '../lib/selectors/matchups';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import type { TeamRankingEnrichment } from '../lib/rankings';
 import type { ScorePack } from '../lib/scores';
@@ -139,13 +138,6 @@ export default function GameWeekPanel({
     rankingsByTeamId,
     displayTimeZone,
   });
-  const oddsSummary = deriveOddsAvailabilitySummary({
-    gamesCount: viewModel.totalGames,
-    oddsAvailableCount: viewModel.oddsAvailableCount,
-  });
-  const showSummaryRow =
-    viewModel.scoresAvailableCount < viewModel.totalGames || Boolean(oddsSummary);
-
   React.useEffect(() => {
     scrollFocusedGameIntoView({ gameId: focusedGameId, refsByGameId: gameCardRefs.current });
   }, [focusedGameId]);
@@ -168,24 +160,6 @@ export default function GameWeekPanel({
           No games match the current filters.
         </div>
       ) : null}
-      {!viewModel.hasNoGames && showSummaryRow ? (
-        <div
-          className="flex flex-wrap items-center gap-1.5 text-xs text-gray-600 dark:text-zinc-400"
-          data-game-summary-row="true"
-        >
-          {viewModel.scoresAvailableCount < viewModel.totalGames ? (
-            <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 dark:border-zinc-700 dark:bg-zinc-900">
-              Scores: {viewModel.scoresAvailableCount}/{viewModel.totalGames}
-            </span>
-          ) : null}
-          {oddsSummary ? (
-            <span className="rounded-full border border-gray-200 bg-gray-50 px-2 py-0.5 dark:border-zinc-700 dark:bg-zinc-900">
-              {oddsSummary}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-
       <div className="grid gap-4">
         {viewModel.groupedGames.map((group) => (
           <section key={group.dateKey} className="space-y-1.5">

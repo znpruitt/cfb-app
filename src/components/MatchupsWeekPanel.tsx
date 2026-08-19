@@ -19,7 +19,6 @@ import {
 } from '../lib/matchups';
 import {
   deriveExcludedGamesSummary,
-  deriveMatchupsHeaderCopy,
   deriveOpponentDescriptor,
   deriveOwnerOutcome,
   getDefaultVisibleOpponentsCount,
@@ -452,10 +451,6 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
     }
     return ordered;
   }, [canonicalStandings, rawOwnerSlates]);
-  const oddsAvailableCount = React.useMemo(
-    () => games.filter((game) => Boolean(oddsByKey[game.key])).length,
-    [games, oddsByKey]
-  );
   const standingsByOwner = React.useMemo(
     () =>
       new Map(
@@ -463,10 +458,6 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
       ),
     [games, scoresByKey, rosterByTeam]
   );
-  const oddsSummaryCopy = deriveMatchupsHeaderCopy({
-    gamesCount: games.length,
-    oddsAvailableCount,
-  });
   const ownerCardRefs = React.useRef<Map<string, HTMLElement>>(new Map());
 
   React.useEffect(() => {
@@ -480,10 +471,6 @@ export default function MatchupsWeekPanel(props: MatchupsWeekPanelProps): React.
   return (
     <div className="space-y-3">
       <section className="space-y-2.5">
-        {oddsSummaryCopy ? (
-          <p className="text-xs text-gray-500 dark:text-zinc-400">{oddsSummaryCopy}</p>
-        ) : null}
-
         {ownerSlates.length ? (
           <div className="grid gap-2.5 lg:grid-cols-2">
             {ownerSlates.map((slate) => (

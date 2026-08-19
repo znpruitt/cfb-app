@@ -1,5 +1,5 @@
 import { getGameSideForTeam } from './gameOwnership.ts';
-import { gameStateFromScore, usesNeutralSiteSemantics } from './gameUi.ts';
+import { gameStateFromScore, isLiveGame, usesNeutralSiteSemantics } from './gameUi.ts';
 import { deriveOwnerWeekSlates, deriveWeekMatchupSections } from './matchups.ts';
 import type { ScorePack } from './scores.ts';
 import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
@@ -94,10 +94,6 @@ function isAttachedFinalGame(score?: ScorePack): boolean {
   return gameStateFromScore(score) === 'final';
 }
 
-function isLiveGame(game: AppGame, score?: ScorePack): boolean {
-  return game.status === 'in_progress' || gameStateFromScore(score) === 'inprogress';
-}
-
 function buildNextGameLabel(teamName: string, game: AppGame): string {
   const opponent = getOpponentProviderName(teamName, game);
   if (usesNeutralSiteSemantics(game) || game.neutral) {
@@ -138,7 +134,7 @@ export function deriveOwnerRoster(
       else losses += 1;
     }
 
-    const liveGame = teamGames.find((game) => isLiveGame(game, scoresByKey[game.key]));
+    const liveGame = teamGames.find((game) => isLiveGame(scoresByKey[game.key]));
     if (liveGame) {
       const liveScore = scoresByKey[liveGame.key];
       const ownerTeamSide = getOwnerTeamSide(teamName, liveGame);
@@ -205,7 +201,7 @@ function filterRosterRowsToWeek(
     .filter((row) => getTeamGames(row.teamName, weekGames).length > 0)
     .map((row) => {
       const teamWeekGames = getTeamGames(row.teamName, weekGames).sort(compareGamesByKickoff);
-      const liveGame = teamWeekGames.find((game) => isLiveGame(game, scoresByKey[game.key]));
+      const liveGame = teamWeekGames.find((game) => isLiveGame(scoresByKey[game.key]));
       if (liveGame) {
         const opponentTeamName = getOpponentProviderName(row.teamName, liveGame);
         return {

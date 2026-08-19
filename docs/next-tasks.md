@@ -1600,6 +1600,106 @@ Supersedes: (none)
       attaches ~20 lines of rationale to the constant and the exported function reads as
       undocumented. Move the constant above the docblock.
 
+55. **Schedule load errors are unstructured, so no retry can be gated correctly** (POLISH-005,
+    2026-08-18; the retry was attempted THREE times and removed rather than classified a fourth).
+
+    `loadScheduleFromApi` catches every rejection — schedule, teams, conferences — and formats one
+    `CFBD schedule load failed: …` string. That flattens two cases a member-facing retry must tell
+    apart: a transient upstream blip, where a plain cache-only retry succeeds, and the public routes'
+    `503` cold-cache response, which explicitly requires an operator refresh and can never be fixed
+    by retrying. `isScheduleIssue` also matches `invalid-schedule-row:` and `identity-unresolved:`,
+    which are defects in the CACHED data and equally unfixable by retry.
+
+    Attempts so far, all wrong: a "Rebuild schedule" button forcing `bypassCache` (refused without
+    admin, so it always failed for members); removing the retry entirely (wrong — some failures ARE
+    transient); and an `isRetryableScheduleIssue` prefix classifier (wrong — the prefix cannot
+    distinguish 503-needs-admin from a blip). **The input is lossy; the condition was never the
+    problem.** Fixing this means the loader preserving structured error information, which is a
+    change to the schedule loader and not to the member boundary.
+
+    Until then the fatal state offers no retry, and reloading the page is the universal one.
+
+56. **POLISH-005 residue — three findings accepted but out of scope** (both reviewers, 2026-08-18).
+
+    - **The Rankings error branch is unreachable.** `CFBScheduleApp` passes
+      `loading={rankings === null}` and `loadRankings`'s catch never calls `setRankings`, so on any
+      failure `rankings` stays null, `loading` stays true, and the `loading ? … : error ? …` ladder
+      never reaches the error copy. A member on the Rankings tab during a CFBD outage sees
+      "Loading rankings…" indefinitely. The gate PREDATES POLISH-005, which only rewrote the copy in
+      the unreachable branch.
+    - **Click BEHAVIOUR on the league surface is untestable in the current harness.** These tests
+      render statically, so no handler fires, so the admin rebuild forcing `bypassCache` is pinned
+      only by rendering (without it the button is a cache re-read that cannot repair a cold cache —
+      the useless-button problem, moved to the admin). Mutating it survives. The postseason
+      override's confirm-first sequencing, save serialization, and cache-failure isolation were
+      pulled OUT of the component into `createPostseasonOverrideSaver` for exactly this reason and
+      are now mutation-proven directly; what remains unpinned there is only the WIRING — that the
+      component hands the saver the right effects. Closing the rest needs an interaction harness for
+      `CFBScheduleApp`, which is its own decision.
+    - **The `isAdmin` gate on the postseason override is not exercised through its real caller.**
+      `GameWeekPanel` tests pin the rendering contract (callback ⇒ button, and a positive control),
+      but mutating the ternary at the two `CFBScheduleApp` call sites survives, because the
+      postseason tab is not reachable in a static render — there is no prop to select it.
+    - **`setOddsSnapshotAt` and `setScoresSnapshotAt` are write-only.** No reader remains for either,
+      but the setters still fire on season reset and on every odds/score poll, re-rendering a very
+      large component for values nothing consumes. `scoresSnapshotAt` was retired when the member
+      freshness stamp moved to `scoresObservedAt` (the observation signal the "Tracking scores"
+      sentence actually claims; the durable snapshot does not advance during a halftime, so it would
+      read "updated 47m ago" beside a live badge). Both setters, their call sites, and the hook
+      params that thread them should go together.
+
+57. **A live "scores are updating" indicator, built on evidence of an actual refresh** (owner wants
+    it — 2026-08-18: "show some kind of indicator that the app is alive to the user, especially when
+    games are live"; BUILT AND CUT from POLISH-005 after failing five ways).
+
+    Every input the client currently has can claim live coverage falsely. All five were reached by
+    review or by execution, not by reasoning:
+
+    1. **`game.status`** — written by the WEEKLY `schedule-refresh` cron and never rewritten by the
+       live-scores engine, so a schedule snapshotted mid-slate keeps rows marked `in_progress` and
+       the badge burns for hours over a board of finals.
+    2. **A missing score treated as "not final"** — absence of data read as evidence of play, so an
+       empty cache lit every game that had kicked off.
+    3. **A cached in-progress score** — score packs do not expire, so once a game reported `Q3` the
+       claim persisted for the whole 24-hour arming window after the feed died.
+    4. **An unbounded clock fallback** — added to close the few-minute gap between kickoff and the
+       first score, it reinstated (2) at 24-hour scale. A REGRESSION of a fix made two commits
+       earlier; the fallback must be bounded to the gap it exists for.
+    5. **A successful score read** — `scoresObservedAt` advances on a CLEAN read, and a cache-only
+       read succeeds against the prior-good rows the API deliberately serves when CFBD fails
+       (AGENTS.md, API-first). "A read succeeded" is not "fresh data arrived".
+
+    Also unresolved when it was cut: a `Delayed`/disrupted game stays armed and passed a clock check,
+    so it read as underway while not in progress.
+
+    **What a correct version needs:** evidence that provider data actually CHANGED or was refreshed.
+    `/api/scores` already distinguishes `cache: 'hit'` from `cache: 'stale'` in its response meta —
+    that distinction is not threaded through `useLiveRefresh` to the component, and doing so is the
+    real work. Pair it with the poller's own arming rule (`selectLiveScorePollGames`, a kickoff
+    window that self-expires) rather than with any game-status field.
+
+    Owner copy already settled, if it helps: "Preparing for kickoff" before kickoff, "Tracking
+    scores" once underway. Do NOT reuse `isLiveGame` — that annotates one row, and a single stale row
+    must not light the whole page.
+
+58. **A member's own team reads "Upcoming" while its game is being played** (POLISH-005 review,
+    2026-08-18; a PRODUCT decision, deliberately not guessed at).
+
+    `isLiveGame` is now score-only, on the reasoning in its docblock: schedule status is written by
+    the weekly cron and never rewritten by the live-scores engine, so it can only be equal to or
+    staler than the score feed. The consequence is that a game with no attached score is not live,
+    and `buildOwnerRosterRows` then falls through to `teamGames.find((g) => !isAttachedFinalGame(…))`
+    — which selects that same game and labels it `Upcoming` with a kickoff in the past.
+
+    Both alternatives are wrong, which is why this is queued rather than patched. `main`'s OR on
+    `game.status` showed a false "Live" for a WEEK after any schedule snapshot taken mid-slate; the
+    current form shows a false "Upcoming" for the minutes between kickoff and the first score
+    attachment, and for the whole game if attachment fails. The window is narrow and self-closing,
+    but a card that contradicts itself is worse than one that says nothing.
+
+    The likely answer is a third state for "kicked off, no score yet" rather than either existing
+    label, which is the same evidence problem as 57 and probably wants the same input.
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.
