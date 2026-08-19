@@ -73,6 +73,15 @@ test('RecordRanking: Show all toggles button label between "Show all" and "Hide"
   assert.match(container.textContent ?? '', /Show all/);
 });
 
+test('RecordRanking: Show all provides a 44px mobile touch target', () => {
+  const { getByRole } = render(<RecordRanking record={makeRecord()} />);
+  const button = getByRole('button', { name: /Show all/ });
+
+  assert.ok(button.classList.contains('min-h-11'));
+  assert.ok(button.classList.contains('text-sm'));
+  assert.ok(button.classList.contains('lg:min-h-0'));
+});
+
 test('RecordRanking: ActiveOnlyToggle filters out former owners from the podium', () => {
   const { container, getByRole } = render(<RecordRanking record={makeRecord()} />);
   fireEvent.click(getByRole('switch'));

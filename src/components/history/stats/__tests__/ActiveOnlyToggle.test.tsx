@@ -43,6 +43,18 @@ test('ActiveOnlyToggle: click invokes onChange with flipped value', () => {
   assert.equal(next, true);
 });
 
+test('ActiveOnlyToggle: provides a 44px mobile target and enlarged mobile switch', () => {
+  const { getByRole } = render(<ActiveOnlyToggle activeOnly={false} onChange={() => {}} />);
+  const button = getByRole('switch');
+  const track = button.querySelector('[aria-hidden="true"]');
+
+  assert.ok(button.classList.contains('min-h-11'));
+  assert.ok(button.classList.contains('lg:min-h-0'));
+  assert.ok(track);
+  assert.ok(track!.classList.contains('h-5'));
+  assert.ok(track!.classList.contains('w-9'));
+});
+
 test('ActiveOnlyToggle: disabled prevents onChange firing', () => {
   let called = false;
   const { getByRole } = render(

@@ -100,6 +100,15 @@ test('RecordEventList: Show all reveals the overflow list (single-column)', () =
   assert.match(items[0]!.textContent ?? '', /Grace/);
 });
 
+test('RecordEventList: Show all provides a 44px mobile touch target', () => {
+  const { getByRole } = render(<RecordEventList record={makeEventRecord()} />);
+  const button = getByRole('button', { name: /Show all/ });
+
+  assert.ok(button.classList.contains('min-h-11'));
+  assert.ok(button.classList.contains('text-sm'));
+  assert.ok(button.classList.contains('lg:min-h-0'));
+});
+
 test('RecordEventList: emits article with id matching record.id and scroll-mt class', () => {
   const { container } = render(<RecordEventList record={makeEventRecord()} />);
   const article = container.querySelector('article');

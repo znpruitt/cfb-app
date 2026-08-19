@@ -2,14 +2,13 @@ import { notFound } from 'next/navigation';
 import { isPlatformAdminSession } from '@/lib/server/adminAuth';
 import { getLeague } from '@/lib/leagueRegistry';
 import { getSeasonArchive, listSeasonArchives } from '@/lib/seasonArchive';
-import { getAppState } from '@/lib/server/appStateStore';
-import { parseOwnersCsv } from '@/lib/parseOwnersCsv';
-import { NO_CLAIM_OWNER } from '@/lib/standings';
+import { getConfirmedRoster } from '@/lib/server/confirmedRosterStore';
 import {
   selectRecordRankings,
   type RecordId,
   type RankedRecord,
 } from '@/lib/selectors/leagueRecords';
+import { selectHistoryActiveOwners } from '@/lib/selectors/historyMembership';
 import { HistorySubNav } from '@/components/history/HistorySubNav';
 import LeaguePageShell from '@/components/LeaguePageShell';
 import { RecordSection } from '@/components/history/stats/RecordSection';
@@ -64,31 +63,22 @@ export default async function HistoryStatsPage({
     );
   }
 
-  const archiveResults = await Promise.all(years.map((year) => getSeasonArchive(slug, year)));
+  const [archiveResults, confirmedRoster] = await Promise.all([
+    Promise.all(years.map((year) => getSeasonArchive(slug, year))),
+    getConfirmedRoster(slug, league.year),
+  ]);
   const archives: SeasonArchive[] = archiveResults.filter((a): a is SeasonArchive => a !== null);
 
-  const ownersRecord = await getAppState<string>(`owners:${slug}:${league.year}`, 'csv');
-  const ownersCsv = typeof ownersRecord?.value === 'string' ? ownersRecord.value : '';
-  const currentRosterRows = parseOwnersCsv(ownersCsv);
-  const csvRoster = new Map(currentRosterRows.map((r) => [r.team, r.owner]));
+  const activeOwners = selectHistoryActiveOwners({
+    archives,
+    confirmedOwners: confirmedRoster.owners,
+  });
 
-  const allArchiveOwners = new Set<string>();
-  for (const archive of archives) {
-    for (const row of archive.finalStandings) {
-      if (row.owner && row.owner !== NO_CLAIM_OWNER) allArchiveOwners.add(row.owner);
-    }
-  }
-
-  // Roster fallback when the season's owners CSV is missing/empty (post-reset,
-  // storage miss, pre-rollover). Without it every owner reads as "former":
-  // career_drought renders empty, all rows show the former badge, the
-  // Active-only toggle clears every ranking. Mirrors the Overview page's
-  // archive-union pattern. Synthetic keys are fine — the selector reads only
-  // Map.values() (see activeOwnerSet in leagueRecords).
-  const currentRoster: Map<string, string> =
-    csvRoster.size > 0
-      ? csvRoster
-      : new Map([...allArchiveOwners].map((owner) => [`__archive:${owner}`, owner]));
+  // Record rankings consume only Map.values(); synthetic keys keep the
+  // selector's existing roster-shaped contract without inventing team claims.
+  const currentRoster = new Map(
+    [...activeOwners].map((owner) => [`__history-member:${owner}`, owner])
+  );
 
   const rankings = selectRecordRankings(archives, currentRoster);
 

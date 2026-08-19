@@ -84,12 +84,12 @@ export function RecordEventList({ record }: RecordEventListProps): React.ReactEl
       </div>
 
       {/* Actions cell */}
-      <div className="col-start-2 row-start-1 flex flex-col items-end gap-2 lg:col-start-3">
+      <div className="col-start-2 row-start-1 flex flex-row items-center justify-end gap-1 lg:col-start-3 lg:flex-col lg:items-end lg:gap-2">
         {hasOverflow ? (
           <button
             type="button"
             onClick={() => setShowAll((v) => !v)}
-            className={`text-[11px] ${
+            className={`-mr-2 min-h-11 touch-manipulation rounded-md px-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-500 lg:mr-0 lg:min-h-0 lg:px-0 lg:text-[11px] lg:font-normal ${
               showAll ? 'text-gray-900 dark:text-zinc-100' : 'text-gray-500 dark:text-zinc-400'
             } hover:text-gray-700 dark:hover:text-zinc-200`}
           >
