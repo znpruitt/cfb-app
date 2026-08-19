@@ -2868,6 +2868,57 @@ Evidence, not to be merged or patched further: `dd591ca` (v1, branch deleted) an
 Enforce commissioner role on all mutating server actions. Remove `ADMIN_API_TOKEN` fallback from
 public routes.
 
+### 8. PLATFORM — Team-catalog source unification
+
+Queued 2026-08-19 out of PR #498, which fixed the symptom and deliberately left the cause.
+
+**The problem.** There are TWO sources of truth for the team catalog. The durable one is
+`getTeamDatabaseItems()` (`src/lib/server/teamDatabaseStore.ts`), which the admin **Update Team
+Database** control refreshes from CFBD. The other is the checked-in `src/data/teams.json`,
+regenerated only by `npm run fetch:teams` and shipped in the bundle. Thirteen runtime consumers read
+the bundled file — nine static imports and four `fs` reads — and the draft board reads the durable
+one, so the two disagree from the moment an admin runs a sync that changes the FBS roster.
+
+**Proven harm, not theoretical.** On 2026-08-19 the durable catalog held 138 FBS teams (2026) while
+the seed held 136 (2025, pinned by `--year 2025` in `package.json`). The draft board offered North
+Dakota State and Sacramento State; `POST /api/draft/[slug]/[year]/pick` answered
+`400 — Team "…" not found in FBS catalog`, because `eligibleTeamNames` and the identity resolver are
+built from the seed. Reproduced at the HTTP surface: the same request returned 400 against the old
+seed and 200 against the new one, on one running server with only the file swapped.
+
+**Consumers of the bundled seed** (verified 2026-08-19):
+
+- Draft path — `league/[slug]/draft/setup/page.tsx`, `league/[slug]/draft/summary/page.tsx`,
+  `api/draft/[slug]/[year]/route.ts`, `.../confirm/route.ts`, `.../pick/route.ts`,
+  `.../pick/[n]/route.ts`
+- Admin — `admin/[slug]/roster/page.tsx`, `admin/[slug]/actions.ts`
+- Other subsystems — `lib/rankings/refreshAuthority.ts`, `api/scores/route.ts`,
+  `api/odds/route.ts`, `lib/odds/canonicalOddsContext.ts`, `lib/odds/oddsRefreshExecutor.ts`
+
+**What PR #498 did and did not do.** It realigned the seed to 138 and unpinned the generator, so the
+two agree TODAY. It removed neither the second source nor the silence: nothing compares them, so the
+next roster change — a mid-season correction, next year's realignment — reproduces the identical
+failure, on draft night, with no test, health card, or warning firing. The admin sync control still
+has no effect whatsoever on the draft write path, which is the misleading part for an operator who
+has just clicked it.
+
+**Two shapes, not mutually exclusive.**
+
+- _Interim guard._ A System Health comparison of the draft-eligible school sets derived from both
+  sources, so a divergence fails a visible check instead of a pick. Small, and it buys time.
+- _The unification._ Move the consumers onto the durable catalog and delete the bundled file as a
+  RUNTIME source, keeping it only as the file-fallback seed `teamDatabaseStore` already reads when
+  no durable record exists. Note the draft routes read the seed synchronously at module scope, so
+  this is not a mechanical import swap — each becomes an `await` inside a request, and
+  `pick/route.ts` documents that nothing pool-backed may run inside its key transaction.
+
+**Sequencing note.** Do the draft path first if these are split; it is the only consumer with a
+proven draft-blocking failure, and it is the one an operator reaches on draft night.
+
+- **Backlog slug (provisional):** `PLATFORM-TEAM-CATALOG-SOURCE-v1`
+- **Evidence:** PR #498 (`0ee181ea`; `ce68afce` + `b9f9e82f`). Both Codex and `/code-review` flagged
+  the missing divergence detector independently on the same commit.
+
 ## Unresolved decisions & known deferrals
 
 Explicitly deferred, not scheduled — this is their single canonical home (per `AGENTS.md`). Other
