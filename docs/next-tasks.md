@@ -1704,9 +1704,9 @@ Supersedes: (none)
     The likely answer is a third state for "kicked off, no score yet" rather than either existing
     label, which is the same evidence problem as 57 and probably wants the same input.
 
-59. **`AGENTS.md` and `docs/deployment-runbook.md` state opposite mechanisms for the preview build
-    gate, and the runbook is the one matching observed behaviour** (`/code-review`, 2026-08-18,
-    against `a8e5f4d8`; the defect is in `45d3e65b`, already on `main`).
+59. **✅ RESOLVED 2026-08-18 (`0232d525`, direct to `main`) — the preview build gate was documented
+    twice with opposite mechanisms.** Found by `/code-review` against `a8e5f4d8`; the defect was in
+    `45d3e65b`. Kept here because one part of it is still open, at the bottom.
 
     `AGENTS.md` → **Preview branch** says preview builds are gated by "a dashboard-level Ignored
     Build Step that allowlists refs by name (`main` and `preview` only)". `deployment-runbook.md`
@@ -1735,10 +1735,19 @@ Supersedes: (none)
     being consulted after all, or Vercel declining to rebuild a commit already deployed to
     production. Do not restate either as the mechanism without running it.
 
-    Fixing this means editing a binding rule already merged to `main`, so it is queued rather than
-    folded into POLISH-006, whose scope is a UI header removal. `CLAUDE.md`'s pointer paragraph
-    repeats the same allowlist claim and must change with it — and while there, it states a rule in
-    a file whose own header says it states none.
+    **Fixed in `0232d525`**, which was landed directly on `main` rather than folded into POLISH-006,
+    whose scope is a UI header removal. `AGENTS.md` now names the `ignoreCommand` and points at the
+    runbook as canonical, describes the dashboard field as present but overridden with an explicit
+    instruction not to reason from it, keeps the push cadence while correcting its premise, and says
+    a second preview branch lacks the alias rather than the build. `CLAUDE.md`'s paragraph is now a
+    pure pointer.
+
+    **STILL OPEN: why `preview-codex` produced no deployment is not established.** The observation
+    stands — push succeeded, no alias, HTTP 404 — but at least two explanations survive it: the
+    dashboard rule being consulted despite the override, or Vercel declining to rebuild a commit
+    already deployed to production (`3356c541` was live on `main` at the time). Nothing here should
+    be restated as the mechanism without running it. It only becomes load-bearing if a second
+    preview branch is ever actually wanted; the alias, not the build, is the real obstacle there.
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
