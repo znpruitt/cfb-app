@@ -95,8 +95,25 @@ export const NON_FBS_POLL_NAMES = [
   'AFCA Division III Coaches Poll',
 ] as const;
 
+/**
+ * The single normalization both the matcher and its callers must use. Round one
+ * compared a RAW provider name against `NON_FBS_POLL_NAMES` while matching
+ * trimmed-and-lowercased, so the two halves of one decision disagreed on what
+ * counted as the same name (`/code-review`, 2026-08-19).
+ */
+export function normalizePollName(rawPoll: string): string {
+  return rawPoll.trim().toLowerCase();
+}
+
+const NON_FBS_POLL_NAME_KEYS = new Set(NON_FBS_POLL_NAMES.map(normalizePollName));
+
+/** True for a poll CFBD serves that is knowingly not FBS — a refusal we expect. */
+export function isKnownNonFbsPoll(rawPoll: string): boolean {
+  return NON_FBS_POLL_NAME_KEYS.has(normalizePollName(rawPoll));
+}
+
 export function normalizePollSource(rawPoll: string): RankSource | null {
-  return POLL_SOURCE_BY_EXACT_NAME.get(rawPoll.trim().toLowerCase()) ?? null;
+  return POLL_SOURCE_BY_EXACT_NAME.get(normalizePollName(rawPoll)) ?? null;
 }
 
 export function selectPrimaryRankSource(

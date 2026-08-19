@@ -6634,8 +6634,21 @@ STATUS: MERGED — PR #493, merge commit `fc64391d`, 2026-08-18.
   `Map`, mutation-proven. And a refused poll name left no trace, so a provider RENAME was
   indistinguishable from a correctly-refused FCS poll on a season with no cached prior; unmatched
   names that are not the three known non-FBS polls now warn with the poll, season and week.
+- **Second remediation round, on explicit owner approval** (`AGENTS.md` → the one case it permits: a
+  narrow defect DIRECTLY CAUSED by the first round). The confirming passes were otherwise clean —
+  Codex found nothing, and `/code-review` independently re-ran the mutation proof, confirmed the
+  HIGH refutation, and added a second reason for it: the cron only targets `preseason`/`season`
+  registry years, so archived seasons can never be auto-refreshed into the lockout at all. Its one
+  LOW was in round one's own diagnostic: the warn-suppression compared the RAW provider name against
+  `NON_FBS_POLL_NAMES` while the matcher compared trimmed-and-lowercased, so a variant of a known
+  non-FBS poll was still refused but stopped counting as an EXPECTED refusal — every week of every
+  refresh would then log the alarm the line exists to keep meaningful. Both halves are now one
+  shared `normalizePollName`, plus `isKnownNonFbsPoll`, and warnings dedupe per distinct name per
+  refresh rather than firing once per poll per week.
 - Verification after remediation: `npx tsc --noEmit`, `npm run lint:all` and `npm test` each run as
-  their own command with unmasked exit status, all clean. Suite 4094 → 4099 (+5).
+  their own command with unmasked exit status, all clean. Suite 4094 → 4101 (+7). Round two is
+  mutation-proven in both halves: restoring the raw comparison fails two tests, and removing only
+  the dedupe fails one.
 
 STATUS: pending merge — branch `platform/104-poll-source-matching`.
 

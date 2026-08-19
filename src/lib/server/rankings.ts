@@ -21,7 +21,8 @@
 
 import { createTeamIdentityResolver } from '../teamIdentity.ts';
 import {
-  NON_FBS_POLL_NAMES,
+  isKnownNonFbsPoll,
+  normalizePollName,
   normalizePollSource,
   selectPrimaryRankSource,
   type CanonicalPollEntry,
@@ -117,8 +118,10 @@ function toCanonicalPollEntries(
 function mergeWeekRankings(params: {
   week: CfbdPollWeek;
   resolver: ReturnType<typeof createTeamIdentityResolver>;
+  /** Names already warned about in this refresh — shared across weeks. */
+  warnedPollNames?: Set<string>;
 }): RankingsWeek | null {
-  const { week, resolver } = params;
+  const { week, resolver, warnedPollNames } = params;
   const polls: Record<RankSource, CanonicalPollEntry[]> = {
     cfp: [],
     ap: [],
@@ -142,7 +145,14 @@ function mergeWeekRankings(params: {
       // only catches it on a season that already has a cached prior. Without
       // this line a renamed `Coaches Poll` would empty the column for a whole
       // fresh season with nothing to see (`/code-review`, 2026-08-19).
-      if (!NON_FBS_POLL_NAMES.includes(poll.poll as (typeof NON_FBS_POLL_NAMES)[number])) {
+      // Compared through the SAME normalizer the matcher uses, so a trailing
+      // space or case variant of a known non-FBS poll stays a known refusal
+      // instead of becoming the alarm. Warned once per distinct name per
+      // refresh — a rename affects every week, and 17 identical lines per cron
+      // run is the noise this signal has to stay clear of.
+      const key = normalizePollName(poll.poll);
+      if (!isKnownNonFbsPoll(poll.poll) && !warnedPollNames?.has(key)) {
+        warnedPollNames?.add(key);
         console.warn('rankings: unrecognised CFBD poll name refused', {
           poll: poll.poll,
           season: week.season,
@@ -223,8 +233,9 @@ export function normalizeCfbdRankingsWeeks(
   data: CfbdPollWeek[],
   resolver: ReturnType<typeof createTeamIdentityResolver>
 ): RankingsWeek[] {
+  const warnedPollNames = new Set<string>();
   return (data ?? [])
-    .map((week) => mergeWeekRankings({ week, resolver }))
+    .map((week) => mergeWeekRankings({ week, resolver, warnedPollNames }))
     .filter((week): week is RankingsWeek => Boolean(week))
     .sort(compareWeek);
 }

@@ -8,6 +8,7 @@ import {
   getDefaultRankingsSeason,
   getTeamRanking,
   NON_FBS_POLL_NAMES,
+  isKnownNonFbsPoll,
   normalizePollSource,
   selectPrimaryRankSource,
   selectRankingsWeek,
@@ -100,6 +101,61 @@ test('PLATFORM-104: inherited Object keys do not resolve to a poll source', () =
   for (const inherited of ['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty']) {
     assert.equal(normalizePollSource(inherited), null, `${inherited} must not resolve`);
   }
+});
+
+test('PLATFORM-104: a known non-FBS poll stays known through whitespace and case', () => {
+  // Round one compared the RAW provider name here while matching on the trimmed
+  // lowercased one, so a variant was still refused but stopped counting as an
+  // EXPECTED refusal — turning the diagnostic into the noise it exists to avoid.
+  for (const variant of [
+    'FCS Coaches Poll',
+    '  FCS Coaches Poll  ',
+    'fcs coaches poll',
+    'AFCA Division II Coaches Poll',
+    'afca division iii coaches poll',
+  ]) {
+    assert.equal(normalizePollSource(variant), null, `${variant} is still refused`);
+    assert.equal(isKnownNonFbsPoll(variant), true, `${variant} is a KNOWN refusal`);
+  }
+
+  // A genuine rename is not a known refusal — that is the case worth a warning.
+  assert.equal(isKnownNonFbsPoll('Coaches Poll Presented By Someone'), false);
+  assert.equal(isKnownNonFbsPoll('AP Top 25'), false);
+});
+
+test('PLATFORM-104: an unrecognised poll warns once per refresh, not once per week', () => {
+  const resolver = createTeamIdentityResolver({
+    aliasMap: SEED_ALIASES,
+    teams: teamsCatalog.items,
+  });
+
+  const week = (n: number) => ({
+    season: 2027,
+    seasonType: 'regular' as const,
+    week: n,
+    polls: [
+      { poll: 'AP Top 25', ranks: [{ school: 'Georgia', rank: 1, conference: 'SEC' }] },
+      // A rename affects every week of the season at once.
+      { poll: 'Coaches Poll Presented By Someone', ranks: [] },
+      // Known refusals must stay silent even in variant form.
+      { poll: '  FCS Coaches Poll  ', ranks: [] },
+    ],
+  });
+
+  const warnings: unknown[][] = [];
+  const original = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+  try {
+    normalizeCfbdRankingsWeeks([week(1), week(2), week(3), week(4)], resolver);
+  } finally {
+    console.warn = original;
+  }
+
+  assert.equal(warnings.length, 1, 'one warning for four weeks of the same rename');
+  assert.match(String(warnings[0]?.[0]), /unrecognised CFBD poll name refused/);
+  assert.equal((warnings[0]?.[1] as { poll?: string })?.poll, 'Coaches Poll Presented By Someone');
 });
 
 test('PLATFORM-104: the FCS Coaches Poll cannot displace the FBS Coaches Poll', () => {
