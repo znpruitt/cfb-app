@@ -22,7 +22,7 @@ import { type CombinedOdds } from '../lib/odds';
 import { isTruePostseasonGame } from '../lib/postseason-display';
 import { type ScorePack } from '../lib/scores';
 import type { AliasMap } from '../lib/teamNames';
-import { countRenderedMatchupCards, deriveWeekMatchupSections } from '../lib/matchups';
+import { deriveWeekMatchupSections } from '../lib/matchups';
 import type { StandingsCoverage } from '../lib/standings';
 import {
   deriveAutonomousOverviewScope,
@@ -660,10 +660,6 @@ export default function CFBScheduleApp({
   const postseasonMatchupSections = useMemo(
     () => deriveWeekMatchupSections(postseasonGames, rosterByTeam),
     [postseasonGames, rosterByTeam]
-  );
-  const renderedMatchupCardCount = useMemo(
-    () => countRenderedMatchupCards(matchupSections),
-    [matchupSections]
   );
 
   const canonicalPostseasonGames = useMemo(() => getCanonicalPostseasonGames(games), [games]);
@@ -1666,42 +1662,6 @@ export default function CFBScheduleApp({
 
       {canRenderPrimarySurface && (
         <>
-          {!isSeasonScopedView ? (
-            <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-6 text-gray-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
-              {selectedTab === 'postseason' ? (
-                <>
-                  <span className="font-semibold">Postseason</span> · {postseasonGames.length} game
-                  {postseasonGames.length === 1 ? '' : 's'} shown
-                </>
-              ) : (
-                <>
-                  <span className="font-semibold">Week {activeWeekForDisplay}</span>
-                  {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label ? (
-                    <> · {weekDateMetadataByWeek.get(activeWeekForDisplay)?.label}</>
-                  ) : null}{' '}
-                  {weekViewMode === 'matchups' ? (
-                    <>
-                      · {renderedMatchupCardCount} matchup card
-                      {renderedMatchupCardCount === 1 ? '' : 's'} shown
-                      {matchupSections.otherGames.length > 0 ? (
-                        <>
-                          {' '}
-                          · {matchupSections.otherGames.length} other game
-                          {matchupSections.otherGames.length === 1 ? '' : 's'} summarized below
-                        </>
-                      ) : null}
-                    </>
-                  ) : (
-                    <>
-                      · {filteredWeekGames.length} matchup
-                      {filteredWeekGames.length === 1 ? '' : 's'} shown
-                    </>
-                  )}
-                </>
-              )}
-            </div>
-          ) : null}
-
           {shouldShowWeekControls ? (
             <WeekControls
               weeks={weeks}
