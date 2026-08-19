@@ -148,6 +148,8 @@ export type AppGame = {
   date: string | null;
   stage: GameStage;
   status: GameStatus;
+  /** Raw provider schedule status, preserved for disruption-aware client behavior. */
+  rawStatus?: string | null;
   stageOrder: number;
   slotOrder: number;
   eventKey: string;
@@ -428,6 +430,7 @@ export function buildScheduleFromApi(params: {
         date: item.startDate,
         stage: 'conference_championship',
         status: mapStatus(item.status, !hasKnownTeams),
+        rawStatus: item.status ?? null,
         stageOrder: stageOrder('conference_championship'),
         slotOrder: item.slotOrder ?? 1,
         eventKey,
@@ -491,6 +494,7 @@ export function buildScheduleFromApi(params: {
         date: item.startDate,
         stage,
         status: hasKnownTeams ? 'matchup_set' : 'placeholder',
+        rawStatus: item.status ?? null,
         stageOrder: stageOrder(stage),
         slotOrder: item.slotOrder ?? 80,
         eventKey,
@@ -586,6 +590,7 @@ export function buildScheduleFromApi(params: {
         date: item.startDate,
         stage: classified.stage,
         status: hasKnownTeams ? 'matchup_set' : 'placeholder',
+        rawStatus: item.status ?? null,
         stageOrder: stageOrder(classified.stage),
         slotOrder: classified.slotOrder,
         eventKey: classified.eventKey,
@@ -664,6 +669,7 @@ export function buildScheduleFromApi(params: {
       date: item.startDate,
       stage: 'regular',
       status: mapStatus(item.status, false),
+      rawStatus: item.status ?? null,
       stageOrder: stageOrder('regular'),
       slotOrder: 0,
       eventKey: key,

@@ -11,6 +11,80 @@ const TEAMS: TeamCatalogItem[] = [
   { school: 'Beta U', level: 'FBS', conference: 'Big Ten' },
 ];
 
+function scheduleItem(overrides: Partial<ScheduleWireItem>): ScheduleWireItem {
+  return {
+    id: 'base',
+    week: 1,
+    startDate: '2031-09-06T17:00:00Z',
+    neutralSite: false,
+    conferenceGame: false,
+    homeTeam: 'Alpha U',
+    awayTeam: 'Beta U',
+    homeConference: 'SEC',
+    awayConference: 'Big Ten',
+    status: 'scheduled',
+    seasonType: 'regular',
+    ...overrides,
+  };
+}
+
+test('raw provider status survives all four canonical AppGame construction paths', () => {
+  const cases: Array<{ label: string; item: ScheduleWireItem; expectedStage: string }> = [
+    {
+      label: 'regular',
+      item: scheduleItem({ id: 'regular', status: 'canceled' }),
+      expectedStage: 'regular',
+    },
+    {
+      label: 'conference championship',
+      item: scheduleItem({
+        id: 'conference-championship',
+        status: 'STATUS_POSTPONED',
+        gamePhase: 'conference_championship',
+        regularSubtype: 'conference_championship',
+        conferenceChampionshipConference: 'SEC',
+      }),
+      expectedStage: 'conference_championship',
+    },
+    {
+      label: 'normalized postseason',
+      item: scheduleItem({
+        id: 'normalized-postseason',
+        status: 'suspended',
+        seasonType: 'postseason',
+        gamePhase: 'postseason',
+        postseasonSubtype: 'bowl',
+        eventKey: 'normalized-bowl',
+        label: 'Normalized Bowl',
+      }),
+      expectedStage: 'bowl',
+    },
+    {
+      label: 'legacy classified postseason',
+      item: scheduleItem({
+        id: 'legacy-postseason',
+        status: 'delayed',
+        seasonType: 'postseason',
+        gamePhase: null,
+        label: 'Legacy Bowl',
+      }),
+      expectedStage: 'bowl',
+    },
+  ];
+
+  for (const testCase of cases) {
+    const { games } = buildScheduleFromApi({
+      scheduleItems: [testCase.item],
+      teams: TEAMS,
+      aliasMap: {},
+      season: YEAR,
+    });
+    assert.equal(games.length, 1, `${testCase.label} should build one game`);
+    assert.equal(games[0]?.rawStatus, testCase.item.status, testCase.label);
+    assert.equal(games[0]?.stage, testCase.expectedStage, testCase.label);
+  }
+});
+
 // 30 — new schedule metadata survives provider → cache → canonical game.
 test('new schedule metadata survives provider → cache → canonical game', async () => {
   // A structured CFBD playoff national championship, with the new scalar flags.

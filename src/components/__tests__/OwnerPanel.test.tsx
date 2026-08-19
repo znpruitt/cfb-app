@@ -62,6 +62,18 @@ const snapshot: OwnerViewSnapshot = {
       liveGameKey: null,
     },
     {
+      teamName: 'Penn State',
+      record: '6–3',
+      nextOpponent: 'Iowa',
+      nextGameLabel: 'vs Iowa',
+      ownerTeamSide: 'home',
+      isNeutralSite: false,
+      nextKickoff: '2026-09-04T17:00:00.000Z',
+      currentStatus: 'Awaiting score',
+      currentScore: null,
+      liveGameKey: null,
+    },
+    {
       teamName: 'Oregon',
       record: '7–2',
       nextOpponent: 'Washington',
@@ -148,6 +160,7 @@ test('owner panel renders merged header navigation and team-based roster table',
   );
 
   assert.match(html, /Roster • Live • This week/);
+  assert.match(html, /Awaiting score/);
   assert.match(html, /aria-label="Previous owner: Foster"/);
   assert.match(html, /aria-label="Next owner: Foster"/);
   assert.doesNotMatch(html, /surname/i);

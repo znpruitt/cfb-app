@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
 import FeedbackForm from './FeedbackForm';
+import GameDayConfidenceIndicator from './GameDayConfidenceIndicator';
 import GameWeekPanel from './GameWeekPanel';
 import AppHeaderActions from './menu/AppHeaderActions';
 import MatchupMatrixView from './MatchupMatrixView';
@@ -33,6 +34,7 @@ import type { HighlightDrilldownTarget } from '../lib/highlightDrilldown';
 import { deriveOwnerViewSnapshot } from '../lib/ownerView';
 
 import { resolveOverviewCanonicalInputs } from '../lib/selectors/overview';
+import { selectGameDayConfidence } from '../lib/selectors/gameDayConfidence';
 import {
   formatDraftScheduleDetail,
   selectPreseasonBannerState,
@@ -300,10 +302,11 @@ export default function CFBScheduleApp({
   //    live-overlay staleness — a poll that succeeds with an unchanged score
   //    (halftime, delay) keeps the overlay fresh even though the snapshot does not
   //    advance. Using the snapshot here would false-dim the overlay every halftime.
-  // Written by the live path; no longer READ. The member-facing stamp moved to
-  // `scoresObservedAt`, which is the observation signal the "Tracking scores"
-  // sentence actually claims. Retired alongside `setOddsSnapshotAt` — see
-  // `docs/next-tasks.md` 56.
+  // `scoresSnapshotAt` is written by the live path but no longer read. The
+  // separate `scoresObservedAt` remains the existing LiveDelta staleness input;
+  // it is deliberately NOT evidence for the game-day confidence copy, which
+  // requires exact provider-attempt evidence from `useLiveRefresh` (POLISH-007).
+  // Retired snapshot-setter cleanup remains tracked in docs/next-tasks.md 56.
   const [, setScoresSnapshotAt] = useState<string | null>(null);
   const [scoresObservedAt, setScoresObservedAt] = useState<string | null>(null);
   // Periodically-updated clock so the live overlay's time-based staleness
@@ -727,6 +730,8 @@ export default function CFBScheduleApp({
         weekGames: selectedTab === 'postseason' ? postseasonGames : filteredWeekGames,
         rosterByTeam,
         scoresByKey,
+        gameDayContext:
+          liveStaleClock > 0 ? { season: selectedSeason, now: liveStaleClock } : undefined,
       }),
     [
       canonicalRows,
@@ -736,7 +741,9 @@ export default function CFBScheduleApp({
       rosterByTeam,
       scoresByKey,
       selectedOwner,
+      selectedSeason,
       selectedTab,
+      liveStaleClock,
     ]
   );
 
@@ -1037,7 +1044,7 @@ export default function CFBScheduleApp({
     router.refresh();
   }, [router]);
 
-  useLiveRefresh({
+  const { liveScoreObservation } = useLiveRefresh({
     selectedSeason,
     selectedTab,
     selectedWeek,
@@ -1069,6 +1076,20 @@ export default function CFBScheduleApp({
     // standings would stay tied to the render-time snapshot until navigation.
     onGamesFinalized: handleGamesFinalized,
   });
+
+  const gameDayConfidence = useMemo(
+    () =>
+      liveStaleClock > 0
+        ? selectGameDayConfidence({
+            games,
+            scoresByKey,
+            season: selectedSeason,
+            observation: liveScoreObservation,
+            now: liveStaleClock,
+          })
+        : null,
+    [games, liveScoreObservation, liveStaleClock, scoresByKey, selectedSeason]
+  );
 
   // PLATFORM-086C3: hydrate canonical Odds from the durable cache ONCE per season,
   // decoupled from live-score refresh and the kickoff window, so every cached line
@@ -1252,15 +1273,18 @@ export default function CFBScheduleApp({
                       .join(' ')
                   : 'League')}
             </h1>
-            <p className="mt-0.5 text-sm text-gray-500 dark:text-zinc-400">
-              {leagueStatus?.state === 'offseason'
-                ? weekViewMode === 'standings' && typeof mostRecentArchivedYear === 'number'
-                  ? `${mostRecentArchivedYear} Final Standings`
-                  : 'Offseason'
-                : leagueStatus?.state === 'preseason'
-                  ? `${leagueStatus.year} Pre-Season`
-                  : `${leagueYear ?? selectedSeason} Season`}
-            </p>
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+              <p className="text-sm text-gray-500 dark:text-zinc-400">
+                {leagueStatus?.state === 'offseason'
+                  ? weekViewMode === 'standings' && typeof mostRecentArchivedYear === 'number'
+                    ? `${mostRecentArchivedYear} Final Standings`
+                    : 'Offseason'
+                  : leagueStatus?.state === 'preseason'
+                    ? `${leagueStatus.year} Pre-Season`
+                    : `${leagueYear ?? selectedSeason} Season`}
+              </p>
+              <GameDayConfidenceIndicator confidence={gameDayConfidence} />
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-3">
             <AppHeaderActions

@@ -7,6 +7,7 @@ import {
   formatCompactGameStatus,
   formatScheduleStatusLabel,
   formatScoreSummaryLabel,
+  isCanceledOrPostponedStatusLabel,
   isCanceledStatusLabel,
   isDisruptedStatusLabel,
 } from '../gameStatus';
@@ -117,6 +118,23 @@ test('normalizes underscore/hyphen/spaced provider enum status labels (finding #
   assert.equal(classifyStatusLabel('STATUS_SCHEDULED'), 'scheduled');
   assert.equal(isDisruptedStatusLabel('STATUS_SCHEDULED'), false);
   assert.equal(isCanceledStatusLabel('STATUS_SCHEDULED'), false);
+});
+
+test('canceled-or-postponed polling semantics exclude only terminal disruptions', () => {
+  for (const terminal of ['canceled', 'Cancelled', 'STATUS_POSTPONED', 'status-postponed']) {
+    assert.equal(
+      isCanceledOrPostponedStatusLabel(terminal),
+      true,
+      `${terminal} should end polling`
+    );
+  }
+  for (const nonterminal of ['STATUS_DELAYED', 'STATUS_SUSPENDED', 'scheduled', null]) {
+    assert.equal(
+      isCanceledOrPostponedStatusLabel(nonterminal),
+      false,
+      `${nonterminal} should not end polling`
+    );
+  }
 });
 
 test('formats schedule labels consistently for placeholders and canonical statuses', () => {

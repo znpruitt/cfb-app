@@ -136,6 +136,19 @@ test('canceled/postponed drop out; finals and delayed/suspended stay eligible in
   assert.equal(isLiveScoreEligibleGame(inWindow, scorePack('scheduled'), NOW), true);
 });
 
+test('raw schedule disruptions govern eligibility before a score row exists', () => {
+  for (const rawStatus of ['canceled', 'Cancelled', 'postponed', 'STATUS_POSTPONED']) {
+    const disrupted = makeGame({ key: rawStatus, rawStatus });
+    assert.equal(isLiveScoreEligibleGame(disrupted, undefined, NOW), false, rawStatus);
+  }
+
+  // Delayed/suspended remain pollable so a resumed game can still attach scores.
+  for (const rawStatus of ['delayed', 'STATUS_SUSPENDED']) {
+    const disrupted = makeGame({ key: rawStatus, rawStatus });
+    assert.equal(isLiveScoreEligibleGame(disrupted, undefined, NOW), true, rawStatus);
+  }
+});
+
 test('selectLiveScorePollGames filters to eligible games, and is empty off the current season', () => {
   const games = [
     makeGame({ key: 'live', date: new Date(NOW_MS).toISOString() }),

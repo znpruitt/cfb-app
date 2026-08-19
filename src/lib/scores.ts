@@ -150,6 +150,17 @@ function extractMetaGeneratedAtMs(payload: unknown): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
+/** Exact-partition provider observation timestamp; never inferred from generatedAt. */
+function extractMetaLiveObservedAtMs(payload: unknown): number | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+  const meta = (payload as { meta?: unknown }).meta;
+  if (!meta || typeof meta !== 'object') return null;
+  const liveObservedAt = (meta as { liveObservedAt?: unknown }).liveObservedAt;
+  if (typeof liveObservedAt !== 'string') return null;
+  const ms = Date.parse(liveObservedAt);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 type ScoreFetchMode =
   | { kind: 'season'; weeks: number[]; seasonTypes: Array<'regular' | 'postseason'> }
   | {
@@ -170,7 +181,12 @@ async function fetchScoreRows(params: {
   apiBaseUrl?: string;
   refresh?: boolean;
   authHeaders?: HeadersInit;
-}): Promise<{ rows: ScoreRow[]; requestUrls: string[]; snapshotAt: string | null }> {
+}): Promise<{
+  rows: ScoreRow[];
+  requestUrls: string[];
+  snapshotAt: string | null;
+  liveObservedAt: string | null;
+}> {
   const { season, mode, issues, apiBaseUrl, refresh = false, authHeaders } = params;
 
   // Exact-partition (auto) reads are strictly cache-only: no refresh, no admin
@@ -217,6 +233,8 @@ async function fetchScoreRows(params: {
     // the whole overlay fresh). One failure suppresses the snapshot entirely, so
     // the client keeps its prior (older) freshness and the overlay ages honestly.
     let partitionReadFailed = false;
+    let oldestLiveObservationMs: number | null = null;
+    let liveObservationIncomplete = false;
     for (const { providerWeek, seasonType } of mode.partitions) {
       // `live=1` is a cache-only hint (NOT a refresh): it tells the route to
       // consult DURABLE app-state rather than serve a per-instance in-process
@@ -233,6 +251,7 @@ async function fetchScoreRows(params: {
         const err = await res.text().catch(() => '');
         issues.push(`Scores week ${providerWeek} (${seasonType}): ${res.status} ${err}`);
         partitionReadFailed = true;
+        liveObservationIncomplete = true;
         continue;
       }
       const json = await res.json();
@@ -246,6 +265,12 @@ async function fetchScoreRows(params: {
         });
       }
       noteSnapshot(json, raw.length);
+      const observedMs = extractMetaLiveObservedAtMs(json);
+      if (observedMs === null) {
+        liveObservationIncomplete = true;
+      } else if (oldestLiveObservationMs === null || observedMs < oldestLiveObservationMs) {
+        oldestLiveObservationMs = observedMs;
+      }
     }
 
     return {
@@ -255,6 +280,10 @@ async function fetchScoreRows(params: {
         partitionReadFailed || oldestSnapshotMs === null
           ? null
           : new Date(oldestSnapshotMs).toISOString(),
+      liveObservedAt:
+        partitionReadFailed || liveObservationIncomplete || oldestLiveObservationMs === null
+          ? null
+          : new Date(oldestLiveObservationMs).toISOString(),
     };
   }
 
@@ -317,6 +346,7 @@ async function fetchScoreRows(params: {
     rows,
     requestUrls,
     snapshotAt: oldestSnapshotMs === null ? null : new Date(oldestSnapshotMs).toISOString(),
+    liveObservedAt: null,
   };
 }
 
@@ -377,6 +407,11 @@ export async function fetchScoresByGame(params: {
    * from an empty/suppressed response's request-time.
    */
   snapshotAt: string | null;
+  /**
+   * Oldest clean exact-partition provider observation covering every requested
+   * partition. Null for hydration/manual modes or any incomplete response.
+   */
+  liveObservedAt: string | null;
   debugSnapshot?: {
     providerRowCount: number;
     attachedCount: number;
@@ -402,7 +437,7 @@ export async function fetchScoresByGame(params: {
   const issues: string[] = [];
 
   if (games.length === 0) {
-    return { scoresByKey: {}, issues, diag: [], snapshotAt: null };
+    return { scoresByKey: {}, issues, diag: [], snapshotAt: null, liveObservedAt: null };
   }
   const diag: ScoresDiagEntry[] = [];
 
@@ -450,7 +485,7 @@ export async function fetchScoresByGame(params: {
   }));
   const scheduleIndex = buildScheduleIndex(scheduleIndexGames, resolver);
 
-  const { rows, requestUrls, snapshotAt } = await fetchScoreRows({
+  const { rows, requestUrls, snapshotAt, liveObservedAt } = await fetchScoreRows({
     season,
     mode,
     issues,
@@ -502,6 +537,7 @@ export async function fetchScoresByGame(params: {
     issues,
     diag,
     snapshotAt,
+    liveObservedAt,
     debugSnapshot: debugTrace
       ? {
           providerRowCount: scopedRows.length,

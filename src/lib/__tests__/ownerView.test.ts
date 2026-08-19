@@ -305,3 +305,44 @@ test('POLISH-005: no attached score is not evidence of play', () => {
   assert.equal(rows.length, 1);
   assert.notEqual(rows[0]?.currentStatus, 'Live');
 });
+
+test('POLISH-007: a current-season game past kickoff without a score reads Awaiting score', () => {
+  const kickoff = '2026-09-05T17:00:00.000Z';
+  const rows = deriveOwnerRoster(
+    'Alice',
+    [mismatchGame({ key: 'g', date: kickoff })],
+    roster,
+    {},
+    { season: 2026, now: Date.parse(kickoff) + 60_000 }
+  );
+
+  assert.equal(rows[0]?.currentStatus, 'Awaiting score');
+});
+
+test('POLISH-007: Awaiting score is bounded and never replaces disrupted status', () => {
+  const kickoff = '2026-09-05T17:00:00.000Z';
+  const afterWindow = deriveOwnerRoster(
+    'Alice',
+    [mismatchGame({ key: 'g', date: kickoff })],
+    roster,
+    {},
+    { season: 2026, now: Date.parse(kickoff) + 25 * 60 * 60_000 }
+  );
+  assert.equal(afterWindow[0]?.currentStatus, 'Upcoming');
+
+  const delayed = deriveOwnerRoster(
+    'Alice',
+    [mismatchGame({ key: 'g', date: kickoff })],
+    roster,
+    {
+      g: {
+        status: 'STATUS_DELAYED',
+        time: 'Delayed',
+        away: { team: 'Wash St', score: null },
+        home: { team: 'Oregon', score: null },
+      },
+    },
+    { season: 2026, now: Date.parse(kickoff) + 60_000 }
+  );
+  assert.notEqual(delayed[0]?.currentStatus, 'Awaiting score');
+});

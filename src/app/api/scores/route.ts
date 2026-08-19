@@ -17,6 +17,7 @@ import { getAppState, withAppStateKeyTransaction } from '@/lib/server/appStateSt
 import { scoresAggregateScope, scoresPartitionScope } from '@/lib/providerRefreshScope';
 import {
   beginProviderRefreshAttempt,
+  getProviderRefreshStatus,
   nextProviderCommitSeq,
   recordProviderRefreshFailure,
   recordProviderRefreshNoop,
@@ -187,6 +188,32 @@ async function aggregateSeasonScoresResponse(params: {
  * an admin score correction that landed only in the aggregate — the served rows
  * match the reconciled view standings use. Cache-only; no provider call.
  */
+async function readLiveObservation(params: {
+  year: number;
+  week: number;
+  seasonType: SeasonType;
+}): Promise<string | undefined> {
+  const { year, week, seasonType } = params;
+  try {
+    const status = await getProviderRefreshStatus(
+      'scores',
+      scoresPartitionScope(year, week, seasonType)
+    );
+    const resolvedAt = status.latestAttemptResolvedAt;
+    if (
+      status.source === 'cfbd' &&
+      (status.latestAttemptOutcome === 'succeeded' || status.latestAttemptOutcome === 'no-op') &&
+      resolvedAt &&
+      Number.isFinite(Date.parse(resolvedAt))
+    ) {
+      return resolvedAt;
+    }
+  } catch {
+    // Best-effort evidence. Durable score reads continue if status is down.
+  }
+  return undefined;
+}
+
 async function reconciledLiveWeekResponse(params: {
   year: number;
   week: number;
@@ -195,7 +222,15 @@ async function reconciledLiveWeekResponse(params: {
 }) {
   const { year, week, seasonType, now } = params;
 
-  const [teams, aliasMap] = await Promise.all([readTeamsCatalog(), getScopedAliasMap('', year)]);
+  // Provider-refresh status is observability only: it never selects or changes
+  // score rows. For the member confidence layer, a resolved exact-scope CFBD
+  // success/no-op is safe evidence that this partition was actually checked.
+  // A read failure or any other outcome simply withholds the optional claim.
+  const [teams, aliasMap, liveObservedAt] = await Promise.all([
+    readTeamsCatalog(),
+    getScopedAliasMap('', year),
+    readLiveObservation({ year, week, seasonType }),
+  ]);
   const { items, newest, newestEffectiveAt } = await loadReconciledWeekScores({
     year,
     week,
@@ -214,6 +249,7 @@ async function reconciledLiveWeekResponse(params: {
       fallbackUsed: false,
       generatedAt: new Date(now).toISOString(),
       cfbdFallbackReason: 'upstream-suppressed',
+      ...(liveObservedAt ? { liveObservedAt } : {}),
     });
   }
 
@@ -230,6 +266,7 @@ async function reconciledLiveWeekResponse(params: {
     fallbackUsed: newest.source === 'espn',
     generatedAt: new Date(freshnessAt).toISOString(),
     cfbdFallbackReason: newest.cfbdFallbackReason,
+    ...(liveObservedAt ? { liveObservedAt } : {}),
   });
 }
 

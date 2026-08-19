@@ -48,6 +48,12 @@ export interface ScoresMeta {
   fallbackUsed: boolean;
   generatedAt: string;
   cfbdFallbackReason: CfbdFallbackReason;
+  /**
+   * Resolution time of a clean provider attempt for this exact live week
+   * partition. Present only on `live=1` cache reads; it is observability
+   * evidence for bounded member copy, never canonical score data or freshness.
+   */
+  liveObservedAt?: string;
 }
 
 export interface ScoresResponse {
