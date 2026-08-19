@@ -3857,6 +3857,23 @@ Key architectural decisions across Phase 5:
   owns missing-status recovery, F2H2 owns rollover/archive/backfill convergence, and F2H3 owns the
   operator presentation.
 
+### POLISH-007 — Game-Day Confidence Layer — Complete
+
+- **Status:** Complete — merged to `main` via PR #495 (merge commit `3a76fca3`), 2026-08-19.
+- **PROMPT_ID(s):** `POLISH-007-GAME-DAY-CONFIDENCE-LAYER-v1`.
+- **Outcome:** Members now receive a bounded, neutral game-day signal: preparing only near kickoff,
+  waiting only while an eligible score is absent, and tracking only after a recent exact-partition
+  provider observation attaches an in-progress score in the same read. Owned-team rows use
+  `Awaiting score` in the bounded post-kickoff gap. Known schedule or score disruptions suppress
+  unsupported claims, and the accessible status region remains mounted while idle.
+- **Verification:** Regression coverage pins exact-scope observation and same-read attachment,
+  score-finality precedence over stale in-progress schedule status, raw CFBD disruption propagation
+  across all canonical game constructors, and aligned browser/server disruption handling. Independent
+  review reproduced the original disruption defect and confirmed its repair; the focused confidence
+  suite, full 4,126-test suite, TypeScript, `lint:all`, and diff check passed on the PR head that was
+  merged.
+- **Open follow-ups:** See the canonical deferral in `docs/next-tasks.md`.
+
 ---
 
 ### Template for future entries

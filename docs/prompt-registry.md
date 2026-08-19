@@ -72,9 +72,8 @@ Rules:
   selector mutant fails exactly one confidence test, and trusting historical success after a failed
   exact-scope attempt fails exactly one scores-route test. `npx tsc --noEmit`, `npm run lint:all`,
   `git diff --check`, and the full suite 4126/4126 all pass.
-- Status: Implemented on `polish/007-game-day-confidence`; draft PR #495 open (2026-08-19).
-  Deliberately separate from Claude's PLATFORM-104 work; no PLATFORM-104 registry entry was added
-  here.
+- Status: Merged (PR #495, merge commit `3a76fca3`, 2026-08-19). Deliberately separate from
+  Claude's PLATFORM-104 work; no PLATFORM-104 registry entry was added here.
 
 ### INSIGHTS-032-SEASON-RECAP-v2
 
