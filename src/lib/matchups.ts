@@ -448,12 +448,3 @@ export function deriveOwnerWeekSlates(
     })
     .sort(compareSlates);
 }
-
-export function countRenderedMatchupCards(sections: WeekMatchupSections): number {
-  const owners = new Set<string>();
-  for (const bucket of [...sections.ownerMatchups, ...sections.secondaryGames]) {
-    if (bucket.awayOwner) owners.add(bucket.awayOwner);
-    if (bucket.homeOwner) owners.add(bucket.homeOwner);
-  }
-  return owners.size;
-}

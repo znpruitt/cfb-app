@@ -34,6 +34,53 @@ test('week tabs render dynamic canonical date sublabels', () => {
   assert.match(html, /Postseason/);
 });
 
+test('POLISH-006: the selected week is exposed to assistive technology, not only by styling', () => {
+  // The removed week summary bar was the only textual statement of the active
+  // week. These buttons carried the selection in CSS classes alone, so a screen
+  // reader announced every week identically once that text was gone.
+  const html = renderToStaticMarkup(
+    <WeekControls
+      weeks={[1, 2]}
+      weekDateLabels={new Map()}
+      selectedTab={2}
+      hasPostseason={true}
+      selectedConference="ALL"
+      conferences={['ALL']}
+      teamFilter=""
+      onSelectWeek={() => {}}
+      onSelectPostseason={() => {}}
+      onSelectedConferenceChange={() => {}}
+      onTeamFilterChange={() => {}}
+    />
+  );
+
+  // Exactly one control is current: the selected week, and not its neighbour
+  // or the postseason button.
+  assert.equal(html.match(/aria-current="true"/g)?.length, 1);
+  assert.match(html, /aria-current="true"><span class="font-medium">Week 2</);
+});
+
+test('POLISH-006: postseason carries the current marker when it is the selection', () => {
+  const html = renderToStaticMarkup(
+    <WeekControls
+      weeks={[1]}
+      weekDateLabels={new Map()}
+      selectedTab="postseason"
+      hasPostseason={true}
+      selectedConference="ALL"
+      conferences={['ALL']}
+      teamFilter=""
+      onSelectWeek={() => {}}
+      onSelectPostseason={() => {}}
+      onSelectedConferenceChange={() => {}}
+      onTeamFilterChange={() => {}}
+    />
+  );
+
+  assert.equal(html.match(/aria-current="true"/g)?.length, 1);
+  assert.match(html, /aria-current="true">Postseason</);
+});
+
 test('week tabs are visually de-emphasized when a season-scoped view is active', () => {
   const html = renderToStaticMarkup(
     <WeekControls

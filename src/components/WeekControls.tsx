@@ -81,6 +81,7 @@ export default function WeekControls({
                   : 'border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100'
               }`}
               onClick={() => onSelectWeek(w)}
+              aria-current={selectedTab === w ? 'true' : undefined}
             >
               <span className="font-medium">Week {w}</span>
               {dateLabel && (
@@ -102,6 +103,7 @@ export default function WeekControls({
                 : 'border-gray-300 bg-white text-gray-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100'
             }`}
             onClick={onSelectPostseason}
+            aria-current={selectedTab === 'postseason' ? 'true' : undefined}
           >
             Postseason
           </button>

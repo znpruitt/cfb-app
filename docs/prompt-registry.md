@@ -6463,6 +6463,71 @@ STATUS: MERGED — PR #487, merge commit `0d28595b`, 2026-08-17.
 
 STATUS: MERGED — PR #491, merge commit `c08667f3`, 2026-08-18.
 
+### POLISH-006-MATCHUPS-HEADER-REMOVAL-v1
+
+- Purpose: Remove the week summary bar above the week pills on the league surface. Owner framing,
+  2026-08-18: "the bar is just carrying duplicative information that is already presented more
+  cleanly on the page, i would argue for full removal of it."
+- Scope: `CFBScheduleApp`, `WeekControls`, `src/lib/matchups.ts`, the `CFBScheduleApp` and
+  `WeekControls` tests, and the queue/registry entries. No selector, route, or data-model change.
+  `WeekControls` entered scope at review — see the accessibility finding below.
+- **Every fact in the bar was already on the page, stated better below it.** `Week 1` and
+  `Aug 29 – Sep 7` are the selected week pill and its second line; `0 matchup cards shown` is
+  "No owner-relevant games for this week."; `100 other games summarized below` is the excluded-games
+  panel's "100 excluded games do not involve owned teams."
+- **`DESIGN.md` already prohibited it, on two independent rules** — an element that duplicates
+  information available elsewhere must be removed, and coverage counters are named explicitly as
+  operator diagnostics that do not belong on a member surface, with `Scores available for 98/100
+  games.` as the worked example. This was a standing violation, not a taste call. It is the same
+  class POLISH-005 removed elsewhere; this instance survived because that sweep never opened the
+  header that actually renders.
+- **The counter was also mislabelled.** `countRenderedMatchupCards` returned `owners.size` — a count
+  of distinct owners — presented to members as a count of matchup cards. Nothing else consumed it,
+  so it is deleted with the memo and the import.
+- **Removal cannot orphan the week context, by construction.** `PrimarySurfaceKind` is an eight
+  member union that `isSeasonScopedView` (`overview`, `standings`, `owner`, `rankings`) and
+  `shouldShowWeekControls` (`schedule`, `matchups`, `matrix`, `postseason`) partition exactly, so
+  `!isSeasonScopedView` is equivalent to `shouldShowWeekControls` and the bar could never render
+  without the week pills carrying the same week and dates.
+- **Removing the bar was an accessibility regression, and that is why `WeekControls` changed.**
+  Codex (P2) found that the week pills carry selection in CSS classes alone — the file had no `aria-`
+  attribute of any kind — so once the bar's `Week 1` text was gone, a screen reader announced every
+  week identically and no control was programmatically current. The bar was incidental cover for a
+  gap that predates this slice. Fixed at the control rather than by restoring text, which `DESIGN.md`
+  forbids: `aria-current` now marks the selected week or the postseason button.
+- Verification: `npx tsc --noEmit`, `npm run lint:all`, and `npm test` each run as their own command
+  with unmasked exit status, all clean. Full suite 4046 → 4050 (+4), both totals run — the baseline
+  measured on `45d3e65b`, not remembered. Every added assertion is mutation-proven: reintroducing the
+  removed copy fails one test and only that one, and deleting `aria-current` fails one and only one.
+- **Two test names overstated what they asserted, both caught in review and both corrected.** One
+  claimed "every week-scoped view" while its loop covered three of the four; it is renamed to the
+  three it runs. The other promised the week "and its dates" while asserting only `Week 1` / `Week 2`,
+  so deleting the date span in `WeekControls` would have left it green under its own title — it now
+  asserts `data-week-date-label`.
+- **The `aria-current` assertion lives in `WeekControls.test.tsx`, not the app-level test, and that
+  relocation is the finding.** Asserted at `CFBScheduleApp` it failed: `selectedTab` initialises to
+  `null` and is only assigned from an effect, so in a static render NO week is selected and nothing
+  is current. `WeekControls` takes `selectedTab` as a prop, so the same guarantee is directly
+  reachable there. Same harness limit as the postseason arm below, closed the same way POLISH-005
+  closed its own — move the guarantee to where the harness can reach it.
+- **The postseason arm of the removed conditional is gone by construction but is NOT separately
+  asserted.** `selectedTab` initialises to `null` and is only assigned from an effect, and the
+  component harness renders through `renderToStaticMarkup`, which never runs effects — no fixture
+  reaches that state. This is the same harness limit already recorded in `docs/next-tasks.md` 56
+  ("the postseason tab is not reachable in a static render — there is no prop to select it"); this
+  slice is a second instance of it, not a new deferral.
+
+- Review: both reviewers run against `a8e5f4d8`, gathered before any remediation, one round applied.
+  `/code-review` confirmed the code change independently — it re-ran the mutation rather than trusting
+  the ledger — and found no correctness defect in it. Its finding that this slice's registry Scope
+  omitted an `AGENTS.md` governance change is **rejected**: that change is commit `45d3e65b`, which is
+  already on `main`, and PR #492 carries five files with neither `AGENTS.md` nor `CLAUDE.md` among
+  them. The reviewer's local `main` ref was stale, so the diff attributed a merged commit to this
+  branch. Its remaining findings concern that already-merged docs commit, not this slice, and are
+  routed outside POLISH-006 — see `docs/next-tasks.md` 59.
+
+STATUS: pending merge — branch `polish/006-matchups-header-removal`.
+
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
 
 - Purpose: [one sentence]

@@ -748,6 +748,65 @@ test('POLISH-005: an ADMIN keeps the rebuild path on a fatal schedule failure', 
   assert.doesNotMatch(member, /Rebuild schedule/);
 });
 
+test('POLISH-006: the week summary bar is gone from the matchups, schedule and matrix views', () => {
+  // The bar restated the selected week, its date range, and a count of what was
+  // already on screen. DESIGN.md bans coverage counters outright, and each panel
+  // states its own empty case, so nothing here is the only statement of a fact.
+  const games = [
+    game({ key: 'week-1', week: 1, csvAway: 'Texas', csvHome: 'Oklahoma' }),
+    game({ key: 'week-2', week: 2, csvAway: 'Notre Dame', csvHome: 'USC' }),
+  ];
+  const roster = [
+    { owner: 'Alice', team: 'Texas' },
+    { owner: 'Bob', team: 'Oklahoma' },
+  ];
+
+  for (const mode of ['matchups', 'schedule', 'matrix'] as const) {
+    const html = renderWithAppContext(
+      <CFBScheduleApp
+        initialWeekViewMode={mode}
+        initialGames={games}
+        initialRoster={roster}
+        canonicalStandings={canonicalStandings(['Alice', 'Bob'])}
+      />
+    );
+
+    // Positive control: the week surface really rendered in this mode, so the
+    // absence assertions below are reached rather than passing on a blank page.
+    assert.match(html, /Team filter/, `${mode}: week controls rendered`);
+
+    assert.doesNotMatch(html, /matchup cards? shown/, `${mode}: no card counter`);
+    assert.doesNotMatch(html, /games? summarized below/, `${mode}: no summary counter`);
+    assert.doesNotMatch(html, /matchups? shown/, `${mode}: no matchup counter`);
+    assert.doesNotMatch(html, /games? shown/, `${mode}: no game counter`);
+  }
+});
+
+test('POLISH-006: removing the bar keeps the week and its dates on the page', () => {
+  // The bar was the second place these appeared. The week pills are the first,
+  // and they render whenever the bar used to: `PrimarySurfaceKind` is an eight
+  // member union that `isSeasonScopedView` and `shouldShowWeekControls` split
+  // exactly, so the bar could never appear without them.
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      initialWeekViewMode="matchups"
+      initialGames={[game({ key: 'week-1', week: 1 }), game({ key: 'week-2', week: 2 })]}
+    />
+  );
+
+  assert.match(html, /Week 1/, 'selected week still identified');
+  assert.match(html, /Week 2/, 'other weeks still selectable');
+
+  // The date half of this test's name was previously unasserted, so deleting the
+  // date span in WeekControls would have left it green under its own title.
+  assert.match(html, /data-week-date-label="1"/, 'week 1 still carries its dates');
+  assert.match(html, /data-week-date-label="2"/, 'week 2 still carries its dates');
+
+  // The selection itself is asserted in WeekControls.test.tsx, not here:
+  // `selectedTab` initialises to null and is only assigned from an effect, which
+  // renderToStaticMarkup never runs, so no week is selected in this harness.
+});
+
 test('POLISH-005: no admin-only affordance is offered to a member', () => {
   // Both are refused server-side, so rendering them only produced buttons that
   // always fail: `/api/schedule` rejects `bypassCache` without admin, and
