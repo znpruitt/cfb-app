@@ -1,12 +1,15 @@
 /* scripts/fetch-cfbd-teams.ts
  * Build a local team catalog with smart aliases by combining CFBD data + derived variants
- * Run: npx tsx scripts/fetch-cfbd-teams.ts --year 2025
+ * Run: npx tsx scripts/fetch-cfbd-teams.ts            (current season)
+ *      npx tsx scripts/fetch-cfbd-teams.ts --year 2025  (pin a season)
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import dotenv from 'dotenv';
+
+import { parseSeasonArg } from '../src/lib/cli/seasonArg.ts';
 
 // Load .env.local explicitly (fallback .env)
 const root = process.cwd();
@@ -43,11 +46,29 @@ type CatalogItem = {
   alts: string[]; // lowercased, deduped aliases
 };
 
-const yearArg = (() => {
-  const i = process.argv.indexOf('--year');
-  if (i >= 0 && process.argv[i + 1]) return Number.parseInt(process.argv[i + 1]!, 10);
-  return new Date().getFullYear();
+/**
+ * An explicit `--year <n>` pins the fetch to that season. With NO flag the year
+ * parameter is omitted entirely — which is exactly what `buildCfbdTeamsUrl()`
+ * (the admin resync path) does, so CFBD answers for the CURRENT season.
+ *
+ * These two paths MUST agree. A year pinned here is how the checked-in seed
+ * drifted to 136 teams (2025) while the synced durable catalog held 138 (2026):
+ * the draft board reads the durable catalog but the draft write path reads this
+ * file, so the board offered two teams that pick/confirm then rejected.
+ * Defaulting to `new Date().getFullYear()` is NOT equivalent — in the Jan-July
+ * offseason that names a season CFBD has no roster for yet.
+ */
+const season = (() => {
+  const parsed = parseSeasonArg(process.argv);
+  if (parsed.kind === 'invalid') {
+    console.error(`✗ fetch-cfbd-teams: ${parsed.message}`);
+    process.exit(1);
+  }
+  return parsed;
 })();
+
+/** The pinned season, or `null` when the fetch takes CFBD's current one. */
+const yearArg = season.kind === 'pinned' ? season.year : null;
 
 /** Lightweight normalizers & alias builders **/
 const stripDiacritics = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -180,7 +201,7 @@ async function main(): Promise<void> {
   const apiKey = requiredEnv('CFBD_API_KEY');
 
   const url = new URL('https://api.collegefootballdata.com/teams/fbs');
-  url.searchParams.set('year', String(yearArg));
+  if (yearArg !== null) url.searchParams.set('year', String(yearArg));
 
   const res = await fetch(url.toString(), {
     headers: {
@@ -216,12 +237,30 @@ async function main(): Promise<void> {
 
   const outFile = path.join(outDir, 'teams.json');
 
-  const payload = { year: yearArg, items };
+  // Record a season ONLY when one was explicitly pinned. An unpinned fetch omits
+  // the year parameter, so CFBD chooses the season and never reports which one it
+  // chose — no row in the response carries a season. Stamping
+  // `new Date().getFullYear()` here would assert a season nobody verified: in the
+  // Jan-July offseason it names the season AFTER the roster actually served, and a
+  // silently-wrong season label is the exact drift this file exists to repair.
+  // `fetchedAt` records what we DO know, and is the staleness signal the year
+  // field was wrongly standing in for.
+  const payload = {
+    ...(yearArg !== null ? { year: yearArg } : {}),
+    fetchedAt: new Date().toISOString(),
+    items,
+  };
   fs.writeFileSync(outFile, JSON.stringify(payload, null, 2), 'utf8');
 
   console.log(
-    `✓ Saved ${items.length} teams with aliases to:\n  - ${path.relative(root, outFile)}`
+    `✓ Saved ${items.length} teams (${
+      yearArg !== null ? `pinned season ${yearArg}` : "CFBD's current season"
+    }) with aliases to:\n  - ${path.relative(root, outFile)}`
   );
+  // `JSON.stringify(…, 2)` is not Prettier's JSON style, and `src/data` IS covered
+  // by `lint:all:format` — so regenerating without reformatting fails the pre-merge
+  // gate on a file this script just wrote.
+  console.log('  next: npx prettier --write src/data/teams.json');
 }
 
 main().catch((err) => {

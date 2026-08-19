@@ -174,7 +174,7 @@ test.after(() => {
 });
 
 test('confirm succeeds for a complete draft against the current teams.json (no classification)', async () => {
-  // 2 owners → an even split with zero remainder for the typical 136-team catalog.
+  // 2 owners → an even split with zero remainder for an even-sized catalog.
   const { draft, totalPicks } = completeDraft(2);
   await setAppState<DraftState>(draftScope(SLUG), String(YEAR), draft);
 
@@ -203,12 +203,30 @@ test('confirm succeeds for a complete draft against the current teams.json (no c
   assert.equal(rows[0], 'team,owner');
 });
 
+/**
+ * An owner count that genuinely leaves undrafted teams for the CURRENT catalog.
+ * Hardcoding one goes vacuous the moment the catalog resizes: 3 owners left a
+ * remainder against the 136-team 2025 catalog and leaves exactly zero against
+ * the 138-team 2026 one, so the case below would have silently stopped
+ * exercising NoClaim rows. Derived here, with the assertion kept as a live
+ * positive control.
+ */
+const OWNERS_LEAVING_REMAINDER = (() => {
+  for (let n = 2; n <= 12; n += 1) {
+    if (ELIGIBLE.length % n !== 0) return n;
+  }
+  throw new Error(`no owner count in 2..12 leaves a remainder for ${ELIGIBLE.length} teams`);
+})();
+
 test('confirm writes NoClaim rows for undrafted eligible teams (remainder)', async () => {
-  // 3 owners leaves a remainder of eligible teams undrafted; those must be written
-  // as NoClaim rows, and the eligible set itself must never include NoClaim.
-  const { draft, totalPicks } = completeDraft(3);
+  // A remainder of eligible teams goes undrafted; those must be written as
+  // NoClaim rows, and the eligible set itself must never include NoClaim.
+  const { draft, totalPicks } = completeDraft(OWNERS_LEAVING_REMAINDER);
   const remainder = ELIGIBLE.length - totalPicks;
-  assert.ok(remainder > 0, 'fixture expectation: 3 owners leave an undrafted remainder');
+  assert.ok(
+    remainder > 0,
+    `fixture expectation: ${OWNERS_LEAVING_REMAINDER} owners leave an undrafted remainder`
+  );
 
   await setAppState<DraftState>(draftScope(SLUG), String(YEAR), draft);
 
@@ -227,7 +245,7 @@ test('confirm writes NoClaim rows for undrafted eligible teams (remainder)', asy
 test('confirm honors a sub-maximum configured round count (does not demand max rounds)', async () => {
   // A 2-owner, 1-round draft completes at 2 picks. Confirmation must derive the
   // expected count from settings.totalRounds (2), NOT from floor(eligible/owners)
-  // (which would expect the full 136-team catalog and 422 every short draft). All
+  // (which would expect the FULL eligible catalog and 422 every short draft). All
   // remaining eligible teams are written as NoClaim.
   const rounds = 1;
   const { draft, totalPicks } = completeDraft(2, rounds);
