@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { GET, PUT } from './route';
+import { GET, PUT } from '../route';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
-} from '../../../lib/server/appStateStore.ts';
+} from '@/lib/server/appStateStore.ts';
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 const ORIGINAL_ADMIN_API_TOKEN = process.env.ADMIN_API_TOKEN;

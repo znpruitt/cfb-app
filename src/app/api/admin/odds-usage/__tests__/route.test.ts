@@ -7,7 +7,7 @@ import {
   captureOddsUsageSnapshot,
 } from '@/lib/server/oddsUsageStore';
 
-import { GET } from './route';
+import { GET } from '../route';
 
 test.beforeEach(async () => {
   await __deleteOddsUsageStoreFileForTests();

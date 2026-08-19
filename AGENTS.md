@@ -229,7 +229,7 @@ Preferred checks:
 
 - `npm run lint`
 - `npx tsc --noEmit`
-- `npm test` — runs the full test suite via Node's built-in `node:test` runner with the `tsx` loader. Tests live in `src/**/__tests__/`. There is no separate test runner config (no vitest/jest); the script is defined in `package.json`. The full suite is now deterministic and green (the earlier Overview-related hang was fixed under the `TEST-SUITE-BASELINE-CLEANUP` arc), so it is a valid verification gate. Scoped suites are still fine — and faster — for tightly-focused changes; see `## Verification and reference conventions` below.
+- `npm test` — runs the full test suite via Node's built-in `node:test` runner with the `tsx` loader. Executable `*.test.ts` / `*.test.tsx` files live under the nearest `__tests__/`; the full-suite glob deliberately scans every test below `src/`, and a layout guard rejects tests outside that convention so none can silently fall out of the gate. There is no separate test runner config (no vitest/jest); the scripts are defined in `package.json`. The full suite is deterministic and green (the earlier Overview-related hang was fixed under the `TEST-SUITE-BASELINE-CLEANUP` arc), so it is a valid verification gate. Use `npm run test:file -- <path...>` for exact files, or `npm run test:lib`, `npm run test:api`, and `npm run test:components` for focused subsystem runs.
 
 When practical, verify key runtime flows still behave:
 
@@ -246,7 +246,8 @@ When practical, verify key runtime flows still behave:
 
 1. **The full `npm test` suite is a valid verification gate; scoped suites are the fast path.**
    - The historical Overview-related full-suite hang was fixed under the `TEST-SUITE-BASELINE-CLEANUP` arc (`--test-timeout` + baseline cleanup + per-process app-state isolation), so `npm test` now runs deterministically to completion. Do not repeat the old "the full suite hangs / gives no signal" warning.
-   - For tightly-scoped changes, running only the relevant test files plus selector tests in `src/lib/selectors/__tests__/` is still the quickest way to iterate.
+   - For tightly-scoped changes, `npm run test:file -- <path-or-glob...>` plus selector tests in `src/lib/selectors/__tests__/` is the quickest way to iterate; the subsystem scripts provide broader, intentionally overlapping intermediate slices rather than a partition of the full suite.
+   - Keep helpers used only by one domain beside that domain's suites. New or relocated fixtures and harnesses imported across subsystem boundaries belong under `src/test/`; do not create more cross-domain imports from another subsystem's `__tests__/` directory. Existing violations are tracked as cleanup debt in `docs/next-tasks.md` item 48.
    - Report the TEST DELTA and the risk each new test protects, not a raw suite total — see **Verification → Test accounting**. The historical "71-failure" full-suite baseline is obsolete; do not compare against it.
 
 2. **Visual references must exist at the path a prompt references.**

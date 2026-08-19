@@ -48,7 +48,7 @@ lives under `src/lib/` (cross-surface derived view models in
 
 ## Getting started
 
-Requires Node.js and npm. Set the provider/auth environment variables described
+Requires Node.js 22 or newer and npm. Set the provider/auth environment variables described
 in the deployment docs (see below) before running against live data — no secrets
 are reproduced here.
 
@@ -65,7 +65,14 @@ All commands are defined in [`package.json`](package.json):
 - `npm run build` — production build.
 - `npm start` — serve the production build.
 - `npm test` — full test suite (Node's built-in test runner via the `tsx`
-  loader; tests live in `src/**/__tests__/`). There is no Vitest/Jest.
+  loader). Executable tests live under the nearest `__tests__/`; the full glob
+  is deliberately broader so a misplaced test cannot silently disappear.
+- `npm run test:file -- <path-or-glob...>` — run one or more exact test files or
+  globs with the same isolation, TypeScript config, and timeout as the full
+  suite. Exact App Router paths containing `[brackets]` are handled literally.
+- `npm run test:lib`, `npm run test:api`, and `npm run test:components` — focused
+  subsystem slices for local iteration; they overlap with and do not partition
+  the full suite.
 - `npm run lint` — fast, scoped ESLint + Prettier + markdown lint for local
   iteration (skips test/data paths).
 - `npm run lint:all` — full-project lint (includes test files). **Run this
@@ -74,12 +81,10 @@ All commands are defined in [`package.json`](package.json):
 - `npx tsc --noEmit` — type-check.
 - `npm run fetch:teams` — regenerate `src/data/teams.json` from CFBD.
 
-To run a single test file, set the same env vars the `npm test` script uses
-(app-state isolation + the test tsconfig) so results match the full suite:
+To run a single test file with the same environment as the full suite:
 
 ```bash
-APP_STATE_TEST_ISOLATION=1 TSX_TSCONFIG_PATH=tsconfig.test.json \
-  node --import tsx --test src/path/to/__tests__/file.test.ts
+npm run test:file -- src/path/to/__tests__/file.test.ts
 ```
 
 See `AGENTS.md` → "Verification and reference conventions" and

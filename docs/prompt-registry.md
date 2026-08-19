@@ -6528,6 +6528,46 @@ STATUS: MERGED — PR #491, merge commit `c08667f3`, 2026-08-18.
 
 STATUS: MERGED — PR #492, merge commit `5abed2ff`, 2026-08-18.
 
+### PLATFORM-103-TEST-SUITE-HYGIENE-v1
+
+- Purpose: Make test discovery truthful and give the growing Node test suite focused iteration
+  commands without changing application behavior or migrating test frameworks.
+- Scope: `package.json`, the Node test wrapper, four co-located route suites, the test-layout and
+  runner proof suites, the insights-suppression TTL boundary test, test-operation guidance, and the
+  queue/architecture projections. Rebased onto `origin/main@764903e9`; final implementation commit
+  `05e2e7db`. Draft PR #493; no preview deployment was invoked or promoted.
+- Scope size: 16 files (+343 / -46 against the rebased main), one file beyond the sizing signal.
+  The overage is the `package-lock.json` projection of the explicit Node 22 pin in the owner's
+  approved final bounded repair; no additional behavior or workstream entered scope.
+- Outcome: The four previously excluded route suites now live under their nearest `__tests__/`
+  directories with every assertion preserved. `npm test` scans every `*.test.ts[x]` below `src/`;
+  the layout audit rejects executable tests outside `__tests__/`, and its fixture-tree positive
+  control proves the recursive observer sees a misplaced file. `test:file`, `test:lib`, `test:api`,
+  and `test:components` share isolation, test tsconfig, and timeout behavior. Exact and wildcard App
+  Router paths treat bracket segments literally, missing exact paths fail, and symlinked runner
+  invocation executes instead of returning a zero-test success. The repository now declares Node
+  22+ explicitly because the wrapper uses `node:fs` globbing. The TTL boundary test injects one
+  captured clock reading instead of racing two `Date.now()` calls.
+- Test accounting: relative to rebased `main`'s 4,050 tests, the final suite runs 4,094 (+44): 36
+  existing route tests newly enter the canonical gate, two layout-audit tests protect discovery and
+  its positive control, and six runner tests protect glob resolution, bracketed exact/wildcard
+  paths, empty companion globs, missing-path refusal, and symlink execution. The route relocations
+  changed import paths only and weakened no assertion.
+- Review and proof: Both independent reviewers assessed the original implementation before the
+  first remediation. The accepted findings produced the full scanner positive control, truthful
+  bracket-path wrapper, aligned docs, and an honest queue item; confirming Codex review was clean
+  before and after the rebase. Claude's rebased assessment then found two P2 false-greens introduced
+  by that wrapper (symlink entry and bracketed wildcard input), and a separate review identified its
+  implicit Node 22 floor. The owner explicitly approved one final bounded repair and directed that
+  review findings remain an assessment rather than an open-ended remediation loop. Removing the
+  bracket normalization fails only its wildcard regression; restoring lexical rather than realpath
+  entry comparison fails only the symlink regression. No additional reviewer cycle was opened.
+- Residue: `docs/next-tasks.md` item 48 records the accepted non-blocking P3s: legacy
+  `npm test -- <path>` ergonomics, the explicit TypeScript/`src` discovery boundary, and existing
+  cross-domain fixture imports.
+
+STATUS: IN REVIEW — draft PR #493 from `platform/103-test-suite-hygiene`; not merged or deployed.
+
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
 
 - Purpose: [one sentence]

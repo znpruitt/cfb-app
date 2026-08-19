@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { GET, PUT } from './route';
+import { GET, PUT } from '../route';
 import {
   setAppState,
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
-} from '../../../lib/server/appStateStore.ts';
-import { OWNER_ROSTER_OVERWRITE_ERROR } from '../../../lib/ownerRosterGuard.ts';
-import type { League } from '../../../lib/league.ts';
+} from '@/lib/server/appStateStore.ts';
+import { OWNER_ROSTER_OVERWRITE_ERROR } from '@/lib/ownerRosterGuard.ts';
+import type { League } from '@/lib/league.ts';
 
 const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 const ORIGINAL_ADMIN_API_TOKEN = process.env.ADMIN_API_TOKEN;

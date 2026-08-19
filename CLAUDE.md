@@ -86,12 +86,14 @@ Before any UI work, read `DESIGN.md`.
 - `npm run lint:all` — **the pre-merge gate.** Full-project ESLint + Prettier + markdownlint; this
   is what Vercel runs, and `npm run lint` misses violations in test files
 - `npx tsc --noEmit` — type-check
-- `npm test` — full suite (`node:test` + `tsx`); tests live in `src/**/__tests__/`
-- Single test file: `APP_STATE_TEST_ISOLATION=1 TSX_TSCONFIG_PATH=tsconfig.test.json node --import tsx --test <path>`
-  — the env vars matter; `npm test` sets them, and omitting `APP_STATE_TEST_ISOLATION` lets suites
-  share a durable store. For paths containing `[brackets]`, use a `**` traversal glob
-  (`'src/app/admin/**/__tests__/*.test.ts'`) — a quoted bracketed path is read as a glob character
-  class and silently matches nothing.
+- `npm test` — full suite (`node:test` + `tsx`); executable tests live under the nearest
+  `__tests__/`, while the full glob scans every `src/**/*.test.ts[x]` file so a misplaced test still
+  enters the gate and then fails the layout audit.
+- `npm run test:file -- <path-or-glob...>` — exact files or globs with the full suite's isolation,
+  TypeScript config, and timeout. Exact App Router paths containing `[brackets]` are escaped as
+  literals by the wrapper rather than silently matching zero tests.
+- `npm run test:lib`, `npm run test:api`, and `npm run test:components` — focused, overlapping
+  subsystem slices for local iteration; they do not partition the full suite.
 - `npm run fetch:teams` — regenerate `src/data/teams.json` from CFBD
 
 No Vitest/Jest. No CI workflow is checked in; `npm run lint:all` is the intended pre-merge gate.
