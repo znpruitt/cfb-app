@@ -92,6 +92,9 @@ Before any UI work, read `DESIGN.md`.
 - `npm run test:file -- <path-or-glob...>` — exact files or globs with the full suite's isolation,
   TypeScript config, and timeout. Exact App Router paths containing `[brackets]` are escaped as
   literals by the wrapper rather than silently matching zero tests.
+  **`npm test -- <path>` does NOT narrow the run** — the path is appended to the full-suite globs,
+  so the whole suite executes and a green result says nothing about the file you meant to focus on.
+  `test:file` is the only focused form.
 - `npm run test:lib`, `npm run test:api`, and `npm run test:components` — focused, overlapping
   subsystem slices for local iteration; they do not partition the full suite.
 - `npm run fetch:teams` — regenerate `src/data/teams.json` from CFBD
