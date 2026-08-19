@@ -1803,6 +1803,35 @@ Supersedes: (none)
     Not queued as implementation work: the refresh is an operator action, and the archive question
     needs an owner decision before it is scoped.
 
+    **Three findings from PLATFORM-104's round-two confirming pass, tracked rather than patched**
+    (`/code-review`, 2026-08-19, against `0647202d`). The round limit was spent, so these were
+    reported and left in the code by rule, not by judgment.
+
+    - **(medium) Exact matching plus this gate turns a COSMETIC provider rename into a frozen
+      season.** If CFBD renames `Coaches Poll` — a sponsor suffix, `AFCA Coaches Poll` — every week
+      loses its coaches column, the gate sees `prior > 0 && candidate === 0` for each cached week,
+      and `commitSeasonRankings` returns `incomplete`. The commit is ALL-OR-NOTHING, so the AP and
+      CFP updates in the same aggregate are discarded too, and the year stays frozen at prior-good
+      until someone deletes the durable `rankings/<year>` key. **The old substring matcher would
+      have survived all three plausible renames.** PLATFORM-104 traded rename tolerance for
+      correctness knowingly; what it did not weigh is that this gate escalates the cost from "one
+      blank column" to "the whole season stops updating". The severity lives in the missing force
+      path, not in exact matching — **the right fix is an override on `refreshSeasonRankings`, which
+      is its own slice**, not loosening the matcher back toward the defect it just closed.
+    - **(low) The warning dedupes per PARTITION, not per refresh, and the comment and test name both
+      say otherwise.** `refreshSeasonRankings` calls `fetchPartition` for both entries of
+      `RANKINGS_SEASON_TYPES`, and each allocates its own `Set` inside
+      `normalizeCfbdRankingsWeeks` — so a rename present in both regular and postseason payloads
+      logs twice per cron run. The test invokes the function once, so it proves "once per call" and
+      cannot reach the second partition. A false claim in a comment and a test name, which is this
+      repo's recurring defect class rather than an incident.
+    - **(low) `poll.poll` is dereferenced by `.trim()` on an unvalidated cast payload.**
+      `normalizeCfbdRankingsWeeks` runs at `refreshAuthority.ts:119`, OUTSIDE the try/catch that
+      wraps only the fetch, so an element missing `poll` throws a TypeError that escapes
+      `fetchPartition`'s documented contract ("a payload fault is classified, never thrown") and is
+      reported as `rankings-unexpected-error` — a provider fault misfiled as a programming defect.
+      Pre-existing; PLATFORM-104 added two more call sites onto the same unguarded field.
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.
