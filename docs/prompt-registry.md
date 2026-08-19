@@ -6719,7 +6719,7 @@ STATUS: MERGED — PR #494, merge commit `cb2bd7f0`, 2026-08-19.
   at all. Recorded because a waived gate that is written down is a decision, and a skipped one that
   is not is how the rule stops meaning anything.
 
-STATUS: pending merge — branch `polish/008-poll-movement-column`.
+STATUS: MERGED — PR #496, merge commit `3a11696f`, 2026-08-19.
 
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
 
