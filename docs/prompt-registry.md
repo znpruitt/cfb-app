@@ -68,8 +68,10 @@ Rules:
 - Review / verification: Vercel React best-practices review applied (including parallel independent
   route reads and accessible motion-safe status treatment); Claude's end-to-end review confirmed the
   raw-disruption and live-region gaps, both remediated. Targeted raw-CFBD probes and affected
-  regression suites pass; `npx tsc --noEmit`, `npm run lint:all`, `git diff --check`, and the full
-  suite 4122/4122 all pass.
+  regression suites pass. The five POLISH-005 failure classes are mutation-proven: each focused
+  selector mutant fails exactly one confidence test, and trusting historical success after a failed
+  exact-scope attempt fails exactly one scores-route test. `npx tsc --noEmit`, `npm run lint:all`,
+  `git diff --check`, and the full suite 4126/4126 all pass.
 - Status: Implemented on `polish/007-game-day-confidence`; draft PR #495 open (2026-08-19).
   Deliberately separate from Claude's PLATFORM-104 work; no PLATFORM-104 registry entry was added
   here.

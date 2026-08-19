@@ -203,6 +203,25 @@ test('POLISH-007: exact polls retain only same-poll provider observation evidenc
     attachedGameKeys: ['g'],
   });
 
+  scorePayload = {
+    items: [],
+    meta: {
+      generatedAt: '2026-09-05T17:06:00.000Z',
+      liveObservedAt: '2026-09-05T17:06:00.000Z',
+    },
+  };
+  await act(async () => {
+    await result.current.refreshLiveData({
+      manual: false,
+      scoreScopeGamesOverride: [game()],
+    });
+  });
+  assert.deepEqual(
+    result.current.liveScoreObservation,
+    { observedAt, attachedGameKeys: ['g'] },
+    'a non-exact hydration read cannot establish or renew confidence evidence'
+  );
+
   scorePayload = { items: [], meta: {} };
   await act(async () => {
     await result.current.refreshLiveData({

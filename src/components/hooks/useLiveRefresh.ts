@@ -426,8 +426,14 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
           }
 
           if (scoreIssues.length) setIssues((p) => [...p, ...scoreIssues]);
+          // Hydration/manual reads (no exact partitions) cannot establish or renew
+          // this evidence. They leave any prior exact-poll observation at its
+          // original timestamp, so navigation preserves it only until the selector TTL.
           if (options?.scorePartitions) {
             const attachedGameKeys = Object.keys(nextScores);
+            // Header confidence covers the whole exact-partition poll, not one
+            // lucky sibling. Any requested-partition issue makes that read
+            // incomplete, so fail closed even when another game attached.
             setLiveScoreObservation(
               liveObservedAt && scoreIssues.length === 0 && attachedGameKeys.length > 0
                 ? { observedAt: liveObservedAt, attachedGameKeys }

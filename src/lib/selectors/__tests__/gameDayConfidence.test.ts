@@ -8,6 +8,7 @@ import { selectLiveScorePollGames } from '../../liveScores/browserPolling.ts';
 import type { ScorePack } from '../../scores.ts';
 import {
   isAwaitingScoreGame,
+  LIVE_SCORE_OBSERVATION_MAX_AGE_MS,
   selectGameDayConfidence,
   type LiveScoreObservation,
 } from '../gameDayConfidence.ts';
@@ -151,21 +152,8 @@ test('reports Tracking scores only for a freshly observed, same-poll attached li
   assert.deepEqual(tracking, { kind: 'tracking', label: 'Tracking scores' });
 });
 
-test('does not claim Tracking for old evidence, an unattached game, or a disrupted game', () => {
+test('does not claim Tracking for an unattached game or a disrupted game', () => {
   const liveGame = game({ date: new Date(NOW.getTime() - 30 * 60_000).toISOString() });
-
-  assert.equal(
-    selectGameDayConfidence({
-      games: [liveGame],
-      scoresByKey: { 'g-1': score('Q2') },
-      season: 2026,
-      observation: observation({
-        observedAt: new Date(NOW.getTime() - 8 * 60_000).toISOString(),
-      }),
-      now: NOW.getTime(),
-    }),
-    null
-  );
 
   assert.equal(
     selectGameDayConfidence({
@@ -188,6 +176,76 @@ test('does not claim Tracking for old evidence, an unattached game, or a disrupt
     }),
     null
   );
+});
+
+test('a stale schedule status cannot support Tracking over a final score', () => {
+  const result = selectGameDayConfidence({
+    games: [
+      game({
+        date: new Date(NOW.getTime() - 30 * 60_000).toISOString(),
+        status: 'in_progress',
+      }),
+    ],
+    scoresByKey: { 'g-1': score('Final') },
+    season: 2026,
+    observation: null,
+    now: NOW.getTime(),
+  });
+
+  assert.equal(result, null);
+});
+
+test('a missing score cannot support Tracking even with fresh attached-key evidence', () => {
+  const result = selectGameDayConfidence({
+    games: [game({ date: new Date(NOW.getTime() - 60_000).toISOString() })],
+    scoresByKey: {},
+    season: 2026,
+    observation: observation(),
+    now: NOW.getTime(),
+  });
+
+  assert.deepEqual(result, { kind: 'waiting', label: 'Waiting for scores' });
+});
+
+test('Tracking evidence covers two poll cycles and expires before the third', () => {
+  const liveGame = game({ date: new Date(NOW.getTime() - 30 * 60_000).toISOString() });
+  const atBoundary = observation({
+    observedAt: new Date(NOW.getTime() - LIVE_SCORE_OBSERVATION_MAX_AGE_MS).toISOString(),
+  });
+
+  assert.deepEqual(
+    selectGameDayConfidence({
+      games: [liveGame],
+      scoresByKey: { 'g-1': score('Q2') },
+      season: 2026,
+      observation: atBoundary,
+      now: NOW.getTime(),
+    }),
+    { kind: 'tracking', label: 'Tracking scores' }
+  );
+
+  assert.equal(
+    selectGameDayConfidence({
+      games: [liveGame],
+      scoresByKey: { 'g-1': score('Q2') },
+      season: 2026,
+      observation: atBoundary,
+      now: NOW.getTime() + 1,
+    }),
+    null
+  );
+});
+
+test('a missing score cannot make any confidence claim after the polling window closes', () => {
+  const result = selectGameDayConfidence({
+    games: [game({ date: new Date(NOW.getTime() - 25 * 60 * 60_000).toISOString() })],
+    scoresByKey: {},
+    season: 2026,
+    observation: observation(),
+    now: NOW.getTime(),
+  });
+
+  assert.equal(result, null);
 });
 
 test('a stale live row blocks a misleading pregame claim for a later game', () => {
