@@ -25,6 +25,7 @@ Claude Code companion to `AGENTS.md`. **Read `AGENTS.md` first.**
 | How to run gates and report results; test accounting | `AGENTS.md` → **Verification** |
 | Lifecycle / standings / ownership / auth invariants | `AGENTS.md` → the **Invariants** sections |
 | When documentation is finalized; which ledger owns what | `AGENTS.md` → **Documentation closeout timing** |
+| Who pushes `preview`, and on what cadence | `AGENTS.md` → **Preview branch** |
 | UI and design decisions | `DESIGN.md` |
 | What is queued next, and campaign status | `docs/next-tasks.md` |
 | Which prompt IDs exist | `docs/prompt-registry.md` |
@@ -123,6 +124,11 @@ merge.** Owner rule, 2026-08-17.
 git push origin HEAD                 # the branch
 git push origin HEAD:preview --force # and preview, same breath
 ```
+
+**`preview` is Claude's alone — Codex does not push it, and verifies locally instead.** The rule,
+its rationale, and the Vercel Ignored Build Step allowlist that makes a second preview branch a
+no-op live in `AGENTS.md` → **Preview branch**, which is the file Codex reads. Do not restate the
+rule here; a duplicate is how these two files drifted apart in the first place.
 
 `preview` exists so the owner can click through whatever the branch currently is, at any point. That
 only works if it tracks the branch continuously, so the two pushes go together — including for
