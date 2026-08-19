@@ -6535,7 +6535,7 @@ STATUS: MERGED — PR #492, merge commit `5abed2ff`, 2026-08-18.
 - Scope: `package.json`, the Node test wrapper, four co-located route suites, the test-layout and
   runner proof suites, the insights-suppression TTL boundary test, test-operation guidance, and the
   queue/architecture projections. Rebased onto `origin/main@764903e9`; final implementation commit
-  `05e2e7db`. Draft PR #493; no preview deployment was invoked or promoted.
+  `05e2e7db`. Merged via PR #493; no preview deployment was manually invoked or promoted.
 - Scope size: 16 files (+343 / -46 against the rebased main), one file beyond the sizing signal.
   The overage is the `package-lock.json` projection of the explicit Node 22 pin in the owner's
   approved final bounded repair; no additional behavior or workstream entered scope.
@@ -6566,7 +6566,7 @@ STATUS: MERGED — PR #492, merge commit `5abed2ff`, 2026-08-18.
   `npm test -- <path>` ergonomics, the explicit TypeScript/`src` discovery boundary, and existing
   cross-domain fixture imports.
 
-STATUS: IN REVIEW — draft PR #493 from `platform/103-test-suite-hygiene`; not merged or deployed.
+STATUS: MERGED — PR #493, merge commit `fc64391d`, 2026-08-18.
 
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
 
