@@ -6707,6 +6707,18 @@ STATUS: MERGED — PR #494, merge commit `cb2bd7f0`, 2026-08-19.
   mutation-proven: removing the no-prior-poll guard fails the preseason test, and so does rendering
   the label without the column.
 
+- **The two-reviewer gate was WAIVED by the owner, deliberately and on the record** (2026-08-19).
+  `AGENTS.md` → Review and remediation limits has no size exemption, so this is a waiver rather than
+  an exemption. Grounds: the change is contained to one file — `deriveRankDeltas` and `PollColumn`
+  have no callers outside `RankingsPageContent` — it alters no data, route, selector or cache, both
+  halves are mutation-proven, the suite is green, and **the owner verified BOTH rendered states in a
+  browser on preview**: the 2026 preseason poll with the column absent, and the 2025 Final Poll with
+  the column present, labelled `vs last`, showing movement, `—` for no change, and `NR` for a
+  genuine new entrant (Iowa at 17 in both polls). That is stronger evidence for this specific change
+  than either reviewer would have produced, since the in-season state cannot be reached on 2026 data
+  at all. Recorded because a waived gate that is written down is a decision, and a skipped one that
+  is not is how the rule stops meaning anything.
+
 STATUS: pending merge — branch `polish/008-poll-movement-column`.
 
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
