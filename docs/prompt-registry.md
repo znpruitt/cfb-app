@@ -6461,7 +6461,7 @@ STATUS: MERGED — PR #487, merge commit `0d28595b`, 2026-08-17.
   did not converge. The owner's words: "you're killing me here with running in circles with all these
   reviews." The cleanup was landed with no further review by explicit agreement.
 
-STATUS: pending merge — branch `polish/005-member-surface-boundary`.
+STATUS: MERGED — PR #491, merge commit `c08667f3`, 2026-08-18.
 
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
 
