@@ -6526,7 +6526,7 @@ STATUS: MERGED — PR #491, merge commit `c08667f3`, 2026-08-18.
   branch. Its remaining findings concern that already-merged docs commit, not this slice, and are
   routed outside POLISH-006 — see `docs/next-tasks.md` 59.
 
-STATUS: pending merge — branch `polish/006-matchups-header-removal`.
+STATUS: MERGED — PR #492, merge commit `5abed2ff`, 2026-08-18.
 
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
 
