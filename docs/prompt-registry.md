@@ -70,8 +70,9 @@ Rules:
   raw-disruption and live-region gaps, both remediated. Targeted raw-CFBD probes and affected
   regression suites pass; `npx tsc --noEmit`, `npm run lint:all`, `git diff --check`, and the full
   suite 4122/4122 all pass.
-- Status: Implemented on `polish/007-game-day-confidence`; PR not opened (2026-08-19). Deliberately
-  separate from Claude's active PLATFORM-104 work; no PLATFORM-104 registry entry was added here.
+- Status: Implemented on `polish/007-game-day-confidence`; draft PR #495 open (2026-08-19).
+  Deliberately separate from Claude's PLATFORM-104 work; no PLATFORM-104 registry entry was added
+  here.
 
 ### INSIGHTS-032-SEASON-RECAP-v2
 

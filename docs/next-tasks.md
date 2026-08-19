@@ -1672,14 +1672,14 @@ Supersedes: (none)
       write-only snapshot setters, their call sites, and the hook params that thread them should go
       together.
 
-57. **✅ IMPLEMENTED — POLISH-007-GAME-DAY-CONFIDENCE-LAYER-v1 (PR pending, 2026-08-19).** The
+57. **✅ IMPLEMENTED — POLISH-007-GAME-DAY-CONFIDENCE-LAYER-v1 (draft PR #495, 2026-08-19).** The
     neutral header signal is bounded by the existing kickoff window. "Tracking scores" requires a
     recent clean exact-scope refresh plus an in-progress score attached in that same poll; incomplete,
     stale, historical, and disrupted states make no tracking claim. Raw provider schedule status is
     preserved on every canonical game construction path, so a disruption can suppress the weaker
     "Preparing for kickoff" / "Waiting for scores" claims before any score row exists.
 
-58. **✅ IMPLEMENTED — POLISH-007-GAME-DAY-CONFIDENCE-LAYER-v1 (PR pending, 2026-08-19).** A
+58. **✅ IMPLEMENTED — POLISH-007-GAME-DAY-CONFIDENCE-LAYER-v1 (draft PR #495, 2026-08-19).** A
     nondisrupted current-season owned-team row past kickoff with no usable score now says "Awaiting
     score" inside the same bounded polling window. It never promotes schedule status to "Live", and
     disruptions known from either the normalized schedule or an attached score do not receive the
