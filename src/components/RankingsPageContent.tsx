@@ -4,15 +4,29 @@ import { type CanonicalPollEntry, type RankSource, type RankingsWeek } from '../
 
 type RankDelta = number | 'new' | null;
 
+/**
+ * `NR` is a claim about the PREVIOUS poll: this team was not in it. That claim
+ * requires a previous poll to exist. In a preseason week there is none, so the
+ * old derivation marked every team `new` and the column read `NR` twenty-five
+ * times over — asserting "not ranked last week" when there was no last week.
+ * `OverviewPanel` already drew this distinction ("No previous week data at all
+ * → show — (not NR)"); this surface disagreed with it.
+ *
+ * Returning null means "no movement can be reported at all", which the caller
+ * uses to drop the column rather than fill it with placeholders.
+ */
 function deriveRankDeltas(
   current: CanonicalPollEntry[],
   previous: CanonicalPollEntry[]
-): Map<string, RankDelta> {
+): Map<string, RankDelta> | null {
+  if (previous.length === 0) return null;
+
   const prevByTeam = new Map(previous.map((e) => [e.teamId, e.rank]));
   const deltas = new Map<string, RankDelta>();
   for (const entry of current) {
     const prevRank = prevByTeam.get(entry.teamId);
     if (prevRank == null) {
+      // A real prior poll exists and this team was absent from it.
       deltas.set(entry.teamId, 'new');
     } else {
       deltas.set(entry.teamId, prevRank - entry.rank); // positive = moved up
@@ -66,19 +80,29 @@ function PollColumn({
 }: {
   title: string;
   entries: CanonicalPollEntry[];
-  deltas: Map<string, RankDelta>;
+  /** Null when no prior poll exists — the movement column is then omitted. */
+  deltas: Map<string, RankDelta> | null;
 }): React.ReactElement {
   return (
     <div className="min-w-0">
-      <h3 className="mb-2 text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
-        {title}
-      </h3>
+      <div className="mb-2 flex items-baseline gap-2">
+        <h3 className="min-w-0 flex-1 truncate text-xs font-semibold uppercase tracking-widest text-gray-500 dark:text-zinc-400">
+          {title}
+        </h3>
+        {/* Labelled only when it is shown; DESIGN.md hides columns that carry
+            no information, so in preseason there is nothing to label. */}
+        {deltas && entries.length > 0 ? (
+          <span className="shrink-0 text-[0.625rem] font-medium uppercase tracking-wide text-gray-400 dark:text-zinc-500">
+            vs last
+          </span>
+        ) : null}
+      </div>
       {entries.length === 0 ? (
         <p className="py-3 text-xs text-gray-400 dark:text-zinc-600">Not available</p>
       ) : (
         <ol>
           {entries.map((entry, idx) => {
-            const delta = deltas.get(entry.teamId) ?? null;
+            const delta = deltas?.get(entry.teamId) ?? null;
             return (
               <li
                 key={`${entry.rankSource}:${entry.teamId}`}
@@ -92,7 +116,7 @@ function PollColumn({
                 <span className="min-w-0 flex-1 truncate font-medium text-gray-900 dark:text-zinc-100">
                   {entry.teamName}
                 </span>
-                <MovementBadge delta={delta} />
+                {deltas ? <MovementBadge delta={delta} /> : null}
               </li>
             );
           })}

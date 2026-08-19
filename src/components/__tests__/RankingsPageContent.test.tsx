@@ -37,6 +37,78 @@ test('rankings page renders CFP first and AP as a separate section', () => {
   assert.match(html, /2<\/span><span[^>]*>Texas<\/span>/);
 });
 
+function pollWeek(week: number, apTeams: [string, string, number][]) {
+  return {
+    season: 2026,
+    seasonType: 'regular' as const,
+    week,
+    primarySource: 'ap' as const,
+    teams: [],
+    polls: {
+      cfp: [],
+      ap: apTeams.map(([teamId, teamName, rank]) => ({
+        teamId,
+        teamName,
+        rank,
+        rankSource: 'ap' as const,
+      })),
+      coaches: [],
+    },
+  };
+}
+
+test('POLISH-008: the first poll of a season reports no movement at all', () => {
+  // Preseason has no prior poll, so "NR" — a claim that a team was absent from
+  // the PREVIOUS poll — cannot be true of anyone. The old derivation marked
+  // every team `new` and rendered NR twenty-five times over.
+  const week = pollWeek(1, [
+    ['ohio-state', 'Ohio State', 1],
+    ['oregon', 'Oregon', 2],
+  ]);
+
+  const html = renderToStaticMarkup(
+    <RankingsPageContent season={2026} loading={false} error={null} latestWeek={week} />
+  );
+
+  // Positive control: the poll itself rendered, so the absence assertions below
+  // are reached rather than passing on an empty page.
+  assert.match(html, /1<\/span><span[^>]*>Ohio State<\/span>/);
+
+  assert.doesNotMatch(html, />NR</, 'no team is marked unranked-before');
+  assert.doesNotMatch(html, /vs last/, 'an absent column is not labelled');
+  assert.doesNotMatch(html, /No change/, 'no placeholder dashes stand in for it');
+});
+
+test('POLISH-008: a real prior poll restores movement, its label, and NR', () => {
+  const html = renderToStaticMarkup(
+    <RankingsPageContent
+      season={2026}
+      loading={false}
+      error={null}
+      latestWeek={pollWeek(2, [
+        ['ohio-state', 'Ohio State', 1],
+        ['texas', 'Texas', 2],
+      ])}
+      allWeeks={[
+        pollWeek(1, [
+          ['ohio-state', 'Ohio State', 3],
+          ['oregon', 'Oregon', 2],
+        ]),
+        pollWeek(2, [
+          ['ohio-state', 'Ohio State', 1],
+          ['texas', 'Texas', 2],
+        ]),
+      ]}
+    />
+  );
+
+  assert.match(html, /vs last/, 'the column is labelled once it carries meaning');
+  // Ohio State climbed 3 -> 1.
+  assert.match(html, /Up 2/, 'movement is reported against the prior poll');
+  // Texas was not in week 1's poll, which is what NR actually means.
+  assert.match(html, />NR</, 'a genuinely new entrant is marked NR');
+});
+
 test('rankings page renders coaches poll entries when that is the available normalized data', () => {
   const html = renderToStaticMarkup(
     <RankingsPageContent
