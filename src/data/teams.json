@@ -1,26 +1,38 @@
 {
-  "year": 2025,
+  "year": 2026,
   "items": [
     {
       "school": "Air Force",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "AF",
       "mascot": "Falcons",
       "conference": "Mountain West",
       "alts": ["air force", "air force falcons", "airforce", "airforcefalcons"]
     },
     {
       "school": "Akron",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "AKR",
       "mascot": "Zips",
       "conference": "Mid-American",
       "alts": ["akron", "akron zips", "akronzips"]
     },
     {
       "school": "Alabama",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ALA",
       "mascot": "Crimson Tide",
       "conference": "SEC",
       "alts": ["alabama", "alabama crimson tide", "alabamacrimsontide"]
     },
     {
       "school": "App State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "APP",
       "mascot": "Mountaineers",
       "conference": "Sun Belt",
       "alts": [
@@ -36,12 +48,18 @@
     },
     {
       "school": "Arizona",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ARIZ",
       "mascot": "Wildcats",
       "conference": "Big 12",
       "alts": ["arizona", "arizona wildcats", "arizonawildcats"]
     },
     {
       "school": "Arizona State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ASU",
       "mascot": "Sun Devils",
       "conference": "Big 12",
       "alts": [
@@ -57,12 +75,18 @@
     },
     {
       "school": "Arkansas",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ARK",
       "mascot": "Razorbacks",
       "conference": "SEC",
       "alts": ["arkansas", "arkansas razorbacks", "arkansasrazorbacks"]
     },
     {
       "school": "Arkansas State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ARST",
       "mascot": "Red Wolves",
       "conference": "Sun Belt",
       "alts": [
@@ -78,18 +102,27 @@
     },
     {
       "school": "Army",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ARMY",
       "mascot": "Black Knights",
       "conference": "American Athletic",
       "alts": ["army", "army black knights", "armyblackknights"]
     },
     {
       "school": "Auburn",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "AUB",
       "mascot": "Tigers",
       "conference": "SEC",
       "alts": ["auburn", "auburn tigers", "auburntigers"]
     },
     {
       "school": "Ball State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "BALL",
       "mascot": "Cardinals",
       "conference": "Mid-American",
       "alts": [
@@ -105,14 +138,20 @@
     },
     {
       "school": "Baylor",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "BAY",
       "mascot": "Bears",
       "conference": "Big 12",
       "alts": ["baylor", "baylor bears", "baylorbears"]
     },
     {
       "school": "Boise State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "BOIS",
       "mascot": "Broncos",
-      "conference": "Mountain West",
+      "conference": "Pac-12",
       "alts": [
         "boise state",
         "boise state broncos",
@@ -126,36 +165,54 @@
     },
     {
       "school": "Boston College",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "BC",
       "mascot": "Eagles",
       "conference": "ACC",
       "alts": ["boston college", "boston college eagles", "bostoncollege", "bostoncollegeeagles"]
     },
     {
       "school": "Bowling Green",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "BGSU",
       "mascot": "Falcons",
       "conference": "Mid-American",
       "alts": ["bowling green", "bowling green falcons", "bowlinggreen", "bowlinggreenfalcons"]
     },
     {
       "school": "Buffalo",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "BUF",
       "mascot": "Bulls",
       "conference": "Mid-American",
       "alts": ["buffalo", "buffalo bulls", "buffalobulls"]
     },
     {
       "school": "BYU",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "BYU",
       "mascot": "Cougars",
       "conference": "Big 12",
       "alts": ["byu", "byu cougars", "byucougars"]
     },
     {
       "school": "California",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "CAL",
       "mascot": "Golden Bears",
       "conference": "ACC",
       "alts": ["california", "california golden bears", "californiagoldenbears"]
     },
     {
       "school": "Central Michigan",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "CMU",
       "mascot": "Chippewas",
       "conference": "Mid-American",
       "alts": [
@@ -167,24 +224,36 @@
     },
     {
       "school": "Charlotte",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "CLT",
       "mascot": "49ers",
       "conference": "American Athletic",
       "alts": ["charlotte", "charlotte 49ers", "charlotte49ers"]
     },
     {
       "school": "Cincinnati",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "CIN",
       "mascot": "Bearcats",
       "conference": "Big 12",
       "alts": ["cincinnati", "cincinnati bearcats", "cincinnatibearcats"]
     },
     {
       "school": "Clemson",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "CLEM",
       "mascot": "Tigers",
       "conference": "ACC",
       "alts": ["clemson", "clemson tigers", "clemsontigers"]
     },
     {
       "school": "Coastal Carolina",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "CCU",
       "mascot": "Chanticleers",
       "conference": "Sun Belt",
       "alts": [
@@ -196,14 +265,20 @@
     },
     {
       "school": "Colorado",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "COLO",
       "mascot": "Buffaloes",
       "conference": "Big 12",
       "alts": ["colorado", "colorado buffaloes", "coloradobuffaloes"]
     },
     {
       "school": "Colorado State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "CSU",
       "mascot": "Rams",
-      "conference": "Mountain West",
+      "conference": "Pac-12",
       "alts": [
         "colorado state",
         "colorado state rams",
@@ -217,24 +292,36 @@
     },
     {
       "school": "Delaware",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "DEL",
       "mascot": "Blue Hens",
       "conference": "Conference USA",
       "alts": ["delaware", "delaware blue hens", "delawarebluehens"]
     },
     {
       "school": "Duke",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "DUKE",
       "mascot": "Blue Devils",
       "conference": "ACC",
       "alts": ["duke", "duke blue devils", "dukebluedevils"]
     },
     {
       "school": "East Carolina",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ECU",
       "mascot": "Pirates",
       "conference": "American Athletic",
       "alts": ["east carolina", "east carolina pirates", "eastcarolina", "eastcarolinapirates"]
     },
     {
       "school": "Eastern Michigan",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "EMU",
       "mascot": "Eagles",
       "conference": "Mid-American",
       "alts": [
@@ -246,12 +333,18 @@
     },
     {
       "school": "Florida",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "FLA",
       "mascot": "Gators",
       "conference": "SEC",
       "alts": ["florida", "florida gators", "floridagators"]
     },
     {
       "school": "Florida Atlantic",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "FAU",
       "mascot": "Owls",
       "conference": "American Athletic",
       "alts": [
@@ -263,6 +356,9 @@
     },
     {
       "school": "Florida International",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "FIU",
       "mascot": "Panthers",
       "conference": "Conference USA",
       "alts": [
@@ -274,6 +370,9 @@
     },
     {
       "school": "Florida State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "FSU",
       "mascot": "Seminoles",
       "conference": "ACC",
       "alts": [
@@ -289,8 +388,11 @@
     },
     {
       "school": "Fresno State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "FRES",
       "mascot": "Bulldogs",
-      "conference": "Mountain West",
+      "conference": "Pac-12",
       "alts": [
         "fresno state",
         "fresno state bulldogs",
@@ -304,12 +406,18 @@
     },
     {
       "school": "Georgia",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UGA",
       "mascot": "Bulldogs",
       "conference": "SEC",
       "alts": ["georgia", "georgia bulldogs", "georgiabulldogs"]
     },
     {
       "school": "Georgia Southern",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "GASO",
       "mascot": "Eagles",
       "conference": "Sun Belt",
       "alts": [
@@ -321,6 +429,9 @@
     },
     {
       "school": "Georgia State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "GAST",
       "mascot": "Panthers",
       "conference": "Sun Belt",
       "alts": [
@@ -336,42 +447,63 @@
     },
     {
       "school": "Georgia Tech",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "GT",
       "mascot": "Yellow Jackets",
       "conference": "ACC",
       "alts": ["georgia tech", "georgia tech yellow jackets", "georgiatech", "georgiatechyellow"]
     },
     {
       "school": "Hawai'i",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "HAW",
       "mascot": "Rainbow Warriors",
       "conference": "Mountain West",
       "alts": ["hawai'i", "hawai'i rainbow warriors", "hawai'irainbowwarriors"]
     },
     {
       "school": "Houston",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "HOU",
       "mascot": "Cougars",
       "conference": "Big 12",
       "alts": ["houston", "houston cougars", "houstoncougars"]
     },
     {
       "school": "Illinois",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ILL",
       "mascot": "Fighting Illini",
       "conference": "Big Ten",
       "alts": ["illinois", "illinois fighting illini", "illinoisfightingillini"]
     },
     {
       "school": "Indiana",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "IU",
       "mascot": "Hoosiers",
       "conference": "Big Ten",
       "alts": ["indiana", "indiana hoosiers", "indianahoosiers"]
     },
     {
       "school": "Iowa",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "IOWA",
       "mascot": "Hawkeyes",
       "conference": "Big Ten",
       "alts": ["iowa", "iowa hawkeyes", "iowahawkeyes"]
     },
     {
       "school": "Iowa State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ISU",
       "mascot": "Cyclones",
       "conference": "Big 12",
       "alts": [
@@ -387,6 +519,9 @@
     },
     {
       "school": "Jacksonville State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "JXST",
       "mascot": "Gamecocks",
       "conference": "Conference USA",
       "alts": [
@@ -402,18 +537,27 @@
     },
     {
       "school": "James Madison",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "JMU",
       "mascot": "Dukes",
       "conference": "Sun Belt",
       "alts": ["james madison", "james madison dukes", "jamesmadison", "jamesmadisondukes"]
     },
     {
       "school": "Kansas",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "KU",
       "mascot": "Jayhawks",
       "conference": "Big 12",
       "alts": ["kansas", "kansas jayhawks", "kansasjayhawks"]
     },
     {
       "school": "Kansas State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "KSU",
       "mascot": "Wildcats",
       "conference": "Big 12",
       "alts": [
@@ -429,6 +573,9 @@
     },
     {
       "school": "Kennesaw State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "KENN",
       "mascot": "Owls",
       "conference": "Conference USA",
       "alts": [
@@ -444,6 +591,9 @@
     },
     {
       "school": "Kent State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "KENT",
       "mascot": "Golden Flashes",
       "conference": "Mid-American",
       "alts": [
@@ -459,26 +609,38 @@
     },
     {
       "school": "Kentucky",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UK",
       "mascot": "Wildcats",
       "conference": "SEC",
       "alts": ["kentucky", "kentucky wildcats", "kentuckywildcats"]
     },
     {
       "school": "Liberty",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "LIB",
       "mascot": "Flames",
       "conference": "Conference USA",
       "alts": ["liberty", "liberty flames", "libertyflames"]
     },
     {
       "school": "Louisiana",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UL",
       "mascot": "Ragin' Cajuns",
       "conference": "Sun Belt",
       "alts": ["louisiana", "louisiana ragin' cajuns", "louisianaragin'cajuns"]
     },
     {
       "school": "Louisiana Tech",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "LT",
       "mascot": "Bulldogs",
-      "conference": "Conference USA",
+      "conference": "Sun Belt",
       "alts": [
         "louisiana tech",
         "louisiana tech bulldogs",
@@ -489,60 +651,90 @@
     },
     {
       "school": "Louisville",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "LOU",
       "mascot": "Cardinals",
       "conference": "ACC",
       "alts": ["louisville", "louisville cardinals", "louisvillecardinals"]
     },
     {
       "school": "LSU",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "LSU",
       "mascot": "Tigers",
       "conference": "SEC",
       "alts": ["lsu", "lsu tigers", "lsutigers"]
     },
     {
       "school": "Marshall",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "MRSH",
       "mascot": "Thundering Herd",
       "conference": "Sun Belt",
       "alts": ["marshall", "marshall thundering herd", "marshallthunderingherd"]
     },
     {
       "school": "Maryland",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "MD",
       "mascot": "Terrapins",
       "conference": "Big Ten",
       "alts": ["maryland", "maryland terrapins", "marylandterrapins"]
     },
     {
       "school": "Massachusetts",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "MASS",
       "mascot": "Minutemen",
       "conference": "Mid-American",
       "alts": ["massachusetts", "massachusetts minutemen", "umass", "massachusettsminutemen"]
     },
     {
       "school": "Memphis",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "MEM",
       "mascot": "Tigers",
       "conference": "American Athletic",
       "alts": ["memphis", "memphis tigers", "memphistigers"]
     },
     {
       "school": "Miami",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "MIA",
       "mascot": "Hurricanes",
       "conference": "ACC",
       "alts": ["miami", "miami hurricanes", "miamihurricanes", "miami (fl)"]
     },
     {
       "school": "Miami (OH)",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "M-OH",
       "mascot": "RedHawks",
       "conference": "Mid-American",
       "alts": ["miami (oh)", "miami (oh) redhawks", "miami(oh)", "miami(oh)redhawks"]
     },
     {
       "school": "Michigan",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "MICH",
       "mascot": "Wolverines",
       "conference": "Big Ten",
       "alts": ["michigan", "michigan wolverines", "michiganwolverines"]
     },
     {
       "school": "Michigan State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "MSU",
       "mascot": "Spartans",
       "conference": "Big Ten",
       "alts": [
@@ -558,6 +750,9 @@
     },
     {
       "school": "Middle Tennessee",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "MTSU",
       "mascot": "Blue Raiders",
       "conference": "Conference USA",
       "alts": [
@@ -569,12 +764,18 @@
     },
     {
       "school": "Minnesota",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "MINN",
       "mascot": "Golden Gophers",
       "conference": "Big Ten",
       "alts": ["minnesota", "minnesota golden gophers", "minnesotagoldengophers"]
     },
     {
       "school": "Mississippi State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "MSST",
       "mascot": "Bulldogs",
       "conference": "SEC",
       "alts": [
@@ -590,12 +791,18 @@
     },
     {
       "school": "Missouri",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "MIZ",
       "mascot": "Tigers",
       "conference": "SEC",
       "alts": ["missouri", "missouri tigers", "missouritigers"]
     },
     {
       "school": "Missouri State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "MOST",
       "mascot": "Bears",
       "conference": "Conference USA",
       "alts": [
@@ -611,12 +818,18 @@
     },
     {
       "school": "Navy",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "NAVY",
       "mascot": "Midshipmen",
       "conference": "American Athletic",
       "alts": ["navy", "navy midshipmen", "navymidshipmen"]
     },
     {
       "school": "NC State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "NCSU",
       "mascot": "Wolfpack",
       "conference": "ACC",
       "alts": [
@@ -632,24 +845,36 @@
     },
     {
       "school": "Nebraska",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "NEB",
       "mascot": "Cornhuskers",
       "conference": "Big Ten",
       "alts": ["nebraska", "nebraska cornhuskers", "nebraskacornhuskers"]
     },
     {
       "school": "Nevada",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "NEV",
       "mascot": "Wolf Pack",
       "conference": "Mountain West",
       "alts": ["nevada", "nevada wolf pack", "nevadawolfpack"]
     },
     {
       "school": "New Mexico",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UNM",
       "mascot": "Lobos",
       "conference": "Mountain West",
       "alts": ["new mexico", "new mexico lobos", "newmexico", "newmexicolobos"]
     },
     {
       "school": "New Mexico State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "NMSU",
       "mascot": "Aggies",
       "conference": "Conference USA",
       "alts": [
@@ -664,14 +889,37 @@
     },
     {
       "school": "North Carolina",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UNC",
       "mascot": "Tar Heels",
       "conference": "ACC",
       "alts": ["north carolina", "north carolina tar heels", "northcarolina", "northcarolinatar"]
     },
     {
+      "school": "North Dakota State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "NDSU",
+      "mascot": "Bison",
+      "conference": "Mountain West",
+      "alts": [
+        "north dakota state",
+        "north dakota state bison",
+        "north dakota st",
+        "north dakota st.",
+        "northdakotastate",
+        "northdakotast",
+        "northdakotast."
+      ]
+    },
+    {
       "school": "Northern Illinois",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "NIU",
       "mascot": "Huskies",
-      "conference": "Mid-American",
+      "conference": "Mountain West",
       "alts": [
         "northern illinois",
         "northern illinois huskies",
@@ -681,30 +929,45 @@
     },
     {
       "school": "North Texas",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UNT",
       "mascot": "Mean Green",
       "conference": "American Athletic",
       "alts": ["north texas", "north texas mean green", "northtexas", "northtexasmean"]
     },
     {
       "school": "Northwestern",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "NU",
       "mascot": "Wildcats",
       "conference": "Big Ten",
       "alts": ["northwestern", "northwestern wildcats", "northwesternwildcats"]
     },
     {
       "school": "Notre Dame",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ND",
       "mascot": "Fighting Irish",
       "conference": "FBS Independents",
       "alts": ["notre dame", "notre dame fighting irish", "notredame", "notredamefighting"]
     },
     {
       "school": "Ohio",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "OHIO",
       "mascot": "Bobcats",
       "conference": "Mid-American",
       "alts": ["ohio", "ohio bobcats", "ohiobobcats"]
     },
     {
       "school": "Ohio State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "OSU",
       "mascot": "Buckeyes",
       "conference": "Big Ten",
       "alts": [
@@ -720,12 +983,18 @@
     },
     {
       "school": "Oklahoma",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "OU",
       "mascot": "Sooners",
       "conference": "SEC",
       "alts": ["oklahoma", "oklahoma sooners", "oklahomasooners"]
     },
     {
       "school": "Oklahoma State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "OKST",
       "mascot": "Cowboys",
       "conference": "Big 12",
       "alts": [
@@ -741,24 +1010,36 @@
     },
     {
       "school": "Old Dominion",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ODU",
       "mascot": "Monarchs",
       "conference": "Sun Belt",
       "alts": ["old dominion", "old dominion monarchs", "olddominion", "olddominionmonarchs"]
     },
     {
       "school": "Ole Miss",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "MISS",
       "mascot": "Rebels",
       "conference": "SEC",
       "alts": ["ole miss", "ole miss rebels", "olemiss", "olemissrebels"]
     },
     {
       "school": "Oregon",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ORE",
       "mascot": "Ducks",
       "conference": "Big Ten",
       "alts": ["oregon", "oregon ducks", "oregonducks"]
     },
     {
       "school": "Oregon State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ORST",
       "mascot": "Beavers",
       "conference": "Pac-12",
       "alts": [
@@ -774,6 +1055,9 @@
     },
     {
       "school": "Penn State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "PSU",
       "mascot": "Nittany Lions",
       "conference": "Big Ten",
       "alts": [
@@ -789,38 +1073,74 @@
     },
     {
       "school": "Pittsburgh",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "PITT",
       "mascot": "Panthers",
       "conference": "ACC",
       "alts": ["pittsburgh", "pittsburgh panthers", "pittsburghpanthers"]
     },
     {
       "school": "Purdue",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "PUR",
       "mascot": "Boilermakers",
       "conference": "Big Ten",
       "alts": ["purdue", "purdue boilermakers", "purdueboilermakers"]
     },
     {
       "school": "Rice",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "RICE",
       "mascot": "Owls",
       "conference": "American Athletic",
       "alts": ["rice", "rice owls", "riceowls"]
     },
     {
       "school": "Rutgers",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "RUTG",
       "mascot": "Scarlet Knights",
       "conference": "Big Ten",
       "alts": ["rutgers", "rutgers scarlet knights", "rutgersscarletknights"]
     },
     {
+      "school": "Sacramento State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "SAC",
+      "mascot": "Hornets",
+      "conference": "Mid-American",
+      "alts": [
+        "sacramento state",
+        "sacramento state hornets",
+        "sacramento st",
+        "sacramento st.",
+        "sacramentostate",
+        "sacramentostatehornets",
+        "sacramentost",
+        "sacramentost."
+      ]
+    },
+    {
       "school": "Sam Houston",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "SHSU",
       "mascot": "Bearkats",
       "conference": "Conference USA",
       "alts": ["sam houston", "sam houston bearkats", "samhouston", "samhoustonbearkats"]
     },
     {
       "school": "San Diego State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "SDSU",
       "mascot": "Aztecs",
-      "conference": "Mountain West",
+      "conference": "Pac-12",
       "alts": [
         "san diego state",
         "san diego state aztecs",
@@ -834,6 +1154,9 @@
     },
     {
       "school": "San José State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "SJSU",
       "mascot": "Spartans",
       "conference": "Mountain West",
       "alts": [
@@ -850,18 +1173,27 @@
     },
     {
       "school": "SMU",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "SMU",
       "mascot": "Mustangs",
       "conference": "ACC",
       "alts": ["smu", "smu mustangs", "smumustangs"]
     },
     {
       "school": "South Alabama",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "USA",
       "mascot": "Jaguars",
       "conference": "Sun Belt",
       "alts": ["south alabama", "south alabama jaguars", "southalabama", "southalabamajaguars"]
     },
     {
       "school": "South Carolina",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "SC",
       "mascot": "Gamecocks",
       "conference": "SEC",
       "alts": [
@@ -873,54 +1205,81 @@
     },
     {
       "school": "Southern Miss",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "USM",
       "mascot": "Golden Eagles",
       "conference": "Sun Belt",
       "alts": ["southern miss", "southern miss golden eagles", "southernmiss", "southernmissgolden"]
     },
     {
       "school": "South Florida",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "USF",
       "mascot": "Bulls",
       "conference": "American Athletic",
       "alts": ["south florida", "south florida bulls", "southflorida", "southfloridabulls"]
     },
     {
       "school": "Stanford",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "STAN",
       "mascot": "Cardinal",
       "conference": "ACC",
       "alts": ["stanford", "stanford cardinal", "stanfordcardinal"]
     },
     {
       "school": "Syracuse",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "SYR",
       "mascot": "Orange",
       "conference": "ACC",
       "alts": ["syracuse", "syracuse orange", "syracuseorange"]
     },
     {
       "school": "TCU",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "TCU",
       "mascot": "Horned Frogs",
       "conference": "Big 12",
       "alts": ["tcu", "tcu horned frogs", "tcuhornedfrogs"]
     },
     {
       "school": "Temple",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "TEM",
       "mascot": "Owls",
       "conference": "American Athletic",
       "alts": ["temple", "temple owls", "templeowls"]
     },
     {
       "school": "Tennessee",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "TENN",
       "mascot": "Volunteers",
       "conference": "SEC",
       "alts": ["tennessee", "tennessee volunteers", "tennesseevolunteers"]
     },
     {
       "school": "Texas",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "TEX",
       "mascot": "Longhorns",
       "conference": "SEC",
       "alts": ["texas", "texas longhorns", "texaslonghorns"]
     },
     {
       "school": "Texas A&M",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "TA&M",
       "mascot": "Aggies",
       "conference": "SEC",
       "alts": [
@@ -938,8 +1297,11 @@
     },
     {
       "school": "Texas State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "TXST",
       "mascot": "Bobcats",
-      "conference": "Sun Belt",
+      "conference": "Pac-12",
       "alts": [
         "texas state",
         "texas state bobcats",
@@ -953,60 +1315,90 @@
     },
     {
       "school": "Texas Tech",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "TTU",
       "mascot": "Red Raiders",
       "conference": "Big 12",
       "alts": ["texas tech", "texas tech red raiders", "texastech", "texastechred"]
     },
     {
       "school": "Toledo",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "TOL",
       "mascot": "Rockets",
       "conference": "Mid-American",
       "alts": ["toledo", "toledo rockets", "toledorockets"]
     },
     {
       "school": "Troy",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "TROY",
       "mascot": "Trojans",
       "conference": "Sun Belt",
       "alts": ["troy", "troy trojans", "troytrojans"]
     },
     {
       "school": "Tulane",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "TULN",
       "mascot": "Green Wave",
       "conference": "American Athletic",
       "alts": ["tulane", "tulane green wave", "tulanegreenwave"]
     },
     {
       "school": "Tulsa",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "TLSA",
       "mascot": "Golden Hurricane",
       "conference": "American Athletic",
       "alts": ["tulsa", "tulsa golden hurricane", "tulsagoldenhurricane"]
     },
     {
       "school": "UAB",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UAB",
       "mascot": "Blazers",
       "conference": "American Athletic",
       "alts": ["uab", "uab blazers", "uabblazers"]
     },
     {
       "school": "UCF",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UCF",
       "mascot": "Knights",
       "conference": "Big 12",
       "alts": ["ucf", "ucf knights", "ucfknights"]
     },
     {
       "school": "UCLA",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UCLA",
       "mascot": "Bruins",
       "conference": "Big Ten",
       "alts": ["ucla", "ucla bruins", "uclabruins"]
     },
     {
       "school": "UConn",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "CONN",
       "mascot": "Huskies",
       "conference": "FBS Independents",
       "alts": ["uconn", "uconn huskies", "uconnhuskies"]
     },
     {
       "school": "UL Monroe",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "ULM",
       "mascot": "Warhawks",
       "conference": "Sun Belt",
       "alts": [
@@ -1019,26 +1411,38 @@
     },
     {
       "school": "UNLV",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UNLV",
       "mascot": "Rebels",
       "conference": "Mountain West",
       "alts": ["unlv", "unlv rebels", "unlvrebels"]
     },
     {
       "school": "USC",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "USC",
       "mascot": "Trojans",
       "conference": "Big Ten",
       "alts": ["usc", "usc trojans", "usctrojans"]
     },
     {
       "school": "Utah",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UTAH",
       "mascot": "Utes",
       "conference": "Big 12",
       "alts": ["utah", "utah utes", "utahutes"]
     },
     {
       "school": "Utah State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "USU",
       "mascot": "Aggies",
-      "conference": "Mountain West",
+      "conference": "Pac-12",
       "alts": [
         "utah state",
         "utah state aggies",
@@ -1052,48 +1456,72 @@
     },
     {
       "school": "UTEP",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UTEP",
       "mascot": "Miners",
-      "conference": "Conference USA",
+      "conference": "Mountain West",
       "alts": ["utep", "utep miners", "utepminers"]
     },
     {
       "school": "UTSA",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UTSA",
       "mascot": "Roadrunners",
       "conference": "American Athletic",
       "alts": ["utsa", "utsa roadrunners", "utsaroadrunners"]
     },
     {
       "school": "Vanderbilt",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "VAN",
       "mascot": "Commodores",
       "conference": "SEC",
       "alts": ["vanderbilt", "vanderbilt commodores", "vanderbiltcommodores"]
     },
     {
       "school": "Virginia",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "UVA",
       "mascot": "Cavaliers",
       "conference": "ACC",
       "alts": ["virginia", "virginia cavaliers", "virginiacavaliers"]
     },
     {
       "school": "Virginia Tech",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "VT",
       "mascot": "Hokies",
       "conference": "ACC",
       "alts": ["virginia tech", "virginia tech hokies", "virginiatech", "virginiatechhokies"]
     },
     {
       "school": "Wake Forest",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "WAKE",
       "mascot": "Demon Deacons",
       "conference": "ACC",
       "alts": ["wake forest", "wake forest demon deacons", "wakeforest", "wakeforestdemon"]
     },
     {
       "school": "Washington",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "WASH",
       "mascot": "Huskies",
       "conference": "Big Ten",
       "alts": ["washington", "washington huskies", "washingtonhuskies"]
     },
     {
       "school": "Washington State",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "WSU",
       "mascot": "Cougars",
       "conference": "Pac-12",
       "alts": [
@@ -1111,6 +1539,9 @@
     },
     {
       "school": "Western Kentucky",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "WKU",
       "mascot": "Hilltoppers",
       "conference": "Conference USA",
       "alts": [
@@ -1122,6 +1553,9 @@
     },
     {
       "school": "Western Michigan",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "WMU",
       "mascot": "Broncos",
       "conference": "Mid-American",
       "alts": [
@@ -1133,6 +1567,9 @@
     },
     {
       "school": "West Virginia",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "WVU",
       "mascot": "Mountaineers",
       "conference": "Big 12",
       "alts": [
@@ -1144,12 +1581,18 @@
     },
     {
       "school": "Wisconsin",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "WIS",
       "mascot": "Badgers",
       "conference": "Big Ten",
       "alts": ["wisconsin", "wisconsin badgers", "wisconsinbadgers"]
     },
     {
       "school": "Wyoming",
+      "displayName": null,
+      "shortDisplayName": null,
+      "abbreviation": "WYO",
       "mascot": "Cowboys",
       "conference": "Mountain West",
       "alts": ["wyoming", "wyoming cowboys", "wyomingcowboys"]

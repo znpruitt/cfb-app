@@ -1,6 +1,7 @@
 /* scripts/fetch-cfbd-teams.ts
  * Build a local team catalog with smart aliases by combining CFBD data + derived variants
- * Run: npx tsx scripts/fetch-cfbd-teams.ts --year 2025
+ * Run: npx tsx scripts/fetch-cfbd-teams.ts            (current season)
+ *      npx tsx scripts/fetch-cfbd-teams.ts --year 2025  (pin a season)
  */
 
 import fs from 'node:fs';
@@ -43,10 +44,22 @@ type CatalogItem = {
   alts: string[]; // lowercased, deduped aliases
 };
 
+/**
+ * An explicit `--year <n>` pins the fetch to that season. With NO flag the year
+ * parameter is omitted entirely — which is exactly what `buildCfbdTeamsUrl()`
+ * (the admin resync path) does, so CFBD answers for the CURRENT season.
+ *
+ * These two paths MUST agree. A year pinned here is how the checked-in seed
+ * drifted to 136 teams (2025) while the synced durable catalog held 138 (2026):
+ * the draft board reads the durable catalog but the draft write path reads this
+ * file, so the board offered two teams that pick/confirm then rejected.
+ * Defaulting to `new Date().getFullYear()` is NOT equivalent — in the Jan-July
+ * offseason that names a season CFBD has no roster for yet.
+ */
 const yearArg = (() => {
   const i = process.argv.indexOf('--year');
   if (i >= 0 && process.argv[i + 1]) return Number.parseInt(process.argv[i + 1]!, 10);
-  return new Date().getFullYear();
+  return null;
 })();
 
 /** Lightweight normalizers & alias builders **/
@@ -180,7 +193,7 @@ async function main(): Promise<void> {
   const apiKey = requiredEnv('CFBD_API_KEY');
 
   const url = new URL('https://api.collegefootballdata.com/teams/fbs');
-  url.searchParams.set('year', String(yearArg));
+  if (yearArg !== null) url.searchParams.set('year', String(yearArg));
 
   const res = await fetch(url.toString(), {
     headers: {
@@ -216,12 +229,16 @@ async function main(): Promise<void> {
 
   const outFile = path.join(outDir, 'teams.json');
 
-  const payload = { year: yearArg, items };
+  const payload = { year: yearArg ?? new Date().getFullYear(), items };
   fs.writeFileSync(outFile, JSON.stringify(payload, null, 2), 'utf8');
 
   console.log(
     `✓ Saved ${items.length} teams with aliases to:\n  - ${path.relative(root, outFile)}`
   );
+  // `JSON.stringify(…, 2)` is not Prettier's JSON style, and `src/data` IS covered
+  // by `lint:all:format` — so regenerating without reformatting fails the pre-merge
+  // gate on a file this script just wrote.
+  console.log('  next: npx prettier --write src/data/teams.json');
 }
 
 main().catch((err) => {
