@@ -1769,6 +1769,26 @@ Supersedes: (none)
     be restated as the mechanism without running it. It only becomes load-bearing if a second
     preview branch is ever actually wanted; the alias, not the build, is the real obstacle there.
 
+60. **Stored rankings snapshots still hold the wrong Coaches column** (PLATFORM-104, 2026-08-18).
+
+    The rankings cache stores `RankingsCacheEntry.response`, which is the ALREADY-NORMALIZED
+    `RankingsResponse` — not the raw provider payload. So PLATFORM-104 corrects what future
+    normalization produces and repairs nothing already written. **Deploying it changes nothing on
+    screen.** The `rankings/<year>` snapshot keeps serving the FCS poll until a refresh re-fetches
+    and re-normalizes, via `/api/rankings?bypassCache=1` or the rankings cron.
+
+    Two consequences:
+
+    - **2026 needs one refresh after the fix ships**, or the Standings → FBS Polls tab keeps showing
+      `se louisiana`. This is the actionable half.
+    - **Archived prior seasons are suspect wherever both polls were published**, which is every
+      season sampled from 2014 on. Any surface reading an archived Coaches column — History in
+      particular — may be showing an FCS, Division II or Division III poll. Whether to re-fetch
+      history is a separate decision with a provider-quota cost; recorded here rather than assumed.
+
+    Not queued as implementation work: the refresh is an operator action, and the archive question
+    needs an owner decision before it is scoped.
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.

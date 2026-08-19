@@ -6568,6 +6568,54 @@ STATUS: MERGED — PR #492, merge commit `5abed2ff`, 2026-08-18.
 
 STATUS: MERGED — PR #493, merge commit `fc64391d`, 2026-08-18.
 
+### PLATFORM-104-POLL-SOURCE-MATCHING-v1
+
+- Purpose: Stop a non-FBS poll from claiming an FBS rankings column. Owner report, 2026-08-18, from
+  production: the Coaches Poll showed one row, `se louisiana` at rank 20.
+- Scope: `normalizePollSource` in `src/lib/rankings.ts`, `mergeWeekRankings` in
+  `src/lib/server/rankings.ts`, and `src/lib/__tests__/rankings.test.ts`. No UI, route, or cache
+  change.
+- **CFBD serves exactly six poll names and three of them contain "coaches."** Measured 2026-08-18 by
+  querying the provider for 2014, 2015, 2016, 2019, 2021, 2023, 2024, 2025 and 2026 — the same six
+  in every season, no variants: `AP Top 25`, `Coaches Poll`, `Playoff Committee Rankings`,
+  `FCS Coaches Poll`, `AFCA Division II Coaches Poll`, `AFCA Division III Coaches Poll`.
+- **Two defects compounded.** `normalizePollSource` matched by substring, so `includes('coaches')`
+  claimed all four coaches-named polls for one column; and `mergeWeekRankings` ASSIGNED rather than
+  claimed, so the last matching poll silently replaced the first. FCS sorts after FBS in the payload,
+  so **every week since 2014 has displayed the FCS poll wherever both were published.** Only one row
+  survived because the rest failed to resolve against an FBS-only registry, and the survivor came
+  through the observed-name fallback (`teamIdentity.ts` builds those entries with the raw string as
+  `displayName`), which is why it rendered lowercase.
+- **AP and CFP were never at risk from this, and CFP was never tested.** `AP Top 25` and
+  `Playoff Committee Rankings` are each the only name matching their rule. CFP had zero end-to-end
+  fixtures and exists for only ~6 weeks a season, so production would not have exercised it until
+  November; it now has coverage.
+- Fix: exact allowlist that fails CLOSED (an unrecognised poll returns null and renders "Not
+  available" rather than another division's rankings), plus a one-claim-per-source guard tracked
+  separately from row count so a zero-row poll still holds its column.
+- **`College Football Playoff Rankings` and `USA Today Coaches Poll` were dropped, not kept as
+  tolerance.** Neither appears in any of the nine seasons sampled. The previous test asserted BOTH —
+  so the single test guarding this function exercised two invented inputs and never saw the live
+  collision. Unverified tolerance is what made the matcher loose enough to fail.
+- Deliberately NOT added: an FBS row filter in `toCanonicalPollEntries`. The team catalog is not
+  available at that layer and the only reachable signal is inferred `subdivision`, whose
+  false-negative is silently dropping a legitimate AP team. With the root cause closed at the poll
+  name, that guard would defend a path that no longer exists while adding a worse failure mode.
+- Verification: `npx tsc --noEmit`, `npm run lint:all` and `npm test` each run as their own command
+  with unmasked exit status, all clean. Suite 4094 → 4098 (+4), both totals run.
+- **The mutation testing corrected the implementer's own reading, and is recorded because of it.**
+  Restoring substring matching alone does NOT fail the collision test — the claim guard also
+  prevents it. Only reverting BOTH fails it, which is what proves that test sees the original defect
+  rather than passing on a technicality. The duplicate-name test passed vacuously until it was given
+  a fixture that reaches the guard. Each fix is independently sufficient; they are kept as
+  overlapping defences, not because either is load-bearing alone.
+- **This fix does not repair what is already stored.** `RankingsCacheEntry.response` holds the
+  ALREADY-NORMALIZED shape, so the wrong coaches column is baked into the durable `rankings/<year>`
+  snapshot. Deploying changes nothing on screen until a refresh re-fetches and re-normalizes — see
+  `docs/next-tasks.md` 60.
+
+STATUS: pending merge — branch `platform/104-poll-source-matching`.
+
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
 
 - Purpose: [one sentence]
