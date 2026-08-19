@@ -92,6 +92,16 @@ test('PLATFORM-104: every non-FBS poll CFBD serves is refused', () => {
   assert.equal(normalizePollSource(''), null);
 });
 
+test('PLATFORM-104: inherited Object keys do not resolve to a poll source', () => {
+  // The allowlist was an object literal, so its lookup walked Object.prototype:
+  // 'constructor' returned the Object constructor and '__proto__' an object, both
+  // truthy enough to pass the caller's `if (!source)` guard and write a junk key
+  // into the durable snapshot. Found by review, 2026-08-19.
+  for (const inherited of ['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty']) {
+    assert.equal(normalizePollSource(inherited), null, `${inherited} must not resolve`);
+  }
+});
+
 test('PLATFORM-104: the FCS Coaches Poll cannot displace the FBS Coaches Poll', () => {
   // The production defect, reproduced with the provider's real payload shape:
   // both polls are present in the same week and FCS sorts AFTER FBS, so the old

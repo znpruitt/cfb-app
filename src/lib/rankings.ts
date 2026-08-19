@@ -75,11 +75,18 @@ export function rankSourceLabel(source: RankSource): string {
  * on the theory that the provider might use it is what made the old matcher
  * loose enough to fail.
  */
-const POLL_SOURCE_BY_EXACT_NAME: Record<string, RankSource> = {
-  'ap top 25': 'ap',
-  'coaches poll': 'coaches',
-  'playoff committee rankings': 'cfp',
-};
+// A Map, not an object literal: a plain object's lookup walks Object.prototype,
+// so `POLL_SOURCE_BY_EXACT_NAME['constructor']` returned a truthy non-RankSource
+// and passed the caller's `if (!source)` guard, writing a junk key into the
+// durable snapshot (`/code-review`, 2026-08-19). Lowercasing accidentally masked
+// `toString`/`valueOf`, which is the only reason the blast radius was small.
+// CFBD will not serve such a name, but this function documents that it fails
+// closed, and for two inputs it did not.
+const POLL_SOURCE_BY_EXACT_NAME = new Map<string, RankSource>([
+  ['ap top 25', 'ap'],
+  ['coaches poll', 'coaches'],
+  ['playoff committee rankings', 'cfp'],
+]);
 
 /** Names CFBD serves that must never enter an FBS poll column. */
 export const NON_FBS_POLL_NAMES = [
@@ -89,7 +96,7 @@ export const NON_FBS_POLL_NAMES = [
 ] as const;
 
 export function normalizePollSource(rawPoll: string): RankSource | null {
-  return POLL_SOURCE_BY_EXACT_NAME[rawPoll.trim().toLowerCase()] ?? null;
+  return POLL_SOURCE_BY_EXACT_NAME.get(rawPoll.trim().toLowerCase()) ?? null;
 }
 
 export function selectPrimaryRankSource(

@@ -1786,6 +1786,20 @@ Supersedes: (none)
       particular — may be showing an FCS, Division II or Division III poll. Whether to re-fetch
       history is a separate decision with a provider-quota cost; recorded here rather than assumed.
 
+    **The refresh will not be blocked by the completeness gate — measured, not assumed.**
+    `/code-review` raised (HIGH) that `findRankingsCoverageLoss` refuses any candidate that empties
+    a previously populated poll column, that `refreshSeasonRankings` has no force parameter, and
+    that a `coaches` column cached from an FCS poll would therefore lock the year out of every
+    future refresh. The mechanism is real. The precondition is not met: across nine seasons,
+    **133 week records contain a coaches-named poll and none lacks the FBS `Coaches Poll`.** Running
+    the live 2026 payload against a prior modelling today's production snapshot returns `[]` from
+    the gate, so the refresh commits.
+
+    **Still true and still unfixed: there is no force path.** If a prior week ever exists that the
+    current payload no longer contains, the year is refused with no override, and the only recovery
+    is deleting the durable `rankings/<year>` key. That is pre-existing behaviour, not introduced by
+    PLATFORM-104, and is the thing worth building if rankings recovery ever matters.
+
     Not queued as implementation work: the refresh is an operator action, and the archive question
     needs an owner decision before it is scoped.
 

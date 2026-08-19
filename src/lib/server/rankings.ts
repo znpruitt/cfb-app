@@ -21,6 +21,7 @@
 
 import { createTeamIdentityResolver } from '../teamIdentity.ts';
 import {
+  NON_FBS_POLL_NAMES,
   normalizePollSource,
   selectPrimaryRankSource,
   type CanonicalPollEntry,
@@ -135,7 +136,22 @@ function mergeWeekRankings(params: {
   const claimed = new Set<RankSource>();
   for (const poll of week.polls ?? []) {
     const source = normalizePollSource(poll.poll);
-    if (!source || claimed.has(source)) continue;
+    if (!source) {
+      // Failing closed is deliberate, but silence is not: a provider RENAME
+      // looks identical to a correctly-refused FCS poll, and the coverage gate
+      // only catches it on a season that already has a cached prior. Without
+      // this line a renamed `Coaches Poll` would empty the column for a whole
+      // fresh season with nothing to see (`/code-review`, 2026-08-19).
+      if (!NON_FBS_POLL_NAMES.includes(poll.poll as (typeof NON_FBS_POLL_NAMES)[number])) {
+        console.warn('rankings: unrecognised CFBD poll name refused', {
+          poll: poll.poll,
+          season: week.season,
+          week: week.week,
+        });
+      }
+      continue;
+    }
+    if (claimed.has(source)) continue;
     claimed.add(source);
     polls[source] = toCanonicalPollEntries(poll.ranks ?? [], source, resolver);
   }

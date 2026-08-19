@@ -6614,6 +6614,29 @@ STATUS: MERGED — PR #493, merge commit `fc64391d`, 2026-08-18.
   snapshot. Deploying changes nothing on screen until a refresh re-fetches and re-normalizes — see
   `docs/next-tasks.md` 60.
 
+- Review: both reviewers run against `c00ac5e3`, gathered before any change, one round applied.
+  Codex found nothing. `/code-review` raised one HIGH and two LOWs.
+- **The HIGH is REFUTED on reachability, and the refutation is a measurement.** It held that the
+  fix could be permanently blocked by `findRankingsCoverageLoss`: a cached `coaches` column
+  populated from an FCS poll, in a week where CFBD published no FBS `Coaches Poll`, would empty
+  under the fixed normalizer, and `refreshSeasonRankings` has no force path — so every later refresh
+  for that year is refused. **The mechanism is real and correctly described.** Its precondition is
+  not: across 2014, 2015, 2016, 2019, 2021, 2023, 2024, 2025 and 2026, **133 week records contain a
+  coaches-named poll and ZERO of them lack the FBS `Coaches Poll`** — it is a strict superset. The
+  live 2026 payload was then run end to end against a prior modelling exactly what production holds
+  today (`coaches` = the single `se louisiana` row, `ap` = 25): `findRankingsCoverageLoss` returned
+  `[]` and the refresh commits. `docs/next-tasks.md` 60's remedy stands. The gate's absent force
+  path is real and pre-existing; it is recorded there rather than fixed here.
+- **Both LOWs accepted and fixed.** The exact-match lookup was an object literal, so it walked
+  `Object.prototype` — `constructor` and `__proto__` returned truthy non-`RankSource` values that
+  passed the caller's `if (!source)` guard and would have written a junk key into the durable
+  snapshot. A function whose documented contract is to fail closed did not, for two inputs. Now a
+  `Map`, mutation-proven. And a refused poll name left no trace, so a provider RENAME was
+  indistinguishable from a correctly-refused FCS poll on a season with no cached prior; unmatched
+  names that are not the three known non-FBS polls now warn with the poll, season and week.
+- Verification after remediation: `npx tsc --noEmit`, `npm run lint:all` and `npm test` each run as
+  their own command with unmasked exit status, all clean. Suite 4094 → 4099 (+5).
+
 STATUS: pending merge — branch `platform/104-poll-source-matching`.
 
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
