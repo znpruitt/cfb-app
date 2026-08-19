@@ -46,6 +46,10 @@ import { seasonStorageKeys } from '../lib/storageKeys';
 import { type OddsUsageSnapshot } from '../lib/apiUsage';
 import { useAdminOddsUsage } from './hooks/useAdminOddsUsage';
 import { saveServerPostseasonOverrides } from '../lib/postseasonOverridesApi';
+import {
+  createPostseasonOverrideSaver,
+  type PostseasonOverrideSaver,
+} from '../lib/postseasonOverrideSaver';
 import { filterGamesForWeek } from '../lib/weekSelection';
 import { deriveWeekDateMetadataByWeek, getPresentationTimeZone } from '../lib/weekPresentation';
 import {
@@ -328,6 +332,11 @@ export default function CFBScheduleApp({
     Record<string, Partial<AppGame>>
   >({});
 
+  // Serializes durable override saves so two edits made before the first PUT
+  // resolves compose instead of deleting each other. See the module docblock.
+  const overrideSaverRef = useRef<PostseasonOverrideSaver | null>(null);
+  overrideSaverRef.current ??= createPostseasonOverrideSaver();
+
   const [scheduleLoaded, setScheduleLoaded] = useState<boolean>(false);
   // Monotonic counter bumped on every full schedule (re)build (`loadScheduleFromApi`
   // success). It is the re-arm signal for `useOddsHydration` (PLATFORM-086C3 review
@@ -528,6 +537,14 @@ export default function CFBScheduleApp({
     loadScheduleFromApi,
     tryParseOwnersCSV,
   });
+
+  // A confirmed map belongs to the season and league it was written for. Once
+  // either changes, `useScheduleBootstrap` reloads the overrides into state and
+  // that state is again the freshest thing we know — holding the old map would
+  // seed the next payload with another season's labels.
+  useEffect(() => {
+    overrideSaverRef.current?.reset();
+  }, [selectedSeason, leagueSlug]);
 
   useEffect(() => {
     if (selectedTab == null && selectedWeek != null) {
@@ -1157,11 +1174,6 @@ export default function CFBScheduleApp({
         sources: { ...base.sources, ...(override.sources ?? {}) },
       });
 
-      const nextOverrides: Record<string, Partial<AppGame>> = {
-        ...manualPostseasonOverrides,
-        [eventId]: { ...(manualPostseasonOverrides[eventId] ?? {}), ...patch },
-      };
-
       // CONFIRM FIRST. This used to write `localStorage` and patch `games`
       // optimistically, then PUT. When the PUT failed the local edit stayed —
       // persisted across reloads — so the author saw a postseason label nobody
@@ -1170,39 +1182,47 @@ export default function CFBScheduleApp({
       //
       // Nothing local changes until the durable write succeeds, so there is no
       // divergent state to roll back and no phantom edit to discover later.
-      void saveServerPostseasonOverrides(selectedSeason, nextOverrides, leagueSlug)
-        .then(() => {
-          setManualPostseasonOverrides(nextOverrides);
-          window.localStorage.setItem(
-            storageKeys.postseasonOverrides,
-            JSON.stringify(nextOverrides)
-          );
+      void overrideSaverRef.current?.enqueue({
+        eventId,
+        patch,
+        fallbackBase: manualPostseasonOverrides,
+        effects: {
+          save: (map) => saveServerPostseasonOverrides(selectedSeason, map, leagueSlug),
+          onSaveFailed: (error) => {
+            const detail = error instanceof Error ? error.message : String(error);
+            // This control is admin-only, and the flow it belongs to already
+            // blocks on `window.prompt`, so an alert is the idiom already in use
+            // here — and an author who changed nothing must be told, not left
+            // guessing.
+            console.error('Postseason override save failed', error);
+            window.alert(`Couldn't save that label — nothing was changed.\n\n${detail}`);
+          },
+          onCommitted: setManualPostseasonOverrides,
+          writeCache: (map) =>
+            window.localStorage.setItem(storageKeys.postseasonOverrides, JSON.stringify(map)),
+          onCacheFailed: (error) => {
+            console.warn('Postseason override cache write failed; durable save held', error);
+          },
+          onApplied: (map) => {
+            const override = map[eventId];
+            if (override) {
+              // In-place patch only — this keeps each game's existing canonical
+              // `key`, so it does NOT bump `scheduleGeneration`: the
+              // authoritative re-hydration for a key-changing override happens
+              // on the `loadScheduleFromApi` rebuild below, which recomputes
+              // keys from the overridden participants and bumps generation.
+              setGames((prevGames) =>
+                prevGames.map((g) => (g.eventId === eventId ? applyOverride(g, override) : g))
+              );
+            }
 
-          const override = nextOverrides[eventId];
-          if (override) {
-            // In-place patch only — this keeps each game's existing canonical
-            // `key`, so it does NOT bump `scheduleGeneration`: the authoritative
-            // re-hydration for a key-changing override happens on the
-            // `loadScheduleFromApi` rebuild below, which recomputes keys from the
-            // overridden participants and bumps generation.
-            setGames((prevGames) =>
-              prevGames.map((g) => (g.eventId === eventId ? applyOverride(g, override) : g))
-            );
-          }
-
-          // Refresh the RSC tree so canonical standings pick the override up; the
-          // overrides route already invalidates the standings cache tag.
-          router.refresh();
-          void loadScheduleFromApi(undefined, nextOverrides);
-        })
-        .catch((err: unknown) => {
-          const detail = err instanceof Error ? err.message : String(err);
-          // This control is admin-only, and the flow it belongs to already blocks
-          // on `window.prompt`, so an alert is the idiom already in use here — and
-          // an author who changed nothing must be told, not left guessing.
-          console.error('Postseason override save failed', err);
-          window.alert(`Couldn't save that label — nothing was changed.\n\n${detail}`);
-        });
+            // Refresh the RSC tree so canonical standings pick the override up;
+            // the overrides route already invalidates the standings cache tag.
+            router.refresh();
+            void loadScheduleFromApi(undefined, map);
+          },
+        },
+      });
     },
     [
       leagueSlug,
