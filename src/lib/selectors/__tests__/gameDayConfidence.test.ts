@@ -188,7 +188,7 @@ test('a stale schedule status cannot support Tracking over a final score', () =>
     ],
     scoresByKey: { 'g-1': score('Final') },
     season: 2026,
-    observation: null,
+    observation: observation(),
     now: NOW.getTime(),
   });
 
