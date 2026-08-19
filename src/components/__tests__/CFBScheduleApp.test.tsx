@@ -748,7 +748,7 @@ test('POLISH-005: an ADMIN keeps the rebuild path on a fatal schedule failure', 
   assert.doesNotMatch(member, /Rebuild schedule/);
 });
 
-test('POLISH-006: the week summary bar is gone from every week-scoped view', () => {
+test('POLISH-006: the week summary bar is gone from the matchups, schedule and matrix views', () => {
   // The bar restated the selected week, its date range, and a count of what was
   // already on screen. DESIGN.md bans coverage counters outright, and each panel
   // states its own empty case, so nothing here is the only statement of a fact.
@@ -796,6 +796,15 @@ test('POLISH-006: removing the bar keeps the week and its dates on the page', ()
 
   assert.match(html, /Week 1/, 'selected week still identified');
   assert.match(html, /Week 2/, 'other weeks still selectable');
+
+  // The date half of this test's name was previously unasserted, so deleting the
+  // date span in WeekControls would have left it green under its own title.
+  assert.match(html, /data-week-date-label="1"/, 'week 1 still carries its dates');
+  assert.match(html, /data-week-date-label="2"/, 'week 2 still carries its dates');
+
+  // The selection itself is asserted in WeekControls.test.tsx, not here:
+  // `selectedTab` initialises to null and is only assigned from an effect, which
+  // renderToStaticMarkup never runs, so no week is selected in this harness.
 });
 
 test('POLISH-005: no admin-only affordance is offered to a member', () => {

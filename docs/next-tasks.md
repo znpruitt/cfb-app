@@ -1704,6 +1704,42 @@ Supersedes: (none)
     The likely answer is a third state for "kicked off, no score yet" rather than either existing
     label, which is the same evidence problem as 57 and probably wants the same input.
 
+59. **`AGENTS.md` and `docs/deployment-runbook.md` state opposite mechanisms for the preview build
+    gate, and the runbook is the one matching observed behaviour** (`/code-review`, 2026-08-18,
+    against `a8e5f4d8`; the defect is in `45d3e65b`, already on `main`).
+
+    `AGENTS.md` → **Preview branch** says preview builds are gated by "a dashboard-level Ignored
+    Build Step that allowlists refs by name (`main` and `preview` only)". `deployment-runbook.md`
+    §6d says the gate is `vercel.json`'s `ignoreCommand`, "kept in version control rather than the
+    dashboard's Ignored Build Step field so it is reviewable and travels with the repo".
+
+    **The runbook is right about which gate is in force.** Both configurations exist — the dashboard
+    field really does hold that ref allowlist, read from the project API — but a `vercel.json`
+    `ignoreCommand` overrides it, and the deployments prove which one ran: `a8e5f4d8`, a docs-only
+    commit pushed to `preview`, was **Canceled at 3s** with no alias. The dashboard allowlist permits
+    any commit on `preview`, so it cannot be what stopped that build; the `ignoreCommand`'s
+    `^docs/|\.md$` rule is. The code commit `e5ec90d9` on the same branch built and went Ready.
+
+    Two consequences, both currently mis-stated in a binding document:
+
+    - An agent reading `AGENTS.md` concludes a second preview branch cannot deploy at all. What a
+      second branch actually lacks is the **stable alias**, not the build — any non-docs commit on
+      any ref returns exit 1 from the `ignoreCommand` and builds.
+    - `AGENTS.md` also says the branch and preview pushes "go together, including for docs-only and
+      closeout commits", whose stated purpose is keeping preview from being "a commit behind". For
+      exactly that commit class the build is skipped, so the ref advances and the served deployment
+      does not. The purpose is unachievable for the case the sentence singles out.
+
+    Why `preview-codex` produced no deployment is therefore **not established**. The observation
+    stands (push succeeded, no alias, 404) but at least two explanations survive: the dashboard rule
+    being consulted after all, or Vercel declining to rebuild a commit already deployed to
+    production. Do not restate either as the mechanism without running it.
+
+    Fixing this means editing a binding rule already merged to `main`, so it is queued rather than
+    folded into POLISH-006, whose scope is a UI header removal. `CLAUDE.md`'s pointer paragraph
+    repeats the same allowlist claim and must change with it — and while there, it states a rule in
+    a file whose own header says it states none.
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.
