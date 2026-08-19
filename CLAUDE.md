@@ -25,6 +25,7 @@ Claude Code companion to `AGENTS.md`. **Read `AGENTS.md` first.**
 | How to run gates and report results; test accounting | `AGENTS.md` → **Verification** |
 | Lifecycle / standings / ownership / auth invariants | `AGENTS.md` → the **Invariants** sections |
 | When documentation is finalized; which ledger owns what | `AGENTS.md` → **Documentation closeout timing** |
+| Who pushes `preview`, and on what cadence | `AGENTS.md` → **Preview branch** |
 | UI and design decisions | `DESIGN.md` |
 | What is queued next, and campaign status | `docs/next-tasks.md` |
 | Which prompt IDs exist | `docs/prompt-registry.md` |
@@ -124,25 +125,10 @@ git push origin HEAD                 # the branch
 git push origin HEAD:preview --force # and preview, same breath
 ```
 
-**`preview` belongs to Claude alone.** Decided 2026-08-18, when parallel worktrees (`cfb-app` and
-`cfb-app-codex`) raised the question. Two agents force-pushing one branch would show whichever
-committed last, changing under the owner mid-review with no indication of which branch was on
-screen — so Codex does not push `preview`, or any preview branch, and verifies locally instead.
-Codex work reaches the owner as a branch to pull and run, not as a URL.
-
-That holds because Codex currently owns test-suite and internal work, which has no surface to click
-through. **If Codex takes a slice with a user-visible surface, this decision is due for review** —
-a deployed URL is how the owner has caught what reviews did not.
-
-**A preview branch only builds if the Vercel project allows it by name.** The project carries a
-dashboard-level Ignored Build Step that skips any ref outside an explicit allowlist (`main` and
-`preview`). Pushing any other preview branch silently produces no deployment and a 404 alias — the
-push succeeds and nothing reports that the build was skipped. Giving a second agent a preview branch
-means editing that setting first; the branch alone does nothing.
-
-**Two worktrees need two dev-server ports.** Both default to 3000, and killing a dev server can
-orphan the `next-server` child, which then serves stale code from that port. Fix a port per
-worktree (`cfb-app` on 3000, `cfb-app-codex` on 3010) so a local check never reads the other tree.
+**`preview` is Claude's alone — Codex does not push it, and verifies locally instead.** The rule,
+its rationale, and the Vercel Ignored Build Step allowlist that makes a second preview branch a
+no-op live in `AGENTS.md` → **Preview branch**, which is the file Codex reads. Do not restate the
+rule here; a duplicate is how these two files drifted apart in the first place.
 
 `preview` exists so the owner can click through whatever the branch currently is, at any point. That
 only works if it tracks the branch continuously, so the two pushes go together — including for
