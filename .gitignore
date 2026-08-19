@@ -48,6 +48,8 @@ next-env.d.ts
 
 # IDE/editor settings
 .vscode/
+# Local multi-worktree VS Code layouts (they reference sibling checkouts by path).
+*.code-workspace
 .idea/
 *.swp
 
