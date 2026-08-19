@@ -61,13 +61,3 @@ export function deriveActiveSurfaceCopy(viewMode: WeekViewMode): ActiveSurfaceCo
     subtitle: null,
   };
 }
-
-export function deriveOddsSummaryCopy(params: {
-  gamesCount: number;
-  oddsAvailableCount: number;
-}): string | null {
-  const { gamesCount, oddsAvailableCount } = params;
-  if (gamesCount === 0 || oddsAvailableCount === gamesCount) return null;
-  if (oddsAvailableCount === 0) return null;
-  return `Odds available for ${oddsAvailableCount}/${gamesCount} games.`;
-}

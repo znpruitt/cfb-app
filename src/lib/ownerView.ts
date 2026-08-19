@@ -134,7 +134,7 @@ export function deriveOwnerRoster(
       else losses += 1;
     }
 
-    const liveGame = teamGames.find((game) => isLiveGame(game, scoresByKey[game.key]));
+    const liveGame = teamGames.find((game) => isLiveGame(scoresByKey[game.key]));
     if (liveGame) {
       const liveScore = scoresByKey[liveGame.key];
       const ownerTeamSide = getOwnerTeamSide(teamName, liveGame);
@@ -201,7 +201,7 @@ function filterRosterRowsToWeek(
     .filter((row) => getTeamGames(row.teamName, weekGames).length > 0)
     .map((row) => {
       const teamWeekGames = getTeamGames(row.teamName, weekGames).sort(compareGamesByKickoff);
-      const liveGame = teamWeekGames.find((game) => isLiveGame(game, scoresByKey[game.key]));
+      const liveGame = teamWeekGames.find((game) => isLiveGame(scoresByKey[game.key]));
       if (liveGame) {
         const opponentTeamName = getOpponentProviderName(row.teamName, liveGame);
         return {

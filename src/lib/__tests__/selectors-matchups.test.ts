@@ -3,8 +3,6 @@ import test from 'node:test';
 
 import {
   deriveExcludedGamesSummary,
-  deriveMatchupsHeaderCopy,
-  deriveOddsAvailabilitySummary,
   deriveOpponentDescriptor,
   deriveOwnerOutcome,
   formatSlateSummaryText,
@@ -112,21 +110,7 @@ test('selector derives summary and outcome including self-game edge case', () =>
   assert.equal(outcome.tone, 'finalSelf');
 });
 
-test('selector summarizes header and exclusions deterministically', () => {
-  assert.equal(deriveMatchupsHeaderCopy({ gamesCount: 3, oddsAvailableCount: 0 }), null);
-  assert.equal(deriveOddsAvailabilitySummary({ gamesCount: 3, oddsAvailableCount: 0 }), null);
-  assert.notEqual(
-    deriveOddsAvailabilitySummary({ gamesCount: 3, oddsAvailableCount: 2 }),
-    'Odds are unavailable.'
-  );
-  assert.equal(
-    deriveMatchupsHeaderCopy({ gamesCount: 3, oddsAvailableCount: 2 }),
-    'Odds available for 2/3 games.'
-  );
-  assert.equal(
-    deriveOddsAvailabilitySummary({ gamesCount: 3, oddsAvailableCount: 2 }),
-    'Odds available for 2/3 games.'
-  );
+test('selector summarizes exclusions deterministically', () => {
   assert.equal(
     deriveExcludedGamesSummary({
       ownerMatchups: [],

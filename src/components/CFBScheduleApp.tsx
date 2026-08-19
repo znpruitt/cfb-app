@@ -1241,11 +1241,6 @@ export default function CFBScheduleApp({
 
   const hasFatalLeagueBootstrapFailure =
     !isPreseason && !canRenderLeagueSurface && fatalBootstrapIssues.length > 0;
-  // POLISH-005 — the single data-state fact a member is shown. Coverage counts
-  // ("Scores available for 98/100 games.") were operator metrics and are carried
-  // by System Health; this is the one signal that belongs on a league page,
-  // because a member watching a slate wants to know the app is still updating.
-
   return (
     <div className="space-y-5 bg-white p-4 text-gray-900 sm:p-6 dark:bg-zinc-950 dark:text-zinc-100">
       <header className="flex flex-col gap-2">
@@ -1654,20 +1649,23 @@ export default function CFBScheduleApp({
         </section>
       ) : null}
 
+      {loadingSchedule && !scheduleLoaded ? (
+        // First paint. No page passes `initialGames`, so games are always
+        // fetched client-side after mount; without this the content area is
+        // simply empty while the request is in flight.
+        //
+        // It sits ABOVE `canRenderPrimarySurface` deliberately. That gate needs
+        // `weeks.length > 0` or the owner/rankings view, and during this exact
+        // window `games` is still `[]` — so nesting it inside meant the schedule,
+        // matchups, standings and overview surfaces showed nothing at all, which
+        // is the state it exists to cover.
+        <section className="text-xs text-gray-500 dark:text-zinc-400">
+          Loading schedule&hellip;
+        </section>
+      ) : null}
+
       {canRenderPrimarySurface && (
         <>
-          {loadingSchedule && !scheduleLoaded ? (
-            // In-season first paint. No page passes `initialGames`, so games are
-            // always fetched client-side after mount; without this the content
-            // area is simply empty while the request is in flight. A loading
-            // state is not an operator diagnostic — the boundary never required
-            // removing it, and doing so was collateral from gating the section
-            // on liveness.
-            <section className="text-xs text-gray-500 dark:text-zinc-400">
-              Loading schedule&hellip;
-            </section>
-          ) : null}
-
           {!isSeasonScopedView ? (
             <div className="rounded border border-gray-200 bg-gray-50 px-3 py-2 text-sm leading-6 text-gray-800 dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-200">
               {selectedTab === 'postseason' ? (

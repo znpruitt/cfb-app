@@ -44,7 +44,7 @@ export function formatGameMatchupLabel(
  * answering that question needs evidence that provider data actually refreshed,
  * which the client does not currently receive. See `docs/next-tasks.md` 57.
  */
-export function isLiveGame(_game: { status?: string }, score?: ScorePack): boolean {
+export function isLiveGame(score?: ScorePack): boolean {
   return gameStateFromScore(score) === 'inprogress';
 }
 

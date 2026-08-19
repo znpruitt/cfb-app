@@ -1,6 +1,5 @@
 import { classifyScorePackStatus, formatCompactGameStatus } from '../gameStatus';
 import type { OwnerSlateGame, OwnerWeekSlate, WeekMatchupSections } from '../matchups';
-import { deriveOddsSummaryCopy } from '../presentationCopy';
 import type { ScorePack } from '../scores';
 import { isPolicyFcsConference } from '../conferenceSubdivision';
 
@@ -141,20 +140,6 @@ export function deriveOwnerOutcome(params: { slateGame: OwnerSlateGame; score?: 
 
   const verdict = ownerScore > opponentScore ? 'Leading' : 'Trailing';
   return { summary: `${verdict} ${base}`, tone: state };
-}
-
-export function deriveMatchupsHeaderCopy(params: {
-  gamesCount: number;
-  oddsAvailableCount: number;
-}): string | null {
-  return deriveOddsAvailabilitySummary(params);
-}
-
-export function deriveOddsAvailabilitySummary(params: {
-  gamesCount: number;
-  oddsAvailableCount: number;
-}): string | null {
-  return deriveOddsSummaryCopy(params);
 }
 
 export function deriveExcludedGamesSummary(sections: WeekMatchupSections): string {
