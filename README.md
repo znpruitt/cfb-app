@@ -48,7 +48,7 @@ lives under `src/lib/` (cross-surface derived view models in
 
 ## Getting started
 
-Requires Node.js and npm. Set the provider/auth environment variables described
+Requires Node.js 22 or newer and npm. Set the provider/auth environment variables described
 in the deployment docs (see below) before running against live data — no secrets
 are reproduced here.
 

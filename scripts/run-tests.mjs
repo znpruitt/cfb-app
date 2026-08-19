@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { globSync, statSync } from 'node:fs';
+import { globSync, realpathSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -14,6 +14,15 @@ function escapeLiteralGlobPath(filePath) {
   return filePath.replace(/[[\]*?]/g, (character) => LITERAL_GLOB_ESCAPES[character]);
 }
 
+function escapeLiteralRouteSegments(pattern) {
+  return pattern
+    .split(/([/\\])/)
+    .map((segment) =>
+      segment.startsWith('[') && segment.endsWith(']') ? escapeLiteralGlobPath(segment) : segment
+    )
+    .join('');
+}
+
 export function resolveTestArguments(argumentsToRun, cwd = process.cwd()) {
   const files = [];
 
@@ -22,7 +31,7 @@ export function resolveTestArguments(argumentsToRun, cwd = process.cwd()) {
     const isWildcardGlob = /[*?]/.test(argument);
     const matches = exactFile?.isFile()
       ? [argument]
-      : globSync(argument, { cwd }).filter((match) =>
+      : globSync(escapeLiteralRouteSegments(argument), { cwd }).filter((match) =>
           statSync(path.resolve(cwd, match), { throwIfNoEntry: false })?.isFile()
         );
 
@@ -75,7 +84,7 @@ export function runTests(argumentsToRun) {
   return result.status ?? 1;
 }
 
-const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : null;
+const invokedPath = process.argv[1] ? realpathSync(process.argv[1]) : null;
 if (invokedPath === fileURLToPath(import.meta.url)) {
   process.exitCode = runTests(process.argv.slice(2));
 }
