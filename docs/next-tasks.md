@@ -1468,11 +1468,17 @@ Supersedes: (none)
     the public flag has no remaining reason to exist and deletion is the smaller change. Sequence
     accordingly rather than bolting an admin check onto a route that may not keep the flag.
 
-48. **Cross-domain test-fixture boundaries** (non-blocking cleanup): existing suites import shared
-    scheduler, game-stats, system-health, and request-context helpers from other subsystems'
-    `__tests__/` directories. Move only genuinely cross-domain helpers to `src/test/`, keeping
-    domain-private fixtures beside their suites; do not mix that broader import migration into
-    PLATFORM-103's discovery correction. New cross-domain helpers already follow this rule.
+48. **Test-infrastructure follow-ups** (non-blocking cleanup; not part of PLATFORM-103):
+    - Existing suites import shared scheduler, game-stats, system-health, and request-context helpers
+      from other subsystems' `__tests__/` directories. Move only genuinely cross-domain helpers to
+      `src/test/`, keeping domain-private fixtures beside their suites. New cross-domain helpers
+      already follow this rule.
+    - `npm test -- <path>` appends the path to the full-suite globs, so it still runs the entire
+      suite. The supported focused form is `npm run test:file -- <path>`; add an explicit rejection
+      only if the legacy invocation keeps causing confusion.
+    - Canonical discovery and the layout audit intentionally cover `*.test.ts[x]` below `src/`.
+      If executable JS/MJS tests or tests rooted under `scripts/` are introduced, widen BOTH the
+      runner and layout audit in the same change. No such executable test exists today.
 49. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
