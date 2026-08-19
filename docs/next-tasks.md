@@ -1640,6 +1640,10 @@ Supersedes: (none)
       `GameWeekPanel` tests pin the rendering contract (callback ⇒ button, and a positive control),
       but mutating the ternary at the two `CFBScheduleApp` call sites survives, because the
       postseason tab is not reachable in a static render — there is no prop to select it.
+      POLISH-006 hit the same wall from the other direction: it could not assert the removal of the
+      bar's postseason arm for the same reason. `selectedTab` initialises to `null` and is only
+      assigned from an effect, which `renderToStaticMarkup` never runs. Two slices have now been
+      blocked here, so the missing prop is worth more than its size suggests.
     - **`setOddsSnapshotAt` and `setScoresSnapshotAt` are write-only.** No reader remains for either,
       but the setters still fire on season reset and on every odds/score poll, re-rendering a very
       large component for values nothing consumes. `scoresSnapshotAt` was retired when the member
