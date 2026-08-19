@@ -6650,7 +6650,7 @@ STATUS: MERGED — PR #493, merge commit `fc64391d`, 2026-08-18.
   mutation-proven in both halves: restoring the raw comparison fails two tests, and removing only
   the dedupe fails one.
 
-STATUS: pending merge — branch `platform/104-poll-source-matching`.
+STATUS: MERGED — PR #494, merge commit `cb2bd7f0`, 2026-08-19.
 
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
 
