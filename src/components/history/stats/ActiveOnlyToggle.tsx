@@ -28,10 +28,10 @@ export function ActiveOnlyToggle({
       aria-label={label}
       disabled={disabled}
       onClick={handleToggle}
-      className={`group inline-flex items-center gap-2 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
+      className={`group -mr-2 inline-flex min-h-11 touch-manipulation items-center gap-2.5 rounded-md px-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-500 lg:mr-0 lg:min-h-0 lg:gap-2 lg:px-0 ${disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}
     >
       <span
-        className={`text-[11px] transition-colors ${
+        className={`text-xs font-medium transition-colors lg:text-[11px] lg:font-normal ${
           activeOnly ? 'text-gray-700 dark:text-zinc-200' : 'text-gray-400 dark:text-zinc-500'
         }`}
       >
@@ -39,15 +39,15 @@ export function ActiveOnlyToggle({
       </span>
       <span
         aria-hidden="true"
-        className={`relative inline-flex h-[14px] w-[26px] flex-none rounded-full transition-colors ${
+        className={`relative inline-flex h-5 w-9 flex-none rounded-full transition-colors lg:h-[14px] lg:w-[26px] ${
           activeOnly ? 'bg-gray-700 dark:bg-zinc-200' : 'bg-gray-200 dark:bg-zinc-700'
         }`}
       >
         <span
-          className={`absolute top-[2px] h-[10px] w-[10px] rounded-full transition-all ${
+          className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full transition-transform lg:h-[10px] lg:w-[10px] ${
             activeOnly
-              ? 'left-[14px] bg-white dark:bg-zinc-900'
-              : 'left-[2px] bg-white dark:bg-zinc-400'
+              ? 'translate-x-4 bg-white lg:translate-x-3 dark:bg-zinc-900'
+              : 'translate-x-0 bg-white dark:bg-zinc-400'
           }`}
         />
       </span>

@@ -100,6 +100,15 @@ test('RecordEventList: Show all reveals the overflow list (single-column)', () =
   assert.match(items[0]!.textContent ?? '', /Grace/);
 });
 
+test('RecordEventList: Show all provides a 44px mobile touch target', () => {
+  const { getByRole } = render(<RecordEventList record={makeEventRecord()} />);
+  const button = getByRole('button', { name: /Show all/ });
+
+  assert.ok(button.classList.contains('min-h-11'));
+  assert.ok(button.classList.contains('text-sm'));
+  assert.ok(button.classList.contains('lg:min-h-0'));
+});
+
 test('RecordEventList: emits article with id matching record.id and scroll-mt class', () => {
   const { container } = render(<RecordEventList record={makeEventRecord()} />);
   const article = container.querySelector('article');
@@ -261,4 +270,22 @@ test('RecordEventList: podium event-year cell holds only the contextString — n
   const cell = container.querySelector('[data-testid="podium-cell"]');
   assert.ok(cell);
   assert.match(cell!.textContent ?? '', /Jordan finished 4th, then 12th/);
+});
+
+test('RecordEventList: uses a stacked mobile podium before restoring the desktop columns', () => {
+  const { container } = render(<RecordEventList record={makeEventRecord()} />);
+  const article = container.querySelector('[data-testid="record-row"]');
+  const podium = container.querySelector('[data-testid="record-podium"]');
+  const firstCell = podiumCells(container)[0];
+
+  assert.ok(article);
+  assert.ok(podium);
+  assert.ok(firstCell);
+  assert.ok(article!.classList.contains('grid-cols-[minmax(0,1fr)_auto]'));
+  assert.ok(article!.classList.contains('lg:grid-cols-[200px_minmax(0,1fr)_80px]'));
+  assert.ok(podium!.classList.contains('col-span-2'));
+  assert.ok(podium!.classList.contains('grid-cols-1'));
+  assert.ok(podium!.classList.contains('lg:grid-cols-3'));
+  assert.ok(firstCell!.classList.contains('grid-cols-[minmax(0,1fr)_auto]'));
+  assert.ok(firstCell!.classList.contains('lg:grid-cols-[96px_minmax(0,1fr)]'));
 });

@@ -73,6 +73,15 @@ test('RecordRanking: Show all toggles button label between "Show all" and "Hide"
   assert.match(container.textContent ?? '', /Show all/);
 });
 
+test('RecordRanking: Show all provides a 44px mobile touch target', () => {
+  const { getByRole } = render(<RecordRanking record={makeRecord()} />);
+  const button = getByRole('button', { name: /Show all/ });
+
+  assert.ok(button.classList.contains('min-h-11'));
+  assert.ok(button.classList.contains('text-sm'));
+  assert.ok(button.classList.contains('lg:min-h-0'));
+});
+
 test('RecordRanking: ActiveOnlyToggle filters out former owners from the podium', () => {
   const { container, getByRole } = render(<RecordRanking record={makeRecord()} />);
   fireEvent.click(getByRole('switch'));
@@ -180,4 +189,22 @@ test('RecordRanking: empty record renders the placeholder line spanning podium c
   assert.match(placeholder!.textContent ?? '', /No qualifying entries/);
   // No podium cells when empty
   assert.equal(podiumCells(container).length, 0);
+});
+
+test('RecordRanking: uses a stacked mobile podium before restoring the desktop columns', () => {
+  const { container } = render(<RecordRanking record={makeRecord()} />);
+  const article = container.querySelector('[data-testid="record-row"]');
+  const podium = container.querySelector('[data-testid="record-podium"]');
+  const firstCell = podiumCells(container)[0];
+
+  assert.ok(article);
+  assert.ok(podium);
+  assert.ok(firstCell);
+  assert.ok(article!.classList.contains('grid-cols-[minmax(0,1fr)_auto]'));
+  assert.ok(article!.classList.contains('lg:grid-cols-[200px_minmax(0,1fr)_80px]'));
+  assert.ok(podium!.classList.contains('col-span-2'));
+  assert.ok(podium!.classList.contains('grid-cols-1'));
+  assert.ok(podium!.classList.contains('lg:grid-cols-3'));
+  assert.ok(firstCell!.classList.contains('grid-cols-[32px_minmax(0,1fr)_auto]'));
+  assert.ok(firstCell!.classList.contains('lg:grid-cols-[28px_minmax(0,1fr)]'));
 });

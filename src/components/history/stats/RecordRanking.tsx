@@ -62,12 +62,12 @@ export function RecordRanking({
     <article
       id={record.id}
       data-testid="record-row"
-      className={`grid scroll-mt-20 grid-cols-[200px_repeat(3,minmax(0,1fr))_80px] items-center gap-x-6 py-3.5 ${
+      className={`grid scroll-mt-20 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 py-4 lg:grid-cols-[200px_minmax(0,1fr)_80px] lg:items-center lg:gap-x-6 lg:gap-y-0 lg:py-3.5 ${
         expanded ? '' : 'border-b border-gray-100 dark:border-zinc-800'
       }`}
     >
       {/* Label cell */}
-      <div className="flex flex-col">
+      <div className="col-start-1 row-start-1 flex min-w-0 flex-col">
         <span
           data-testid="record-eyebrow"
           className="text-[11px] font-medium uppercase tracking-[0.06em] text-gray-500 dark:text-zinc-500"
@@ -85,30 +85,35 @@ export function RecordRanking({
         ) : null}
       </div>
 
-      {/* Podium cells (or empty placeholder spanning 3 columns) */}
-      {isEmpty ? (
-        <div
-          data-testid="record-empty"
-          className="col-start-2 col-span-3 text-[12px] italic text-gray-500 dark:text-zinc-500"
-        >
-          No qualifying entries.
-        </div>
-      ) : (
-        [0, 1, 2].map((i) => {
-          const row = podium[i];
-          if (!row) return <div key={i} aria-hidden="true" />;
-          return (
+      {/*
+        Responsive priority: label/actions stay visible first; the defining
+        top-three ranking stacks below the lg viewport breakpoint, where the
+        existing three-column podium returns.
+      */}
+      <div
+        data-testid="record-podium"
+        className="col-span-2 row-start-2 mt-1 grid grid-cols-1 divide-y divide-gray-100 dark:divide-zinc-800 lg:col-span-1 lg:col-start-2 lg:row-start-1 lg:mt-0 lg:grid-cols-3 lg:gap-x-6 lg:divide-y-0"
+      >
+        {isEmpty ? (
+          <div
+            data-testid="record-empty"
+            className="py-2 text-[12px] italic text-gray-500 dark:text-zinc-500 lg:col-span-3 lg:py-0"
+          >
+            No qualifying entries.
+          </div>
+        ) : (
+          podium.map((row) => (
             <PodiumCell
               key={`${row.rank}-${row.owners.join('-')}`}
               row={row}
               tied={tieMap.get(row.rank) ?? false}
             />
-          );
-        })
-      )}
+          ))
+        )}
+      </div>
 
       {/* Actions cell */}
-      <div className="flex flex-col items-end gap-2">
+      <div className="col-start-2 row-start-1 flex flex-row items-center justify-end gap-1 lg:col-start-3 lg:flex-col lg:items-end lg:gap-2">
         {lockedActiveOnly ? (
           <span className="text-[11px] italic text-gray-500 dark:text-zinc-400">Active only</span>
         ) : (
@@ -118,7 +123,7 @@ export function RecordRanking({
           <button
             type="button"
             onClick={() => setShowAll((v) => !v)}
-            className={`text-[11px] ${
+            className={`-mr-2 min-h-11 touch-manipulation rounded-md px-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-500 lg:mr-0 lg:min-h-0 lg:px-0 lg:text-[11px] lg:font-normal ${
               showAll ? 'text-gray-900 dark:text-zinc-100' : 'text-gray-500 dark:text-zinc-400'
             } hover:text-gray-700 dark:hover:text-zinc-200`}
           >
@@ -131,7 +136,7 @@ export function RecordRanking({
       {expanded ? (
         <div
           data-testid="record-overflow"
-          className="col-start-2 col-end-[-1] mt-2 border-b border-gray-100 dark:border-zinc-800"
+          className="col-span-2 row-start-3 mt-1 border-b border-gray-100 dark:border-zinc-800 lg:col-start-2 lg:row-start-2 lg:mt-2"
         >
           <ol className="divide-y divide-gray-100 dark:divide-zinc-800">
             {overflow.map((row) => {
@@ -139,18 +144,18 @@ export function RecordRanking({
               return (
                 <li
                   key={`${row.rank}-${row.owners.join('-')}`}
-                  className="flex items-center gap-3 py-1.5 text-[13px]"
+                  className="grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-x-3 py-2 text-[13px]"
                 >
-                  <span className="w-7 flex-none text-right tabular-nums text-gray-500 dark:text-zinc-400">
+                  <span className="text-right tabular-nums text-gray-500 dark:text-zinc-400">
                     {tied ? `T-${row.rank}` : row.rank}
                   </span>
-                  <span className="flex flex-1 items-center gap-2">
-                    <span className="font-medium text-gray-900 dark:text-zinc-100">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="break-words font-medium text-gray-900 dark:text-zinc-100">
                       {row.owners.join(' & ')}
                     </span>
                     {row.isFormer ? <FormerOwnerBadge /> : null}
                   </span>
-                  <span className="flex-none tabular-nums text-gray-900 dark:text-zinc-100">
+                  <span className="whitespace-nowrap text-right tabular-nums text-gray-900 dark:text-zinc-100">
                     {row.formattedValue}
                   </span>
                 </li>
@@ -182,24 +187,24 @@ function PodiumCell({ row, tied }: PodiumCellProps): React.ReactElement {
   return (
     <div
       data-testid="podium-cell"
-      className="grid min-w-0 grid-cols-[28px_1fr] items-center gap-x-2.5"
+      className="grid min-w-0 grid-cols-[32px_minmax(0,1fr)_auto] items-baseline gap-x-2.5 py-2 lg:grid-cols-[28px_minmax(0,1fr)] lg:items-center lg:py-0"
     >
       <span
         data-testid="podium-rank"
-        className={`text-[18px] font-medium tabular-nums ${tintClass}`}
+        className={`row-span-2 self-start pt-0.5 text-[18px] font-medium tabular-nums lg:row-span-1 lg:self-auto lg:pt-0 ${tintClass}`}
       >
         {rankLabel}
       </span>
-      <div className="flex min-w-0 flex-col">
-        <span className="flex items-center gap-1 text-[13px] font-medium text-gray-900 dark:text-zinc-100">
+      <div className="contents lg:col-start-2 lg:row-start-1 lg:flex lg:min-w-0 lg:flex-col">
+        <span className="col-start-2 row-start-1 flex min-w-0 items-center gap-1 break-words text-[13px] font-medium text-gray-900 dark:text-zinc-100">
           {row.owners.join(' & ')}
           {row.isFormer ? <FormerOwnerBadge /> : null}
         </span>
-        <span className="mt-px text-sm font-medium tabular-nums text-gray-900 dark:text-zinc-100">
+        <span className="col-start-3 row-start-1 whitespace-nowrap text-right text-sm font-medium tabular-nums text-gray-900 dark:text-zinc-100 lg:mt-px lg:text-left">
           {row.formattedValue}
         </span>
         {row.contextString ? (
-          <span className="mt-0.5 text-[11px] text-gray-500 dark:text-zinc-400">
+          <span className="col-span-2 col-start-2 row-start-2 mt-0.5 text-[11px] text-gray-500 dark:text-zinc-400">
             {row.contextString}
           </span>
         ) : null}

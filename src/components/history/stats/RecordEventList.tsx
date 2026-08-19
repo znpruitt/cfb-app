@@ -23,10 +23,9 @@ type RecordEventListProps = {
 
 /**
  * Renders an event-shaped record (closest_title_race, biggest_collapse,
- * biggest_climb) as a single horizontal row matching the owner-ranked
- * layout: label | 3 podium cells | actions. Year column carries the
- * gold/silver/bronze tint instead of a rank number. Show all expands
- * single-column across the podium + actions span below the row.
+ * biggest_climb) in the same responsive structure as owner-ranked records.
+ * Year context carries the gold/silver/bronze tint instead of a rank number.
+ * Show all expands as a single-column list below the podium.
  */
 export function RecordEventList({ record }: RecordEventListProps): React.ReactElement {
   const [showAll, setShowAll] = React.useState<boolean>(false);
@@ -42,12 +41,12 @@ export function RecordEventList({ record }: RecordEventListProps): React.ReactEl
     <article
       id={record.id}
       data-testid="record-row"
-      className={`grid scroll-mt-20 grid-cols-[200px_repeat(3,minmax(0,1fr))_80px] items-center gap-x-6 py-3.5 ${
+      className={`grid scroll-mt-20 grid-cols-[minmax(0,1fr)_auto] items-start gap-x-4 gap-y-2 py-4 lg:grid-cols-[200px_minmax(0,1fr)_80px] lg:items-center lg:gap-x-6 lg:gap-y-0 lg:py-3.5 ${
         expanded ? '' : 'border-b border-gray-100 dark:border-zinc-800'
       }`}
     >
       {/* Label cell */}
-      <div className="flex flex-col">
+      <div className="col-start-1 row-start-1 flex min-w-0 flex-col">
         <span
           data-testid="record-eyebrow"
           className="text-[11px] font-medium uppercase tracking-[0.06em] text-gray-500 dark:text-zinc-500"
@@ -57,35 +56,40 @@ export function RecordEventList({ record }: RecordEventListProps): React.ReactEl
         <span className="mt-0.5 text-xs text-gray-700 dark:text-zinc-300">{record.label}</span>
       </div>
 
-      {/* Podium cells (or empty placeholder spanning 3 columns) */}
-      {isEmpty ? (
-        <div
-          data-testid="record-empty"
-          className="col-start-2 col-span-3 text-[12px] italic text-gray-500 dark:text-zinc-500"
-        >
-          No events yet.
-        </div>
-      ) : (
-        [0, 1, 2].map((i) => {
-          const row = podium[i];
-          if (!row) return <div key={i} aria-hidden="true" />;
-          return (
+      {/*
+        Responsive priority: label/actions stay visible first; the defining
+        top-three events stack below the lg viewport breakpoint, where the
+        existing three-column podium returns.
+      */}
+      <div
+        data-testid="record-podium"
+        className="col-span-2 row-start-2 mt-1 grid grid-cols-1 divide-y divide-gray-100 dark:divide-zinc-800 lg:col-span-1 lg:col-start-2 lg:row-start-1 lg:mt-0 lg:grid-cols-3 lg:gap-x-6 lg:divide-y-0"
+      >
+        {isEmpty ? (
+          <div
+            data-testid="record-empty"
+            className="py-2 text-[12px] italic text-gray-500 dark:text-zinc-500 lg:col-span-3 lg:py-0"
+          >
+            No events yet.
+          </div>
+        ) : (
+          podium.map((row) => (
             <EventCell
               key={`${row.rank}-${row.contextString ?? ''}-${row.owners.join('-')}`}
               row={row}
               recordId={record.id}
             />
-          );
-        })
-      )}
+          ))
+        )}
+      </div>
 
       {/* Actions cell */}
-      <div className="flex flex-col items-end gap-2">
+      <div className="col-start-2 row-start-1 flex flex-row items-center justify-end gap-1 lg:col-start-3 lg:flex-col lg:items-end lg:gap-2">
         {hasOverflow ? (
           <button
             type="button"
             onClick={() => setShowAll((v) => !v)}
-            className={`text-[11px] ${
+            className={`-mr-2 min-h-11 touch-manipulation rounded-md px-2 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-500 lg:mr-0 lg:min-h-0 lg:px-0 lg:text-[11px] lg:font-normal ${
               showAll ? 'text-gray-900 dark:text-zinc-100' : 'text-gray-500 dark:text-zinc-400'
             } hover:text-gray-700 dark:hover:text-zinc-200`}
           >
@@ -98,21 +102,21 @@ export function RecordEventList({ record }: RecordEventListProps): React.ReactEl
       {expanded ? (
         <div
           data-testid="record-overflow"
-          className="col-start-2 col-end-[-1] mt-2 border-b border-gray-100 dark:border-zinc-800"
+          className="col-span-2 row-start-3 mt-1 border-b border-gray-100 dark:border-zinc-800 lg:col-start-2 lg:row-start-2 lg:mt-2"
         >
           <ol className="divide-y divide-gray-100 dark:divide-zinc-800">
             {overflow.map((row) => (
               <li
                 key={`${row.rank}-${row.contextString ?? ''}-${row.owners.join('-')}`}
-                className="flex items-center gap-3 py-1.5 text-[13px]"
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-2 text-[13px] lg:grid-cols-[80px_minmax(0,1fr)_auto] lg:items-center"
               >
-                <span className="w-20 flex-none overflow-hidden text-right tabular-nums text-gray-500 dark:text-zinc-400">
+                <span className="col-span-2 row-start-2 mt-0.5 overflow-hidden text-[11px] tabular-nums text-gray-500 dark:text-zinc-400 lg:col-span-1 lg:col-start-1 lg:row-start-1 lg:mt-0 lg:text-right lg:text-[13px]">
                   {row.contextString ?? '—'}
                 </span>
-                <span className="min-w-0 flex-1 text-gray-900 dark:text-zinc-100">
+                <span className="col-start-1 row-start-1 min-w-0 break-words text-gray-900 dark:text-zinc-100 lg:col-start-2">
                   {renderHoldersPhrase(row, record.id)}
                 </span>
-                <span className="flex-none font-medium tabular-nums text-gray-900 dark:text-zinc-100">
+                <span className="col-start-2 row-start-1 whitespace-nowrap text-right font-medium tabular-nums text-gray-900 dark:text-zinc-100 lg:col-start-3">
                   {row.formattedValue}
                 </span>
               </li>
@@ -134,19 +138,19 @@ function EventCell({ row, recordId }: EventCellProps): React.ReactElement {
   return (
     <div
       data-testid="podium-cell"
-      className="grid min-w-0 grid-cols-[96px_1fr] items-center gap-x-2.5"
+      className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-2 lg:grid-cols-[96px_minmax(0,1fr)] lg:items-center lg:gap-x-2.5 lg:py-0"
     >
       <span
         data-testid="event-year"
-        className={`overflow-hidden text-[13px] font-medium tabular-nums ${tintClass}`}
+        className={`col-span-2 col-start-1 row-start-2 mt-0.5 overflow-hidden text-[11px] font-medium tabular-nums lg:col-span-1 lg:row-start-1 lg:mt-0 lg:text-[13px] ${tintClass}`}
       >
         {row.contextString ?? '—'}
       </span>
-      <div className="flex min-w-0 flex-col">
-        <span className="text-[13px] text-gray-900 dark:text-zinc-100">
+      <div className="contents lg:col-start-2 lg:row-start-1 lg:flex lg:min-w-0 lg:flex-col">
+        <span className="col-start-1 row-start-1 min-w-0 break-words text-[13px] text-gray-900 dark:text-zinc-100">
           {renderHoldersPhrase(row, recordId)}
         </span>
-        <span className="mt-px text-sm font-medium tabular-nums text-gray-900 dark:text-zinc-100">
+        <span className="col-start-2 row-start-1 whitespace-nowrap text-right text-sm font-medium tabular-nums text-gray-900 dark:text-zinc-100 lg:mt-px lg:text-left">
           {row.formattedValue}
         </span>
       </div>
