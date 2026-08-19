@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 
 import {
   getBootstrapScoreHydrationGames,
@@ -22,6 +29,7 @@ import { type CombinedOdds } from '../../lib/odds';
 import { applyOddsResponse, type OddsClientResponse } from '../../lib/oddsClientPayload';
 import { fetchScoresByGame, type ScorePack } from '../../lib/scores';
 import { classifyScorePackStatus } from '../../lib/gameStatus';
+import type { LiveScoreObservation } from '../../lib/selectors/gameDayConfidence';
 import { isLiveIssue, isLiveOddsIssue } from '../../lib/cfbScheduleAppHelpers';
 import type { AliasMap } from '../../lib/teamNames';
 import type { AppGame } from '../../lib/schedule';
@@ -184,6 +192,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
      */
     scorePartitions?: LiveScorePartition[];
   }) => Promise<void>;
+  liveScoreObservation: LiveScoreObservation | null;
 } {
   const {
     selectedSeason,
@@ -225,6 +234,9 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
   // AND their scores so a later `/games` correction (final→final score change) is
   // detected, not just the initial non-final → final transition (PLATFORM-086B2B).
   const finalizedScoreKeysRef = useRef<Map<string, string>>(new Map());
+  const [liveScoreObservation, setLiveScoreObservation] = useState<LiveScoreObservation | null>(
+    null
+  );
 
   // Latest eligibility inputs for the visible-tab live-score timer
   // (PLATFORM-086B2B). Held in a ref so the 3-minute interval reads fresh
@@ -240,6 +252,12 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
       scheduleLoaded,
     });
   }, [scheduleLoaded]);
+
+  useEffect(() => {
+    // Observation evidence belongs to one loaded season lifecycle. Navigation
+    // within it keeps the signal; an unload/rebuild or season change clears it.
+    setLiveScoreObservation(null);
+  }, [scheduleLoaded, selectedSeason]);
 
   const refreshLiveData = useCallback(
     async (options?: {
@@ -352,6 +370,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
             scoresByKey: nextScores,
             issues: scoreIssues,
             snapshotAt,
+            liveObservedAt,
             debugSnapshot,
           } = await fetchScoresByGame({
             games,
@@ -407,6 +426,20 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
           }
 
           if (scoreIssues.length) setIssues((p) => [...p, ...scoreIssues]);
+          // Hydration/manual reads (no exact partitions) cannot establish or renew
+          // this evidence. They leave any prior exact-poll observation at its
+          // original timestamp, so navigation preserves it only until the selector TTL.
+          if (options?.scorePartitions) {
+            const attachedGameKeys = Object.keys(nextScores);
+            // Header confidence covers the whole exact-partition poll, not one
+            // lucky sibling. Any requested-partition issue makes that read
+            // incomplete, so fail closed even when another game attached.
+            setLiveScoreObservation(
+              liveObservedAt && scoreIssues.length === 0 && attachedGameKeys.length > 0
+                ? { observedAt: liveObservedAt, attachedGameKeys }
+                : null
+            );
+          }
           setScoresByKey((prev) => {
             const retained: Record<string, ScorePack> = {};
             for (const game of games) {
@@ -469,6 +502,7 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
           // The auto-poll throttle was stamped at poll initiation (above), not here,
           // so the timer's cadence is not offset by fetch latency.
         } catch (err) {
+          if (options?.scorePartitions) setLiveScoreObservation(null);
           setIssues((p) => [...p, `Scores fetch failed: ${(err as Error).message}`]);
         }
       } finally {
@@ -627,5 +661,5 @@ export function useLiveRefresh(params: UseLiveRefreshParams): {
     });
   }, [games, loadingLive, refreshLiveData, scheduleLoaded, scoreHydrationState, selectedTab]);
 
-  return { refreshLiveData };
+  return { refreshLiveData, liveScoreObservation };
 }

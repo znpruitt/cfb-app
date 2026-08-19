@@ -1,5 +1,5 @@
 import type { CfbdSeasonType } from '@/lib/cfbd';
-import { normalizeStatusTokens } from '@/lib/gameStatus';
+import { isCanceledOrPostponedStatusLabel } from '@/lib/gameStatus';
 
 import type { LiveScoreContext, LiveScoreGame } from './canonicalContext';
 
@@ -25,14 +25,6 @@ import type { LiveScoreContext, LiveScoreGame } from './canonicalContext';
 export const POLLING_WINDOW_BEFORE_KICKOFF_MS = 15 * 60 * 1000;
 export const POLLING_WINDOW_AFTER_KICKOFF_MS = 24 * 60 * 60 * 1000;
 
-/**
- * Canceled/postponed are the ONLY disrupted labels that end polling eligibility;
- * delayed and suspended games remain eligible inside the 24h bound. Uses the
- * canonical separator-normalized token string so provider enum spellings
- * (`STATUS_POSTPONED`, `status-canceled`) classify identically.
- */
-const CANCELED_OR_POSTPONED_RE = /\b(?:canceled|cancelled|postponed)\b/;
-
 export type PartitionRef = {
   year: number;
   /** Provider partition week (CFBD week — postseason provider week, never canonical). */
@@ -57,10 +49,6 @@ export type PollingPlan =
 /** Stable key for a partition. */
 export function partitionKey(ref: PartitionRef): string {
   return `${ref.year}:${ref.week}:${ref.seasonType}`;
-}
-
-function isCanceledOrPostponed(rawStatus: string | null): boolean {
-  return CANCELED_OR_POSTPONED_RE.test(normalizeStatusTokens(rawStatus));
 }
 
 /**
@@ -91,7 +79,7 @@ export function collectWindowGames(context: LiveScoreContext, now: Date): Window
     // Both participants must be resolved known teams (excludes placeholder /
     // half-set matchups). The slate already guarantees a positive provider id.
     if (canonical.home === null || canonical.away === null) continue;
-    if (isCanceledOrPostponed(canonical.rawStatus)) continue;
+    if (isCanceledOrPostponedStatusLabel(canonical.rawStatus)) continue;
 
     const kickoffMs =
       typeof canonical.kickoff === 'string' ? Date.parse(canonical.kickoff) : Number.NaN;

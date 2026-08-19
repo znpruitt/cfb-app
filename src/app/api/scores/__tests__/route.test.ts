@@ -9,7 +9,13 @@ import {
   __setAppStateWriteFailureForTests,
   setAppState,
 } from '../../../../lib/server/appStateStore.ts';
-import { getProviderRefreshStatus } from '../../../../lib/server/providerRefreshStatus.ts';
+import {
+  beginProviderRefreshAttempt,
+  getProviderRefreshStatus,
+  nextProviderCommitSeq,
+  recordProviderRefreshFailure,
+  recordProviderRefreshSuccess,
+} from '../../../../lib/server/providerRefreshStatus.ts';
 import {
   seasonPartitionScope,
   weekPartitionScope,
@@ -280,6 +286,57 @@ test('a live=1 week read consults durable app-state, bypassing a stale in-proces
     21,
     'a live read reflects the cross-instance durable write'
   );
+});
+
+test('POLISH-007: live reads expose only clean exact-scope provider observation evidence', async () => {
+  const year = 2027;
+  const week = 40;
+  const scope = weekPartitionScope(year, week, 'regular');
+  const committedAt = new Date().toISOString();
+  await setAppState('scores', `${year}-${week}-regular`, {
+    at: Date.parse(committedAt),
+    items: [
+      {
+        id: 'confidence-game',
+        week,
+        seasonType: 'regular',
+        status: 'STATUS_IN_PROGRESS',
+        startDate: committedAt,
+        home: { team: 'Alabama', score: 10 },
+        away: { team: 'Georgia', score: 7 },
+        time: 'Q2',
+      },
+    ],
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+  });
+
+  const successAttempt = await beginProviderRefreshAttempt('scores', scope);
+  await recordProviderRefreshSuccess('scores', scope, {
+    attempt: successAttempt,
+    committedAt,
+    commitSeq: nextProviderCommitSeq(),
+    source: 'cfbd',
+    rowsCommitted: 1,
+  });
+  const status = await getProviderRefreshStatus('scores', scope);
+
+  const clean = await GET(
+    new Request(`http://localhost/api/scores?year=${year}&week=${week}&seasonType=regular&live=1`)
+  );
+  const cleanBody = await clean.json();
+  assert.equal(cleanBody.meta.liveObservedAt, status.latestAttemptResolvedAt);
+
+  const failedAttempt = await beginProviderRefreshAttempt('scores', scope);
+  await recordProviderRefreshFailure('scores', scope, {
+    attempt: failedAttempt,
+    error: 'provider unavailable',
+  });
+  const failed = await GET(
+    new Request(`http://localhost/api/scores?year=${year}&week=${week}&seasonType=regular&live=1`)
+  );
+  const failedBody = await failed.json();
+  assert.equal(failedBody.meta.liveObservedAt ?? null, null);
 });
 
 test('a live=1 week read reconciles the week child with the -all- aggregate, so an admin correction wins over a stale child (PLATFORM-086B2B)', async () => {

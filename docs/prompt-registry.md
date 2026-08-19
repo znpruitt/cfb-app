@@ -50,6 +50,32 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### POLISH-007-GAME-DAY-CONFIDENCE-LAYER-v1
+
+- Purpose: Give members a truthful sign that the app is alive around kickoff without reviving the
+  false page-wide live claims cut from POLISH-005.
+- Scope: exact-week score-response observation evidence, the client live-refresh hook, a pure
+  game-day confidence selector, the league-header indicator, the owned-team `Awaiting score` state,
+  raw schedule-status preservation across all canonical game constructors, aligned client/server
+  disruption gates, focused route/hook/selector/component coverage, and the matching `DESIGN.md` /
+  queue closeout.
+- Outcome: The neutral header moves through bounded `Preparing for kickoff`, `Waiting for scores`,
+  and `Tracking scores` states. Tracking requires a recent successful exact-scope provider attempt
+  plus an in-progress score attached in that same poll; stale, incomplete, historical, and disrupted
+  inputs fail closed, including canceled/postponed games with no score row. Eligible nondisrupted
+  owned teams no longer say `Upcoming` after kickoff while a score is absent, and the polite status
+  region stays mounted while idle so assistive technology can announce later state changes.
+- Review / verification: Vercel React best-practices review applied (including parallel independent
+  route reads and accessible motion-safe status treatment); Claude's end-to-end review confirmed the
+  raw-disruption and live-region gaps, both remediated. Targeted raw-CFBD probes and affected
+  regression suites pass. The five POLISH-005 failure classes are mutation-proven: each focused
+  selector mutant fails exactly one confidence test, and trusting historical success after a failed
+  exact-scope attempt fails exactly one scores-route test. `npx tsc --noEmit`, `npm run lint:all`,
+  `git diff --check`, and the full suite 4126/4126 all pass.
+- Status: Implemented on `polish/007-game-day-confidence`; draft PR #495 open (2026-08-19).
+  Deliberately separate from Claude's PLATFORM-104 work; no PLATFORM-104 registry entry was added
+  here.
+
 ### INSIGHTS-032-SEASON-RECAP-v2
 
 - Purpose: the season recap survives rollover. It read `context.currentStandings`, which holds the

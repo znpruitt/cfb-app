@@ -1,4 +1,4 @@
-import { classifyScorePackStatus, normalizeStatusTokens } from '@/lib/gameStatus';
+import { classifyScorePackStatus, isCanceledOrPostponedStatusLabel } from '@/lib/gameStatus';
 import type { AppGame } from '@/lib/schedule';
 import type { ScorePack } from '@/lib/scores';
 import { seasonYearForToday } from '@/lib/scores/normalizers';
@@ -11,9 +11,8 @@ import { seasonYearForToday } from '@/lib/scores/normalizers';
  * cron's schedule-armed `[kickoff − 15 min, kickoff + 24 h]` window and its
  * disruption rules, but decides only whether a VISIBLE tab should issue a
  * cache-only score read — never a provider call. The server cron remains the
- * authoritative, quota-spending eligibility (it has the raw provider status and
- * pending-confirmation metadata the browser lacks); a slightly looser browser
- * decision only costs a free cache read.
+ * authoritative, quota-spending eligibility (it also has pending-confirmation
+ * metadata); a slightly looser browser decision only costs a free cache read.
  */
 
 /** Browser live-score poll cadence: every 3 minutes while a tab is visible. */
@@ -21,8 +20,6 @@ export const LIVE_SCORE_POLL_INTERVAL_MS = 3 * 60 * 1000;
 /** Inclusive window: 15 minutes before kickoff through 24 hours after (== B1). */
 export const LIVE_SCORE_WINDOW_BEFORE_MS = 15 * 60 * 1000;
 export const LIVE_SCORE_WINDOW_AFTER_MS = 24 * 60 * 60 * 1000;
-
-const CANCELED_OR_POSTPONED_RE = /\b(?:canceled|cancelled|postponed)\b/;
 
 /** The canonical current season — browser auto-polling never arms a past season. */
 export function isCurrentLiveScoreSeason(season: number, now: Date = new Date()): boolean {
@@ -58,9 +55,8 @@ function partitionOf(game: AppGame): LiveScorePartition {
  * only cost is a free cache read, bounded by the `+24 h` window — so a
  * reconciliation correction still reaches an open page. A truly resolved final
  * simply ages out of the window. Canceled/postponed are TERMINAL (never corrected)
- * and DO end eligibility; disruption is read from the cached score's status (the
- * only disrupted signal the browser has — `AppGame.status` collapses it). A game
- * with no cached score is judged solely by its window.
+ * and DO end eligibility. The provider schedule status is preserved on
+ * `AppGame.rawStatus`, so a game with no score row can still be excluded.
  */
 export function isLiveScoreEligibleGame(
   game: AppGame,
@@ -74,12 +70,14 @@ export function isLiveScoreEligibleGame(
   if (!Number.isFinite(age)) return false;
   if (age < -LIVE_SCORE_WINDOW_BEFORE_MS || age > LIVE_SCORE_WINDOW_AFTER_MS) return false;
 
+  if (isCanceledOrPostponedStatusLabel(game.rawStatus)) return false;
+
   // Canceled/postponed are terminal → end eligibility; delayed/suspended (also
   // `disrupted`) and finals (still correctable until the window closes) do not.
   if (
     score &&
     classifyScorePackStatus(score) === 'disrupted' &&
-    CANCELED_OR_POSTPONED_RE.test(normalizeStatusTokens(score.status))
+    isCanceledOrPostponedStatusLabel(score.status)
   ) {
     return false;
   }

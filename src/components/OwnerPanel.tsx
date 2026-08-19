@@ -38,6 +38,9 @@ function toneClasses(status: OwnerRosterRow['currentStatus']): string {
   if (status === 'Final') {
     return 'border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300';
   }
+  if (status === 'Awaiting score') {
+    return 'border-gray-300 bg-gray-100 text-gray-700 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200';
+  }
   return 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300';
 }
 

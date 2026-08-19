@@ -37,15 +37,19 @@ see the machinery.
 - **Messages state impact and a safe next step**, in that order, and stop. "This league's schedule
   isn't available right now. Please check back shortly." — not what failed, where, or how to repair
   it.
-- **No data-state signal ships today, and adding one needs evidence of an actual refresh.** A
-  "scores are updating right now" badge is wanted (owner, 2026-08-18) and was built and then CUT,
-  because every available client-side input can claim it falsely: schedule status is written weekly
-  and goes stale mid-slate; a missing score is absence of data, not evidence of play; a cached
-  in-progress score never expires; a clock fallback is unbounded; and a successful score read is
-  satisfied by the prior-good cache the API deliberately serves during a provider outage. Anything
-  built here must consume evidence that provider data actually CHANGED — the scores response already
-  distinguishes `cache: 'hit'` from `'stale'`, and that is not threaded to the client. Until it is,
-  the league surface says nothing about data state. See `docs/next-tasks.md` 57.
+- **Game-day confidence is bounded, evidence-backed, and member-safe.** The league header may say
+  "Preparing for kickoff" only inside the 15-minute pregame polling window, "Waiting for scores"
+  after kickoff when no usable score has attached, and "Tracking scores" only when a recent exact-
+  target refresh completed and an in-progress score attached in that same read. Tracking evidence
+  expires after seven minutes; a stale in-progress row, incomplete read, historical season, or known
+  disruption makes no confidence claim. "Known" means present in the current cached schedule or
+  attached score: raw provider schedule status survives normalization for this gate, while a
+  provider-side schedule change is not knowable until the schedule-refresh path observes it
+  (ordinary maintenance is weekly, with manual repair available). The signal uses neutral text and a
+  neutral dot, with motion only while tracking and a persistent accessible polite status region — it
+  never exposes provider/cache details or uses success/error color semantics. For a nondisrupted
+  owned-team row in the same bounded post-kickoff gap, say "Awaiting score", never the contradictory
+  "Upcoming" or the unsupported "Live". POLISH-007.
 
 Internal issue strings are still produced and available to the app; this boundary governs what
 reaches member JSX. Note what that does NOT currently mean: for the rankings and schedule failures

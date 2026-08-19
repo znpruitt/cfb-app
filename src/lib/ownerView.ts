@@ -1,11 +1,12 @@
 import { getGameSideForTeam } from './gameOwnership.ts';
 import { gameStateFromScore, isLiveGame, usesNeutralSiteSemantics } from './gameUi.ts';
 import { deriveOwnerWeekSlates, deriveWeekMatchupSections } from './matchups.ts';
+import { isAwaitingScoreGame, type GameDayContext } from './selectors/gameDayConfidence.ts';
 import type { ScorePack } from './scores.ts';
 import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
 import type { OwnerStandingsRow } from './standings.ts';
 
-export type OwnerRosterRowStatus = 'Final' | 'Live' | 'Upcoming';
+export type OwnerRosterRowStatus = 'Final' | 'Live' | 'Awaiting score' | 'Upcoming';
 
 export type OwnerRosterRow = {
   teamId?: string;
@@ -107,7 +108,8 @@ export function deriveOwnerRoster(
   owner: string,
   games: AppGame[],
   rosterByTeam: Map<string, string>,
-  scoresByKey: Record<string, ScorePack>
+  scoresByKey: Record<string, ScorePack>,
+  gameDayContext?: GameDayContext
 ): OwnerRosterRow[] {
   const ownedTeams = Array.from(rosterByTeam.entries())
     .filter(([, teamOwner]) => teamOwner === owner)
@@ -167,7 +169,15 @@ export function deriveOwnerRoster(
         ownerTeamSide,
         isNeutralSite: usesNeutralSiteSemantics(nextGame) || nextGame.neutral,
         nextKickoff: nextGame.date,
-        currentStatus: 'Upcoming',
+        currentStatus:
+          gameDayContext &&
+          isAwaitingScoreGame({
+            game: nextGame,
+            score: scoresByKey[nextGame.key],
+            context: gameDayContext,
+          })
+            ? 'Awaiting score'
+            : 'Upcoming',
         currentScore: null,
         liveGameKey: null,
       };
@@ -193,7 +203,8 @@ export function deriveOwnerRoster(
 function filterRosterRowsToWeek(
   allRosterRows: OwnerRosterRow[],
   weekGames: AppGame[],
-  scoresByKey: Record<string, ScorePack>
+  scoresByKey: Record<string, ScorePack>,
+  gameDayContext?: GameDayContext
 ): OwnerRosterRow[] {
   // Rows are already this owner's teams; a row belongs to the week when its
   // stored team plays a week game (resolved via canonical game identity).
@@ -229,7 +240,15 @@ function filterRosterRowsToWeek(
           ownerTeamSide: getOwnerTeamSide(row.teamName, nextGame),
           isNeutralSite: usesNeutralSiteSemantics(nextGame) || nextGame.neutral,
           nextKickoff: nextGame.date,
-          currentStatus: 'Upcoming',
+          currentStatus:
+            gameDayContext &&
+            isAwaitingScoreGame({
+              game: nextGame,
+              score: scoresByKey[nextGame.key],
+              context: gameDayContext,
+            })
+              ? 'Awaiting score'
+              : 'Upcoming',
           currentScore: null,
           liveGameKey: null,
         };
@@ -274,6 +293,8 @@ export function deriveOwnerViewSnapshot(params: {
    * rows, and weekly game details always remain schedule/client-derived.
    */
   canonicalStandingsRows?: OwnerStandingsRow[];
+  /** Explicit client clock/season for bounded game-day status copy. */
+  gameDayContext?: GameDayContext;
 }): OwnerViewSnapshot {
   const { selectedOwner, standingsRows, allGames, weekGames, rosterByTeam, scoresByKey } = params;
 
@@ -303,9 +324,20 @@ export function deriveOwnerViewSnapshot(params: {
   const headerIndex = summaryRows.findIndex((row) => row.owner === resolvedOwner);
   const headerRow = headerIndex >= 0 ? summaryRows[headerIndex] : null;
   const headerRank = headerIndex + 1;
-  const rosterRows = deriveOwnerRoster(resolvedOwner, allGames, rosterByTeam, scoresByKey);
+  const rosterRows = deriveOwnerRoster(
+    resolvedOwner,
+    allGames,
+    rosterByTeam,
+    scoresByKey,
+    params.gameDayContext
+  );
   const liveRows = rosterRows.filter((row) => row.currentStatus === 'Live');
-  const weekRows = filterRosterRowsToWeek(rosterRows, weekGames, scoresByKey);
+  const weekRows = filterRosterRowsToWeek(
+    rosterRows,
+    weekGames,
+    scoresByKey,
+    params.gameDayContext
+  );
 
   const weekSections = deriveWeekMatchupSections(weekGames, rosterByTeam);
   const ownerSlates = deriveOwnerWeekSlates(weekGames, rosterByTeam, scoresByKey);

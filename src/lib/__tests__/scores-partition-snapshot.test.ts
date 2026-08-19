@@ -153,7 +153,91 @@ test('a failed requested partition suppresses snapshotAt (no global freshness on
       // The successful partition's rows are still applied, but the overlay must not
       // be marked fresh while a sibling partition's rows are stale.
       assert.equal(result.snapshotAt, null, 'any partition failure suppresses global freshness');
+      assert.equal(result.liveObservedAt, null, 'partial reads cannot establish live observation');
       assert.ok(result.issues.some((i) => /postseason/.test(i)));
+    }
+  );
+});
+
+test('exact-partition mode carries the oldest clean live observation across every target', async () => {
+  const older = '2025-11-01T18:03:00.000Z';
+  const newer = '2025-11-01T18:04:00.000Z';
+  await withMockFetch(
+    (url) => {
+      const parsed = new URL(url, 'http://localhost');
+      return {
+        items: [
+          {
+            id: parsed.searchParams.get('seasonType') === 'postseason' ? 'p' : 'r',
+            status: 'Q4',
+            home: 'Alabama',
+            away: 'Georgia',
+            homeScore: 7,
+            awayScore: 3,
+            time: null,
+          },
+        ],
+        meta: {
+          generatedAt: newer,
+          liveObservedAt: parsed.searchParams.get('seasonType') === 'postseason' ? older : newer,
+        },
+      };
+    },
+    async () => {
+      const result = await fetchScoresByGame({
+        games: [game({ key: 'g1' })],
+        aliasMap: {},
+        season: 2025,
+        teams,
+        partitions: [
+          { providerWeek: 9, seasonType: 'regular' },
+          { providerWeek: 1, seasonType: 'postseason' },
+        ],
+      });
+
+      assert.equal(result.liveObservedAt, older, 'the oldest exact-scope observation is the floor');
+    }
+  );
+});
+
+test('one partition without clean observation suppresses the combined live observation', async () => {
+  await withMockFetch(
+    (url) => {
+      const parsed = new URL(url, 'http://localhost');
+      return {
+        items: [
+          {
+            id: parsed.searchParams.get('seasonType') === 'postseason' ? 'p' : 'r',
+            status: 'Q4',
+            home: 'Alabama',
+            away: 'Georgia',
+            homeScore: 7,
+            awayScore: 3,
+            time: null,
+          },
+        ],
+        meta:
+          parsed.searchParams.get('seasonType') === 'postseason'
+            ? { generatedAt: '2025-11-01T18:04:00.000Z' }
+            : {
+                generatedAt: '2025-11-01T18:04:00.000Z',
+                liveObservedAt: '2025-11-01T18:04:00.000Z',
+              },
+      };
+    },
+    async () => {
+      const result = await fetchScoresByGame({
+        games: [game({ key: 'g1' })],
+        aliasMap: {},
+        season: 2025,
+        teams,
+        partitions: [
+          { providerWeek: 9, seasonType: 'regular' },
+          { providerWeek: 1, seasonType: 'postseason' },
+        ],
+      });
+
+      assert.equal(result.liveObservedAt, null);
     }
   );
 });
@@ -325,6 +409,7 @@ test('season-wide (hydration) mode also threads meta.generatedAt out as snapshot
         'hydration uses the season-wide URL first'
       );
       assert.equal(result.snapshotAt, generatedAt);
+      assert.equal(result.liveObservedAt, null, 'hydration is not a live observation');
     }
   );
 });

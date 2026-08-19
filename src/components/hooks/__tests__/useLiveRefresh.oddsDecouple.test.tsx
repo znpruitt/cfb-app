@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { afterEach, beforeEach } from 'node:test';
 import { JSDOM } from 'jsdom';
-import { cleanup, renderHook, waitFor } from '@testing-library/react';
+import { act, cleanup, renderHook, waitFor } from '@testing-library/react';
 
 import type { AppGame } from '../../../lib/schedule';
 import { EMPTY_SCORE_HYDRATION_STATE } from '../../../lib/scoreHydration';
@@ -29,6 +29,7 @@ Object.defineProperty(globalThis, 'navigator', {
 
 const originalFetch = globalThis.fetch;
 let fetchUrls: string[];
+let scorePayload: unknown;
 
 function game(overrides: Partial<AppGame> = {}): AppGame {
   return {
@@ -114,12 +115,19 @@ function makeParams(): Parameters<typeof useLiveRefresh>[0] {
 
 beforeEach(() => {
   fetchUrls = [];
+  scorePayload = { items: [], meta: {} };
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     const url = typeof input === 'string' ? input : input.toString();
     fetchUrls.push(url);
     // Benign responses so refreshLiveData completes (scores errors are caught).
     if (url.includes('/api/teams')) {
       return new Response(JSON.stringify({ items: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (url.includes('/api/scores')) {
+      return new Response(JSON.stringify(scorePayload), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
@@ -160,4 +168,67 @@ test('an explicit includeOdds manual refresh still fetches /api/odds with refres
 
   await waitFor(() => assert.ok(oddsUrls().length >= 1));
   assert.match(oddsUrls()[0]!, /\/api\/odds\?year=2026&refresh=1/);
+});
+
+test('POLISH-007: exact polls retain only same-poll provider observation evidence', async () => {
+  const observedAt = '2026-09-05T17:03:00.000Z';
+  scorePayload = {
+    items: [
+      {
+        id: 'g',
+        week: 1,
+        seasonType: 'regular',
+        status: 'Q2',
+        home: 'Home',
+        away: 'Away',
+        homeScore: 10,
+        awayScore: 7,
+        time: 'Q2',
+      },
+    ],
+    meta: { generatedAt: observedAt, liveObservedAt: observedAt },
+  };
+  const { result } = renderHook(() => useLiveRefresh(makeParams()));
+
+  await act(async () => {
+    await result.current.refreshLiveData({
+      manual: false,
+      scoreScopeGamesOverride: [game()],
+      scorePartitions: [{ providerWeek: 1, seasonType: 'regular' }],
+    });
+  });
+
+  assert.deepEqual(result.current.liveScoreObservation, {
+    observedAt,
+    attachedGameKeys: ['g'],
+  });
+
+  scorePayload = {
+    items: [],
+    meta: {
+      generatedAt: '2026-09-05T17:06:00.000Z',
+      liveObservedAt: '2026-09-05T17:06:00.000Z',
+    },
+  };
+  await act(async () => {
+    await result.current.refreshLiveData({
+      manual: false,
+      scoreScopeGamesOverride: [game()],
+    });
+  });
+  assert.deepEqual(
+    result.current.liveScoreObservation,
+    { observedAt, attachedGameKeys: ['g'] },
+    'a non-exact hydration read cannot establish or renew confidence evidence'
+  );
+
+  scorePayload = { items: [], meta: {} };
+  await act(async () => {
+    await result.current.refreshLiveData({
+      manual: false,
+      scoreScopeGamesOverride: [game()],
+      scorePartitions: [{ providerWeek: 1, seasonType: 'regular' }],
+    });
+  });
+  assert.equal(result.current.liveScoreObservation, null);
 });

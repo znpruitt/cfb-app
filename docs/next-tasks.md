@@ -1666,63 +1666,24 @@ Supersedes: (none)
       blocked here, so the missing prop is worth more than its size suggests.
     - **`setOddsSnapshotAt` and `setScoresSnapshotAt` are write-only.** No reader remains for either,
       but the setters still fire on season reset and on every odds/score poll, re-rendering a very
-      large component for values nothing consumes. `scoresSnapshotAt` was retired when the member
-      freshness stamp moved to `scoresObservedAt` (the observation signal the "Tracking scores"
-      sentence actually claims; the durable snapshot does not advance during a halftime, so it would
-      read "updated 47m ago" beside a live badge). Both setters, their call sites, and the hook
-      params that thread them should go together.
+      large component for values nothing consumes. `scoresObservedAt` remains the existing
+      LiveDelta-staleness input; POLISH-007 deliberately does not use it for member confidence,
+      because a clean cache read can still serve prior-good data during an upstream failure. Both
+      write-only snapshot setters, their call sites, and the hook params that thread them should go
+      together.
 
-57. **A live "scores are updating" indicator, built on evidence of an actual refresh** (owner wants
-    it — 2026-08-18: "show some kind of indicator that the app is alive to the user, especially when
-    games are live"; BUILT AND CUT from POLISH-005 after failing five ways).
+57. **✅ IMPLEMENTED — POLISH-007-GAME-DAY-CONFIDENCE-LAYER-v1 (draft PR #495, 2026-08-19).** The
+    neutral header signal is bounded by the existing kickoff window. "Tracking scores" requires a
+    recent clean exact-scope refresh plus an in-progress score attached in that same poll; incomplete,
+    stale, historical, and disrupted states make no tracking claim. Raw provider schedule status is
+    preserved on every canonical game construction path, so a disruption can suppress the weaker
+    "Preparing for kickoff" / "Waiting for scores" claims before any score row exists.
 
-    Every input the client currently has can claim live coverage falsely. All five were reached by
-    review or by execution, not by reasoning:
-
-    1. **`game.status`** — written by the WEEKLY `schedule-refresh` cron and never rewritten by the
-       live-scores engine, so a schedule snapshotted mid-slate keeps rows marked `in_progress` and
-       the badge burns for hours over a board of finals.
-    2. **A missing score treated as "not final"** — absence of data read as evidence of play, so an
-       empty cache lit every game that had kicked off.
-    3. **A cached in-progress score** — score packs do not expire, so once a game reported `Q3` the
-       claim persisted for the whole 24-hour arming window after the feed died.
-    4. **An unbounded clock fallback** — added to close the few-minute gap between kickoff and the
-       first score, it reinstated (2) at 24-hour scale. A REGRESSION of a fix made two commits
-       earlier; the fallback must be bounded to the gap it exists for.
-    5. **A successful score read** — `scoresObservedAt` advances on a CLEAN read, and a cache-only
-       read succeeds against the prior-good rows the API deliberately serves when CFBD fails
-       (AGENTS.md, API-first). "A read succeeded" is not "fresh data arrived".
-
-    Also unresolved when it was cut: a `Delayed`/disrupted game stays armed and passed a clock check,
-    so it read as underway while not in progress.
-
-    **What a correct version needs:** evidence that provider data actually CHANGED or was refreshed.
-    `/api/scores` already distinguishes `cache: 'hit'` from `cache: 'stale'` in its response meta —
-    that distinction is not threaded through `useLiveRefresh` to the component, and doing so is the
-    real work. Pair it with the poller's own arming rule (`selectLiveScorePollGames`, a kickoff
-    window that self-expires) rather than with any game-status field.
-
-    Owner copy already settled, if it helps: "Preparing for kickoff" before kickoff, "Tracking
-    scores" once underway. Do NOT reuse `isLiveGame` — that annotates one row, and a single stale row
-    must not light the whole page.
-
-58. **A member's own team reads "Upcoming" while its game is being played** (POLISH-005 review,
-    2026-08-18; a PRODUCT decision, deliberately not guessed at).
-
-    `isLiveGame` is now score-only, on the reasoning in its docblock: schedule status is written by
-    the weekly cron and never rewritten by the live-scores engine, so it can only be equal to or
-    staler than the score feed. The consequence is that a game with no attached score is not live,
-    and `buildOwnerRosterRows` then falls through to `teamGames.find((g) => !isAttachedFinalGame(…))`
-    — which selects that same game and labels it `Upcoming` with a kickoff in the past.
-
-    Both alternatives are wrong, which is why this is queued rather than patched. `main`'s OR on
-    `game.status` showed a false "Live" for a WEEK after any schedule snapshot taken mid-slate; the
-    current form shows a false "Upcoming" for the minutes between kickoff and the first score
-    attachment, and for the whole game if attachment fails. The window is narrow and self-closing,
-    but a card that contradicts itself is worse than one that says nothing.
-
-    The likely answer is a third state for "kicked off, no score yet" rather than either existing
-    label, which is the same evidence problem as 57 and probably wants the same input.
+58. **✅ IMPLEMENTED — POLISH-007-GAME-DAY-CONFIDENCE-LAYER-v1 (draft PR #495, 2026-08-19).** A
+    nondisrupted current-season owned-team row past kickoff with no usable score now says "Awaiting
+    score" inside the same bounded polling window. It never promotes schedule status to "Live", and
+    disruptions known from either the normalized schedule or an attached score do not receive the
+    label.
 
 59. **✅ RESOLVED 2026-08-18 (`0232d525`, direct to `main`) — the preview build gate was documented
     twice with opposite mechanisms.** Found by `/code-review` against `a8e5f4d8`; the defect was in
@@ -2917,6 +2878,14 @@ unless verified in merged work.
 - **Owner-identity mapping across seasons** (renamed/returning owners; owner display names are raw strings today).
 - Whether to schedule **PLATFORM-040** (ownership-key normalization).
 - **`conferenceRecords` canonical build** — whether the canonical standings build should pass `conferenceRecords` (PLATFORM-070-adjacent).
+- **Postseason `AppGame.status` normalization parity (deferred at POLISH-007 rereview, 2026-08-19).**
+  The normalized-postseason and legacy-classified-postseason constructors in `src/lib/schedule.ts`
+  still hardcode a known-team game to `matchup_set`, so provider `final` / `in progress` labels do
+  not reach the normalized `AppGame.status` field on those two paths. POLISH-007 is protected by the
+  separately preserved `AppGame.rawStatus` and no confidence/polling decision reads this collapsed
+  field, so the residual is not load-bearing there. When scheduled, audit remaining `game.status`
+  consumers and give all four construction paths one normalization authority without weakening
+  placeholder semantics. Not scheduled.
 - **Historical/archive ownership parity** tied to **PLATFORM-039** — archive/insights surfaces still raw-label match; see the `AGENTS.md` deferral list.
 - **`STANDINGS-PAGE-LIFECYCLE-LABELING`** — broader offseason/`{year} Season` label audit beyond the standings page (see the Polish backlog below).
 - ~~**Numeric participant-validation prerequisite (PLATFORM-086H3C1).**~~ **Resolved — PLATFORM-086H3C5, MERGED via PR #407 (2026-07-24, dormant).** Schedule persistence now captures CFBD numeric `homeId`/`awayId` through the shared mapper (additive, nullable; old durable rows stay readable and are never rewritten), and the dormant evidence authority validates stored `schoolId`s against them by exact oriented comparison — producing the fail-closed `identity-mismatch` and `participant-validation-unavailable` states that C1 deferred. Full record: `docs/prompt-registry.md` → `PLATFORM-086H3C5-DORMANT-NUMERIC-PARTICIPANT-VALIDATION-v1`. **Operational prerequisite for H3E activation — ✅ DONE (2026-07-26):** the forced full-year schedule refreshes for every H3E target season have been performed (§8d), so canonical games carry the numeric ids; the previously-fail-closed `participant-validation-unavailable` caches are refreshed (see the registry entry's rollout notes and `docs/ai/game-stats-writer-fence.md`). The C1 handoff's "Participant validation (DEFERRED)" section remains the point-in-time record of the original deferral.

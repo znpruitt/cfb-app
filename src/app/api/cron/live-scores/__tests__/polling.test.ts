@@ -169,7 +169,7 @@ test('an unchanged scoreboard response is a clean no-op (no write, no committed 
     ],
     itemUpdatedAtById: { '401001': 1000 },
   });
-  stubProvider({
+  const { urls } = stubProvider({
     scoreboard: [
       scoreboardRow({
         id: 401001,
@@ -189,6 +189,10 @@ test('an unchanged scoreboard response is a clean no-op (no write, no committed 
   assert.equal(event.result, 'no-op');
   assert.equal(event.reason, 'scoreboard-unchanged-clean');
   assert.equal(event.committedGames, 0);
+  assert.equal(event.providerCallAttempted, true);
+  assert.equal(urls.filter((url) => url.includes('/scoreboard')).length, 1);
+  const status = await getProviderRefreshStatus('scores', weekPartitionScope(YEAR, 3, 'regular'));
+  assert.equal(status.latestAttemptOutcome, 'no-op');
   const entry = await readScores(3);
   assert.equal(entry!.at, 1000); // untouched
 });
@@ -395,7 +399,7 @@ test('a malformed /games payload during reconciliation fails cleanly and resolve
 
 test('a not-yet-final /games response leaves the pending final unconfirmed', async () => {
   await seedPendingFinal();
-  stubProvider({
+  const { urls } = stubProvider({
     games: [
       {
         id: 401001,
@@ -410,6 +414,10 @@ test('a not-yet-final /games response leaves the pending final unconfirmed', asy
   const { event } = await runCron();
   assert.equal(event.result, 'no-op');
   assert.equal(event.reason, 'final-reconciliation-not-confirmed');
+  assert.equal(event.providerCallAttempted, true);
+  assert.equal(urls.filter((url) => url.includes('/games')).length, 1);
+  const status = await getProviderRefreshStatus('scores', weekPartitionScope(YEAR, 3, 'regular'));
+  assert.equal(status.latestAttemptOutcome, 'no-op');
   const entry = await readScores(3);
   assert.deepEqual(entry!.pendingFinalConfirmationIds, ['401001']); // still pending
 });

@@ -4,6 +4,7 @@ export type GameStatusBucket = 'scheduled' | 'inprogress' | 'final' | 'disrupted
 
 const DISRUPTED_RE = /\b(postponed|canceled|cancelled|suspended|delayed)\b/;
 const CANCELED_RE = /\b(canceled|cancelled)\b/;
+const CANCELED_OR_POSTPONED_RE = /\b(?:canceled|cancelled|postponed)\b/;
 const LIVE_OT_RE = /\b(?:\d+ot|ot)\b/;
 
 // Status semantics invariant: this module is the single classifier for UI-facing
@@ -46,6 +47,14 @@ export function isDisruptedStatusLabel(status: string | null | undefined): boole
  */
 export function isCanceledStatusLabel(status: string | null | undefined): boolean {
   return CANCELED_RE.test(normalizeStatusTokens(status));
+}
+
+/**
+ * Canceled/postponed are terminal for live polling: unlike delayed/suspended,
+ * they must not keep a provider or browser polling window armed.
+ */
+export function isCanceledOrPostponedStatusLabel(status: string | null | undefined): boolean {
+  return CANCELED_OR_POSTPONED_RE.test(normalizeStatusTokens(status));
 }
 
 export function classifyStatusLabel(status: string | null | undefined): GameStatusBucket {
