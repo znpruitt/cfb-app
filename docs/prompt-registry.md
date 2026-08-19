@@ -50,6 +50,30 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### POLISH-009-HISTORY-STATS-MOBILE-v1
+
+- Purpose: Repair the History → Stats mobile view after owner ranks, names, values, and controls
+  collapsed into the fixed desktop grid; make its small controls usable by touch and restore the
+  apparently inert Active-only filter.
+- Scope: the owner-ranking and event-record responsive layouts, their Show-all controls,
+  `ActiveOnlyToggle`, History Stats roster wiring, a pure History membership selector, and focused
+  component/selector coverage. No record calculation, archive schema, route, or durable write
+  changed.
+- Outcome: Mobile record podiums stack below the label/actions header and return to three columns at
+  `lg`; Show all and the owner switch have 44px mobile targets. Active filtering now takes current
+  membership from the canonical confirmed roster. Before a new roster is confirmed it uses only the
+  most recent archived roster (then that archive's final standings as a backstop), instead of the
+  union of every archived owner that made every former owner appear active.
+- Review / verification: the supplied review found the responsive and membership changes internally
+  consistent, desktop-preserving, and correctly selector-owned. Eight tests were added: two
+  pre-fix-failing responsive-layout regressions, three mobile-target contract pins, and three
+  membership-source/fallback tests. The existing switch-interaction assertion remained intact.
+  `npm run lint`, `npx tsc --noEmit`, the 34-test focused run, `git diff --check`, and the full
+  4,136-test suite passed. At an exact 390px browser viewport both controls measured 44px, client and
+  scroll width remained 390px, and enabling Active only removed the former owner and promoted the
+  next active row with no framework error overlay.
+- Status: Merged (PR #497, merge commit `e91f2f65`, 2026-08-19).
+
 ### POLISH-007-GAME-DAY-CONFIDENCE-LAYER-v1
 
 - Purpose: Give members a truthful sign that the app is alive around kickoff without reviving the

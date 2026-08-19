@@ -3876,6 +3876,20 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### POLISH-009 — History Stats Mobile Layout and Controls — Complete
+
+- **Status:** Complete — merged to `main` via PR #497 (merge commit `e91f2f65`), 2026-08-19.
+- **PROMPT_ID(s):** `POLISH-009-HISTORY-STATS-MOBILE-v1`.
+- **Outcome:** History record podiums now stack cleanly on mobile while preserving the compact
+  three-column desktop layout. Show all and the owner filter use 44px mobile touch targets, and the
+  Active-only view now derives membership from the confirmed current roster with a latest-archive
+  rollover fallback, so departed owners are actually removed.
+- **Verification:** Independent review found no actionable issue. Responsive, touch-target, filter,
+  and membership-source coverage passed with TypeScript, lint, the full test suite, and a 390px
+  interactive browser check showing no horizontal overflow or framework error overlay.
+
+---
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
