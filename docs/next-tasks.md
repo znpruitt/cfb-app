@@ -151,6 +151,20 @@ Supersedes: (none)
     `expectedPickIndex`, and refuse a mismatch** — the server guard already exists and simply is
     never given the input it needs.
 
+    **NOT a draft-night risk, and deliberately not fixed before the 2026-08-20 draft** (owner
+    decision, 2026-08-18). The trigger needs two clients, and the draft is run from a single admin
+    tab. A single tab cannot produce it: `DraftBoardClient.tsx` computes
+    `clickable = canPick && !pickLoading` and passes `onClick={clickable ? … : undefined}`, so the
+    handler is detached entirely while a pick is in flight, and `setPickLoading(false)` sits in a
+    `finally` so it cannot stick. Double-clicking or re-clicking impatiently therefore cannot send a
+    second `POST /pick`. Measured 2026-08-18.
+
+    It stays queued as **code hardening**, not draft-night work: the mitigation is operational
+    discipline, which is fine for a draft one person runs and not something to rely on permanently.
+    Recorded here because it was raised repeatedly against the walkthrough evidence in item 39 —
+    whose "none blocking Thursday" scopes ITS OWN findings (a–c), not this one, which is why the two
+    kept being conflated.
+
 16. **The Overview and the All Insights page can resolve DIFFERENT seasons for the same league**
     (revealed by INSIGHTS-019, 2026-08-16; pre-existing, app-level). `CFBScheduleApp` resolves
     `resolveLeagueSeason` (→ `status.year` in preseason/season) before requesting
