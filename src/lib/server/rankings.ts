@@ -21,6 +21,8 @@
 
 import { createTeamIdentityResolver } from '../teamIdentity.ts';
 import {
+  isKnownNonFbsPoll,
+  normalizePollName,
   normalizePollSource,
   selectPrimaryRankSource,
   type CanonicalPollEntry,
@@ -116,17 +118,51 @@ function toCanonicalPollEntries(
 function mergeWeekRankings(params: {
   week: CfbdPollWeek;
   resolver: ReturnType<typeof createTeamIdentityResolver>;
+  /** Names already warned about in this refresh — shared across weeks. */
+  warnedPollNames?: Set<string>;
 }): RankingsWeek | null {
-  const { week, resolver } = params;
+  const { week, resolver, warnedPollNames } = params;
   const polls: Record<RankSource, CanonicalPollEntry[]> = {
     cfp: [],
     ap: [],
     coaches: [],
   };
 
+  // FIRST poll wins a source, and the claim is tracked separately from the row
+  // count so a poll that resolves to zero rows still holds its column. CFBD
+  // publishes one poll per source per week, so a second is a provider change
+  // rather than something to merge — and assigning unconditionally is how the
+  // `FCS Coaches Poll` silently REPLACED the FBS `Coaches Poll` for every week
+  // since 2014, leaving whichever of its schools happened to resolve against an
+  // FBS-only registry. Exact name matching closes that; this keeps it closed if
+  // the provider ever emits a duplicate name.
+  const claimed = new Set<RankSource>();
   for (const poll of week.polls ?? []) {
     const source = normalizePollSource(poll.poll);
-    if (!source) continue;
+    if (!source) {
+      // Failing closed is deliberate, but silence is not: a provider RENAME
+      // looks identical to a correctly-refused FCS poll, and the coverage gate
+      // only catches it on a season that already has a cached prior. Without
+      // this line a renamed `Coaches Poll` would empty the column for a whole
+      // fresh season with nothing to see (`/code-review`, 2026-08-19).
+      // Compared through the SAME normalizer the matcher uses, so a trailing
+      // space or case variant of a known non-FBS poll stays a known refusal
+      // instead of becoming the alarm. Warned once per distinct name per
+      // refresh — a rename affects every week, and 17 identical lines per cron
+      // run is the noise this signal has to stay clear of.
+      const key = normalizePollName(poll.poll);
+      if (!isKnownNonFbsPoll(poll.poll) && !warnedPollNames?.has(key)) {
+        warnedPollNames?.add(key);
+        console.warn('rankings: unrecognised CFBD poll name refused', {
+          poll: poll.poll,
+          season: week.season,
+          week: week.week,
+        });
+      }
+      continue;
+    }
+    if (claimed.has(source)) continue;
+    claimed.add(source);
     polls[source] = toCanonicalPollEntries(poll.ranks ?? [], source, resolver);
   }
 
@@ -197,8 +233,9 @@ export function normalizeCfbdRankingsWeeks(
   data: CfbdPollWeek[],
   resolver: ReturnType<typeof createTeamIdentityResolver>
 ): RankingsWeek[] {
+  const warnedPollNames = new Set<string>();
   return (data ?? [])
-    .map((week) => mergeWeekRankings({ week, resolver }))
+    .map((week) => mergeWeekRankings({ week, resolver, warnedPollNames }))
     .filter((week): week is RankingsWeek => Boolean(week))
     .sort(compareWeek);
 }

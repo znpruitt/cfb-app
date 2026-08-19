@@ -1769,6 +1769,69 @@ Supersedes: (none)
     be restated as the mechanism without running it. It only becomes load-bearing if a second
     preview branch is ever actually wanted; the alias, not the build, is the real obstacle there.
 
+60. **Stored rankings snapshots still hold the wrong Coaches column** (PLATFORM-104, 2026-08-18).
+
+    The rankings cache stores `RankingsCacheEntry.response`, which is the ALREADY-NORMALIZED
+    `RankingsResponse` — not the raw provider payload. So PLATFORM-104 corrects what future
+    normalization produces and repairs nothing already written. **Deploying it changes nothing on
+    screen.** The `rankings/<year>` snapshot keeps serving the FCS poll until a refresh re-fetches
+    and re-normalizes, via `/api/rankings?bypassCache=1` or the rankings cron.
+
+    Two consequences:
+
+    - **2026 needs one refresh after the fix ships**, or the Standings → FBS Polls tab keeps showing
+      `se louisiana`. This is the actionable half.
+    - **Archived prior seasons are suspect wherever both polls were published**, which is every
+      season sampled from 2014 on. Any surface reading an archived Coaches column — History in
+      particular — may be showing an FCS, Division II or Division III poll. Whether to re-fetch
+      history is a separate decision with a provider-quota cost; recorded here rather than assumed.
+
+    **The refresh will not be blocked by the completeness gate — measured, not assumed.**
+    `/code-review` raised (HIGH) that `findRankingsCoverageLoss` refuses any candidate that empties
+    a previously populated poll column, that `refreshSeasonRankings` has no force parameter, and
+    that a `coaches` column cached from an FCS poll would therefore lock the year out of every
+    future refresh. The mechanism is real. The precondition is not met: across nine seasons,
+    **133 week records contain a coaches-named poll and none lacks the FBS `Coaches Poll`.** Running
+    the live 2026 payload against a prior modelling today's production snapshot returns `[]` from
+    the gate, so the refresh commits.
+
+    **Still true and still unfixed: there is no force path.** If a prior week ever exists that the
+    current payload no longer contains, the year is refused with no override, and the only recovery
+    is deleting the durable `rankings/<year>` key. That is pre-existing behaviour, not introduced by
+    PLATFORM-104, and is the thing worth building if rankings recovery ever matters.
+
+    Not queued as implementation work: the refresh is an operator action, and the archive question
+    needs an owner decision before it is scoped.
+
+    **Three findings from PLATFORM-104's round-two confirming pass, tracked rather than patched**
+    (`/code-review`, 2026-08-19, against `0647202d`). The round limit was spent, so these were
+    reported and left in the code by rule, not by judgment.
+
+    - **(medium) Exact matching plus this gate turns a COSMETIC provider rename into a frozen
+      season.** If CFBD renames `Coaches Poll` — a sponsor suffix, `AFCA Coaches Poll` — every week
+      loses its coaches column, the gate sees `prior > 0 && candidate === 0` for each cached week,
+      and `commitSeasonRankings` returns `incomplete`. The commit is ALL-OR-NOTHING, so the AP and
+      CFP updates in the same aggregate are discarded too, and the year stays frozen at prior-good
+      until someone deletes the durable `rankings/<year>` key. **The old substring matcher would
+      have survived all three plausible renames.** PLATFORM-104 traded rename tolerance for
+      correctness knowingly; what it did not weigh is that this gate escalates the cost from "one
+      blank column" to "the whole season stops updating". The severity lives in the missing force
+      path, not in exact matching — **the right fix is an override on `refreshSeasonRankings`, which
+      is its own slice**, not loosening the matcher back toward the defect it just closed.
+    - **(low) The warning dedupes per PARTITION, not per refresh, and the comment and test name both
+      say otherwise.** `refreshSeasonRankings` calls `fetchPartition` for both entries of
+      `RANKINGS_SEASON_TYPES`, and each allocates its own `Set` inside
+      `normalizeCfbdRankingsWeeks` — so a rename present in both regular and postseason payloads
+      logs twice per cron run. The test invokes the function once, so it proves "once per call" and
+      cannot reach the second partition. A false claim in a comment and a test name, which is this
+      repo's recurring defect class rather than an incident.
+    - **(low) `poll.poll` is dereferenced by `.trim()` on an unvalidated cast payload.**
+      `normalizeCfbdRankingsWeeks` runs at `refreshAuthority.ts:119`, OUTSIDE the try/catch that
+      wraps only the fetch, so an element missing `poll` throws a TypeError that escapes
+      `fetchPartition`'s documented contract ("a payload fault is classified, never thrown") and is
+      reported as `rankings-unexpected-error` — a provider fault misfiled as a programming defect.
+      Pre-existing; PLATFORM-104 added two more call sites onto the same unguarded field.
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.

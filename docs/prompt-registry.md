@@ -6568,6 +6568,90 @@ STATUS: MERGED — PR #492, merge commit `5abed2ff`, 2026-08-18.
 
 STATUS: MERGED — PR #493, merge commit `fc64391d`, 2026-08-18.
 
+### PLATFORM-104-POLL-SOURCE-MATCHING-v1
+
+- Purpose: Stop a non-FBS poll from claiming an FBS rankings column. Owner report, 2026-08-18, from
+  production: the Coaches Poll showed one row, `se louisiana` at rank 20.
+- Scope: `normalizePollSource` in `src/lib/rankings.ts`, `mergeWeekRankings` in
+  `src/lib/server/rankings.ts`, and `src/lib/__tests__/rankings.test.ts`. No UI, route, or cache
+  change.
+- **CFBD serves exactly six poll names and three of them contain "coaches."** Measured 2026-08-18 by
+  querying the provider for 2014, 2015, 2016, 2019, 2021, 2023, 2024, 2025 and 2026 — the same six
+  in every season, no variants: `AP Top 25`, `Coaches Poll`, `Playoff Committee Rankings`,
+  `FCS Coaches Poll`, `AFCA Division II Coaches Poll`, `AFCA Division III Coaches Poll`.
+- **Two defects compounded.** `normalizePollSource` matched by substring, so `includes('coaches')`
+  claimed all four coaches-named polls for one column; and `mergeWeekRankings` ASSIGNED rather than
+  claimed, so the last matching poll silently replaced the first. FCS sorts after FBS in the payload,
+  so **every week since 2014 has displayed the FCS poll wherever both were published.** Only one row
+  survived because the rest failed to resolve against an FBS-only registry, and the survivor came
+  through the observed-name fallback (`teamIdentity.ts` builds those entries with the raw string as
+  `displayName`), which is why it rendered lowercase.
+- **AP and CFP were never at risk from this, and CFP was never tested.** `AP Top 25` and
+  `Playoff Committee Rankings` are each the only name matching their rule. CFP had zero end-to-end
+  fixtures and exists for only ~6 weeks a season, so production would not have exercised it until
+  November; it now has coverage.
+- Fix: exact allowlist that fails CLOSED (an unrecognised poll returns null and renders "Not
+  available" rather than another division's rankings), plus a one-claim-per-source guard tracked
+  separately from row count so a zero-row poll still holds its column.
+- **`College Football Playoff Rankings` and `USA Today Coaches Poll` were dropped, not kept as
+  tolerance.** Neither appears in any of the nine seasons sampled. The previous test asserted BOTH —
+  so the single test guarding this function exercised two invented inputs and never saw the live
+  collision. Unverified tolerance is what made the matcher loose enough to fail.
+- Deliberately NOT added: an FBS row filter in `toCanonicalPollEntries`. The team catalog is not
+  available at that layer and the only reachable signal is inferred `subdivision`, whose
+  false-negative is silently dropping a legitimate AP team. With the root cause closed at the poll
+  name, that guard would defend a path that no longer exists while adding a worse failure mode.
+- Verification: `npx tsc --noEmit`, `npm run lint:all` and `npm test` each run as their own command
+  with unmasked exit status, all clean. Suite 4094 → 4098 (+4), both totals run.
+- **The mutation testing corrected the implementer's own reading, and is recorded because of it.**
+  Restoring substring matching alone does NOT fail the collision test — the claim guard also
+  prevents it. Only reverting BOTH fails it, which is what proves that test sees the original defect
+  rather than passing on a technicality. The duplicate-name test passed vacuously until it was given
+  a fixture that reaches the guard. Each fix is independently sufficient; they are kept as
+  overlapping defences, not because either is load-bearing alone.
+- **This fix does not repair what is already stored.** `RankingsCacheEntry.response` holds the
+  ALREADY-NORMALIZED shape, so the wrong coaches column is baked into the durable `rankings/<year>`
+  snapshot. Deploying changes nothing on screen until a refresh re-fetches and re-normalizes — see
+  `docs/next-tasks.md` 60.
+
+- Review: both reviewers run against `c00ac5e3`, gathered before any change, one round applied.
+  Codex found nothing. `/code-review` raised one HIGH and two LOWs.
+- **The HIGH is REFUTED on reachability, and the refutation is a measurement.** It held that the
+  fix could be permanently blocked by `findRankingsCoverageLoss`: a cached `coaches` column
+  populated from an FCS poll, in a week where CFBD published no FBS `Coaches Poll`, would empty
+  under the fixed normalizer, and `refreshSeasonRankings` has no force path — so every later refresh
+  for that year is refused. **The mechanism is real and correctly described.** Its precondition is
+  not: across 2014, 2015, 2016, 2019, 2021, 2023, 2024, 2025 and 2026, **133 week records contain a
+  coaches-named poll and ZERO of them lack the FBS `Coaches Poll`** — it is a strict superset. The
+  live 2026 payload was then run end to end against a prior modelling exactly what production holds
+  today (`coaches` = the single `se louisiana` row, `ap` = 25): `findRankingsCoverageLoss` returned
+  `[]` and the refresh commits. `docs/next-tasks.md` 60's remedy stands. The gate's absent force
+  path is real and pre-existing; it is recorded there rather than fixed here.
+- **Both LOWs accepted and fixed.** The exact-match lookup was an object literal, so it walked
+  `Object.prototype` — `constructor` and `__proto__` returned truthy non-`RankSource` values that
+  passed the caller's `if (!source)` guard and would have written a junk key into the durable
+  snapshot. A function whose documented contract is to fail closed did not, for two inputs. Now a
+  `Map`, mutation-proven. And a refused poll name left no trace, so a provider RENAME was
+  indistinguishable from a correctly-refused FCS poll on a season with no cached prior; unmatched
+  names that are not the three known non-FBS polls now warn with the poll, season and week.
+- **Second remediation round, on explicit owner approval** (`AGENTS.md` → the one case it permits: a
+  narrow defect DIRECTLY CAUSED by the first round). The confirming passes were otherwise clean —
+  Codex found nothing, and `/code-review` independently re-ran the mutation proof, confirmed the
+  HIGH refutation, and added a second reason for it: the cron only targets `preseason`/`season`
+  registry years, so archived seasons can never be auto-refreshed into the lockout at all. Its one
+  LOW was in round one's own diagnostic: the warn-suppression compared the RAW provider name against
+  `NON_FBS_POLL_NAMES` while the matcher compared trimmed-and-lowercased, so a variant of a known
+  non-FBS poll was still refused but stopped counting as an EXPECTED refusal — every week of every
+  refresh would then log the alarm the line exists to keep meaningful. Both halves are now one
+  shared `normalizePollName`, plus `isKnownNonFbsPoll`, and warnings dedupe per distinct name per
+  refresh rather than firing once per poll per week.
+- Verification after remediation: `npx tsc --noEmit`, `npm run lint:all` and `npm test` each run as
+  their own command with unmasked exit status, all clean. Suite 4094 → 4101 (+7). Round two is
+  mutation-proven in both halves: restoring the raw comparison fails two tests, and removing only
+  the dedupe fails one.
+
+STATUS: pending merge — branch `platform/104-poll-source-matching`.
+
 ### `<CAMPAIGN>-<###>-<SHORT_NAME>-v<version>`
 
 - Purpose: [one sentence]
