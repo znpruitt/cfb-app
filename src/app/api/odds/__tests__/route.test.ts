@@ -5,23 +5,23 @@ import {
   __deleteOddsUsageStoreFileForTests,
   __resetOddsUsageStoreForTests,
   getLatestKnownOddsUsage,
-} from '../../../lib/server/oddsUsageStore.ts';
+} from '@/lib/server/oddsUsageStore.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   setAppState,
-} from '../../../lib/server/appStateStore.ts';
+} from '@/lib/server/appStateStore.ts';
 import {
   __deleteDurableOddsStoreFileForTests,
   __resetDurableOddsStoreForTests,
   getDurableOddsRecord,
   setDurableOddsStore,
-} from '../../../lib/server/durableOddsStore.ts';
+} from '@/lib/server/durableOddsStore.ts';
 
-import { getScopedAliasMap } from '../../../lib/server/globalAliasStore.ts';
+import { getScopedAliasMap } from '@/lib/server/globalAliasStore.ts';
 
-import { GET } from './route.ts';
-import { __resetOddsRouteCacheForTests, resolveDefaultSeason } from './routeInternals.ts';
+import { GET } from '../route.ts';
+import { __resetOddsRouteCacheForTests, resolveDefaultSeason } from '../routeInternals.ts';
 
 const DURABLE_ODDS_TEST_SEASON = 2026;
 

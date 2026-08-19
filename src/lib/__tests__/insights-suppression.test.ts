@@ -146,11 +146,12 @@ test('isSuppressionRecordExpired: record older than TTL is expired', () => {
 });
 
 test('isSuppressionRecordExpired: record at exactly TTL boundary is not expired', () => {
+  const now = Date.now();
   const record = makeRecord({
-    firedAt: new Date(Date.now() - SUPPRESSION_RECORD_TTL_DAYS * DAY_MS).toISOString(),
+    firedAt: new Date(now - SUPPRESSION_RECORD_TTL_DAYS * DAY_MS).toISOString(),
   });
   // Exactly TTL_DAYS old → diff equals TTL exactly → not strictly greater → not expired.
-  assert.equal(isSuppressionRecordExpired(record), false);
+  assert.equal(isSuppressionRecordExpired(record, now), false);
 });
 
 test('isSuppressionRecordExpired: invalid firedAt is treated as not expired', () => {

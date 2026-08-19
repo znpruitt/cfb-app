@@ -1468,11 +1468,8 @@ Supersedes: (none)
     the public flag has no remaining reason to exist and deletion is the smaller change. Sequence
     accordingly rather than bolting an admin check onto a route that may not keep the flag.
 
-48. **Pre-existing flaky test** (not from any campaign): `insights-suppression.test.ts` → "record at
-    exactly TTL boundary is not expired" computes `firedAt` from `Date.now()` and the predicate
-    re-reads `Date.now()`, so it passes only when both land in the same millisecond. Observed failing
-    once in a full-suite run on 2026-08-11 and passing on re-run. Needs an injected clock, not a
-    retry.
+48. **Resolved maintenance slot.** The clock-boundary flake was removed by PLATFORM-103; this line
+    remains only to preserve the stable numbering referenced by later items.
 49. **PLATFORM-091 follow-ups** (not queued as work; recorded so they are not rediscovered):
     (a) draft facts reach the banner only through a best-effort client fetch whose failures are
     swallowed and never retried, so `null` means both "no draft" and "could not find out" — the
@@ -2873,10 +2870,8 @@ unless verified in merged work.
   badge; `liveCountByOwner` staleness alignment), PLATFORM-054/055/056 (canonical-layer candidates:
   score cache warming, global alias merge, insights canonical owner sourcing), canonical ownership
   IDs for current-season draft ownership, 086H4 (broader game-stats presentation/copy audit), the
-  game-stats legacy-row migration, the co-located `route.test.ts` relocation (four remaining
-  files — one admin (`odds-usage`), three non-admin; see
-  `docs/architecture/admin-control-plane.md` → operational clarity findings), and the
-  `manualRefresh.ts` dead-surface trim (the scores/schedule/game-stats URL branches and
+  game-stats legacy-row migration, and the `manualRefresh.ts` dead-surface trim (the
+  scores/schedule/game-stats URL branches and
   `manualActionKey`/`isSelectedYear`/`combineOutcomes` have no live caller since F2D1 — the
   module doc marks them). See `docs/prompt-registry.md` and `docs/completed-work.md`.
 
@@ -2997,11 +2992,6 @@ record under Active priorities above).
 
 ## Non-blocking maintenance
 
-- **Flaky clock-boundary test — `insights-suppression.test.ts` ("record at exactly TTL boundary is
-  not expired").** The fixture stamps `firedAt` from `Date.now()` and `isSuppressionRecordExpired`
-  reads `Date.now()` again, so a millisecond tick between the two calls pushes the age past the TTL
-  and the boundary case flips. Fails intermittently under full-suite load only. Fix is to inject the
-  clock, not to widen the assertion. No owner slice.
 - Revisit TypeScript import/test-runner cleanup separately from active campaign work.
 - Keep optional decomposition of `CFBScheduleApp.tsx` and `scoreAttachment.ts` as non-blocking
   technical debt unless explicitly scheduled.
