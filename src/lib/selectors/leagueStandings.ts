@@ -488,7 +488,7 @@ async function resolveOffseason(
     }
   }
 
-  const live = await liveDeriveStandings(slug, targetYear);
+  const live = await liveDeriveStandings(slug, targetYear, currentDate);
   if (live && live.roster.size > 0) {
     return snapshotFromLive({
       slug,
@@ -530,7 +530,7 @@ async function resolveSeason(
     }
   }
 
-  const live = await liveDeriveStandings(slug, year);
+  const live = await liveDeriveStandings(slug, year, currentDate);
   if (live && live.roster.size > 0) {
     return snapshotFromLive({ slug, league, status, year, live, currentDate });
   }
@@ -557,7 +557,7 @@ async function resolvePreseason(
   currentDate: Date
 ): Promise<CanonicalStandings> {
   // Prefer CSV (draft complete) — produces real roster + NoClaim segregation.
-  const live = await liveDeriveStandings(slug, year);
+  const live = await liveDeriveStandings(slug, year, currentDate);
   if (live && live.roster.size > 0) {
     return snapshotFromLive({ slug, league, status, year, live, currentDate });
   }
@@ -830,7 +830,16 @@ type ScoresCacheItem = {
  * snapshot. Callers on the canonical standings path intentionally let the
  * rejection bubble (see Standings Ownership Invariant #8).
  */
-async function liveDeriveStandings(slug: string, year: number): Promise<LiveDerivation | null> {
+async function liveDeriveStandings(
+  slug: string,
+  year: number,
+  /**
+   * PLATFORM-105 — evaluation time for "has this week been played". Threaded
+   * from the caller rather than read off the wall clock so a replay of a past
+   * date, and a test placing itself mid-season, both tell the truth.
+   */
+  currentDate: Date
+): Promise<LiveDerivation | null> {
   const ownersRecord = await getAppState<string>(`owners:${slug}:${year}`, 'csv');
   const ownersCsvText = typeof ownersRecord?.value === 'string' ? ownersRecord.value : '';
   const ownerRows = parseOwnersCsv(ownersCsvText);
@@ -905,6 +914,11 @@ async function liveDeriveStandings(slug: string, year: number): Promise<LiveDeri
     games,
     rosterByTeam: roster,
     scoresByKey: scoresForDerivation as Parameters<typeof deriveStandingsHistory>[0]['scoresByKey'],
+    now: currentDate,
+    // The catalogue the weeks are judged over. Eleven of the twelve games that
+    // never resolved across six cached seasons were non-FBS provider noise;
+    // scoping excludes them before the elapsed-time clause is ever consulted.
+    canonicalTeams: new Set(teams.map((team) => team.school)),
   });
   const coverage = deriveStandingsCoverage(games, roster, scoresForDerivation);
 

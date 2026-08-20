@@ -1,5 +1,5 @@
 import type { StandingsHistory } from '../standingsHistory';
-import { selectResolvedStandingsWeeks } from './historyResolution';
+import { selectPlayedWeeks, selectResolvedStandingsWeeks } from './historyResolution';
 
 export type SeasonContext = 'in-season' | 'postseason' | 'final';
 
@@ -18,8 +18,16 @@ export function selectSeasonContext(args: {
   const { resolvedWeeks, latestResolvedWeek } = selectResolvedStandingsWeeks(standingsHistory);
   if (resolvedWeeks.length === 0 || latestResolvedWeek == null) return 'in-season';
 
-  const hasUnresolvedWeeks = resolvedWeeks.length < standingsHistory.weeks.length;
-  if (!hasUnresolvedWeeks) return 'final';
+  // PLATFORM-105 — "the season is over" asks whether any football REMAINS, and
+  // that is a question about weeks being PLAYED. It used to ask whether any week
+  // was unresolved, which fuses it with coverage: a finished season with one
+  // week whose scores never attached read as in-season, and — the direction that
+  // actually bit, on every league from the first Saturday — a season with
+  // thirteen weeks still to play read as `final`, because an unplayed week has
+  // no missing scores.
+  const playedWeeks = selectPlayedWeeks(standingsHistory);
+  const seasonOver = playedWeeks.length === standingsHistory.weeks.length;
+  if (seasonOver) return 'final';
 
   if (latestResolvedWeek >= POSTSEASON_START_WEEK) return 'postseason';
 
