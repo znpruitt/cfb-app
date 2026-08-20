@@ -12,9 +12,10 @@ answering two different questions and nobody could see that from the code.
 
 ## The defect this replaces
 
-`isResolvedWeek` asked "is this week's coverage complete?", and coverage means _no game the schedule
-calls final is missing a score_. **A week with nothing played has no final games, so nothing is
-missing, so it is complete.** "Nothing played" and "everything present" were the same value.
+`isResolvedWeek` asked "is this week's coverage complete?", and coverage at the time meant _no game
+the schedule calls final is missing a score_. **A week with nothing played has no final games, so
+nothing is missing, so it is complete.** "Nothing played" and "everything present" were the same
+value.
 
 Every unplayed week therefore counted as resolved, `selectSeasonContext` saw no unresolved week, and
 the season reported itself `final` — from the first Saturday.
@@ -58,8 +59,11 @@ guarding against the generalisation.
 | Is the season over?        | `selectSeasonContext` → recap, champion, throne, race | no football remains                               |
 
 Coverage answers a third, separate question — _are we missing scores for games that were played?_ —
-and is unchanged by this work. It is a data-health signal, not a progress signal, and it is already
-reported through System Health (`scores-terminal-coverage-missing`/`-partial`).
+and remains independent from progress. `PLATFORM-105A` made both questions consume the same positive
+conclusion evidence: a final score, `completed: true`, or a final schedule status means standings
+coverage now requires a final row with both numeric scores; cancellation is a distinct scoreless
+terminal outcome. Coverage is still a data-health signal, not a progress signal, and related gaps
+are also reported through System Health (`scores-terminal-coverage-missing`/`-partial`).
 
 ## The predicate
 
@@ -192,9 +196,11 @@ independently. **Queued, not fixed.**
 
 ## What this does NOT change
 
-- **Coverage.** Still "were we missing scores for games that were played", still a data-health
-  signal, still surfaced the same way. A week can be played and have incomplete coverage; those are
-  different facts and this work stops them sharing a value.
+- **Coverage/progress separation.** Coverage is still "were we missing scores for games that were
+  played", still a data-health signal, and still surfaced the same way. A week can be played and
+  have incomplete coverage; those remain different facts. `PLATFORM-105A` tightened only the shared
+  conclusion evidence feeding them so a scoreless `completed` game cannot publish a resolved
+  standings snapshot.
 - **The recap's authority.** `season_wrap` trusts the LIFECYCLE — rollover fired, so the season is
   over — not this derived signal, and that stays true. Item 52 records why gating it on coverage was
   considered and rejected.

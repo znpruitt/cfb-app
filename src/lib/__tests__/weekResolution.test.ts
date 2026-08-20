@@ -10,6 +10,7 @@ import {
 } from '../standingsHistory';
 import type { ScorePack } from '../scores';
 import type { AppGame } from '../schedule';
+import { selectResolvedStandingsWeeks } from '../selectors/historyResolution';
 
 // ---------------------------------------------------------------------------
 // PLATFORM-105 — a week is played only when its games have concluded.
@@ -181,6 +182,33 @@ test('an unplayed week is NOT played, even though its coverage is complete', () 
     'complete',
     'and its coverage is still complete — that is why played had to be its own fact'
   );
+});
+
+test('a completed scoreless game makes its week played but not resolved', () => {
+  // PLATFORM-105A: progress and integrity are independent facts. The provider
+  // can mark the game complete before score attachment succeeds; charting that
+  // zero-result snapshot would silently publish incorrect standings.
+  const history = deriveStandingsHistory({
+    games: [
+      game({
+        key: 'completed-scoreless',
+        week: 1,
+        status: 'scheduled',
+        completed: true,
+        date: '2026-09-05T18:00:00.000Z',
+      }),
+    ],
+    rosterByTeam: ROSTER,
+    scoresByKey: {},
+  });
+
+  assert.equal(history.byWeek[1]?.played, true, 'the completed flag is positive progress evidence');
+  assert.equal(
+    history.byWeek[1]?.coverage.state,
+    'partial',
+    'the same completed flag means a standings result is now required'
+  );
+  assert.deepEqual(selectResolvedStandingsWeeks(history).resolvedWeeks, []);
 });
 
 test('a week is played only when EVERY game in it has concluded', () => {

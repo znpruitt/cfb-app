@@ -1,4 +1,4 @@
-import { classifyScorePackStatus } from './gameStatus.ts';
+import { classifyGameConclusionEvidence, classifyScorePackStatus } from './gameStatus.ts';
 import { getGameOwners } from './gameOwnership.ts';
 import type { ScorePack } from './scores.ts';
 import type { AppGame } from './schedule.ts';
@@ -81,12 +81,11 @@ export function deriveStandingsCoverage(
     hasScoreLoadError?: boolean;
   }
 ): StandingsCoverage {
-  const relevantFinalGames = games.filter(
-    (game) => game.status === 'final' && hasOwnedTeam(game, rosterByTeam)
-  );
+  const hasMissingFinalScores = games.some((game) => {
+    if (!hasOwnedTeam(game, rosterByTeam)) return false;
 
-  const hasMissingFinalScores = relevantFinalGames.some((game) => {
     const score = scoresByKey[game.key];
+    if (classifyGameConclusionEvidence(game, score) !== 'score-required') return false;
     if (classifyScorePackStatus(score) !== 'final') return true;
 
     return score?.away.score == null || score.home.score == null;

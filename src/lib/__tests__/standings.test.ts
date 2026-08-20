@@ -31,6 +31,7 @@ function game(overrides: Partial<AppGame>): AppGame {
     neutral: overrides.neutral ?? false,
     neutralDisplay: overrides.neutralDisplay ?? 'home_away',
     venue: overrides.venue ?? null,
+    completed: overrides.completed,
     isPlaceholder: overrides.isPlaceholder ?? false,
     participants: overrides.participants ?? {
       home: {
@@ -340,6 +341,68 @@ test('standings coverage is complete when all owned final games have final score
       time: 'Final',
       away: { team: 'Texas', score: 24 },
       home: { team: 'Baylor', score: 17 },
+    },
+  };
+
+  assert.deepEqual(deriveStandingsCoverage(games, rosterByTeam, scoresByKey), {
+    state: 'complete',
+    message: null,
+  });
+});
+
+test('standings coverage stays partial when CFBD marks an owned game completed before its score attaches', () => {
+  const games = [
+    game({
+      key: 'completed-scoreless',
+      csvAway: 'Texas',
+      csvHome: 'Baylor',
+      // Production CFBD schedule rows remain `scheduled`; `completed` is the
+      // positive evidence that this game should now have a standings result.
+      status: 'scheduled',
+      completed: true,
+    }),
+  ];
+  const rosterByTeam = new Map([['Texas', 'Alex']]);
+
+  assert.deepEqual(deriveStandingsCoverage(games, rosterByTeam, {}), {
+    state: 'partial',
+    message: 'Standings may be incomplete — some completed game scores are not available yet.',
+  });
+});
+
+test('standings coverage requires numeric points when the score itself says final', () => {
+  const games = [
+    game({
+      key: 'final-without-points',
+      csvAway: 'Texas',
+      csvHome: 'Baylor',
+      status: 'scheduled',
+    }),
+  ];
+  const rosterByTeam = new Map([['Texas', 'Alex']]);
+  const scoresByKey = {
+    'final-without-points': {
+      status: 'final',
+      time: 'Final',
+      away: { team: 'Texas', score: null },
+      home: { team: 'Baylor', score: null },
+    },
+  };
+
+  assert.equal(deriveStandingsCoverage(games, rosterByTeam, scoresByKey).state, 'partial');
+});
+
+test('standings coverage remains complete for a legitimately scoreless canceled game', () => {
+  const games = [
+    game({ key: 'canceled', csvAway: 'Texas', csvHome: 'Baylor', status: 'scheduled' }),
+  ];
+  const rosterByTeam = new Map([['Texas', 'Alex']]);
+  const scoresByKey = {
+    canceled: {
+      status: 'STATUS_CANCELED',
+      time: null,
+      away: { team: 'Texas', score: null },
+      home: { team: 'Baylor', score: null },
     },
   };
 

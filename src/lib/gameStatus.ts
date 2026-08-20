@@ -2,6 +2,14 @@ import type { ScorePack } from './scores.ts';
 
 export type GameStatusBucket = 'scheduled' | 'inprogress' | 'final' | 'disrupted';
 
+export type GameConclusionEvidence = {
+  status: string;
+  rawStatus?: string | null;
+  completed?: boolean | null;
+};
+
+export type GameConclusionKind = 'score-required' | 'scoreless-terminal' | 'unresolved';
+
 const DISRUPTED_RE = /\b(postponed|canceled|cancelled|suspended|delayed)\b/;
 const CANCELED_RE = /\b(canceled|cancelled)\b/;
 const CANCELED_OR_POSTPONED_RE = /\b(?:canceled|cancelled|postponed)\b/;
@@ -82,6 +90,30 @@ export function classifyStatusLabel(status: string | null | undefined): GameStat
 export function classifyScorePackStatus(score?: ScorePack): GameStatusBucket {
   if (!score) return 'scheduled';
   return classifyStatusLabel(score.status);
+}
+
+/**
+ * Classify positive game-conclusion evidence once for both standings progress
+ * and standings coverage.
+ *
+ * `score-required` means the game has been played and must contribute a usable
+ * final score before a standings snapshot is complete. `scoreless-terminal` is
+ * deliberately limited to cancellation, which legitimately ends a game
+ * without producing a result. Strong score-bearing evidence wins if provider
+ * fields conflict, keeping coverage fail-closed instead of publishing a
+ * possibly incomplete snapshot.
+ */
+export function classifyGameConclusionEvidence(
+  game: GameConclusionEvidence,
+  score: ScorePack | undefined
+): GameConclusionKind {
+  if (classifyScorePackStatus(score) === 'final') return 'score-required';
+  if (game.completed === true) return 'score-required';
+  if (game.status === 'final') return 'score-required';
+  if (isCanceledStatusLabel(game.rawStatus) || isCanceledStatusLabel(score?.status)) {
+    return 'scoreless-terminal';
+  }
+  return 'unresolved';
 }
 
 export function formatScheduleStatusLabel(
