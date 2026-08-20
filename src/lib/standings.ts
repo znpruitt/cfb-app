@@ -82,10 +82,9 @@ export function deriveStandingsCoverage(
   }
 ): StandingsCoverage {
   const hasMissingFinalScores = games.some((game) => {
-    if (!hasOwnedTeam(game, rosterByTeam)) return false;
-
     const score = scoresByKey[game.key];
     if (classifyGameConclusionEvidence(game, score) !== 'score-required') return false;
+    if (!hasOwnedTeam(game, rosterByTeam)) return false;
     if (classifyScorePackStatus(score) !== 'final') return true;
 
     return score?.away.score == null || score.home.score == null;

@@ -350,14 +350,15 @@ test('standings coverage is complete when all owned final games have final score
   });
 });
 
-test('standings coverage stays partial when CFBD marks an owned game completed before its score attaches', () => {
+test('standings coverage stays partial when schedule completion exposes a missing owned result', () => {
   const games = [
     game({
       key: 'completed-scoreless',
       csvAway: 'Texas',
       csvHome: 'Baylor',
-      // Production CFBD schedule rows remain `scheduled`; `completed` is the
-      // positive evidence that this game should now have a standings result.
+      // Models a final result that never landed inside the live-score polling
+      // window. The later schedule refresh retains `completed` but no points,
+      // exposing that the owned result is missing rather than still in flight.
       status: 'scheduled',
       completed: true,
     }),

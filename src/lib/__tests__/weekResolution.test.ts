@@ -186,8 +186,9 @@ test('an unplayed week is NOT played, even though its coverage is complete', () 
 
 test('a completed scoreless game makes its week played but not resolved', () => {
   // PLATFORM-105A: progress and integrity are independent facts. The provider
-  // can mark the game complete before score attachment succeeds; charting that
-  // zero-result snapshot would silently publish incorrect standings.
+  // result missed the live-score polling window, then the later schedule
+  // refresh exposed it as completed. Charting that zero-result snapshot would
+  // silently publish incorrect standings.
   const history = deriveStandingsHistory({
     games: [
       game({
@@ -209,6 +210,42 @@ test('a completed scoreless game makes its week played but not resolved', () => 
     'the same completed flag means a standings result is now required'
   );
   assert.deepEqual(selectResolvedStandingsWeeks(history).resolvedWeeks, []);
+});
+
+test('an early missing result intentionally blocks every later cumulative snapshot', () => {
+  const games = [
+    game({ key: 'w1', week: 1, completed: true, date: '2026-09-05T18:00:00.000Z' }),
+    game({ key: 'w2', week: 2, completed: true, date: '2026-09-12T18:00:00.000Z' }),
+    game({ key: 'w3', week: 3, completed: true, date: '2026-09-19T18:00:00.000Z' }),
+  ];
+
+  const missingWeekOne = deriveStandingsHistory({
+    games,
+    rosterByTeam: ROSTER,
+    scoresByKey: scored('w2', 'w3'),
+  });
+  assert.deepEqual(
+    missingWeekOne.weeks.map((week) => missingWeekOne.byWeek[week]?.played),
+    [true, true, true]
+  );
+  assert.deepEqual(
+    missingWeekOne.weeks.map((week) => missingWeekOne.byWeek[week]?.coverage.state),
+    ['partial', 'partial', 'partial']
+  );
+  assert.deepEqual(selectResolvedStandingsWeeks(missingWeekOne).resolvedWeeks, []);
+
+  // Positive control: the identical fixture resolves every week once the
+  // missing cumulative input is present, proving this observer can resolve.
+  const fullyScored = deriveStandingsHistory({
+    games,
+    rosterByTeam: ROSTER,
+    scoresByKey: scored('w1', 'w2', 'w3'),
+  });
+  assert.deepEqual(
+    fullyScored.weeks.map((week) => fullyScored.byWeek[week]?.coverage.state),
+    ['complete', 'complete', 'complete']
+  );
+  assert.deepEqual(selectResolvedStandingsWeeks(fullyScored).resolvedWeeks, [1, 2, 3]);
 });
 
 test('a week is played only when EVERY game in it has concluded', () => {

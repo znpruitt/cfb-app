@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  classifyGameConclusionEvidence,
   classifyScorePackStatus,
   classifyStatusLabel,
   formatCompactGameStatus,
@@ -11,6 +12,20 @@ import {
   isCanceledStatusLabel,
   isDisruptedStatusLabel,
 } from '../gameStatus';
+
+const canceledScore = {
+  status: 'STATUS_CANCELED',
+  away: { team: 'A', score: null },
+  home: { team: 'B', score: null },
+  time: null,
+};
+
+const finalScore = {
+  status: 'STATUS_FINAL',
+  away: { team: 'A', score: 17 },
+  home: { team: 'B', score: 24 },
+  time: 'Final',
+};
 
 test('classifies final statuses consistently', () => {
   assert.equal(classifyStatusLabel('Final'), 'final');
@@ -32,6 +47,29 @@ test('classifies final statuses consistently', () => {
     }),
     'FINAL'
   );
+});
+
+test('a final score outranks a conflicting canceled schedule label', () => {
+  assert.equal(
+    classifyGameConclusionEvidence(
+      { status: 'scheduled', rawStatus: 'STATUS_CANCELED', completed: false },
+      finalScore
+    ),
+    'score-required'
+  );
+});
+
+test('schedule score-bearing evidence outranks a conflicting canceled score label', () => {
+  for (const game of [
+    { status: 'scheduled', completed: true },
+    { status: 'final', completed: false },
+  ]) {
+    assert.equal(
+      classifyGameConclusionEvidence(game, canceledScore),
+      'score-required',
+      `${game.status}/${String(game.completed)} should fail closed`
+    );
+  }
 });
 
 test('classifies in-progress variants as live', () => {
