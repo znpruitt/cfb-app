@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-07-30
+Last verified: 2026-08-20
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -1938,7 +1938,7 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-RESCHEDULE-DETECTION-v1`
 
-64. **PLATFORM-105 residue — five items, ranked by real impact.** Queued 2026-08-20 at merge, from
+64. **PLATFORM-105 residue — five items, one now review-complete.** Queued 2026-08-20 at merge, from
     the confirming passes of both reviewers. None is a regression against `main`; each is smaller
     than the defect PLATFORM-105 fixed.
 
@@ -1950,14 +1950,23 @@ Supersedes: (none)
     `pending` to a per-week count plus earliest kickoff. **This also removes (d)**, because the client
     would stop evaluating the clock at all.
 
-    **(b) 🔴 P0 BEFORE THE FIRST SCORE-BEARING WEEKEND — a scoreless `completed` game resolves a
-    week whose standings are missing that result**
-    (Codex). `isConcludedByEvidence` accepts CFBD's `completed: true`, but
-    `deriveStandingsCoverage` only demands a score when `game.status === 'final'` — which production
-    rows never are — so coverage still reads `complete` and the snapshot publishes. Transient in the
-    common case (live-scores attaches within minutes); permanent if the score never attaches through
-    an identity mismatch, and then a week's standings are quietly wrong while claiming complete
-    coverage. Introduced by using `completed` as evidence.
+    **(b) ✅ REVIEW-COMPLETE, PENDING MERGE — `PLATFORM-105A-SCORE-COVERAGE-INTEGRITY-v1`.** A
+    scoreless owned game with score-bearing conclusion evidence can no longer resolve a cumulative
+    snapshot. One shared ordered classifier makes final score evidence, schedule `completed: true`,
+    or schedule `status: 'final'` require both numeric points for standings coverage; any of those
+    signals outranks a conflicting cancellation label, while cancellation alone remains a valid
+    scoreless terminal outcome. Cumulative fail-closed propagation is deliberate: if week 1's owned
+    result is absent, weeks 2–N omit it too and cannot publish correct cumulative standings.
+
+    The original reachability attribution was wrong. Schedule and score refreshes read the same CFBD
+    `/games` rows; the score path retains points, while schedule serialization retains `completed`
+    and drops points. The actual pre-existing gap is recovery after the live-score polling window
+    closes at kickoff +24h: a later partition payload can contain the final row but discard it because
+    reconciliation only commits its in-window pending set, and Tuesday's schedule refresh can then
+    persist `completed: true`. PLATFORM-105A surfaces that fault; it does not create it. Reviewed
+    implementation `f6010b2b` on `platform/105a-score-coverage-integrity` has clean confirming
+    reviews and all gates green; only its pre-merge documentation closeout follows on the branch.
+    Execution record: `docs/prompt-registry.md`.
 
     **(c) Abandonment is never applied to WEEK resolution** (both reviewers). `selectSeasonContext`
     evaluates `pending` kickoffs through `hasGameBeenAbandoned`; `isResolvedWeek` does not. So the
@@ -1986,17 +1995,16 @@ Supersedes: (none)
     require `unresolved.length > 0`, or move the played guard above it.
 
     - **Backlog slug (provisional):** `PLATFORM-WEEK-RESOLUTION-RESIDUE-v1`
-    - **Sequencing (revised 2026-08-20 after the Codex season-readiness audit):** **(b) FIRST** — it
-      can silently publish incomplete standings AS COMPLETE, which violates PLATFORM-105's own rule
-      that the season is over when every real game has a result, and an identity mismatch makes it
-      persist rather than flicker. Then (a), which is broad, cheap, and closes (d) as a side effect.
-    - **Recommended platform order across the queue:** 64(b) → redesign and implement 63 → 64(a/d) →
-      the `appStateStore` pool timeouts (item 20 — a 3-client pool with no checkout or statement
-      timeout can make every database-backed route wait indefinitely, not just drafts) → the
-      deletion/adoption guard (item 46 — adopting a slug for a PAST season lets nightly rollover
+    - **Sequencing (revised 2026-08-20 after PLATFORM-105A review):** land (b), then close the
+      underlying final-score recovery gap in item 66. After that, (a) remains broad and cheap and
+      closes (d) as a side effect; (c/e) remain a separate week-resolution policy slice.
+    - **Recommended platform order across the queue:** land 64(b) → item 66 → redesign and implement
+      63 → 64(a/d) → the `appStateStore` pool timeouts (item 20 — a 3-client pool with no checkout or
+      statement timeout can make every database-backed route wait indefinitely, not just drafts) →
+      the deletion/adoption guard (item 46 — adopting a slug for a PAST season lets nightly rollover
       overwrite a genuine archive, available to a platform admin today) → membership authority
-      (items 17/25). Conditional: item 47 becomes P1 before any passwordless league, and the
-      rankings FORCE path (item 60) is a recovery gap separate from the Coaches Poll fix.
+      (items 17/25). Conditional: item 47 becomes P1 before any passwordless league, and the rankings
+      FORCE path (item 60) is a recovery gap separate from the Coaches Poll fix.
 
 65. 🚧 **GATE — before any league where someone other than the commissioner makes a pick.** Recorded
     2026-08-20. Not new work: this names an ASSUMPTION that several existing items silently rest on,
@@ -2046,6 +2054,51 @@ Supersedes: (none)
     **None of these is a defect today.** Each is a correct-enough behaviour resting on "one writer,
     who is the commissioner". This entry exists so that assumption is visible when it stops holding,
     rather than rediscovered from a mis-credited pick.
+
+66. 🔴 **Final-score recovery after the polling window — NEXT after PLATFORM-105A lands.** The
+    live-score plan derives both ordinary polling and `final-reconciliation` from games inside
+    `[kickoff - 15m, kickoff + 24h]`; its merge then commits only `plan.pendingGames`. A later fetch
+    for the same partition can therefore already contain an out-of-window final row and discard it.
+    The weekly schedule refresh eventually retains `completed: true` from the same provider shape but
+    intentionally does not persist points, leaving no automatic writer targeting the missing score.
+
+    This is a pre-existing recovery defect exposed by PLATFORM-105A's truthful fail-closed coverage.
+    The implementation slice must decide which additional rows from a fetched partition may be
+    committed without turning reconciliation into an arbitrary-history rewrite, and must preserve the
+    existing canonical merge, advisory-lock, `commitSeq`, durable-first, and provider-refresh-status
+    discipline. Its exit condition is automatic eventual recovery of a provider-final score-required
+    game after its ordinary polling window, including a proof that unrelated historical rows cannot be
+    rewritten. Do not remove or weaken the standings coverage gate.
+
+    - **Backlog slug (provisional):** `PLATFORM-FINAL-SCORE-RECOVERY-v1`
+
+67. **Game-level completed-score gap diagnostics — behind item 66.** Current System Health score
+    coverage is slate-granular: a week counts as covered when any canonical terminal score row exists,
+    so one missing completed game in an otherwise healthy slate is invisible. Add a game-granular
+    diagnostic using the shared conclusion/identity authorities, with enough game and partition
+    identity for an operator to repair it. Define the expected population after item 66 settles the
+    automatic-recovery contract; do not duplicate score attachment or team matching in diagnostics.
+
+    - **Backlog slug (provisional):** `PLATFORM-GAME-SCORE-GAP-DIAGNOSTICS-v1`
+
+68. **Archive integrity when cumulative coverage is incomplete — behind item 66.** Rollover strips
+    live `played` state but persists coverage. Audit the residual case where a season reaches archive
+    time with an unresolved score-required owned game, then choose and test an explicit policy:
+    refuse/defer archive publication, mark it repairable, or provide a deterministic rebuild path.
+    Keep this separate from live reconciliation because it changes a different automation job and a
+    durable historical contract; do not assume recovery makes the impossible state disappear.
+
+    - **Backlog slug (provisional):** `PLATFORM-ARCHIVE-COVERAGE-INTEGRITY-v1`
+
+69. **Owner decision — standings coverage banner copy.** `StandingsPanel` renders
+    `coverage.message`; the canonical standings path passes no options, so the incomplete state says
+    “some completed game scores are not available yet.” Under the normal weekend cadence, the first
+    time schedule-side `completed` can expose this state is after ordinary live-score recovery has
+    ended, so “yet” can promise a wait that will not self-heal. Decide whether member-facing copy
+    should name a data fault/repair state, while retaining a truthful transient variant for unusual
+    kickoff timing or manual operations. This is intentionally not part of PLATFORM-105A or item 66.
+
+    - **Backlog slug (provisional):** `POLISH-STANDINGS-COVERAGE-COPY-v1`
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
