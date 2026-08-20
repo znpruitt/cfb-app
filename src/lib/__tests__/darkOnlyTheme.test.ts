@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 
 import { isDarkTheme } from '../ownerColors.ts';
-import { getCategoryConfig } from '../insightCategories.ts';
+import { INSIGHT_CATEGORY_CONFIG, getCategoryConfig } from '../insightCategories.ts';
 
 // ---------------------------------------------------------------------------
 // POLISH-010 — dark is the only theme.
@@ -28,7 +28,8 @@ test('isDarkTheme resolves dark with no window at all (SSR)', () => {
 test('isDarkTheme ignores a matchMedia that reports a LIGHT preference', () => {
   // The load-bearing case. A resolver still consulting the media query would
   // return false here; one that has genuinely stopped consulting it cannot.
-  const g = globalThis as unknown as { window?: unknown };
+  type Stubbed = { window?: { matchMedia(q: string): { matches: boolean } } };
+  const g = globalThis as unknown as Stubbed;
   const hadWindow = 'window' in g;
   g.window = {
     matchMedia: (q: string) => ({
@@ -39,30 +40,52 @@ test('isDarkTheme ignores a matchMedia that reports a LIGHT preference', () => {
     }),
   };
   try {
+    // POSITIVE CONTROL, in the same scope as the assertion it controls: prove the
+    // stub is INSTALLED and reporting light. The previous version built a fresh
+    // local object and asserted that instead, so it could not fail for any
+    // implementation of anything and controlled nothing.
+    assert.equal(
+      g.window!.matchMedia('(prefers-color-scheme: dark)').matches,
+      false,
+      'control: the installed stub must report a LIGHT preference'
+    );
     assert.equal(isDarkTheme(), true, 'a light-reporting matchMedia must not produce light');
   } finally {
     if (!hadWindow) delete g.window;
   }
 });
 
-test('positive control: the stubbed matchMedia really does report light', () => {
-  // Without this, the assertion above could pass because the stub never took
-  // effect rather than because the resolver ignores it.
-  const stub = {
-    matchMedia: (q: string) => ({ matches: false, media: q }),
-  };
-  assert.equal(stub.matchMedia('(prefers-color-scheme: dark)').matches, false);
-});
-
 test('insight category colours expose a dark value for every category', () => {
   // The category resolver picks `isDark ? darkColor : lightColor`. With the flag
   // pinned true, every category must actually HAVE a dark value or the UI renders
   // undefined.
-  for (const category of ['HISTORICAL', 'RIVALRY', 'CAREER', 'TRAJECTORY', 'STATS'] as const) {
-    const config = getCategoryConfig(category);
-    assert.ok(config.darkColor, `${category} is missing darkColor`);
-    assert.match(config.darkColor, /^#[0-9a-fA-F]{6}$/, `${category} darkColor is not a hex`);
+  //
+  // KEYED ON REAL IDS, and that is the whole point. The first version of this
+  // test looped over LABELS ('HISTORICAL', 'STATS'), which `getCategoryConfig`
+  // does not key on — every lookup missed and returned the shared FALLBACK, so it
+  // asserted one object five times and never touched a real entry. Deleting
+  // `darkColor` from every real category would have left it green. Iterating the
+  // config's own keys means it cannot go stale as categories are added.
+  const ids = Object.keys(INSIGHT_CATEGORY_CONFIG);
+  assert.ok(ids.length >= 5, `expected the category config to be populated, got ${ids.length}`);
+
+  for (const id of ids) {
+    const config = getCategoryConfig(id as Parameters<typeof getCategoryConfig>[0]);
+    assert.ok(config.darkColor, `${id} is missing darkColor`);
+    assert.match(config.darkColor, /^#[0-9a-fA-F]{6}$/, `${id} darkColor is not a hex`);
   }
+});
+
+test('the category lookup resolves REAL entries, not the fallback', () => {
+  // Control for the test above: proves the ids it iterates actually hit the
+  // config. A label-keyed loop passes that test while exercising nothing.
+  const fallback = getCategoryConfig('definitely-not-a-category' as never);
+  const real = getCategoryConfig('historical' as never);
+  assert.notEqual(
+    real.darkColor,
+    fallback.darkColor,
+    'a real category must not resolve to the fallback colour'
+  );
 });
 
 test('no source file reads prefers-color-scheme through matchMedia', () => {
@@ -71,7 +94,7 @@ test('no source file reads prefers-color-scheme through matchMedia', () => {
   // round on the wordmark slice; this one asserts a single fact.
   const offenders: string[] = [];
   const walk = (dir: string): void => {
-    for (const entry of readdirSyncSafe(dir)) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         // Production code only. Test files legitimately mention the call shape
@@ -92,9 +115,3 @@ test('no source file reads prefers-color-scheme through matchMedia', () => {
   walk(REPO_ROOT);
   assert.deepEqual(offenders, [], `theme is dark-only; these still read the OS: ${offenders}`);
 });
-
-function readdirSyncSafe(dir: string): { name: string; isDirectory: () => boolean }[] {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { readdirSync } = require('node:fs') as typeof import('node:fs');
-  return readdirSync(dir, { withFileTypes: true });
-}
