@@ -915,10 +915,6 @@ async function liveDeriveStandings(
     rosterByTeam: roster,
     scoresByKey: scoresForDerivation as Parameters<typeof deriveStandingsHistory>[0]['scoresByKey'],
     now: currentDate,
-    // The catalogue the weeks are judged over. Eleven of the twelve games that
-    // never resolved across six cached seasons were non-FBS provider noise;
-    // scoping excludes them before the elapsed-time clause is ever consulted.
-    canonicalTeams: new Set(teams.map((team) => team.school)),
   });
   const coverage = deriveStandingsCoverage(games, roster, scoresForDerivation);
 

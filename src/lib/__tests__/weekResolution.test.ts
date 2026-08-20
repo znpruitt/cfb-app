@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { deriveStandingsHistory, isGameConcluded } from '../standingsHistory';
+import type { ScorePack } from '../scores';
 import type { AppGame } from '../schedule';
 
 // ---------------------------------------------------------------------------
@@ -60,38 +61,37 @@ function game(over: Partial<AppGame> & { key: string; week: number }): AppGame {
 }
 
 test('a final game is concluded regardless of when it started', () => {
-  assert.equal(isGameConcluded(game({ key: 'g', week: 1, status: 'final' }), NOW), true);
+  assert.equal(isGameConcluded(game({ key: 'g', week: 1, status: 'final' }), undefined, NOW), true);
 });
 
 test('a game kicking off in the future has not concluded', () => {
   const future = game({ key: 'g', week: 3, date: '2026-09-19T18:00:00.000Z' });
-  assert.equal(isGameConcluded(future, NOW), false);
+  assert.equal(isGameConcluded(future, undefined, NOW), false);
 });
 
 test('a game in progress has not concluded', () => {
   // Ninety minutes in. This is the case the eight-hour window exists for: a
   // shorter window would read a live game as abandoned.
   const live = game({ key: 'g', week: 2, date: '2026-09-12T16:30:00.000Z' });
-  assert.equal(isGameConcluded(live, NOW), false);
+  assert.equal(isGameConcluded(live, undefined, NOW), false);
 });
 
 test('a game still scheduled long after kickoff is concluded — it will never be played', () => {
   // The Liberty @ App State case. The provider will never resolve it, so
   // elapsed time is the only signal there is.
   const abandoned = game({ key: 'g', week: 1, date: '2026-09-05T18:00:00.000Z' });
-  assert.equal(isGameConcluded(abandoned, NOW), true);
+  assert.equal(isGameConcluded(abandoned, undefined, NOW), true);
 });
 
 test('a game with no kickoff time is not concluded by inference', () => {
   // Nothing to measure against, so the inference is unavailable. It stays
   // unconcluded rather than being guessed either way.
-  assert.equal(isGameConcluded(game({ key: 'g', week: 1, date: null }), NOW), false);
+  assert.equal(isGameConcluded(game({ key: 'g', week: 1, date: null }), undefined, NOW), false);
 });
 
 // ---------------------------------------------------------------------------
 
 const ROSTER = { Alabama: 'Alice', Auburn: 'Bob' };
-const CATALOG = new Set(['Alabama', 'Auburn', 'Akron', 'Army']);
 
 /**
  * A final score for a played game. Coverage is CUMULATIVE, so without this a
@@ -114,7 +114,6 @@ test('an unplayed week is NOT played, even though its coverage is complete', () 
     rosterByTeam: ROSTER,
     scoresByKey: scored('w1'),
     now: NOW,
-    canonicalTeams: CATALOG,
   });
 
   assert.equal(history.byWeek[1]?.played, true);
@@ -136,7 +135,6 @@ test('a week is played only when EVERY game in it has concluded', () => {
     rosterByTeam: ROSTER,
     scoresByKey: {},
     now: NOW,
-    canonicalTeams: CATALOG,
   });
 
   assert.equal(history.byWeek[1]?.played, false);
@@ -154,84 +152,106 @@ test('an abandoned game does not hold its week open forever', () => {
     rosterByTeam: ROSTER,
     scoresByKey: {},
     now: NOW,
-    canonicalTeams: CATALOG,
   });
 
   assert.equal(history.byWeek[1]?.played, true);
 });
 
-test('games outside the catalogue do not decide whether a week was played', () => {
-  // Eleven of the twelve games that never resolved across six cached seasons
-  // were non-FBS noise — six of them Alderson-Broaddus, a school that shut down
-  // mid-2023. A week whose only unconcluded game is outside the catalogue is
-  // still played.
+test('an FBS-vs-FCS game still to come keeps its week open', () => {
+  // The first round required BOTH participants in the FBS catalogue, which
+  // dropped exactly this game. `buildScheduleFromApi` keeps FBS-vs-FCS
+  // deliberately and it moves the standings, so a week could read played on
+  // Sunday while an owned team's Monday-night game against an FCS opponent was
+  // still ahead — and Monday's result would rewrite a week already treated as
+  // settled. The non-FBS noise that filter was written for never reaches
+  // `games` at all: `isTrackedGame` excludes both-non-FBS games upstream.
   const history = deriveStandingsHistory({
     games: [
       game({ key: 'a', week: 1, status: 'final', date: '2026-09-05T18:00:00.000Z' }),
       game({
-        key: 'junk',
+        key: 'fcs',
         week: 1,
-        date: '2026-09-19T18:00:00.000Z',
+        date: '2026-09-14T23:00:00.000Z',
         participants: {
           home: {
             kind: 'team',
-            teamId: 'x',
-            displayName: 'Alderson-Broaddus',
-            canonicalName: 'Alderson-Broaddus',
-            rawName: 'Alderson-Broaddus',
+            teamId: 'h',
+            displayName: 'Alabama',
+            canonicalName: 'Alabama',
+            rawName: 'Alabama',
           },
           away: {
             kind: 'team',
             teamId: 'y',
-            displayName: 'Wheeling',
-            canonicalName: 'Wheeling',
-            rawName: 'Wheeling',
+            displayName: 'Mercer',
+            canonicalName: 'Mercer',
+            rawName: 'Mercer',
           },
         },
       }),
     ],
     rosterByTeam: ROSTER,
-    scoresByKey: {},
+    scoresByKey: scored('a'),
     now: NOW,
-    canonicalTeams: CATALOG,
-  });
-
-  assert.equal(history.byWeek[1]?.played, true);
-});
-
-test('a week with no games in the population is not played', () => {
-  // It cannot be. Counting an empty week as played is how a season with nothing
-  // in it could report itself complete.
-  const history = deriveStandingsHistory({
-    games: [
-      game({
-        key: 'junk',
-        week: 1,
-        date: '2026-09-05T18:00:00.000Z',
-        status: 'final',
-        participants: {
-          home: {
-            kind: 'team',
-            teamId: 'x',
-            displayName: 'Wheeling',
-            canonicalName: 'Wheeling',
-            rawName: 'Wheeling',
-          },
-          away: {
-            kind: 'team',
-            teamId: 'y',
-            displayName: 'Bates',
-            canonicalName: 'Bates',
-            rawName: 'Bates',
-          },
-        },
-      }),
-    ],
-    rosterByTeam: ROSTER,
-    scoresByKey: {},
-    now: NOW,
-    canonicalTeams: CATALOG,
   });
 
   assert.equal(history.byWeek[1]?.played, false);
+});
+
+// ---------------------------------------------------------------------------
+// Evidence ordering. The first round tested only `status === 'final'`, which
+// BOTH reviewers found production never produces — CFBD supplies no status
+// string, so every game arrives `scheduled` and the week was decided purely by
+// the wall clock.
+// ---------------------------------------------------------------------------
+
+test('a cached FINAL SCORE concludes the game, whatever the schedule says', () => {
+  // The production shape: schedule status `scheduled`, result in the score
+  // cache. Without this a Saturday's games are all final and cached by 11:30pm
+  // and the week stays unplayed until 4am.
+  const g = game({ key: 'g', week: 1, date: '2026-09-12T16:00:00.000Z' });
+  assert.equal(g.status, 'scheduled', 'the fixture must reach the production shape');
+  assert.equal(isGameConcluded(g, finalScore as unknown as ScorePack, NOW), true);
+});
+
+test("the provider's completed flag concludes the game", () => {
+  const g = game({ key: 'g', week: 1, date: '2026-09-12T16:00:00.000Z', completed: true });
+  assert.equal(isGameConcluded(g, undefined, NOW), true);
+});
+
+test('a CANCELLED game is terminal', () => {
+  // Narrower than "disrupted" on purpose — the repo already draws this line.
+  const g = game({ key: 'g', week: 1, date: '2026-09-19T18:00:00.000Z', rawStatus: 'Canceled' });
+  assert.equal(isGameConcluded(g, undefined, NOW), true);
+});
+
+test('a POSTPONED game is not concluded, even long after its old kickoff', () => {
+  // It is still coming, and its cached kickoff is the one it no longer has.
+  // Order matters: falling through to the elapsed clause closes its week
+  // tomorrow.
+  const g = game({ key: 'g', week: 1, date: '2026-09-05T18:00:00.000Z', rawStatus: 'Postponed' });
+  assert.equal(isGameConcluded(g, undefined, NOW), false);
+});
+
+test('only elapsed-time conclusions are reported, and they are reported', () => {
+  // One is a hurricane; twenty is a broken feed. The first round declared this
+  // type and never populated it, while every production game was concluding by
+  // elapsed time — the missing signal was exactly what would have surfaced that.
+  const history = deriveStandingsHistory({
+    games: [
+      game({ key: 'scored', week: 1, date: '2026-09-05T18:00:00.000Z' }),
+      game({ key: 'flagged', week: 1, date: '2026-09-05T18:00:00.000Z', completed: true }),
+      game({ key: 'abandoned', week: 1, date: '2026-09-05T20:00:00.000Z' }),
+    ],
+    rosterByTeam: ROSTER,
+    scoresByKey: scored('scored'),
+    now: NOW,
+  });
+
+  assert.equal(history.byWeek[1]?.played, true);
+  assert.deepEqual(
+    (history.inferredConclusions ?? []).map((c) => c.key),
+    ['abandoned'],
+    'a scored or provider-flagged game is not an inference'
+  );
 });

@@ -1,5 +1,5 @@
 import type { StandingsHistory } from '../standingsHistory';
-import { selectPlayedWeeks, selectResolvedStandingsWeeks } from './historyResolution';
+import { selectPlayedWeeks } from './historyResolution';
 
 export type SeasonContext = 'in-season' | 'postseason' | 'final';
 
@@ -15,21 +15,22 @@ export function selectSeasonContext(args: {
   const { standingsHistory } = args;
   if (!standingsHistory || standingsHistory.weeks.length === 0) return 'in-season';
 
-  const { resolvedWeeks, latestResolvedWeek } = selectResolvedStandingsWeeks(standingsHistory);
-  if (resolvedWeeks.length === 0 || latestResolvedWeek == null) return 'in-season';
-
-  // PLATFORM-105 — "the season is over" asks whether any football REMAINS, and
-  // that is a question about weeks being PLAYED. It used to ask whether any week
-  // was unresolved, which fuses it with coverage: a finished season with one
-  // week whose scores never attached read as in-season, and — the direction that
-  // actually bit, on every league from the first Saturday — a season with
-  // thirteen weeks still to play read as `final`, because an unplayed week has
-  // no missing scores.
+  // PLATFORM-105 — BOTH finality and phase come from PLAYED weeks. The first
+  // round moved only the finality test and left the early guard and the
+  // postseason branch on `latestResolvedWeek`, so a played week 16 with partial
+  // score coverage still read `in-season`, and a finished season with a coverage
+  // gap in every week did too — the exact defect item 52 originally described,
+  // surviving inside its own fix.
+  //
+  // Resolved weeks are for usable standings SNAPSHOTS. Progress is a different
+  // question and no longer borrows that answer.
   const playedWeeks = selectPlayedWeeks(standingsHistory);
-  const seasonOver = playedWeeks.length === standingsHistory.weeks.length;
-  if (seasonOver) return 'final';
+  if (playedWeeks.length === 0) return 'in-season';
 
-  if (latestResolvedWeek >= POSTSEASON_START_WEEK) return 'postseason';
+  if (playedWeeks.length === standingsHistory.weeks.length) return 'final';
+
+  const latestPlayedWeek = playedWeeks[playedWeeks.length - 1]!;
+  if (latestPlayedWeek >= POSTSEASON_START_WEEK) return 'postseason';
 
   return 'in-season';
 }

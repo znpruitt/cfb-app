@@ -12,8 +12,8 @@ answering two different questions and nobody could see that from the code.
 
 ## The defect this replaces
 
-`isResolvedWeek` asked "is this week's coverage complete?", and coverage means *no game the schedule
-calls final is missing a score*. **A week with nothing played has no final games, so nothing is
+`isResolvedWeek` asked "is this week's coverage complete?", and coverage means _no game the schedule
+calls final is missing a score_. **A week with nothing played has no final games, so nothing is
 missing, so it is complete.** "Nothing played" and "everything present" were the same value.
 
 Every unplayed week therefore counted as resolved, `selectSeasonContext` saw no unresolved week, and
@@ -31,24 +31,45 @@ the `season_climb`/`season_slide` cards never fire, because their lifecycles are
 
 ## Two questions, not one
 
-| Question | Consumer | What it means |
-| --- | --- | --- |
-| Has this week been played? | the standings series — movement, surge, climb, slide | there is a usable, settled snapshot for this week |
-| Is the season over? | `selectSeasonContext` → recap, champion, throne, race | no football remains |
+| Question                   | Consumer                                              | What it means                                     |
+| -------------------------- | ----------------------------------------------------- | ------------------------------------------------- |
+| Has this week been played? | the standings series — movement, surge, climb, slide  | there is a usable, settled snapshot for this week |
+| Is the season over?        | `selectSeasonContext` → recap, champion, throne, race | no football remains                               |
 
-Coverage answers a third, separate question — *are we missing scores for games that were played?* —
+Coverage answers a third, separate question — _are we missing scores for games that were played?_ —
 and is unchanged by this work. It is a data-health signal, not a progress signal, and it is already
 reported through System Health (`scores-terminal-coverage-missing`/`-partial`).
 
 ## The predicate
 
 ```text
-concluded(game)  = status === 'final'
-                 || (game.date != null && now - game.date > GAME_MAX_DURATION)
-weekPlayed(week) = the week has ≥1 canonical FBS game
-                   && every canonical FBS game in the week is concluded
+concluded(game) =
+  1. the cached score is FINAL                     ← we have the result
+  2. game.completed === true                       ← CFBD's own flag
+  3. game.status === 'final'                       ← wire status, when supplied
+  4. rawStatus is CANCELLED                        ← terminal, never resolves
+  5. rawStatus is POSTPONED / SUSPENDED  → NOT concluded, it is still coming
+  6. now - kickoff > GAME_MAX_DURATION             ← last resort: abandoned
+
+weekPlayed(week) = every tracked game in the week is concluded
 seasonOver       = every week in the schedule is played
 ```
+
+**Evidence is consulted in order of authority, and elapsed time is LAST.** The
+first implementation of this slice tested only `status === 'final'` and fell
+through to the clock for everything else. Both reviewers found that unreachable:
+CFBD supplies no status string, `cfbdSchedule` defaults it to `scheduled`, and
+`mapStatus` therefore never yields `final` — so every week was decided purely by
+the wall clock. A Saturday's games could all be final and cached by 11:30pm while
+the week stayed unplayed until 4am, and a week whose games merely kicked off
+eight hours ago counted as played with no scores at all. The authoritative
+signals were already in hand: `scoresByKey` is a parameter, `AppGame.completed`
+carries CFBD's flag, and `rawStatus` carries the provider label.
+
+**Step 5 must precede step 6.** A postponed game's cached kickoff is the one it
+no longer has, so falling through to elapsed time closes its week the next day.
+The repo already draws this line — `isCanceledStatusLabel` is deliberately
+narrower than `isDisruptedStatusLabel` for exactly this reason.
 
 **`GAME_MAX_DURATION` is eight hours, and it is not a tuning knob.** It is how long a game can
 last — regulation plus overtime, weather delay, and a wide margin. Its only job is to stop a game
@@ -67,30 +88,65 @@ and `scheduled`.
 So the provider will never tell us a game was cancelled. But cancelled and not-yet-played are **not**
 indistinguishable (owner, 2026-08-19):
 
-| | `completed` | `startDate` |
-| --- | --- | --- |
-| Not yet played | `false` | **future** |
-| Cancelled / abandoned | `false` | **past** |
-| Played | `true` | past |
+|                       | `completed` | `startDate` |
+| --------------------- | ----------- | ----------- |
+| Not yet played        | `false`     | **future**  |
+| Cancelled / abandoned | `false`     | **past**    |
+| Played                | `true`      | past        |
 
 The inference is ours to make because the provider cannot make it for us.
 
-### Population: canonical FBS games
+### Population: every tracked game, and no extra filter
 
-Owner ruling, 2026-08-19. Measured over six cached seasons, **twelve games never resolved**, and
-eleven are non-FBS provider noise — six of them Alderson-Broaddus, a school that shut down its
-programme mid-2023, plus NESCAC Division III fixtures. Scoping to the canonical catalogue excludes
-all eleven before any inference is needed.
+Owner ruling was "all canonical FBS games", and `games` **already is** that set —
+`isTrackedGame` excludes both-non-FBS fixtures upstream, so the eleven noise
+games below never reach this code.
 
-The twelfth is `Liberty @ App State`. It is a real FBS game between two rostered teams, and it is the
-entire reason the elapsed-time clause exists: without it, one hurricane freezes a season forever and
-the champion card never fires.
+The first implementation added a filter requiring BOTH participants in the FBS
+catalogue, and `/code-review` showed it was net-harmful: it excluded nothing that
+was not already excluded, and its only live effect was dropping **FBS-vs-FCS**
+games, which `buildScheduleFromApi` deliberately keeps and which move the
+standings. A week could then read as played on Sunday while an owned team's
+Labor Day game against an FCS opponent was still to come — and Monday's result
+would silently rewrite a week already treated as settled. The filter is gone.
+
+Measured over six cached seasons, **twelve games never resolved**, and eleven are
+non-FBS provider noise — six of them Alderson-Broaddus, a school that shut down
+its programme mid-2023, plus NESCAC Division III fixtures. The twelfth is
+`Liberty @ App State`: a real FBS game between two rostered teams, and the entire
+reason step 6 exists.
 
 ## Surfacing what was inferred
 
 Any game concluded by elapsed time rather than by `completed` is reported, not silently absorbed.
 **One such game is a hurricane; twenty is a broken feed**, and the difference must be visible. This is
 observation only — it never changes what the predicate decides.
+
+## Archives carry no progress flag
+
+`played` is a LIVE signal and `buildSeasonArchive` strips it before persisting.
+`/code-review` found what persisting it would cost: a week holding a game with no
+kickoff time derives `played: false`, and freezing that into a durable archive
+makes a COMPLETED season report itself in-season forever, at every consumer of
+that history. An archive is a finished season by definition, so its weeks carry
+no flag and read as played — which is what the absent case on
+`StandingsHistoryWeekSnapshot.played` means.
+
+## A known, bounded staleness
+
+`played` is computed inside `dataCachedCanonicalStandings`, whose key
+deliberately omits `currentDate` — the file warns about time-dependent
+classification there, and both reviewers raised it. Steps 1–4 are not
+time-dependent, so the ordinary path is unaffected: a score commit both changes
+the inputs and fires `invalidateStandingsForYear`.
+
+The residual is step 6 alone. A game nothing will ever update is also a game
+whose result never commits, so nothing invalidates on its account and its week
+can stay unplayed past the eight-hour mark until some other input changes. **The
+direction is safe** — a season reads in-progress slightly longer, never over too
+early — and it is bounded by the next score commit for that year, which in season
+is weekly at worst. Recorded rather than fixed, because moving the computation
+outside the cache is a larger change than this slice's contract.
 
 ## What this does NOT change
 

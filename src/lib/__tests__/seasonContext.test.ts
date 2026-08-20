@@ -109,10 +109,17 @@ test('returns final when all weeks are resolved', () => {
   assert.equal(selectSeasonContext({ standingsHistory }), 'final');
 });
 
-test('returns in-season when no weeks are resolved', () => {
+test('returns in-season when nothing has been played yet', () => {
+  // PLATFORM-105 — this used to say `resolvedWeeks: []` and mean "nothing has
+  // happened". Those were the same thing only while progress and coverage
+  // shared a value: a season whose weeks were all PLAYED but whose scores never
+  // attached also had no resolved weeks, and read as in-season months later.
+  // Progress is now said directly, and the coverage-gap case is asserted
+  // separately below.
   const standingsHistory = createHistory({
     weeks: [1, 2, 3],
     resolvedWeeks: [],
+    playedWeeks: [],
   });
 
   assert.equal(selectSeasonContext({ standingsHistory }), 'in-season');

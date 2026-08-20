@@ -2,6 +2,11 @@ import type { ScorePack } from './scores.ts';
 import type { AppGame } from './schedule.ts';
 import { getGameOwners } from './gameOwnership.ts';
 import {
+  classifyScorePackStatus,
+  isCanceledStatusLabel,
+  isDisruptedStatusLabel,
+} from './gameStatus.ts';
+import {
   deriveStandings,
   deriveStandingsCoverage,
   type OwnerStandingsRow,
@@ -49,6 +54,15 @@ export type StandingsHistory = {
   weeks: number[];
   byWeek: Record<number, StandingsHistoryWeekSnapshot>;
   byOwner: Record<string, OwnerStandingsSeriesPoint[]>;
+  /**
+   * Games this derivation concluded from ELAPSED TIME alone — no result, no
+   * completion flag, no terminal status, just a kickoff long past. Observation
+   * only: it never changes what the predicate decided.
+   *
+   * Optional because durable archives predate it. Empty and absent mean the same
+   * thing, which is the safe direction for a diagnostic.
+   */
+  inferredConclusions?: InferredConclusion[];
 };
 
 function normalizeRosterByTeam(
@@ -87,37 +101,82 @@ function toSeriesPoint(week: number, row: StandingsHistoryStandingRow): OwnerSta
 
 /**
  * How long a game can possibly last: regulation, overtime, a weather delay, and
- * a wide margin. NOT a tuning knob — its only job is to stop a game that kicked
- * off ninety minutes ago from being read as one that will never be played.
+ * a wide margin. Its only job is to stop a game that kicked off ninety minutes
+ * ago from being read as one that will never be played.
+ *
+ * This is the LAST resort, not the primary signal — see `isGameConcluded`.
  */
 const GAME_MAX_DURATION_MS = 8 * 60 * 60 * 1000;
 
 /**
  * Has this game reached a state it will never leave?
  *
- * `final` is the ordinary answer. The elapsed-time clause exists because CFBD
- * cannot tell us a game was cancelled: `/games` has no status field at all, and
- * a cancelled game keeps `completed: false` with null scores permanently —
- * `Liberty @ App State` (week 5, 2024, Hurricane Helene) still returned
- * `completed: false` when CFBD was queried directly on 2026-08-19, nearly two
- * years later. A future game and an abandoned one differ only in whether their
- * kickoff is ahead of us or behind us, so that is what this reads.
+ * The evidence is consulted in order of authority, and the first round of this
+ * slice consulted almost none of it. It tested `game.status === 'final'`, which
+ * BOTH REVIEWERS found is unreachable for production schedule data: CFBD's
+ * `/games` carries no status string, `cfbdSchedule` defaults it to `scheduled`,
+ * and `mapStatus` therefore never yields `final`. Every week was decided purely
+ * by the wall clock — a Saturday's games could all be final and cached by
+ * 11:30pm and the week would stay unplayed until 4am, while a week whose games
+ * merely kicked off eight hours ago counted as played with no scores at all.
+ *
+ * The authoritative signals were already in hand. `scoresByKey` is a parameter
+ * of `deriveStandingsHistory`; `AppGame.completed` is populated from CFBD's own
+ * flag; `rawStatus` carries the provider label.
+ *
+ * ORDER MATTERS. A postponed game must be tested before elapsed time, or a
+ * fixture rescheduled for November is declared concluded eight hours after the
+ * kickoff it no longer has.
  */
-export function isGameConcluded(game: AppGame, now: Date): boolean {
+export function isGameConcluded(game: AppGame, score: ScorePack | undefined, now: Date): boolean {
+  // 1. We have the result. Nothing outranks that.
+  if (classifyScorePackStatus(score) === 'final') return true;
+
+  // 2. The provider says so. This is CFBD's only completion signal on /games.
+  if (game.completed === true) return true;
+
+  // 3. The wire status says so, when a provider ever supplies one.
   if (game.status === 'final') return true;
+
+  // 4. Cancelled is TERMINAL — it will never produce a final score. The repo
+  //    already draws this line, and draws it narrowly on purpose.
+  if (isCanceledStatusLabel(game.rawStatus)) return true;
+
+  // 5. Postponed / suspended / delayed are disrupted but NOT terminal: the game
+  //    is still coming, and its cached kickoff is the one it no longer has.
+  //    Falling through to the elapsed clause would close its week tomorrow.
+  if (isDisruptedStatusLabel(game.rawStatus)) return false;
+
+  // 6. Last resort. A game whose kickoff is long past, with no result and no
+  //    completion flag, is one nothing will ever resolve — CFBD cannot tell us a
+  //    game was cancelled, so this inference is ours to make. `Liberty @ App
+  //    State` (week 5 2024, Hurricane Helene) still returns `completed: false`.
   if (!game.date) return false;
   const kickoff = Date.parse(game.date);
   if (!Number.isFinite(kickoff)) return false;
   return now.getTime() - kickoff > GAME_MAX_DURATION_MS;
 }
 
-/** A game concluded by elapsed time rather than by the provider saying so. */
+/**
+ * A game concluded by ELAPSED TIME rather than by any positive evidence — the
+ * step 6 fallback above. Reported rather than silently absorbed: one is a
+ * hurricane, twenty is a broken feed, and the difference has to be visible.
+ */
 export type InferredConclusion = {
   key: string;
   week: number;
   date: string | null;
   status: AppGame['status'];
 };
+
+/** Did this game conclude only because its kickoff is long past? */
+function isInferredConclusion(game: AppGame, score: ScorePack | undefined, now: Date): boolean {
+  if (classifyScorePackStatus(score) === 'final') return false;
+  if (game.completed === true) return false;
+  if (game.status === 'final') return false;
+  if (isCanceledStatusLabel(game.rawStatus)) return false;
+  return isGameConcluded(game, score, now);
+}
 
 export function deriveStandingsHistory(args: {
   games: AppGame[];
@@ -133,16 +192,8 @@ export function deriveStandingsHistory(args: {
    * of a past date is honest.
    */
   now?: Date;
-  /**
-   * The canonical team catalogue. Weeks are judged over games between catalogue
-   * teams (owner ruling, 2026-08-19): across six cached seasons, eleven of the
-   * twelve games that never resolved were non-FBS provider noise, and scoping
-   * excludes all eleven before any inference is needed. Omitted, the population
-   * falls back to games involving a ROSTERED team, which is what coverage uses.
-   */
-  canonicalTeams?: ReadonlySet<string>;
 }): StandingsHistory {
-  const { games, scoresByKey, coverageOptions, canonicalTeams } = args;
+  const { games, scoresByKey, coverageOptions } = args;
   const now = args.now ?? new Date();
   const rosterByTeam = normalizeRosterByTeam(args.rosterByTeam);
   const weeks = deriveOrderedWeeks(games);
@@ -166,20 +217,19 @@ export function deriveStandingsHistory(args: {
     );
   }
 
-  // The population a week is judged over. The catalogue when we have it, the
-  // roster otherwise — see the `canonicalTeams` note on the parameter.
-  const inPopulation = (game: AppGame): boolean => {
-    if (canonicalTeams) {
-      const home =
-        game.participants.home.kind === 'team' ? game.participants.home.canonicalName : null;
-      const away =
-        game.participants.away.kind === 'team' ? game.participants.away.canonicalName : null;
-      return home != null && away != null && canonicalTeams.has(home) && canonicalTeams.has(away);
-    }
-    const owners = getGameOwners(game, rosterByTeam);
-    return owners.homeOwner !== undefined || owners.awayOwner !== undefined;
-  };
-
+  // NO population filter. The first round required BOTH participants in the
+  // FBS catalogue, and `/code-review` showed that filter is net-harmful: the
+  // non-FBS noise it was written for — Alderson-Broaddus, the NESCAC fixtures —
+  // never enters `games` at all, because `isTrackedGame` excludes both-non-FBS
+  // games upstream. Its only LIVE effect was dropping FBS-vs-FCS games, which
+  // `buildScheduleFromApi` deliberately keeps and which move the standings. A
+  // week could then read as played on Sunday while an owned team's Labor Day
+  // game against an FCS opponent was still to come, and Monday's result would
+  // silently rewrite a week already treated as settled.
+  //
+  // `games` is already the tracked, canonical set. That IS the owner's "all
+  // canonical FBS games" population; the extra filter only narrowed it wrongly.
+  const inferredConclusions: InferredConclusion[] = [];
   const cumulativeGames: AppGame[] = [];
   for (const week of weeks) {
     const weekGames = gamesByWeek.get(week) ?? [];
@@ -198,12 +248,23 @@ export function deriveStandingsHistory(args: {
     // question is whether this week happened, and every earlier week already
     // has. A week with no relevant games is not played: it cannot be, and
     // counting it as played is how an empty future week closed a season.
-    const relevant = weekGames.filter((game) => inPopulation(game));
+    for (const game of weekGames) {
+      if (isInferredConclusion(game, scoresByKey[game.key], now)) {
+        inferredConclusions.push({
+          key: game.key,
+          week: game.week,
+          date: game.date,
+          status: game.status,
+        });
+      }
+    }
     byWeek[week] = {
       week,
       standings,
       coverage,
-      played: relevant.length > 0 && relevant.every((game) => isGameConcluded(game, now)),
+      played:
+        weekGames.length > 0 &&
+        weekGames.every((game) => isGameConcluded(game, scoresByKey[game.key], now)),
     };
 
     for (const row of standings) {
@@ -216,5 +277,6 @@ export function deriveStandingsHistory(args: {
     weeks,
     byWeek,
     byOwner,
+    inferredConclusions,
   };
 }

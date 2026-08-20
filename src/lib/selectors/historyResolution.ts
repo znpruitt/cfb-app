@@ -9,12 +9,24 @@ export type ResolvedStandingsWeeks = {
 /**
  * PLATFORM-105 — has the week been played?
  *
- * `played === false` is decisive. `undefined` means the snapshot predates the
- * field, which only durable season archives do, and an archive is a completed
- * season; see the note on `StandingsHistoryWeekSnapshot.played`.
+ * `played === false` is decisive. `undefined` means the snapshot carries no
+ * progress flag, which is the case for durable season archives — they are
+ * completed seasons by definition and `buildSeasonArchive` strips the field
+ * rather than freezing a live signal into storage.
+ *
+ * An earlier version of this comment said absent "means the snapshot predates
+ * the field", which `/code-review` pointed out would stop being true the moment
+ * the next archive was written. Archives now carry no flag by construction, so
+ * the reasoning matches the code instead of racing it.
  */
 export function isPlayedWeek(standingsHistory: StandingsHistory, week: number): boolean {
-  return standingsHistory.byWeek[week]?.played !== false;
+  const snapshot = standingsHistory.byWeek[week];
+  // A week with no snapshot is not played, matching `isResolvedWeek` two
+  // functions down. The first round returned TRUE here, so a history whose
+  // `weeks` and `byWeek` diverge — a truncated or hand-built record — counted
+  // the missing week toward the season being over.
+  if (!snapshot) return false;
+  return snapshot.played !== false;
 }
 
 /**
