@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-08-02
+Last verified: 2026-08-20
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -49,6 +49,35 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### PLATFORM-105A-SCORE-COVERAGE-INTEGRITY-v1
+
+- Purpose: Prevent a cumulative standings snapshot from resolving when an owned game has strong
+  score-bearing conclusion evidence but no attached numeric result, while preserving canceled games
+  as legitimate scoreless terminal outcomes.
+- Scope: one ordered conclusion-evidence classifier shared by week progress and standings coverage;
+  the coverage guard order; focused precedence, production-shape, and cumulative-policy tests; and
+  the canonical week-resolution model. No payload reduction, abandonment parity, reconciliation,
+  diagnostics, archive policy, or member-facing copy entered this slice.
+- Outcome: final score evidence, schedule `completed: true`, or schedule `status: 'final'` now require
+  both numeric points before an owned game satisfies standings coverage; any of those signals beats a
+  conflicting cancellation label, while cancellation alone remains `scoreless-terminal`. Coverage
+  remains cumulative and fail-closed intentionally: an early missing owned result blocks every later
+  snapshot because those standings omit the same result. The change surfaces a pre-existing recovery
+  gap rather than creating it: live-score targeting ends at kickoff +24h, while the later weekly
+  schedule refresh can retain `completed` and discard the points from the same CFBD row.
+- Review / verification: implementation `d0cd0a13` received a clean Codex review and a Claude review
+  whose coverage-gate objection was withdrawn after the recovery path was traced. One remediation
+  commit (`f6010b2b`) pinned all score-bearing-over-cancellation precedence, added a cumulative
+  three-week failure plus fully scored positive control, reordered the cheap evidence guard, and
+  corrected comments/docs. Both confirming reviews on `f6010b2b` were clean. Mutations of precedence
+  and cumulative scope fail their focused tests. Exact-commit gates: focused 46/46, full suite
+  4,183/4,183, TypeScript, `lint:all`, and `git diff --check` all exit 0; +7 tests from base
+  `e7431d05`, with no removed or weakened assertions.
+- Status: IMPLEMENTED AND REVIEW-COMPLETE, NOT MERGED — branch
+  `platform/105a-score-coverage-integrity`; reviewed implementation head `f6010b2b`, followed only
+  by its pre-merge documentation closeout. The separately scoped recovery, game-level diagnostics,
+  archive-integrity, and copy decisions are queued in `docs/next-tasks.md` items 66–69.
 
 ### POLISH-010-DARK-ONLY-THEME-v1
 

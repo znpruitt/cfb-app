@@ -12,9 +12,10 @@ answering two different questions and nobody could see that from the code.
 
 ## The defect this replaces
 
-`isResolvedWeek` asked "is this week's coverage complete?", and coverage means _no game the schedule
-calls final is missing a score_. **A week with nothing played has no final games, so nothing is
-missing, so it is complete.** "Nothing played" and "everything present" were the same value.
+`isResolvedWeek` asked "is this week's coverage complete?", and coverage at the time meant _no game
+the schedule calls final is missing a score_. **A week with nothing played has no final games, so
+nothing is missing, so it is complete.** "Nothing played" and "everything present" were the same
+value.
 
 Every unplayed week therefore counted as resolved, `selectSeasonContext` saw no unresolved week, and
 the season reported itself `final` — from the first Saturday.
@@ -58,8 +59,21 @@ guarding against the generalisation.
 | Is the season over?        | `selectSeasonContext` → recap, champion, throne, race | no football remains                               |
 
 Coverage answers a third, separate question — _are we missing scores for games that were played?_ —
-and is unchanged by this work. It is a data-health signal, not a progress signal, and it is already
-reported through System Health (`scores-terminal-coverage-missing`/`-partial`).
+and remains independent from progress. `PLATFORM-105A` made both questions consume the same positive
+conclusion evidence: a final score, `completed: true`, or a final schedule status means standings
+coverage now requires a final row with both numeric scores; cancellation is a distinct scoreless
+terminal outcome. Coverage is still a data-health signal, not a progress signal, and related gaps
+are also reported through System Health (`scores-terminal-coverage-missing`/`-partial`).
+
+Under the normal automatic cadence, weekend games are eligible for live-score polling every three
+minutes through kickoff + 24 hours, while the weekly schedule refresh retains `completed` later
+without retaining the points carried by the same CFBD row. A game that never wrote its score inside
+the polling window can therefore become `completed` after automatic final reconciliation has
+stopped targeting it. For the normal weekend shape this is a fault signal, not the expected ordering
+of healthy writes; unusual kickoff timing or manual operations can still make it transient.
+`PLATFORM-105A` surfaces that pre-existing recovery gap; it does not create it. The System Health
+score check is currently slate-granular, so a single missing game in an otherwise covered slate is
+not yet isolated there.
 
 ## The predicate
 
@@ -76,7 +90,32 @@ concluded(game, score) =
 weekPlayed(week) = the week has ≥1 REAL game
                    && every real game in it is concluded
 seasonOver       = every REAL game in the season is concluded
+
+conclusionKind(game, score) =
+  score-required       when steps 1, 2, or 3 hold
+  scoreless-terminal   when cancellation alone holds
+  unresolved           otherwise
+
+standingsCoverage(week N) = complete only when every score-required
+                             OWNED game through week N has a final row
+                             with both numeric scores
+
+resolvedWeek(week N) = weekPlayed(week N)
+                       && standingsCoverage(week N) is complete
+                       && the cumulative standings are nonempty
 ```
+
+**Score-bearing evidence wins over cancellation when provider fields conflict.** That ordering is
+deliberately fail-closed: a result-bearing signal cannot be discarded merely because another field
+says canceled. A cancellation is scoreless-terminal only when no stronger evidence says the game
+produced a standings result.
+
+**Coverage is cumulative on purpose.** Each weekly snapshot contains standings through that week,
+so its coverage is derived over `cumulativeGames`, not only the games played during that week. If an
+owned week-1 result is missing, the week-2 and later standings omit it too; those later snapshots are
+not correct merely because their own games have scores. The partial verdict therefore propagates
+until the missing result attaches. Removing coverage from `resolvedWeek` would republish standings
+known to be incomplete and is not an acceptable recovery strategy.
 
 **Season-over is a question about GAMES, not weeks** (owner ruling, 2026-08-20).
 Asking it week-by-week is what let an all-shell week block a season that had
@@ -192,9 +231,11 @@ independently. **Queued, not fixed.**
 
 ## What this does NOT change
 
-- **Coverage.** Still "were we missing scores for games that were played", still a data-health
-  signal, still surfaced the same way. A week can be played and have incomplete coverage; those are
-  different facts and this work stops them sharing a value.
+- **Coverage/progress separation.** Coverage is still "were we missing scores for games that were
+  played", still a data-health signal, and still surfaced the same way. A week can be played and
+  have incomplete coverage; those remain different facts. `PLATFORM-105A` tightened only the shared
+  conclusion evidence feeding them so a scoreless `completed` game cannot publish a resolved
+  standings snapshot.
 - **The recap's authority.** `season_wrap` trusts the LIFECYCLE — rollover fired, so the season is
   over — not this derived signal, and that stays true. Item 52 records why gating it on coverage was
   considered and rejected.

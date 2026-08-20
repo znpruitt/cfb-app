@@ -1,10 +1,6 @@
 import type { ScorePack } from './scores.ts';
 import type { AppGame } from './schedule.ts';
-import {
-  classifyScorePackStatus,
-  isCanceledStatusLabel,
-  isDisruptedStatusLabel,
-} from './gameStatus.ts';
+import { classifyGameConclusionEvidence, isDisruptedStatusLabel } from './gameStatus.ts';
 import {
   deriveStandings,
   deriveStandingsCoverage,
@@ -146,11 +142,7 @@ export function isPlannedGame(game: AppGame): boolean {
  * preserves an unrecognized provider value verbatim.
  */
 export function isConcludedByEvidence(game: AppGame, score: ScorePack | undefined): boolean {
-  if (classifyScorePackStatus(score) === 'final') return true;
-  if (game.completed === true) return true;
-  if (game.status === 'final') return true;
-  // Cancelled is TERMINAL — it will never produce a final score.
-  return isCanceledStatusLabel(game.rawStatus) || isCanceledStatusLabel(score?.status);
+  return classifyGameConclusionEvidence(game, score) !== 'unresolved';
 }
 
 /** Postponed / suspended / delayed: still coming, so never abandoned. */
