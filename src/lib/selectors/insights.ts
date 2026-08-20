@@ -804,11 +804,16 @@ export function deriveTightClusterInsight(args: {
   // race in that same state, so the two cards would have contradicted each other
   // on one screen.
   const settled = seasonContext === 'final';
+  // "the top" is a claim about WHERE the cluster is, and the search above scans
+  // every contiguous subset — standings at 0, 10, 20, 20.5, 21 games back select
+  // the last three. The old past-tense copy never said "top", so this is a claim
+  // I introduced; it is only made when the cluster actually contains the leader.
+  const includesLeader = bestCluster.owners.includes(eligible[0]!.owner);
   const games = `game${bestCluster.gap === 1 ? '' : 's'}`;
   return toInsight({
     id: `tight-cluster-${bestCluster.owners.map(ownerSlug).join('-')}`,
     type: 'tight_cluster',
-    title: settled ? 'Crowded finish' : 'Crowded at the top',
+    title: settled ? 'Crowded finish' : includesLeader ? 'Crowded at the top' : 'Tight cluster',
     description: settled
       ? `${bestCluster.count} owners finished within ${bestCluster.gap} ${games}.`
       : `${bestCluster.count} owners are within ${bestCluster.gap} ${games}.`,

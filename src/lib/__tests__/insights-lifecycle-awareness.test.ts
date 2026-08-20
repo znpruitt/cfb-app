@@ -793,3 +793,21 @@ test('championshipRaceGenerator hands the season through to the cluster copy', (
   assert.ok(doneCluster, 'and once the season is over');
   assert.equal(doneCluster.title, 'Crowded finish');
 });
+
+test('tight cluster: a lower-table cluster is not called "the top"', () => {
+  // The search scans every contiguous subset, so a cluster far behind the leader
+  // can win. "Crowded at the top" is a claim about WHERE it is, and it is a
+  // claim I introduced — the old past-tense copy never made it.
+  const rows = [
+    row('Alice', 12, 0, 0),
+    row('Bob', 2, 10, 10),
+    row('Carol', 1, 11, 20),
+    row('Dave', 1, 11, 20.5),
+    row('Erin', 1, 11, 21),
+  ];
+
+  const live = deriveTightClusterInsight({ rows, seasonContext: 'in-season' });
+  assert.ok(live, 'the card still fires — the cluster is real');
+  assert.equal(live.title, 'Tight cluster');
+  assert.doesNotMatch(live.title, /top/i, 'it just may not call itself the top');
+});

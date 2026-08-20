@@ -302,11 +302,14 @@ test('a placeholder row does not decide whether a week was played', () => {
 // covered, because nothing in this repo exercised the Overview surface.
 // ---------------------------------------------------------------------------
 
-test('the GB chart domain is the last PLAYED weeks, not the last scheduled ones', async () => {
+test('the GB chart domain is the last RESOLVED weeks, not the last scheduled ones', async () => {
   const { sliceStandingsHistoryToRecentWeeks } = await import('@/components/OverviewPanel');
+  // `standings` must be NON-EMPTY: resolved requires a usable snapshot as well
+  // as a played week, and an empty fixture would make this pass for the wrong
+  // reason by resolving nothing at all.
   const snapshot = (week: number, played: boolean) => ({
     week,
-    standings: [],
+    standings: [{ owner: 'Alice' }],
     coverage: { state: 'complete' as const, message: null },
     played,
   });
@@ -325,6 +328,9 @@ test('the GB chart domain is the last PLAYED weeks, not the last scheduled ones'
   };
 
   const sliced = sliceStandingsHistoryToRecentWeeks(history as never, 5);
+  // RESOLVED, not merely played: a played week with incomplete coverage is
+  // dropped by the trend selectors, so slicing on `played` alone would still
+  // leave a labelled column with no series.
   // Taking the last five SCHEDULED weeks gives [3,4,5,6,7] — four of them empty,
   // which is the empty GB Race review reported.
   assert.deepEqual(sliced.weeks, [1, 2, 3]);

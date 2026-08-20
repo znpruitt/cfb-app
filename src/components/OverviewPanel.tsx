@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import MiniTrendsGrid from './MiniTrendsGrid';
 import ViewMoreLink, { viewMoreLinkClass } from './navigation/ViewMoreLink';
+import { selectResolvedStandingsWeeks } from '@/lib/selectors/historyResolution';
 import { selectGamesBackTrend, selectPositionDeltas } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { getGameOwners } from '../lib/gameOwnership';
@@ -62,8 +63,12 @@ export function sliceStandingsHistoryToRecentWeeks(
   history: StandingsHistory,
   n: number
 ): StandingsHistory {
-  const playedWeeks = history.weeks.filter((week) => history.byWeek[week]?.played !== false);
-  const recentWeeks = playedWeeks.slice(-n);
+  // RESOLVED, not merely played. A played week whose coverage is incomplete is
+  // dropped by `selectGamesBackTrend`, so slicing on `played` alone still leaves
+  // a labelled column with no series behind it. Resolved is the domain the trend
+  // selectors actually populate — and it is the shared predicate rather than a
+  // fourth hand-rolled copy of it.
+  const recentWeeks = selectResolvedStandingsWeeks(history).resolvedWeeks.slice(-n);
   const weekSet = new Set(recentWeeks);
   return {
     weeks: recentWeeks,
@@ -326,7 +331,12 @@ function GbChangeTable({
 }): React.ReactElement | null {
   const data = React.useMemo((): GbChangeData | null => {
     const allSeries = selectGamesBackTrend({ standingsHistory });
-    const weeks = standingsHistory.weeks;
+    // The SAME resolved-week domain the chart beside it uses. This table kept
+    // slicing the schedule, so at week 3 of a 15-week season it rendered five
+    // future-week headers with a placeholder in every cell — the identical
+    // defect fixed one column over, which is what happens when a call site is
+    // fixed by name instead of by class.
+    const weeks = selectResolvedStandingsWeeks(standingsHistory).resolvedWeeks;
     if (weeks.length === 0 || allSeries.length === 0) return null;
 
     const recentWeeks = weeks.slice(-5);

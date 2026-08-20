@@ -143,7 +143,12 @@ const ANALYTICS_PROJECTION_VERSION = 'h3e3-final-complete-v1';
  * "INSIGHTS-022" while the value already read `insights030`, which is the same
  * class of drift the constant exists to prevent.
  */
-const INSIGHT_COPY_POLICY_VERSION = 'insights032-season-recap-v2';
+// PLATFORM-105 bumped this: the tight-cluster copy is now lifecycle-aware, and
+// `fingerprintGeneratorSet` only hashes generator ids and supported lifecycles —
+// neither changed — so a warm raw-insights entry would keep serving the old
+// "Crowded finish" wording for up to the TTL after deploy. Same class as the
+// standings-history shape version, caught by the same review.
+const INSIGHT_COPY_POLICY_VERSION = 'platform105-week-resolution-v1';
 
 /**
  * Membership policy version (INSIGHTS-023a). Same shape and same reason as the
