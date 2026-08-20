@@ -6702,6 +6702,7 @@ STATUS: MERGED — PR #493, merge commit `fc64391d`, 2026-08-18.
   sharing `.next/cache`; and "the cache holds no clock" when the clock had moved into
   `selectSeasonContext`, which no production caller passes `now` to. The last was confirmed
   independently by both reviewers.
+- Status: MERGED via PR #502 (`e197d449`, 2026-08-20).
 - Merged with FIVE known items outstanding, queued rather than carried: see `docs/next-tasks.md`.
   Every one is strictly smaller than the defect fixed — on `main` before this, every league declared
   a champion in week 1 and no in-season card fired all season.

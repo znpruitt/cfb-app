@@ -1854,7 +1854,7 @@ Supersedes: (none)
       reported as `rankings-unexpected-error` — a provider fault misfiled as a programming defect.
       Pre-existing; PLATFORM-104 added two more call sites onto the same unguarded field.
 
-61. ✅ **PLATFORM-105 — COMPLETE** (merged 2026-08-20). A week is played only when its games have
+61. ✅ **PLATFORM-105 — MERGED** via PR #502 (`e197d449`, 2026-08-20). A week is played only when its games have
     concluded, and **the season is over when every real game has a result** (owner ruling). Execution
     record, provider facts and the review history are in `docs/prompt-registry.md`; the model is
     `docs/architecture/week-resolution.md`. Item 52 above carries the original evidence and the
