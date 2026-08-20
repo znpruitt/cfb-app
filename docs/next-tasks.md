@@ -1891,6 +1891,50 @@ Supersedes: (none)
     - No pre-merge closeout: no registry entry, and items 33 and 36 still describe these generators
       as unconverted.
 
+63. **Detect a rescheduled kickoff from the reconciliation payload we already fetch.** Queued
+    2026-08-20 out of PLATFORM-105's review discussion; owner's design.
+
+    **The gap.** The schedule cron runs weekly (`0 12 * * 2`, QStash `turfwar-schedule-weekly`), so a
+    kickoff that moves is invisible to us for up to seven days. PLATFORM-105 concludes a game from
+    elapsed time when its kickoff is long past with no result — which on a stale kickoff can close a
+    week for a game that was merely postponed.
+
+    **The data is already in hand.** `selectPollingPlan`'s `final-reconciliation` mode is armed by
+    exactly the condition that signals a possible reschedule — a kickoff passed with no confirmed
+    final — and fetches one partition from CFBD `/games`. `parseFinalReconciliation` normalizes every
+    row through `toScorePackFromCfbd`, which RETAINS `startDate`. The value is then discarded at
+    `finalReconciliation.ts` on the `classifyScorePackStatus(pack) !== 'final'` → `continue` line,
+    whose comment reads "not final yet → stays pending". That is the exact moment a reschedule is
+    visible and unexamined. No new cron, no extra provider call — the call is already budgeted at one
+    per run.
+
+    **The detectable case IS the harmful case.** A same-week move (Saturday → Monday) keeps the game
+    in the partition we fetch, so its row returns with a new `startDate` — and that is the move that
+    breaks the predicate, because the game stays in a week we were about to close. A cross-week move
+    is invisible here (the game is absent from the partition) but is HARMLESS: CFBD reassigns the
+    week — measured across 2020, the most reschedule-heavy season on record, only one of 563 games
+    sits more than six days from its week's cluster — so the game leaves the old week, whose
+    remaining games are all concluded, and it closes correctly.
+
+    **Shape.** Compare `pack.startDate` against the canonical kickoff where the parser currently
+    discards it; when they differ, correct the kickoff and surface the correction. Because the move
+    is within the week, the week assignment is unchanged, so this is a timestamp on a game the
+    schedule already owns — it does NOT cross the "schedule is the sole game-identity authority"
+    boundary that a re-partitioning write would.
+
+    **It also closes a score-coverage gap.** `collectWindowGames` polls from 15 minutes before
+    kickoff to 24 hours after, computed from the CANONICAL kickoff. A postponed game falls out of
+    that window 24 hours after its stale kickoff and is never polled at its real time, so its result
+    may never be collected by the live-score path at all. Correcting the kickoff re-arms the poller
+    automatically — the window is a pure function of that value — so no separate fix is needed.
+    Whether another path (the `/api/scores` season read, the schedule cron) recovers such a game
+    today is NOT traced; that is a gap to confirm, not yet a proven defect.
+
+    - **Backlog slug (provisional):** `PLATFORM-RESCHEDULE-DETECTION-v1`
+    - **Depends on:** PLATFORM-105 merging first. The predicate needs no change once this lands — a
+      rescheduled game gets a future kickoff, its week stops being closeable, and the elapsed-time
+      inference only ever fires on games that genuinely never happened.
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.
