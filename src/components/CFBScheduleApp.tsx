@@ -79,7 +79,7 @@ import {
   type RankingsResponse,
 } from '../lib/rankings';
 import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
-import { buildOwnerColorMap, prefersDarkMode } from '../lib/ownerColors';
+import { buildOwnerColorMap, isDarkTheme } from '../lib/ownerColors';
 import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
 import { useOddsHydration } from './hooks/useOddsHydration';
@@ -684,14 +684,7 @@ export default function CFBScheduleApp({
   };
   const canonicalOwnerColorOrder = canonicalStandings?.ownerColorOrder ?? [];
 
-  const [isDark, setIsDark] = useState(prefersDarkMode());
-
-  useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = (e: MediaQueryListEvent) => setIsDark(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
+  const isDark = isDarkTheme();
 
   const ownerColorMap = useMemo(() => {
     // Canonical's NoClaim-filtered, alphabetically-stable owner list is the sole

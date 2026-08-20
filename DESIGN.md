@@ -161,7 +161,9 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 
 - Each owner has a single persistent assigned color defined in src/lib/ownerColors.ts
 - getOwnerColor(ownerName) is the sole source of owner color across the entire app
-- Handpicked 14-color palette — all visually distinct in dark mode, no near-duplicates
+- Handpicked 14-color palette — all visually distinct against the dark ground, no near-duplicates
+- The light-background palette variant is dead data since POLISH-010; `isDarkTheme()` always
+  selects the dark one
 - Owner colors are used for chart lines and their companion table legend labels
 - Colors are fixed — not derived from standings position or render order
 - Future: user-assignable colors are a planned enhancement but not yet implemented
@@ -235,7 +237,9 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   - CAREER: `#0F6E56` / `#5DCAA5`
   - TRAJECTORY: `#993556` / `#ED93B1`
   - STATS: `#5F5E5A` / `#B4B2A9`
-- Theme resolution: `useIsDarkMode()` hook reads `window.matchMedia('(prefers-color-scheme: dark)')` and picks the matching hex
+- Theme resolution: `isDarkTheme()` (`src/lib/ownerColors.ts`) returns dark unconditionally since
+  POLISH-010, so the dark hex is always selected. The light hex in each pair is dead data, kept
+  only so the retirement stays reversible — do not rely on it and do not add new pairs
 - Semantic colors are one-to-one and off-limits for categories:
   - Amber = champion/podium
   - Green = positive delta
@@ -249,19 +253,37 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - postseason → CFP Rankings
 - complete → AP Poll (final)
 
-## Light/dark mode
+## Theme
 
-- Dark mode uses Tailwind `media` strategy (`prefers-color-scheme`) — no `.dark` class on `<html>`
-- Light mode is the base Tailwind class layer (no prefix needed); dark mode uses `dark:` variants
-- Page background in light mode: white (`--background: #ffffff`)
-- Card surfaces in light mode: `bg-gray-50` with `border-gray-300` — provides visible separation from white page
-- Nested containers (cards inside cards): `bg-white` with `border-gray-300`
-- Navigation tab borders: `border-gray-200` in light, `dark:border-zinc-700` in dark
-- Active tab text: `text-gray-900` in light, `dark:text-white` in dark
-- Owner colors: separate lightness-adjusted palettes for light and dark backgrounds (same hues)
-- Owner color auto-detection via `window.matchMedia('(prefers-color-scheme: dark)')`
-- User preference override: deferred until user accounts are built
-- When adding user override: switch Tailwind to `class` strategy, add theme provider
+**Dark is the only theme (POLISH-010).** The app does not respond to
+`prefers-color-scheme`, offers no toggle, and has no light rendering. Do not add one, and do not
+author a light half for a new component.
+
+- `globals.css` declares `@custom-variant dark (&)`, which makes every `dark:` utility
+  unconditional. Verified in the emitted bundle: `prefers-color-scheme` appears **zero** times, and
+  `.dark\:text-amber-400` compiles to a plain rule. That one line is the whole switch and the whole
+  rollback.
+- `:root` carries the dark values and declares `color-scheme: dark` **on the root scroller**. On a
+  wrapper it would govern only that element's own UA widgets — see the landing-page note below,
+  which is where that was learned.
+- **The light class layer is retained, dormant.** ~1,127 light base classes still pair with `dark:`
+  variants that now always win. This is deliberate: retirement is reversible by the variant
+  declaration. **Do NOT promote `dark:` utilities to base classes** — that is ~2,365 edits and a
+  one-way door. Equally, do not add new light halves; they are dead on arrival.
+- **JavaScript colour resolution goes through `isDarkTheme()`** (`src/lib/ownerColors.ts`), which
+  returns dark unconditionally. Owner colours, insight category colours, and the season-arc chart
+  pick from light/dark hex PAIRS in JS, so a CSS-only retirement would have painted light palettes
+  onto a dark UI. Their light values are now dead data, kept for the same reversibility reason.
+  A narrow test asserts no production file reads `prefers-color-scheme` through `matchMedia`.
+
+**Why light was retired rather than finished.** The champion accent
+(`ChampionshipsSection.tsx`, `text-amber-600 dark:text-amber-400`) measures **11.86:1** on the dark
+ground and **3.19:1** on white, and the `Reigning` label carrying it is 10px — under the WCAG
+large-text threshold, so light mode was failing AA. No amber step is both gold and accessible on
+white: `amber-300`–`amber-600` all fail 4.5:1 there, `amber-700`/`800` pass but read brown. Amber is
+the semantic champion/podium colour, so the accent language the app is built on cannot be rendered
+in light at all. Light was never designed here — it accumulated as the unprefixed base layer, while
+197 hardcoded hex literals across 15 files were authored dark-only.
 
 ## Decorative raster backgrounds
 
@@ -340,8 +362,9 @@ dashboard behind the same route is an operator surface and follows the admin con
   rubber-band overscroll stay light behind it. On a non-root element `color-scheme` governs only that
   element's own widgets — and the landing root has `overflow: hidden`, so it has no scrollbar to
   govern; declared there, the rule looks right and does nothing. A stadium rendered on white is
-  not a lighter version of this page, it is a broken one. Every other app and admin surface remains
-  theme-aware — this exception stops at `/`.
+  not a lighter version of this page, it is a broken one. Since POLISH-010 the landing is no longer
+  an exception — the whole app is dark-only — but this page keeps its own canvas rule because it
+  paints black rather than the app's `--background`, and it predates the global switch.
 - **No colour accent on this page.** A landing-scoped `--landing-turf` token once painted a
   perspective-field strip beneath the wordmark. Both are GONE: once the stadium plate carried the
   football identity, a miniature field competed with the real one behind it and, at that scale, read
