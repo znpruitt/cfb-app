@@ -50,6 +50,53 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### POLISH-010-DARK-ONLY-THEME-v1
+
+- Purpose: Retire light mode. It was not a working alternative being discarded but an unfinished
+  second theme with a live WCAG AA failure and a semantic accent it cannot render; the trigger was
+  the draft board rendering dark cards and dark team chips on a white page for a light-OS visitor,
+  the day before a fifteen-owner draft.
+- Scope: `globals.css` (dark `:root`, `color-scheme` on the root scroller, one `@custom-variant`
+  declaration), the five JavaScript theme-resolution call sites behind a renamed
+  `isDarkTheme()`, `publicLanding.css` comment integrity, `DESIGN.md` across four sections, and one
+  new focused test file. Deliberately NOT in scope: promoting `dark:` utilities to base classes
+  (~2,365 edits, one-way door), converting the 197 hardcoded hex literals to tokens, and the draft
+  board's own hex-painted components, which become correct by construction.
+- Outcome: `dark:` utilities are unconditional, so the ~1,127 light base classes they pair with are
+  dormant rather than deleted and the retirement reverts by the single variant declaration.
+  `prefersDarkMode()` becomes `isDarkTheme()` returning dark unconditionally — a CSS-only change
+  would have missed it, because owner colours, insight category colours, and the season-arc chart
+  select a hex from light/dark PAIRS in JavaScript and would have painted light palettes onto a dark
+  UI. One of the five call sites was a direct call in `SeasonArcChart.tsx` that two duplicate
+  `useIsDarkMode` hooks had hidden. The landing page stops being the app's one always-dark
+  exception.
+- Evidence: the champion accent (`ChampionshipsSection.tsx`, `text-amber-600 dark:text-amber-400`)
+  measures 11.86:1 on the dark ground and 3.19:1 on white, and the `Reigning` label carrying it is
+  10px — under the WCAG large-text threshold, so light mode was failing AA. No amber step is both
+  gold and accessible on white: `amber-300`–`amber-600` fail 4.5:1 there, `amber-700`/`800` pass but
+  read brown. Amber is the semantic champion/podium colour, so the app's accent language is not
+  renderable in light at all.
+- Review / verification: Codex found nothing. `/code-review` found five; both MEDIUMs were defects
+  in this branch's own new test file and comments, and were fixed in `7657a65e` — a category test
+  that looped over labels where the resolver keys on ids (so every lookup returned the shared
+  fallback and the test asserted one object five times), and three `publicLanding.css` comments this
+  branch falsified while `DESIGN.md` was rewritten to defer to them. Also fixed: a "positive
+  control" that exercised a fresh local object rather than the installed stub, and a `require()` in
+  an ESM test that survived only on the tsx CJS shim. The corrected category test is
+  mutation-proven (emptying one real `darkColor` turns it red; restoring returns it green), as is
+  the `matchMedia` guard. Mechanism verified in the emitted bundle and again from a running server:
+  `prefers-color-scheme` appears zero times and `.dark\:text-amber-400` compiles to a plain rule.
+  Visual confirmation on preview from a LIGHT-mode browser across eight surfaces: draft board
+  (spectator and commissioner), draft setup, History, Insights, Overview, Standings, `/admin`,
+  `/admin/diagnostics`. `npx tsc --noEmit`, `npm test` 4150/4150, `npm run lint:all`, and
+  `npm run build` all pass.
+- Known unresolved: `getOwnerColor`/`buildOwnerColorMap` still accept an `isDark` parameter and
+  `PALETTE_LIGHT` is still exported, so a new caller can pass `false` and reintroduce light
+  palettes; the guard test forbids `matchMedia`, not a literal `false`. Members and Matchups were
+  not visually walked. Both deliberately deferred against a next-day draft deadline rather than
+  dropped.
+- Status: Implemented — PR #500 open (`7657a65e`).
+
 ### POLISH-009-HISTORY-STATS-MOBILE-v1
 
 - Purpose: Repair the History → Stats mobile view after owner ranks, names, values, and controls
