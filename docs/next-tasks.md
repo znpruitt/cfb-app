@@ -2919,6 +2919,54 @@ proven draft-blocking failure, and it is the one an operator reaches on draft ni
 - **Evidence:** PR #498 (`0ee181ea`; `ce68afce` + `b9f9e82f`). Both Codex and `/code-review` flagged
   the missing divergence detector independently on the same commit.
 
+### 9. POLISH-010 — retire light mode
+
+Drafted 2026-08-19. Prompt written (`POLISH-010-DARK-ONLY-THEME-v1`); **not activated**. The `010`
+sequence was checked against `docs/prompt-registry.md` on that date — re-check it at activation if
+any other POLISH prompt lands first.
+
+**The finding, measured — do not re-litigate.** `ChampionshipsSection.tsx:68` renders the champion
+accent as `text-amber-600 dark:text-amber-400`. Contrast is **11.86:1** on the dark ground
+(`#fbbf24` on `#0a0a0a`) and **3.19:1** on white (`#d97706` on `#ffffff`). The `Reigning` label is
+`text-[10px] font-semibold`, well under the WCAG large-text threshold, so **light mode fails AA
+today**. And no amber step is both gold and accessible on white: `amber-300`–`amber-600` all fail
+4.5:1 there, while `amber-700`/`800` pass but read brown. Amber is the semantic champion/podium
+color (`DESIGN.md` -> Color), so the app's accent language is not renderable in light at all.
+
+**Light mode was never designed; it accumulated** as the unprefixed base layer. The draft board is
+already dark-only in practice — **95 hardcoded hex literals** (43 of them in `DraftHeaderArea.tsx`),
+which no `dark:` mechanism can theme. App-wide: **197 hex literals** across 15 files and **126
+unprefixed dark-palette classes** across 57 files. That debt grows in one direction, because every
+new component is authored against the theme the developer actually looks at.
+
+**Mechanism — reversible.** Make the `dark:` variant unconditional and LEAVE the 1,127 light base
+classes in place: light goes dormant, not deleted, and reverting is the variant declaration.
+Promoting `dark:` utilities to base classes is 2,365 edits and a one-way door — explicitly out of
+scope.
+
+**Work.** `src/app/globals.css` (dark `:root`, drop the `prefers-color-scheme` block, declare
+`color-scheme: dark` on the ROOT SCROLLER — `publicLanding.css` already solves this and records why);
+the dark-variant declaration, noting that Tailwind v4 is loaded via `@import` with **no `@config`**,
+so `tailwind.config.ts` and its `darkMode: 'media'` are probably inert and should be fixed or
+deleted rather than left lying; and the four independent `matchMedia('(prefers-color-scheme: dark)')`
+readers collapsed into one helper that resolves dark unconditionally — `AllInsightsRow.tsx:15`,
+`OverviewPanel.tsx:1053` (those two are DUPLICATE `useIsDarkMode` definitions), `CFBScheduleApp.tsx:690`,
+`ownerColors.ts:79`. Missing those leaves a light-OS visitor with light owner and insight-category
+colors on a dark UI, which is worse than today.
+
+**`DESIGN.md` is canonical and currently documents the opposite.** Light/dark mode (252–264) is
+superseded wholesale; Insight Category Colors (232–238) and Owner Colors (160) collapse their
+light/dark pairs; and the Landing page claim that "every other app and admin surface remains
+theme-aware — this exception stops at `/`" becomes false, since the landing stops being an exception
+and becomes the rule.
+
+**Non-goals.** Fixing the draft board's hex literals (they become correct by construction);
+converting hex literals to tokens; building light mode properly. If light mode is ever wanted it is
+a separate project that must solve the 197 hex literals and give up gold as the champion accent.
+
+**Risk.** The mechanics are small; the exposure is that every dark half has been under-exercised on
+light-OS machines. The verification is a preview click-through, not a code review.
+
 ## Unresolved decisions & known deferrals
 
 Explicitly deferred, not scheduled — this is their single canonical home (per `AGENTS.md`). Other
