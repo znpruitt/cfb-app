@@ -74,10 +74,10 @@ Rules:
   and cumulative scope fail their focused tests. Exact-commit gates: focused 46/46, full suite
   4,183/4,183, TypeScript, `lint:all`, and `git diff --check` all exit 0; +7 tests from base
   `e7431d05`, with no removed or weakened assertions.
-- Status: IMPLEMENTED AND REVIEW-COMPLETE, NOT MERGED — branch
-  `platform/105a-score-coverage-integrity`; reviewed implementation head `f6010b2b`, followed only
-  by its pre-merge documentation closeout. The separately scoped recovery, game-level diagnostics,
-  archive-integrity, and copy decisions are queued in `docs/next-tasks.md` items 66–69.
+- Status: MERGED — PR #503 (`31db3706`), 2026-08-20. Reviewed implementation head `f6010b2b`,
+  followed only by its pre-merge documentation closeout. The separately scoped recovery,
+  game-level diagnostics, archive-integrity, and copy decisions are queued in
+  `docs/next-tasks.md` items 66–69.
 
 ### POLISH-010-DARK-ONLY-THEME-v1
 

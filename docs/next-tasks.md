@@ -1950,7 +1950,7 @@ Supersedes: (none)
     `pending` to a per-week count plus earliest kickoff. **This also removes (d)**, because the client
     would stop evaluating the clock at all.
 
-    **(b) ✅ REVIEW-COMPLETE, PENDING MERGE — `PLATFORM-105A-SCORE-COVERAGE-INTEGRITY-v1`.** A
+    **(b) ✅ MERGED — `PLATFORM-105A-SCORE-COVERAGE-INTEGRITY-v1` via PR #503 (`31db3706`).** A
     scoreless owned game with score-bearing conclusion evidence can no longer resolve a cumulative
     snapshot. One shared ordered classifier makes final score evidence, schedule `completed: true`,
     or schedule `status: 'final'` require both numeric points for standings coverage; any of those
@@ -1964,9 +1964,8 @@ Supersedes: (none)
     closes at kickoff +24h: a later partition payload can contain the final row but discard it because
     reconciliation only commits its in-window pending set, and Tuesday's schedule refresh can then
     persist `completed: true`. PLATFORM-105A surfaces that fault; it does not create it. Reviewed
-    implementation `f6010b2b` on `platform/105a-score-coverage-integrity` has clean confirming
-    reviews and all gates green; only its pre-merge documentation closeout follows on the branch.
-    Execution record: `docs/prompt-registry.md`.
+    implementation `f6010b2b` had clean confirming reviews and all gates green, and merged as
+    PR #503 (`31db3706`) on 2026-08-20. Execution record: `docs/prompt-registry.md`.
 
     **(c) Abandonment is never applied to WEEK resolution** (both reviewers). `selectSeasonContext`
     evaluates `pending` kickoffs through `hasGameBeenAbandoned`; `isResolvedWeek` does not. So the
@@ -1995,10 +1994,11 @@ Supersedes: (none)
     require `unresolved.length > 0`, or move the played guard above it.
 
     - **Backlog slug (provisional):** `PLATFORM-WEEK-RESOLUTION-RESIDUE-v1`
-    - **Sequencing (revised 2026-08-20 after PLATFORM-105A review):** land (b), then close the
-      underlying final-score recovery gap in item 66. After that, (a) remains broad and cheap and
-      closes (d) as a side effect; (c/e) remain a separate week-resolution policy slice.
-    - **Recommended platform order across the queue:** land 64(b) → item 66 → redesign and implement
+    - **Sequencing (revised 2026-08-20 after PLATFORM-105A merged):** (b) has landed, so the
+      underlying final-score recovery gap in item 66 is next. After that, (a) remains broad and
+      cheap and closes (d) as a side effect; (c/e) remain a separate week-resolution policy
+      slice.
+    - **Recommended platform order across the queue:** item 66 → redesign and implement
       63 → 64(a/d) → the `appStateStore` pool timeouts (item 20 — a 3-client pool with no checkout or
       statement timeout can make every database-backed route wait indefinitely, not just drafts) →
       the deletion/adoption guard (item 46 — adopting a slug for a PAST season lets nightly rollover
@@ -2055,7 +2055,7 @@ Supersedes: (none)
     who is the commissioner". This entry exists so that assumption is visible when it stops holding,
     rather than rediscovered from a mis-credited pick.
 
-66. 🔴 **Final-score recovery after the polling window — NEXT after PLATFORM-105A lands.** The
+66. 🔴 **Final-score recovery after the polling window — NEXT.** The
     live-score plan derives both ordinary polling and `final-reconciliation` from games inside
     `[kickoff - 15m, kickoff + 24h]`; its merge then commits only `plan.pendingGames`. A later fetch
     for the same partition can therefore already contain an out-of-window final row and discard it.
