@@ -95,7 +95,7 @@ Rules:
   palettes; the guard test forbids `matchMedia`, not a literal `false`. Members and Matchups were
   not visually walked. Both deliberately deferred against a next-day draft deadline rather than
   dropped.
-- Status: Implemented — PR #500 open (`7657a65e`).
+- Status: Merged (PR #500, merge commit `6109df6f`, 2026-08-19).
 
 ### POLISH-009-HISTORY-STATS-MOBILE-v1
 

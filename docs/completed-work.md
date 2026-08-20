@@ -3890,6 +3890,34 @@ Key architectural decisions across Phase 5:
 
 ---
 
+### POLISH-010 — Dark-Only Theme — Complete
+
+- **Status:** Complete. Merged to `main` via PR #500 (`polish/010-dark-only-theme`, merge commit
+  `6109df6f`, 2026-08-19). Four commits: implementation, a review round, the pre-merge closeout, and
+  a folded queue entry. Codex returned no findings; `/code-review` returned five, and the two MEDIUMs
+  were defects in this branch's own new test and comments, both fixed before merge.
+- **PROMPT_ID(s):** POLISH-010-DARK-ONLY-THEME-v1.
+- **Outcome:** Dark is the app's only theme. `dark:` utilities are unconditional, so the ~1,127
+  light base classes they pair with are dormant rather than deleted and the retirement reverts by a
+  single variant declaration. JavaScript colour resolution funnels through `isDarkTheme()`, which
+  returns dark unconditionally — owner colours, insight category colours, and the season-arc chart
+  choose from light/dark hex PAIRS in JS, so a CSS-only retirement would have painted light palettes
+  onto a dark UI. The landing page stops being the app's one always-dark exception. Light was
+  retired rather than finished because it could not be finished: the semantic champion accent
+  measures 11.86:1 on the dark ground and 3.19:1 on white, failing WCAG AA at the 10px `Reigning`
+  label, and no amber step is both gold and accessible on white — the accent language the app is
+  built on is not renderable in light.
+- **Verification:** Mechanism confirmed in the emitted bundle and again from a running server —
+  `prefers-color-scheme` appears zero times and `.dark\:text-amber-400` compiles to a plain rule.
+  `npx tsc --noEmit`, `npm test` 4150/4150, `npm run lint:all`, and `npm run build` all pass. The
+  corrected category test and the `matchMedia` guard are both mutation-proven. Visually confirmed on
+  preview from a LIGHT-mode browser across eight surfaces: draft board (spectator and commissioner),
+  draft setup, History, Insights, Overview, Standings, `/admin`, `/admin/diagnostics`.
+- **Open follow-ups:** `getOwnerColor`/`buildOwnerColorMap` still accept an `isDark` parameter and
+  `PALETTE_LIGHT` remains exported, so a new caller can reintroduce light palettes; Members and
+  Matchups were not visually walked. See the canonical deferrals/current queue in
+  `docs/next-tasks.md`.
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
