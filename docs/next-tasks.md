@@ -2919,11 +2919,16 @@ proven draft-blocking failure, and it is the one an operator reaches on draft ni
 - **Evidence:** PR #498 (`0ee181ea`; `ce68afce` + `b9f9e82f`). Both Codex and `/code-review` flagged
   the missing divergence detector independently on the same commit.
 
-### 9. POLISH-010 — retire light mode
+### 9. POLISH-010 — retire light mode — IMPLEMENTED, PR #500 open
 
-Drafted 2026-08-19. Prompt written (`POLISH-010-DARK-ONLY-THEME-v1`); **not activated**. The `010`
-sequence was checked against `docs/prompt-registry.md` on that date — re-check it at activation if
-any other POLISH prompt lands first.
+Drafted and implemented 2026-08-19 as `POLISH-010-DARK-ONLY-THEME-v1`. **Not merged** — PR #500
+(`abc22ad8`) carries the change and its own pre-merge closeout; the execution record lives in
+`docs/prompt-registry.md`, which owns it. This entry stays only until that merge flips it, and the
+detail below is the queue's projection of the problem, not a second copy of the execution record.
+
+Two items are recorded as UNRESOLVED there rather than dropped: `getOwnerColor` and
+`buildOwnerColorMap` still accept an `isDark` parameter (so a caller can pass `false` and
+reintroduce light palettes), and the Members and Matchups surfaces were not visually walked.
 
 **The finding, measured — do not re-litigate.** `ChampionshipsSection.tsx:68` renders the champion
 accent as `text-amber-600 dark:text-amber-400`. Contrast is **11.86:1** on the dark ground
