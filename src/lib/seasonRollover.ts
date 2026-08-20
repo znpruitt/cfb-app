@@ -99,8 +99,10 @@ export async function buildSeasonArchive(leagueSlug: string, year: number): Prom
     byOwner: derivedHistory.byOwner,
     byWeek: Object.fromEntries(
       Object.entries(derivedHistory.byWeek).map(([week, snapshot]) => {
-        const { played: _played, ...rest } = snapshot;
-        return [week, rest];
+        // Rebuilt field-by-field rather than rest-destructured: the discard
+        // binding tripped `no-unused-vars` and failed the pre-merge gate.
+        const { week: weekNumber, standings, coverage } = snapshot;
+        return [week, { week: weekNumber, standings, coverage }];
       })
     ),
   };

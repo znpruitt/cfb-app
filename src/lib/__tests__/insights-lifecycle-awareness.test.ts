@@ -759,10 +759,12 @@ test('tight cluster: the tense follows the season', () => {
   assert.equal(done.title, 'Crowded finish');
   assert.match(done.description, /^3 owners finished within 1 game\.$/);
 
-  // Postseason counts as settled: the regular-season table this describes is
-  // done once bowls are being played.
+  // POSTSEASON IS NOT SETTLED. It means a postseason week has been played while
+  // scheduled weeks remain, so bowl results can still move this table — and
+  // `deriveTightRaceInsight` reports an active title race in the same state, so
+  // past tense here would contradict a sibling card on the same screen.
   const post = deriveTightClusterInsight({ rows, seasonContext: 'postseason' });
-  assert.equal(post?.title, 'Crowded finish');
+  assert.equal(post?.title, 'Crowded at the top');
 });
 
 test('championshipRaceGenerator hands the season through to the cluster copy', () => {

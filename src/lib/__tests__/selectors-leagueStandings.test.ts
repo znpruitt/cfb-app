@@ -1068,3 +1068,18 @@ test('canonicalStandingsCacheKeyParts: differs when the seed hash differs', () =
   const withDifferentSeeds = a.replace(`seeds:${SEED_ALIASES_HASH}`, 'seeds:deadbeef');
   assert.notEqual(a, withDifferentSeeds, 'a different seed set yields a different cache key');
 });
+
+test('canonicalStandingsCacheKeyParts: versions the standings-history SHAPE', () => {
+  // PLATFORM-105 added `played` to each week snapshot, and ABSENT means PLAYED —
+  // correct for a durable archive, catastrophic for a snapshot cached before the
+  // deploy. Without a shape version, every week of a warm live season would read
+  // as played and `selectSeasonContext` would answer `final` MID-SEASON, which
+  // is the exact defect the slice removes. The hazard exists only across a
+  // deploy boundary, so no behavioural test can reach it — this pins the key
+  // instead.
+  const parts = canonicalStandingsCacheKeyParts('my-league', 2026);
+  assert.ok(
+    parts.some((part) => part.startsWith('history:')),
+    `cache identity must carry a history-shape version: ${parts.join(' | ')}`
+  );
+});

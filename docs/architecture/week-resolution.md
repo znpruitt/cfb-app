@@ -43,17 +43,28 @@ reported through System Health (`scores-terminal-coverage-missing`/`-partial`).
 ## The predicate
 
 ```text
-concluded(game) =
+concluded(game, score) =
   1. the cached score is FINAL                     ← we have the result
   2. game.completed === true                       ← CFBD's own flag
   3. game.status === 'final'                       ← wire status, when supplied
-  4. rawStatus is CANCELLED                        ← terminal, never resolves
-  5. rawStatus is POSTPONED / SUSPENDED  → NOT concluded, it is still coming
+  4. CANCELLED, on the score OR the schedule       ← terminal, never resolves
+  5. POSTPONED / SUSPENDED, either source → NOT concluded, it is still coming
+  5b. startTimeTBD                        → NOT concluded, the kickoff is a placeholder
   6. now - kickoff > GAME_MAX_DURATION             ← last resort: abandoned
 
-weekPlayed(week) = every tracked game in the week is concluded
+weekPlayed(week) = the week has ≥1 NON-PLACEHOLDER game
+                   && every non-placeholder game in it is concluded
 seasonOver       = every week in the schedule is played
 ```
+
+**Steps 4 and 5 ask the SCORE, not just the schedule.** Every one of the 22,691 cached schedule items
+carries `status: 'scheduled'`, so `game.rawStatus` never says anything — the first version of this
+guard asked only the schedule and was unreachable. `toStatus` preserves an unrecognized provider
+label verbatim, so a postponed game arrives as `ScorePack.status === 'Postponed'`.
+
+**Placeholder rows are excluded from the population.** A postseason bracket shell has
+`startDate: null` and can never be final, so one of them would pin its week to `played: false`
+permanently and stop a live season ever reaching `final`.
 
 **Evidence is consulted in order of authority, and elapsed time is LAST.** The
 first implementation of this slice tested only `status === 'final'` and fell
@@ -116,11 +127,17 @@ its programme mid-2023, plus NESCAC Division III fixtures. The twelfth is
 `Liberty @ App State`: a real FBS game between two rostered teams, and the entire
 reason step 6 exists.
 
-## Surfacing what was inferred
+## Surfacing what was inferred — COLLECTED, NOT YET SURFACED
 
-Any game concluded by elapsed time rather than by `completed` is reported, not silently absorbed.
-**One such game is a hurricane; twenty is a broken feed**, and the difference must be visible. This is
-observation only — it never changes what the predicate decides.
+`deriveStandingsHistory` returns `inferredConclusions`: every game concluded by elapsed time alone,
+with its week and cached kickoff. Observation only — it never changes what the predicate decides.
+
+**Nothing reads it yet.** No UI, System Health panel, admin diagnostic or logger consumes the array.
+An earlier version of this section asserted that such games "are reported, not silently absorbed",
+which was a description of intent stated as fact — both reviewers flagged it, and a false claim in
+the document that defines the contract is worse than the missing wiring. The rationale still stands
+and the follow-up is queued: **one such game is a hurricane; twenty is a broken feed**, and that
+difference should be visible to an operator.
 
 ## Archives carry no progress flag
 

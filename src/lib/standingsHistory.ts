@@ -1,6 +1,5 @@
 import type { ScorePack } from './scores.ts';
 import type { AppGame } from './schedule.ts';
-import { getGameOwners } from './gameOwnership.ts';
 import {
   classifyScorePackStatus,
   isCanceledStatusLabel,
@@ -140,12 +139,28 @@ export function isGameConcluded(game: AppGame, score: ScorePack | undefined, now
 
   // 4. Cancelled is TERMINAL — it will never produce a final score. The repo
   //    already draws this line, and draws it narrowly on purpose.
-  if (isCanceledStatusLabel(game.rawStatus)) return true;
+  //
+  //    BOTH labels are consulted, because the schedule's is always inert: every
+  //    one of the 22,691 cached schedule items carries `status: 'scheduled'`, so
+  //    `game.rawStatus` never says anything. The signal lives on the SCORE —
+  //    `toStatus` preserves an unrecognized provider label verbatim, so a
+  //    postponed game arrives as `ScorePack.status === 'Postponed'`. The first
+  //    version of this guard asked only the schedule, which is why review found
+  //    it unreachable: the check was on the wrong object.
+  if (isCanceledStatusLabel(game.rawStatus) || isCanceledStatusLabel(score?.status)) return true;
 
   // 5. Postponed / suspended / delayed are disrupted but NOT terminal: the game
   //    is still coming, and its cached kickoff is the one it no longer has.
   //    Falling through to the elapsed clause would close its week tomorrow.
-  if (isDisruptedStatusLabel(game.rawStatus)) return false;
+  if (isDisruptedStatusLabel(game.rawStatus) || isDisruptedStatusLabel(score?.status)) {
+    return false;
+  }
+
+  // 5b. A placeholder kickoff is not a kickoff. `startTimeTBD` marks a timestamp
+  //     the app refuses to trust elsewhere — `gameCardPresentation` renders those
+  //     games date-only — so measuring elapsed time against it could conclude a
+  //     game BEFORE it is played.
+  if (game.startTimeTBD === true) return false;
 
   // 6. Last resort. A game whose kickoff is long past, with no result and no
   //    completion flag, is one nothing will ever resolve — CFBD cannot tell us a
@@ -174,7 +189,7 @@ function isInferredConclusion(game: AppGame, score: ScorePack | undefined, now: 
   if (classifyScorePackStatus(score) === 'final') return false;
   if (game.completed === true) return false;
   if (game.status === 'final') return false;
-  if (isCanceledStatusLabel(game.rawStatus)) return false;
+  if (isCanceledStatusLabel(game.rawStatus) || isCanceledStatusLabel(score?.status)) return false;
   return isGameConcluded(game, score, now);
 }
 
@@ -248,7 +263,15 @@ export function deriveStandingsHistory(args: {
     // question is whether this week happened, and every earlier week already
     // has. A week with no relevant games is not played: it cannot be, and
     // counting it as played is how an empty future week closed a season.
-    for (const game of weekGames) {
+    // PLACEHOLDER rows are excluded. A postseason bracket shell carries
+    // `startDate: null` and can never be final, so under "every game must
+    // conclude" ONE of them pins its week to `played: false` forever — the live
+    // season could then never reach `final`, suppressing the champion, recap and
+    // cluster cards from the last whistle until rollover writes an archive. That
+    // is the same failure `buildSeasonArchive` guards against, which review
+    // rightly pointed out I had fixed on one path only.
+    const realGames = weekGames.filter((game) => !game.isPlaceholder);
+    for (const game of realGames) {
       if (isInferredConclusion(game, scoresByKey[game.key], now)) {
         inferredConclusions.push({
           key: game.key,
@@ -263,8 +286,8 @@ export function deriveStandingsHistory(args: {
       standings,
       coverage,
       played:
-        weekGames.length > 0 &&
-        weekGames.every((game) => isGameConcluded(game, scoresByKey[game.key], now)),
+        realGames.length > 0 &&
+        realGames.every((game) => isGameConcluded(game, scoresByKey[game.key], now)),
     };
 
     for (const row of standings) {

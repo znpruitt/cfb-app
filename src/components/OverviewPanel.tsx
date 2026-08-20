@@ -44,11 +44,26 @@ import type { StandingsHistory } from '../lib/standingsHistory';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
 import RankedTeamName from './RankedTeamName';
 
-function sliceStandingsHistoryToRecentWeeks(
+/**
+ * The last `n` weeks that have actually been PLAYED.
+ *
+ * PLATFORM-105 — this used to take the last `n` weeks of the SCHEDULE, which was
+ * harmless only while every future week counted as resolved: the chart drew
+ * cumulative standings carried forward, so the columns were wrong but full. Now
+ * that unplayed weeks are correctly unresolved, taking scheduled weeks renders
+ * future week labels with no series behind them — an empty GB Race for the first
+ * ten weeks of every season. Review caught it; my tests did not, because none of
+ * them look at this surface.
+ *
+ * `played !== false` rather than `=== true`: a snapshot from a durable archive
+ * carries no flag and is played by definition.
+ */
+export function sliceStandingsHistoryToRecentWeeks(
   history: StandingsHistory,
   n: number
 ): StandingsHistory {
-  const recentWeeks = history.weeks.slice(-n);
+  const playedWeeks = history.weeks.filter((week) => history.byWeek[week]?.played !== false);
+  const recentWeeks = playedWeeks.slice(-n);
   const weekSet = new Set(recentWeeks);
   return {
     weeks: recentWeeks,

@@ -143,6 +143,23 @@ export type GetCanonicalStandingsInput = {
  * every canonical snapshot — resolver output depends on the seed set, so the
  * seed set is part of the cache identity.
  */
+/**
+ * Versions the SHAPE of the cached `StandingsHistory`, the same way `seeds:` and
+ * `alias-overrides:` version resolver inputs.
+ *
+ * PLATFORM-105 added `StandingsHistoryWeekSnapshot.played`, and absent means
+ * PLAYED — which is right for a durable archive and catastrophic for a snapshot
+ * cached before the deploy: every week of a live season would read as played and
+ * `selectSeasonContext` would answer `final` MID-SEASON, reinstating the exact
+ * defect this slice removes, until something happened to bust the tag. Review
+ * caught it; nothing else would have, because the hazard only exists across a
+ * deploy boundary and no test spans one.
+ *
+ * Bump this whenever the history shape changes in a way a warm snapshot could
+ * misread.
+ */
+const STANDINGS_HISTORY_SHAPE_VERSION = 'played-v1';
+
 export function canonicalStandingsCacheKeyParts(
   slug: string,
   resolvedYear: number | null
@@ -158,6 +175,7 @@ export function canonicalStandingsCacheKeyParts(
     String(resolvedYear),
     `seeds:${SEED_ALIASES_HASH}`,
     `alias-overrides:${ALIAS_OVERRIDES_HASH}`,
+    `history:${STANDINGS_HISTORY_SHAPE_VERSION}`,
   ];
 }
 

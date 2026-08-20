@@ -797,10 +797,13 @@ export function deriveTightClusterInsight(args: {
 
   if (!bestCluster) return null;
 
-  // `postseason` counts as finished: the regular-season table this describes is
-  // settled once bowls are being played. Only a season still in flight gets the
-  // present tense.
-  const settled = seasonContext !== 'in-season';
+  // ONLY `final` is settled. I first treated `postseason` as finished too, and
+  // review corrected it: `postseason` means a postseason week has been played
+  // while scheduled weeks REMAIN, so bowl and playoff results can still move
+  // this table. Worse, `deriveTightRaceInsight` keeps reporting an ACTIVE title
+  // race in that same state, so the two cards would have contradicted each other
+  // on one screen.
+  const settled = seasonContext === 'final';
   const games = `game${bestCluster.gap === 1 ? '' : 's'}`;
   return toInsight({
     id: `tight-cluster-${bestCluster.owners.map(ownerSlug).join('-')}`,

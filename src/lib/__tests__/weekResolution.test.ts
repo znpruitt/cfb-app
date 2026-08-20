@@ -255,3 +255,81 @@ test('only elapsed-time conclusions are reported, and they are reported', () => 
     'a scored or provider-flagged game is not an inference'
   );
 });
+
+test('a POSTPONED game is recognised from the SCORE, which is where the label lives', () => {
+  // The schedule's status is inert — all 22,691 cached items say `scheduled` —
+  // so the first version of this guard, which asked only `game.rawStatus`, could
+  // never fire. `toStatus` preserves an unrecognized provider label verbatim, so
+  // the disruption arrives on the ScorePack instead.
+  const g = game({ key: 'g', week: 1, date: '2026-09-05T18:00:00.000Z' });
+  const postponed = { status: 'Postponed', home: { score: null }, away: { score: null } };
+  assert.equal(isGameConcluded(g, postponed as unknown as ScorePack, NOW), false);
+});
+
+test('a CANCELLED game is recognised from the score too', () => {
+  const g = game({ key: 'g', week: 1, date: '2026-09-19T18:00:00.000Z' });
+  const canceled = { status: 'Canceled', home: { score: null }, away: { score: null } };
+  assert.equal(isGameConcluded(g, canceled as unknown as ScorePack, NOW), true);
+});
+
+test('a TBD kickoff is not a kickoff', () => {
+  // `startTimeTBD` marks a placeholder timestamp the app refuses to trust
+  // elsewhere. Measuring elapsed time against it can conclude a game BEFORE it
+  // is played.
+  const tbd = game({ key: 'g', week: 1, date: '2026-09-05T18:00:00.000Z', startTimeTBD: true });
+  assert.equal(isGameConcluded(tbd, undefined, NOW), false);
+});
+
+test('a placeholder row does not decide whether a week was played', () => {
+  // A postseason bracket shell carries `startDate: null` and can never be final,
+  // so under "every game must conclude" one of them pins its week to
+  // `played: false` forever — and a live season could then never reach `final`.
+  const history = deriveStandingsHistory({
+    games: [
+      game({ key: 'real', week: 1, status: 'final', date: '2026-09-05T18:00:00.000Z' }),
+      game({ key: 'shell', week: 1, date: null, isPlaceholder: true }),
+    ],
+    rosterByTeam: ROSTER,
+    scoresByKey: scored('real'),
+    now: NOW,
+  });
+
+  assert.equal(history.byWeek[1]?.played, true);
+});
+
+// ---------------------------------------------------------------------------
+// The chart domain. Review found a user-visible regression here that no test
+// covered, because nothing in this repo exercised the Overview surface.
+// ---------------------------------------------------------------------------
+
+test('the GB chart domain is the last PLAYED weeks, not the last scheduled ones', async () => {
+  const { sliceStandingsHistoryToRecentWeeks } = await import('@/components/OverviewPanel');
+  const snapshot = (week: number, played: boolean) => ({
+    week,
+    standings: [],
+    coverage: { state: 'complete' as const, message: null },
+    played,
+  });
+  const history = {
+    weeks: [1, 2, 3, 4, 5, 6, 7],
+    byWeek: {
+      1: snapshot(1, true),
+      2: snapshot(2, true),
+      3: snapshot(3, true),
+      4: snapshot(4, false),
+      5: snapshot(5, false),
+      6: snapshot(6, false),
+      7: snapshot(7, false),
+    },
+    byOwner: { Alice: [1, 2, 3, 4, 5, 6, 7].map((week) => ({ week }) as never) },
+  };
+
+  const sliced = sliceStandingsHistoryToRecentWeeks(history as never, 5);
+  // Taking the last five SCHEDULED weeks gives [3,4,5,6,7] — four of them empty,
+  // which is the empty GB Race review reported.
+  assert.deepEqual(sliced.weeks, [1, 2, 3]);
+  assert.deepEqual(
+    sliced.byOwner.Alice?.map((p) => p.week),
+    [1, 2, 3]
+  );
+});
