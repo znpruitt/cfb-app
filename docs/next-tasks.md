@@ -85,7 +85,7 @@ Supersedes: (none)
     pre-draft repair roster as the draft's output, and HID the app's only publish button at the exact
     moment a draft became publishable. v1 was abandoned after two remediation rounds and rebuilt from
     clean `main`; both post-mortems are in `docs/prompt-registry.md`.
-12. **Draft-writer serialization — REMAINING WORK** (PLATFORM-102 ✅ MERGED, PR #481, `a99a1038`,
+12. **Draft-writer serialization — REMAINING WORK** 🚧 _(gated: item 65)_ (PLATFORM-102 ✅ MERGED, PR #481, `a99a1038`,
     2026-08-16). Draft routes were plain whole-record
     read-then-writes, so concurrent writers clobbered each other. PLATFORM-094 serialized confirm and
     pick-edit; PLATFORM-102 serialized every remaining mutation of an existing draft (`pick`, the
@@ -112,7 +112,7 @@ Supersedes: (none)
     ENTRY POINT because a single file can hold both a serialized and an exempt one, and collects by
     content because a Server Action writing the draft is not named `route.ts`.
 
-13. **Undo's precondition uses a REUSED number, and draft deletions bypass the guard** (found by
+13. **Undo's precondition uses a REUSED number, and draft deletions bypass the guard** 🚧 _(gated: item 65)_ (found by
     review during PLATFORM-102 round 6, 2026-08-15; both are partial-fix gaps, not regressions).
     - Undo names the pick it removes by `pickNumber`, but pick numbers are positional and reused:
       undo pick 2, take a replacement, and the replacement is ALSO pick 2 — so a delayed retry of
@@ -124,7 +124,7 @@ Supersedes: (none)
       landing between a serialized writer's read and its write means that writer resurrects the
       deleted draft. **Fix: bring deletion into both the locking protocol and the guard's detector.**
 
-14. **Auto-pick mode with two admin screens can paint a spurious refusal** (raised by review during
+14. **Auto-pick mode with two admin screens can paint a spurious refusal** 🚧 _(gated: item 65)_ (raised by review during
     PLATFORM-102, 2026-08-16). With `timerExpiryBehavior: 'auto-pick'`, every admin device with the
     board open fires the auto-pick at countdown zero. One wins; the others are refused with 422, and
     since PLATFORM-102 made refusals visible they would show a red "Auto-pick is only valid from a
@@ -140,7 +140,7 @@ Supersedes: (none)
     already did it" as benign and just re-sync, while a button the operator actually presses still
     reports a refusal.
 
-15. **A double-submitted pick is credited to the NEXT owner** (found by review during
+15. **A double-submitted pick is credited to the NEXT owner** 🚧 _(gated: item 65)_ (found by review during
     PLATFORM-102, 2026-08-15; not fixed there because the fix is client-side). The route's
     expected-owner guard only fires when the body carries `owner`, and
     `DraftBoardClient.handlePick` sends `{ team }` alone. Serialization means two concurrent picks of
@@ -219,7 +219,7 @@ Supersedes: (none)
     on the state guards passing, or catch its failure so it cannot pre-empt them** — without moving
     it back inside the transaction, which is what deadlocks.
 
-20. **The database connection pool never gives up waiting** (raised by review during PLATFORM-102,
+20. **The database connection pool never gives up waiting** 🚧 _(gated: item 65)_ (raised by review during PLATFORM-102,
     2026-08-15; pre-existing, app-wide, deliberately not changed there). `getPool()`
     (`appStateStore.ts`) sets `max: 3` with no `connectionTimeoutMillis`, so `pool.connect()` queues
     indefinitely rather than failing. PLATFORM-102 widened the serialized sections, so a draft writer
@@ -1997,6 +1997,55 @@ Supersedes: (none)
       overwrite a genuine archive, available to a platform admin today) → membership authority
       (items 17/25). Conditional: item 47 becomes P1 before any passwordless league, and the
       rankings FORCE path (item 60) is a recovery gap separate from the Coaches Poll fix.
+
+65. 🚧 **GATE — before any league where someone other than the commissioner makes a pick.** Recorded
+    2026-08-20. Not new work: this names an ASSUMPTION that several existing items silently rest on,
+    and which is nowhere else written down.
+
+    **The assumption.** Every draft to date has exactly one writer — the commissioner, clicking one
+    button at a time, from one logged-in page. Everyone else is on the spectator view, which POLLS
+    (`SpectatorBoardClient`: every 5s live, 30s once complete) and therefore only ever READS. Several
+    defects below are filed as low priority because of that, and the filing stops being valid the
+    moment a second person can write.
+
+    **What changes with user-account drafts.** Three things stack that do not today:
+
+    - **Real simultaneous writers on one draft** — double-submits, two devices per user, and
+      auto-pick firing from every open board at the buzzer. Each waiter holds a database connection
+      while it waits its turn.
+    - **Multiple leagues drafting at once** — different leagues do not block each other's turn-taking
+      but do compete for the same pool. Five leagues × ~15 boards polling every 5s is roughly 15
+      reads/second plus writes, against a pool sized (`max: 3`) for one league.
+    - **Attribution stops being cosmetic.** Item 15's guard exists and never runs, because the client
+      sends only the team. Today the worst case is one commissioner's two tabs crediting a team to
+      the wrong owner. With user accounts it becomes **user A's pick landing on user B's roster**.
+
+    **The gate, in the order I would fix it:**
+
+    - **Item 15 — pick attribution.** The client must send the owner (or expected pick index) it
+      believes is picking, so the route's existing guard can refuse a mismatch. Highest blast radius
+      under multi-user, and the smallest fix.
+    - **Item 14 — auto-pick fires from every open admin board.** One winner, the rest refused. Did
+      not reproduce on production with two of the OWNER's devices; with N users it is the norm, not
+      the edge.
+    - **Item 13 — Undo names a pick by a reusable slot number**, and draft DELETIONS bypass the
+      serialization guard entirely.
+    - **Item 12 — `PUT /api/owners` writes the roster outside any transaction**, which is also what
+      stops the draft's roster-staleness check being airtight.
+    - **Item 20 — the pool never gives up waiting.** Verified 2026-08-20: exactly one `.connect()` in
+      the codebase, and all nine transaction callbacks do local queries only (every provider fetch
+      happens BEFORE the transaction opens), so no client is held across network I/O. Neon enforces
+      `idle_in_transaction_session_timeout` at 5 min, but `statement_timeout` and `lock_timeout` are
+      both `0` — a caller WAITING on the advisory lock is not idle, so nothing bounds it, and
+      `connectionTimeoutMillis` is unset so a starved caller hangs rather than failing. `max_connections`
+      is 112, so `max: 3` is conservative — but raise limits only after adding timeouts.
+    - **Items 46 and 47** — already tagged "before public leagues": past-season league adoption can
+      let rollover overwrite a real archive, and `?bypassSuppression=1` lets an anonymous caller force
+      uncached full rebuilds on a passwordless league.
+
+    **None of these is a defect today.** Each is a correct-enough behaviour resting on "one writer,
+    who is the commissioner". This entry exists so that assumption is visible when it stops holding,
+    rather than rediscovered from a mis-credited pick.
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
