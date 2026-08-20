@@ -1737,13 +1737,18 @@ Supersedes: (none)
     The rankings cache stores `RankingsCacheEntry.response`, which is the ALREADY-NORMALIZED
     `RankingsResponse` — not the raw provider payload. So PLATFORM-104 corrects what future
     normalization produces and repairs nothing already written. **Deploying it changes nothing on
-    screen.** The `rankings/<year>` snapshot keeps serving the FCS poll until a refresh re-fetches
-    and re-normalizes, via `/api/rankings?bypassCache=1` or the rankings cron.
+    screen.** A `rankings/<year>` snapshot keeps serving the FCS poll until a refresh re-fetches
+    and re-normalizes, via `/api/rankings?bypassCache=1` or the rankings cron. That refresh has been
+    run for 2026 (below); it has NOT been run for any archived season.
 
     Two consequences:
 
-    - **2026 needs one refresh after the fix ships**, or the Standings → FBS Polls tab keeps showing
-      `se louisiana`. This is the actionable half.
+    - ✅ **DONE 2026-08-19 — 2026 was manually re-fetched by the owner, and the app now shows the
+      correct polls.** This was the actionable half: the re-normalized snapshot replaced the FCS
+      column the Standings → FBS Polls tab had been serving. It also demonstrates in practice what
+      the paragraph below measured in theory — the completeness gate did not refuse the candidate.
+      Recorded from the owner's report of the app after the refresh, not from a re-read of the
+      durable key.
     - **Archived prior seasons are suspect wherever both polls were published**, which is every
       season sampled from 2014 on. Any surface reading an archived Coaches column — History in
       particular — may be showing an FCS, Division II or Division III poll. Whether to re-fetch
