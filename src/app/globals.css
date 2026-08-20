@@ -4,17 +4,41 @@
 @import '../styles/wordmark.css';
 @import '../styles/publicLanding.css';
 
+/*
+ * POLISH-010 — DARK IS THE ONLY THEME.
+ *
+ * `dark:` utilities are made unconditional below rather than by deleting the
+ * ~1,127 light base classes they pair with: light goes dormant, not deleted, and
+ * reverting this file restores theme-awareness. Do NOT promote `dark:` utilities
+ * to base classes — that is a one-way door.
+ *
+ * Why light was retired rather than finished: the champion accent
+ * (`ChampionshipsSection.tsx`, `text-amber-600 dark:text-amber-400`) measures
+ * 11.86:1 on this ground and 3.19:1 on white, and the `Reigning` label that
+ * carries it is 10px — under the WCAG large-text threshold, so light mode failed
+ * AA. No amber step is BOTH gold and accessible on white: 300-600 all fail 4.5:1
+ * there, and 700/800 pass but read brown. Amber is the semantic champion color
+ * (DESIGN.md -> Color), so the app's accent language is not renderable in light.
+ *
+ * `color-scheme` sits here on `:root` — the root scroller — not on a wrapper.
+ * `publicLanding.css` records what happens otherwise: on a non-root element it
+ * governs only that element's own UA widgets, so scrollbars and rubber-band
+ * overscroll stay light.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  color-scheme: dark;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/*
+ * Make every `dark:` utility match unconditionally. Tailwind v4 is loaded via
+ * `@import 'tailwindcss'` with no `@config` directive, so the `darkMode: 'media'`
+ * in `tailwind.config.ts` is not what was driving the variant — v4's built-in
+ * default (the `prefers-color-scheme` media query) was. Redefining the variant
+ * here overrides that default and is the single line to revert.
+ */
+@custom-variant dark (&);
 
 html,
 body {

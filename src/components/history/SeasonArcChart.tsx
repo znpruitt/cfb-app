@@ -2,7 +2,7 @@
 
 import React from 'react';
 import MiniTrendsGrid from '@/components/MiniTrendsGrid';
-import { buildOwnerColorMap, prefersDarkMode } from '@/lib/ownerColors';
+import { buildOwnerColorMap, isDarkTheme } from '@/lib/ownerColors';
 import type { StandingsHistory } from '@/lib/standingsHistory';
 
 type Props = {
@@ -13,7 +13,7 @@ type Props = {
 export default function SeasonArcChart({ standingsHistory, year }: Props): React.ReactElement {
   const ownerColorMap = React.useMemo(() => {
     const allOwners = Object.keys(standingsHistory.byOwner);
-    return buildOwnerColorMap(allOwners, prefersDarkMode());
+    return buildOwnerColorMap(allOwners, isDarkTheme());
   }, [standingsHistory.byOwner]);
 
   return (

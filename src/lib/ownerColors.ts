@@ -70,13 +70,21 @@ export const PALETTE_LIGHT: readonly string[] = [
 const PALETTE_SIZE = 20;
 
 /**
- * Detect whether the user prefers dark mode via media query.
- * Returns true for dark mode, false for light mode.
- * Server-side (SSR) defaults to dark to match prior behavior.
+ * POLISH-010 — dark is the only theme, so this resolves dark unconditionally.
+ *
+ * It is NOT a media query any more, which is why it is no longer called
+ * `prefersDarkMode`: there is no preference to read. Every colour resolver that
+ * branches on a theme flag funnels through here (owner colours, insight category
+ * colours, the season-arc chart), so this is the one place the app decides.
+ *
+ * A CSS-only retirement would have missed this. `globals.css` makes `dark:`
+ * utilities unconditional, but these palettes are chosen in JavaScript from hex
+ * pairs — leaving this reading `prefers-color-scheme` would have painted the
+ * LIGHT owner and category colours onto a dark UI for a light-OS visitor, which
+ * is worse than the mixed rendering this slice exists to fix.
  */
-export function prefersDarkMode(): boolean {
-  if (typeof window === 'undefined') return true;
-  return window.matchMedia('(prefers-color-scheme: dark)').matches;
+export function isDarkTheme(): boolean {
+  return true;
 }
 
 /**

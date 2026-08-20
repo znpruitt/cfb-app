@@ -3,8 +3,12 @@
  *
  * ALWAYS DARK, deliberately. There is no `prefers-color-scheme` block and no
  * `dark:` variant anywhere in this file or in `PublicLanding.tsx`: the landing is
- * a fixed dark stadium composition regardless of the visitor's OS theme. Every
- * other app and admin surface stays theme-aware and is untouched by this slice.
+ * a fixed dark stadium composition regardless of the visitor's OS theme.
+ *
+ * POLISH-010 UPDATE: the app is now dark-only everywhere, so this page is no longer
+ * an exception — but the rules below still EARN their place, because this page
+ * paints #000000 while the app canvas is --background (#0a0a0a). Do not delete them
+ * on the assumption that the global dark theme already covers this.
  *
  * A plain prefixed stylesheet rather than a CSS module, and the reason is
  * infrastructural: this repo's test runner is `node --test` under `tsx`, which
@@ -16,11 +20,13 @@
  */
 
 /*
- * The document canvas is theme-dependent (`body { background-color:
- * var(--background) }` in globals.css — white for a light-OS visitor) while this
- * page is black. Two consequences `background-color` alone does not fix: rubber-band
- * overscroll on iOS/macOS flashes white against the composition, and UA chrome —
- * scrollbars especially — renders light over the stadium.
+ * The document canvas is painted from `--background` (`body { background-color:
+ * var(--background) }` in globals.css) while this page is #000000, so the canvas
+ * still does not match the page. Before POLISH-010 `--background` was WHITE for a
+ * light-OS visitor, which is the condition these rules were written against:
+ * rubber-band overscroll on iOS/macOS flashed white against the composition, and UA
+ * chrome — scrollbars especially — rendered light over the stadium. That specific
+ * failure is no longer reachable; the #000000-vs-#0a0a0a mismatch still is.
  *
  * `color-scheme` fixes the chrome; the `:has()` rule paints the canvas for this
  * route only, leaving every other surface's theme handling untouched. A browser
@@ -32,9 +38,11 @@ body:has(.landing-root) {
   /*
    * `color-scheme` MUST sit on the root scroller. It was on `.landing-root` — the
    * `<main>` — where it governs only that element's own UA widgets, and that
-   * element has `overflow: hidden` so it has no scrollbar to govern. A light-OS
-   * visitor on a scrollable landing kept light scrollbars and UA chrome over the
-   * stadium, which is exactly what this was added to prevent.
+   * element has `overflow: hidden` so it has no scrollbar to govern. Historically a
+   * light-OS visitor on a scrollable landing kept light scrollbars and UA chrome over
+   * the stadium, which is what this was added to prevent. Since POLISH-010 `:root`
+   * already declares `color-scheme: dark`, so this is belt-and-braces now rather than
+   * load-bearing — kept because the PLACEMENT lesson is the expensive part.
    */
   color-scheme: dark;
 }

@@ -6,19 +6,7 @@ import Link from 'next/link';
 import { getCategoryConfig } from '../../../../lib/insightCategories';
 import type { Insight } from '../../../../lib/selectors/insights';
 import { insightHref } from '../../../../components/OverviewPanel';
-import { prefersDarkMode } from '../../../../lib/ownerColors';
-
-function useIsDarkMode(): boolean {
-  const [isDark, setIsDark] = React.useState<boolean>(() => prefersDarkMode());
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = (e: MediaQueryListEvent): void => setIsDark(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-  return isDark;
-}
+import { isDarkTheme } from '../../../../lib/ownerColors';
 
 export default function AllInsightsRow({
   insight,
@@ -29,7 +17,7 @@ export default function AllInsightsRow({
   leagueSlug: string;
   panelYear?: number;
 }): React.ReactElement {
-  const isDark = useIsDarkMode();
+  const isDark = isDarkTheme();
   const href = insightHref(insight.navigationTarget, leagueSlug, insight, panelYear);
   const config = getCategoryConfig(insight.category);
   const categoryColor = isDark ? config.darkColor : config.lightColor;

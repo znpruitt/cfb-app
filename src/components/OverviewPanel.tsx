@@ -17,7 +17,7 @@ import {
 import { getCategoryConfig } from '../lib/insightCategories';
 import { OVERVIEW_INSIGHT_SLOTS, OVERVIEW_INSIGHT_SLOTS_WITH_RECAP } from '../lib/insights/limits';
 import type { LifecycleState } from '../lib/insights/types';
-import { prefersDarkMode } from '../lib/ownerColors';
+import { isDarkTheme } from '../lib/ownerColors';
 import {
   deriveResolvedMovementStandings,
   resolveOverviewCanonicalInputs,
@@ -1046,18 +1046,6 @@ function parseMilestoneKind(id: string): 'wins' | 'points' | null {
   return null;
 }
 
-function useIsDarkMode(): boolean {
-  const [isDark, setIsDark] = React.useState<boolean>(() => prefersDarkMode());
-  React.useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const handler = (e: MediaQueryListEvent): void => setIsDark(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-  return isDark;
-}
-
 function InsightRow({
   insight,
   leagueSlug,
@@ -1157,7 +1145,7 @@ function InsightsList({
   lifecycleState?: LifecycleState;
   currentYear?: number;
 }): React.ReactElement | null {
-  const isDark = useIsDarkMode();
+  const isDark = isDarkTheme();
   const isFreshOffseason = lifecycleState === 'fresh_offseason';
   const showRecap = isFreshOffseason && typeof currentYear === 'number';
 
