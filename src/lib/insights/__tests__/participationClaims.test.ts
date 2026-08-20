@@ -431,7 +431,11 @@ test('season movement: the biggest mover is named even after leaving', async () 
   // The subject is the actual biggest mover. The previous model anchored the
   // card on a member and demoted the real one to a citation, which took four
   // passes to get wrong in four different ways.
-  assert.match(season.description, /^Dave climbed from 6th to 1st between 2024 and 2025/);
+  // "rose", not "climbed". The word climb is reserved for the IN-SEASON cards
+  // (owner, 2026-08-19); this card describes a gap between two completed
+  // seasons and said "climbed" for a full round after that split was agreed.
+  assert.match(season.description, /^Dave rose from 6th to 1st between 2024 and 2025/);
+  assert.doesNotMatch(season.description, /climb/i, 'the in-season word must not appear here');
   assert.match(season.description, /the biggest move of the 2025 season\.$/);
   // The YEAR is in the headline too — the exemption that lets this card name a
   // departed owner holds only while the copy says which season it describes.
@@ -460,7 +464,8 @@ test('season movement: the all-time record is its own card, with its own years',
     /league history/,
     `the season card claimed the all-time record: ${season.description}`
   );
-  assert.match(record.description, /Erin's 5 places between 2023 and 2024/);
+  assert.match(record.description, /Erin's 5-place rise between 2023 and 2024/);
+  assert.doesNotMatch(record.description, /climb/i, 'the in-season word must not appear here');
   assert.match(record.description, /is the biggest single-season move in league history\.$/);
 });
 

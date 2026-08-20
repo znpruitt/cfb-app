@@ -384,7 +384,7 @@ function ordinal(n: number): string {
   return `${n}${n % 10 <= 3 ? suffix : 'th'}`;
 }
 
-type SeasonClimb = {
+type SeasonMove = {
   owner: string;
   gain: number;
   fromYear: number;
@@ -401,9 +401,9 @@ type SeasonClimb = {
  * three passes, and every one of them was a copy branch reading a partition
  * that had been computed correctly elsewhere: a season claim measured over
  * members only; `shares` collapsed into `trails` so a tie was reported as a
- * loss; an all-time comparison seeded from the member maximum so an equal climb
+ * loss; an all-time comparison seeded from the member maximum so an equal move
  * could not displace it; and finally an all-time STANDING attached to a
- * different owner's climb in a different year, which announced this season's
+ * different owner's move in a different year, which announced this season's
  * smaller move as the league record. That last one was introduced by the round
  * fixing the first three, which is what made reconstruction the right call.
  *
@@ -425,15 +425,19 @@ function deriveSeasonMovementInsights(
   if (archives.length < 2) return [];
   const sorted = sortedArchives(archives);
 
-  // Every climb between every consecutive pair of seasons, for every owner.
+  // Every move between every consecutive pair of seasons, for every owner.
   // ONE population, sliced two ways — the latest pair for the season card, all
   // of it for the record card. The previous implementation built the all-time
   // comparison by seeding an accumulator from the member maximum, which is how
-  // an equal climb by a departed owner failed to register at all.
-  // A CLIMB IS PASSING PEOPLE, and you can only pass someone who was there both
-  // years. Raw finishing position is not comparable across seasons of different
+  // an equal move by a departed owner failed to register at all.
+  // A SEASON-TO-SEASON MOVE IS PASSING PEOPLE, and you can only pass someone who
+  // was there both years. The word "climb" is deliberately absent from this
+  // generator: the owner reserved it for the IN-SEASON card (2026-08-19,
+  // "climbs are internal season facts"), and this one kept saying "climbed"
+  // about a gap between two archives — the exact conflation the split was made
+  // to end. Raw finishing position is not comparable across seasons of different
   // size: `/code-review` reproduced a league that went from six owners to three,
-  // where everyone who stayed "climbed three places" without playing a single
+  // where everyone who stayed "rose three places" without playing a single
   // game differently — and the record card would then enshrine that artifact as
   // the biggest move in league history, permanently. Confirmed by running it.
   //
@@ -444,9 +448,9 @@ function deriveSeasonMovementInsights(
   // and the numbers are unchanged.
   //
   // `fromPos`/`toPos` are the COMMON-SET positions, which is what the copy must
-  // quote — saying "climbed from 4th to 1st" while measuring something else is
+  // quote — saying "rose from 4th to 1st" while measuring something else is
   // the split this whole slice exists to close.
-  const allClimbs: SeasonClimb[] = [];
+  const allMoves: SeasonMove[] = [];
   for (let i = 1; i < sorted.length; i += 1) {
     const from = sorted[i - 1]!;
     const to = sorted[i]!;
@@ -470,7 +474,7 @@ function deriveSeasonMovementInsights(
     for (const owner of inBoth) {
       const fromPos = fromRank.get(owner)!;
       const toPos = toRank.get(owner)!;
-      allClimbs.push({
+      allMoves.push({
         owner,
         gain: fromPos - toPos,
         fromYear: from.year,
@@ -480,27 +484,27 @@ function deriveSeasonMovementInsights(
       });
     }
   }
-  if (allClimbs.length === 0) return [];
+  if (allMoves.length === 0) return [];
 
   const latestYear = sorted[sorted.length - 1]!.year;
   const insights: Insight[] = [];
 
   /** Everyone tied at the maximum gain in a slice, or `[]` if none clears the floor. */
-  const leadersOf = (climbs: SeasonClimb[]): SeasonClimb[] => {
-    const best = climbs.reduce((max, c) => (c.gain > max ? c.gain : max), 0);
+  const leadersOf = (moves: SeasonMove[]): SeasonMove[] => {
+    const best = moves.reduce((max, c) => (c.gain > max ? c.gain : max), 0);
     if (best < MIN_IMPROVEMENT_POSITIONS) return [];
-    const leaders = climbs
+    const leaders = moves
       .filter((c) => c.gain === best)
       .sort((a, b) => a.owner.localeCompare(b.owner) || a.toYear - b.toYear);
     // Counted by DISTINCT OWNER. The threshold exists because "too many people
     // are level to be a story"; one owner who set the same mark in four separate
-    // seasons is not that, and counting climbs suppressed the card on them.
+    // seasons is not that, and counting moves suppressed the card on them.
     const distinctOwners = new Set(leaders.map((c) => c.owner)).size;
     return distinctOwners >= TIE_SUPPRESSION_THRESHOLD ? [] : leaders;
   };
 
-  const seasonLeaders = leadersOf(allClimbs.filter((c) => c.toYear === latestYear));
-  const recordLeaders = leadersOf(allClimbs);
+  const seasonLeaders = leadersOf(allMoves.filter((c) => c.toYear === latestYear));
+  const recordLeaders = leadersOf(allMoves);
 
   if (seasonLeaders.length > 0) {
     const gain = seasonLeaders[0]!.gain;
@@ -508,8 +512,8 @@ function deriveSeasonMovementInsights(
     const only = seasonLeaders[0]!;
     const description =
       seasonLeaders.length === 1
-        ? `${names} climbed from ${ordinal(only.fromPos)} to ${ordinal(only.toPos)} between ${only.fromYear} and ${only.toYear} — the biggest move of the ${only.toYear} season.`
-        : `${names} each climbed ${gain} places between ${only.fromYear} and ${only.toYear} — the biggest move of the ${only.toYear} season.`;
+        ? `${names} rose from ${ordinal(only.fromPos)} to ${ordinal(only.toPos)} between ${only.fromYear} and ${only.toYear} — the biggest move of the ${only.toYear} season.`
+        : `${names} each rose ${gain} places between ${only.fromYear} and ${only.toYear} — the biggest move of the ${only.toYear} season.`;
     insights.push(
       toInsight({
         id: `season-swing-${latestYear}-${seasonLeaders.map((c) => ownerSlug(c.owner)).join('-')}`,
@@ -531,7 +535,7 @@ function deriveSeasonMovementInsights(
     );
   }
 
-  // The record card is SUPPRESSED when it would name the same climbs the season
+  // The record card is SUPPRESSED when it would name the same moves the season
   // card just named — two cards carrying one sentence is worse than one card.
   const sameAsSeason =
     seasonLeaders.length === recordLeaders.length &&
@@ -545,7 +549,7 @@ function deriveSeasonMovementInsights(
     // into one owner's phrasing.
     const holderText = formatOwnerList(
       recordLeaders.map(
-        (c) => `${c.owner}'s ${c.gain} places between ${c.fromYear} and ${c.toYear}`
+        (c) => `${c.owner}'s ${c.gain}-place rise between ${c.fromYear} and ${c.toYear}`
       )
     );
     // DISTINCT owners for identity. `recordLeaders` is a list of CLIMBS, so one
