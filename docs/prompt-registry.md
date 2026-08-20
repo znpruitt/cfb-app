@@ -6664,6 +6664,52 @@ STATUS: MERGED — PR #492, merge commit `5abed2ff`, 2026-08-18.
 
 STATUS: MERGED — PR #493, merge commit `fc64391d`, 2026-08-18.
 
+### PLATFORM-105-WEEK-RESOLUTION-v1
+
+- Purpose: A week counts as played only when its games have concluded, so a season in progress stops
+  reporting itself as over from its first Saturday.
+- Scope: the week-resolution predicate, `selectSeasonContext`, and the consumers of the meaning they
+  changed. Model in `docs/architecture/week-resolution.md`.
+- The defect: `isResolvedWeek` asked "is coverage complete", and coverage means no game the schedule
+  calls final is missing a score. A week with NOTHING PLAYED has no final games, so nothing is
+  missing — "nothing played" and "everything present" were the same value. Every unplayed week
+  counted as resolved and the season read `final` from week one.
+- Confirmed against production data before the fix and after: production's real 2026 schedule (3,610
+  games, weeks 1–15, read replica) plus a real 136-team roster. Before: `lifecycleState: postseason`
+  with "How 2026 finished" and "Shambaugh spent 14 weeks of 2026 in last place" — after one Saturday.
+  After: `early_season`. A mid-season replay (weeks 1–3 played of 15) produced `early_season` with
+  `surge`, `movement` and `race` firing — the in-season cards had never run on any data, because the
+  lifecycle was unreachable.
+- Owner rulings, 2026-08-20: a REAL game has both teams known; a PLANNED game also has a determined
+  start date and time ("a game can only not happen if it was ever planned to occur"); and **the
+  season is over when every real game has a result**, not when every week is played. That last one
+  dissolved a class of failure that three earlier attempts kept re-creating from different
+  directions.
+- Provider facts established: CFBD `/games` carries no status field at all — the only completion
+  signal is the boolean `completed`, and a cancelled game keeps `completed: false` permanently
+  (`Liberty @ App State`, week 5 2024, still `false` when queried directly on 2026-08-19). Across six
+  cached seasons twelve games never resolved and eleven were non-FBS noise. All 22,691 cached
+  schedule rows carry `status: 'scheduled'`, so schedule-side status labels are inert; the provider
+  label survives on the SCORE.
+- Review: FOUR rounds, three of them past the AGENTS.md rule-7 stop point on explicit owner approval,
+  recorded here rather than resolved silently. Reviewers found a user-visible chart regression the
+  fix caused, a deploy hazard in the fix (a warm pre-deploy snapshot would read every week as played
+  and report `final` mid-season — cache shape version added), and a population filter of mine that
+  was net-harmful.
+- **Three false verification claims of mine were caught by review, not by me**: `lint:all` reported
+  clean while two ESLint errors sat in the log I cited (three gates behind one exit code, the failure
+  attributed to a known cause without reading the section); "byte-identical to main" from two runs
+  sharing `.next/cache`; and "the cache holds no clock" when the clock had moved into
+  `selectSeasonContext`, which no production caller passes `now` to. The last was confirmed
+  independently by both reviewers.
+- Merged with FIVE known items outstanding, queued rather than carried: see `docs/next-tasks.md`.
+  Every one is strictly smaller than the defect fixed — on `main` before this, every league declared
+  a champion in week 1 and no in-season card fired all season.
+- Gates at merge, each run as its own command with its own exit code: `tsc --noEmit` 0;
+  `eslint --no-cache` 0; `prettier --check` 0; `npm test` 0 (4176 pass); `npm run lint:markdown` 0
+  errors in tracked files (the remainder are under the untracked `.claude/worktrees/preview-split`
+  worktree and fail identically on `main`).
+
 ### PLATFORM-104-POLL-SOURCE-MATCHING-v1
 
 - Purpose: Stop a non-FBS poll from claiming an FBS rankings column. Owner report, 2026-08-18, from

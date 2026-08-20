@@ -46,7 +46,7 @@ import { getPresentationTimeZone } from '../lib/weekPresentation';
 import RankedTeamName from './RankedTeamName';
 
 /**
- * The last `n` weeks that have actually been PLAYED.
+ * The last `n` weeks that are RESOLVED — played, with a usable snapshot.
  *
  * PLATFORM-105 — this used to take the last `n` weeks of the SCHEDULE, which was
  * harmless only while every future week counted as resolved: the chart drew
@@ -56,8 +56,9 @@ import RankedTeamName from './RankedTeamName';
  * ten weeks of every season. Review caught it; my tests did not, because none of
  * them look at this surface.
  *
- * `played !== false` rather than `=== true`: a snapshot from a durable archive
- * carries no flag and is played by definition.
+ * Resolved rather than merely played: a played week whose coverage is incomplete
+ * is dropped by the trend selectors, so slicing on `played` alone still leaves a
+ * labelled column with no series behind it.
  */
 export function sliceStandingsHistoryToRecentWeeks(
   history: StandingsHistory,

@@ -92,8 +92,8 @@ export async function buildSeasonArchive(leagueSlug: string, year: number): Prom
   // `StandingsHistoryWeekSnapshot.played` reads absent — which is exactly the
   // "absent means played" case that field documents.
   //
-  // `inferredConclusions` is dropped for the same reason: it is a diagnostic
-  // about a live derivation, not a fact about the season.
+  // `pending` is dropped for the same reason: it lists games still awaiting a
+  // result, which is a statement about a live season, not a completed one.
   const standingsHistory = {
     weeks: derivedHistory.weeks,
     byOwner: derivedHistory.byOwner,

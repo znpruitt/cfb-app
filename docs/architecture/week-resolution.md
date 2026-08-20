@@ -159,43 +159,36 @@ its programme mid-2023, plus NESCAC Division III fixtures. The twelfth is
 `Liberty @ App State`: a real FBS game between two rostered teams, and the entire
 reason step 6 exists.
 
-## Surfacing what was inferred — COLLECTED, NOT YET SURFACED
+## Surfacing what was inferred — NOT IMPLEMENTED
 
-`deriveStandingsHistory` returns `inferredConclusions`: every game concluded by elapsed time alone,
-with its week and cached kickoff. Observation only — it never changes what the predicate decides.
+The rationale stands and the wiring does not exist. When `selectSeasonContext`
+accepts a season as over because every pending kickoff is more than eight hours
+past, it keeps no record of which games it accepted without a result. **One such
+game is a hurricane; twenty is a broken score feed**, and today those look
+identical to an operator.
 
-**Nothing reads it yet.** No UI, System Health panel, admin diagnostic or logger consumes the array.
-An earlier version of this section asserted that such games "are reported, not silently absorbed",
-which was a description of intent stated as fact — both reviewers flagged it, and a false claim in
-the document that defines the contract is worse than the missing wiring. The rationale still stands
-and the follow-up is queued: **one such game is a hurricane; twenty is a broken feed**, and that
-difference should be visible to an operator.
+Two earlier versions of this section asserted the opposite — first that such
+games "are reported, not silently absorbed", then that `deriveStandingsHistory`
+returns an `inferredConclusions` array. The first was intent stated as fact; the
+second described a design that was replaced by `PendingGame[]` and no longer
+exists anywhere in the code. Both reviewers flagged the section each time. It is
+queued as a follow-up, and stated here as absent rather than described as
+present.
 
-## Archives carry no progress flag
+## A cached-clock residual, still open
 
-`played` is a LIVE signal and `buildSeasonArchive` strips it before persisting.
-`/code-review` found what persisting it would cost: a week holding a game with no
-kickoff time derives `played: false`, and freezing that into a durable archive
-makes a COMPLETED season report itself in-season forever, at every consumer of
-that history. An archive is a finished season by definition, so its weeks carry
-no flag and read as played — which is what the absent case on
-`StandingsHistoryWeekSnapshot.played` means.
+`selectSeasonContext` reads the clock to apply the abandonment allowance, and it
+is called from inside two cached paths — `computeLifecycle` within
+`dataCachedCanonicalStandings`, and `buildLeagueInsightContext` within
+`dataCachedRawInsights`. Neither passes the `currentDate` it was handed. So the
+season verdict can be frozen at whatever moment warmed the cache, which is what
+`AGENTS.md` invariant 3 forbids.
 
-## A known, bounded staleness
-
-`played` is computed inside `dataCachedCanonicalStandings`, whose key
-deliberately omits `currentDate` — the file warns about time-dependent
-classification there, and both reviewers raised it. Steps 1–4 are not
-time-dependent, so the ordinary path is unaffected: a score commit both changes
-the inputs and fires `invalidateStandingsForYear`.
-
-The residual is step 6 alone. A game nothing will ever update is also a game
-whose result never commits, so nothing invalidates on its account and its week
-can stay unplayed past the eight-hour mark until some other input changes. **The
-direction is safe** — a season reads in-progress slightly longer, never over too
-early — and it is bounded by the next score commit for that year, which in season
-is weekly at worst. Recorded rather than fixed, because moving the computation
-outside the cache is a larger change than this slice's contract.
+An earlier version of this section claimed the residual was "step 6 alone" inside
+a cached `played`. That is no longer where it lives — `played` is evidence-only
+now — and the claim that the derivation had become time-invariant was wrong: the
+clock moved one function along rather than out. Both reviewers confirmed it
+independently. **Queued, not fixed.**
 
 ## What this does NOT change
 
