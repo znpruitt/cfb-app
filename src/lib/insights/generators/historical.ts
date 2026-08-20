@@ -95,9 +95,8 @@ function deriveDroughtInsight(
 ): Insight | null {
   if (archives.length === 0) return null;
   const sorted = sortedArchives(archives);
-  const latestYear = sorted[sorted.length - 1]!.year;
 
-  // Track the last title year per owner and how many seasons each owner has appeared
+  // Track the last title year per owner and which seasons each owner appeared in
   const lastTitleYear = new Map<string, number>();
   const appearedInYear = new Map<string, Set<number>>();
   for (const archive of sorted) {
@@ -111,34 +110,50 @@ function deriveDroughtInsight(
     }
   }
 
+  // INSIGHTS-033 — a drought is counted in SEASONS PLAYED since the last title,
+  // for everyone, which is a change from counting calendar years for owners who
+  // have won.
+  //
+  // The conversion below measures the record over every owner in the archives,
+  // and calendar years cannot support that: a champion who left in 2022 would
+  // keep accruing drought through seasons they were not in, so a departed owner
+  // would hold the record almost by default and the card would spend its life
+  // citing someone who stopped playing. It also mattered before the conversion,
+  // because owners here DO sit a season out and come back (owner, 2026-08-19) —
+  // a member who skipped a year was already being charged for it.
+  //
+  // The never-won branch ALREADY counted appearances (`seasonsPlayed`), so this
+  // makes one definition of the two the function was using, rather than
+  // introducing a new one. For an owner who has played continuously the number
+  // is unchanged.
   type DroughtEntry = { owner: string; drought: number; neverWon: boolean };
-  const entries: DroughtEntry[] = [];
-
-  for (const owner of activeOwners) {
+  const population: DroughtEntry[] = [];
+  for (const [owner, years] of appearedInYear) {
     const lastYear = lastTitleYear.get(owner);
-    const seasonsPlayed = appearedInYear.get(owner)?.size ?? 0;
-
-    let drought: number;
-    let ownerNeverWon: boolean;
-    if (lastYear === undefined) {
-      drought = seasonsPlayed;
-      ownerNeverWon = true;
-    } else {
-      drought = latestYear - lastYear;
-      ownerNeverWon = false;
-    }
-
+    const drought =
+      lastYear === undefined ? years.size : [...years].filter((y) => y > lastYear).length;
     if (drought <= 0) continue;
-    entries.push({ owner, drought, neverWon: ownerNeverWon });
+    population.push({ owner, drought, neverWon: lastYear === undefined });
   }
 
-  if (entries.length === 0) return null;
+  if (population.length === 0) return null;
 
-  const longestDrought = entries.reduce((max, e) => (e.drought > max ? e.drought : max), 0);
+  const droughtStanding = resolveSuperlative({
+    population,
+    isMember: (e) => activeOwners.has(e.owner),
+    value: (e) => e.drought,
+    owner: (e) => e.owner,
+  });
+  if (!droughtStanding) return null;
+
+  const longestDrought = droughtStanding.best.drought;
   if (longestDrought < 2) return null;
 
-  const tied = entries
-    .filter((e) => e.drought === longestDrought)
+  // Every MEMBER at the member maximum, so a shared drought names everyone who
+  // holds it. `resolveSuperlative` answers which record the named owners stand
+  // in relation to; it does not enumerate co-holders inside the membership.
+  const tied = population
+    .filter((e) => activeOwners.has(e.owner) && e.drought === longestDrought)
     .sort((a, b) => a.owner.localeCompare(b.owner));
 
   if (tied.length >= TIE_SUPPRESSION_THRESHOLD) return null;
@@ -151,48 +166,58 @@ function deriveDroughtInsight(
   const allNeverWon = tied.every((e) => e.neverWon);
   const ownerNames = tied.map((e) => e.owner);
   const nameList = formatOwnerList(ownerNames);
-
-  // INSIGHTS-033 — every claim below is measured over `activeOwners`, so
-  // "active" and "the league" are true exactly when membership is known. In the
-  // offseason the set is last season's roster, which names an owner who is not
-  // coming back and omits one who sat a season out — so the same sentence
-  // asserts participation the data cannot support. The COUNT is correct in
-  // every state; only the participation clause is gated.
   const droughtKnown = membershipIsKnown(membersSource);
+
+  const holders = droughtStanding.recordHolders;
+  const holdsRecord = holders.length === 0;
+  const recordText = formatOwnerList(holders.map((h) => `${h.owner}'s ${h.value} seasons`));
 
   // Hook: never_won if every tied owner has no title; otherwise streak_extended.
   const hook: NewsHook = allNeverWon ? 'never_won' : 'streak_extended';
 
-  let description: string;
-  if (hook === 'never_won') {
-    if (tied.length === 1) {
-      description = droughtKnown
-        ? `${nameList} has never won a title in ${longestDrought} seasons — the longest active drought in the league.`
-        : `${nameList} has never won a title in ${longestDrought} seasons.`;
-    } else {
-      description = `${nameList} have never won a title in ${longestDrought} seasons.`;
-    }
-  } else if (tied.length === 1) {
-    description = droughtKnown
-      ? `${nameList} hasn't won a title in ${longestDrought} seasons — still waiting for another ring.`
-      : // NOT "last won a title N seasons ago", which INSIGHTS-023 wrote and
-        // caught in review: `longestDrought` counts from the newest ARCHIVE
-        // year, so in preseason 2026 an owner who last won in 2022 gets 3 and a
-        // reader counting back from today lands on 2023. The span phrasing is
-        // correct in every lifecycle.
-        `${nameList} has gone ${longestDrought} seasons without a title.`;
-  } else {
-    description = `${nameList} haven't won a title in ${longestDrought} seasons.`;
-  }
+  // The FACT, with no superlative in it. Every claim about rank is appended
+  // below, so no branch can quietly widen the sentence — which is how "the
+  // longest active drought in the league" survived a membership gate that only
+  // touched the word "active".
+  const plural = tied.length > 1;
+  const fact = allNeverWon
+    ? `${nameList} ${plural ? 'have' : 'has'} never won a title in ${longestDrought} seasons`
+    : `${nameList} ${plural ? "haven't" : "hasn't"} won a title in ${longestDrought} seasons`;
+
+  // OWNER RULING (2026-08-19): say both, active first. The active standing is
+  // stated when membership is known AND someone else holds the record; when the
+  // named owners hold it outright there is nothing to compare against.
+  // The voice survives the gate. "Still waiting for another ring" implies the
+  // owner is playing and chasing one, so it is licensed only when membership is
+  // known — but dropping it entirely, as the first version of this rewrite did,
+  // trades a false claim for a flat one when the claim is true.
+  const ring = droughtKnown && !allNeverWon && !plural ? ' Still waiting for another ring.' : '';
+  const description = holdsRecord
+    ? droughtKnown
+      ? `${fact} — the longest active drought in the league.${ring}`
+      : `${fact} — the longest title drought on record.`
+    : droughtStanding.standing === 'shares'
+      ? `${fact}, level with ${recordText}.`
+      : droughtKnown
+        ? `${fact} — the longest among active owners. ${recordText} ${holderVerb(holders, 'is', 'are')} the longest on record.`
+        : `${fact}; ${recordText} ${holderVerb(holders, 'is', 'are')} the longest on record.`;
+
+  // The TITLE carries the same partition. It renders one line above the body, so
+  // a constant here re-asserts whatever the body just qualified — both reviewers
+  // found that in INSIGHTS-023, and the first INSIGHTS-033 round left "Longest"
+  // in place while removing only "active", which WIDENED a member-only claim to
+  // a league-wide one.
+  const noun = plural ? 'droughts' : 'drought';
+  const title = !holdsRecord
+    ? `Title ${noun}`
+    : droughtKnown
+      ? `Longest active title ${noun}`
+      : `Longest title ${noun}`;
 
   return toInsight({
     id: `historical-drought-${ownerNames.map(ownerSlug).join('-')}`,
     type: 'drought',
-    // The TITLE follows membership too. It renders directly above the
-    // description, so a constant "Longest ACTIVE title drought" puts the
-    // participation claim back on screen one line above a body that just
-    // dropped it — which is exactly what both reviewers found in INSIGHTS-023.
-    title: droughtKnown ? 'Longest active title drought' : 'Longest title drought',
+    title,
     description,
     owner: ownerNames[0],
     relatedOwners: ownerNames.slice(1),
@@ -349,76 +374,31 @@ function deriveDynastyInsight(
 function deriveMostImprovedInsight(
   archives: SeasonArchive[],
   activeOwners: ReadonlySet<string>,
-  lifecycles: LifecycleState[]
+  lifecycles: LifecycleState[],
+  membersSource: LeagueMembersSource
 ): Insight | null {
   if (archives.length < 2) return null;
   const sorted = sortedArchives(archives);
   const prev = sorted[sorted.length - 2]!;
   const curr = sorted[sorted.length - 1]!;
 
-  type ImprovementEntry = { owner: string; improvement: number; prevPos: number; currPos: number };
-  const entries: ImprovementEntry[] = [];
-
-  for (const row of curr.finalStandings) {
-    if (!isEligibleOwner(row.owner)) continue;
-    if (!activeOwners.has(row.owner)) continue;
-    const prevPos = positionOf(prev, row.owner);
-    const currPos = positionOf(curr, row.owner);
-    if (prevPos === null || currPos === null) continue;
-    const improvement = prevPos - currPos;
-    if (improvement < MIN_IMPROVEMENT_POSITIONS) continue;
-    entries.push({ owner: row.owner, improvement, prevPos, currPos });
-  }
-
-  if (entries.length === 0) return null;
-
-  const bestImprovement = entries.reduce(
-    (max, e) => (e.improvement > max ? e.improvement : max),
-    0
-  );
-  if (bestImprovement < MIN_IMPROVEMENT_POSITIONS) return null;
-
-  const tied = entries
-    .filter((e) => e.improvement === bestImprovement)
-    .sort((a, b) => a.owner.localeCompare(b.owner));
-
-  if (tied.length >= TIE_SUPPRESSION_THRESHOLD) return null;
-
-  const priority = Math.min(
-    IMPROVEMENT_PRIORITY_CAP,
-    IMPROVEMENT_BASE_PRIORITY + IMPROVEMENT_PER_POSITION_BONUS * bestImprovement
-  );
-
-  const ownerNames = tied.map((e) => e.owner);
-  const nameList = formatOwnerList(ownerNames);
-
-  // INSIGHTS-033 — "the biggest improvement of the season" was measured over
-  // MEMBERS only, because the loop that builds `entries` filters on
-  // `activeOwners`. The all-time comparison below already spans everyone and is
-  // untouched; this is the SEASON claim, which had no such population. A
-  // departed owner who climbed further in the same season took the title and
-  // was never considered.
-  type SeasonClimb = { owner: string; improvement: number };
-  const seasonClimbs: SeasonClimb[] = [];
-  for (const row of curr.finalStandings) {
-    if (!isEligibleOwner(row.owner)) continue;
-    const prevPos = positionOf(prev, row.owner);
-    const currPos = positionOf(curr, row.owner);
-    if (prevPos === null || currPos === null) continue;
-    seasonClimbs.push({ owner: row.owner, improvement: prevPos - currPos });
-  }
-  const seasonStanding = resolveSuperlative({
-    population: seasonClimbs,
-    isMember: (c) => activeOwners.has(c.owner),
-    value: (c) => c.improvement,
-    owner: (c) => c.owner,
-  });
-  const seasonHolders = seasonStanding?.recordHolders ?? [];
-  const holdsSeasonClimb = seasonHolders.length === 0;
-  const seasonHolderNames = formatHolderNames(seasonHolders);
-
-  // Determine if this is the largest single-year leap in all recorded history.
-  let allTimeBest = bestImprovement;
+  // INSIGHTS-033 round 2 — ONE population of every climb ever recorded, sliced
+  // two ways. The first round added a season population and left the all-time
+  // claim alone, and both reviewers found the same consequence: the strongest
+  // sentence this generator can produce ("the biggest single-season climb in
+  // league history") was still reached through `bestImprovement >= allTimeBest`
+  // where `allTimeBest` was SEEDED FROM THE MEMBER MAXIMUM, so a departed owner
+  // with an equal — or, through the seed, any — climb could not displace it.
+  // `docs/next-tasks.md` item 33 recorded that seed as a defect before either
+  // review ran.
+  type Climb = {
+    owner: string;
+    improvement: number;
+    year: number;
+    prevPos: number;
+    currPos: number;
+  };
+  const allClimbs: Climb[] = [];
   for (let i = 1; i < sorted.length; i += 1) {
     const a = sorted[i - 1]!;
     const b = sorted[i]!;
@@ -426,33 +406,113 @@ function deriveMostImprovedInsight(
       if (!isEligibleOwner(row.owner)) continue;
       const prevPos = positionOf(a, row.owner);
       const currPos = positionOf(b, row.owner);
-      if (prevPos == null || currPos == null) continue;
-      const leap = prevPos - currPos;
-      if (leap > allTimeBest) allTimeBest = leap;
+      if (prevPos === null || currPos === null) continue;
+      allClimbs.push({
+        owner: row.owner,
+        improvement: prevPos - currPos,
+        year: b.year,
+        prevPos,
+        currPos,
+      });
     }
   }
-  const hook: NewsHook = bestImprovement >= allTimeBest ? 'new_record' : 'streak_extended';
 
+  const seasonClimbs = allClimbs.filter((c) => c.year === curr.year);
+  const qualifying = seasonClimbs.filter(
+    (c) => activeOwners.has(c.owner) && c.improvement >= MIN_IMPROVEMENT_POSITIONS
+  );
+  if (qualifying.length === 0) return null;
+
+  const bestImprovement = qualifying.reduce(
+    (max, c) => (c.improvement > max ? c.improvement : max),
+    0
+  );
+  const tied = qualifying
+    .filter((c) => c.improvement === bestImprovement)
+    .sort((a, b) => a.owner.localeCompare(b.owner));
+  if (tied.length >= TIE_SUPPRESSION_THRESHOLD) return null;
+
+  const priority = Math.min(
+    IMPROVEMENT_PRIORITY_CAP,
+    IMPROVEMENT_BASE_PRIORITY + IMPROVEMENT_PER_POSITION_BONUS * bestImprovement
+  );
+
+  const ownerNames = tied.map((c) => c.owner);
+  const nameList = formatOwnerList(ownerNames);
+  const improvementKnown = membershipIsKnown(membersSource);
+
+  const seasonStanding = resolveSuperlative({
+    population: seasonClimbs,
+    isMember: (c) => activeOwners.has(c.owner),
+    value: (c) => c.improvement,
+    owner: (c) => c.owner,
+  });
+  const allTimeStanding = resolveSuperlative({
+    population: allClimbs,
+    isMember: (c) => activeOwners.has(c.owner),
+    value: (c) => c.improvement,
+    owner: (c) => c.owner,
+  });
+
+  // Each holder's climb is its own phrase. Sharing one noun across the list
+  // produced "Dave and Erin's 5-place climb WERE the season's biggest" — a
+  // plural verb on a singular noun, which `lopsided` avoids by wrapping each
+  // holder's series the same way.
+  const climbPhrases = (holders: readonly { owner: string; value: number }[]): string =>
+    formatOwnerList(holders.map((h) => `${h.owner}'s ${h.value}-place climb`));
+
+  const seasonHolders = seasonStanding?.recordHolders ?? [];
+  const allTimeHolders = allTimeStanding?.recordHolders ?? [];
+  const holdsSeason = seasonStanding?.standing === 'holds';
+  const sharesSeason = seasonStanding?.standing === 'shares';
+  const holdsAllTime = allTimeStanding?.standing === 'holds';
+  const sharesAllTime = allTimeStanding?.standing === 'shares';
+
+  const only = tied[0]!;
+  const climb =
+    tied.length === 1
+      ? `${nameList} jumped from ${only.prevPos} to ${only.currPos} between ${prev.year} and ${curr.year}`
+      : `${nameList} each jumped ${bestImprovement} spots between ${prev.year} and ${curr.year}`;
+
+  // THREE standings, and the copy names the strongest one that is actually true:
+  // the all-time record, then the season's, then the member standing with the
+  // holder cited. The first round asserted the season claim from a `holds`-only
+  // boolean, so a departed owner who TIED the named member was reported as
+  // having beaten them — "Alice jumped 5 places; Dave's 5-place climb was the
+  // season's biggest", which denies its own first clause.
   let description: string;
-  if (hook === 'new_record') {
-    description =
-      tied.length === 1
-        ? `${nameList} jumped ${bestImprovement} spots — the biggest single-season climb in league history.`
-        : `${nameList} each jumped ${bestImprovement} spots — tied for the biggest climb in league history.`;
-  } else if (tied.length === 1) {
-    const only = tied[0]!;
-    const climb = `${nameList} jumped from ${only.prevPos} to ${only.currPos} between ${prev.year} and ${curr.year}`;
-    description = holdsSeasonClimb
-      ? `${climb} — the biggest improvement of the season.`
-      : `${climb}; ${seasonHolderNames}'s ${seasonHolders[0]!.value}-place climb ${holderVerb(seasonHolders, 'was', 'were')} the season's biggest.`;
+  if (holdsAllTime) {
+    description = `${climb} — the biggest single-season climb in league history.`;
+  } else if (sharesAllTime) {
+    description = `${climb}, level with ${climbPhrases(allTimeHolders)} as the biggest in league history.`;
+  } else if (holdsSeason) {
+    description = `${climb} — the biggest improvement of the season.`;
+  } else if (sharesSeason) {
+    description = `${climb}, level with ${climbPhrases(seasonHolders)} as the season's biggest.`;
+  } else if (improvementKnown) {
+    // Active first, then the record — the owner's ruling for the whole class.
+    description = `${climb} — the biggest of any active owner. ${climbPhrases(seasonHolders)} ${holderVerb(seasonHolders, 'was', 'were')} the season's biggest.`;
   } else {
-    description = `${nameList} each jumped ${bestImprovement} positions between ${prev.year} and ${curr.year}.`;
+    description = `${climb}; ${climbPhrases(seasonHolders)} ${holderVerb(seasonHolders, 'was', 'were')} the season's biggest.`;
   }
+
+  const hook: NewsHook = holdsAllTime || sharesAllTime ? 'new_record' : 'streak_extended';
 
   return toInsight({
     id: `historical-improvement-${ownerNames.map(ownerSlug).join('-')}-${curr.year}`,
     type: 'improvement',
-    title: 'Biggest year-over-year leap',
+    // "Biggest" only when the body claims a biggest. Codex found the title
+    // asserting the leap was the biggest directly above a body naming a larger
+    // one.
+    // "Biggest" only when the member holds or shares a LEAGUE-WIDE mark. The
+    // active-owner branch below states a scoped biggest and cites a larger
+    // climb, so an unscoped headline there contradicts its own body — which is
+    // the exact split Codex found, and which I reintroduced one round later by
+    // letting that branch back into this condition.
+    title:
+      holdsAllTime || sharesAllTime || holdsSeason || sharesSeason
+        ? 'Biggest year-over-year leap'
+        : 'Year-over-year leap',
     description,
     owner: ownerNames[0],
     relatedOwners: ownerNames.slice(1),
@@ -593,7 +653,12 @@ export const historicalGenerator: InsightGenerator = {
     );
     if (dynasty) insights.push(dynasty);
 
-    const improvement = deriveMostImprovedInsight(archives, activeOwners, HISTORICAL_LIFECYCLES);
+    const improvement = deriveMostImprovedInsight(
+      archives,
+      activeOwners,
+      HISTORICAL_LIFECYCLES,
+      context.leagueMembersSource
+    );
     if (improvement) insights.push(improvement);
 
     const consistency = deriveConsistencyInsight(

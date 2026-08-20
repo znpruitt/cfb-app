@@ -286,46 +286,18 @@ function deriveEvenRivalryInsight(
   lifecycles: LifecycleState[],
   membersSource: LeagueMembersSource
 ): Insight | null {
-  let bestKey: string | null = null;
-  let bestMeetings = 0;
-  let bestOwnerA: string | null = null;
-  let bestOwnerB: string | null = null;
-  let bestWinsA = 0;
-  let bestWinsB = 0;
-
-  for (const [key, results] of pairs) {
-    if (results.length < MIN_EVEN_MEETINGS) continue;
-    const [ownerA, ownerB] = pairOwners(key);
-    if (!activeOwners.has(ownerA) || !activeOwners.has(ownerB)) continue;
-    const wins = countWins(results);
-    const winsA = wins.get(ownerA) ?? 0;
-    const winsB = wins.get(ownerB) ?? 0;
-    const diff = Math.abs(winsA - winsB);
-    if (diff > EVEN_MAX_WIN_DIFF) continue;
-    if (results.length <= bestMeetings) continue;
-    bestMeetings = results.length;
-    bestKey = key;
-    bestOwnerA = ownerA;
-    bestOwnerB = ownerB;
-    bestWinsA = winsA;
-    bestWinsB = winsB;
-  }
-
-  if (!bestKey || !bestOwnerA || !bestOwnerB) return null;
-
-  // INSIGHTS-033 — the same conversion INSIGHTS-030 applied to `lopsided`, and
-  // the site it missed. The search loop above skips any pair holding a
-  // non-member, so "the closest rivalry in the league" was measured over member
-  // pairs only: a departed pair level across ten meetings beat it and was never
-  // considered. INSIGHTS-023 wrote an unknown-membership variant that said "the
-  // closest in league history" instead, which is the same defect stated WIDER,
-  // and reverted the generator rather than ship it.
+  // INSIGHTS-033 — "the closest rivalry in the league" was wrong twice over, and
+  // the first remediation round fixed only one half. The population was member
+  // pairs only, so a departed pair level across more meetings was never
+  // considered; and the SELECTION ranked by meeting count alone, so a 4-3 pair
+  // that had met seven times outranked a dead-even 3-3 pair that had met six.
+  // Fixing the population while keeping the ranking produced the sharper
+  // nonsense of naming the 4-3 pair "the closest on record" beside the 3-3 one.
   //
-  // Pair-shaped, so the record holder is two names and a scoreline; the entry
-  // carries what the citation needs. `even` is defined here exactly as the
-  // search defines it — at least `MIN_EVEN_MEETINGS` meetings within
-  // `EVEN_MAX_WIN_DIFF` — and ranked by meetings, so a pair that has stayed
-  // level longer is the closer rivalry.
+  // Closeness is the win DIFFERENCE first and the meeting count only as a
+  // tiebreaker: a pair that has stayed dead level is closer than one a game
+  // apart, however long they have played. Both reviewers found this, and
+  // `docs/next-tasks.md` item 33 had recorded it before either did.
   type EvenPair = { a: string; b: string; meetings: number; winsA: number; winsB: number };
   const qualifying: EvenPair[] = [];
   for (const [key, results] of pairs) {
@@ -338,64 +310,87 @@ function deriveEvenRivalryInsight(
     qualifying.push({ a, b, meetings: results.length, winsA, winsB });
   }
 
+  // Lower is closer. The win difference dominates; meetings break ties by
+  // subtracting, so more meetings sorts earlier within one difference.
+  // `MEETINGS_BOUND` exceeds any real series — `EVEN_MAX_WIN_DIFF` is 1, so the
+  // two rungs are 0 and 1,000 and a 999-meeting rivalry would be needed to cross
+  // between them.
+  const MEETINGS_BOUND = 1_000;
+  const closeness = (p: EvenPair): number =>
+    Math.abs(p.winsA - p.winsB) * MEETINGS_BOUND - p.meetings;
+
+  // The named MEMBER pair is taken from the resolver rather than found by a
+  // second loop. The hand-rolled search this replaces ranked by meetings while
+  // the resolver ranked by closeness, so the pair named in the scoreline and the
+  // pair the standing described could be different pairs — the exact drift
+  // `superlative.ts` documents from the first INSIGHTS-030 round.
   const evenStanding = resolveSuperlative({
     population: qualifying,
     isMember: (p) => activeOwners.has(p.a) && activeOwners.has(p.b),
     value: (p) => p.meetings,
     owner: (p) => p.a,
+    direction: 'min',
+    compareOn: closeness,
   });
-  const evenKnown = membershipIsKnown(membersSource);
+  if (!evenStanding) return null;
 
+  const best = evenStanding.best;
   // Formatted from `entry`, never `owner`. The pair-shaped warning in
-  // `superlative.ts` applies here exactly as it does to `lopsided`: a
-  // non-member ENTRY can carry a current member in its `owner` slot, so
-  // `formatHolderNames` would name an active owner as the departed record
-  // holder.
-  const holderPairs = evenStanding?.recordHolders.map((h) => h.entry) ?? [];
-  const holders = evenStanding?.recordHolders ?? [];
+  // `superlative.ts` applies here exactly as it does to `lopsided`: a non-member
+  // ENTRY can carry a current member in its `owner` slot.
+  const holderPairs = evenStanding.recordHolders.map((h) => h.entry);
+  const holders = evenStanding.recordHolders;
   const recordText = formatOwnerList(
     holderPairs.map((p) => `${p.a} and ${p.b} at ${p.winsA}–${p.winsB} over ${p.meetings} meetings`)
   );
   const holdsRecord = holderPairs.length === 0;
-  const sharesRecord = evenStanding?.standing === 'shares';
 
-  const winDiff = Math.abs(bestWinsA - bestWinsB);
+  const winDiff = Math.abs(best.winsA - best.winsB);
   const scoreline =
     winDiff === 0
-      ? `${bestOwnerA} and ${bestOwnerB} are tied at ${bestWinsA}–${bestWinsB} across ${bestMeetings} meetings`
+      ? `${best.a} and ${best.b} are tied at ${best.winsA}–${best.winsB} across ${best.meetings} meetings`
       : (() => {
-          const leader = bestWinsA > bestWinsB ? bestOwnerA : bestOwnerB;
-          const trailer = bestWinsA > bestWinsB ? bestOwnerB : bestOwnerA;
-          const leaderWins = Math.max(bestWinsA, bestWinsB);
-          const trailerWins = Math.min(bestWinsA, bestWinsB);
-          return `${leader} leads ${trailer} ${leaderWins}–${trailerWins} across ${bestMeetings} meetings`;
+          const leader = best.winsA > best.winsB ? best.a : best.b;
+          const trailer = best.winsA > best.winsB ? best.b : best.a;
+          return `${leader} leads ${trailer} ${Math.max(best.winsA, best.winsB)}–${Math.min(
+            best.winsA,
+            best.winsB
+          )} across ${best.meetings} meetings`;
         })();
 
-  // Three facts, kept apart: whether this pair holds the league record (a
-  // measured fact about every pair), whether membership is known (whether the
-  // copy may call anyone active), and the scoreline itself (always true).
+  // OWNER RULING (2026-08-19): say BOTH, active first. When a member pair is the
+  // closest among people currently playing and a departed pair holds the
+  // all-time mark, the card states the member standing and then cites the
+  // record — it neither hides the departed pair nor lets them take the card.
+  // This is the shape `lopsided` (above), `dynasty`, `career_points_leader` and
+  // `greatest_season` already use; the ruling makes it the class's shape rather
+  // than four independent choices.
+  //
+  // The `holds` branch needs no active framing: holding it outright is the wider
+  // claim, and the title says so on the same line. `/code-review` found the
+  // first round's version asserting BOTH — a league-wide title over an
+  // active-owners body — which is the title/body split this slice exists to
+  // close.
+  const evenKnown = membershipIsKnown(membersSource);
   const description = holdsRecord
-    ? evenKnown
-      ? `${scoreline} — the closest rivalry among active owners.`
-      : `${scoreline} — the closest rivalry on record.`
-    : sharesRecord
+    ? `${scoreline} — the closest rivalry on record.`
+    : evenStanding.standing === 'shares'
       ? `${scoreline}, level with ${recordText}.`
-      : `${scoreline}; ${recordText} ${holderVerb(holders, 'is', 'are')} the closest on record.`;
+      : evenKnown
+        ? `${scoreline} — the closest rivalry among active owners. ${recordText} ${holderVerb(holders, 'is', 'are')} the closest on record.`
+        : `${scoreline}; ${recordText} ${holderVerb(holders, 'is', 'are')} the closest on record.`;
 
   return toInsight({
-    id: `rivalry-even-${ownerSlug(bestOwnerA)}-${ownerSlug(bestOwnerB)}`,
+    id: `rivalry-even-${ownerSlug(best.a)}-${ownerSlug(best.b)}`,
     type: 'even_rivalry',
-    // "Most evenly matched" is a claim about the whole league, so it follows the
-    // record rather than membership — the title renders one line above the body
-    // and was the half both reviewers caught INSIGHTS-023 leaving behind.
     title: holdsRecord ? 'Most evenly matched rivalry' : 'An even rivalry',
     description,
-    owner: bestOwnerA,
-    relatedOwners: [bestOwnerB],
+    owner: best.a,
+    relatedOwners: [best.b],
     priorityScore: EVEN_PRIORITY,
     lifecycle: lifecycles,
     newsHook: 'streak_extended',
-    statValue: bestMeetings,
+    statValue: best.meetings,
   });
 }
 

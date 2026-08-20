@@ -44,6 +44,8 @@ const TEAM_BY_OWNER: Record<string, string> = {
   Dave: 'Georgia',
   Erin: 'Texas',
   Frank: 'Oregon',
+  Gina: 'Michigan',
+  Zed: 'Penn State',
 };
 
 type Meeting = { game: Record<string, unknown>; key: string; score: Record<string, unknown> };
@@ -67,8 +69,8 @@ function meeting(year: number, winner: string, loser: string): Meeting {
   };
 }
 
-const POINTS_BY_RANK = [900, 800, 700, 600, 500, 400];
-const WINS_BY_RANK = [80, 75, 70, 65, 60, 55];
+const POINTS_BY_RANK = [900, 800, 700, 600, 500, 400, 300];
+const WINS_BY_RANK = [80, 75, 70, 65, 60, 55, 50];
 
 async function seedArchive(year: number, order: string[], meetings: Meeting[]): Promise<void> {
   const csv = 'team,owner\n' + order.map((o) => `${TEAM_BY_OWNER[o]},${o}`).join('\n');
@@ -141,10 +143,9 @@ async function seedDominanceLeague(): Promise<void> {
   }
 }
 
-function find(
-  insights: { type: string; title: string; description: string }[],
-  type: string
-): { type: string; title: string; description: string } {
+type Card = { type: string; title: string; description: string; statValue?: number };
+
+function find(insights: Card[], type: string): Card {
   const hit = insights.find((i) => i.type === type);
   assert.ok(hit, `the fixture must produce a ${type} insight for this test to mean anything`);
   return hit;
@@ -229,7 +230,10 @@ test('drought: with membership CONFIRMED, the active wording is licensed', async
 
   const drought = find(generateRawInsights(context), 'drought');
   assert.equal(drought.title, 'Longest active title drought');
-  assert.match(drought.description, /still waiting for another ring/);
+  assert.match(
+    drought.description,
+    /the longest active drought in the league\. Still waiting for another ring\.$/
+  );
 });
 
 test('drought: with membership UNKNOWN, neither the title nor the body claims a runner', async () => {
@@ -248,11 +252,75 @@ test('drought: with membership UNKNOWN, neither the title nor the body claims a 
     /\bactive\b|still waiting|the longest .* in the league/i,
     `unlicensed participation claim: "${drought.title}" / ${drought.description}`
   );
-  // The SPAN survives, and it is stated as a span rather than "N seasons ago" —
-  // `longestDrought` counts from the newest ARCHIVE year, so a reader counting
-  // back from today would land a year early. INSIGHTS-023 wrote that phrasing
-  // and caught it in review.
-  assert.match(drought.description, /has gone 4 seasons without a title\.$/);
+  // The SPAN survives, and the record claim with it — Alice genuinely holds the
+  // longest drought across the whole archive population here, so "on record" is
+  // measured rather than assumed. What is gone is the word "active" and the
+  // "still waiting for another ring" clause, both of which assert she is playing.
+  assert.match(
+    drought.description,
+    /hasn't won a title in 4 seasons — the longest title drought on record\.$/
+  );
+});
+
+test('drought: a season SAT OUT is not counted against the owner', async () => {
+  // INSIGHTS-033 changed the count from calendar years to seasons PLAYED since
+  // the last title. Alice won 2021, played 2022, sat out 2023 and 2024, and came
+  // back in 2025 — two seasons of drought, not four. Calendar counting charged
+  // her for two seasons she was not in, and the owner confirmed (2026-08-19)
+  // that owners here do sit a year out and return.
+  //
+  // It is also what makes the record population sound: measured in calendar
+  // years, an owner who left years ago keeps accruing drought forever and holds
+  // the record by default.
+  await seedLeague();
+  const ORDER: Record<number, string[]> = {
+    2021: ['Alice', 'Bob', 'Carol'],
+    2022: ['Bob', 'Carol', 'Alice'],
+    2023: ['Carol', 'Bob'],
+    2024: ['Bob', 'Carol'],
+    2025: ['Carol', 'Bob', 'Alice'],
+  };
+  for (const [yearText, order] of Object.entries(ORDER)) {
+    await seedArchive(Number(yearText), order, []);
+  }
+  const context = await contextFor(['Alice', 'Bob', 'Carol']);
+
+  const drought = find(generateRawInsights(context), 'drought');
+  assert.match(
+    drought.description,
+    /Alice hasn't won a title in 2 seasons/,
+    `the two seasons Alice sat out were counted against her: ${drought.description}`
+  );
+  assert.equal(drought.statValue, 2);
+});
+
+test('drought: the longest is measured over EVERY owner, not just members', async () => {
+  // Zed plays all five seasons and never wins — a five-season drought — while
+  // Alice, the longest-suffering MEMBER, last won in 2021 and has gone four.
+  // Pre-conversion the entry loop iterated `activeOwners`, so Zed was invisible
+  // and the card called Alice's the longest, under a title that said so twice.
+  await seedLeague();
+  const ORDER: Record<number, string[]> = {
+    2021: ['Alice', 'Bob', 'Carol', 'Zed'],
+    2022: ['Bob', 'Carol', 'Zed', 'Alice'],
+    2023: ['Carol', 'Bob', 'Zed', 'Alice'],
+    2024: ['Bob', 'Carol', 'Zed', 'Alice'],
+    2025: ['Carol', 'Bob', 'Zed', 'Alice'],
+  };
+  for (const [yearText, order] of Object.entries(ORDER)) {
+    await seedArchive(Number(yearText), order, []);
+  }
+  const context = await contextFor(['Alice', 'Bob', 'Carol']);
+  assert.ok(!context.leagueMembers.has('Zed'), 'Zed must be outside the membership');
+
+  const drought = find(generateRawInsights(context), 'drought');
+  // The TITLE drops "Longest" entirely — it is the half the first round left in
+  // place while removing only "active", which WIDENED a member-only claim into
+  // a league-wide one.
+  assert.equal(drought.title, 'Title drought');
+  // OWNER RULING: say both, active first.
+  assert.match(drought.description, /the longest among active owners\./);
+  assert.match(drought.description, /Zed's 5 seasons is the longest on record\.$/);
 });
 
 // ---------------------------------------------------------------------------
@@ -260,49 +328,78 @@ test('drought: with membership UNKNOWN, neither the title nor the body claims a 
 // ---------------------------------------------------------------------------
 
 /**
- * Seven seasons. Dave and Carol meet every year and finish 4–3; Alice and Bob
- * meet six times and finish 3–3. Both pairs are "even" (`EVEN_MAX_WIN_DIFF` is
- * 1), and the record — most meetings — belongs to the pair holding a DEPARTED
- * owner, which the member-only search could never see.
+ * Dave plays 2018–2023 and is gone by 2024, so he is outside the membership in
+ * BOTH states — the confirmed list and the previous-roster fallback (2025) each
+ * exclude him. The member set is therefore identical either way and only the
+ * SOURCE differs, which isolates the membership gate from every other variable.
+ *
+ * Carol and Dave finish 3–3 over six meetings; Alice and Bob finish 4–3 over
+ * seven. The departed pair is CLOSER (dead level) while the member pair has met
+ * more often — the exact shape that ranking by meeting count got backwards, and
+ * that the first round's fixture could not produce because it ranked the same
+ * wrong way.
  */
 async function seedEvenRivalryLeague(): Promise<void> {
   await seedLeague();
-  for (let year = 2019; year <= 2025; year += 1) {
-    const order =
-      year % 2 === 0 ? ['Dave', 'Alice', 'Bob', 'Carol'] : ['Alice', 'Dave', 'Carol', 'Bob'];
-    const meetings: Meeting[] = [
-      // Dave–Carol, all seven years: Dave takes four, Carol three.
-      year <= 2022 ? meeting(year, 'Dave', 'Carol') : meeting(year, 'Carol', 'Dave'),
-    ];
-    // Alice–Bob, six years: three apiece.
-    if (year >= 2020) {
-      meetings.push(year <= 2022 ? meeting(year, 'Alice', 'Bob') : meeting(year, 'Bob', 'Alice'));
+  for (let year = 2018; year <= 2025; year += 1) {
+    const withDave = year <= 2023;
+    const order = withDave ? ['Alice', 'Bob', 'Carol', 'Dave'] : ['Alice', 'Bob', 'Carol'];
+    const meetings: Meeting[] = [];
+    // Carol–Dave, six meetings, three apiece.
+    if (withDave) {
+      meetings.push(year <= 2020 ? meeting(year, 'Carol', 'Dave') : meeting(year, 'Dave', 'Carol'));
+    }
+    // Alice–Bob, seven meetings, Alice four.
+    if (year <= 2024) {
+      meetings.push(year <= 2021 ? meeting(year, 'Alice', 'Bob') : meeting(year, 'Bob', 'Alice'));
     }
     await seedArchive(year, order, meetings);
   }
 }
 
-test('even rivalry: the closest series is measured over EVERY pair, not just members', async () => {
+test('even rivalry: CLOSEST is the win difference, not the meeting count', async () => {
   await seedEvenRivalryLeague();
   const context = await contextFor(['Alice', 'Bob', 'Carol']);
   assert.equal(context.leagueMembersSource, 'confirmed');
   assert.ok(!context.leagueMembers.has('Dave'), 'and Dave must be outside the membership');
 
   const even = find(generateRawInsights(context), 'even_rivalry');
-  // Membership is KNOWN here, so this is not the participation gate — it is the
-  // population. Pre-fix the copy read "the closest rivalry in the league" about
-  // Alice and Bob while Dave and Carol had stayed level a season longer.
-  assert.doesNotMatch(
-    `${even.title} ${even.description}`,
-    /closest rivalry|Most evenly matched/i,
-    `a member pair claimed the record while a departed pair held it: ${even.description}`
-  );
+  // Pre-fix this ranked by meetings, so the member pair at 4–3 over seven
+  // outranked a dead-even pair over six and was called "the closest rivalry in
+  // the league". Both reviewers found it; item 33 recorded it first.
+  assert.equal(even.title, 'An even rivalry');
   assert.match(
     even.description,
-    /Carol and Dave at 3–4 over 7 meetings/,
-    'the real record pair is named, with its scoreline'
+    /Carol and Dave at 3–3 over 6 meetings is the closest on record\.$/,
+    `the closer pair must hold the record: ${even.description}`
   );
-  assert.equal(even.title, 'An even rivalry');
+  // OWNER RULING: say both, active first. The member pair keeps a standing of
+  // its own rather than being reduced to a footnote on someone else's record.
+  assert.match(even.description, /the closest rivalry among active owners\./);
+});
+
+test('even rivalry: with membership UNKNOWN, the active standing is withheld', async () => {
+  // The other direction of the same gate. `/code-review` mutation-proved the
+  // first round's `evenKnown` was dead — flipping it either way left all 131
+  // tests green — because the fixture only reached a branch that never read it.
+  // The member SET is identical here; only the source differs.
+  await seedEvenRivalryLeague();
+  const context = await contextFor();
+  assert.equal(context.leagueMembersSource, 'previous-roster');
+  assert.ok(!context.leagueMembers.has('Dave'), 'the member set must be unchanged');
+
+  const even = find(generateRawInsights(context), 'even_rivalry');
+  assert.doesNotMatch(
+    `${even.title} ${even.description}`,
+    /active owners?|closest rivalry in the league/i,
+    `unlicensed participation claim: ${even.description}`
+  );
+  // The record citation still lands — withholding the standing must not
+  // withhold the fact.
+  assert.match(
+    even.description,
+    /Carol and Dave at 3–3 over 6 meetings is the closest on record\.$/
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -337,4 +434,58 @@ test("biggest leap: a member does not take the season's climb from a departed ow
     `a member took the season's biggest climb while a departed owner made a larger one: ${improvement.description}`
   );
   assert.match(improvement.description, /Dave's 5-place climb was the season's biggest/);
+});
+
+test('biggest leap: a departed owner who TIES is level, not beaten', async () => {
+  // `/code-review` finding 1 and the queue's item-33 note, together: the first
+  // round collapsed `shares` into `trails` with `seasonHolders.length === 0`,
+  // and reached its strongest sentence through an all-time comparison SEEDED
+  // FROM THE MEMBER MAXIMUM — so a departed owner with an equal climb could not
+  // displace it. Two archives only, so this season's climb is also the all-time
+  // one, and Alice and Dave both climb five.
+  await seedLeague();
+  await seedArchive(2024, ['Bob', 'Carol', 'Erin', 'Frank', 'Alice', 'Dave'], []);
+  await seedArchive(2025, ['Alice', 'Dave', 'Bob', 'Carol', 'Erin', 'Frank'], []);
+  const context = await contextFor(['Alice', 'Bob', 'Carol', 'Erin', 'Frank']);
+  assert.ok(!context.leagueMembers.has('Dave'));
+
+  const improvement = find(generateRawInsights(context), 'improvement');
+  assert.doesNotMatch(
+    improvement.description,
+    /— the biggest single-season climb in league history\./,
+    `an outright record claim over a tie: ${improvement.description}`
+  );
+  assert.match(
+    improvement.description,
+    /level with Dave's 4-place climb as the biggest in league history\.$/
+  );
+});
+
+test('biggest leap: two co-holders read as two climbs, not one plural noun', async () => {
+  // `/code-review` finding 6 and Codex's P3. `${names}'s ${n}-place climb
+  // ${were}` shares one singular noun across a list and takes a plural verb:
+  // "Dave and Erin's 5-place climb were the season's biggest."
+  // Dave and Erin each climb four places; Alice, the best member, climbs three.
+  await seedLeague();
+  await seedArchive(2024, ['Carol', 'Frank', 'Gina', 'Bob', 'Dave', 'Erin', 'Alice'], []);
+  await seedArchive(2025, ['Dave', 'Erin', 'Bob', 'Alice', 'Carol', 'Frank', 'Gina'], []);
+  const context = await contextFor(['Alice', 'Bob', 'Carol', 'Frank', 'Gina']);
+  assert.ok(!context.leagueMembers.has('Dave') && !context.leagueMembers.has('Erin'));
+
+  const improvement = find(generateRawInsights(context), 'improvement');
+  // The defect signature is an owner LIST sharing one possessive — "Dave and
+  // Erin's 4-place climb" — not the words "climb were", which the correct form
+  // legitimately contains ("…climb and Erin's 4-place climb were…"). A guard
+  // matching the correct output is a guard that has to be deleted later.
+  assert.doesNotMatch(
+    improvement.description,
+    /[A-Z]\w+ and [A-Z]\w+'s \d+-place climb/,
+    `an owner list sharing one singular noun: ${improvement.description}`
+  );
+  assert.match(
+    improvement.description,
+    /Dave's 4-place climb and Erin's 4-place climb were the season's biggest\.$/
+  );
+  // And the headline stops claiming a biggest the body denies (Codex P2).
+  assert.equal(improvement.title, 'Year-over-year leap');
 });
