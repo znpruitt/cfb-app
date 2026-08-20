@@ -29,6 +29,27 @@ of football read as fourteen.
 It also made every in-season card unreachable for the entire season: `movement`, `surge`, `race` and
 the `season_climb`/`season_slide` cards never fire, because their lifecycles are gated out.
 
+## What counts as a game (owner ruling, 2026-08-20)
+
+**A REAL game is one with both teams known.** A playoff or conference-championship
+shell — "winner of A vs winner of B" — is not a game to wait on. It becomes one
+once the season plays out and the bracket resolves, and then it gets a result
+like anything else.
+
+**A PLANNED game is a real game with a determined start date AND time.** Only a
+planned game can be said not to have happened: _a game can only "not happen" if
+it was ever planned to occur._ A bowl matchup announced without a kickoff time is
+not stuck — it is an incomplete dataset that the weekly schedule refresh will
+resolve. Until it has a result the season is genuinely not over, which is the
+correct answer rather than a defect.
+
+This replaces two guards written against the wrong premise. Earlier rounds
+excluded bracket shells from the population (which then made an all-shell week
+unable to resolve) and distrusted `startTimeTBD` as an unreliable timestamp
+(which pinned such weeks forever). Both were generalising the rare
+never-resolves case — one hurricane in six seasons — into the norm, then
+guarding against the generalisation.
+
 ## Two questions, not one
 
 | Question                   | Consumer                                              | What it means                                     |
@@ -52,10 +73,21 @@ concluded(game, score) =
   5b. startTimeTBD                        → NOT concluded, the kickoff is a placeholder
   6. now - kickoff > GAME_MAX_DURATION             ← last resort: abandoned
 
-weekPlayed(week) = the week has ≥1 NON-PLACEHOLDER game
-                   && every non-placeholder game in it is concluded
-seasonOver       = every week in the schedule is played
+weekPlayed(week) = the week has ≥1 REAL game
+                   && every real game in it is concluded
+seasonOver       = every REAL game in the season is concluded
 ```
+
+**Season-over is a question about GAMES, not weeks** (owner ruling, 2026-08-20).
+Asking it week-by-week is what let an all-shell week block a season that had
+finished, and it fused two questions that this document exists to separate.
+Week-level `played` remains, but only for the standings SERIES — which weeks have
+a usable snapshot to chart and to measure movement from. It no longer decides
+whether the season ended, which is where every failure of this kind landed.
+
+**Step 6 applies only to PLANNED games.** A real game with no determined kickoff
+has nothing to measure elapsed time against, and by the ruling above it cannot be
+said not to have happened.
 
 **Steps 4 and 5 ask the SCORE, not just the schedule.** Every one of the 22,691 cached schedule items
 carries `status: 'scheduled'`, so `game.rawStatus` never says anything — the first version of this

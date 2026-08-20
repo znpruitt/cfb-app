@@ -158,7 +158,7 @@ export type GetCanonicalStandingsInput = {
  * Bump this whenever the history shape changes in a way a warm snapshot could
  * misread.
  */
-const STANDINGS_HISTORY_SHAPE_VERSION = 'played-v1';
+const STANDINGS_HISTORY_SHAPE_VERSION = 'pending-v2';
 
 export function canonicalStandingsCacheKeyParts(
   slug: string,
@@ -506,7 +506,7 @@ async function resolveOffseason(
     }
   }
 
-  const live = await liveDeriveStandings(slug, targetYear, currentDate);
+  const live = await liveDeriveStandings(slug, targetYear);
   if (live && live.roster.size > 0) {
     return snapshotFromLive({
       slug,
@@ -548,7 +548,7 @@ async function resolveSeason(
     }
   }
 
-  const live = await liveDeriveStandings(slug, year, currentDate);
+  const live = await liveDeriveStandings(slug, year);
   if (live && live.roster.size > 0) {
     return snapshotFromLive({ slug, league, status, year, live, currentDate });
   }
@@ -575,7 +575,7 @@ async function resolvePreseason(
   currentDate: Date
 ): Promise<CanonicalStandings> {
   // Prefer CSV (draft complete) — produces real roster + NoClaim segregation.
-  const live = await liveDeriveStandings(slug, year, currentDate);
+  const live = await liveDeriveStandings(slug, year);
   if (live && live.roster.size > 0) {
     return snapshotFromLive({ slug, league, status, year, live, currentDate });
   }
@@ -848,16 +848,7 @@ type ScoresCacheItem = {
  * snapshot. Callers on the canonical standings path intentionally let the
  * rejection bubble (see Standings Ownership Invariant #8).
  */
-async function liveDeriveStandings(
-  slug: string,
-  year: number,
-  /**
-   * PLATFORM-105 — evaluation time for "has this week been played". Threaded
-   * from the caller rather than read off the wall clock so a replay of a past
-   * date, and a test placing itself mid-season, both tell the truth.
-   */
-  currentDate: Date
-): Promise<LiveDerivation | null> {
+async function liveDeriveStandings(slug: string, year: number): Promise<LiveDerivation | null> {
   const ownersRecord = await getAppState<string>(`owners:${slug}:${year}`, 'csv');
   const ownersCsvText = typeof ownersRecord?.value === 'string' ? ownersRecord.value : '';
   const ownerRows = parseOwnersCsv(ownersCsvText);
@@ -932,7 +923,6 @@ async function liveDeriveStandings(
     games,
     rosterByTeam: roster,
     scoresByKey: scoresForDerivation as Parameters<typeof deriveStandingsHistory>[0]['scoresByKey'],
-    now: currentDate,
   });
   const coverage = deriveStandingsCoverage(games, roster, scoresForDerivation);
 

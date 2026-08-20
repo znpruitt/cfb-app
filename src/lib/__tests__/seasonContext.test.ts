@@ -54,6 +54,12 @@ function createHistory(args: {
         message: null,
       },
       played: playedWeeks.includes(week),
+      // PLATFORM-105 — season-over is now a question about GAMES. An unplayed
+      // week carries a real game that has not concluded, with a kickoff in the
+      // FUTURE so it is pending rather than abandoned.
+      pending: playedWeeks.includes(week)
+        ? []
+        : [{ key: `w${week}`, week, kickoff: '2099-01-01T00:00:00.000Z' }],
     };
 
     if (resolved) {
@@ -153,6 +159,22 @@ test('PLATFORM-105: a finished season is FINAL even with a week missing scores',
     resolvedWeeks: [11, 12],
     playedWeeks: [11, 12, 13],
   });
+
+  assert.equal(selectSeasonContext({ standingsHistory }), 'final');
+});
+
+test('PLATFORM-105: a season with no pending games is over, whatever the weeks say', () => {
+  // Season-over is a question about GAMES (owner ruling, 2026-08-20). An
+  // all-bracket playoff week contributes no real games to wait on, so it can no
+  // longer block a season that has actually finished — the failure that took
+  // three attempts to stop reappearing.
+  const standingsHistory = createHistory({
+    weeks: [13, 14, 15],
+    resolvedWeeks: [13, 14],
+    playedWeeks: [13, 14],
+  });
+  // Week 15 is an unresolved bracket shell: not played, and nothing pending.
+  standingsHistory.byWeek[15]!.pending = [];
 
   assert.equal(selectSeasonContext({ standingsHistory }), 'final');
 });

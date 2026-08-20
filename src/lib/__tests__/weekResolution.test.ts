@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { deriveStandingsHistory, isGameConcluded } from '../standingsHistory';
+import {
+  deriveStandingsHistory,
+  hasGameBeenAbandoned,
+  isConcludedByEvidence,
+  isPlannedGame,
+  isRealGame,
+} from '../standingsHistory';
 import type { ScorePack } from '../scores';
 import type { AppGame } from '../schedule';
 
@@ -60,33 +66,86 @@ function game(over: Partial<AppGame> & { key: string; week: number }): AppGame {
   } as AppGame;
 }
 
-test('a final game is concluded regardless of when it started', () => {
-  assert.equal(isGameConcluded(game({ key: 'g', week: 1, status: 'final' }), undefined, NOW), true);
+test('a result concludes a game, whatever the schedule says', () => {
+  // The production shape: schedule status `scheduled`, result in the score
+  // cache. `game.status` is effectively never `final` for CFBD data.
+  const g = game({ key: 'g', week: 1, date: '2026-09-12T16:00:00.000Z' });
+  assert.equal(g.status, 'scheduled', 'the fixture must reach the production shape');
+  assert.equal(isConcludedByEvidence(g, finalScore as unknown as ScorePack), true);
 });
 
-test('a game kicking off in the future has not concluded', () => {
-  const future = game({ key: 'g', week: 3, date: '2026-09-19T18:00:00.000Z' });
-  assert.equal(isGameConcluded(future, undefined, NOW), false);
+test("the provider's completed flag concludes a game", () => {
+  const g = game({ key: 'g', week: 1, completed: true });
+  assert.equal(isConcludedByEvidence(g, undefined), true);
 });
 
-test('a game in progress has not concluded', () => {
-  // Ninety minutes in. This is the case the eight-hour window exists for: a
-  // shorter window would read a live game as abandoned.
-  const live = game({ key: 'g', week: 2, date: '2026-09-12T16:30:00.000Z' });
-  assert.equal(isGameConcluded(live, undefined, NOW), false);
+test('a CANCELLED game is terminal, and the label comes from the score', () => {
+  const g = game({ key: 'g', week: 1, date: '2026-09-19T18:00:00.000Z' });
+  const canceled = { status: 'Canceled', home: { score: null }, away: { score: null } };
+  assert.equal(isConcludedByEvidence(g, canceled as unknown as ScorePack), true);
 });
 
-test('a game still scheduled long after kickoff is concluded — it will never be played', () => {
-  // The Liberty @ App State case. The provider will never resolve it, so
-  // elapsed time is the only signal there is.
-  const abandoned = game({ key: 'g', week: 1, date: '2026-09-05T18:00:00.000Z' });
-  assert.equal(isGameConcluded(abandoned, undefined, NOW), true);
+test('nothing else is concluded by evidence', () => {
+  const g = game({ key: 'g', week: 1, date: '2026-09-05T18:00:00.000Z' });
+  assert.equal(isConcludedByEvidence(g, undefined), false);
 });
 
-test('a game with no kickoff time is not concluded by inference', () => {
-  // Nothing to measure against, so the inference is unavailable. It stays
-  // unconcluded rather than being guessed either way.
-  assert.equal(isGameConcluded(game({ key: 'g', week: 1, date: null }), undefined, NOW), false);
+// A REAL game has both teams known; a PLANNED game also has a determined time.
+
+test('a bracket shell is not a real game', () => {
+  const shell = game({
+    key: 'shell',
+    week: 15,
+    participants: {
+      home: { kind: 'placeholder', slotId: 'cfp-1', displayName: 'Winner of A' },
+      away: { kind: 'placeholder', slotId: 'cfp-2', displayName: 'Winner of B' },
+    },
+  });
+  assert.equal(isRealGame(shell), false);
+  assert.equal(isRealGame(game({ key: 'g', week: 1 })), true);
+});
+
+test('a real game with no determined time was never PLANNED', () => {
+  // "A game can only not happen if it was ever planned to occur." A bowl
+  // matchup announced without a kickoff is an incomplete dataset, not a stuck
+  // game — so the abandonment inference does not apply to it.
+  assert.equal(isPlannedGame(game({ key: 'g', week: 1, date: null })), false);
+  assert.equal(
+    isPlannedGame(
+      game({ key: 'g', week: 1, date: '2026-09-05T18:00:00.000Z', startTimeTBD: true })
+    ),
+    false
+  );
+  assert.equal(isPlannedGame(game({ key: 'g', week: 1, date: '2026-09-05T18:00:00.000Z' })), true);
+});
+
+// Abandonment is evaluated at REQUEST time, never cached.
+
+test('a kickoff in the future is not abandoned', () => {
+  assert.equal(
+    hasGameBeenAbandoned({ key: 'g', week: 3, kickoff: '2026-09-19T18:00:00.000Z' }, NOW),
+    false
+  );
+});
+
+test('a game in progress is not abandoned', () => {
+  // Ninety minutes in — the case the eight-hour window exists for.
+  assert.equal(
+    hasGameBeenAbandoned({ key: 'g', week: 2, kickoff: '2026-09-12T16:30:00.000Z' }, NOW),
+    false
+  );
+});
+
+test('a kickoff long past with no result is abandoned', () => {
+  // The Liberty @ App State case: CFBD will never resolve it.
+  assert.equal(
+    hasGameBeenAbandoned({ key: 'g', week: 1, kickoff: '2026-09-05T18:00:00.000Z' }, NOW),
+    true
+  );
+});
+
+test('a game that was never planned to a moment is never abandoned', () => {
+  assert.equal(hasGameBeenAbandoned({ key: 'g', week: 1, kickoff: null }, NOW), false);
 });
 
 // ---------------------------------------------------------------------------
@@ -113,7 +172,6 @@ test('an unplayed week is NOT played, even though its coverage is complete', () 
     ],
     rosterByTeam: ROSTER,
     scoresByKey: scored('w1'),
-    now: NOW,
   });
 
   assert.equal(history.byWeek[1]?.played, true);
@@ -134,27 +192,38 @@ test('a week is played only when EVERY game in it has concluded', () => {
     ],
     rosterByTeam: ROSTER,
     scoresByKey: {},
-    now: NOW,
   });
 
   assert.equal(history.byWeek[1]?.played, false);
 });
 
-test('an abandoned game does not hold its week open forever', () => {
-  // One concluded game and one that kicked off a week ago and never resolved.
-  // Without the elapsed-time clause this week — and therefore the season — never
-  // closes, and the champion card never fires.
+test('an abandoned game does not hold the SEASON open forever', async () => {
+  // The guarantee moved. `played` is evidence-only now, so the week stays
+  // false — but the season is a question about GAMES, and a game planned for a
+  // kickoff long past that nothing will ever resolve does not keep it open.
+  // This is the Hurricane Helene case, and it is evaluated at request time
+  // rather than baked into the cached snapshot.
+  const { selectSeasonContext } = await import('@/lib/selectors/seasonContext');
   const history = deriveStandingsHistory({
     games: [
-      game({ key: 'a', week: 1, status: 'final', date: '2026-09-05T18:00:00.000Z' }),
+      game({ key: 'a', week: 1, date: '2026-09-05T18:00:00.000Z', completed: true }),
       game({ key: 'b', week: 1, date: '2026-09-05T20:00:00.000Z' }),
     ],
     rosterByTeam: ROSTER,
     scoresByKey: {},
-    now: NOW,
   });
 
-  assert.equal(history.byWeek[1]?.played, true);
+  assert.equal(history.byWeek[1]?.played, false, 'no evidence concluded game b');
+  assert.equal(
+    selectSeasonContext({ standingsHistory: history, now: NOW }),
+    'final',
+    'but the season is over: nothing will ever resolve game b'
+  );
+  // And before the eight-hour mark it is NOT over.
+  assert.equal(
+    selectSeasonContext({ standingsHistory: history, now: new Date('2026-09-05T21:00:00.000Z') }),
+    'in-season'
+  );
 });
 
 test('an FBS-vs-FCS game still to come keeps its week open', () => {
@@ -192,7 +261,6 @@ test('an FBS-vs-FCS game still to come keeps its week open', () => {
     ],
     rosterByTeam: ROSTER,
     scoresByKey: scored('a'),
-    now: NOW,
   });
 
   assert.equal(history.byWeek[1]?.played, false);
@@ -205,102 +273,77 @@ test('an FBS-vs-FCS game still to come keeps its week open', () => {
 // the wall clock.
 // ---------------------------------------------------------------------------
 
-test('a cached FINAL SCORE concludes the game, whatever the schedule says', () => {
-  // The production shape: schedule status `scheduled`, result in the score
-  // cache. Without this a Saturday's games are all final and cached by 11:30pm
-  // and the week stays unplayed until 4am.
-  const g = game({ key: 'g', week: 1, date: '2026-09-12T16:00:00.000Z' });
-  assert.equal(g.status, 'scheduled', 'the fixture must reach the production shape');
-  assert.equal(isGameConcluded(g, finalScore as unknown as ScorePack, NOW), true);
-});
-
-test("the provider's completed flag concludes the game", () => {
-  const g = game({ key: 'g', week: 1, date: '2026-09-12T16:00:00.000Z', completed: true });
-  assert.equal(isGameConcluded(g, undefined, NOW), true);
-});
-
-test('a CANCELLED game is terminal', () => {
-  // Narrower than "disrupted" on purpose — the repo already draws this line.
-  const g = game({ key: 'g', week: 1, date: '2026-09-19T18:00:00.000Z', rawStatus: 'Canceled' });
-  assert.equal(isGameConcluded(g, undefined, NOW), true);
-});
-
-test('a POSTPONED game is not concluded, even long after its old kickoff', () => {
-  // It is still coming, and its cached kickoff is the one it no longer has.
-  // Order matters: falling through to the elapsed clause closes its week
-  // tomorrow.
-  const g = game({ key: 'g', week: 1, date: '2026-09-05T18:00:00.000Z', rawStatus: 'Postponed' });
-  assert.equal(isGameConcluded(g, undefined, NOW), false);
-});
-
-test('only elapsed-time conclusions are reported, and they are reported', () => {
-  // One is a hurricane; twenty is a broken feed. The first round declared this
-  // type and never populated it, while every production game was concluding by
-  // elapsed time — the missing signal was exactly what would have surfaced that.
+test('a POSTPONED game stays pending, with NO kickoff to measure against', () => {
+  // Its cached kickoff is the one it no longer has, so carrying it forward would
+  // let the abandonment rule close the week tomorrow. The label comes from the
+  // score — the schedule's status is always `scheduled`.
+  const postponed = { status: 'Postponed', home: { score: null }, away: { score: null } };
   const history = deriveStandingsHistory({
-    games: [
-      game({ key: 'scored', week: 1, date: '2026-09-05T18:00:00.000Z' }),
-      game({ key: 'flagged', week: 1, date: '2026-09-05T18:00:00.000Z', completed: true }),
-      game({ key: 'abandoned', week: 1, date: '2026-09-05T20:00:00.000Z' }),
-    ],
+    games: [game({ key: 'p', week: 1, date: '2026-09-05T18:00:00.000Z' })],
     rosterByTeam: ROSTER,
-    scoresByKey: scored('scored'),
-    now: NOW,
+    scoresByKey: { p: postponed } as never,
   });
 
-  assert.equal(history.byWeek[1]?.played, true);
-  assert.deepEqual(
-    (history.inferredConclusions ?? []).map((c) => c.key),
-    ['abandoned'],
-    'a scored or provider-flagged game is not an inference'
+  assert.equal(history.byWeek[1]?.played, false);
+  assert.deepEqual(history.byWeek[1]?.pending, [{ key: 'p', week: 1, kickoff: null }]);
+});
+
+test('pending carries the planned kickoff, so a consumer can apply the clock', () => {
+  // The cached snapshot stores WHEN, never WHETHER — AGENTS.md invariant 3
+  // forbids caching a clock-dependent verdict, and earlier rounds of this slice
+  // did exactly that.
+  const history = deriveStandingsHistory({
+    games: [
+      game({ key: 'done', week: 1, date: '2026-09-05T18:00:00.000Z', completed: true }),
+      game({ key: 'gone', week: 1, date: '2026-09-05T20:00:00.000Z' }),
+      game({ key: 'tbd', week: 1, date: '2026-09-05T21:00:00.000Z', startTimeTBD: true }),
+    ],
+    rosterByTeam: ROSTER,
+    scoresByKey: {},
+  });
+
+  assert.deepEqual(history.byWeek[1]?.pending, [
+    { key: 'gone', week: 1, kickoff: '2026-09-05T20:00:00.000Z' },
+    { key: 'tbd', week: 1, kickoff: null },
+  ]);
+  assert.equal(history.byWeek[1]?.played, false, 'evidence only — nothing is abandoned here');
+});
+
+test('an all-bracket week does not block a finished season', async () => {
+  // The WIRING, not just the predicate. Mutation-proved: counting shells as real
+  // games left every suite green, so the derivation could have gone on waiting
+  // for "winner of A vs winner of B" with nothing to catch it — and that is the
+  // failure this model exists to end.
+  const { selectSeasonContext } = await import('@/lib/selectors/seasonContext');
+  const shell = (key: string) =>
+    game({
+      key,
+      week: 15,
+      date: null,
+      participants: {
+        home: { kind: 'placeholder', slotId: `${key}-h`, displayName: 'Winner of A' },
+        away: { kind: 'placeholder', slotId: `${key}-a`, displayName: 'Winner of B' },
+      },
+    });
+
+  const history = deriveStandingsHistory({
+    games: [
+      game({ key: 'played', week: 1, date: '2026-09-05T18:00:00.000Z', completed: true }),
+      shell('cfp1'),
+      shell('cfp2'),
+    ],
+    rosterByTeam: ROSTER,
+    scoresByKey: {},
+  });
+
+  assert.deepEqual(history.byWeek[15]?.pending, [], 'a shell is nothing to wait on');
+  assert.equal(history.byWeek[15]?.played, false, 'and it is not a played week either');
+  assert.equal(
+    selectSeasonContext({ standingsHistory: history, now: NOW }),
+    'final',
+    'the season is over: every REAL game has a result'
   );
 });
-
-test('a POSTPONED game is recognised from the SCORE, which is where the label lives', () => {
-  // The schedule's status is inert — all 22,691 cached items say `scheduled` —
-  // so the first version of this guard, which asked only `game.rawStatus`, could
-  // never fire. `toStatus` preserves an unrecognized provider label verbatim, so
-  // the disruption arrives on the ScorePack instead.
-  const g = game({ key: 'g', week: 1, date: '2026-09-05T18:00:00.000Z' });
-  const postponed = { status: 'Postponed', home: { score: null }, away: { score: null } };
-  assert.equal(isGameConcluded(g, postponed as unknown as ScorePack, NOW), false);
-});
-
-test('a CANCELLED game is recognised from the score too', () => {
-  const g = game({ key: 'g', week: 1, date: '2026-09-19T18:00:00.000Z' });
-  const canceled = { status: 'Canceled', home: { score: null }, away: { score: null } };
-  assert.equal(isGameConcluded(g, canceled as unknown as ScorePack, NOW), true);
-});
-
-test('a TBD kickoff is not a kickoff', () => {
-  // `startTimeTBD` marks a placeholder timestamp the app refuses to trust
-  // elsewhere. Measuring elapsed time against it can conclude a game BEFORE it
-  // is played.
-  const tbd = game({ key: 'g', week: 1, date: '2026-09-05T18:00:00.000Z', startTimeTBD: true });
-  assert.equal(isGameConcluded(tbd, undefined, NOW), false);
-});
-
-test('a placeholder row does not decide whether a week was played', () => {
-  // A postseason bracket shell carries `startDate: null` and can never be final,
-  // so under "every game must conclude" one of them pins its week to
-  // `played: false` forever — and a live season could then never reach `final`.
-  const history = deriveStandingsHistory({
-    games: [
-      game({ key: 'real', week: 1, status: 'final', date: '2026-09-05T18:00:00.000Z' }),
-      game({ key: 'shell', week: 1, date: null, isPlaceholder: true }),
-    ],
-    rosterByTeam: ROSTER,
-    scoresByKey: scored('real'),
-    now: NOW,
-  });
-
-  assert.equal(history.byWeek[1]?.played, true);
-});
-
-// ---------------------------------------------------------------------------
-// The chart domain. Review found a user-visible regression here that no test
-// covered, because nothing in this repo exercised the Overview surface.
-// ---------------------------------------------------------------------------
 
 test('the GB chart domain is the last RESOLVED weeks, not the last scheduled ones', async () => {
   const { sliceStandingsHistoryToRecentWeeks } = await import('@/components/OverviewPanel');

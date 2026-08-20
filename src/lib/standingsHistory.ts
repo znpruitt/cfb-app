@@ -21,20 +21,32 @@ export type StandingsHistoryWeekSnapshot = {
   standings: StandingsHistoryStandingRow[];
   coverage: StandingsCoverage;
   /**
-   * PLATFORM-105 — has this week actually been played?
+   * PLATFORM-105 — every real game in this week has concluded on POSITIVE
+   * EVIDENCE (a result, the provider's completed flag, or a terminal status).
    *
-   * SEPARATE from `coverage`, which answers "are we missing scores for games
-   * that were played". A week with nothing played has no final games, so nothing
+   * SEPARATE from `coverage`, which asks whether scores are missing for games
+   * that were played. A week with nothing played has no final games, so nothing
    * is missing, so its coverage is `complete` — which is how an unplayed week
    * came to count as resolved and a season in progress reported itself over from
-   * week one. The two facts now have two fields.
+   * week one.
    *
-   * OPTIONAL because durable season archives written before this field exist and
-   * cannot grow it retroactively. Absent means PLAYED: an archive is a completed
-   * season by definition, and `snapshotFromArchive` serves it as `offseason`
-   * regardless. See `docs/architecture/week-resolution.md`.
+   * TIME-INVARIANT: the elapsed-time allowance for an abandoned game is NOT
+   * folded in here, because this value is cached and `AGENTS.md` invariant 3
+   * forbids caching a clock-dependent classification. `pending` carries what a
+   * consumer needs to apply the clock itself.
+   *
+   * OPTIONAL because durable season archives predate the field. Absent means
+   * played: `buildSeasonArchive` strips it, and an archive is a completed season.
    */
   played?: boolean;
+  /**
+   * Real games in this week with no conclusion yet, each with the kickoff it was
+   * planned for (null when it was never planned to a determined time).
+   *
+   * Time-invariant. `selectSeasonContext` reads this and applies the
+   * eight-hour abandonment rule at request time.
+   */
+  pending?: PendingGame[];
 };
 
 export type OwnerStandingsSeriesPoint = {
@@ -53,15 +65,6 @@ export type StandingsHistory = {
   weeks: number[];
   byWeek: Record<number, StandingsHistoryWeekSnapshot>;
   byOwner: Record<string, OwnerStandingsSeriesPoint[]>;
-  /**
-   * Games this derivation concluded from ELAPSED TIME alone — no result, no
-   * completion flag, no terminal status, just a kickoff long past. Observation
-   * only: it never changes what the predicate decided.
-   *
-   * Optional because durable archives predate it. Empty and absent mean the same
-   * thing, which is the safe direction for a diagnostic.
-   */
-  inferredConclusions?: InferredConclusion[];
 };
 
 function normalizeRosterByTeam(
@@ -102,95 +105,87 @@ function toSeriesPoint(week: number, row: StandingsHistoryStandingRow): OwnerSta
  * How long a game can possibly last: regulation, overtime, a weather delay, and
  * a wide margin. Its only job is to stop a game that kicked off ninety minutes
  * ago from being read as one that will never be played.
- *
- * This is the LAST resort, not the primary signal — see `isGameConcluded`.
  */
-const GAME_MAX_DURATION_MS = 8 * 60 * 60 * 1000;
+export const GAME_MAX_DURATION_MS = 8 * 60 * 60 * 1000;
 
 /**
- * Has this game reached a state it will never leave?
+ * A REAL game has both teams known (owner ruling, 2026-08-20).
  *
- * The evidence is consulted in order of authority, and the first round of this
- * slice consulted almost none of it. It tested `game.status === 'final'`, which
- * BOTH REVIEWERS found is unreachable for production schedule data: CFBD's
- * `/games` carries no status string, `cfbdSchedule` defaults it to `scheduled`,
- * and `mapStatus` therefore never yields `final`. Every week was decided purely
- * by the wall clock — a Saturday's games could all be final and cached by
- * 11:30pm and the week would stay unplayed until 4am, while a week whose games
- * merely kicked off eight hours ago counted as played with no scores at all.
- *
- * The authoritative signals were already in hand. `scoresByKey` is a parameter
- * of `deriveStandingsHistory`; `AppGame.completed` is populated from CFBD's own
- * flag; `rawStatus` carries the provider label.
- *
- * ORDER MATTERS. A postponed game must be tested before elapsed time, or a
- * fixture rescheduled for November is declared concluded eight hours after the
- * kickoff it no longer has.
+ * A playoff or conference-championship shell — "winner of A vs winner of B" — is
+ * not a game to wait on. It becomes one once the bracket resolves, and then it
+ * gets a result like anything else. Earlier rounds excluded shells from the
+ * population instead, which made an ALL-shell week unable to ever resolve.
  */
-export function isGameConcluded(game: AppGame, score: ScorePack | undefined, now: Date): boolean {
-  // 1. We have the result. Nothing outranks that.
-  if (classifyScorePackStatus(score) === 'final') return true;
-
-  // 2. The provider says so. This is CFBD's only completion signal on /games.
-  if (game.completed === true) return true;
-
-  // 3. The wire status says so, when a provider ever supplies one.
-  if (game.status === 'final') return true;
-
-  // 4. Cancelled is TERMINAL — it will never produce a final score. The repo
-  //    already draws this line, and draws it narrowly on purpose.
-  //
-  //    BOTH labels are consulted, because the schedule's is always inert: every
-  //    one of the 22,691 cached schedule items carries `status: 'scheduled'`, so
-  //    `game.rawStatus` never says anything. The signal lives on the SCORE —
-  //    `toStatus` preserves an unrecognized provider label verbatim, so a
-  //    postponed game arrives as `ScorePack.status === 'Postponed'`. The first
-  //    version of this guard asked only the schedule, which is why review found
-  //    it unreachable: the check was on the wrong object.
-  if (isCanceledStatusLabel(game.rawStatus) || isCanceledStatusLabel(score?.status)) return true;
-
-  // 5. Postponed / suspended / delayed are disrupted but NOT terminal: the game
-  //    is still coming, and its cached kickoff is the one it no longer has.
-  //    Falling through to the elapsed clause would close its week tomorrow.
-  if (isDisruptedStatusLabel(game.rawStatus) || isDisruptedStatusLabel(score?.status)) {
-    return false;
-  }
-
-  // 5b. A placeholder kickoff is not a kickoff. `startTimeTBD` marks a timestamp
-  //     the app refuses to trust elsewhere — `gameCardPresentation` renders those
-  //     games date-only — so measuring elapsed time against it could conclude a
-  //     game BEFORE it is played.
-  if (game.startTimeTBD === true) return false;
-
-  // 6. Last resort. A game whose kickoff is long past, with no result and no
-  //    completion flag, is one nothing will ever resolve — CFBD cannot tell us a
-  //    game was cancelled, so this inference is ours to make. `Liberty @ App
-  //    State` (week 5 2024, Hurricane Helene) still returns `completed: false`.
-  if (!game.date) return false;
-  const kickoff = Date.parse(game.date);
-  if (!Number.isFinite(kickoff)) return false;
-  return now.getTime() - kickoff > GAME_MAX_DURATION_MS;
+export function isRealGame(game: AppGame): boolean {
+  return game.participants.home.kind === 'team' && game.participants.away.kind === 'team';
 }
 
 /**
- * A game concluded by ELAPSED TIME rather than by any positive evidence — the
- * step 6 fallback above. Reported rather than silently absorbed: one is a
- * hurricane, twenty is a broken feed, and the difference has to be visible.
+ * A PLANNED game is a real game with a determined start date AND time.
+ *
+ * Only a planned game can be said not to have happened: a game can only "not
+ * happen" if it was ever planned to occur. A bowl matchup announced without a
+ * kickoff time is an incomplete dataset the weekly schedule refresh resolves —
+ * not a stuck game.
  */
-export type InferredConclusion = {
+export function isPlannedGame(game: AppGame): boolean {
+  return isRealGame(game) && Boolean(game.date) && game.startTimeTBD !== true;
+}
+
+/**
+ * Has this game reached a terminal state on POSITIVE EVIDENCE alone?
+ *
+ * TIME-INVARIANT by construction, which is the point: `AGENTS.md` invariant 3
+ * requires `unstable_cache`-wrapped selectors to return time-invariant facts,
+ * and earlier rounds of this slice cached a clock-dependent verdict instead.
+ * Both reviewers raised it three times before I checked the rule.
+ *
+ * Evidence in order of authority. `game.status` is effectively never `final` for
+ * production schedule data — CFBD supplies no status string — and `rawStatus` is
+ * always `scheduled`, so the labels are read from the SCORE, where `toStatus`
+ * preserves an unrecognized provider value verbatim.
+ */
+export function isConcludedByEvidence(game: AppGame, score: ScorePack | undefined): boolean {
+  if (classifyScorePackStatus(score) === 'final') return true;
+  if (game.completed === true) return true;
+  if (game.status === 'final') return true;
+  // Cancelled is TERMINAL — it will never produce a final score.
+  return isCanceledStatusLabel(game.rawStatus) || isCanceledStatusLabel(score?.status);
+}
+
+/** Postponed / suspended / delayed: still coming, so never abandoned. */
+export function isDisruptedGame(game: AppGame, score: ScorePack | undefined): boolean {
+  return isDisruptedStatusLabel(game.rawStatus) || isDisruptedStatusLabel(score?.status);
+}
+
+/**
+ * A real game with no conclusion yet, and the kickoff it was planned for.
+ *
+ * `kickoff` is null when the game was never planned to a moment — an unresolved
+ * date or a TBD time — which is exactly the case where "it didn't happen" cannot
+ * be inferred. Stored rather than decided, so the clock is applied by whoever
+ * asks. See `hasGameBeenAbandoned`.
+ */
+export type PendingGame = {
   key: string;
   week: number;
-  date: string | null;
-  status: AppGame['status'];
+  /** ISO kickoff, or null when the game was never planned to a determined time. */
+  kickoff: string | null;
 };
 
-/** Did this game conclude only because its kickoff is long past? */
-function isInferredConclusion(game: AppGame, score: ScorePack | undefined, now: Date): boolean {
-  if (classifyScorePackStatus(score) === 'final') return false;
-  if (game.completed === true) return false;
-  if (game.status === 'final') return false;
-  if (isCanceledStatusLabel(game.rawStatus) || isCanceledStatusLabel(score?.status)) return false;
-  return isGameConcluded(game, score, now);
+/**
+ * Was this pending game planned for a kickoff far enough in the past that
+ * nothing will ever resolve it?
+ *
+ * The escape hatch for the genuine never-resolves case — `Liberty @ App State`
+ * (week 5 2024, Hurricane Helene) still returns `completed: false` from CFBD
+ * nearly two years on. Evaluated at request time, never cached.
+ */
+export function hasGameBeenAbandoned(pending: PendingGame, now: Date): boolean {
+  if (!pending.kickoff) return false;
+  const kickoff = Date.parse(pending.kickoff);
+  if (!Number.isFinite(kickoff)) return false;
+  return now.getTime() - kickoff > GAME_MAX_DURATION_MS;
 }
 
 export function deriveStandingsHistory(args: {
@@ -201,15 +196,8 @@ export function deriveStandingsHistory(args: {
     isLoadingScores?: boolean;
     hasScoreLoadError?: boolean;
   };
-  /**
-   * Evaluation time for the elapsed-time clause. Explicit so a test can place
-   * itself in a season rather than depending on the wall clock, and so a replay
-   * of a past date is honest.
-   */
-  now?: Date;
 }): StandingsHistory {
   const { games, scoresByKey, coverageOptions } = args;
-  const now = args.now ?? new Date();
   const rosterByTeam = normalizeRosterByTeam(args.rosterByTeam);
   const weeks = deriveOrderedWeeks(games);
 
@@ -244,7 +232,6 @@ export function deriveStandingsHistory(args: {
   //
   // `games` is already the tracked, canonical set. That IS the owner's "all
   // canonical FBS games" population; the extra filter only narrowed it wrongly.
-  const inferredConclusions: InferredConclusion[] = [];
   const cumulativeGames: AppGame[] = [];
   for (const week of weeks) {
     const weekGames = gamesByWeek.get(week) ?? [];
@@ -263,31 +250,39 @@ export function deriveStandingsHistory(args: {
     // question is whether this week happened, and every earlier week already
     // has. A week with no relevant games is not played: it cannot be, and
     // counting it as played is how an empty future week closed a season.
-    // PLACEHOLDER rows are excluded. A postseason bracket shell carries
-    // `startDate: null` and can never be final, so under "every game must
-    // conclude" ONE of them pins its week to `played: false` forever — the live
-    // season could then never reach `final`, suppressing the champion, recap and
-    // cluster cards from the last whistle until rollover writes an archive. That
-    // is the same failure `buildSeasonArchive` guards against, which review
-    // rightly pointed out I had fixed on one path only.
-    const realGames = weekGames.filter((game) => !game.isPlaceholder);
-    for (const game of realGames) {
-      if (isInferredConclusion(game, scoresByKey[game.key], now)) {
-        inferredConclusions.push({
-          key: game.key,
-          week: game.week,
-          date: game.date,
-          status: game.status,
-        });
-      }
-    }
+    // REAL games only — both teams known. A bracket shell is not a game to wait
+    // on; it becomes one when the bracket resolves. Earlier rounds excluded
+    // shells by `isPlaceholder`, which then made an ALL-shell week unable to
+    // ever resolve, and the week-level answer was gating whether the SEASON had
+    // ended. Season-over is now a question about games (`selectSeasonContext`),
+    // so an all-shell week simply contributes nothing.
+    const realGames = weekGames.filter(isRealGame);
+    const pending: PendingGame[] = realGames
+      .filter((game) => {
+        const score = scoresByKey[game.key];
+        if (isConcludedByEvidence(game, score)) return false;
+        // A disrupted game is still coming, so it is pending with NO kickoff to
+        // measure against — its cached one is the kickoff it no longer has.
+        if (isDisruptedGame(game, score)) return true;
+        return true;
+      })
+      .map((game) => ({
+        key: game.key,
+        week: game.week,
+        // Null unless the game was PLANNED to a determined moment, and null for
+        // a disrupted game whose cached kickoff has been superseded.
+        kickoff:
+          isPlannedGame(game) && !isDisruptedGame(game, scoresByKey[game.key]) ? game.date : null,
+      }));
+
     byWeek[week] = {
       week,
       standings,
       coverage,
-      played:
-        realGames.length > 0 &&
-        realGames.every((game) => isGameConcluded(game, scoresByKey[game.key], now)),
+      // Time-invariant: evidence only. The abandonment allowance is applied by
+      // consumers, from `pending`.
+      played: realGames.length > 0 && pending.length === 0,
+      pending,
     };
 
     for (const row of standings) {
@@ -300,6 +295,5 @@ export function deriveStandingsHistory(args: {
     weeks,
     byWeek,
     byOwner,
-    inferredConclusions,
   };
 }
