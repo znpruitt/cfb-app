@@ -338,12 +338,26 @@ function deriveEvenRivalryInsight(
   // Formatted from `entry`, never `owner`. The pair-shaped warning in
   // `superlative.ts` applies here exactly as it does to `lopsided`: a non-member
   // ENTRY can carry a current member in its `owner` slot.
-  const holderPairs = evenStanding.recordHolders.map((h) => h.entry);
-  const holders = evenStanding.recordHolders;
-  const recordText = formatOwnerList(
-    holderPairs.map((p) => `${p.a} and ${p.b} at ${p.winsA}–${p.winsB} over ${p.meetings} meetings`)
+  // CO-HOLDERS COME FROM THE POPULATION, not from `recordHolders`.
+  // `resolveSuperlative` lists only NON-member holders — that is its documented
+  // job — so two member pairs that are exactly as close were invisible here and
+  // the card claimed sole possession for whichever one `best` happened to be.
+  // `/code-review` reproduced it: Alice–Bob 3–3 over six and Carol–Erin 3–3 over
+  // six, all four playing, and only the first pair was called "the closest
+  // rivalry on record". A regression — before this slice the dead-even sentence
+  // carried no superlative at all. `deriveDroughtInsight` re-filters its own
+  // population for exactly this reason; this site now does the same.
+  const recordCloseness = qualifying.reduce(
+    (min, p) => Math.min(min, closeness(p)),
+    Number.POSITIVE_INFINITY
   );
-  const holdsRecord = holderPairs.length === 0;
+  const bestAtRecord = closeness(best) === recordCloseness;
+  const coHolders = qualifying.filter((p) => p !== best && closeness(p) === recordCloseness);
+  const recordText = formatOwnerList(
+    coHolders.map((p) => `${p.a} and ${p.b} at ${p.winsA}–${p.winsB} over ${p.meetings} meetings`)
+  );
+  const holdsRecord = bestAtRecord && coHolders.length === 0;
+  const sharesWithOthers = bestAtRecord && coHolders.length > 0;
 
   const winDiff = Math.abs(best.winsA - best.winsB);
   const scoreline =
@@ -372,13 +386,14 @@ function deriveEvenRivalryInsight(
   // active-owners body — which is the title/body split this slice exists to
   // close.
   const evenKnown = membershipIsKnown(membersSource);
+  const isAre = coHolders.length > 1 ? 'are' : 'is';
   const description = holdsRecord
     ? `${scoreline} — the closest rivalry on record.`
-    : evenStanding.standing === 'shares'
+    : sharesWithOthers
       ? `${scoreline}, level with ${recordText}.`
       : evenKnown
-        ? `${scoreline} — the closest rivalry among active owners. ${recordText} ${holderVerb(holders, 'is', 'are')} the closest on record.`
-        : `${scoreline}; ${recordText} ${holderVerb(holders, 'is', 'are')} the closest on record.`;
+        ? `${scoreline} — the closest rivalry among active owners. ${recordText} ${isAre} the closest on record.`
+        : `${scoreline}; ${recordText} ${isAre} the closest on record.`;
 
   return toInsight({
     id: `rivalry-even-${ownerSlug(best.a)}-${ownerSlug(best.b)}`,

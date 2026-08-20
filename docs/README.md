@@ -30,6 +30,7 @@ This is the **source-of-truth map** for the project's documentation. Start here 
 | [`docs/architecture/auth-and-privacy.md`](architecture/auth-and-privacy.md) | Clerk identity/roles, platform-admin route/API gating, ADMIN_API_TOKEN fallback, league-password privacy gate, cron auth | Current |
 | [`docs/architecture/storage-and-caching.md`](architecture/storage-and-caching.md) | App-state store, alias/app-state storage, provider caches, standings cache keys/tags, legacy-alias cleanup status | Current |
 | [`docs/architecture/admin-control-plane.md`](architecture/admin-control-plane.md) | Admin route/action inventory, target admin information-architecture ownership, scheduler-health receipt contract, PLATFORM-086F2 migration map | Current |
+| [`docs/architecture/insight-movement-model.md`](architecture/insight-movement-model.md) | What each movement-shaped insight card claims, the population it measures, and who may be its subject (INSIGHTS-033) | Current |
 | [`docs/operations/deployment.md`](operations/deployment.md) | High-level deploy/env/auth-secret/cron overview and operational checks (points at the runbook for step-by-step) | Current |
 | [`docs/operations/diagnostics.md`](operations/diagnostics.md) | Diagnostic endpoints, debug-surface auth, upstream-first debugging order | Current |
 | [`docs/deployment-runbook.md`](deployment-runbook.md) | Hosted deployment / operator checklist (detailed step-by-step; companion to `operations/deployment.md`) | Current |

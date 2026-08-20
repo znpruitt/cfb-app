@@ -753,6 +753,8 @@ test('the sweep admits the shared-record copy it is meant to allow', async () =>
     'dynasty',
     'greatest_season',
     'lopsided_rivalry',
+    // Added by INSIGHTS-033, which closed the tie gap this set used to exclude.
+    'consistency',
   ]);
 
   let checked = 0;
@@ -767,21 +769,19 @@ test('the sweep admits the shared-record copy it is meant to allow', async () =>
   }
   assert.ok(checked >= 2, `expected shared superlative copy to inspect, saw ${checked}`);
 
-  // `consistency` is EXCLUDED, and this assertion pins why rather than letting
-  // the exclusion be silent. Its record already spans the full population — it
-  // is not one of this slice's five sites — but its `maxCount >= allTimeMax`
-  // tie-handling prints "the most ever" without naming the owner who is level.
-  // Pre-existing on `main`; this fixture is simply the first to create the tie.
-  // Filed in docs/next-tasks.md. If this assertion starts failing, the copy was
-  // fixed and the exclusion should go.
+  // `consistency` WAS excluded here, with a pin asserting it still claimed the
+  // record outright while level, and a note that the exclusion should go if the
+  // assertion ever started failing. INSIGHTS-033 closed it — `maxCount >=
+  // allTimeMax` collapsed `shares` into `holds` — so the pin is inverted rather
+  // than deleted: the copy must now name who it is level with.
   const consistency = describe(insights, 'consistency');
-  if (consistency) {
-    assert.match(
-      consistency,
-      /the most ever/,
-      'the known tie-copy gap: still claiming the record outright while level'
-    );
-  }
+  assert.ok(consistency, 'the consistency insight must exist for this fixture');
+  assert.match(
+    consistency,
+    /level with Dave\.$/,
+    `a tied record still claimed outright: ${consistency}`
+  );
+  assert.doesNotMatch(consistency, /the most ever|the most consistent performer/);
 });
 
 /**

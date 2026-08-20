@@ -80,7 +80,10 @@ test('slide: the baseline is the owner own high', async () => {
   const insights = deriveSeasonRunInsights({ standingsHistory, resolvedWeeks });
   const slide = insights.find((i) => i.type === 'season_slide');
   assert.ok(slide, 'the slide card must fire');
-  assert.equal(slide.description, 'Alice has slid from 1st in week 1 to 5th.');
+  // Week 3, not week 1. Alice was 1st in both, and the baseline is the MOST
+  // RECENT time she was at her extreme — a run is measured from where it
+  // started, not from the first time that rank was ever held.
+  assert.equal(slide.description, 'Alice has slid from 1st in week 3 to 5th.');
   assert.equal(slide.statValue, 4);
 });
 
@@ -136,9 +139,12 @@ test('a tie names everyone level, and too many level suppresses the card', async
   });
   const climb = deriveSeasonRunInsights(tied).find((i) => i.type === 'season_climb');
   assert.ok(climb, 'two owners level at three places must still produce a card');
+  // Each owner keeps their own baseline and week; the tie branch must not
+  // collapse them into a bare distance, which drops the week the model requires
+  // every climb to name.
   assert.equal(
     climb.description,
-    'Alice and Bob have each climbed 3 places from their low this season.'
+    'Alice has climbed from 4th in week 2 to 1st. Bob has climbed from 5th in week 2 to 2nd.'
   );
   assert.deepEqual(climb.relatedOwners, ['Bob']);
 

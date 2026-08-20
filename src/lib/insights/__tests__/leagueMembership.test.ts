@@ -308,9 +308,13 @@ const RECAP_ID_PREFIXES = [
   // BY ID, not by category: `improvement` is the shared `type` and exempting it
   // wholesale would cover any future card that adopts it.
   //
-  // Sound only while the copy names its season, which is why both cards state
-  // their years in the TITLE as well as the body, pinned in
-  // `participationClaims.test.ts`.
+  // Sound only while the copy names its season. Both cards state their years in
+  // the TITLE as well as the body — `Biggest move of 2025` and `Biggest
+  // single-season move on record — 2024` — and BOTH titles are pinned in
+  // `participationClaims.test.ts`. An earlier version of this comment made that
+  // claim while the record card's title was a bare constant and no test asserted
+  // a year in it; the exemption granted by this prefix rests on the
+  // justification, so an overstated one is a defect in itself.
   'season-swing-',
 ] as const;
 

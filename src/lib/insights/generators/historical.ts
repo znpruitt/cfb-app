@@ -430,17 +430,48 @@ function deriveSeasonMovementInsights(
   // of it for the record card. The previous implementation built the all-time
   // comparison by seeding an accumulator from the member maximum, which is how
   // an equal climb by a departed owner failed to register at all.
+  // A CLIMB IS PASSING PEOPLE, and you can only pass someone who was there both
+  // years. Raw finishing position is not comparable across seasons of different
+  // size: `/code-review` reproduced a league that went from six owners to three,
+  // where everyone who stayed "climbed three places" without playing a single
+  // game differently — and the record card would then enshrine that artifact as
+  // the biggest move in league history, permanently. Confirmed by running it.
+  //
+  // Ranking each owner within the set present in BOTH seasons removes the
+  // artifact by construction rather than filtering it afterwards: in that
+  // example the three survivors keep their relative order, so every gain is
+  // zero. For a league whose roster did not change, the common set is everyone
+  // and the numbers are unchanged.
+  //
+  // `fromPos`/`toPos` are the COMMON-SET positions, which is what the copy must
+  // quote — saying "climbed from 4th to 1st" while measuring something else is
+  // the split this whole slice exists to close.
   const allClimbs: SeasonClimb[] = [];
   for (let i = 1; i < sorted.length; i += 1) {
     const from = sorted[i - 1]!;
     const to = sorted[i]!;
-    for (const row of to.finalStandings) {
-      if (!isEligibleOwner(row.owner)) continue;
-      const fromPos = positionOf(from, row.owner);
-      const toPos = positionOf(to, row.owner);
-      if (fromPos === null || toPos === null) continue;
+    const inBoth = to.finalStandings
+      .map((row) => row.owner)
+      .filter(
+        (owner) =>
+          isEligibleOwner(owner) &&
+          positionOf(from, owner) !== null &&
+          positionOf(to, owner) !== null
+      );
+    if (inBoth.length < 2) continue;
+    const rankWithin = (archive: SeasonArchive): Map<string, number> => {
+      const ordered = [...inBoth].sort(
+        (a, b) => (positionOf(archive, a) ?? 0) - (positionOf(archive, b) ?? 0)
+      );
+      return new Map(ordered.map((owner, index) => [owner, index + 1]));
+    };
+    const fromRank = rankWithin(from);
+    const toRank = rankWithin(to);
+    for (const owner of inBoth) {
+      const fromPos = fromRank.get(owner)!;
+      const toPos = toRank.get(owner)!;
       allClimbs.push({
-        owner: row.owner,
+        owner,
         gain: fromPos - toPos,
         fromYear: from.year,
         toYear: to.year,
@@ -461,7 +492,11 @@ function deriveSeasonMovementInsights(
     const leaders = climbs
       .filter((c) => c.gain === best)
       .sort((a, b) => a.owner.localeCompare(b.owner) || a.toYear - b.toYear);
-    return leaders.length >= TIE_SUPPRESSION_THRESHOLD ? [] : leaders;
+    // Counted by DISTINCT OWNER. The threshold exists because "too many people
+    // are level to be a story"; one owner who set the same mark in four separate
+    // seasons is not that, and counting climbs suppressed the card on them.
+    const distinctOwners = new Set(leaders.map((c) => c.owner)).size;
+    return distinctOwners >= TIE_SUPPRESSION_THRESHOLD ? [] : leaders;
   };
 
   const seasonLeaders = leadersOf(allClimbs.filter((c) => c.toYear === latestYear));
@@ -513,14 +548,25 @@ function deriveSeasonMovementInsights(
         (c) => `${c.owner}'s ${c.gain} places between ${c.fromYear} and ${c.toYear}`
       )
     );
+    // DISTINCT owners for identity. `recordLeaders` is a list of CLIMBS, so one
+    // owner holding the record in two different season pairs produced
+    // `season-swing-record-alice-alice`, `relatedOwners: ['Alice']` and an
+    // `owners` array naming her twice.
+    const holderOwners = [...new Set(recordLeaders.map((c) => c.owner))];
+    // The TITLE states the season, because that is the condition the
+    // departed-owner exemption rests on — and this is the card that names a
+    // holder from an arbitrary past season, so it needs the year most. Codex
+    // caught it missing while AGENTS.md invariant 5, amended in the same commit,
+    // required it.
+    const holderYears = [...new Set(recordLeaders.map((c) => c.toYear))].sort((x, y) => x - y);
     insights.push(
       toInsight({
-        id: `season-swing-record-${recordLeaders.map((c) => ownerSlug(c.owner)).join('-')}`,
+        id: `season-swing-record-${holderOwners.map(ownerSlug).join('-')}`,
         type: 'improvement',
-        title: 'Biggest single-season move on record',
+        title: `Biggest single-season move on record — ${holderYears.join(', ')}`,
         description: `${holderText} ${recordLeaders.length > 1 ? 'are' : 'is'} the biggest single-season move in league history.`,
-        owner: recordLeaders[0]!.owner,
-        relatedOwners: recordLeaders.slice(1).map((c) => c.owner),
+        owner: holderOwners[0]!,
+        relatedOwners: holderOwners.slice(1),
         priorityScore: IMPROVEMENT_BASE_PRIORITY,
         lifecycle: lifecycles,
         newsHook: 'new_record',
@@ -589,7 +635,19 @@ function deriveConsistencyInsight(
 
   // Compute all-time max across all owners (active or not) to determine if this is a record.
   const allTimeMax = Array.from(topThreeCounts.values()).reduce((m, v) => Math.max(m, v), 0);
-  const isRecord = maxCount >= allTimeMax;
+  // THREE states, not two. `maxCount >= allTimeMax` reported a record SHARED
+  // with a departed owner as sole possession — "the most consistent performer in
+  // league history" while Zed sits on the same four. That is exactly the
+  // `shares` state `superlative.ts` exists for, and every sibling generator
+  // handles it. Pre-existing on `main`, and an earlier INSIGHTS-033 comment
+  // certified it as sound: true of the POPULATION, which does span everyone,
+  // and false of the COMPARISON.
+  const coHolders = [...topThreeCounts]
+    .filter(([owner, count]) => count === allTimeMax && !tied.includes(owner))
+    .map(([owner]) => owner)
+    .sort((a, b) => a.localeCompare(b));
+  const isRecord = maxCount === allTimeMax && coHolders.length === 0;
+  const sharesRecord = maxCount === allTimeMax && coHolders.length > 0;
 
   let hook: NewsHook;
   let description: string;
@@ -597,9 +655,11 @@ function deriveConsistencyInsight(
     hook = 'streak_extended';
     // INSIGHTS-033 — the PRESENT tense is the claim. "finishes top-3 again"
     // describes an owner who is playing; the fact underneath is that they
-    // finished top-3 in the most recent ARCHIVE. `isRecord` is measured over
-    // every owner (`allTimeMax` above), so the record half needs no gate — only
-    // the tense does.
+    // finished top-3 in the most recent ARCHIVE. The record half is handled by
+    // the three-state comparison above — an earlier version of this comment said
+    // it needed no gate at all, which was true of the population and false of
+    // the comparison, and `/code-review` noted that a comment like that stops
+    // the next reader from fixing it.
     description = consistencyKnown
       ? tied.length === 1
         ? `${nameList} finishes top-3 again — ${maxCount} times in league history, the most ever.`
@@ -607,6 +667,9 @@ function deriveConsistencyInsight(
       : tied.length === 1
         ? `${nameList} has finished top-3 ${maxCount} times — the most in league history.`
         : `${nameList} have each finished top-3 ${maxCount} times — the most in league history.`;
+  } else if (sharesRecord) {
+    hook = 'snapshot';
+    description = `${nameList} ${tied.length > 1 ? 'have each' : 'has'} finished top-3 ${maxCount} times, level with ${formatOwnerList(coHolders)}.`;
   } else if (isRecord) {
     hook = 'new_record';
     description =

@@ -56,6 +56,7 @@ API response → normalization layer → canonical game model → attachment lay
 - [auth-and-privacy.md](auth-and-privacy.md) — Clerk vs `ADMIN_API_TOKEN` vs league password; route/API auth.
 - [storage-and-caching.md](storage-and-caching.md) — `app_state` store, alias/standings cache keys/tags, provider caches.
 - [admin-control-plane.md](admin-control-plane.md) — admin route/action inventory, target admin information architecture, scheduler-receipt contract, the PLATFORM-086F2 migration map.
+- [insight-movement-model.md](insight-movement-model.md) — the four movement-shaped insight cards: what each claims, the population it measures, and who may be its subject.
 - Operations: [deployment.md](../operations/deployment.md), [diagnostics.md](../operations/diagnostics.md).
 
 ## Current docs vs historical docs

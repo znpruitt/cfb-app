@@ -392,13 +392,6 @@ function ordinalRank(n: number): string {
   return `${n}${n % 10 <= 3 ? suffix : 'th'}`;
 }
 
-/** "Alice", "Alice and Bob", "Alice, Bob, and Carol". */
-function ownerList(owners: readonly string[]): string {
-  if (owners.length === 0) return '';
-  if (owners.length === 1) return owners[0]!;
-  if (owners.length === 2) return `${owners[0]} and ${owners[1]}`;
-  return `${owners.slice(0, -1).join(', ')}, and ${owners[owners.length - 1]}`;
-}
 const SEASON_RUN_TIE_LIMIT = 4;
 
 export function deriveSeasonRunInsights(args: {
@@ -434,8 +427,14 @@ export function deriveSeasonRunInsights(args: {
       if (!snapshot) continue;
       const rank = rankByOwner(snapshot.standings).get(owner);
       if (rank == null) continue;
-      if (!worst || rank > worst.rank) worst = { rank, week };
-      if (!best || rank < best.rank) best = { rank, week };
+      // `>=` / `<=`, so an owner who returns to the same extreme later in the
+      // season is measured from the MOST RECENT time they were there. With
+      // strict comparisons the copy pointed at the first week the rank was
+      // reached — "climbed from 9th in week 2" for a run that actually started
+      // when they fell back to 9th in week 7 — which contradicts the model's
+      // "the baseline moves as the season goes".
+      if (!worst || rank >= worst.rank) worst = { rank, week };
+      if (!best || rank <= best.rank) best = { rank, week };
     }
     if (worst && worst.rank - current >= MIN_SEASON_RUN) {
       climbs.push({
@@ -473,7 +472,6 @@ export function deriveSeasonRunInsights(args: {
   const topClimbs = leadersOf(climbs);
   if (topClimbs.length > 0) {
     const only = topClimbs[0]!;
-    const names = ownerList(topClimbs.map((r) => r.owner));
     pushInsightUnique(
       insights,
       seen,
@@ -481,10 +479,17 @@ export function deriveSeasonRunInsights(args: {
         id: `season-climb-${topClimbs.map((r) => ownerSlug(r.owner)).join('-')}-wk${latestWeek}`,
         type: 'season_climb',
         title: 'Biggest climb of the season',
-        description:
-          topClimbs.length === 1
-            ? `${names} has climbed from ${ordinalRank(only.from)} in week ${only.week} to ${ordinalRank(only.to)}.`
-            : `${names} have each climbed ${only.distance} places from their low this season.`,
+        // Every owner keeps their own baseline and week. The tie branch used to
+        // collapse them into "have each climbed 3 places from their low this
+        // season", dropping the week the model requires every climb to name —
+        // the contract satisfied on the path with a test and broken on the path
+        // without one.
+        description: topClimbs
+          .map(
+            (r) =>
+              `${r.owner} has climbed from ${ordinalRank(r.from)} in week ${r.week} to ${ordinalRank(r.to)}.`
+          )
+          .join(' '),
         owner: only.owner,
         relatedOwners: topClimbs.slice(1).map((r) => r.owner),
         priorityScore: 58 + only.distance * 8,
@@ -501,7 +506,6 @@ export function deriveSeasonRunInsights(args: {
   const topSlides = leadersOf(slides);
   if (topSlides.length > 0) {
     const only = topSlides[0]!;
-    const names = ownerList(topSlides.map((r) => r.owner));
     pushInsightUnique(
       insights,
       seen,
@@ -509,10 +513,12 @@ export function deriveSeasonRunInsights(args: {
         id: `season-slide-${topSlides.map((r) => ownerSlug(r.owner)).join('-')}-wk${latestWeek}`,
         type: 'season_slide',
         title: 'Biggest slide of the season',
-        description:
-          topSlides.length === 1
-            ? `${names} has slid from ${ordinalRank(only.from)} in week ${only.week} to ${ordinalRank(only.to)}.`
-            : `${names} have each fallen ${only.distance} places from their high this season.`,
+        description: topSlides
+          .map(
+            (r) =>
+              `${r.owner} has slid from ${ordinalRank(r.from)} in week ${r.week} to ${ordinalRank(r.to)}.`
+          )
+          .join(' '),
         owner: only.owner,
         relatedOwners: topSlides.slice(1).map((r) => r.owner),
         priorityScore: 57 + only.distance * 8,

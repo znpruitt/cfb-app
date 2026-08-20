@@ -481,3 +481,82 @@ test('season movement: the record card is withheld when it repeats the season ca
     'the record card must not repeat it'
   );
 });
+
+test('season movement: a shrinking roster is not a climb', async () => {
+  // `/code-review` reproduced this and I confirmed it by running it: six owners
+  // become three, and the three who stayed each "climbed 3 places" without
+  // playing differently — which the record card would then enshrine as the
+  // biggest move in league history, permanently. Ranking within the owners
+  // present in BOTH seasons removes it by construction.
+  await seedLeague();
+  await seedArchive(2024, ['Erin', 'Frank', 'Gina', 'Alice', 'Bob', 'Carol'], []);
+  await seedArchive(2025, ['Alice', 'Bob', 'Carol'], []);
+  const context = await contextFor(['Alice', 'Bob', 'Carol']);
+
+  const swings = generateRawInsights(context).filter((i) => i.id.startsWith('season-swing'));
+  assert.deepEqual(
+    swings.map((i) => i.description),
+    [],
+    `a roster contraction was reported as a climb: ${swings.map((i) => i.description).join(' | ')}`
+  );
+});
+
+test('season movement: the record card names its season in the TITLE', async () => {
+  // The condition the departed-owner exemption rests on. Codex found the title a
+  // bare constant while AGENTS.md invariant 5 — amended in the same commit —
+  // required the year.
+  await seedLeague();
+  await seedArchive(2023, ['Bob', 'Carol', 'Alice', 'Frank', 'Gina', 'Erin'], []);
+  await seedArchive(2024, ['Erin', 'Bob', 'Carol', 'Alice', 'Frank', 'Gina'], []);
+  await seedArchive(2025, ['Alice', 'Erin', 'Bob', 'Carol', 'Frank', 'Gina'], []);
+  const context = await contextFor(['Alice', 'Bob', 'Carol', 'Erin', 'Frank', 'Gina']);
+
+  const record = generateRawInsights(context).find((i) => i.id.startsWith('season-swing-record-'));
+  assert.ok(record, 'the record card must fire');
+  assert.equal(record.title, 'Biggest single-season move on record — 2024');
+});
+
+test('season movement: one owner holding the record twice is named once', async () => {
+  // `recordLeaders` is a list of CLIMBS. Erin sets the same mark in two separate
+  // season pairs, which produced `season-swing-record-erin-erin` and an `owners`
+  // array naming her twice.
+  await seedLeague();
+  await seedArchive(2021, ['Bob', 'Carol', 'Alice', 'Frank', 'Erin'], []);
+  await seedArchive(2022, ['Erin', 'Bob', 'Carol', 'Alice', 'Frank'], []);
+  await seedArchive(2023, ['Bob', 'Carol', 'Alice', 'Frank', 'Erin'], []);
+  await seedArchive(2024, ['Erin', 'Bob', 'Carol', 'Alice', 'Frank'], []);
+  await seedArchive(2025, ['Bob', 'Erin', 'Carol', 'Alice', 'Frank'], []);
+  const context = await contextFor(['Alice', 'Bob', 'Carol', 'Erin', 'Frank']);
+
+  const record = generateRawInsights(context).find((i) => i.id.startsWith('season-swing-record-'));
+  assert.ok(record, 'the record card must fire');
+  assert.equal(record.id, 'season-swing-record-erin', 'the id must name her once');
+  assert.deepEqual(record.relatedOwners ?? [], [], 'and she is not her own related owner');
+});
+
+test('even rivalry: two equally close member pairs are level, not one champion', async () => {
+  // `resolveSuperlative` lists only NON-member holders, so two member pairs at
+  // the same closeness were invisible and the card crowned whichever one it
+  // happened to pick. A regression: before this slice the dead-even sentence
+  // carried no superlative at all.
+  await seedLeague();
+  for (let year = 2019; year <= 2024; year += 1) {
+    await seedArchive(
+      year,
+      ['Alice', 'Bob', 'Carol', 'Erin'],
+      [
+        year <= 2021 ? meeting(year, 'Alice', 'Bob') : meeting(year, 'Bob', 'Alice'),
+        year <= 2021 ? meeting(year, 'Carol', 'Erin') : meeting(year, 'Erin', 'Carol'),
+      ]
+    );
+  }
+  const context = await contextFor(['Alice', 'Bob', 'Carol', 'Erin']);
+
+  const even = find(generateRawInsights(context), 'even_rivalry');
+  assert.doesNotMatch(
+    even.description,
+    /the closest rivalry on record\./,
+    `sole possession claimed while another pair is exactly as close: ${even.description}`
+  );
+  assert.match(even.description, /level with Carol and Erin at 3–3 over 6 meetings\.$/);
+});
