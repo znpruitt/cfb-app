@@ -371,156 +371,165 @@ function deriveDynastyInsight(
   });
 }
 
-function deriveMostImprovedInsight(
-  archives: SeasonArchive[],
-  activeOwners: ReadonlySet<string>,
-  lifecycles: LifecycleState[],
-  membersSource: LeagueMembersSource
-): Insight | null {
-  if (archives.length < 2) return null;
-  const sorted = sortedArchives(archives);
-  const prev = sorted[sorted.length - 2]!;
-  const curr = sorted[sorted.length - 1]!;
+/**
+ * Ordinal suffix. A third local copy — `career.ts` and `membership.ts` each have
+ * one and their implementations differ — because unifying them means editing two
+ * generators outside this slice's contract. Recorded as a follow-up rather than
+ * folded in.
+ */
+function ordinal(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  const suffix = ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th';
+  return `${n}${n % 10 <= 3 ? suffix : 'th'}`;
+}
 
-  // INSIGHTS-033 round 2 — ONE population of every climb ever recorded, sliced
-  // two ways. The first round added a season population and left the all-time
-  // claim alone, and both reviewers found the same consequence: the strongest
-  // sentence this generator can produce ("the biggest single-season climb in
-  // league history") was still reached through `bestImprovement >= allTimeBest`
-  // where `allTimeBest` was SEEDED FROM THE MEMBER MAXIMUM, so a departed owner
-  // with an equal — or, through the seed, any — climb could not displace it.
-  // `docs/next-tasks.md` item 33 recorded that seed as a defect before either
-  // review ran.
-  type Climb = {
-    owner: string;
-    improvement: number;
-    year: number;
-    prevPos: number;
-    currPos: number;
-  };
-  const allClimbs: Climb[] = [];
+type SeasonClimb = {
+  owner: string;
+  gain: number;
+  fromYear: number;
+  toYear: number;
+  fromPos: number;
+  toPos: number;
+};
+
+/**
+ * SEASON-TO-SEASON MOVEMENT — reconstructed in INSIGHTS-033 rather than patched
+ * a fourth time. The model is `docs/architecture/insight-movement-model.md`.
+ *
+ * The old `deriveMostImprovedInsight` was wrong in four different ways across
+ * three passes, and every one of them was a copy branch reading a partition
+ * that had been computed correctly elsewhere: a season claim measured over
+ * members only; `shares` collapsed into `trails` so a tie was reported as a
+ * loss; an all-time comparison seeded from the member maximum so an equal climb
+ * could not displace it; and finally an all-time STANDING attached to a
+ * different owner's climb in a different year, which announced this season's
+ * smaller move as the league record. That last one was introduced by the round
+ * fixing the first three, which is what made reconstruction the right call.
+ *
+ * Two facts, so TWO CARDS (owner ruling, 2026-08-19):
+ *
+ *  - the biggest move of the most recent COMPLETED season, and
+ *  - the biggest single-season move in league HISTORY.
+ *
+ * Neither filters by membership. A completed season's biggest mover is a fact
+ * about that season the way its champion is, so the subject may be an owner who
+ * has since left — licensed by AGENTS.md Insights invariant 5's exemption, which
+ * holds ONLY while the copy names its season. Both cards therefore state their
+ * years, and that is pinned by test rather than trusted.
+ */
+function deriveSeasonMovementInsights(
+  archives: SeasonArchive[],
+  lifecycles: LifecycleState[]
+): Insight[] {
+  if (archives.length < 2) return [];
+  const sorted = sortedArchives(archives);
+
+  // Every climb between every consecutive pair of seasons, for every owner.
+  // ONE population, sliced two ways — the latest pair for the season card, all
+  // of it for the record card. The previous implementation built the all-time
+  // comparison by seeding an accumulator from the member maximum, which is how
+  // an equal climb by a departed owner failed to register at all.
+  const allClimbs: SeasonClimb[] = [];
   for (let i = 1; i < sorted.length; i += 1) {
-    const a = sorted[i - 1]!;
-    const b = sorted[i]!;
-    for (const row of b.finalStandings) {
+    const from = sorted[i - 1]!;
+    const to = sorted[i]!;
+    for (const row of to.finalStandings) {
       if (!isEligibleOwner(row.owner)) continue;
-      const prevPos = positionOf(a, row.owner);
-      const currPos = positionOf(b, row.owner);
-      if (prevPos === null || currPos === null) continue;
+      const fromPos = positionOf(from, row.owner);
+      const toPos = positionOf(to, row.owner);
+      if (fromPos === null || toPos === null) continue;
       allClimbs.push({
         owner: row.owner,
-        improvement: prevPos - currPos,
-        year: b.year,
-        prevPos,
-        currPos,
+        gain: fromPos - toPos,
+        fromYear: from.year,
+        toYear: to.year,
+        fromPos,
+        toPos,
       });
     }
   }
+  if (allClimbs.length === 0) return [];
 
-  const seasonClimbs = allClimbs.filter((c) => c.year === curr.year);
-  const qualifying = seasonClimbs.filter(
-    (c) => activeOwners.has(c.owner) && c.improvement >= MIN_IMPROVEMENT_POSITIONS
-  );
-  if (qualifying.length === 0) return null;
+  const latestYear = sorted[sorted.length - 1]!.year;
+  const insights: Insight[] = [];
 
-  const bestImprovement = qualifying.reduce(
-    (max, c) => (c.improvement > max ? c.improvement : max),
-    0
-  );
-  const tied = qualifying
-    .filter((c) => c.improvement === bestImprovement)
-    .sort((a, b) => a.owner.localeCompare(b.owner));
-  if (tied.length >= TIE_SUPPRESSION_THRESHOLD) return null;
+  /** Everyone tied at the maximum gain in a slice, or `[]` if none clears the floor. */
+  const leadersOf = (climbs: SeasonClimb[]): SeasonClimb[] => {
+    const best = climbs.reduce((max, c) => (c.gain > max ? c.gain : max), 0);
+    if (best < MIN_IMPROVEMENT_POSITIONS) return [];
+    const leaders = climbs
+      .filter((c) => c.gain === best)
+      .sort((a, b) => a.owner.localeCompare(b.owner) || a.toYear - b.toYear);
+    return leaders.length >= TIE_SUPPRESSION_THRESHOLD ? [] : leaders;
+  };
 
-  const priority = Math.min(
-    IMPROVEMENT_PRIORITY_CAP,
-    IMPROVEMENT_BASE_PRIORITY + IMPROVEMENT_PER_POSITION_BONUS * bestImprovement
-  );
+  const seasonLeaders = leadersOf(allClimbs.filter((c) => c.toYear === latestYear));
+  const recordLeaders = leadersOf(allClimbs);
 
-  const ownerNames = tied.map((c) => c.owner);
-  const nameList = formatOwnerList(ownerNames);
-  const improvementKnown = membershipIsKnown(membersSource);
-
-  const seasonStanding = resolveSuperlative({
-    population: seasonClimbs,
-    isMember: (c) => activeOwners.has(c.owner),
-    value: (c) => c.improvement,
-    owner: (c) => c.owner,
-  });
-  const allTimeStanding = resolveSuperlative({
-    population: allClimbs,
-    isMember: (c) => activeOwners.has(c.owner),
-    value: (c) => c.improvement,
-    owner: (c) => c.owner,
-  });
-
-  // Each holder's climb is its own phrase. Sharing one noun across the list
-  // produced "Dave and Erin's 5-place climb WERE the season's biggest" — a
-  // plural verb on a singular noun, which `lopsided` avoids by wrapping each
-  // holder's series the same way.
-  const climbPhrases = (holders: readonly { owner: string; value: number }[]): string =>
-    formatOwnerList(holders.map((h) => `${h.owner}'s ${h.value}-place climb`));
-
-  const seasonHolders = seasonStanding?.recordHolders ?? [];
-  const allTimeHolders = allTimeStanding?.recordHolders ?? [];
-  const holdsSeason = seasonStanding?.standing === 'holds';
-  const sharesSeason = seasonStanding?.standing === 'shares';
-  const holdsAllTime = allTimeStanding?.standing === 'holds';
-  const sharesAllTime = allTimeStanding?.standing === 'shares';
-
-  const only = tied[0]!;
-  const climb =
-    tied.length === 1
-      ? `${nameList} jumped from ${only.prevPos} to ${only.currPos} between ${prev.year} and ${curr.year}`
-      : `${nameList} each jumped ${bestImprovement} spots between ${prev.year} and ${curr.year}`;
-
-  // THREE standings, and the copy names the strongest one that is actually true:
-  // the all-time record, then the season's, then the member standing with the
-  // holder cited. The first round asserted the season claim from a `holds`-only
-  // boolean, so a departed owner who TIED the named member was reported as
-  // having beaten them — "Alice jumped 5 places; Dave's 5-place climb was the
-  // season's biggest", which denies its own first clause.
-  let description: string;
-  if (holdsAllTime) {
-    description = `${climb} — the biggest single-season climb in league history.`;
-  } else if (sharesAllTime) {
-    description = `${climb}, level with ${climbPhrases(allTimeHolders)} as the biggest in league history.`;
-  } else if (holdsSeason) {
-    description = `${climb} — the biggest improvement of the season.`;
-  } else if (sharesSeason) {
-    description = `${climb}, level with ${climbPhrases(seasonHolders)} as the season's biggest.`;
-  } else if (improvementKnown) {
-    // Active first, then the record — the owner's ruling for the whole class.
-    description = `${climb} — the biggest of any active owner. ${climbPhrases(seasonHolders)} ${holderVerb(seasonHolders, 'was', 'were')} the season's biggest.`;
-  } else {
-    description = `${climb}; ${climbPhrases(seasonHolders)} ${holderVerb(seasonHolders, 'was', 'were')} the season's biggest.`;
+  if (seasonLeaders.length > 0) {
+    const gain = seasonLeaders[0]!.gain;
+    const names = formatOwnerList(seasonLeaders.map((c) => c.owner));
+    const only = seasonLeaders[0]!;
+    const description =
+      seasonLeaders.length === 1
+        ? `${names} climbed from ${ordinal(only.fromPos)} to ${ordinal(only.toPos)} between ${only.fromYear} and ${only.toYear} — the biggest move of the ${only.toYear} season.`
+        : `${names} each climbed ${gain} places between ${only.fromYear} and ${only.toYear} — the biggest move of the ${only.toYear} season.`;
+    insights.push(
+      toInsight({
+        id: `season-swing-${latestYear}-${seasonLeaders.map((c) => ownerSlug(c.owner)).join('-')}`,
+        type: 'improvement',
+        // The YEAR is in the headline, not only the body. A card read out of
+        // context is the case the exemption has to survive.
+        title: `Biggest move of ${latestYear}`,
+        description,
+        owner: only.owner,
+        relatedOwners: seasonLeaders.slice(1).map((c) => c.owner),
+        priorityScore: Math.min(
+          IMPROVEMENT_PRIORITY_CAP,
+          IMPROVEMENT_BASE_PRIORITY + IMPROVEMENT_PER_POSITION_BONUS * gain
+        ),
+        lifecycle: lifecycles,
+        newsHook: 'snapshot',
+        statValue: gain,
+      })
+    );
   }
 
-  const hook: NewsHook = holdsAllTime || sharesAllTime ? 'new_record' : 'streak_extended';
+  // The record card is SUPPRESSED when it would name the same climbs the season
+  // card just named — two cards carrying one sentence is worse than one card.
+  const sameAsSeason =
+    seasonLeaders.length === recordLeaders.length &&
+    recordLeaders.every((r) =>
+      seasonLeaders.some((s) => s.owner === r.owner && s.toYear === r.toYear)
+    );
 
-  return toInsight({
-    id: `historical-improvement-${ownerNames.map(ownerSlug).join('-')}-${curr.year}`,
-    type: 'improvement',
-    // "Biggest" only when the body claims a biggest. Codex found the title
-    // asserting the leap was the biggest directly above a body naming a larger
-    // one.
-    // "Biggest" only when the member holds or shares a LEAGUE-WIDE mark. The
-    // active-owner branch below states a scoped biggest and cites a larger
-    // climb, so an unscoped headline there contradicts its own body — which is
-    // the exact split Codex found, and which I reintroduced one round later by
-    // letting that branch back into this condition.
-    title:
-      holdsAllTime || sharesAllTime || holdsSeason || sharesSeason
-        ? 'Biggest year-over-year leap'
-        : 'Year-over-year leap',
-    description,
-    owner: ownerNames[0],
-    relatedOwners: ownerNames.slice(1),
-    priorityScore: priority,
-    lifecycle: lifecycles,
-    newsHook: hook,
-    statValue: bestImprovement,
-  });
+  if (recordLeaders.length > 0 && !sameAsSeason) {
+    const gain = recordLeaders[0]!.gain;
+    // Each holder carries their own years, so a shared record cannot collapse
+    // into one owner's phrasing.
+    const holderText = formatOwnerList(
+      recordLeaders.map(
+        (c) => `${c.owner}'s ${c.gain} places between ${c.fromYear} and ${c.toYear}`
+      )
+    );
+    insights.push(
+      toInsight({
+        id: `season-swing-record-${recordLeaders.map((c) => ownerSlug(c.owner)).join('-')}`,
+        type: 'improvement',
+        title: 'Biggest single-season move on record',
+        description: `${holderText} ${recordLeaders.length > 1 ? 'are' : 'is'} the biggest single-season move in league history.`,
+        owner: recordLeaders[0]!.owner,
+        relatedOwners: recordLeaders.slice(1).map((c) => c.owner),
+        priorityScore: IMPROVEMENT_BASE_PRIORITY,
+        lifecycle: lifecycles,
+        newsHook: 'new_record',
+        statValue: gain,
+      })
+    );
+  }
+
+  return insights;
 }
 
 function deriveConsistencyInsight(
@@ -653,13 +662,7 @@ export const historicalGenerator: InsightGenerator = {
     );
     if (dynasty) insights.push(dynasty);
 
-    const improvement = deriveMostImprovedInsight(
-      archives,
-      activeOwners,
-      HISTORICAL_LIFECYCLES,
-      context.leagueMembersSource
-    );
-    if (improvement) insights.push(improvement);
+    insights.push(...deriveSeasonMovementInsights(archives, HISTORICAL_LIFECYCLES));
 
     const consistency = deriveConsistencyInsight(
       archives,

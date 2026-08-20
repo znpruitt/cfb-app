@@ -403,89 +403,81 @@ test('even rivalry: with membership UNKNOWN, the active standing is withheld', a
 });
 
 // ---------------------------------------------------------------------------
-// Biggest year-over-year leap — the season claim had no population at all.
+// Season-to-season movement — reconstructed in INSIGHTS-033. The model lives in
+// `docs/architecture/insight-movement-model.md`.
+//
+// A completed season's biggest mover is a fact about that season, so these cards
+// name whoever made the move and state the year. They do not filter by
+// membership, which is why they are exempt by id from the departed-owner wiring
+// rule — an exemption that is only sound while the year is stated.
 // ---------------------------------------------------------------------------
 
-/**
- * Six owners over three seasons. In 2025 Alice climbs 5th → 2nd (three places,
- * exactly `MIN_IMPROVEMENT_POSITIONS`) and Dave climbs 6th → 1st (five). The
- * all-time comparison already spanned everyone, so Dave's five-place climb
- * pushes the hook off `new_record`; the SEASON claim underneath it was measured
- * over members only and crowned Alice.
- */
-async function seedImprovementLeague(): Promise<void> {
+/** Dave leaves after 2025; his 2025 move is the season's biggest. */
+async function seedMovementLeague(): Promise<void> {
   await seedLeague();
   await seedArchive(2023, ['Bob', 'Carol', 'Erin', 'Frank', 'Alice', 'Dave'], []);
   await seedArchive(2024, ['Bob', 'Carol', 'Erin', 'Frank', 'Alice', 'Dave'], []);
   await seedArchive(2025, ['Dave', 'Alice', 'Bob', 'Carol', 'Erin', 'Frank'], []);
 }
 
-test("biggest leap: a member does not take the season's climb from a departed owner", async () => {
-  await seedImprovementLeague();
+test('season movement: the biggest mover is named even after leaving', async () => {
+  await seedMovementLeague();
   const context = await contextFor(['Alice', 'Bob', 'Carol', 'Erin', 'Frank']);
-  assert.equal(context.leagueMembersSource, 'confirmed');
-  assert.ok(!context.leagueMembers.has('Dave'), 'and Dave must be outside the membership');
+  assert.ok(!context.leagueMembers.has('Dave'), 'Dave must be outside the membership');
 
-  const improvement = find(generateRawInsights(context), 'improvement');
-  assert.match(improvement.description, /Alice jumped from 5 to 2/, 'Alice is still named');
-  assert.doesNotMatch(
-    improvement.description,
-    /the biggest improvement of the season/,
-    `a member took the season's biggest climb while a departed owner made a larger one: ${improvement.description}`
-  );
-  assert.match(improvement.description, /Dave's 5-place climb was the season's biggest/);
+  const insights = generateRawInsights(context);
+  const season = insights.find((i) => i.id.startsWith(`season-swing-2025-`));
+  assert.ok(season, 'the season card must fire');
+  // The subject is the actual biggest mover. The previous model anchored the
+  // card on a member and demoted the real one to a citation, which took four
+  // passes to get wrong in four different ways.
+  assert.match(season.description, /^Dave climbed from 6th to 1st between 2024 and 2025/);
+  assert.match(season.description, /the biggest move of the 2025 season\.$/);
+  // The YEAR is in the headline too — the exemption that lets this card name a
+  // departed owner holds only while the copy says which season it describes.
+  assert.equal(season.title, 'Biggest move of 2025');
 });
 
-test('biggest leap: a departed owner who TIES is level, not beaten', async () => {
-  // `/code-review` finding 1 and the queue's item-33 note, together: the first
-  // round collapsed `shares` into `trails` with `seasonHolders.length === 0`,
-  // and reached its strongest sentence through an all-time comparison SEEDED
-  // FROM THE MEMBER MAXIMUM — so a departed owner with an equal climb could not
-  // displace it. Two archives only, so this season's climb is also the all-time
-  // one, and Alice and Dave both climb five.
+test('season movement: the all-time record is its own card, with its own years', async () => {
+  // Erin climbs five places in 2024; the biggest 2025 move is Alice's three. Two
+  // distinct facts, so two cards.
   await seedLeague();
-  await seedArchive(2024, ['Bob', 'Carol', 'Erin', 'Frank', 'Alice', 'Dave'], []);
-  await seedArchive(2025, ['Alice', 'Dave', 'Bob', 'Carol', 'Erin', 'Frank'], []);
-  const context = await contextFor(['Alice', 'Bob', 'Carol', 'Erin', 'Frank']);
-  assert.ok(!context.leagueMembers.has('Dave'));
+  await seedArchive(2023, ['Bob', 'Carol', 'Alice', 'Frank', 'Gina', 'Erin'], []);
+  await seedArchive(2024, ['Erin', 'Bob', 'Carol', 'Alice', 'Frank', 'Gina'], []);
+  await seedArchive(2025, ['Alice', 'Erin', 'Bob', 'Carol', 'Frank', 'Gina'], []);
+  const context = await contextFor(['Alice', 'Bob', 'Carol', 'Erin', 'Frank', 'Gina']);
 
-  const improvement = find(generateRawInsights(context), 'improvement');
+  const insights = generateRawInsights(context);
+  const season = insights.find((i) => i.id.startsWith('season-swing-2025-'));
+  const record = insights.find((i) => i.id.startsWith('season-swing-record-'));
+  assert.ok(season, 'the season card must fire');
+  assert.ok(record, 'and the record card must fire separately');
+
+  // The season card claims only the season. Attaching the all-time standing to
+  // this climb is the P1 both reviewers found in the previous round.
   assert.doesNotMatch(
-    improvement.description,
-    /— the biggest single-season climb in league history\./,
-    `an outright record claim over a tie: ${improvement.description}`
+    season.description,
+    /league history/,
+    `the season card claimed the all-time record: ${season.description}`
   );
-  assert.match(
-    improvement.description,
-    /level with Dave's 4-place climb as the biggest in league history\.$/
-  );
+  assert.match(record.description, /Erin's 5 places between 2023 and 2024/);
+  assert.match(record.description, /is the biggest single-season move in league history\.$/);
 });
 
-test('biggest leap: two co-holders read as two climbs, not one plural noun', async () => {
-  // `/code-review` finding 6 and Codex's P3. `${names}'s ${n}-place climb
-  // ${were}` shares one singular noun across a list and takes a plural verb:
-  // "Dave and Erin's 5-place climb were the season's biggest."
-  // Dave and Erin each climb four places; Alice, the best member, climbs three.
-  await seedLeague();
-  await seedArchive(2024, ['Carol', 'Frank', 'Gina', 'Bob', 'Dave', 'Erin', 'Alice'], []);
-  await seedArchive(2025, ['Dave', 'Erin', 'Bob', 'Alice', 'Carol', 'Frank', 'Gina'], []);
-  const context = await contextFor(['Alice', 'Bob', 'Carol', 'Frank', 'Gina']);
-  assert.ok(!context.leagueMembers.has('Dave') && !context.leagueMembers.has('Erin'));
+test('season movement: the record card is withheld when it repeats the season card', async () => {
+  // Here the biggest move ever IS this season's, so the two cards would carry
+  // one sentence.
+  await seedMovementLeague();
+  const context = await contextFor(['Alice', 'Bob', 'Carol', 'Erin', 'Frank']);
 
-  const improvement = find(generateRawInsights(context), 'improvement');
-  // The defect signature is an owner LIST sharing one possessive — "Dave and
-  // Erin's 4-place climb" — not the words "climb were", which the correct form
-  // legitimately contains ("…climb and Erin's 4-place climb were…"). A guard
-  // matching the correct output is a guard that has to be deleted later.
-  assert.doesNotMatch(
-    improvement.description,
-    /[A-Z]\w+ and [A-Z]\w+'s \d+-place climb/,
-    `an owner list sharing one singular noun: ${improvement.description}`
+  const insights = generateRawInsights(context);
+  assert.ok(
+    insights.some((i) => i.id.startsWith('season-swing-2025-')),
+    'the season card must still fire'
   );
-  assert.match(
-    improvement.description,
-    /Dave's 4-place climb and Erin's 4-place climb were the season's biggest\.$/
+  assert.equal(
+    insights.filter((i) => i.id.startsWith('season-swing-record-')).length,
+    0,
+    'the record card must not repeat it'
   );
-  // And the headline stops claiming a biggest the body denies (Codex P2).
-  assert.equal(improvement.title, 'Year-over-year leap');
 });

@@ -30,6 +30,8 @@ export type InsightType =
   | 'greatest_season'
   | 'trending_up'
   | 'trending_down'
+  | 'season_climb'
+  | 'season_slide'
   | 'ball_security'
   | 'takeaway_king'
   | 'yards_per_win'
@@ -350,6 +352,176 @@ export function deriveMovementInsights(args: {
         lifecycle: IN_SEASON_LIFECYCLES,
         newsHook: 'streak_extended',
         statValue: dropMagnitude,
+      })
+    );
+  }
+
+  return insights;
+}
+
+/**
+ * SEASON-SCALE MOVEMENT — how far an owner has come back from their own low
+ * point this season, and how far they have fallen from their own high.
+ *
+ * Distinct from the two week-scale cards in this file, and deliberately so
+ * (owner ruling, 2026-08-19: "climbs are internal season facts; season to
+ * season swings are a different insight altogether"). `deriveMovementInsights`
+ * compares the latest resolved week with the one before it, and
+ * `deriveRecentSurgeInsight` uses a trailing window gated on wins. Neither can
+ * see an owner who was 9th in week 4 and is 2nd now — the run that actually
+ * reads as a comeback.
+ *
+ * The baseline is the owner's OWN extreme rather than week 1, so an owner who
+ * started well, collapsed and recovered is credited for the recovery. It moves
+ * as the season goes: dropping further resets the low it is measured from.
+ *
+ * Membership is not a question these two can get wrong. The population is this
+ * season's standings rows, whose owners are by definition this season's
+ * participants — unlike the archive-fed generators, where the whole
+ * INSIGHTS-033 defect class lived.
+ *
+ * The model is `docs/architecture/insight-movement-model.md`.
+ */
+const MIN_SEASON_RUN = 3;
+
+/** Ordinal rank for copy: 1 -> "1st". */
+function ordinalRank(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  const suffix = ['th', 'st', 'nd', 'rd'][n % 10] ?? 'th';
+  return `${n}${n % 10 <= 3 ? suffix : 'th'}`;
+}
+
+/** "Alice", "Alice and Bob", "Alice, Bob, and Carol". */
+function ownerList(owners: readonly string[]): string {
+  if (owners.length === 0) return '';
+  if (owners.length === 1) return owners[0]!;
+  if (owners.length === 2) return `${owners[0]} and ${owners[1]}`;
+  return `${owners.slice(0, -1).join(', ')}, and ${owners[owners.length - 1]}`;
+}
+const SEASON_RUN_TIE_LIMIT = 4;
+
+export function deriveSeasonRunInsights(args: {
+  standingsHistory: StandingsHistory;
+  resolvedWeeks: number[];
+}): Insight[] {
+  const { standingsHistory, resolvedWeeks } = args;
+  // Three weeks minimum: with two, the owner's low IS the previous week and this
+  // card degenerates into `deriveMovementInsights` wearing a season label.
+  if (resolvedWeeks.length < 3) return [];
+
+  const latestWeek = resolvedWeeks[resolvedWeeks.length - 1]!;
+  const latestSnapshot = standingsHistory.byWeek[latestWeek];
+  if (!latestSnapshot) return [];
+  const currentRank = rankByOwner(latestSnapshot.standings);
+
+  type Run = { owner: string; from: number; to: number; week: number; distance: number };
+  const climbs: Run[] = [];
+  const slides: Run[] = [];
+
+  for (const [owner, current] of currentRank) {
+    if (!isNarrativeEligibleOwner(owner)) continue;
+    let worst: { rank: number; week: number } | null = null;
+    let best: { rank: number; week: number } | null = null;
+    // EARLIER weeks only, because the baseline is by definition a rank the owner
+    // has already left. This is definitional, NOT defensive: including the
+    // latest week would let the current rank be its own extreme, but that yields
+    // a distance of zero, which `MIN_SEASON_RUN` rejects anyway. Mutation-proved
+    // — swapping this for the full week list leaves every test green, so no
+    // comment here may claim it prevents a defect.
+    for (const week of resolvedWeeks.slice(0, -1)) {
+      const snapshot = standingsHistory.byWeek[week];
+      if (!snapshot) continue;
+      const rank = rankByOwner(snapshot.standings).get(owner);
+      if (rank == null) continue;
+      if (!worst || rank > worst.rank) worst = { rank, week };
+      if (!best || rank < best.rank) best = { rank, week };
+    }
+    if (worst && worst.rank - current >= MIN_SEASON_RUN) {
+      climbs.push({
+        owner,
+        from: worst.rank,
+        to: current,
+        week: worst.week,
+        distance: worst.rank - current,
+      });
+    }
+    if (best && current - best.rank >= MIN_SEASON_RUN) {
+      slides.push({
+        owner,
+        from: best.rank,
+        to: current,
+        week: best.week,
+        distance: current - best.rank,
+      });
+    }
+  }
+
+  /** Everyone tied at the furthest distance, or `[]` when too many are level. */
+  const leadersOf = (runs: Run[]): Run[] => {
+    if (runs.length === 0) return [];
+    const furthest = runs.reduce((max, r) => (r.distance > max ? r.distance : max), 0);
+    const leaders = runs
+      .filter((r) => r.distance === furthest)
+      .sort((a, b) => a.owner.localeCompare(b.owner));
+    return leaders.length >= SEASON_RUN_TIE_LIMIT ? [] : leaders;
+  };
+
+  const insights: Insight[] = [];
+  const seen = new Set<string>();
+
+  const topClimbs = leadersOf(climbs);
+  if (topClimbs.length > 0) {
+    const only = topClimbs[0]!;
+    const names = ownerList(topClimbs.map((r) => r.owner));
+    pushInsightUnique(
+      insights,
+      seen,
+      toInsight({
+        id: `season-climb-${topClimbs.map((r) => ownerSlug(r.owner)).join('-')}-wk${latestWeek}`,
+        type: 'season_climb',
+        title: 'Biggest climb of the season',
+        description:
+          topClimbs.length === 1
+            ? `${names} has climbed from ${ordinalRank(only.from)} in week ${only.week} to ${ordinalRank(only.to)}.`
+            : `${names} have each climbed ${only.distance} places from their low this season.`,
+        owner: only.owner,
+        relatedOwners: topClimbs.slice(1).map((r) => r.owner),
+        priorityScore: 58 + only.distance * 8,
+        week: latestWeek,
+        navigationTarget: 'standings',
+        category: 'trajectory',
+        lifecycle: IN_SEASON_LIFECYCLES,
+        newsHook: 'streak_extended',
+        statValue: only.distance,
+      })
+    );
+  }
+
+  const topSlides = leadersOf(slides);
+  if (topSlides.length > 0) {
+    const only = topSlides[0]!;
+    const names = ownerList(topSlides.map((r) => r.owner));
+    pushInsightUnique(
+      insights,
+      seen,
+      toInsight({
+        id: `season-slide-${topSlides.map((r) => ownerSlug(r.owner)).join('-')}-wk${latestWeek}`,
+        type: 'season_slide',
+        title: 'Biggest slide of the season',
+        description:
+          topSlides.length === 1
+            ? `${names} has slid from ${ordinalRank(only.from)} in week ${only.week} to ${ordinalRank(only.to)}.`
+            : `${names} have each fallen ${only.distance} places from their high this season.`,
+        owner: only.owner,
+        relatedOwners: topSlides.slice(1).map((r) => r.owner),
+        priorityScore: 57 + only.distance * 8,
+        week: latestWeek,
+        navigationTarget: 'standings',
+        category: 'trajectory',
+        lifecycle: IN_SEASON_LIFECYCLES,
+        newsHook: 'streak_extended',
+        statValue: only.distance,
       })
     );
   }

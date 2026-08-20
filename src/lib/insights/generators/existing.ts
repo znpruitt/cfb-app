@@ -4,6 +4,7 @@ import {
   deriveFinalCollapseInsight,
   deriveMovementInsights,
   deriveRecentSurgeInsight,
+  deriveSeasonRunInsights,
   deriveTightClusterInsight,
   deriveTightRaceInsight,
   deriveToiletBowlInsight,
@@ -138,6 +139,29 @@ export const trajectoryGenerator: InsightGenerator = {
   },
 };
 
+/**
+ * INSIGHTS-033 — season-scale movement, registered separately from
+ * `existing:trajectory` rather than folded into it.
+ *
+ * Its own generator because it answers its own question and should stand or fall
+ * on its own: `trajectory` reports the week's movement and a trailing-window
+ * surge, while this reports how far an owner has come back from their own low
+ * across the whole season. Sharing a generator id would also share suppression
+ * and diagnostics identity between three unrelated claims.
+ */
+export const seasonRunGenerator: InsightGenerator = {
+  id: 'existing:season_run',
+  category: 'trajectory',
+  supportedLifecycles: TRAJECTORY_LIFECYCLES,
+  generate(context: InsightContext): Insight[] {
+    const standingsHistory = reconstructStandingsHistory(context);
+    if (!standingsHistory) return [];
+    const { resolvedWeeks } = selectResolvedStandingsWeeks(standingsHistory);
+    if (resolvedWeeks.length === 0) return [];
+    return deriveSeasonRunInsights({ standingsHistory, resolvedWeeks });
+  },
+};
+
 export const seasonWrapGenerator: InsightGenerator = {
   id: 'existing:season_wrap',
   category: 'season_wrap',
@@ -232,5 +256,6 @@ export const championshipRaceGenerator: InsightGenerator = {
 };
 
 registerGenerator(trajectoryGenerator);
+registerGenerator(seasonRunGenerator);
 registerGenerator(seasonWrapGenerator);
 registerGenerator(championshipRaceGenerator);

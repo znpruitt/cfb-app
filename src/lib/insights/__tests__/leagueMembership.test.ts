@@ -302,6 +302,16 @@ const RECAP_ID_PREFIXES = [
   'closing-chase-',
   'final-collapse-',
   'toilet-bowl-',
+  // INSIGHTS-033 (owner ruling, 2026-08-19). The season-movement cards report a
+  // COMPLETED season's biggest mover, which is a fact about that season the way
+  // its champion is — the same reasoning that exempted the recap cards. Granted
+  // BY ID, not by category: `improvement` is the shared `type` and exempting it
+  // wholesale would cover any future card that adopts it.
+  //
+  // Sound only while the copy names its season, which is why both cards state
+  // their years in the TITLE as well as the body, pinned in
+  // `participationClaims.test.ts`.
+  'season-swing-',
 ] as const;
 
 /**
