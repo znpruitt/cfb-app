@@ -90,7 +90,8 @@ function positionOf(archive: SeasonArchive, owner: string): number | null {
 function deriveDroughtInsight(
   archives: SeasonArchive[],
   activeOwners: ReadonlySet<string>,
-  lifecycles: LifecycleState[]
+  lifecycles: LifecycleState[],
+  membersSource: LeagueMembersSource
 ): Insight | null {
   if (archives.length === 0) return null;
   const sorted = sortedArchives(archives);
@@ -151,18 +152,35 @@ function deriveDroughtInsight(
   const ownerNames = tied.map((e) => e.owner);
   const nameList = formatOwnerList(ownerNames);
 
+  // INSIGHTS-033 — every claim below is measured over `activeOwners`, so
+  // "active" and "the league" are true exactly when membership is known. In the
+  // offseason the set is last season's roster, which names an owner who is not
+  // coming back and omits one who sat a season out — so the same sentence
+  // asserts participation the data cannot support. The COUNT is correct in
+  // every state; only the participation clause is gated.
+  const droughtKnown = membershipIsKnown(membersSource);
+
   // Hook: never_won if every tied owner has no title; otherwise streak_extended.
   const hook: NewsHook = allNeverWon ? 'never_won' : 'streak_extended';
 
   let description: string;
   if (hook === 'never_won') {
     if (tied.length === 1) {
-      description = `${nameList} has never won a title in ${longestDrought} seasons — the longest active drought in the league.`;
+      description = droughtKnown
+        ? `${nameList} has never won a title in ${longestDrought} seasons — the longest active drought in the league.`
+        : `${nameList} has never won a title in ${longestDrought} seasons.`;
     } else {
       description = `${nameList} have never won a title in ${longestDrought} seasons.`;
     }
   } else if (tied.length === 1) {
-    description = `${nameList} hasn't won a title in ${longestDrought} seasons — still waiting for another ring.`;
+    description = droughtKnown
+      ? `${nameList} hasn't won a title in ${longestDrought} seasons — still waiting for another ring.`
+      : // NOT "last won a title N seasons ago", which INSIGHTS-023 wrote and
+        // caught in review: `longestDrought` counts from the newest ARCHIVE
+        // year, so in preseason 2026 an owner who last won in 2022 gets 3 and a
+        // reader counting back from today lands on 2023. The span phrasing is
+        // correct in every lifecycle.
+        `${nameList} has gone ${longestDrought} seasons without a title.`;
   } else {
     description = `${nameList} haven't won a title in ${longestDrought} seasons.`;
   }
@@ -170,7 +188,11 @@ function deriveDroughtInsight(
   return toInsight({
     id: `historical-drought-${ownerNames.map(ownerSlug).join('-')}`,
     type: 'drought',
-    title: 'Longest active title drought',
+    // The TITLE follows membership too. It renders directly above the
+    // description, so a constant "Longest ACTIVE title drought" puts the
+    // participation claim back on screen one line above a body that just
+    // dropped it — which is exactly what both reviewers found in INSIGHTS-023.
+    title: droughtKnown ? 'Longest active title drought' : 'Longest title drought',
     description,
     owner: ownerNames[0],
     relatedOwners: ownerNames.slice(1),
@@ -370,6 +392,31 @@ function deriveMostImprovedInsight(
   const ownerNames = tied.map((e) => e.owner);
   const nameList = formatOwnerList(ownerNames);
 
+  // INSIGHTS-033 — "the biggest improvement of the season" was measured over
+  // MEMBERS only, because the loop that builds `entries` filters on
+  // `activeOwners`. The all-time comparison below already spans everyone and is
+  // untouched; this is the SEASON claim, which had no such population. A
+  // departed owner who climbed further in the same season took the title and
+  // was never considered.
+  type SeasonClimb = { owner: string; improvement: number };
+  const seasonClimbs: SeasonClimb[] = [];
+  for (const row of curr.finalStandings) {
+    if (!isEligibleOwner(row.owner)) continue;
+    const prevPos = positionOf(prev, row.owner);
+    const currPos = positionOf(curr, row.owner);
+    if (prevPos === null || currPos === null) continue;
+    seasonClimbs.push({ owner: row.owner, improvement: prevPos - currPos });
+  }
+  const seasonStanding = resolveSuperlative({
+    population: seasonClimbs,
+    isMember: (c) => activeOwners.has(c.owner),
+    value: (c) => c.improvement,
+    owner: (c) => c.owner,
+  });
+  const seasonHolders = seasonStanding?.recordHolders ?? [];
+  const holdsSeasonClimb = seasonHolders.length === 0;
+  const seasonHolderNames = formatHolderNames(seasonHolders);
+
   // Determine if this is the largest single-year leap in all recorded history.
   let allTimeBest = bestImprovement;
   for (let i = 1; i < sorted.length; i += 1) {
@@ -394,7 +441,10 @@ function deriveMostImprovedInsight(
         : `${nameList} each jumped ${bestImprovement} spots — tied for the biggest climb in league history.`;
   } else if (tied.length === 1) {
     const only = tied[0]!;
-    description = `${nameList} jumped from ${only.prevPos} to ${only.currPos} between ${prev.year} and ${curr.year} — the biggest improvement of the season.`;
+    const climb = `${nameList} jumped from ${only.prevPos} to ${only.currPos} between ${prev.year} and ${curr.year}`;
+    description = holdsSeasonClimb
+      ? `${climb} — the biggest improvement of the season.`
+      : `${climb}; ${seasonHolderNames}'s ${seasonHolders[0]!.value}-place climb ${holderVerb(seasonHolders, 'was', 'were')} the season's biggest.`;
   } else {
     description = `${nameList} each jumped ${bestImprovement} positions between ${prev.year} and ${curr.year}.`;
   }
@@ -416,7 +466,8 @@ function deriveMostImprovedInsight(
 function deriveConsistencyInsight(
   archives: SeasonArchive[],
   activeOwners: ReadonlySet<string>,
-  lifecycles: LifecycleState[]
+  lifecycles: LifecycleState[],
+  membersSource: LeagueMembersSource
 ): Insight | null {
   if (archives.length < MIN_CONSISTENCY_SEASONS) return null;
 
@@ -459,6 +510,7 @@ function deriveConsistencyInsight(
   if (tied.length >= TIE_SUPPRESSION_THRESHOLD) return null;
 
   const nameList = formatOwnerList(tied);
+  const consistencyKnown = membershipIsKnown(membersSource);
 
   // Did the tied leader(s) just add a top-3 this year?
   const latestArchive = [...archives].sort((a, b) => a.year - b.year)[archives.length - 1];
@@ -474,10 +526,18 @@ function deriveConsistencyInsight(
   let description: string;
   if (justAddedTopThree && isRecord) {
     hook = 'streak_extended';
-    description =
-      tied.length === 1
+    // INSIGHTS-033 — the PRESENT tense is the claim. "finishes top-3 again"
+    // describes an owner who is playing; the fact underneath is that they
+    // finished top-3 in the most recent ARCHIVE. `isRecord` is measured over
+    // every owner (`allTimeMax` above), so the record half needs no gate — only
+    // the tense does.
+    description = consistencyKnown
+      ? tied.length === 1
         ? `${nameList} finishes top-3 again — ${maxCount} times in league history, the most ever.`
-        : `${nameList} each finish top-3 again — ${maxCount} times in league history, the most ever.`;
+        : `${nameList} each finish top-3 again — ${maxCount} times in league history, the most ever.`
+      : tied.length === 1
+        ? `${nameList} has finished top-3 ${maxCount} times — the most in league history.`
+        : `${nameList} have each finished top-3 ${maxCount} times — the most in league history.`;
   } else if (isRecord) {
     hook = 'new_record';
     description =
@@ -517,7 +577,12 @@ export const historicalGenerator: InsightGenerator = {
     const activeOwners = context.leagueMembers;
 
     const insights: Insight[] = [];
-    const drought = deriveDroughtInsight(archives, activeOwners, HISTORICAL_LIFECYCLES);
+    const drought = deriveDroughtInsight(
+      archives,
+      activeOwners,
+      HISTORICAL_LIFECYCLES,
+      context.leagueMembersSource
+    );
     if (drought) insights.push(drought);
 
     const dynasty = deriveDynastyInsight(
@@ -531,7 +596,12 @@ export const historicalGenerator: InsightGenerator = {
     const improvement = deriveMostImprovedInsight(archives, activeOwners, HISTORICAL_LIFECYCLES);
     if (improvement) insights.push(improvement);
 
-    const consistency = deriveConsistencyInsight(archives, activeOwners, HISTORICAL_LIFECYCLES);
+    const consistency = deriveConsistencyInsight(
+      archives,
+      activeOwners,
+      HISTORICAL_LIFECYCLES,
+      context.leagueMembersSource
+    );
     if (consistency) insights.push(consistency);
 
     return insights;

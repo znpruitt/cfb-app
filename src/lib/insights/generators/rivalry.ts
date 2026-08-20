@@ -283,7 +283,8 @@ function deriveLopsidedInsight(
 function deriveEvenRivalryInsight(
   pairs: Map<string, HeadToHeadResult[]>,
   activeOwners: ReadonlySet<string>,
-  lifecycles: LifecycleState[]
+  lifecycles: LifecycleState[],
+  membersSource: LeagueMembersSource
 ): Insight | null {
   let bestKey: string | null = null;
   let bestMeetings = 0;
@@ -312,22 +313,82 @@ function deriveEvenRivalryInsight(
 
   if (!bestKey || !bestOwnerA || !bestOwnerB) return null;
 
-  const winDiff = Math.abs(bestWinsA - bestWinsB);
-  let description: string;
-  if (winDiff === 0) {
-    description = `${bestOwnerA} and ${bestOwnerB} are tied at ${bestWinsA}–${bestWinsB} across ${bestMeetings} meetings.`;
-  } else {
-    const leader = bestWinsA > bestWinsB ? bestOwnerA : bestOwnerB;
-    const trailer = bestWinsA > bestWinsB ? bestOwnerB : bestOwnerA;
-    const leaderWins = Math.max(bestWinsA, bestWinsB);
-    const trailerWins = Math.min(bestWinsA, bestWinsB);
-    description = `${leader} leads ${trailer} ${leaderWins}–${trailerWins} across ${bestMeetings} meetings — the closest rivalry in the league.`;
+  // INSIGHTS-033 — the same conversion INSIGHTS-030 applied to `lopsided`, and
+  // the site it missed. The search loop above skips any pair holding a
+  // non-member, so "the closest rivalry in the league" was measured over member
+  // pairs only: a departed pair level across ten meetings beat it and was never
+  // considered. INSIGHTS-023 wrote an unknown-membership variant that said "the
+  // closest in league history" instead, which is the same defect stated WIDER,
+  // and reverted the generator rather than ship it.
+  //
+  // Pair-shaped, so the record holder is two names and a scoreline; the entry
+  // carries what the citation needs. `even` is defined here exactly as the
+  // search defines it — at least `MIN_EVEN_MEETINGS` meetings within
+  // `EVEN_MAX_WIN_DIFF` — and ranked by meetings, so a pair that has stayed
+  // level longer is the closer rivalry.
+  type EvenPair = { a: string; b: string; meetings: number; winsA: number; winsB: number };
+  const qualifying: EvenPair[] = [];
+  for (const [key, results] of pairs) {
+    if (results.length < MIN_EVEN_MEETINGS) continue;
+    const [a, b] = pairOwners(key);
+    const wins = countWins(results);
+    const winsA = wins.get(a) ?? 0;
+    const winsB = wins.get(b) ?? 0;
+    if (Math.abs(winsA - winsB) > EVEN_MAX_WIN_DIFF) continue;
+    qualifying.push({ a, b, meetings: results.length, winsA, winsB });
   }
+
+  const evenStanding = resolveSuperlative({
+    population: qualifying,
+    isMember: (p) => activeOwners.has(p.a) && activeOwners.has(p.b),
+    value: (p) => p.meetings,
+    owner: (p) => p.a,
+  });
+  const evenKnown = membershipIsKnown(membersSource);
+
+  // Formatted from `entry`, never `owner`. The pair-shaped warning in
+  // `superlative.ts` applies here exactly as it does to `lopsided`: a
+  // non-member ENTRY can carry a current member in its `owner` slot, so
+  // `formatHolderNames` would name an active owner as the departed record
+  // holder.
+  const holderPairs = evenStanding?.recordHolders.map((h) => h.entry) ?? [];
+  const holders = evenStanding?.recordHolders ?? [];
+  const recordText = formatOwnerList(
+    holderPairs.map((p) => `${p.a} and ${p.b} at ${p.winsA}–${p.winsB} over ${p.meetings} meetings`)
+  );
+  const holdsRecord = holderPairs.length === 0;
+  const sharesRecord = evenStanding?.standing === 'shares';
+
+  const winDiff = Math.abs(bestWinsA - bestWinsB);
+  const scoreline =
+    winDiff === 0
+      ? `${bestOwnerA} and ${bestOwnerB} are tied at ${bestWinsA}–${bestWinsB} across ${bestMeetings} meetings`
+      : (() => {
+          const leader = bestWinsA > bestWinsB ? bestOwnerA : bestOwnerB;
+          const trailer = bestWinsA > bestWinsB ? bestOwnerB : bestOwnerA;
+          const leaderWins = Math.max(bestWinsA, bestWinsB);
+          const trailerWins = Math.min(bestWinsA, bestWinsB);
+          return `${leader} leads ${trailer} ${leaderWins}–${trailerWins} across ${bestMeetings} meetings`;
+        })();
+
+  // Three facts, kept apart: whether this pair holds the league record (a
+  // measured fact about every pair), whether membership is known (whether the
+  // copy may call anyone active), and the scoreline itself (always true).
+  const description = holdsRecord
+    ? evenKnown
+      ? `${scoreline} — the closest rivalry among active owners.`
+      : `${scoreline} — the closest rivalry on record.`
+    : sharesRecord
+      ? `${scoreline}, level with ${recordText}.`
+      : `${scoreline}; ${recordText} ${holderVerb(holders, 'is', 'are')} the closest on record.`;
 
   return toInsight({
     id: `rivalry-even-${ownerSlug(bestOwnerA)}-${ownerSlug(bestOwnerB)}`,
     type: 'even_rivalry',
-    title: 'Most evenly matched rivalry',
+    // "Most evenly matched" is a claim about the whole league, so it follows the
+    // record rather than membership — the title renders one line above the body
+    // and was the half both reviewers caught INSIGHTS-023 leaving behind.
+    title: holdsRecord ? 'Most evenly matched rivalry' : 'An even rivalry',
     description,
     owner: bestOwnerA,
     relatedOwners: [bestOwnerB],
@@ -355,7 +416,8 @@ function activeStreak(results: HeadToHeadResult[]): { winner: string; length: nu
 function deriveDominanceStreakInsight(
   pairs: Map<string, HeadToHeadResult[]>,
   activeOwners: ReadonlySet<string>,
-  lifecycles: LifecycleState[]
+  lifecycles: LifecycleState[],
+  membersSource: LeagueMembersSource
 ): Insight | null {
   let bestKey: string | null = null;
   let bestLength = 0;
@@ -398,26 +460,46 @@ function deriveDominanceStreakInsight(
     if (run > allTimeMaxStreak) allTimeMaxStreak = run;
   }
 
+  // INSIGHTS-033 — the RECORD half of this generator is sound: `allTimeMaxStreak`
+  // above spans every pair, members or not, so "in league history" is measured
+  // correctly and needs no conversion. What was never gated is that all four
+  // phrasings describe a live relationship — a streak that is still running,
+  // between two people still playing each other. Drawn from the archives with
+  // membership unknown, that is a claim about participation the data cannot
+  // support, and the pair may not even be in the league any more.
+  const dominanceKnown = membershipIsKnown(membersSource);
+
   let hook: NewsHook;
   let description: string;
   if (bestLength >= allTimeMaxStreak && allTimeMaxStreak > MIN_DOMINANCE_STREAK) {
     hook = 'new_record';
-    description = `${bestWinner} has beaten ${bestLoser} ${bestLength} straight — the longest active dominance streak in league history.`;
+    description = dominanceKnown
+      ? `${bestWinner} has beaten ${bestLoser} ${bestLength} straight — the longest active dominance streak in league history.`
+      : `${bestWinner} has beaten ${bestLoser} ${bestLength} straight — the longest dominance streak in league history.`;
   } else if (bestLength === MIN_DOMINANCE_STREAK) {
     hook = 'streak_started';
-    description = `${bestWinner} has won ${bestLength} straight against ${bestLoser}. A pattern is emerging.`;
+    description = dominanceKnown
+      ? `${bestWinner} has won ${bestLength} straight against ${bestLoser}. A pattern is emerging.`
+      : `${bestWinner} has won ${bestLength} straight against ${bestLoser}.`;
   } else if (bestLength >= 8) {
     hook = 'streak_extended';
-    description = `${bestWinner} has lived rent-free in ${bestLoser}'s head for ${bestLength} straight meetings.`;
+    description = dominanceKnown
+      ? `${bestWinner} has lived rent-free in ${bestLoser}'s head for ${bestLength} straight meetings.`
+      : `${bestWinner} has won ${bestLength} straight meetings against ${bestLoser}.`;
   } else {
     hook = 'streak_extended';
-    description = `${bestWinner} has beaten ${bestLoser} ${bestLength} straight times. At some point this is a subscription.`;
+    description = dominanceKnown
+      ? `${bestWinner} has beaten ${bestLoser} ${bestLength} straight times. At some point this is a subscription.`
+      : `${bestWinner} has beaten ${bestLoser} ${bestLength} straight times.`;
   }
 
   return toInsight({
     id: `rivalry-dominance-${ownerSlug(bestWinner)}-${ownerSlug(bestLoser)}`,
     type: 'dominance_streak',
-    title: 'Active dominance streak',
+    // Gated for the same reason `drought`'s is: a constant "ACTIVE dominance
+    // streak" renders one line above the body and restores the claim the body
+    // just dropped.
+    title: dominanceKnown ? 'Active dominance streak' : 'Dominance streak',
     description,
     owner: bestWinner,
     relatedOwners: [bestLoser],
@@ -451,10 +533,20 @@ export const rivalryGenerator: InsightGenerator = {
     );
     if (lopsided) insights.push(lopsided);
 
-    const even = deriveEvenRivalryInsight(pairs, activeOwners, RIVALRY_LIFECYCLES);
+    const even = deriveEvenRivalryInsight(
+      pairs,
+      activeOwners,
+      RIVALRY_LIFECYCLES,
+      context.leagueMembersSource
+    );
     if (even) insights.push(even);
 
-    const dominance = deriveDominanceStreakInsight(pairs, activeOwners, RIVALRY_LIFECYCLES);
+    const dominance = deriveDominanceStreakInsight(
+      pairs,
+      activeOwners,
+      RIVALRY_LIFECYCLES,
+      context.leagueMembersSource
+    );
     if (dominance) insights.push(dominance);
 
     return insights;

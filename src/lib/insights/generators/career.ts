@@ -626,9 +626,15 @@ function deriveNeverFinishedLast(context: InsightContext): Insight | null {
   const justAddedSeason = tied[0]!.stats.finishHistory.some((f) => f.year === latestArchiveYear);
   const hook: NewsHook = justAddedSeason ? 'streak_extended' : 'snapshot';
 
+  // INSIGHTS-033 — "and counting" says the run is still going, which says the
+  // owner is still playing. The finish history underneath is a completed fact
+  // and stays; only the continuation clause is gated.
+  const floorKnown = membershipIsKnown(context.leagueMembersSource);
   const description =
     hook === 'streak_extended'
-      ? `${formatOwnerList(ownerNames)} ${verb} never finished outside the top ${worstX} — ${seasonsText} and counting.`
+      ? floorKnown
+        ? `${formatOwnerList(ownerNames)} ${verb} never finished outside the top ${worstX} — ${seasonsText} and counting.`
+        : `${formatOwnerList(ownerNames)} ${verb} never finished outside the top ${worstX} in ${seasonsText}.`
       : `${formatOwnerList(ownerNames)} ${verb} never finished in the bottom three in ${seasonsText}.`;
 
   return toInsight({
@@ -674,19 +680,30 @@ function deriveTitleChaser(context: InsightContext): Insight | null {
   );
   const hook: NewsHook = justAddedTop3 ? 'streak_extended' : 'never_won';
 
+  // INSIGHTS-033 — present tense again: "adds another" narrates an owner who is
+  // playing, from an archive that closed. Found by probing the preseason
+  // unknown-membership state, NOT by the item-36 list, which named three
+  // generators and missed this one and `consistency`.
+  const chaserKnown = membershipIsKnown(context.leagueMembersSource);
+
   let description: string;
   if (hook === 'streak_extended') {
-    description =
-      tied.length === 1
+    description = chaserKnown
+      ? tied.length === 1
         ? `${ownerNames[0]} adds another top-3 finish — now ${top3Count} podiums with zero titles.`
-        : `${formatOwnerList(ownerNames)} each add another top-3 — now ${top3Count} podiums apiece with zero titles.`;
+        : `${formatOwnerList(ownerNames)} each add another top-3 — now ${top3Count} podiums apiece with zero titles.`
+      : tied.length === 1
+        ? `${ownerNames[0]} has ${top3Count} top-3 finishes and zero titles.`
+        : `${formatOwnerList(ownerNames)} have ${top3Count} top-3 finishes apiece and zero titles.`;
   } else if (tied.length === 1) {
     description =
       top3Count >= 3
         ? `${ownerNames[0]} owns ${top3Count} top-3 finishes but zero titles — the trophy case is immaculate. And empty.`
         : `${ownerNames[0]} owns ${top3Count} top-3 finishes but zero titles — always the runner-up, never the winner.`;
   } else {
-    description = `${formatOwnerList(ownerNames)} have each finished top-3 ${top3Count} times without a ring — the league's reigning bridesmaids.`;
+    description = chaserKnown
+      ? `${formatOwnerList(ownerNames)} have each finished top-3 ${top3Count} times without a ring — the league's reigning bridesmaids.`
+      : `${formatOwnerList(ownerNames)} have each finished top-3 ${top3Count} times without a ring.`;
   }
 
   return toInsight({

@@ -223,11 +223,14 @@ test('with membership CONFIRMED, participation wording is licensed', async () =>
     ),
     'a confirmed league should produce at least one participation claim'
   );
-  // No TITLE assertion here any more, and that is a real narrowing rather than a
-  // relaxation: the only participation-claiming titles were `drought`'s and
-  // `dominance_streak`'s, and both generators were reverted out of this slice.
-  // The guard below still reads titles, so a future opened generator that adds
-  // one is caught — there is simply nothing licensed to assert today.
+  // No TITLE assertion here, because no generator reaching PRESEASON carries a
+  // participation-claiming title. The two that do — `drought` and
+  // `dominance_streak` — are `historical` and `rivalry`, which do not support
+  // preseason at all, so `generateRawInsights` filters them out before this
+  // fixture can see them. INSIGHTS-033 gated both; their titles are asserted in
+  // `participationClaims.test.ts`, against an OFFSEASON fixture that can
+  // actually reach them. The guard below still reads titles, so a future opened
+  // generator that adds one is caught here too.
 });
 
 test('with membership UNKNOWN, the opened generators claim nothing about who is playing', async () => {
@@ -251,7 +254,17 @@ test('with membership UNKNOWN, the opened generators claim nothing about who is 
   // league-wide records over member-only populations — the class INSIGHTS-030
   // fixed at four sites and did not convert here. Opening their gates exposes
   // that, so they wait for the conversion. See docs/next-tasks.md.
-  const OPENED = new Set(['career_points_leader', 'greatest_season']);
+  // INSIGHTS-033 added `never_last` and `title_chaser`. Both already ran in
+  // preseason and both narrated in the present — "5 seasons and counting",
+  // "adds another top-3 finish" — so they were unlicensed here the whole time.
+  // `title_chaser` is the one item 36 did not record; it was found by probing
+  // this exact state rather than by reading the list.
+  //
+  // `drought` and `dominance_streak` are deliberately NOT here: their
+  // generators are filtered out in preseason, so naming them would add two
+  // types this loop can never see, and `seen >= 1` would still pass off the
+  // others. A guard that cannot reach its subject is worse than no guard.
+  const OPENED = new Set(['career_points_leader', 'greatest_season', 'never_last', 'title_chaser']);
   // TITLE AND DESCRIPTION. The first version read `description` alone, which is
   // precisely why both reviewers found `'Longest active title drought'` and
   // `'Active dominance streak'` sitting above bodies this guard had certified —
@@ -267,7 +280,7 @@ test('with membership UNKNOWN, the opened generators claim nothing about who is 
     seen += 1;
     assert.doesNotMatch(
       `${insight.title} ${insight.description}`,
-      /(active owners?|still playing|active drought|active dominance|and counting|pattern is emerging|rent-free|subscription|closest rivalry in the league|closest in league history)/i,
+      /(active owners?|still playing|active drought|active dominance|and counting|adds? another|reigning bridesmaids|pattern is emerging|rent-free|subscription|closest rivalry in the league|closest in league history)/i,
       `unlicensed participation claim from ${insight.type}: "${insight.title}" / ${insight.description}`
     );
   }

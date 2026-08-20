@@ -571,17 +571,24 @@ test('with membership UNKNOWN, the copy claims nothing about who is playing', as
 
   for (const insight of insights) {
     assert.doesNotMatch(
-      insight.description,
+      // TITLE AND DESCRIPTION. The description-only version could not see
+      // `drought`'s constant "Longest active title drought", which renders one
+      // line above the body this loop was certifying — the same half-check both
+      // reviewers found in INSIGHTS-023.
+      `${insight.title} ${insight.description}`,
       // `active owners?` — SINGULAR too. Greatest-season emits "the best by any
       // active owner", which the plural-only regex could not see.
       //
-      // This checks the phrasings THIS slice introduced. It does not catch every
-      // participation claim in the engine — `drought` says "the longest active
-      // drought in the league" in this same state, a present-tense claim from
-      // archived data that this pattern passes. Pre-existing, filed, and named
-      // here so the guard is not mistaken for total.
-      /(active owners?|still playing)/i,
-      `participation claim with membership unknown, from ${insight.type}: ${insight.description}`
+      // Widened by INSIGHTS-033 to the rest of the class. The previous version
+      // of this comment named `drought` as a known, unfixed gap — accurate when
+      // written, and false now that the gate exists; `historical` and
+      // `title_chaser` both fire in this fixture, so those phrasings are
+      // reachable here rather than merely listed. `dominance_streak` and
+      // `even_rivalry` are NOT reachable in this fixture (no qualifying streak,
+      // no qualifying even pair) and are pinned in
+      // `participationClaims.test.ts` against fixtures built to reach them.
+      /(active owners?|still playing|active drought|active dominance|and counting|adds? another|finish(es)? top-3 again|reigning bridesmaids|closest rivalry in the league)/i,
+      `participation claim with membership unknown, from ${insight.type}: "${insight.title}" / ${insight.description}`
     );
   }
 
