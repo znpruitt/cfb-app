@@ -1901,49 +1901,42 @@ Supersedes: (none)
     - No pre-merge closeout: no registry entry, and items 33 and 36 still describe these generators
       as unconverted.
 
-63. **Detect a rescheduled kickoff from the reconciliation payload we already fetch.** Queued
-    2026-08-20 out of PLATFORM-105's review discussion; owner's design.
+63. 🔴 **Rescheduled kickoffs — REDESIGN REQUIRED BEFORE IMPLEMENTATION.** Queued 2026-08-20 from
+    PLATFORM-105's review discussion; **its original description was wrong in three ways**, corrected
+    2026-08-20 after a Codex season-readiness audit and verified against the code.
 
-    **The gap.** The schedule cron runs weekly (`0 12 * * 2`, QStash `turfwar-schedule-weekly`), so a
-    kickoff that moves is invisible to us for up to seven days. PLATFORM-105 concludes a game from
-    elapsed time when its kickoff is long past with no result — which on a stale kickoff can close a
-    week for a game that was merely postponed.
+    **The gap is real.** The schedule cron runs weekly (`0 12 * * 2`), so a kickoff that moves is
+    invisible to us for up to seven days, and PLATFORM-105 concludes a game from elapsed time when
+    its kickoff is long past with no result.
 
-    **The data is already in hand.** `selectPollingPlan`'s `final-reconciliation` mode is armed by
-    exactly the condition that signals a possible reschedule — a kickoff passed with no confirmed
-    final — and fetches one partition from CFBD `/games`. `parseFinalReconciliation` normalizes every
-    row through `toScorePackFromCfbd`, which RETAINS `startDate`. The value is then discarded at
-    `finalReconciliation.ts` on the `classifyScorePackStatus(pack) !== 'final'` → `continue` line,
-    whose comment reads "not final yet → stays pending". That is the exact moment a reschedule is
-    visible and unexamined. No new cron, no extra provider call — the call is already budgeted at one
-    per run.
+    **CORRECTION 1 — the seam is not `final-reconciliation`.** The original entry said that mode is
+    armed by "a kickoff passed with no confirmed final". It is not:
+    `resolveWindowState` (`pollingTarget.ts:61`) returns `pending-confirmation` ONLY when
+    `cachedStatus === 'final'` and confirmation is outstanding. A rescheduled game still marked
+    `scheduled` is `unresolved-open`, so it stays in SCOREBOARD mode until 24 hours after its stale
+    kickoff and then drops out of the window entirely.
 
-    **The detectable case IS the harmful case.** A same-week move (Saturday → Monday) keeps the game
-    in the partition we fetch, so its row returns with a new `startDate` — and that is the move that
-    breaks the predicate, because the game stays in a week we were about to close. A cross-week move
-    is invisible here (the game is absent from the partition) but is HARMLESS: CFBD reassigns the
-    week — measured across 2020, the most reschedule-heavy season on record, only one of 563 games
-    sits more than six days from its week's cluster — so the game leaves the old week, whose
-    remaining games are all concluded, and it closes correctly.
+    **CORRECTION 2 — the fresh start date is discarded in the scoreboard path.**
+    `buildScoreboardScorePack` (`scoreboardMatch.ts`) sets `startDate: canonical.kickoff`, i.e. it
+    overwrites the provider row's start date with our own cached one. The useful value arrives and is
+    replaced there, not in `parseFinalReconciliation`.
 
-    **Shape.** Compare `pack.startDate` against the canonical kickoff where the parser currently
-    discards it; when they differ, correct the kickoff and surface the correction. Because the move
-    is within the week, the week assignment is unchanged, so this is a timestamp on a game the
-    schedule already owns — it does NOT cross the "schedule is the sole game-identity authority"
-    boundary that a re-partitioning write would.
+    **CORRECTION 3 — a cross-week move is NOT harmless.** The original entry argued CFBD reassigns
+    the week (true — measured across 2020, one game of 563 sits more than six days from its week's
+    cluster), so the game leaves the old week and the old week closes correctly. That conflates the
+    PROVIDER's state with OUR cached copy: our canonical schedule does not change until the weekly
+    refresh, so the stale bucket still holds the game with its stale kickoff, and PLATFORM-105 can
+    conclude it by elapsed time. Provider absence from a partition cannot re-week a cached game.
 
-    **It also closes a score-coverage gap.** `collectWindowGames` polls from 15 minutes before
-    kickoff to 24 hours after, computed from the CANONICAL kickoff. A postponed game falls out of
-    that window 24 hours after its stale kickoff and is never polled at its real time, so its result
-    may never be collected by the live-score path at all. Correcting the kickoff re-arms the poller
-    automatically — the window is a pure function of that value — so no separate fix is needed.
-    Whether another path (the `/api/scores` season read, the schedule cron) recovers such a game
-    today is NOT traced; that is a gap to confirm, not yet a proven defect.
+    **Split into two tasks.**
+    - **(a) Same-week kickoff correction** from the scoreboard row already fetched — the value is in
+      hand and currently overwritten. Cheap, and it covers the postponement shape that breaks the
+      elapsed-time inference.
+    - **(b) Cross-week / absent-game reconciliation** — needs a targeted schedule refresh for the
+      affected partition, or a more frequent in-season schedule cadence. This is the half the
+      original entry wrongly dismissed as harmless.
 
     - **Backlog slug (provisional):** `PLATFORM-RESCHEDULE-DETECTION-v1`
-    - **Depends on:** PLATFORM-105 merging first. The predicate needs no change once this lands — a
-      rescheduled game gets a future kickoff, its week stops being closeable, and the elapsed-time
-      inference only ever fires on games that genuinely never happened.
 
 64. **PLATFORM-105 residue — five items, ranked by real impact.** Queued 2026-08-20 at merge, from
     the confirming passes of both reviewers. None is a regression against `main`; each is smaller
@@ -1957,7 +1950,8 @@ Supersedes: (none)
     `pending` to a per-week count plus earliest kickoff. **This also removes (d)**, because the client
     would stop evaluating the clock at all.
 
-    **(b) A scoreless `completed` game resolves a week whose standings are missing that result**
+    **(b) 🔴 P0 BEFORE THE FIRST SCORE-BEARING WEEKEND — a scoreless `completed` game resolves a
+    week whose standings are missing that result**
     (Codex). `isConcludedByEvidence` accepts CFBD's `completed: true`, but
     `deriveStandingsCoverage` only demands a score when `game.status === 'final'` — which production
     rows never are — so coverage still reads `complete` and the snapshot publishes. Transient in the
@@ -1992,8 +1986,17 @@ Supersedes: (none)
     require `unresolved.length > 0`, or move the played guard above it.
 
     - **Backlog slug (provisional):** `PLATFORM-WEEK-RESOLUTION-RESIDUE-v1`
-    - **Sequencing:** (a) first — it is the only one with broad user impact, it is cheap, and it
-      closes (d) as a side effect.
+    - **Sequencing (revised 2026-08-20 after the Codex season-readiness audit):** **(b) FIRST** — it
+      can silently publish incomplete standings AS COMPLETE, which violates PLATFORM-105's own rule
+      that the season is over when every real game has a result, and an identity mismatch makes it
+      persist rather than flicker. Then (a), which is broad, cheap, and closes (d) as a side effect.
+    - **Recommended platform order across the queue:** 64(b) → redesign and implement 63 → 64(a/d) →
+      the `appStateStore` pool timeouts (item 20 — a 3-client pool with no checkout or statement
+      timeout can make every database-backed route wait indefinitely, not just drafts) → the
+      deletion/adoption guard (item 46 — adopting a slug for a PAST season lets nightly rollover
+      overwrite a genuine archive, available to a platform admin today) → membership authority
+      (items 17/25). Conditional: item 47 becomes P1 before any passwordless league, and the
+      rankings FORCE path (item 60) is a recovery gap separate from the Coaches Poll fix.
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
