@@ -547,6 +547,7 @@ function MobileLegend({
 function SharedTrendChart({
   title,
   metric,
+  seasonIsFinal,
   rows,
   focusedOwnerIds,
   selectedOwnerId,
@@ -564,6 +565,15 @@ function SharedTrendChart({
 }: {
   title: string;
   metric: MetricKind;
+  /**
+   * PLATFORM-105 — whether the season is actually OVER, which is not the same
+   * question as "is this the last week I have points for". The axis used to
+   * label its final tick `Final` because every scheduled week was resolved, so
+   * the last point WAS the last week. With unplayed weeks correctly unresolved,
+   * the last point is simply the most recent one played, and the chart was
+   * asserting the season had ended in week 3.
+   */
+  seasonIsFinal: boolean;
   rows: TrendRowData[];
   focusedOwnerIds: Set<string>;
   selectedOwnerId: string | null;
@@ -848,7 +858,9 @@ function SharedTrendChart({
                         fill="currentColor"
                         opacity={0.7}
                       >
-                        {tick.value === weeks[weeks.length - 1] ? 'Final' : tick.label}
+                        {seasonIsFinal && tick.value === weeks[weeks.length - 1]
+                          ? 'Final'
+                          : tick.label}
                       </text>
                     </g>
                   );
@@ -1364,6 +1376,7 @@ export default function TrendsDetailSurface({
           <SharedTrendChart
             title="Games Back"
             metric="games-back"
+            seasonIsFinal={seasonContext === 'final'}
             rows={gamesBackRows}
             focusedOwnerIds={focusedOwnerIdSet}
             selectedOwnerId={selectedOwnerId}
@@ -1383,6 +1396,7 @@ export default function TrendsDetailSurface({
           <SharedTrendChart
             title="Win %"
             metric="win-pct"
+            seasonIsFinal={seasonContext === 'final'}
             rows={winPctRows}
             focusedOwnerIds={focusedOwnerIdSet}
             selectedOwnerId={selectedOwnerId}

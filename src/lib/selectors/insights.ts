@@ -747,7 +747,25 @@ export function deriveFinalCollapseInsight(args: {
   });
 }
 
-export function deriveTightClusterInsight(rows: OwnerStandingsRow[]): Insight | null {
+/**
+ * PLATFORM-105 — the copy follows the season, because the season can now be
+ * mid-flight when this fires.
+ *
+ * `RACE_LIFECYCLES` has always included `early_season`, but that lifecycle was
+ * UNREACHABLE until this slice: an unplayed week counted as resolved, so every
+ * season read as `final` from its first Saturday. This card therefore ran only
+ * ever in states where "finished" was true, and its hardcoded past tense was
+ * never wrong on screen. Making the lifecycle reachable is what exposes it —
+ * verified on production data at week 3: "7 owners finished within 2 games".
+ *
+ * The sibling `deriveTightRaceInsight` already takes `seasonContext` for the
+ * same reason; this follows that shape rather than inventing one.
+ */
+export function deriveTightClusterInsight(args: {
+  rows: OwnerStandingsRow[];
+  seasonContext?: SeasonContext | null;
+}): Insight | null {
+  const { rows, seasonContext } = args;
   const eligible = rows.filter((row) => isNarrativeEligibleOwner(row.owner));
   if (eligible.length < 3) return null;
   // Defensive: every owner at 0-0 produces "N owners finished within 0 games"
@@ -779,11 +797,26 @@ export function deriveTightClusterInsight(rows: OwnerStandingsRow[]): Insight | 
 
   if (!bestCluster) return null;
 
+  // ONLY `final` is settled. I first treated `postseason` as finished too, and
+  // review corrected it: `postseason` means a postseason week has been played
+  // while scheduled weeks REMAIN, so bowl and playoff results can still move
+  // this table. Worse, `deriveTightRaceInsight` keeps reporting an ACTIVE title
+  // race in that same state, so the two cards would have contradicted each other
+  // on one screen.
+  const settled = seasonContext === 'final';
+  // "the top" is a claim about WHERE the cluster is, and the search above scans
+  // every contiguous subset — standings at 0, 10, 20, 20.5, 21 games back select
+  // the last three. The old past-tense copy never said "top", so this is a claim
+  // I introduced; it is only made when the cluster actually contains the leader.
+  const includesLeader = bestCluster.owners.includes(eligible[0]!.owner);
+  const games = `game${bestCluster.gap === 1 ? '' : 's'}`;
   return toInsight({
     id: `tight-cluster-${bestCluster.owners.map(ownerSlug).join('-')}`,
     type: 'tight_cluster',
-    title: 'Crowded finish',
-    description: `${bestCluster.count} owners finished within ${bestCluster.gap} game${bestCluster.gap === 1 ? '' : 's'}.`,
+    title: settled ? 'Crowded finish' : includesLeader ? 'Crowded at the top' : 'Tight cluster',
+    description: settled
+      ? `${bestCluster.count} owners finished within ${bestCluster.gap} ${games}.`
+      : `${bestCluster.count} owners are within ${bestCluster.gap} ${games}.`,
     owner: bestCluster.owners[0],
     relatedOwners: bestCluster.owners.slice(1),
     priorityScore: 95 + bestCluster.count * 3 - bestCluster.gap,
@@ -828,7 +861,7 @@ export function deriveLeagueInsights(args: {
 
   if (seasonContext === 'final') {
     pushInsightUnique(insights, seenIds, deriveChampionMarginInsight(rows));
-    pushInsightUnique(insights, seenIds, deriveTightClusterInsight(rows));
+    pushInsightUnique(insights, seenIds, deriveTightClusterInsight({ rows, seasonContext }));
 
     if (standingsHistory && resolvedWeeks.length > 0) {
       pushInsightUnique(

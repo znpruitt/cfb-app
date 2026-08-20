@@ -76,12 +76,36 @@ export async function buildSeasonArchive(leagueSlug: string, year: number): Prom
   const rosterByTeam = new Map<string, string>(ownerRows.map((row) => [row.team, row.owner]));
 
   // Derive week-by-week standings history
-  const standingsHistory = deriveStandingsHistory({
+  const derivedHistory = deriveStandingsHistory({
     games,
     rosterByTeam,
     // scoresByKey shape matches scores.ts ScorePack (status, home, away, time)
     scoresByKey: scoresByKey as Parameters<typeof deriveStandingsHistory>[0]['scoresByKey'],
   });
+
+  // PLATFORM-105 — `played` is a LIVE progress signal and must not be frozen
+  // into durable storage. `/code-review` found the failure it prevents: a week
+  // holding a game with no kickoff time derives `played: false`, and persisting
+  // that means a COMPLETED, archived season reports itself in-season forever, at
+  // every consumer of the archive's history. An archive is a finished season by
+  // definition, so it carries no progress flag at all and
+  // `StandingsHistoryWeekSnapshot.played` reads absent — which is exactly the
+  // "absent means played" case that field documents.
+  //
+  // `pending` is dropped for the same reason: it lists games still awaiting a
+  // result, which is a statement about a live season, not a completed one.
+  const standingsHistory = {
+    weeks: derivedHistory.weeks,
+    byOwner: derivedHistory.byOwner,
+    byWeek: Object.fromEntries(
+      Object.entries(derivedHistory.byWeek).map(([week, snapshot]) => {
+        // Rebuilt field-by-field rather than rest-destructured: the discard
+        // binding tripped `no-unused-vars` and failed the pre-merge gate.
+        const { week: weekNumber, standings, coverage } = snapshot;
+        return [week, { week: weekNumber, standings, coverage }];
+      })
+    ),
+  };
 
   // Extract final standings from the last week
   const lastWeek = standingsHistory.weeks[standingsHistory.weeks.length - 1];

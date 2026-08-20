@@ -1854,7 +1854,17 @@ Supersedes: (none)
       reported as `rankings-unexpected-error` — a provider fault misfiled as a programming defect.
       Pre-existing; PLATFORM-104 added two more call sites onto the same unguarded field.
 
-61. 🔴 **CURRENT — PLATFORM-105: a week is played only when its games have concluded.** Activated
+61. ✅ **PLATFORM-105 — COMPLETE** (merged 2026-08-20). A week is played only when its games have
+    concluded, and **the season is over when every real game has a result** (owner ruling). Execution
+    record, provider facts and the review history are in `docs/prompt-registry.md`; the model is
+    `docs/architecture/week-resolution.md`. Item 52 above carries the original evidence and the
+    production reproduction.
+
+    **Merged with five known items outstanding — item 64 below.** Every one is strictly smaller than
+    the defect fixed: before this, every league declared a champion in week 1 and no in-season card
+    fired all season.
+
+    _Original activation note follows._ Activated
     2026-08-19 from item 52 above, which carries the full evidence, the production reproduction and
     the settled mechanism. Scope: the week-resolution predicate and `selectSeasonContext`, plus
     surfacing any game concluded by inference. Nothing else — the four consumers listed in item 52
@@ -1934,6 +1944,56 @@ Supersedes: (none)
     - **Depends on:** PLATFORM-105 merging first. The predicate needs no change once this lands — a
       rescheduled game gets a future kickoff, its week stops being closeable, and the elapsed-time
       inference only ever fires on games that genuinely never happened.
+
+64. **PLATFORM-105 residue — five items, ranked by real impact.** Queued 2026-08-20 at merge, from
+    the confirming passes of both reviewers. None is a regression against `main`; each is smaller
+    than the defect PLATFORM-105 fixed.
+
+    **(a) `pending` is serialized to the browser — the one with broad user impact.**
+    `standingsHistory.byWeek[*].pending` holds one `{key, week, kickoff}` per unplayed real game for
+    the whole season and is passed from a server component into `'use client' CFBScheduleApp`.
+    Measured: **3,221 entries ≈ 245KB** added to the RSC payload of the hottest route at week 1,
+    shrinking weekly. Fix: compute `seasonContext` server-side and pass the string, or collapse
+    `pending` to a per-week count plus earliest kickoff. **This also removes (d)**, because the client
+    would stop evaluating the clock at all.
+
+    **(b) A scoreless `completed` game resolves a week whose standings are missing that result**
+    (Codex). `isConcludedByEvidence` accepts CFBD's `completed: true`, but
+    `deriveStandingsCoverage` only demands a score when `game.status === 'final'` — which production
+    rows never are — so coverage still reads `complete` and the snapshot publishes. Transient in the
+    common case (live-scores attaches within minutes); permanent if the score never attaches through
+    an identity mismatch, and then a week's standings are quietly wrong while claiming complete
+    coverage. Introduced by using `completed` as evidence.
+
+    **(c) Abandonment is never applied to WEEK resolution** (both reviewers). `selectSeasonContext`
+    evaluates `pending` kickoffs through `hasGameBeenAbandoned`; `isResolvedWeek` does not. So the
+    `Liberty @ App State` week — the one game the whole escape hatch exists for — stays
+    `played: false` forever and is dropped from every trend, movement and surge calculation for that
+    season, while the season correctly reads `final`. The model doc's own predicate says a week is
+    played when every real game is concluded, step 6 included.
+
+    **(d) The clock is still read inside cached selectors** (both reviewers, and `AGENTS.md`
+    invariant 3). `selectSeasonContext` reads `new Date()`, and **no production caller passes `now`**
+    — verified, all five drop it, including `computeLifecycle` inside
+    `dataCachedCanonicalStandings` and `buildLeagueInsightContext` inside `dataCachedRawInsights`,
+    both of which were handed a `currentDate`. Effect is a season verdict frozen at cache-warm time:
+    LATE rather than wrong, and only reachable in the abandoned-game case. Fixed for free by (a).
+
+    **(e) Elapsed-time conclusions are still not surfaced.** When the season is accepted as over
+    because every pending kickoff is eight hours past, nothing records which games were accepted
+    without a result. One is a hurricane; twenty is a broken score feed, and they look identical to
+    an operator today. The model doc now states this as absent rather than describing it as present.
+
+    **Also latent, not live:** `selectSeasonContext`'s `unresolved.every(...)` returns `'final'` for
+    an empty list, and it runs before the "anything played" guard — so a history whose weeks carry no
+    `pending` array reports the season over. Verified that **no production path** passes such a
+    history (all five callers pass the full canonical history; archives legitimately have none, and
+    the pre-deploy cache is busted by the shape version). A trap for the next caller. Cheap fix:
+    require `unresolved.length > 0`, or move the played guard above it.
+
+    - **Backlog slug (provisional):** `PLATFORM-WEEK-RESOLUTION-RESIDUE-v1`
+    - **Sequencing:** (a) first — it is the only one with broad user impact, it is cheap, and it
+      closes (d) as a side effect.
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the

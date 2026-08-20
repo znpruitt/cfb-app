@@ -245,3 +245,30 @@ test('buildSeasonArchive: includes a score present only in a per-week cache key 
 async function seedAlias(scope: string, map: Record<string, string>): Promise<void> {
   await setAppState(scope, 'map', map);
 }
+
+test('buildSeasonArchive: a durable archive carries NO live progress flag', async () => {
+  // PLATFORM-105. `played` is a LIVE signal computed against the wall clock.
+  // Freezing it into durable storage is how a COMPLETED season comes to report
+  // itself in-season forever: a week holding a game with no kickoff time derives
+  // `played: false`, and every consumer of that archive then reads the season as
+  // still running. An archive is a finished season by definition, so its weeks
+  // carry no flag at all and read as played.
+  await seedTeamDb(['Texas', 'Rival Tech']);
+  await seedOwners(['team,owner', 'Texas,Alice', 'Rival Tech,Bob'].join('\n'));
+  await seedScoredGame({
+    homeProvider: 'Texas',
+    awayProvider: 'Rival Tech',
+    homeScore: 21,
+    awayScore: 7,
+  });
+
+  const archive = await buildSeasonArchive(SLUG, YEAR);
+  const snapshots = Object.values(archive.standingsHistory.byWeek);
+  assert.ok(snapshots.length > 0, 'the fixture must produce a week to inspect');
+  for (const snapshot of snapshots) {
+    assert.ok(
+      !('played' in snapshot),
+      `a live progress flag was persisted into the archive: ${JSON.stringify(snapshot)}`
+    );
+  }
+});
