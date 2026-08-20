@@ -747,7 +747,25 @@ export function deriveFinalCollapseInsight(args: {
   });
 }
 
-export function deriveTightClusterInsight(rows: OwnerStandingsRow[]): Insight | null {
+/**
+ * PLATFORM-105 — the copy follows the season, because the season can now be
+ * mid-flight when this fires.
+ *
+ * `RACE_LIFECYCLES` has always included `early_season`, but that lifecycle was
+ * UNREACHABLE until this slice: an unplayed week counted as resolved, so every
+ * season read as `final` from its first Saturday. This card therefore ran only
+ * ever in states where "finished" was true, and its hardcoded past tense was
+ * never wrong on screen. Making the lifecycle reachable is what exposes it —
+ * verified on production data at week 3: "7 owners finished within 2 games".
+ *
+ * The sibling `deriveTightRaceInsight` already takes `seasonContext` for the
+ * same reason; this follows that shape rather than inventing one.
+ */
+export function deriveTightClusterInsight(args: {
+  rows: OwnerStandingsRow[];
+  seasonContext?: SeasonContext | null;
+}): Insight | null {
+  const { rows, seasonContext } = args;
   const eligible = rows.filter((row) => isNarrativeEligibleOwner(row.owner));
   if (eligible.length < 3) return null;
   // Defensive: every owner at 0-0 produces "N owners finished within 0 games"
@@ -779,11 +797,18 @@ export function deriveTightClusterInsight(rows: OwnerStandingsRow[]): Insight | 
 
   if (!bestCluster) return null;
 
+  // `postseason` counts as finished: the regular-season table this describes is
+  // settled once bowls are being played. Only a season still in flight gets the
+  // present tense.
+  const settled = seasonContext !== 'in-season';
+  const games = `game${bestCluster.gap === 1 ? '' : 's'}`;
   return toInsight({
     id: `tight-cluster-${bestCluster.owners.map(ownerSlug).join('-')}`,
     type: 'tight_cluster',
-    title: 'Crowded finish',
-    description: `${bestCluster.count} owners finished within ${bestCluster.gap} game${bestCluster.gap === 1 ? '' : 's'}.`,
+    title: settled ? 'Crowded finish' : 'Crowded at the top',
+    description: settled
+      ? `${bestCluster.count} owners finished within ${bestCluster.gap} ${games}.`
+      : `${bestCluster.count} owners are within ${bestCluster.gap} ${games}.`,
     owner: bestCluster.owners[0],
     relatedOwners: bestCluster.owners.slice(1),
     priorityScore: 95 + bestCluster.count * 3 - bestCluster.gap,
@@ -828,7 +853,7 @@ export function deriveLeagueInsights(args: {
 
   if (seasonContext === 'final') {
     pushInsightUnique(insights, seenIds, deriveChampionMarginInsight(rows));
-    pushInsightUnique(insights, seenIds, deriveTightClusterInsight(rows));
+    pushInsightUnique(insights, seenIds, deriveTightClusterInsight({ rows, seasonContext }));
 
     if (standingsHistory && resolvedWeeks.length > 0) {
       pushInsightUnique(

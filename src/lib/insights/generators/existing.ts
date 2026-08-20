@@ -221,7 +221,7 @@ export const championshipRaceGenerator: InsightGenerator = {
 
     const insights: Insight[] = [];
 
-    const tightCluster = deriveTightClusterInsight(rows);
+    const tightCluster = deriveTightClusterInsight({ rows, seasonContext: context.seasonContext });
     if (tightCluster) insights.push(tightCluster);
 
     const tightRace = deriveTightRaceInsight({ rows, seasonContext: context.seasonContext });

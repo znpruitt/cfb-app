@@ -239,11 +239,9 @@ test('deriveTightRaceInsight returns null when all rows are 0-0', () => {
 });
 
 test('deriveTightClusterInsight returns null when all eligible rows are 0-0', () => {
-  const insight = deriveTightClusterInsight([
-    row('Alex', 0, 0, 0),
-    row('Blake', 0, 0, 0),
-    row('Casey', 0, 0, 0),
-  ]);
+  const insight = deriveTightClusterInsight({
+    rows: [row('Alex', 0, 0, 0), row('Blake', 0, 0, 0), row('Casey', 0, 0, 0)],
+  });
   assert.equal(insight, null);
 });
 
@@ -741,4 +739,55 @@ test('ANTI-VACUITY: makeContext honours a seasonOwners override', () => {
   // vacuously — in the file that would be used to regression-test that gate.
   assert.equal(makeContext({ seasonOwners: null }).seasonOwners, null);
   assert.deepEqual(makeContext({}).seasonOwners?.owners, ['Alice', 'Bob']);
+});
+
+test('tight cluster: the tense follows the season', () => {
+  // PLATFORM-105. `RACE_LIFECYCLES` always included `early_season`, but that
+  // lifecycle was unreachable — every season read as `final` from its first
+  // Saturday — so this card only ever ran where "finished" was true. Making the
+  // lifecycle reachable exposed the hardcoded past tense: verified on production
+  // data at week 3, "7 owners finished within 2 games".
+  const rows = [row('Alice', 7, 2, 0), row('Bob', 6, 3, 1), row('Carol', 6, 3, 1)];
+
+  const live = deriveTightClusterInsight({ rows, seasonContext: 'in-season' });
+  assert.ok(live, 'the card must still fire mid-season — a crowded table is news');
+  assert.equal(live.title, 'Crowded at the top');
+  assert.match(live.description, /^3 owners are within 1 game\.$/);
+
+  const done = deriveTightClusterInsight({ rows, seasonContext: 'final' });
+  assert.ok(done, 'and it must still fire once the season is over');
+  assert.equal(done.title, 'Crowded finish');
+  assert.match(done.description, /^3 owners finished within 1 game\.$/);
+
+  // Postseason counts as settled: the regular-season table this describes is
+  // done once bowls are being played.
+  const post = deriveTightClusterInsight({ rows, seasonContext: 'postseason' });
+  assert.equal(post?.title, 'Crowded finish');
+});
+
+test('championshipRaceGenerator hands the season through to the cluster copy', () => {
+  // The WIRING, not just the derivation. Mutation-proved: dropping
+  // `seasonContext` at the call site compiles (the parameter is optional) and
+  // left every suite green, so the generator would have gone on saying
+  // "finished" mid-season with nothing to catch it — the same blind spot that
+  // produced the defect in the first place.
+  const rows = [row('Alex', 7, 2, 0), row('Blake', 6, 3, 1), row('Casey', 6, 3, 1)];
+
+  const live = championshipRaceGenerator.generate(
+    makeContext({
+      lifecycleState: 'mid_season',
+      currentStandings: rows,
+      seasonContext: 'in-season',
+    })
+  );
+  const liveCluster = live.find((i) => i.type === 'tight_cluster');
+  assert.ok(liveCluster, 'the cluster card must fire mid-season');
+  assert.equal(liveCluster.title, 'Crowded at the top');
+
+  const done = championshipRaceGenerator.generate(
+    makeContext({ lifecycleState: 'postseason', currentStandings: rows, seasonContext: 'final' })
+  );
+  const doneCluster = done.find((i) => i.type === 'tight_cluster');
+  assert.ok(doneCluster, 'and once the season is over');
+  assert.equal(doneCluster.title, 'Crowded finish');
 });
