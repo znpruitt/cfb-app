@@ -1542,8 +1542,62 @@ Supersedes: (none)
     Also worth deciding when this is picked up: whether `assignmentMethod: 'manual'` should be
     offered at all until it works, or refused at `setAssignmentMethod` with a reason.
 
-52. **`selectSeasonContext` conflates "in progress" with "incomplete"** (found by `/code-review`
+52. 🔴 **`selectSeasonContext` conflates "in progress" with "incomplete"** (found by `/code-review`
     during INSIGHTS-032, 2026-08-18; owner adjudicated the same day — do NOT patch the recap for it).
+    **ACTIVATED as PLATFORM-105 on 2026-08-19 after being CONFIRMED LIVE against production data.**
+
+    **THIS ENTRY UNDERSTATED THE DEFECT AND NAMED THE WRONG DOMINANT DIRECTION.** It is kept below
+    for the record, but read this first. The description that follows treats the failure as "a season
+    that ENDED reads as in-season". The reverse is what actually happens, on every league, from the
+    first Saturday of the season:
+
+    **A season that has barely started reads as OVER.** A week goes "resolved" when its coverage is
+    complete, and coverage only inspects games the schedule calls `final`. A week with nothing played
+    yet has no final games, so nothing is missing, so it is complete — "nothing played" and
+    "everything present" are the same value. Every unplayed week therefore counts as resolved,
+    `hasUnresolvedWeeks` is false, and the season is `final` from week one.
+
+    **Reproduced against production data, 2026-08-19** — production's real 2026 schedule (3,610
+    games, weeks 1–15, pulled from the read replica) plus a real 136-team roster, with ONLY week 1
+    marked final. The app served `lifecycleState: postseason` and these cards:
+
+    - `Who owns the porcelain throne in 2026? — Shambaugh spent 14 weeks of 2026 in last place.`
+    - `How 2026 finished — Chumley took it by 1 game over BHooper.`
+    - `Crowded finish — 9 owners finished within 2 games.`
+
+    After one Saturday, naming real owners. The cumulative standings carry forward through the
+    unplayed weeks, which is why one week of football reads as fourteen.
+
+    **Every in-season card is unreachable for the entire season**: of the five cards served, none was
+    `movement`, `surge`, `race`, or the `season_climb`/`season_slide` built in INSIGHTS-033. The
+    consequence list below ("no champion/collapse/throne cards at all") describes the branch that
+    does NOT fire in practice.
+
+    **The mechanism for "a week is played", settled with the owner 2026-08-19 and grounded in six
+    seasons of cached provider data.** CFBD's `/games` endpoint has no `status` field at all — the
+    only completion signal is the boolean `completed`, and a cancelled game keeps `completed: false`
+    with null scores forever. Across 22,000+ cached score rows only `final` and `scheduled` appear.
+    But cancelled and not-yet-played are NOT indistinguishable (owner, 2026-08-19): a future game has
+    a `startDate` in the future and an abandoned one has a `startDate` in the past. So:
+
+    ```text
+    concluded(game)  = completed || (now - startDate > ~8h)
+    weekPlayed(week) = every canonical FBS game in the week is concluded
+    seasonOver       = every week is played
+    ```
+
+    The ~8h is not a tuning knob — it is how long a game can last, so an in-progress game is not
+    mistaken for an abandoned one. Population is canonical FBS games (owner ruling), and any game
+    concluded by inference is surfaced, because one is a hurricane and twenty is a broken feed.
+
+    **The one real case in six seasons**: `Liberty @ App State`, week 5 2024, cancelled after
+    Hurricane Helene — both teams rostered, still `completed: false` when CFBD was queried directly
+    on 2026-08-19. The other eleven unresolved games are non-FBS provider noise (six of them
+    Alderson-Broaddus, a school that shut down mid-2023) and are excluded by the population scope.
+
+    ---
+
+    _Original entry, preserved — accurate about the predicate, wrong about which direction bites:_
 
     `selectSeasonContext` returns `'final'` only when NO week is unresolved, and `'in-season'`
     otherwise. Those are two different facts wearing one value: a season genuinely in progress, and a
@@ -1799,6 +1853,43 @@ Supersedes: (none)
       `fetchPartition`'s documented contract ("a payload fault is classified, never thrown") and is
       reported as `rankings-unexpected-error` — a provider fault misfiled as a programming defect.
       Pre-existing; PLATFORM-104 added two more call sites onto the same unguarded field.
+
+61. 🔴 **CURRENT — PLATFORM-105: a week is played only when its games have concluded.** Activated
+    2026-08-19 from item 52 above, which carries the full evidence, the production reproduction and
+    the settled mechanism. Scope: the week-resolution predicate and `selectSeasonContext`, plus
+    surfacing any game concluded by inference. Nothing else — the four consumers listed in item 52
+    are fixed at the source, never per consumer.
+
+    **Why it jumped the queue:** the season kicks off within days, and on the first Saturday every
+    league will be told its season is over, with a champion and a last-place finisher named. It also
+    blocks two of the four cards built in INSIGHTS-033.
+
+62. ⏸️ **PARKED — INSIGHTS-033** (`insights/033-participation-and-superlatives`, unmerged at
+    `e4970649`, pushed). Parked 2026-08-19 by owner decision to take PLATFORM-105 first.
+
+    **What is done and reviewed:** the participation gates (`drought`, `dominance_streak`,
+    `never_last`, `title_chaser`, `consistency`), the `even_rivalry` and `drought` population
+    conversions, the season-movement reconstruction (`season-swing-` cards), and the new
+    `season_climb`/`season_slide` cards. Model recorded in
+    `docs/architecture/insight-movement-model.md`. Gates green at `e4970649`: tsc 0, npm test 4171
+    pass, lint:all clean in tracked files.
+
+    **State of review:** THREE remediation rounds, the third taken past the AGENTS.md rule-7 stop
+    point on explicit owner approval, and the branch has NOT been re-reviewed since. **Do not treat
+    it as converged.** Each of the last three rounds fixed a defect introduced by the round before.
+
+    **Known open on it:**
+    - No confirming pass from either reviewer against `e4970649`.
+    - `dynasty` still emits "adds another title" with membership unknown — pre-existing on `main`,
+      verified, deliberately not folded in.
+    - `season_climb`/`season_slide` have unit coverage but their output has only been observed
+      through a direct selector call, never through the HTTP surface — because PLATFORM-105 is what
+      blocks them from firing at all.
+    - `deriveSeasonRunInsights` takes "now" from the last RESOLVED week, which under the item-52
+      defect is a future week. PLATFORM-105 changes what that means, so this needs re-checking when
+      the branch resumes.
+    - No pre-merge closeout: no registry entry, and items 33 and 36 still describe these generators
+      as unconverted.
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
