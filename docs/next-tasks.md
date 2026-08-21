@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-08-20
+Last verified: 2026-08-21
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -2069,6 +2069,37 @@ Supersedes: (none)
     discipline. Its exit condition is automatic eventual recovery of a provider-final score-required
     game after its ordinary polling window, including a proof that unrelated historical rows cannot be
     rewritten. Do not remove or weaken the standings coverage gate.
+
+    **(a) THE SWEEPER — preferred primary fix (owner call, 2026-08-21).** The weekly schedule refresh
+    fetches the WHOLE season, both partitions (`buildCfbdGamesUrl({ year, seasonType, week: null })`,
+    `fullSeasonScheduleRefresh.ts:119`), so every run already holds a final score for every game — in
+    the same CFBD row it reads `completed` from, and then discards. Have it write any final score the
+    score cache LACKS. This repairs every known cause at once — postponed-and-replayed, kickoff not
+    yet known, score automation paused, unresolved participants/provider id, an outage longer than
+    24h — without enumerating them, and without predicting the next one. Bounded latency: worst case
+    7 days, so it is a BACKSTOP, not a replacement for making reconciliation recover faster.
+
+    Two constraints, both non-negotiable:
+
+    - It writes through the EXISTING score writer — same advisory lock, `commitSeq` ordering, and
+      newest-wins reconciliation. A second independent writer is a second source of truth, which this
+      repo has been bitten by before.
+    - FILL GAPS ONLY. Write when the score cache holds no usable final for that game; never overwrite
+      a fresher observation from live polling.
+
+    **(b) KICKOFF-CHANGE LOGGING — measure before tuning cadence.** Whether the weekly Tuesday
+    schedule cadence is too slow is an EMPIRICAL question nobody here has data for. Most kickoff
+    times are set well ahead and six-day announcements land Sunday/Monday, which a Tuesday refresh
+    already catches; the risky case is a midweek move, and its frequency is unmeasured. The refresh
+    already compares prior durable state against the new payload, so record how many kickoffs CHANGED
+    on each run. Two or three game weeks of that answers it with a number.
+
+    **Do NOT raise the schedule cadence now.** It addresses only ONE of the five failure modes (a
+    stale kickoff), carries a permanent provider cost, and adds failure surface to the job that owns
+    the canonical schedule — while (a) covers all five. If the logging later justifies it, use the
+    STAGED-cadence pattern already proven for odds (PLATFORM-089: cadence chosen by distance to the
+    nearest eligible kickoff) and echoed by the season-transition probe's within-7-days rule — never
+    a flat frequency bump on a full-season pull.
 
     - **Backlog slug (provisional):** `PLATFORM-FINAL-SCORE-RECOVERY-v1`
 
