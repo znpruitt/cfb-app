@@ -52,6 +52,10 @@ export function resolveTestArguments(argumentsToRun, cwd = process.cwd()) {
 
 export function nodeTestConcurrency(parallelism = availableParallelism()) {
   const defaultConcurrency = Math.max(1, parallelism - 1);
+  // PLATFORM-106: Node's larger host default pushed the former 28.5-second
+  // schedule-refresh file and the DOM-heavy admin-leagues file into the
+  // 30-second timeout under full-suite contention. Four keeps file-level
+  // parallelism while reserving enough CPU headroom for each worker.
   return Math.min(4, defaultConcurrency);
 }
 
