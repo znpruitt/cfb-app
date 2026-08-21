@@ -49,6 +49,17 @@ export function resolveTestArguments(argumentsToRun, cwd = process.cwd()) {
   return [...new Set(files)].map(escapeLiteralGlobPath);
 }
 
+export function buildNodeTestArguments(testFiles) {
+  return [
+    '--import',
+    'tsx',
+    '--test',
+    '--test-timeout=30000',
+    '--test-concurrency=4',
+    ...testFiles,
+  ];
+}
+
 export function runTests(argumentsToRun) {
   if (argumentsToRun.length === 0) {
     console.error('Pass at least one exact test file or test glob.');
@@ -63,18 +74,14 @@ export function runTests(argumentsToRun) {
     return 1;
   }
 
-  const result = spawnSync(
-    process.execPath,
-    ['--import', 'tsx', '--test', '--test-timeout=30000', ...testFiles],
-    {
-      env: {
-        ...process.env,
-        APP_STATE_TEST_ISOLATION: '1',
-        TSX_TSCONFIG_PATH: 'tsconfig.test.json',
-      },
-      stdio: 'inherit',
-    }
-  );
+  const result = spawnSync(process.execPath, buildNodeTestArguments(testFiles), {
+    env: {
+      ...process.env,
+      APP_STATE_TEST_ISOLATION: '1',
+      TSX_TSCONFIG_PATH: 'tsconfig.test.json',
+    },
+    stdio: 'inherit',
+  });
 
   if (result.error) {
     console.error(result.error.message);

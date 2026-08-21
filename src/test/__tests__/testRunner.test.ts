@@ -5,10 +5,21 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { resolveTestArguments } from '../../../scripts/run-tests.mjs';
+import { buildNodeTestArguments, resolveTestArguments } from '../../../scripts/run-tests.mjs';
 
 const REPO_ROOT = process.cwd();
 const RUNNER_PATH = path.join(REPO_ROOT, 'scripts', 'run-tests.mjs');
+
+test('the shared runner caps Node test concurrency at four workers', () => {
+  assert.deepEqual(buildNodeTestArguments(['fixture.test.ts']), [
+    '--import',
+    'tsx',
+    '--test',
+    '--test-timeout=30000',
+    '--test-concurrency=4',
+    'fixture.test.ts',
+  ]);
+});
 
 test('an exact bracketed route test is escaped as a literal Node test glob', () => {
   const testPath = path.join('src', 'app', 'admin', '[slug]', '__tests__', 'page.test.ts');
