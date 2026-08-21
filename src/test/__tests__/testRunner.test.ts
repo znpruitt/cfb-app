@@ -15,7 +15,7 @@ const REPO_ROOT = process.cwd();
 const RUNNER_PATH = path.join(REPO_ROOT, 'scripts', 'run-tests.mjs');
 
 test('the shared runner passes its computed concurrency cap to the Node child process', () => {
-  const testPath = 'src/test/__tests__/testRunner.test.ts';
+  const testPath = 'src/lib/__tests__/gameStatus.test.ts';
   let spawnedArguments: readonly string[] | undefined;
 
   const fakeSpawn = ((executable: string, args: readonly string[]) => {
