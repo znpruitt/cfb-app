@@ -150,23 +150,43 @@ environment; `npm i -g vercel` if a command-line path is wanted.
   schedule, §8j rankings). Each is provisioned against a `turfwar.games` URL, so it hits whatever is
   promoted. An unpromoted merge does not change their behaviour.
 - **The two Vercel-native crons in `vercel.json`** (`/api/cron/season-transition`,
-  `/api/cron/season-rollover`, daily 00:00 UTC) — **UNVERIFIED under this setting.** Vercel binds
-  cron jobs to a production deployment, and it has not been confirmed here whether that is the
-  promoted one or the newest production build. This matters: those two routes perform LIFECYCLE
-  WRITES (preseason -> season, season rollover and archival), so if they bind to an unpromoted build,
-  a merge could change lifecycle behaviour with nothing promoted.
+  `/api/cron/season-rollover`, daily 00:00 UTC) — **they follow the PROMOTED deployment.** Vercel
+  runs cron jobs on the production deployment that holds the production DOMAINS, not on the newest
+  production build. Promotion is what moves those domains, so an unpromoted merge does NOT change
+  lifecycle behaviour. This matters because those two routes perform LIFECYCLE WRITES
+  (preseason -> season, season rollover and archival).
+
+  **Evidence, 2026-08-21, and its limits.** Vercel's own records place the production domain on the
+  promoted deployment: after promoting `792b27a6`, both `vercel alias ls` and
+  `vercel inspect turfwar.games` resolved `turfwar.games` to that deployment. The QStash side was
+  observed directly — the rankings receipt for the 04:00 UTC run read
+  `Built from: 6109df6f`, exactly the deployment holding the domain at that hour. The Vercel-native
+  binding rule itself comes from Vercel's own guidance, not from a receipt we have read, so this is
+  a well-supported INFERENCE and not yet a measurement. Confirm it the first time promoted and
+  newest-build DIVERGE — see the table below. While they are the same commit, the reading proves
+  nothing.
+
+  **Do not check domain assignment with `vercel inspect <deployment>`.** Its `Aliases` block lists
+  only the `.vercel.app` names and omits custom domains, so the promoted deployment appears not to
+  hold `turfwar.games` when it does. Use `vercel alias ls`, or `vercel inspect turfwar.games`.
+
+  **Consequence worth stating plainly: promotion is now the ONLY thing that moves lifecycle
+  behaviour, and it is manual.** That is the isolation working. It also means a long stretch without
+  promoting leaves these two jobs running old lifecycle code indefinitely and silently.
 
   **The app now answers this itself.** Every scheduler receipt records
   `buildCommitSha` — the commit the executing deployment was built from — and System Health shows it
   per job as **Built from**.
 
-  **Read `Built from` TOGETHER WITH `Completed`. On its own it cannot tell you the safe answer.**
-  An earlier version of this procedure said to read the field alone, which could only ever confirm
-  the dangerous hypothesis:
+  **To CONFIRM the binding, read `Built from` TOGETHER WITH `Completed`.** On its own the field
+  cannot tell you the safe answer. Run this only when the promoted deployment and the newest
+  production build are DIFFERENT commits; when they are the same, every hypothesis predicts the same
+  SHA. A no-op run still writes a receipt, so `Run` on `season-transition` answers it in a minute
+  without the job doing any work:
 
   | What you see | What it means |
   | --- | --- |
-  | A commit, and it is the UNPROMOTED one | Crons follow the newest production build. An unpromoted merge CAN change lifecycle behaviour. |
+  | A commit, and it is the UNPROMOTED one | Crons follow the newest production build — CONTRADICTING the rule above. An unpromoted merge CAN change lifecycle behaviour; treat as a live hazard and correct this section. |
   | A commit, and it is the PROMOTED one | Crons follow the promoted deployment. The isolation holds. |
   | No commit, and `Completed` is RECENT | Crons follow the promoted deployment, and that build predates this field — **also the isolation holding.** |
   | No commit, and `Completed` is STALE | The job has not fired since this shipped. No conclusion yet; wait. |
