@@ -1,5 +1,10 @@
 import test from 'node:test';
 
+// Importing this harness installs root hooks for the importing test file. Those
+// hooks reset PID-scoped AppState and route caches, own the mutable test env,
+// and replace globalThis.fetch with the CFBD stub below. Import it only from
+// schedule-refresh route tests that require that isolation contract.
+//
 // Install the global AsyncLocalStorage before the Next storage module loads so
 // the E1A authority's `revalidateTag` (via invalidateStandings) runs under
 // node:test.

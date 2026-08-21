@@ -5,20 +5,48 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { buildNodeTestArguments, resolveTestArguments } from '../../../scripts/run-tests.mjs';
+import {
+  nodeTestConcurrency,
+  resolveTestArguments,
+  runTests,
+} from '../../../scripts/run-tests.mjs';
 
 const REPO_ROOT = process.cwd();
 const RUNNER_PATH = path.join(REPO_ROOT, 'scripts', 'run-tests.mjs');
 
-test('the shared runner caps Node test concurrency at four workers', () => {
-  assert.deepEqual(buildNodeTestArguments(['fixture.test.ts']), [
+test('the shared runner passes its computed concurrency cap to the Node child process', () => {
+  const testPath = 'src/test/__tests__/testRunner.test.ts';
+  let spawnedArguments: readonly string[] | undefined;
+
+  const fakeSpawn = ((executable: string, args: readonly string[]) => {
+    assert.equal(executable, process.execPath);
+    spawnedArguments = args;
+    return { status: 0 };
+  }) as typeof spawnSync;
+
+  assert.equal(runTests([testPath], fakeSpawn), 0);
+  assert.deepEqual(spawnedArguments, [
     '--import',
     'tsx',
     '--test',
     '--test-timeout=30000',
-    '--test-concurrency=4',
-    'fixture.test.ts',
+    `--test-concurrency=${nodeTestConcurrency()}`,
+    testPath,
   ]);
+});
+
+test('the concurrency cap never raises Node default concurrency on a constrained host', () => {
+  const cases = [
+    { parallelism: 1, expected: 1 },
+    { parallelism: 2, expected: 1 },
+    { parallelism: 4, expected: 3 },
+    { parallelism: 5, expected: 4 },
+    { parallelism: 8, expected: 4 },
+  ];
+
+  for (const { parallelism, expected } of cases) {
+    assert.equal(nodeTestConcurrency(parallelism), expected);
+  }
 });
 
 test('an exact bracketed route test is escaped as a literal Node test glob', () => {

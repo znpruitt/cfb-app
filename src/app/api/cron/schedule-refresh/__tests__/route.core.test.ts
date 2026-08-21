@@ -51,7 +51,8 @@ test('invalid authorization → 401, one failure event', async () => {
 });
 
 // E1B1 tests 1/2 — no preseason/season league (empty / offseason-only) →
-// no-maintenance-target (preseason years ARE targets now — covered below).
+// no-maintenance-target (preseason years ARE targets now — covered in
+// route.preseason.test.ts).
 test('no maintenance target → skipped/no-maintenance-target (empty, offseason-only)', async () => {
   const registries: League[][] = [
     [],

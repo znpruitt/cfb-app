@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { globSync, realpathSync, statSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -49,18 +50,23 @@ export function resolveTestArguments(argumentsToRun, cwd = process.cwd()) {
   return [...new Set(files)].map(escapeLiteralGlobPath);
 }
 
-export function buildNodeTestArguments(testFiles) {
+export function nodeTestConcurrency(parallelism = availableParallelism()) {
+  const defaultConcurrency = Math.max(1, parallelism - 1);
+  return Math.min(4, defaultConcurrency);
+}
+
+export function buildNodeTestArguments(testFiles, parallelism = availableParallelism()) {
   return [
     '--import',
     'tsx',
     '--test',
     '--test-timeout=30000',
-    '--test-concurrency=4',
+    `--test-concurrency=${nodeTestConcurrency(parallelism)}`,
     ...testFiles,
   ];
 }
 
-export function runTests(argumentsToRun) {
+export function runTests(argumentsToRun, spawnProcess = spawnSync) {
   if (argumentsToRun.length === 0) {
     console.error('Pass at least one exact test file or test glob.');
     return 1;
@@ -74,7 +80,7 @@ export function runTests(argumentsToRun) {
     return 1;
   }
 
-  const result = spawnSync(process.execPath, buildNodeTestArguments(testFiles), {
+  const result = spawnProcess(process.execPath, buildNodeTestArguments(testFiles), {
     env: {
       ...process.env,
       APP_STATE_TEST_ISOLATION: '1',
