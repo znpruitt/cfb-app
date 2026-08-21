@@ -1,14 +1,64 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, rm, symlink } from 'node:fs/promises';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
-import { resolveTestArguments } from '../../../scripts/run-tests.mjs';
+import {
+  nodeTestConcurrency,
+  resolveTestArguments,
+  runTests,
+} from '../../../scripts/run-tests.mjs';
 
 const REPO_ROOT = process.cwd();
 const RUNNER_PATH = path.join(REPO_ROOT, 'scripts', 'run-tests.mjs');
+
+test('the shared runner passes its computed concurrency cap to the Node child process', async () => {
+  const fixtureRoot = await mkdtemp(path.join(os.tmpdir(), 'cfb-test-runner-contract-'));
+  const testPath = path.join(fixtureRoot, 'fixture.test.ts');
+
+  try {
+    await writeFile(
+      testPath,
+      "import test from 'node:test';\ntest('fixture', () => {});\n",
+      'utf8'
+    );
+    let spawnedArguments: readonly string[] | undefined;
+
+    const fakeSpawn = ((executable: string, args: readonly string[]) => {
+      assert.equal(executable, process.execPath);
+      spawnedArguments = args;
+      return { status: 0 };
+    }) as typeof spawnSync;
+
+    assert.equal(runTests([testPath], fakeSpawn), 0);
+    assert.deepEqual(spawnedArguments, [
+      '--import',
+      'tsx',
+      '--test',
+      '--test-timeout=30000',
+      `--test-concurrency=${nodeTestConcurrency()}`,
+      testPath,
+    ]);
+  } finally {
+    await rm(fixtureRoot, { recursive: true, force: true });
+  }
+});
+
+test('the concurrency cap never raises Node default concurrency on a constrained host', () => {
+  const cases = [
+    { parallelism: 1, expected: 1 },
+    { parallelism: 2, expected: 1 },
+    { parallelism: 4, expected: 3 },
+    { parallelism: 5, expected: 4 },
+    { parallelism: 8, expected: 4 },
+  ];
+
+  for (const { parallelism, expected } of cases) {
+    assert.equal(nodeTestConcurrency(parallelism), expected);
+  }
+});
 
 test('an exact bracketed route test is escaped as a literal Node test glob', () => {
   const testPath = path.join('src', 'app', 'admin', '[slug]', '__tests__', 'page.test.ts');
