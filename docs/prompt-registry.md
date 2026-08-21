@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-08-20
+Last verified: 2026-08-21
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -49,6 +49,54 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### PLATFORM-106-SCHEDULE-REFRESH-TEST-SPLIT-v1
+
+- Purpose: Stop two test files crossing the 30-second per-file budget under full-suite contention,
+  which made `npm test` fail intermittently on the maintenance host.
+- Scope: `scripts/run-tests.mjs` (host-aware worker cap + an injected `spawnProcess` seam), the
+  schedule-refresh cron suite split into four files behind `_routeHarness.ts`, the admin-leagues
+  page suite split into two behind `_pageHarness.tsx` (106B), and `src/test/__tests__/testRunner.test.ts`.
+  No production code changed.
+- Outcome: `nodeTestConcurrency` is `Math.min(4, Math.max(1, availableParallelism() - 1))` — a true
+  cap that never exceeds Node's default on a constrained host. **The cap is the load-bearing fix;
+  the two splits add margin and do not make higher file concurrency safe** — recorded in
+  `run-tests.mjs` because that is where someone would remove it. Measured: schedule-refresh
+  `route.test.ts` ran 29,437 ms against the 30,000 ms budget (563 ms headroom) on an idle host;
+  admin-leagues `page.test.tsx` ran 24,036 ms with ~7.7 s of that fixed import/JSDOM cost, which the
+  split now pays twice, improving the worst loaded file only 21.4 s → 17.7 s.
+- Review / verification: three Claude rounds plus an independent Codex pass. Round 1 (`2c3da88a`)
+  found the concurrency flag SET rather than capped — on a host with ≤4 parallelism it raised worker
+  count above Node's default — and a runner test that mirrored the helper: re-inlining the argument
+  array into the spawn call dropped the cap from the child while all seven tests stayed green
+  (reproduced). Round 2 (`c745a45a`) fixed both; the mutation then failed the contract. Round 3
+  (`85503520`) removed the contract test's self-reference, and 106B (`ccf731aa`) replaced the
+  borrowed real file with a `mkdtemp` fixture removed in `finally` — verified to leak nothing on a
+  FAILING run and to sit outside the `src/**` glob and the layout audit. Preservation checked
+  mechanically, not by reading: 60 schedule-refresh tests / 307 assertions and 9 admin-leagues tests,
+  every body byte-identical, each helper and hook present exactly once. Gates at `ccf731aa`, judged
+  on EXIT CODE: full suite 4185/4185 exit 0 (zero cancelled) under load ~21, focused 77/77,
+  `tsc` 0, `lint:all` 0.
+- Status: Merged (PR #504, `792b27a6`, 2026-08-21). Documentation closeout written post-merge; the
+  pre-merge entry was missed.
+
+**Two findings worth keeping, because both would otherwise be re-derived.**
+
+- **A timeout-cancelled file is NOT a failure in the summary line.** Base `84b25aba` reported
+  `# tests 4168 / # pass 4166 / # fail 0 / # cancelled 2` and exited **1**. Reading `# fail 0` off a
+  truncated run calls a red suite green. Judge `npm test` on its exit code.
+- **The self-targeting runner test was a self-referential DEPENDENCY, not a recursion hazard.** A
+  review round claimed reverting the seam would recurse unboundedly and wedge the machine; it does
+  not. `NODE_TEST_CONTEXT` is inherited through `{...process.env}`, so Node's own guard emits
+  `run() is being called recursively within a test file. skipping running files.` and the run
+  terminates in ~2 s. The fix was still correct, at a lower severity than claimed.
+
+**Not addressed here, and still available.** ~14.9 s of `route.test.ts`'s runtime was real `sleep()`
+in the shared CFBD pacing gate (`fetchUpstream.ts` `paceNextAllowedAtByKey`, `minIntervalMs: 150` on
+key `cfbd`): setting it to 0 took the file 29,437 ms → 14,570 ms with all 60 tests passing. The suites
+stub `globalThis.fetch`, so the gate paces a provider that is not there. Nothing in `src/` tests the
+gate itself, so it is currently exercised only as that tax. Independent of this branch and not
+foreclosed by it.
 
 ### PLATFORM-105A-SCORE-COVERAGE-INTEGRITY-v1
 
