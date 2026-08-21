@@ -52,10 +52,11 @@ export function resolveTestArguments(argumentsToRun, cwd = process.cwd()) {
 
 export function nodeTestConcurrency(parallelism = availableParallelism()) {
   const defaultConcurrency = Math.max(1, parallelism - 1);
-  // PLATFORM-106: Node's larger host default pushed the former 28.5-second
-  // schedule-refresh file and the DOM-heavy admin-leagues file into the
-  // 30-second timeout under full-suite contention. Four keeps file-level
-  // parallelism while reserving enough CPU headroom for each worker.
+  // PLATFORM-106: our `parallelism - 1` policy selected seven file workers on
+  // the 8-way host, where schedule-refresh and admin-leagues crossed the
+  // 30-second timeout under full-suite contention. Four is the load-bearing
+  // fix; splitting both suites adds margin (loaded admin worst: 21.4s → 17.7s)
+  // but does not make higher file concurrency safe.
   return Math.min(4, defaultConcurrency);
 }
 
