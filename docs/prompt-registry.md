@@ -75,12 +75,13 @@ Rules:
   low-severity residues, recorded only in `docs/next-tasks.md`; the owner directed documentation
   closeout rather than a third code round. All four required mutations independently fail their
   tests: disabled sweep, removed pre-merge filter, removed difference reporting, and idless cached
-  final allowed to fall through. Exact-head gates: focused 46/46 vs base 35/35 (+11); clean full
+  final allowed to fall through. Exact implementation-head gates: focused 46/46 vs base 35/35
+  (+11); clean full
   suite 4,204/4,204 vs base 4,185/4,185 (+19), exit 0; TypeScript, `lint:all`, and
   `git diff --check` exit 0. An earlier full run correctly counted as failed despite `# fail 0`
   because one file timed out/cancelled and the process exited 1; that file then passed 4/4 alone and
   the clean full rerun exited 0.
-- Status: Implemented — PR #505 open at `f67c2435` (2026-08-21); not merged or shipped. This is the
+- Status: Implemented at `f67c2435` — PR #505 open (2026-08-21); not merged or shipped. This is the
   owner-directed pre-merge closeout after the final authorized remediation round.
 
 ### PLATFORM-106-SCHEDULE-REFRESH-TEST-SPLIT-v1
