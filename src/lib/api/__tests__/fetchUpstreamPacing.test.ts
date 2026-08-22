@@ -53,6 +53,12 @@ async function waitFor(predicate: () => boolean, message: string, attempts = 20)
   assert.fail(message);
 }
 
+async function drainMicrotasks(attempts = 5): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await Promise.resolve();
+  }
+}
+
 async function withPacingEnvironment(
   options: { disabled: boolean; nodeTestProcess: boolean },
   run: () => Promise<void>
@@ -97,7 +103,7 @@ test('same-key pacing spaces reservations and serializes the tail chain', async 
     await waitFor(() => controlled.pendingCount() === 1, 'second same-key call did not wait');
 
     const third = __applyUpstreamPacingForTests(POLICY, controlled.clock);
-    await Promise.resolve();
+    await drainMicrotasks();
     assert.equal(
       controlled.pendingCount(),
       1,

@@ -72,14 +72,19 @@ Rules:
   discriminating: removing the production guard failed the fail-closed test; disabling the bypass
   restored the 62-test route family to 17.08 s, inside the base range. Exact-head measurement on the
   same host, best of three: the current schedule-refresh `route*.test.ts` family (the historical
-  monolith was split by PLATFORM-106) improved 15.79 s → 5.69 s (-10.10 s, 64.0%); full suite improved
-  262.19 s → 166.75 s (-95.44 s, 36.4%). A successful streaming-reporter run passed 4,210/4,210 and
-  measured the slowest files at 9.45 s (`page.creation.test.tsx`), 8.52 s
+  monolith was split by PLATFORM-106) improved 15.79 s → 5.69 s (-10.10 s, 64.0%). Full-suite samples
+  were 282.73/262.19/281.30 s at base and 173.16/175.95/166.75 s after, while an independent run at
+  the same implementation measured 252.9 s. Host load was not recorded, so those full-suite values
+  are retained as observations, not a reproducible percentage claim. One successful
+  streaming-reporter run passed 4,210/4,210 and measured the slowest files at 9.45 s
+  (`page.creation.test.tsx`), 8.52 s
   (`AllTimeStandingsTable.test.tsx`), 8.43 s (`ScoreAttachmentRecoveryPanel.test.tsx`), 8.30 s
   (`TrendsDetailSurface.test.tsx`), and 8.04 s (`maintenanceActionWiring.test.tsx`), leaving 20.55 s
-  headroom; two earlier silent-reporter attempts exited 1 with cancellations and were discarded.
-  The limit therefore stays 30 seconds. `AllTimeStandingsTable.test.tsx` makes zero provider calls,
-  so this change helps it only indirectly through lower suite contention, not its JSDOM startup.
+  in that sample. Two earlier silent-reporter attempts exited 1 with cancellations and were
+  discarded, so the headroom conclusion is conditional on load. This slice leaves the limit at 30
+  seconds; `docs/next-tasks.md` item 71 retains the unresolved startup/limit decision.
+  `AllTimeStandingsTable.test.tsx` makes zero provider calls, so this change helps it only indirectly
+  through lower suite contention, not its JSDOM startup.
 - Status: Implemented — pre-merge review complete. Exact implementation head `ade0f5d5`; merge
   pending.
 

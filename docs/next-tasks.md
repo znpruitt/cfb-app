@@ -2094,10 +2094,24 @@ Supersedes: (none)
 70. 🟡 **IMPLEMENTED — test-only upstream pacing bypass; merge pending.**
     `PLATFORM-108-TEST-PACING-AND-STARTUP-v1` makes the shared test runner bypass provider pacing
     only when its explicit flag and Node's test-child signal are both present, while production and
-    uncertain environments continue to pace. The gate now has deterministic direct coverage. The
-    re-measurement supports retaining the 30-second per-file limit; this does not directly optimize
-    JSDOM-heavy component startup, including `AllTimeStandingsTable.test.tsx`. Execution, review,
-    mutation proof, and measurement detail live in `docs/prompt-registry.md`.
+    uncertain environments continue to pace. The gate now has deterministic direct coverage. This
+    slice leaves the 30-second per-file limit unchanged; execution, review, mutation proof, and
+    measurement detail live in `docs/prompt-registry.md`.
+
+71. 🔴 **JSDOM-heavy test startup and loaded-host timeout headroom.** PLATFORM-108 removes provider
+    pacing from tests but does not directly optimize the file that triggered this work:
+    `AllTimeStandingsTable.test.tsx` makes zero provider calls. Its measured 6,649 ms total contained
+    only 204 ms of test work (~6,445 ms / 97% startup); an isolated startup decomposition measured
+    JSDOM at +2,441 ms of a 3,590 ms React/component stack.
+
+    Do not default to splitting these files: unlike the PLATFORM-106 API/admin splits, that repeats
+    the dominant per-file JSDOM build without dividing meaningful test work. Re-measure under
+    representative load with a streaming reporter, then choose explicitly between sharing JSDOM per
+    worker (which conflicts with the process isolation protecting pid-scoped app state) and raising
+    the per-file limit. PLATFORM-108's one successful instrumented sample left 20.55 s below the
+    30-second limit, but that is conditional on host load and does not close this class.
+
+    - **Backlog slug (provisional):** `PLATFORM-TEST-STARTUP-HEADROOM-v1`
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
