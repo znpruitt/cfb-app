@@ -209,7 +209,17 @@ test('all five job target shapes persist with exact allowlisted target keys', as
       kind: 'schedule-years',
       // PLATFORM-086F2H1R2 — present after a parse even when a legacy receipt
       // omits it, because the rebuild normalizes it to 0.
-      keys: ['invalidLifecycleTargets', 'kind', 'totalYears', 'truncated', 'years'].sort(),
+      keys: [
+        'invalidLifecycleTargets',
+        'kickoffsChanged',
+        'kind',
+        'scoreDifferences',
+        'scoreRepairs',
+        'scoreSweepFailures',
+        'totalYears',
+        'truncated',
+        'years',
+      ].sort(),
     },
     {
       job: 'rankings',

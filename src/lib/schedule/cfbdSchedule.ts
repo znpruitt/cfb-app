@@ -46,6 +46,13 @@ export type CfbdScheduleGame = {
   away_team?: string;
   homeTeam?: string;
   awayTeam?: string;
+  /** Score fields ride on CFBD's `/games` schedule rows but are not persisted on ScheduleItem. */
+  home_points?: number | null;
+  away_points?: number | null;
+  homePoints?: number | null;
+  awayPoints?: number | null;
+  home_score?: number | null;
+  away_score?: number | null;
   home_id?: number | string | null;
   homeId?: number | string | null;
   away_id?: number | string | null;

@@ -174,9 +174,24 @@ export async function mergeScoresIntoPartition(params: {
   seasonType: CfbdSeasonType;
   updates: ScoreUpdate[];
   confirmFinalIds?: string[];
+  /**
+   * Backstop writers may fill a missing final but must never restate or correct
+   * one that arrived in the exact child after the caller's cache-wide prefilter.
+   * The guard runs transaction-fresh, before {@link mergeScoreRow}, because a
+   * newer equal-state observation would otherwise be allowed to replace that final.
+   */
+  onlyIfMissingUsableFinal?: boolean;
   now: number;
 }): Promise<PartitionMergeResult> {
-  const { year, week, seasonType, updates, confirmFinalIds = [], now } = params;
+  const {
+    year,
+    week,
+    seasonType,
+    updates,
+    confirmFinalIds = [],
+    onlyIfMissingUsableFinal = false,
+    now,
+  } = params;
   const key = `${year}-${week}-${seasonType}`;
 
   return withAppStateKeyTransaction<PartitionMergeResult>('scores', key, async (txn) => {
@@ -206,6 +221,20 @@ export async function mergeScoresIntoPartition(params: {
       const childEffective =
         childPrior && prior ? effectiveRowTimestamp(prior, childPrior) : undefined;
       if (childEffective !== undefined && now < childEffective) continue;
+      // PLATFORM-107 race guard. The sweeper's cache-wide planning pass excludes
+      // every final that already existed in its snapshot; this transaction-fresh
+      // check closes the narrower race where a live final reaches the CHILD key
+      // after that snapshot. A baseline that was already final is intentionally
+      // not hidden here: handing one to this writer is a caller-filter defect,
+      // and the mutation proof must expose it rather than let duplicate defenses
+      // make the required pre-merge filter untestable.
+      if (
+        onlyIfMissingUsableFinal &&
+        isUsableFinal(childPrior) &&
+        !isUsableFinal(update.baseline ?? undefined)
+      ) {
+        continue;
+      }
       // Protect against the CURRENTLY-SERVED state (child + aggregate), not just
       // the child key — the child alone treats an aggregate-only row as absent,
       // and an equal-state staler child must not win null-score preservation.
@@ -273,4 +302,13 @@ export async function mergeScoresIntoPartition(params: {
     await txn.write(nextEntry);
     return { wrote: true, committed };
   });
+}
+
+function isUsableFinal(pack: ScorePack | undefined): boolean {
+  return (
+    pack !== undefined &&
+    classifyScorePackStatus(pack) === 'final' &&
+    pack.home.score !== null &&
+    pack.away.score !== null
+  );
 }

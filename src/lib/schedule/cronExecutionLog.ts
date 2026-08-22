@@ -1,4 +1,6 @@
 import type { FullSeasonScheduleRefreshReason } from './fullSeasonScheduleRefreshResult.ts';
+import type { FinalScoreDifferenceIdentity } from './finalScoreSweep.ts';
+import type { SeasonType } from './cfbdSchedule.ts';
 import type { WeeklyScheduleRefreshOperation } from './weeklyRefreshOperation.ts';
 
 /**
@@ -73,6 +75,12 @@ export type ScheduleRefreshCronYearExecution = {
   rowsReceived: number;
   rowsCommitted: number;
   dataChanged: boolean;
+  scoreRepairs: number;
+  scoreDifferenceCount: number;
+  scoreDifferences: FinalScoreDifferenceIdentity[];
+  scoreDifferencesTruncated: boolean;
+  scoreSweepFailedPartitions: Array<{ week: number; seasonType: SeasonType }>;
+  kickoffsChanged: number;
 };
 
 /** The exact allowlisted shape serialized to a single Vercel log line. */
@@ -194,6 +202,19 @@ export function emitScheduleRefreshCronExecutionEvent(
         rowsReceived: entry.rowsReceived,
         rowsCommitted: entry.rowsCommitted,
         dataChanged: entry.dataChanged,
+        scoreRepairs: entry.scoreRepairs,
+        scoreDifferenceCount: entry.scoreDifferenceCount,
+        scoreDifferences: entry.scoreDifferences.map((difference) => ({
+          providerGameId: difference.providerGameId,
+          week: difference.week,
+          seasonType: difference.seasonType,
+        })),
+        scoreDifferencesTruncated: entry.scoreDifferencesTruncated,
+        scoreSweepFailedPartitions: entry.scoreSweepFailedPartitions.map((partition) => ({
+          week: partition.week,
+          seasonType: partition.seasonType,
+        })),
+        kickoffsChanged: entry.kickoffsChanged,
       })),
       invalidLifecycleTargets: state.invalidLifecycleTargets,
       durationMs,

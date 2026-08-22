@@ -15,6 +15,7 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateWriteFailureForTests,
+  getAppState,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
 import { resetScheduleRouteCacheForTests } from '../../../schedule/cache.ts';
@@ -151,6 +152,31 @@ function gameBody(year: number): string {
   ]);
 }
 
+function finalSweepBody(year: number): string {
+  return JSON.stringify([
+    {
+      id: year * 10 + 1,
+      week: 1,
+      home_team: 'Texas',
+      away_team: 'Rice',
+      start_date: '2020-11-29T20:00:00.000Z',
+      home_points: 99,
+      away_points: 0,
+      completed: true,
+    },
+    {
+      id: year * 10 + 2,
+      week: 2,
+      home_team: 'Ohio State',
+      away_team: 'Michigan',
+      start_date: '2020-12-05T20:00:00.000Z',
+      home_points: 28,
+      away_points: 27,
+      completed: true,
+    },
+  ]);
+}
+
 function cronRequest(secret: string | null = CRON_SECRET): Request {
   const headers: Record<string, string> = {};
   if (secret) headers['authorization'] = `Bearer ${secret}`;
@@ -236,6 +262,10 @@ async function seedPriorReceipt() {
       totalYears: 1,
       truncated: false,
       invalidLifecycleTargets: 0,
+      scoreRepairs: 0,
+      scoreDifferences: 0,
+      scoreSweepFailures: 0,
+      kickoffsChanged: 0,
       years: [{ year: 2031, operation: 'ordinary-maintenance' }],
     },
   });
@@ -281,6 +311,10 @@ test('a no-maintenance-target run writes a healthy provider-free skip receipt', 
     totalYears: 0,
     truncated: false,
     invalidLifecycleTargets: 0,
+    scoreRepairs: 0,
+    scoreDifferences: 0,
+    scoreSweepFailures: 0,
+    kickoffsChanged: 0,
     years: [],
   });
 });
@@ -330,6 +364,102 @@ test('a multi-year provider-attempting run records the bounded target and provid
   );
 });
 
+test('score repairs, immutable-score differences, and kickoff changes reach the event and receipt', async () => {
+  const year = 2031;
+  await seedSeasonLeague(year, 'alpha');
+  await setAppState('schedule', `${year}-all-all`, {
+    at: 1,
+    items: [
+      {
+        id: String(year * 10 + 1),
+        week: 1,
+        startDate: CRITICAL_KICKOFF,
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+      {
+        id: String(year * 10 + 2),
+        week: 2,
+        startDate: '2020-12-05T20:00:00.000Z',
+        homeTeam: 'Ohio State',
+        awayTeam: 'Michigan',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  await setAppState('scores', `${year}-1-regular`, {
+    at: 2,
+    items: [
+      {
+        id: String(year * 10 + 1),
+        seasonType: 'regular',
+        startDate: CRITICAL_KICKOFF,
+        week: 1,
+        status: 'final',
+        home: { team: 'Texas', score: 24 },
+        away: { team: 'Rice', score: 17 },
+        time: CRITICAL_KICKOFF,
+      },
+    ],
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+  });
+  stubProvider({ [year]: finalSweepBody(year) });
+
+  const { res, event } = await runRoute();
+  assert.equal(res.status, 200);
+  assert.equal(event.years[0]?.scoreRepairs, 1);
+  assert.equal(event.years[0]?.scoreDifferenceCount, 1);
+  assert.deepEqual(event.years[0]?.scoreDifferences, [
+    { providerGameId: String(year * 10 + 1), week: 1, seasonType: 'regular' },
+  ]);
+  assert.equal(event.years[0]?.scoreDifferencesTruncated, false);
+  assert.equal(event.years[0]?.kickoffsChanged, 1);
+  assert.deepEqual(event.years[0]?.scoreSweepFailedPartitions, []);
+
+  const body = (await res.json()) as { years: Array<Record<string, unknown>> };
+  assert.deepEqual(
+    Object.keys(body.years[0]!).sort(),
+    [
+      'dataChanged',
+      'operation',
+      'providerCallAttempted',
+      'reason',
+      'result',
+      'rowsCommitted',
+      'rowsReceived',
+      'year',
+    ],
+    'the established HTTP response stays byte-shape compatible'
+  );
+
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('schedule-refresh');
+  assert.ok(receipt);
+  assert.equal(receipt.value.target.kind, 'schedule-years');
+  if (receipt.value.target.kind !== 'schedule-years') return;
+  assert.equal(receipt.value.target.scoreRepairs, 1);
+  assert.equal(receipt.value.target.scoreDifferences, 1);
+  assert.equal(receipt.value.target.scoreSweepFailures, 0);
+  assert.equal(receipt.value.target.kickoffsChanged, 1);
+
+  const preserved = await getAppState<{ items: Array<{ home: { score: number | null } }> }>(
+    'scores',
+    `${year}-1-regular`
+  );
+  assert.equal(preserved?.value.items[0]?.home.score, 24, 'the differing final is immutable');
+  const repaired = await getAppState<{ items: Array<{ home: { score: number | null } }> }>(
+    'scores',
+    `${year}-2-regular`
+  );
+  assert.equal(repaired?.value.items[0]?.home.score, 28, 'the unrelated gap is filled');
+});
+
 // PLATFORM-086F2H1T3 — REGRESSION TEST for the demo exclusion. A demo-only
 // truthful zero-target, provider-free receipt under the NEW reason. Verified
 // failing with the exclusion removed: the run classified 2031 as a target and
@@ -366,6 +496,10 @@ test('a demo-only active registry writes a zero-target provider-free receipt', a
     totalYears: 0,
     truncated: false,
     invalidLifecycleTargets: 0,
+    scoreRepairs: 0,
+    scoreDifferences: 0,
+    scoreSweepFailures: 0,
+    kickoffsChanged: 0,
     years: [],
   });
 });
@@ -548,6 +682,10 @@ test('R2 contract pin: a legacy schedule receipt without the count parses as zer
   assert.equal(stored.value.target.kind, 'schedule-years');
   if (stored.value.target.kind !== 'schedule-years') return;
   assert.equal(stored.value.target.invalidLifecycleTargets, 0, 'normalized, not rejected');
+  assert.equal(stored.value.target.scoreRepairs, 0);
+  assert.equal(stored.value.target.scoreDifferences, 0);
+  assert.equal(stored.value.target.scoreSweepFailures, 0);
+  assert.equal(stored.value.target.kickoffsChanged, 0);
   assert.deepEqual(
     stored.value.target.years.map((y) => y.year),
     [2020],
@@ -581,6 +719,33 @@ test('R2 regression: a present but invalid count rejects the stored receipt', ()
   assert.equal(parseSchedulerExecutionReceipt(bad, 'schedule-refresh', Date.now()), null);
 });
 
+test('PLATFORM-107: an invalid present sweep counter rejects the stored receipt', () => {
+  const bad = {
+    version: 1,
+    job: 'schedule-refresh',
+    source: 'qstash',
+    invocationId: '88888888-8888-4888-8888-888888888888',
+    startedAt: new Date(Date.now() - 60_000).toISOString(),
+    completedAt: new Date(Date.now() - 59_000).toISOString(),
+    durationMs: 1000,
+    result: 'success',
+    reason: 'year-results',
+    providerCallAttempted: true,
+    target: {
+      kind: 'schedule-years',
+      totalYears: 1,
+      truncated: false,
+      invalidLifecycleTargets: 0,
+      scoreRepairs: -1,
+      scoreDifferences: 0,
+      scoreSweepFailures: 0,
+      kickoffsChanged: 0,
+      years: [{ year: 2020, operation: 'ordinary-maintenance' }],
+    },
+  };
+  assert.equal(parseSchedulerExecutionReceipt(bad, 'schedule-refresh', Date.now()), null);
+});
+
 // PLATFORM-086F2H1R2 — the count must reach an operator. Without these cases,
 // deleting either new branch of the `schedule-years` summary leaves the suite
 // green (AGENTS.md: "if deleting the new guard leaves the suite green, the guard
@@ -597,6 +762,10 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       totalYears: 1,
       truncated: false,
       invalidLifecycleTargets: 0,
+      scoreRepairs: 0,
+      scoreDifferences: 0,
+      scoreSweepFailures: 0,
+      kickoffsChanged: 0,
       years: [{ year: 2020, operation: 'ordinary-maintenance' }],
     }),
     '1 year(s): 2020 (ordinary-maintenance)'
@@ -609,6 +778,10 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       totalYears: 1,
       truncated: false,
       invalidLifecycleTargets: 2,
+      scoreRepairs: 0,
+      scoreDifferences: 0,
+      scoreSweepFailures: 0,
+      kickoffsChanged: 0,
       years: [{ year: 2020, operation: 'ordinary-maintenance' }],
     }),
     '1 year(s): 2020 (ordinary-maintenance) · 2 unusable lifecycle target(s)'
@@ -623,8 +796,27 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       totalYears: 0,
       truncated: false,
       invalidLifecycleTargets: 1,
+      scoreRepairs: 0,
+      scoreDifferences: 0,
+      scoreSweepFailures: 0,
+      kickoffsChanged: 0,
       years: [],
     }),
     '0 year(s) · 1 unusable lifecycle target(s)'
+  );
+
+  assert.equal(
+    summarizeReceiptTarget({
+      kind: 'schedule-years',
+      totalYears: 1,
+      truncated: false,
+      invalidLifecycleTargets: 0,
+      scoreRepairs: 2,
+      scoreDifferences: 1,
+      scoreSweepFailures: 1,
+      kickoffsChanged: 3,
+      years: [{ year: 2020, operation: 'ordinary-maintenance' }],
+    }),
+    '1 year(s): 2020 (ordinary-maintenance) · 2 score repair(s) · 1 score difference(s) · 1 score sweep failure(s) · 3 kickoff change(s)'
   );
 });

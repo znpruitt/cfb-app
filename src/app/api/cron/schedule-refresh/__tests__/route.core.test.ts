@@ -352,12 +352,18 @@ test('exactly one structured event per invocation with only approved keys', asyn
       Object.keys(year).sort(),
       [
         'dataChanged',
+        'kickoffsChanged',
         'operation',
         'providerCallAttempted',
         'reason',
         'result',
         'rowsCommitted',
         'rowsReceived',
+        'scoreDifferenceCount',
+        'scoreDifferences',
+        'scoreDifferencesTruncated',
+        'scoreRepairs',
+        'scoreSweepFailedPartitions',
         'year',
       ],
       'year-entry schema is the exact allowlist'

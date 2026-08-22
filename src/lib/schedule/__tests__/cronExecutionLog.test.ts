@@ -26,6 +26,12 @@ function entry(
     rowsReceived: 0,
     rowsCommitted: 0,
     dataChanged: false,
+    scoreRepairs: 0,
+    scoreDifferenceCount: 0,
+    scoreDifferences: [],
+    scoreDifferencesTruncated: false,
+    scoreSweepFailedPartitions: [],
+    kickoffsChanged: 0,
     ...over,
   };
 }

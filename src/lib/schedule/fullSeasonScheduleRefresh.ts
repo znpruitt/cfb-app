@@ -2,8 +2,8 @@
  * PLATFORM-086E1A — the ONE shared full-season schedule refresh authority.
  *
  * Every production full-season schedule writer drives THIS module: the authorized
- * full-year `/api/schedule?bypassCache=1` refresh, the season-transition cron, and
- * the historical schedule repair (and, later, the PLATFORM-086E1B weekly caller).
+ * full-year `/api/schedule?bypassCache=1` refresh, the season-transition cron,
+ * the historical schedule repair, and the PLATFORM-086E1B weekly caller.
  * It owns the complete lifecycle for one year — durable prior-state health check,
  * the year-scoped refresh lease, the provider-refresh attempt, credential
  * validation, the regular+postseason fetch, the complete-before-commit gate, the
@@ -18,14 +18,12 @@
  * provider on the lease-losing path. It records provider-refresh success ONLY after
  * a confirmed durable commit.
  *
- * This slice stays dormant: it adds no scheduled traffic and is invoked only by the
- * three already-authorized callers migrated onto it in E1A.
+ * It adds no schedule-provider traffic: callers reuse the same two full-year
+ * partition fetches, and only the weekly caller opts into the score backstop.
  */
 
 import { CacheEntry, SCHEDULE_ROUTE_CACHE } from '@/app/api/schedule/cache';
 
-import { fetchUpstreamJson } from '../api/fetchUpstream.ts';
-import { buildCfbdGamesUrl } from '../cfbd.ts';
 import { getLeagues } from '../leagueRegistry.ts';
 import { yearScope } from '../providerRefreshScope.ts';
 import { invalidateStandings } from '../selectors/leagueStandings.ts';
@@ -38,34 +36,24 @@ import {
   recordProviderRefreshSuccess,
   type ProviderRefreshAttempt,
 } from '../server/providerRefreshStatus.ts';
+import { type ScheduleItem, type SeasonType } from './cfbdSchedule.ts';
 import {
-  mapCfbdScheduleGame,
-  type CfbdScheduleGame,
-  type ScheduleItem,
-  type SeasonType,
-} from './cfbdSchedule.ts';
+  fetchFullSeasonSchedulePartition,
+  type FullSeasonSchedulePartitionFetchOutcome,
+} from './fullSeasonScheduleFetch.ts';
 import {
   fullSeasonScheduleRefreshResult,
   type FullSeasonScheduleRefreshResult,
 } from './fullSeasonScheduleRefreshResult.ts';
 import {
+  countChangedKickoffs,
+  EMPTY_FINAL_SCORE_SWEEP_RESULT,
+  sweepMissingFinalScores,
+} from './finalScoreSweep.ts';
+import {
   acquireScheduleRefreshLease,
   releaseScheduleRefreshLease,
 } from './scheduleRefreshLease.ts';
-
-/** Bounded provider retry — mirrors the `/api/schedule` route policy verbatim. */
-const CFBD_RETRY_POLICY = {
-  maxAttempts: 3,
-  baseDelayMs: 250,
-  maxDelayMs: 2_000,
-  jitterRatio: 0.2,
-  retryOnHttpStatuses: [408, 425, 429, 500, 502, 503, 504],
-} as const;
-/** Shared CFBD pacing key — serializes with every other CFBD caller. */
-const CFBD_PACING_POLICY = {
-  key: 'cfbd',
-  minIntervalMs: 150,
-} as const;
 
 /** A full-season refresh always covers BOTH partitions; both are required. */
 const FULL_SEASON_SEASON_TYPES: readonly SeasonType[] = ['regular', 'postseason'];
@@ -96,67 +84,21 @@ function normalizePriorEntry(value: unknown): CacheEntry | null {
   };
 }
 
-type PartitionFetchOutcome =
-  | { kind: 'rows'; seasonType: SeasonType; items: ScheduleItem[] }
-  | { kind: 'fetch-failed'; seasonType: SeasonType }
-  | { kind: 'invalid-payload'; seasonType: SeasonType }
-  | { kind: 'schema-drift'; seasonType: SeasonType };
-
-/**
- * Fetch and normalize ONE full-year partition, applying the shared
- * complete-before-commit classification: a thrown request is `fetch-failed`, a
- * non-array payload is `invalid-payload`, a nonempty payload normalizing to zero
- * usable rows is `schema-drift`, and an EXACT empty array is valid absence (`rows`
- * with `items: []`). Reuses the route's URL construction, retry, pacing, and
- * `mapCfbdScheduleGame` normalization verbatim.
- */
-async function fetchPartition(params: {
-  year: number;
-  seasonType: SeasonType;
-  apiKey: string;
-}): Promise<PartitionFetchOutcome> {
-  const { year, seasonType, apiKey } = params;
-  const url = buildCfbdGamesUrl({ year, seasonType, week: null });
-
-  let upstream: CfbdScheduleGame[];
-  try {
-    upstream = await fetchUpstreamJson<CfbdScheduleGame[]>(url.toString(), {
-      cache: 'no-store',
-      timeoutMs: 12_000,
-      headers: { Authorization: `Bearer ${apiKey}` },
-      retry: CFBD_RETRY_POLICY,
-      pacing: CFBD_PACING_POLICY,
-    });
-  } catch {
-    return { kind: 'fetch-failed', seasonType };
-  }
-
-  // A non-array payload is uncertainty (schema drift / shape change), NOT valid
-  // absence — reject so prior-good is never overwritten with an unusable payload.
-  if (!Array.isArray(upstream)) {
-    return { kind: 'invalid-payload', seasonType };
-  }
-
-  const items: ScheduleItem[] = [];
-  for (const game of upstream) {
-    const mapped = mapCfbdScheduleGame(game, seasonType);
-    if (mapped.ok) items.push(mapped.item);
-  }
-
-  // A NONEMPTY provider payload that normalizes to ZERO rows is schema drift
-  // (field renames / shape change), not valid absence.
-  if (upstream.length > 0 && items.length === 0) {
-    return { kind: 'schema-drift', seasonType };
-  }
-
-  // `items: []` from an exact empty upstream array is legitimate absence for this
-  // partition (postseason before bowls, a future season not yet published).
-  return { kind: 'rows', seasonType, items };
-}
-
 type CommitOutcome =
-  | { kind: 'written-clean'; entry: CacheEntry; committedAt: string; commitSeq: number }
-  | { kind: 'unchanged-clean'; entry: CacheEntry; committedAt: string; commitSeq: number }
+  | {
+      kind: 'written-clean';
+      entry: CacheEntry;
+      committedAt: string;
+      commitSeq: number;
+      kickoffsChanged: number;
+    }
+  | {
+      kind: 'unchanged-clean';
+      entry: CacheEntry;
+      committedAt: string;
+      commitSeq: number;
+      kickoffsChanged: number;
+    }
   | { kind: 'empty-response' }
   | { kind: 'empty-replacement-rejected' }
   | { kind: 'stale-observation'; entry: CacheEntry | null }
@@ -185,8 +127,8 @@ async function commitFullSeasonSchedule(params: {
   const key = scheduleKey(year);
 
   let outcome:
-    | { kind: 'written-clean'; entry: CacheEntry }
-    | { kind: 'unchanged-clean'; entry: CacheEntry }
+    | { kind: 'written-clean'; entry: CacheEntry; kickoffsChanged: number }
+    | { kind: 'unchanged-clean'; entry: CacheEntry; kickoffsChanged: number }
     | { kind: 'empty-response' }
     | { kind: 'empty-replacement-rejected' }
     | { kind: 'stale-observation'; entry: CacheEntry | null };
@@ -223,11 +165,15 @@ async function commitFullSeasonSchedule(params: {
         if (prior && JSON.stringify(prior.items) === JSON.stringify(items)) {
           const metadataOnly: CacheEntry = { ...nextEntry, items: prior.items };
           await txn.write(metadataOnly);
-          return { kind: 'unchanged-clean', entry: metadataOnly };
+          return { kind: 'unchanged-clean', entry: metadataOnly, kickoffsChanged: 0 };
         }
 
         await txn.write(nextEntry);
-        return { kind: 'written-clean', entry: nextEntry };
+        return {
+          kind: 'written-clean',
+          entry: nextEntry,
+          kickoffsChanged: prior ? countChangedKickoffs(prior.items, items) : 0,
+        };
       }
     );
   } catch {
@@ -285,6 +231,8 @@ async function invalidateStandingsForYear(year: number): Promise<void> {
 export async function refreshFullSeasonSchedule(params: {
   year: number;
   now?: number;
+  /** Weekly automatic maintenance only; other shared-authority callers stay schedule-only. */
+  sweepFinalScores?: boolean;
 }): Promise<FullSeasonScheduleRefreshResult> {
   const { year } = params;
   const now = params.now ?? Date.now();
@@ -357,7 +305,9 @@ export async function refreshFullSeasonSchedule(params: {
     // pacing key still serializes the two requests) and apply the completeness gate.
     providerCallAttempted = true;
     const outcomes = await Promise.all(
-      FULL_SEASON_SEASON_TYPES.map((seasonType) => fetchPartition({ year, seasonType, apiKey }))
+      FULL_SEASON_SEASON_TYPES.map((seasonType) =>
+        fetchFullSeasonSchedulePartition({ year, seasonType, apiKey })
+      )
     );
     // Usable rows received across the FULFILLED partitions — counted before the
     // completeness gate so a partition failure still reports the true received
@@ -369,7 +319,8 @@ export async function refreshFullSeasonSchedule(params: {
       0
     );
     const uncertainOutcomes = outcomes.filter(
-      (o): o is Exclude<PartitionFetchOutcome, { kind: 'rows' }> => o.kind !== 'rows'
+      (o): o is Exclude<FullSeasonSchedulePartitionFetchOutcome, { kind: 'rows' }> =>
+        o.kind !== 'rows'
     );
     if (uncertainOutcomes.length > 0) {
       // Reason is taken from the FIRST uncertain partition (regular before
@@ -406,8 +357,21 @@ export async function refreshFullSeasonSchedule(params: {
     }
 
     const items = sortScheduleItems(outcomes.flatMap((o) => (o.kind === 'rows' ? o.items : [])));
+    const scoreCandidates = outcomes.flatMap((o) => (o.kind === 'rows' ? o.scoreCandidates : []));
 
     const commit = await commitFullSeasonSchedule({ year, observedAtMs, items });
+
+    // PLATFORM-107: this is deliberately opt-in from the weekly cron. The shared
+    // authority also serves historical repair and season transition; enabling a
+    // score sweep there would widen this bounded backstop into arbitrary history.
+    // Run only after a confirmed schedule commit. A score-store failure is kept
+    // separate from schedule provider status: the durable schedule success stays
+    // truthful, while the weekly event/receipt reports the failed partitions.
+    const scoreSweep =
+      params.sweepFinalScores &&
+      (commit.kind === 'written-clean' || commit.kind === 'unchanged-clean')
+        ? await sweepMissingFinalScores({ year, candidates: scoreCandidates, observedAtMs })
+        : EMPTY_FINAL_SCORE_SWEEP_RESULT;
 
     switch (commit.kind) {
       case 'stale-observation': {
@@ -482,7 +446,9 @@ export async function refreshFullSeasonSchedule(params: {
       }
       case 'unchanged-clean': {
         // Post-commit order: durable commit → process-cache publication (done in
-        // commit) → NO standings invalidation (content unchanged) → status.
+        // commit) → score gap-fill → standings invalidation only when a score was
+        // repaired → status. An unchanged schedule alone still invalidates nothing.
+        if (scoreSweep.repaired > 0) await invalidateStandingsForYear(year);
         await recordProviderRefreshSuccess('schedule', scope, {
           attempt,
           committedAt: commit.committedAt,
@@ -500,6 +466,12 @@ export async function refreshFullSeasonSchedule(params: {
           providerCallAttempted,
           rowsCommitted: 0,
           dataChanged: false,
+          scoreRepairs: scoreSweep.repaired,
+          scoreDifferenceCount: scoreSweep.differenceCount,
+          scoreDifferences: scoreSweep.differences,
+          scoreDifferencesTruncated: scoreSweep.differencesTruncated,
+          scoreSweepFailedPartitions: scoreSweep.failedPartitions,
+          kickoffsChanged: commit.kickoffsChanged,
           observedAt,
           committedAt: commit.committedAt,
           items: commit.entry.items,
@@ -508,7 +480,8 @@ export async function refreshFullSeasonSchedule(params: {
       }
       case 'written-clean': {
         // Post-commit order: durable commit → process-cache publication (done in
-        // commit) → standings invalidation (content changed) → status.
+        // commit) → score gap-fill → standings invalidation (content changed) →
+        // status. Schedule + score changes share the existing single year bust.
         await invalidateStandingsForYear(year);
         await recordProviderRefreshSuccess('schedule', scope, {
           attempt,
@@ -527,6 +500,12 @@ export async function refreshFullSeasonSchedule(params: {
           providerCallAttempted,
           rowsCommitted: commit.entry.items.length,
           dataChanged: true,
+          scoreRepairs: scoreSweep.repaired,
+          scoreDifferenceCount: scoreSweep.differenceCount,
+          scoreDifferences: scoreSweep.differences,
+          scoreDifferencesTruncated: scoreSweep.differencesTruncated,
+          scoreSweepFailedPartitions: scoreSweep.failedPartitions,
+          kickoffsChanged: commit.kickoffsChanged,
           observedAt,
           committedAt: commit.committedAt,
           items: commit.entry.items,

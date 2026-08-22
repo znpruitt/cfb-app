@@ -120,6 +120,26 @@ function yearEntryFromRefresh(
     rowsReceived: refresh.rowsReceived,
     rowsCommitted: refresh.rowsCommitted,
     dataChanged: refresh.dataChanged,
+    scoreRepairs: refresh.scoreRepairs,
+    scoreDifferenceCount: refresh.scoreDifferenceCount,
+    scoreDifferences: refresh.scoreDifferences,
+    scoreDifferencesTruncated: refresh.scoreDifferencesTruncated,
+    scoreSweepFailedPartitions: refresh.scoreSweepFailedPartitions,
+    kickoffsChanged: refresh.kickoffsChanged,
+  };
+}
+
+/** Preserve the scheduler's established HTTP body; sweep metrics are log/receipt-only. */
+function responseYearEntry(entry: ScheduleRefreshCronYearExecution) {
+  return {
+    year: entry.year,
+    operation: entry.operation,
+    result: entry.result,
+    reason: entry.reason,
+    providerCallAttempted: entry.providerCallAttempted,
+    rowsReceived: entry.rowsReceived,
+    rowsCommitted: entry.rowsCommitted,
+    dataChanged: entry.dataChanged,
   };
 }
 
@@ -419,6 +439,12 @@ export async function GET(req: Request): Promise<Response> {
           rowsReceived: 0,
           rowsCommitted: 0,
           dataChanged: false,
+          scoreRepairs: 0,
+          scoreDifferenceCount: 0,
+          scoreDifferences: [],
+          scoreDifferencesTruncated: false,
+          scoreSweepFailedPartitions: [],
+          kickoffsChanged: 0,
         });
         continue;
       }
@@ -435,6 +461,12 @@ export async function GET(req: Request): Promise<Response> {
           rowsReceived: 0,
           rowsCommitted: 0,
           dataChanged: false,
+          scoreRepairs: 0,
+          scoreDifferenceCount: 0,
+          scoreDifferences: [],
+          scoreDifferencesTruncated: false,
+          scoreSweepFailedPartitions: [],
+          kickoffsChanged: 0,
         });
         continue;
       }
@@ -449,6 +481,12 @@ export async function GET(req: Request): Promise<Response> {
           rowsReceived: 0,
           rowsCommitted: 0,
           dataChanged: false,
+          scoreRepairs: 0,
+          scoreDifferenceCount: 0,
+          scoreDifferences: [],
+          scoreDifferencesTruncated: false,
+          scoreSweepFailedPartitions: [],
+          kickoffsChanged: 0,
         });
         continue;
       }
@@ -462,10 +500,19 @@ export async function GET(req: Request): Promise<Response> {
           rowsReceived: 0,
           rowsCommitted: 0,
           dataChanged: false,
+          scoreRepairs: 0,
+          scoreDifferenceCount: 0,
+          scoreDifferences: [],
+          scoreDifferencesTruncated: false,
+          scoreSweepFailedPartitions: [],
+          kickoffsChanged: 0,
         });
         continue;
       }
-      const refresh = await refreshFullSeasonSchedule({ year: candidate.year });
+      const refresh = await refreshFullSeasonSchedule({
+        year: candidate.year,
+        sweepFinalScores: true,
+      });
       entries.push(yearEntryFromRefresh(candidate.year, operation, refresh));
 
       // E1B1 cycle-1 remediation (finding 1): a successful preseason-maintenance
@@ -544,7 +591,7 @@ export async function GET(req: Request): Promise<Response> {
     return NextResponse.json({
       result: exec.result,
       reason: exec.reason,
-      years: exec.years,
+      years: exec.years.map(responseYearEntry),
       invalidLifecycleTargets: exec.invalidLifecycleTargets,
     });
   } finally {
