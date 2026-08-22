@@ -311,13 +311,15 @@ export function createSchedulerInvocationId(): string | null {
 
 /** The bounded `schedule-years` summary from the route's per-year entries. */
 export function scheduleYearsTarget(
+  // REQUIRED metrics: omitting any one would let a new caller silently erase
+  // the weekly backstop's receipt evidence with an implicit zero.
   entries: ReadonlyArray<{
     year: number;
     operation: WeeklyScheduleRefreshOperation | null;
-    scoreRepairs?: number;
-    scoreDifferenceCount?: number;
-    scoreSweepFailedPartitions?: ReadonlyArray<unknown>;
-    kickoffsChanged?: number;
+    scoreRepairs: number;
+    scoreDifferenceCount: number;
+    scoreSweepFailedPartitions: ReadonlyArray<unknown>;
+    kickoffsChanged: number;
   }>,
   // REQUIRED: a defaulted parameter would let a caller that reconstructs this
   // target silently record zero refusals with no compiler signal.
@@ -331,16 +333,13 @@ export function scheduleYearsTarget(
     totalYears: entries.length,
     truncated: entries.length > years.length,
     invalidLifecycleTargets,
-    scoreRepairs: entries.reduce((total, entry) => total + (entry.scoreRepairs ?? 0), 0),
-    scoreDifferences: entries.reduce(
-      (total, entry) => total + (entry.scoreDifferenceCount ?? 0),
-      0
-    ),
+    scoreRepairs: entries.reduce((total, entry) => total + entry.scoreRepairs, 0),
+    scoreDifferences: entries.reduce((total, entry) => total + entry.scoreDifferenceCount, 0),
     scoreSweepFailures: entries.reduce(
-      (total, entry) => total + (entry.scoreSweepFailedPartitions?.length ?? 0),
+      (total, entry) => total + entry.scoreSweepFailedPartitions.length,
       0
     ),
-    kickoffsChanged: entries.reduce((total, entry) => total + (entry.kickoffsChanged ?? 0), 0),
+    kickoffsChanged: entries.reduce((total, entry) => total + entry.kickoffsChanged, 0),
     years,
   };
 }

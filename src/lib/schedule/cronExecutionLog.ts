@@ -70,16 +70,17 @@ export type ScheduleRefreshCronYearExecution = {
     | 'automation-paused-or-disabled'
     | 'season-transition-owner'
     | 'canonical-context-unavailable'
-    | 'settings-unavailable';
+    | 'settings-unavailable'
+    | 'score-sweep-failed';
   providerCallAttempted: boolean;
   rowsReceived: number;
   rowsCommitted: number;
   dataChanged: boolean;
   scoreRepairs: number;
   scoreDifferenceCount: number;
-  scoreDifferences: FinalScoreDifferenceIdentity[];
+  scoreDifferences: ReadonlyArray<FinalScoreDifferenceIdentity>;
   scoreDifferencesTruncated: boolean;
-  scoreSweepFailedPartitions: Array<{ week: number; seasonType: SeasonType }>;
+  scoreSweepFailedPartitions: ReadonlyArray<{ week: number; seasonType: SeasonType }>;
   kickoffsChanged: number;
 };
 

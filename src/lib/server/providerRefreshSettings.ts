@@ -16,8 +16,9 @@
  *
  * Defaults preserve current behavior: nothing paused, every dataset's automatic
  * refresh "enabled". The game-stats, live-scores, Odds, and weekly-schedule
- * (ordinary maintenance only) jobs consume their settings via
- * `isAutoRefreshAllowed`; rankings/conferences persist an intent no job reads yet.
+ * (ordinary schedule maintenance plus its independently gated Scores backstop)
+ * jobs consume these settings; rankings/conferences persist an intent no job
+ * reads yet.
  */
 
 import { getAppState, setAppState } from './appStateStore.ts';
@@ -131,6 +132,14 @@ export async function setDatasetAutoRefreshEnabled(
  */
 export async function isAutoRefreshAllowed(dataset: ProviderDataset): Promise<boolean> {
   const settings = await getProviderRefreshSettings();
+  return isAutoRefreshAllowedBySettings(settings, dataset);
+}
+
+/** Evaluate one dataset against an already-loaded settings snapshot. */
+export function isAutoRefreshAllowedBySettings(
+  settings: ProviderRefreshSettings,
+  dataset: ProviderDataset
+): boolean {
   if (settings.globalPause) return false;
   return settings.datasets[dataset]?.enabled !== false;
 }

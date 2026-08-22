@@ -15,13 +15,14 @@ import {
   setAppState,
 } from '../../server/appStateStore.ts';
 import { getProviderRefreshStatus } from '../../server/providerRefreshStatus.ts';
-import { yearScope } from '../../providerRefreshScope.ts';
+import { weekPartitionScope, yearScope } from '../../providerRefreshScope.ts';
 import {
   SCHEDULE_ROUTE_CACHE,
   resetScheduleRouteCacheForTests,
 } from '../../../app/api/schedule/cache.ts';
 import type { CacheEntry } from '../../../app/api/schedule/cache.ts';
 import type { CacheEntry as ScoreCacheEntry } from '../../scores/cache.ts';
+import { EMPTY_FINAL_SCORE_SWEEP_RESULT } from '../finalScoreSweep.ts';
 
 const YEAR = 2031;
 const T0 = Date.parse('2031-08-01T12:00:00.000Z');
@@ -93,6 +94,12 @@ test.after(() => {
   if (ORIGINAL_CFBD_API_KEY === undefined) delete MUTABLE_ENV.CFBD_API_KEY;
   else MUTABLE_ENV.CFBD_API_KEY = ORIGINAL_CFBD_API_KEY;
   globalThis.fetch = ORIGINAL_FETCH;
+});
+
+test('the shared empty sweep result and its arrays are immutable', () => {
+  assert.equal(Object.isFrozen(EMPTY_FINAL_SCORE_SWEEP_RESULT), true);
+  assert.equal(Object.isFrozen(EMPTY_FINAL_SCORE_SWEEP_RESULT.differences), true);
+  assert.equal(Object.isFrozen(EMPTY_FINAL_SCORE_SWEEP_RESULT.failedPartitions), true);
 });
 
 // 1 — regular + postseason success commits one complete aggregate.
@@ -439,6 +446,13 @@ test('the weekly final-score sweep fills a missing final and invalidates standin
   assert.equal(result.scoreRepairs, 1);
   assert.deepEqual(result.scoreSweepFailedPartitions, []);
 
+  const scoreStatus = await getProviderRefreshStatus(
+    'scores',
+    weekPartitionScope(YEAR, 3, 'regular')
+  );
+  assert.equal(scoreStatus.latestAttemptOutcome, 'succeeded');
+  assert.equal(scoreStatus.rowsCommitted, 1);
+
   const scores = await getAppState<ScoreCacheEntry>('scores', `${YEAR}-3-regular`);
   assert.equal(scores?.value.items.length, 1);
   assert.deepEqual(scores?.value.items[0], {
@@ -583,4 +597,121 @@ test('a changed kickoff is counted by game identity without persisting score fie
   });
   assert.equal(result.kickoffsChanged, 1);
   assert.equal(result.scoreRepairs, 0);
+});
+
+test('a malformed prior kickoff cannot abort or roll back the schedule commit', async () => {
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: T0 - 60_000,
+    items: [
+      {
+        id: '401',
+        week: 6,
+        // Deliberately missing startDate: durable JSON is untrusted even though
+        // the TypeScript producer contract requires this field.
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  stubFetchBySeasonType(game(6, 'Texas', 'Rice', '2031-10-04T00:00:00Z', 401), JSON.stringify([]));
+
+  const result = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
+  assert.equal(result.status, 'success');
+  assert.equal(result.reason, 'written-clean');
+  assert.equal(result.kickoffsChanged, 0, 'malformed prior data proves no measurable change');
+  const stored = await getAppState<CacheEntry>('schedule', `${YEAR}-all-all`);
+  assert.equal(stored?.value.items[0]?.startDate, '2031-10-04T00:00:00Z');
+});
+
+test('an ID-less legacy final blocks a canonical duplicate and reports its score difference', async () => {
+  await setAppState('scores', `${YEAR}-all-regular`, {
+    at: T0 - 60_000,
+    items: [
+      {
+        seasonType: 'regular',
+        startDate: '2031-08-30T00:00:00Z',
+        week: 1,
+        status: 'final',
+        home: { team: 'Texas', score: 24 },
+        away: { team: 'Rice', score: 17 },
+        time: '2031-08-30T00:00:00Z',
+      },
+    ],
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+  } satisfies ScoreCacheEntry);
+  stubFetchBySeasonType(
+    JSON.stringify([
+      {
+        id: 501,
+        week: 1,
+        home_team: 'Texas',
+        away_team: 'Rice',
+        start_date: '2031-08-30T00:00:00Z',
+        home_points: 99,
+        away_points: 0,
+        completed: true,
+      },
+    ]),
+    JSON.stringify([])
+  );
+
+  const result = await refreshFullSeasonSchedule({
+    year: YEAR,
+    now: T0,
+    sweepFinalScores: true,
+  });
+  assert.equal(result.scoreRepairs, 0);
+  assert.equal(result.scoreDifferenceCount, 1);
+  assert.equal(
+    await getAppState('scores', `${YEAR}-1-regular`),
+    null,
+    'the canonical ID-less final prevents a new child row'
+  );
+});
+
+test('duplicate provider ids reject and report the affected score partition', async () => {
+  stubFetchBySeasonType(
+    JSON.stringify([
+      {
+        id: 601,
+        week: 7,
+        home_team: 'Texas',
+        away_team: 'Rice',
+        start_date: '2031-10-11T00:00:00Z',
+        home_points: 31,
+        away_points: 14,
+        completed: true,
+      },
+      {
+        id: 601,
+        week: 7,
+        home_team: 'Ohio State',
+        away_team: 'Michigan',
+        start_date: '2031-10-11T16:00:00Z',
+        home_points: 28,
+        away_points: 27,
+        completed: true,
+      },
+    ]),
+    JSON.stringify([])
+  );
+
+  const result = await refreshFullSeasonSchedule({
+    year: YEAR,
+    now: T0,
+    sweepFinalScores: true,
+  });
+  assert.deepEqual(result.scoreSweepFailedPartitions, [{ week: 7, seasonType: 'regular' }]);
+  assert.equal(await getAppState('scores', `${YEAR}-7-regular`), null);
+  const scoreStatus = await getProviderRefreshStatus(
+    'scores',
+    weekPartitionScope(YEAR, 7, 'regular')
+  );
+  assert.equal(scoreStatus.latestAttemptOutcome, 'failed');
+  assert.equal(scoreStatus.lastError?.code, 'score-sweep-duplicate-provider-id');
 });

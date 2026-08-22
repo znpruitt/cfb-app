@@ -379,3 +379,36 @@ test('a gap-fill update cannot replace a final that reached the child after its 
   assert.equal(entry!.items[0]!.home.score, 24);
   assert.equal(entry!.items[0]!.away.score, 17);
 });
+
+test('a gap-fill update cannot replace a final that reached the aggregate after its cache scan', async () => {
+  await setAppState('scores', '2025-all-regular', {
+    at: 4000,
+    items: [pack('a', 'final', 24, 17)],
+    source: 'cfbd',
+    cfbdFallbackReason: 'none',
+  });
+
+  const result = await mergeScoresIntoPartition({
+    year: 2025,
+    week: 3,
+    seasonType: 'regular',
+    updates: [
+      {
+        pack: pack('a', 'final', 99, 0),
+        provisionalFinal: false,
+        // The sweeper snapshot predates a manual season-wide repair; only the
+        // transaction-fresh aggregate read can observe this intervening final.
+        baseline: pack('a', 'Q4 1:00', 21, 17),
+        baselineAt: 3000,
+      },
+    ],
+    onlyIfMissingUsableFinal: true,
+    now: 5000,
+  });
+
+  assert.deepEqual(result, { wrote: false, committed: 0 });
+  assert.equal(await read(3), null, 'no child row can restate the aggregate final');
+  const aggregate = await getAppState<CacheEntry>('scores', '2025-all-regular');
+  assert.equal(aggregate?.value.items[0]?.home.score, 24);
+  assert.equal(aggregate?.value.items[0]?.away.score, 17);
+});

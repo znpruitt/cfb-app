@@ -55,7 +55,19 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
     case 'odds':
       return { kind: 'odds', year: 2026, cadence: null, eligibleGames: 0 };
     case 'schedule-refresh':
-      return scheduleYearsTarget([{ year: 2026, operation: null }], 0);
+      return scheduleYearsTarget(
+        [
+          {
+            year: 2026,
+            operation: null,
+            scoreRepairs: 0,
+            scoreDifferenceCount: 0,
+            scoreSweepFailedPartitions: [],
+            kickoffsChanged: 0,
+          },
+        ],
+        0
+      );
     case 'rankings':
       return rankingsYearsTarget([{ year: 2026, publicationWindow: null }], 0);
     case 'season-transition':

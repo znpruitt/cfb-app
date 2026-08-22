@@ -33,6 +33,7 @@ export type FullSeasonSchedulePartitionFetchOutcome =
       seasonType: SeasonType;
       items: ScheduleItem[];
       scoreCandidates: FinalScoreSweepCandidate[];
+      duplicateScorePartitions: Array<{ week: number; seasonType: SeasonType }>;
     }
   | { kind: 'fetch-failed'; seasonType: SeasonType }
   | { kind: 'invalid-payload'; seasonType: SeasonType }
@@ -80,10 +81,12 @@ export async function fetchFullSeasonSchedulePartition(params: {
     return { kind: 'schema-drift', seasonType };
   }
 
+  const scoreExtraction = finalScoreCandidatesFromSchedulePayload(upstream, seasonType);
   return {
     kind: 'rows',
     seasonType,
     items,
-    scoreCandidates: finalScoreCandidatesFromSchedulePayload(upstream, seasonType),
+    scoreCandidates: scoreExtraction.candidates,
+    duplicateScorePartitions: scoreExtraction.duplicatePartitions,
   };
 }

@@ -176,9 +176,10 @@ export async function mergeScoresIntoPartition(params: {
   confirmFinalIds?: string[];
   /**
    * Backstop writers may fill a missing final but must never restate or correct
-   * one that arrived in the exact child after the caller's cache-wide prefilter.
-   * The guard runs transaction-fresh, before {@link mergeScoreRow}, because a
-   * newer equal-state observation would otherwise be allowed to replace that final.
+   * one that arrived in the exact child OR season aggregate after the caller's
+   * cache-wide prefilter. Both keys are locked/read transaction-fresh before
+   * {@link mergeScoreRow}, because a newer equal-state observation would otherwise
+   * be allowed to replace that final.
    */
   onlyIfMissingUsableFinal?: boolean;
   now: number;
@@ -196,6 +197,20 @@ export async function mergeScoresIntoPartition(params: {
 
   return withAppStateKeyTransaction<PartitionMergeResult>('scores', key, async (txn) => {
     const prior = (await txn.read<CacheEntry>())?.value ?? null;
+    const aggregateFinalById = new Map<string, ScorePack>();
+    if (onlyIfMissingUsableFinal) {
+      // The aggregate key sorts after every numeric child key, so this is a
+      // forward lock acquisition under the transaction's global ordering rule.
+      // A concurrent season-wide repair must finish before this read, closing
+      // the aggregate-only half of the sweeper snapshot→commit race.
+      const aggregateKey = `${year}-all-${seasonType}`;
+      await txn.lockKey('scores', aggregateKey);
+      const aggregate = (await txn.readKey<CacheEntry>('scores', aggregateKey))?.value ?? null;
+      for (const item of aggregate?.items ?? []) {
+        const id = item.id?.trim();
+        if (id && isUsableFinal(item)) aggregateFinalById.set(id, item);
+      }
+    }
 
     // Seed the merged set from prior rows (untouched). Rows without a provider id
     // are preserved verbatim (a live-written row always has one).
@@ -223,14 +238,14 @@ export async function mergeScoresIntoPartition(params: {
       if (childEffective !== undefined && now < childEffective) continue;
       // PLATFORM-107 race guard. The sweeper's cache-wide planning pass excludes
       // every final that already existed in its snapshot; this transaction-fresh
-      // check closes the narrower race where a live final reaches the CHILD key
-      // after that snapshot. A baseline that was already final is intentionally
-      // not hidden here: handing one to this writer is a caller-filter defect,
-      // and the mutation proof must expose it rather than let duplicate defenses
-      // make the required pre-merge filter untestable.
+      // check closes the race where a live or manual final reaches the CHILD or
+      // AGGREGATE key after that snapshot. A baseline that was already final is
+      // intentionally not hidden here: handing one to this writer is a caller-
+      // filter defect, and the mutation proof must expose it rather than let
+      // duplicate defenses make the required pre-merge filter untestable.
       if (
         onlyIfMissingUsableFinal &&
-        isUsableFinal(childPrior) &&
+        (isUsableFinal(childPrior) || isUsableFinal(aggregateFinalById.get(id))) &&
         !isUsableFinal(update.baseline ?? undefined)
       ) {
         continue;

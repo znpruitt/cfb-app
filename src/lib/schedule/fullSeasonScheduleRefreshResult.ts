@@ -78,11 +78,11 @@ export type FullSeasonScheduleRefreshResult = {
   /** Existing immutable finals whose scores differed from this CFBD observation. */
   scoreDifferenceCount: number;
   /** Bounded game/partition identities for the differing finals. */
-  scoreDifferences: FinalScoreDifferenceIdentity[];
+  scoreDifferences: ReadonlyArray<FinalScoreDifferenceIdentity>;
   /** Whether `scoreDifferences` was bounded below `scoreDifferenceCount`. */
   scoreDifferencesTruncated: boolean;
   /** Score partitions whose gap-fill merge failed after the schedule commit. */
-  scoreSweepFailedPartitions: Array<{ week: number; seasonType: SeasonType }>;
+  scoreSweepFailedPartitions: ReadonlyArray<{ week: number; seasonType: SeasonType }>;
   /** Games present in both schedule observations whose kickoff instant changed. */
   kickoffsChanged: number;
   /**
@@ -164,9 +164,9 @@ export function fullSeasonScheduleRefreshResult(params: {
   dataChanged?: boolean;
   scoreRepairs?: number;
   scoreDifferenceCount?: number;
-  scoreDifferences?: FinalScoreDifferenceIdentity[];
+  scoreDifferences?: ReadonlyArray<FinalScoreDifferenceIdentity>;
   scoreDifferencesTruncated?: boolean;
-  scoreSweepFailedPartitions?: Array<{ week: number; seasonType: SeasonType }>;
+  scoreSweepFailedPartitions?: ReadonlyArray<{ week: number; seasonType: SeasonType }>;
   kickoffsChanged?: number;
   providerCallAttempted?: boolean;
   observedAt?: string | null;

@@ -460,6 +460,54 @@ test('score repairs, immutable-score differences, and kickoff changes reach the 
   assert.equal(repaired?.value.items[0]?.home.score, 28, 'the unrelated gap is filled');
 });
 
+test('duplicate final provider ids surface as a failed sweep in the event and receipt', async () => {
+  const year = 2020;
+  await seedSeasonLeague(year);
+  await seedSchedule(year, CRITICAL_KICKOFF);
+  stubProvider({
+    [year]: JSON.stringify([
+      {
+        id: year * 10 + 7,
+        week: 7,
+        home_team: 'Texas',
+        away_team: 'Rice',
+        start_date: '2020-10-10T16:00:00.000Z',
+        home_points: 31,
+        away_points: 14,
+        completed: true,
+      },
+      {
+        id: year * 10 + 7,
+        week: 7,
+        home_team: 'Ohio State',
+        away_team: 'Michigan',
+        start_date: '2020-10-10T20:00:00.000Z',
+        home_points: 28,
+        away_points: 27,
+        completed: true,
+      },
+    ]),
+  });
+
+  const { res, event } = await runRoute();
+  assert.equal(res.status, 200);
+  assert.equal(event.result, 'failure');
+  assert.equal(event.years[0]?.result, 'failure');
+  assert.equal(event.years[0]?.reason, 'score-sweep-failed');
+  assert.deepEqual(event.years[0]?.scoreSweepFailedPartitions, [
+    { week: 7, seasonType: 'regular' },
+  ]);
+
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('schedule-refresh');
+  assert.ok(receipt);
+  assert.equal(receipt.value.result, 'failure');
+  assert.equal(receipt.value.target.kind, 'schedule-years');
+  if (receipt.value.target.kind !== 'schedule-years') return;
+  assert.equal(receipt.value.target.scoreSweepFailures, 1);
+  assert.equal(await getAppState('scores', `${year}-7-regular`), null);
+});
+
 // PLATFORM-086F2H1T3 — REGRESSION TEST for the demo exclusion. A demo-only
 // truthful zero-target, provider-free receipt under the NEW reason. Verified
 // failing with the exclusion removed: the run classified 2031 as a target and

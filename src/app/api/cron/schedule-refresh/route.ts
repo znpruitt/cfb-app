@@ -3,7 +3,10 @@ import { NextResponse } from 'next/server';
 import { readLeagueRegistry } from '@/lib/leagueRegistry';
 import { isStructurallyValidSeasonYear, TEST_LEAGUE_SLUG } from '@/lib/league';
 import { getAppState, setAppState } from '@/lib/server/appStateStore';
-import { isAutoRefreshAllowed } from '@/lib/server/providerRefreshSettings';
+import {
+  getProviderRefreshSettings,
+  isAutoRefreshAllowedBySettings,
+} from '@/lib/server/providerRefreshSettings';
 import { refreshFullSeasonSchedule } from '@/lib/schedule/fullSeasonScheduleRefresh';
 import { refreshSchedulePresentation } from '@/lib/schedule/schedulePresentationRefresh';
 import {
@@ -58,10 +61,11 @@ export const dynamic = 'force-dynamic';
  * postseason-boundary, and preseason: cache-armed early preseason
  * (`preseason-maintenance`, ordinary) vs deferral to the daily season-transition
  * cron (`season-transition-owner`: probe unarmed, or inside the final seven days
- * before the first kickoff — PLATFORM-086E1B1) — applies the operator settings
- * ONLY to the ordinary operations (postseason-boundary maintenance is
- * lifecycle-critical and exempt, like the season-transition/rollover crons), and
- * delegates each allowed year to the E1A full-season authority
+ * before the first kickoff — PLATFORM-086E1B1). It applies the operator settings
+ * only to ordinary SCHEDULE operations (postseason-boundary schedule maintenance
+ * is lifecycle-critical and exempt, like the season-transition/rollover crons),
+ * while the derived final-score backstop independently honors the Scores gate.
+ * Each allowed year delegates to the E1A full-season authority
  * (`refreshFullSeasonSchedule`) exactly once, sequentially in ascending year
  * order. The authority owns the lease, fetch, completeness gate, observation-
  * ordered commit, standings invalidation, and provider-refresh status — this
@@ -105,8 +109,10 @@ function yearEntryFromRefresh(
   operation: WeeklyScheduleRefreshOperation,
   refresh: FullSeasonScheduleRefreshResult
 ): ScheduleRefreshCronYearExecution {
-  const result: ScheduleRefreshCronYearExecution['result'] =
-    refresh.status === 'success'
+  const scoreSweepFailed = refresh.scoreSweepFailedPartitions.length > 0;
+  const result: ScheduleRefreshCronYearExecution['result'] = scoreSweepFailed
+    ? 'failure'
+    : refresh.status === 'success'
       ? 'success'
       : refresh.status === 'no-op' || refresh.status === 'in-progress'
         ? 'no-op'
@@ -115,7 +121,7 @@ function yearEntryFromRefresh(
     year,
     operation,
     result,
-    reason: refresh.reason,
+    reason: scoreSweepFailed ? 'score-sweep-failed' : refresh.reason,
     providerCallAttempted: refresh.providerCallAttempted,
     rowsReceived: refresh.rowsReceived,
     rowsCommitted: refresh.rowsCommitted,
@@ -399,22 +405,28 @@ export async function GET(req: Request): Promise<Response> {
       candidates.push({ year, owner, classification });
     }
 
-    // Settings — read ONCE, and only when at least one ORDINARY year exists
-    // (active-season ordinary OR cache-armed early-preseason maintenance — both
-    // noncritical). Postseason-boundary years never consult the gate
-    // (lifecycle-critical); transition-owned preseason years never consult
-    // settings OR E1A; a settings-store failure blocks ONLY ordinary years
-    // (`settings-unavailable`).
+    // Settings — read ONCE when at least one year will execute. The SCHEDULE
+    // gate still applies only to ordinary work; lifecycle-critical schedule
+    // maintenance remains exempt. The derived SCORE sweep is always noncritical,
+    // so it independently honors global pause + the Scores toggle even when the
+    // containing schedule operation is critical. A settings-store failure blocks
+    // ordinary schedule work and merely disables the score sweep on critical work.
     const hasOrdinary = candidates.some(
       (c) =>
         c.classification.kind === 'operation' && isOrdinaryOperation(c.classification.operation)
     );
+    const hasExecutableOperation = candidates.some((c) => c.classification.kind === 'operation');
     let ordinaryGate: 'open' | 'closed' | 'unavailable' = 'open';
-    if (hasOrdinary) {
+    let scoreSweepAllowed = false;
+    if (hasExecutableOperation) {
       try {
-        ordinaryGate = (await isAutoRefreshAllowed('schedule')) ? 'open' : 'closed';
+        const settings = await getProviderRefreshSettings();
+        if (hasOrdinary) {
+          ordinaryGate = isAutoRefreshAllowedBySettings(settings, 'schedule') ? 'open' : 'closed';
+        }
+        scoreSweepAllowed = isAutoRefreshAllowedBySettings(settings, 'scores');
       } catch {
-        ordinaryGate = 'unavailable';
+        if (hasOrdinary) ordinaryGate = 'unavailable';
       }
     }
 
@@ -511,7 +523,7 @@ export async function GET(req: Request): Promise<Response> {
       }
       const refresh = await refreshFullSeasonSchedule({
         year: candidate.year,
-        sweepFinalScores: true,
+        sweepFinalScores: scoreSweepAllowed,
       });
       entries.push(yearEntryFromRefresh(candidate.year, operation, refresh));
 

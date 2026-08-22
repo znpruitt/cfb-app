@@ -127,8 +127,8 @@ async function commitFullSeasonSchedule(params: {
   const key = scheduleKey(year);
 
   let outcome:
-    | { kind: 'written-clean'; entry: CacheEntry; kickoffsChanged: number }
-    | { kind: 'unchanged-clean'; entry: CacheEntry; kickoffsChanged: number }
+    | { kind: 'written-clean'; entry: CacheEntry; priorItems: readonly unknown[] }
+    | { kind: 'unchanged-clean'; entry: CacheEntry }
     | { kind: 'empty-response' }
     | { kind: 'empty-replacement-rejected' }
     | { kind: 'stale-observation'; entry: CacheEntry | null };
@@ -165,20 +165,21 @@ async function commitFullSeasonSchedule(params: {
         if (prior && JSON.stringify(prior.items) === JSON.stringify(items)) {
           const metadataOnly: CacheEntry = { ...nextEntry, items: prior.items };
           await txn.write(metadataOnly);
-          return { kind: 'unchanged-clean', entry: metadataOnly, kickoffsChanged: 0 };
+          return { kind: 'unchanged-clean', entry: metadataOnly };
         }
 
         await txn.write(nextEntry);
         return {
           kind: 'written-clean',
           entry: nextEntry,
-          kickoffsChanged: prior ? countChangedKickoffs(prior.items, items) : 0,
+          priorItems: prior?.items ?? [],
         };
       }
     );
   } catch {
-    // The callback's only fallible operations are the store read/write (the
-    // classification is pure), so ANY fault is a truthful durable-commit failure.
+    // Any callback/transaction fault rolls the staged write back, so this is a
+    // truthful durable-commit failure. Observability metrics run only after this
+    // confirmed transaction and can never enter this failure path.
     return { kind: 'store-unavailable' };
   }
 
@@ -206,7 +207,23 @@ async function commitFullSeasonSchedule(params: {
   const committedAt = new Date().toISOString();
   const commitSeq = nextProviderCommitSeq();
   SCHEDULE_ROUTE_CACHE[scheduleKey(year)] = outcome.entry;
-  return { ...outcome, committedAt, commitSeq };
+  let kickoffsChanged = 0;
+  if (outcome.kind === 'written-clean') {
+    try {
+      kickoffsChanged = countChangedKickoffs(outcome.priorItems, items);
+    } catch {
+      // Measurement is explicitly non-authoritative. A future counter defect
+      // must never turn a confirmed durable schedule commit into a failure.
+      kickoffsChanged = 0;
+    }
+  }
+  return {
+    kind: outcome.kind,
+    entry: outcome.entry,
+    committedAt,
+    commitSeq,
+    kickoffsChanged,
+  };
 }
 
 /** Invalidate canonical standings for every league at `year` (non-fatal). */
@@ -358,6 +375,9 @@ export async function refreshFullSeasonSchedule(params: {
 
     const items = sortScheduleItems(outcomes.flatMap((o) => (o.kind === 'rows' ? o.items : [])));
     const scoreCandidates = outcomes.flatMap((o) => (o.kind === 'rows' ? o.scoreCandidates : []));
+    const duplicateScorePartitions = outcomes.flatMap((o) =>
+      o.kind === 'rows' ? o.duplicateScorePartitions : []
+    );
 
     const commit = await commitFullSeasonSchedule({ year, observedAtMs, items });
 
@@ -370,7 +390,12 @@ export async function refreshFullSeasonSchedule(params: {
     const scoreSweep =
       params.sweepFinalScores &&
       (commit.kind === 'written-clean' || commit.kind === 'unchanged-clean')
-        ? await sweepMissingFinalScores({ year, candidates: scoreCandidates, observedAtMs })
+        ? await sweepMissingFinalScores({
+            year,
+            candidates: scoreCandidates,
+            rejectedDuplicatePartitions: duplicateScorePartitions,
+            observedAtMs,
+          })
         : EMPTY_FINAL_SCORE_SWEEP_RESULT;
 
     switch (commit.kind) {
