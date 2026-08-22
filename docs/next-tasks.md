@@ -2081,13 +2081,31 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-ARCHIVE-COVERAGE-INTEGRITY-v1`
 
-69. **Owner decision — standings coverage banner copy.** `StandingsPanel` renders
-    `coverage.message`; the canonical standings path passes no options, so the incomplete state says
-    “some completed game scores are not available yet.” Under the normal weekend cadence, the first
-    time schedule-side `completed` can expose this state is after ordinary live-score recovery has
-    ended, so “yet” can promise a wait that will not self-heal. Decide whether member-facing copy
-    should name a data fault/repair state, while retaining a truthful transient variant for unusual
-    kickoff timing or manual operations. This is intentionally not part of PLATFORM-105A or item 66.
+69. **DECIDED, not yet implemented — standings coverage banner copy.** `StandingsPanel:266`
+    renders `coverage.message`. The canonical path (`leagueStandings.ts:927`) passes no options, so
+    only the third variant can render: “Standings may be incomplete — some completed game scores are
+    not available yet.” The other two (“still loading”, “could not be loaded”) are reachable only from
+    the legacy client-derived path and are effectively dead copy.
+
+    **Why the current sentence is wrong.** `sweepMissingFinalScores` runs immediately after the
+    schedule commit IN THE SAME INVOCATION (`fullSeasonScheduleRefresh.ts:398`), so the run that
+    learns a game is `completed` also fills its score from the same CFBD payload. If a member ever
+    sees this banner it means we have positive evidence the game finished, we have no score, AND the
+    automatic repair already ran without fixing it. “Yet” promises a wait that ended days earlier;
+    “may be” hedges a fact we hold positive evidence for.
+
+    **OWNER DECISION (2026-08-22).** Split by audience:
+
+    - **Standings page (member):** a simple claim — **“Waiting on complete results”**. No count, no
+      cause, no hedge. A member cannot act on the cause, and the dominant remaining case (a failed
+      partition write) genuinely does retry on the next weekly run, so “waiting” is truthful.
+    - **System Health (operator):** the actionable detail belongs here, not in front of members —
+      which game, which partition, and that the sweep attempted repair and failed. That is item 67's
+      work; do not duplicate it on the member surface.
+
+    Remaining implementation questions, small: whether the `error` coverage state keeps a distinct
+    string or collapses into the same claim, and whether the two dead variants are removed or wired
+    up. Neither changes the member-facing decision above.
 
     - **Backlog slug (provisional):** `POLISH-STANDINGS-COVERAGE-COPY-v1`
 
