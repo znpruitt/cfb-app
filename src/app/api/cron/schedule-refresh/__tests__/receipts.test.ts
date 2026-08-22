@@ -265,6 +265,7 @@ async function seedPriorReceipt() {
       scoreRepairs: 0,
       scoreDifferences: 0,
       scoreSweepFailures: 0,
+      scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
       years: [{ year: 2031, operation: 'ordinary-maintenance' }],
     },
@@ -314,6 +315,7 @@ test('a no-maintenance-target run writes a healthy provider-free skip receipt', 
     scoreRepairs: 0,
     scoreDifferences: 0,
     scoreSweepFailures: 0,
+    scoreSweepCannotTellCount: 0,
     kickoffsChanged: 0,
     years: [],
   });
@@ -419,6 +421,7 @@ test('score repairs, immutable-score differences, and kickoff changes reach the 
     { providerGameId: String(year * 10 + 1), week: 1, seasonType: 'regular' },
   ]);
   assert.equal(event.years[0]?.scoreDifferencesTruncated, false);
+  assert.equal(event.years[0]?.scoreSweepCannotTellCount, 0);
   assert.equal(event.years[0]?.kickoffsChanged, 1);
   assert.deepEqual(event.years[0]?.scoreSweepFailedPartitions, []);
 
@@ -446,6 +449,7 @@ test('score repairs, immutable-score differences, and kickoff changes reach the 
   assert.equal(receipt.value.target.scoreRepairs, 1);
   assert.equal(receipt.value.target.scoreDifferences, 1);
   assert.equal(receipt.value.target.scoreSweepFailures, 0);
+  assert.equal(receipt.value.target.scoreSweepCannotTellCount, 0);
   assert.equal(receipt.value.target.kickoffsChanged, 1);
 
   const preserved = await getAppState<{ items: Array<{ home: { score: number | null } }> }>(
@@ -460,7 +464,7 @@ test('score repairs, immutable-score differences, and kickoff changes reach the 
   assert.equal(repaired?.value.items[0]?.home.score, 28, 'the unrelated gap is filled');
 });
 
-test('duplicate final provider ids surface as a failed sweep in the event and receipt', async () => {
+test('ambiguous provider finals surface failed partitions and cannot-tell counts', async () => {
   const year = 2020;
   await seedSeasonLeague(year);
   await seedSchedule(year, CRITICAL_KICKOFF);
@@ -486,6 +490,15 @@ test('duplicate final provider ids surface as a failed sweep in the event and re
         away_points: 27,
         completed: true,
       },
+      {
+        week: 8,
+        home_team: 'Georgia',
+        away_team: 'Clemson',
+        start_date: '2020-10-17T20:00:00.000Z',
+        home_points: 24,
+        away_points: 21,
+        completed: true,
+      },
     ]),
   });
 
@@ -496,7 +509,9 @@ test('duplicate final provider ids surface as a failed sweep in the event and re
   assert.equal(event.years[0]?.reason, 'score-sweep-failed');
   assert.deepEqual(event.years[0]?.scoreSweepFailedPartitions, [
     { week: 7, seasonType: 'regular' },
+    { week: 8, seasonType: 'regular' },
   ]);
+  assert.equal(event.years[0]?.scoreSweepCannotTellCount, 1);
 
   await deferrer.flush();
   const receipt = await readSchedulerReceipt('schedule-refresh');
@@ -504,8 +519,10 @@ test('duplicate final provider ids surface as a failed sweep in the event and re
   assert.equal(receipt.value.result, 'failure');
   assert.equal(receipt.value.target.kind, 'schedule-years');
   if (receipt.value.target.kind !== 'schedule-years') return;
-  assert.equal(receipt.value.target.scoreSweepFailures, 1);
+  assert.equal(receipt.value.target.scoreSweepFailures, 2);
+  assert.equal(receipt.value.target.scoreSweepCannotTellCount, 1);
   assert.equal(await getAppState('scores', `${year}-7-regular`), null);
+  assert.equal(await getAppState('scores', `${year}-8-regular`), null);
 });
 
 // PLATFORM-086F2H1T3 — REGRESSION TEST for the demo exclusion. A demo-only
@@ -547,6 +564,7 @@ test('a demo-only active registry writes a zero-target provider-free receipt', a
     scoreRepairs: 0,
     scoreDifferences: 0,
     scoreSweepFailures: 0,
+    scoreSweepCannotTellCount: 0,
     kickoffsChanged: 0,
     years: [],
   });
@@ -787,6 +805,7 @@ test('PLATFORM-107: an invalid present sweep counter rejects the stored receipt'
       scoreRepairs: -1,
       scoreDifferences: 0,
       scoreSweepFailures: 0,
+      scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
       years: [{ year: 2020, operation: 'ordinary-maintenance' }],
     },
@@ -813,6 +832,7 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       scoreRepairs: 0,
       scoreDifferences: 0,
       scoreSweepFailures: 0,
+      scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
       years: [{ year: 2020, operation: 'ordinary-maintenance' }],
     }),
@@ -829,6 +849,7 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       scoreRepairs: 0,
       scoreDifferences: 0,
       scoreSweepFailures: 0,
+      scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
       years: [{ year: 2020, operation: 'ordinary-maintenance' }],
     }),
@@ -847,6 +868,7 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       scoreRepairs: 0,
       scoreDifferences: 0,
       scoreSweepFailures: 0,
+      scoreSweepCannotTellCount: 0,
       kickoffsChanged: 0,
       years: [],
     }),
@@ -862,6 +884,7 @@ test('R2: the System Health schedule summary renders the refusal count', async (
       scoreRepairs: 2,
       scoreDifferences: 1,
       scoreSweepFailures: 1,
+      scoreSweepCannotTellCount: 1,
       kickoffsChanged: 3,
       years: [{ year: 2020, operation: 'ordinary-maintenance' }],
     }),

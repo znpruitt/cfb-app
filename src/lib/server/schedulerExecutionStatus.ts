@@ -167,6 +167,7 @@ export type SchedulerExecutionTarget =
       scoreDifferences: number;
       /** Score partitions whose backstop merge failed after schedule commit. */
       scoreSweepFailures: number;
+      scoreSweepCannotTellCount: number;
       /** Kickoff instants changed across the schedule observations in this run. */
       kickoffsChanged: number;
       /**
@@ -319,6 +320,7 @@ export function scheduleYearsTarget(
     scoreRepairs: number;
     scoreDifferenceCount: number;
     scoreSweepFailedPartitions: ReadonlyArray<unknown>;
+    scoreSweepCannotTellCount: number;
     kickoffsChanged: number;
   }>,
   // REQUIRED: a defaulted parameter would let a caller that reconstructs this
@@ -337,6 +339,10 @@ export function scheduleYearsTarget(
     scoreDifferences: entries.reduce((total, entry) => total + entry.scoreDifferenceCount, 0),
     scoreSweepFailures: entries.reduce(
       (total, entry) => total + entry.scoreSweepFailedPartitions.length,
+      0
+    ),
+    scoreSweepCannotTellCount: entries.reduce(
+      (total, entry) => total + entry.scoreSweepCannotTellCount,
       0
     ),
     kickoffsChanged: entries.reduce((total, entry) => total + entry.kickoffsChanged, 0),
@@ -652,6 +658,7 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         scoreRepairs: target.scoreRepairs ?? 0,
         scoreDifferences: target.scoreDifferences ?? 0,
         scoreSweepFailures: target.scoreSweepFailures ?? 0,
+        scoreSweepCannotTellCount: target.scoreSweepCannotTellCount ?? 0,
         kickoffsChanged: target.kickoffsChanged ?? 0,
         years: target.years
           .slice(0, MAX_SCHEDULER_TARGET_YEARS)
@@ -795,6 +802,8 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
         (target.scoreDifferences === undefined || isNonNegativeInteger(target.scoreDifferences)) &&
         (target.scoreSweepFailures === undefined ||
           isNonNegativeInteger(target.scoreSweepFailures)) &&
+        (target.scoreSweepCannotTellCount === undefined ||
+          isNonNegativeInteger(target.scoreSweepCannotTellCount)) &&
         (target.kickoffsChanged === undefined || isNonNegativeInteger(target.kickoffsChanged)) &&
         isValidYearEntries(target.years, 'operation', SCHEDULE_OPERATIONS)
       );

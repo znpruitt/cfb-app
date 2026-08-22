@@ -63,6 +63,7 @@ function targetFor(job: ExternalSchedulerJob): SchedulerExecutionTarget {
             scoreRepairs: 0,
             scoreDifferenceCount: 0,
             scoreSweepFailedPartitions: [],
+            scoreSweepCannotTellCount: 0,
             kickoffsChanged: 0,
           },
         ],

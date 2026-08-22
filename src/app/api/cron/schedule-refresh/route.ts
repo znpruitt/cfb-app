@@ -131,6 +131,7 @@ function yearEntryFromRefresh(
     scoreDifferences: refresh.scoreDifferences,
     scoreDifferencesTruncated: refresh.scoreDifferencesTruncated,
     scoreSweepFailedPartitions: refresh.scoreSweepFailedPartitions,
+    scoreSweepCannotTellCount: refresh.scoreSweepCannotTellCount,
     kickoffsChanged: refresh.kickoffsChanged,
   };
 }
@@ -456,6 +457,7 @@ export async function GET(req: Request): Promise<Response> {
           scoreDifferences: [],
           scoreDifferencesTruncated: false,
           scoreSweepFailedPartitions: [],
+          scoreSweepCannotTellCount: 0,
           kickoffsChanged: 0,
         });
         continue;
@@ -478,6 +480,7 @@ export async function GET(req: Request): Promise<Response> {
           scoreDifferences: [],
           scoreDifferencesTruncated: false,
           scoreSweepFailedPartitions: [],
+          scoreSweepCannotTellCount: 0,
           kickoffsChanged: 0,
         });
         continue;
@@ -498,6 +501,7 @@ export async function GET(req: Request): Promise<Response> {
           scoreDifferences: [],
           scoreDifferencesTruncated: false,
           scoreSweepFailedPartitions: [],
+          scoreSweepCannotTellCount: 0,
           kickoffsChanged: 0,
         });
         continue;
@@ -517,6 +521,7 @@ export async function GET(req: Request): Promise<Response> {
           scoreDifferences: [],
           scoreDifferencesTruncated: false,
           scoreSweepFailedPartitions: [],
+          scoreSweepCannotTellCount: 0,
           kickoffsChanged: 0,
         });
         continue;

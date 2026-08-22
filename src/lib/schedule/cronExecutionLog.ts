@@ -81,6 +81,7 @@ export type ScheduleRefreshCronYearExecution = {
   scoreDifferences: ReadonlyArray<FinalScoreDifferenceIdentity>;
   scoreDifferencesTruncated: boolean;
   scoreSweepFailedPartitions: ReadonlyArray<{ week: number; seasonType: SeasonType }>;
+  scoreSweepCannotTellCount: number;
   kickoffsChanged: number;
 };
 
@@ -215,6 +216,7 @@ export function emitScheduleRefreshCronExecutionEvent(
           week: partition.week,
           seasonType: partition.seasonType,
         })),
+        scoreSweepCannotTellCount: entry.scoreSweepCannotTellCount,
         kickoffsChanged: entry.kickoffsChanged,
       })),
       invalidLifecycleTargets: state.invalidLifecycleTargets,

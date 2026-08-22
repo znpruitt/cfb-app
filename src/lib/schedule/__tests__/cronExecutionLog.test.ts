@@ -31,6 +31,7 @@ function entry(
     scoreDifferences: [],
     scoreDifferencesTruncated: false,
     scoreSweepFailedPartitions: [],
+    scoreSweepCannotTellCount: 0,
     kickoffsChanged: 0,
     ...over,
   };

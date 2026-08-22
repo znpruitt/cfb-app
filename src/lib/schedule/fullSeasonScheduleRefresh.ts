@@ -378,6 +378,13 @@ export async function refreshFullSeasonSchedule(params: {
     const duplicateScorePartitions = outcomes.flatMap((o) =>
       o.kind === 'rows' ? o.duplicateScorePartitions : []
     );
+    const scoreCannotTellCount = outcomes.reduce(
+      (total, o) => total + (o.kind === 'rows' ? o.scoreCannotTellCount : 0),
+      0
+    );
+    const scoreCannotTellPartitions = outcomes.flatMap((o) =>
+      o.kind === 'rows' ? o.scoreCannotTellPartitions : []
+    );
 
     const commit = await commitFullSeasonSchedule({ year, observedAtMs, items });
 
@@ -394,6 +401,8 @@ export async function refreshFullSeasonSchedule(params: {
             year,
             candidates: scoreCandidates,
             rejectedDuplicatePartitions: duplicateScorePartitions,
+            rejectedCannotTellPartitions: scoreCannotTellPartitions,
+            providerCannotTellCount: scoreCannotTellCount,
             observedAtMs,
           })
         : EMPTY_FINAL_SCORE_SWEEP_RESULT;
@@ -496,6 +505,7 @@ export async function refreshFullSeasonSchedule(params: {
           scoreDifferences: scoreSweep.differences,
           scoreDifferencesTruncated: scoreSweep.differencesTruncated,
           scoreSweepFailedPartitions: scoreSweep.failedPartitions,
+          scoreSweepCannotTellCount: scoreSweep.cannotTellCount,
           kickoffsChanged: commit.kickoffsChanged,
           observedAt,
           committedAt: commit.committedAt,
@@ -530,6 +540,7 @@ export async function refreshFullSeasonSchedule(params: {
           scoreDifferences: scoreSweep.differences,
           scoreDifferencesTruncated: scoreSweep.differencesTruncated,
           scoreSweepFailedPartitions: scoreSweep.failedPartitions,
+          scoreSweepCannotTellCount: scoreSweep.cannotTellCount,
           kickoffsChanged: commit.kickoffsChanged,
           observedAt,
           committedAt: commit.committedAt,

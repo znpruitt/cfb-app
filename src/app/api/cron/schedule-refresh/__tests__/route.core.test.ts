@@ -430,6 +430,7 @@ test('exactly one structured event per invocation with only approved keys', asyn
         'scoreDifferences',
         'scoreDifferencesTruncated',
         'scoreRepairs',
+        'scoreSweepCannotTellCount',
         'scoreSweepFailedPartitions',
         'year',
       ],

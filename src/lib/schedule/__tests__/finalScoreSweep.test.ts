@@ -16,7 +16,11 @@ import {
 } from '@/lib/server/appStateStore';
 import { createTeamIdentityResolver } from '@/lib/teamIdentity';
 
-import { finalScoreCandidateFromScheduleRow, sweepMissingFinalScores } from '../finalScoreSweep.ts';
+import {
+  finalScoreCandidateFromScheduleRow,
+  finalScoreCandidatesFromSchedulePayload,
+  sweepMissingFinalScores,
+} from '../finalScoreSweep.ts';
 
 const YEAR = 2031;
 const NOW = Date.parse('2031-10-01T12:00:00.000Z');
@@ -94,6 +98,9 @@ test('the wire seam accepts only provider-id finals with both scores', () => {
     null,
     'a fabricated schedule fallback id is not a provider score identity'
   );
+  const idless = finalScoreCandidatesFromSchedulePayload([base], 'regular');
+  assert.equal(idless.cannotTellCount, 1);
+  assert.deepEqual(idless.cannotTellPartitions, [{ week: 7, seasonType: 'regular' }]);
   assert.equal(
     finalScoreCandidateFromScheduleRow({ ...base, id: 401, away_points: null }, 'regular'),
     null,

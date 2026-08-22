@@ -34,6 +34,8 @@ export type FullSeasonSchedulePartitionFetchOutcome =
       items: ScheduleItem[];
       scoreCandidates: FinalScoreSweepCandidate[];
       duplicateScorePartitions: Array<{ week: number; seasonType: SeasonType }>;
+      scoreCannotTellCount: number;
+      scoreCannotTellPartitions: Array<{ week: number; seasonType: SeasonType }>;
     }
   | { kind: 'fetch-failed'; seasonType: SeasonType }
   | { kind: 'invalid-payload'; seasonType: SeasonType }
@@ -88,5 +90,7 @@ export async function fetchFullSeasonSchedulePartition(params: {
     items,
     scoreCandidates: scoreExtraction.candidates,
     duplicateScorePartitions: scoreExtraction.duplicatePartitions,
+    scoreCannotTellCount: scoreExtraction.cannotTellCount,
+    scoreCannotTellPartitions: scoreExtraction.cannotTellPartitions,
   };
 }

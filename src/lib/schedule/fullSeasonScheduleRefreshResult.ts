@@ -83,6 +83,7 @@ export type FullSeasonScheduleRefreshResult = {
   scoreDifferencesTruncated: boolean;
   /** Score partitions whose gap-fill merge failed after the schedule commit. */
   scoreSweepFailedPartitions: ReadonlyArray<{ week: number; seasonType: SeasonType }>;
+  scoreSweepCannotTellCount: number;
   /** Games present in both schedule observations whose kickoff instant changed. */
   kickoffsChanged: number;
   /**
@@ -167,6 +168,7 @@ export function fullSeasonScheduleRefreshResult(params: {
   scoreDifferences?: ReadonlyArray<FinalScoreDifferenceIdentity>;
   scoreDifferencesTruncated?: boolean;
   scoreSweepFailedPartitions?: ReadonlyArray<{ week: number; seasonType: SeasonType }>;
+  scoreSweepCannotTellCount?: number;
   kickoffsChanged?: number;
   providerCallAttempted?: boolean;
   observedAt?: string | null;
@@ -190,6 +192,7 @@ export function fullSeasonScheduleRefreshResult(params: {
     scoreDifferences: params.scoreDifferences ?? [],
     scoreDifferencesTruncated: params.scoreDifferencesTruncated ?? false,
     scoreSweepFailedPartitions: params.scoreSweepFailedPartitions ?? [],
+    scoreSweepCannotTellCount: params.scoreSweepCannotTellCount ?? 0,
     kickoffsChanged: params.kickoffsChanged ?? 0,
     providerCallAttempted: params.providerCallAttempted ?? false,
     observedAt: params.observedAt ?? null,

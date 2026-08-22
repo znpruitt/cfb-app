@@ -14,7 +14,11 @@ import {
   getAppState,
   setAppState,
 } from '../../server/appStateStore.ts';
-import { getProviderRefreshStatus } from '../../server/providerRefreshStatus.ts';
+import {
+  beginProviderRefreshAttempt,
+  getProviderRefreshStatus,
+  recordProviderRefreshFailure,
+} from '../../server/providerRefreshStatus.ts';
 import { weekPartitionScope, yearScope } from '../../providerRefreshScope.ts';
 import {
   SCHEDULE_ROUTE_CACHE,
@@ -525,6 +529,16 @@ test('the sweep fills another gap but preserves and reports a differing historic
     source: 'cfbd',
     cfbdFallbackReason: 'none',
   } satisfies ScoreCacheEntry);
+  const staleFailure = await beginProviderRefreshAttempt(
+    'scores',
+    weekPartitionScope(YEAR, 1, 'regular'),
+    { startedAt: new Date(T0 - 120_000).toISOString() }
+  );
+  await recordProviderRefreshFailure('scores', weekPartitionScope(YEAR, 1, 'regular'), {
+    attempt: staleFailure,
+    error: 'prior score refresh failed',
+    code: 'prior-failure',
+  });
   stubFetchBySeasonType(
     JSON.stringify([
       {
@@ -565,6 +579,12 @@ test('the sweep fills another gap but preserves and reports a differing historic
   assert.deepEqual(result.scoreDifferences, [
     { providerGameId: '201', week: 1, seasonType: 'regular' },
   ]);
+  const coveredStatus = await getProviderRefreshStatus(
+    'scores',
+    weekPartitionScope(YEAR, 1, 'regular')
+  );
+  assert.equal(coveredStatus.latestAttemptOutcome, 'no-op');
+  assert.equal(coveredStatus.lastError, null, 'a confirmed covered partition clears prior failure');
 
   const repaired = await getAppState<ScoreCacheEntry>('scores', `${YEAR}-2-regular`);
   assert.equal(repaired?.value.items[0]?.home.score, 28);
@@ -627,13 +647,14 @@ test('a malformed prior kickoff cannot abort or roll back the schedule commit', 
   assert.equal(stored?.value.items[0]?.startDate, '2031-10-04T00:00:00Z');
 });
 
-test('an ID-less legacy final blocks a canonical duplicate and reports its score difference', async () => {
+// Mutation-sensitive cannot-tell guard: allowing this row to fall through to
+// not-covered writes a second final under provider id 501.
+test('an ID-less cached final refuses the write and reports cannot-tell coverage', async () => {
   await setAppState('scores', `${YEAR}-all-regular`, {
     at: T0 - 60_000,
     items: [
       {
         seasonType: 'regular',
-        startDate: '2031-08-30T00:00:00Z',
         week: 1,
         status: 'final',
         home: { team: 'Texas', score: 24 },
@@ -666,12 +687,17 @@ test('an ID-less legacy final blocks a canonical duplicate and reports its score
     sweepFinalScores: true,
   });
   assert.equal(result.scoreRepairs, 0);
-  assert.equal(result.scoreDifferenceCount, 1);
+  assert.equal(result.scoreDifferenceCount, 0);
+  assert.equal(result.scoreSweepCannotTellCount, 1);
+  assert.deepEqual(result.scoreSweepFailedPartitions, [{ week: 1, seasonType: 'regular' }]);
   assert.equal(
     await getAppState('scores', `${YEAR}-1-regular`),
     null,
-    'the canonical ID-less final prevents a new child row'
+    'uncertain coverage never creates a duplicate final'
   );
+  const status = await getProviderRefreshStatus('scores', weekPartitionScope(YEAR, 1, 'regular'));
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'score-sweep-missing-provider-id');
 });
 
 test('duplicate provider ids reject and report the affected score partition', async () => {
