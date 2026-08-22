@@ -1,7 +1,7 @@
 # When a week is played, and when a season is over
 
 Status: Current
-Last verified: 2026-08-19
+Last verified: 2026-08-21
 Owner: Standings / lifecycle
 Canonical for: the predicate that decides a week has been played, and the predicate that decides a
 season has ended
@@ -66,14 +66,23 @@ terminal outcome. Coverage is still a data-health signal, not a progress signal,
 are also reported through System Health (`scores-terminal-coverage-missing`/`-partial`).
 
 Under the normal automatic cadence, weekend games are eligible for live-score polling every three
-minutes through kickoff + 24 hours, while the weekly schedule refresh retains `completed` later
-without retaining the points carried by the same CFBD row. A game that never wrote its score inside
-the polling window can therefore become `completed` after automatic final reconciliation has
-stopped targeting it. For the normal weekend shape this is a fault signal, not the expected ordering
-of healthy writes; unusual kickoff timing or manual operations can still make it transient.
-`PLATFORM-105A` surfaces that pre-existing recovery gap; it does not create it. The System Health
-score check is currently slate-granular, so a single missing game in an otherwise covered slate is
-not yet isolated there.
+minutes through kickoff + 24 hours. `PLATFORM-107` adds a weekly backstop for a provider final that
+was never saved inside that window: the schedule-refresh cron extracts finals from the whole-season
+CFBD payload it already downloads, matches coverage by exact `seasonType:providerGameId`, and sends
+only missing finals through the existing score-merge authority. The pre-merge filter and the
+transaction-fresh guard both preserve an existing final; a conflicting provider score is measured
+and logged, never rewritten. A blank provider id on either side is `cannot-tell`, refuses the write,
+and is counted in the cron event and receipt. Other full-season schedule-refresh callers remain
+schedule-only unless they explicitly opt into the sweep.
+
+This is recovery for **"the final was never saved," not every identity gap**. A row with a unique
+provider id can still repair and attach when participant identity prevented live polling, because
+score attachment has an independent provider-id path. Without a provider id the sweep refuses to
+create a duplicate, and attachment can still report `ignored_score_row`; that case needs a separate
+identity repair. The weekly cadence means the backstop may take up to seven days. `PLATFORM-107`
+changes neither that cadence, the live polling window, nor the cumulative standings coverage gate.
+The System Health score check is still slate-granular, so a single missing game in an otherwise
+covered slate is not yet isolated there.
 
 ## The predicate
 
