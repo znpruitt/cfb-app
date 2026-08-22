@@ -2091,6 +2091,62 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `POLISH-STANDINGS-COVERAGE-COPY-v1`
 
+70. 🔴 **Test-suite timing cliff — stop paying production costs in tests, and cover the pacing
+    gate deliberately.** Queued 2026-08-21 after a THIRD file was killed by the 30-second per-file
+    limit during PLATFORM-107 verification.
+
+    **The limit is being enforced against STARTUP, not test work.** Measured on the maintenance
+    host (loaded, so treat as proportions):
+
+    | file | file total | its tests | fixed cost |
+    | --- | --- | --- | --- |
+    | `AllTimeStandingsTable.test.tsx` | 6,649 ms | **204 ms** (4 tests) | ~6,445 ms — 97% |
+    | `admin/leagues/__tests__/page.test.tsx` (pre-106B) | 24,036 ms | 9,900 ms | ~7,700 ms |
+    | `cron/schedule-refresh/__tests__/route.test.ts` (pre-106) | 29,437 ms | — | 563 ms headroom |
+
+    Layer-by-layer decomposition of a `.tsx` file's startup, best-of-three:
+
+    | layer | cumulative | added |
+    | --- | --- | --- |
+    | node + tsx, one trivial test | 727 ms | — |
+    | **+ JSDOM** | 3,168 ms | **+2,441 ms** |
+    | + react / react-dom / testing-library | 3,393 ms | +225 ms |
+    | + the component under test | 3,590 ms | +197 ms |
+
+    **JSDOM dominates, and the component under test contributes ~200 ms.** Nothing written in the
+    test file moves the number. This is why SPLITTING is the wrong general remedy: it multiplies the
+    per-file JSDOM build. It was justified for admin-leagues (real test work to divide) and would be
+    actively harmful on a file doing 204 ms of work.
+
+    **(a) THE LEVER — switch CFBD pacing OFF where `globalThis.fetch` is stubbed.**
+    `applyPacing` (`src/lib/api/fetchUpstream.ts:195`) waits `minIntervalMs: 150` per call,
+    serialized process-wide on key `cfbd`. Suites stub fetch, so it paces a provider that is not
+    there. Measured: setting `minIntervalMs: 0` took `route.test.ts` from **29,437 ms → 14,570 ms**
+    with all 60 tests passing — 14.9 s, half the file. Make it configurable and off under test; do
+    NOT merely shorten it (that keeps the coupling and makes a real rate limit a test-speed knob).
+
+    **(b) Cover the gate DELIBERATELY.** Nothing in `src/` asserts pacing today — verified, zero
+    references. The current arrangement is incidental coverage whose ONLY failure mode is a hang: a
+    broken tail promise would not report "pacing is broken", it would kill an unrelated file at the
+    30-second limit. That is indistinguishable from the flake it causes. Write one real test —
+    inject the clock, assert per-key spacing, serialization, and ordering. Runs in milliseconds and
+    fails with a message. **Net: better coverage of the limiter than exists today, and ~15 s back.**
+
+    **Do NOT keep splitting files as the remedy**, and note `domEnvironment.ts` must still be
+    imported before `react-dom` is evaluated — that ordering is load-bearing for correctness
+    (PLATFORM-086F2J), not incidental, so JSDOM cannot simply be deferred or made lazy.
+
+    Secondary options, if (a) is not enough: share one JSDOM per worker rather than per file — real,
+    but it fights the runner's per-file process isolation, which is what makes the pid-scoped app
+    state safe, so it is a project not a tweak. Or raise the per-file limit, which is blunt but
+    honest given ~2.4 s of unavoidable browser setup on a host that routinely runs at 3×
+    oversubscription. All three of the last failures were TIMING, not correctness.
+
+    **Judge `npm test` on its EXIT CODE.** A timeout-cancelled file reports `# fail 0` while exiting
+    1 (PLATFORM-106); `AllTimeStandingsTable` reported as _cancelled_, not failed.
+
+    - **Backlog slug (provisional):** `PLATFORM-TEST-PACING-AND-STARTUP-v1`
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.
