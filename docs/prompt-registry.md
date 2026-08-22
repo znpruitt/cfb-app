@@ -66,13 +66,18 @@ Rules:
   spacing and serialization, cross-key independence, and rejected-tail recovery in milliseconds; an
   ambient assertion proves the real shared runner activates the conjunction. No `minIntervalMs`
   value changed.
-- Review / verification: Implementation `5302ae9c`; one accepted review remediation `ade0f5d5`
-  added the ambient runner/guard proof and documented why the raw tail makes the requested rejection
-  catch observable. Both confirming reviews found no credible in-scope P0/P1/P2. Mutations were
-  discriminating: removing the production guard failed the fail-closed test; disabling the bypass
-  restored the 62-test route family to 17.08 s, inside the base range. Exact-head measurement on the
-  same host, best of three: the current schedule-refresh `route*.test.ts` family (the historical
-  monolith was split by PLATFORM-106) improved 15.79 s → 5.69 s (-10.10 s, 64.0%). Full-suite samples
+- Review / verification: Implementation `5302ae9c`; the first accepted review remediation
+  `ade0f5d5` added the ambient runner/guard proof and documented why the raw tail makes the requested
+  rejection catch observable. Final proof/documentation remediation `f67327f1` made the early
+  serialization assertion non-vacuous and restored the unresolved JSDOM/startup class to
+  `docs/next-tasks.md` item 71. Both final reviewers verified those requested corrections; one found
+  only this registry's pre-closeout SHA/remediation wording stale, corrected here. Mutations were
+  discriminating: removing the production guard failed the fail-closed test; replacing the same-key
+  tail with an already-resolved promise failed the intended early serialization assertion; disabling
+  the bypass restored the 62-test route family to 17.08 s, within the measured 15.79–17.83 s base
+  samples. Exact-head measurement on the same host, best of three: the current schedule-refresh
+  `route*.test.ts` family (the historical monolith was split by PLATFORM-106) improved
+  15.79 s → 5.69 s (-10.10 s, 64.0%). Full-suite samples
   were 282.73/262.19/281.30 s at base and 173.16/175.95/166.75 s after, while an independent run at
   the same implementation measured 252.9 s. Host load was not recorded, so those full-suite values
   are retained as observations, not a reproducible percentage claim. One successful
@@ -85,7 +90,7 @@ Rules:
   seconds; `docs/next-tasks.md` item 71 retains the unresolved startup/limit decision.
   `AllTimeStandingsTable.test.tsx` makes zero provider calls, so this change helps it only indirectly
   through lower suite contention, not its JSDOM startup.
-- Status: Implemented — pre-merge review complete. Exact implementation head `ade0f5d5`; merge
+- Status: Implemented — final confirming reviews complete. Reviewed proof head `f67327f1`; merge
   pending.
 
 ### PLATFORM-107-FINAL-SCORE-SWEEPER-v2
