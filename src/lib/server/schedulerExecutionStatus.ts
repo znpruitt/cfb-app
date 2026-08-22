@@ -161,6 +161,15 @@ export type SchedulerExecutionTarget =
       kind: 'schedule-years';
       totalYears: number;
       truncated: boolean;
+      /** Final-score gaps repaired by this weekly run across every target year. */
+      scoreRepairs: number;
+      /** Immutable cached finals that differed from the latest CFBD observation. */
+      scoreDifferences: number;
+      /** Score partitions whose backstop merge failed after schedule commit. */
+      scoreSweepFailures: number;
+      scoreSweepCannotTellCount: number;
+      /** Kickoff instants changed across the schedule observations in this run. */
+      kickoffsChanged: number;
       /**
        * PLATFORM-086F2H1R2 — active PRODUCTION leagues refused this run for a
        * structurally invalid `status.year`. Run-level: a refused candidate has
@@ -303,7 +312,17 @@ export function createSchedulerInvocationId(): string | null {
 
 /** The bounded `schedule-years` summary from the route's per-year entries. */
 export function scheduleYearsTarget(
-  entries: ReadonlyArray<{ year: number; operation: WeeklyScheduleRefreshOperation | null }>,
+  // REQUIRED metrics: omitting any one would let a new caller silently erase
+  // the weekly backstop's receipt evidence with an implicit zero.
+  entries: ReadonlyArray<{
+    year: number;
+    operation: WeeklyScheduleRefreshOperation | null;
+    scoreRepairs: number;
+    scoreDifferenceCount: number;
+    scoreSweepFailedPartitions: ReadonlyArray<unknown>;
+    scoreSweepCannotTellCount: number;
+    kickoffsChanged: number;
+  }>,
   // REQUIRED: a defaulted parameter would let a caller that reconstructs this
   // target silently record zero refusals with no compiler signal.
   invalidLifecycleTargets: number
@@ -316,6 +335,17 @@ export function scheduleYearsTarget(
     totalYears: entries.length,
     truncated: entries.length > years.length,
     invalidLifecycleTargets,
+    scoreRepairs: entries.reduce((total, entry) => total + entry.scoreRepairs, 0),
+    scoreDifferences: entries.reduce((total, entry) => total + entry.scoreDifferenceCount, 0),
+    scoreSweepFailures: entries.reduce(
+      (total, entry) => total + entry.scoreSweepFailedPartitions.length,
+      0
+    ),
+    scoreSweepCannotTellCount: entries.reduce(
+      (total, entry) => total + entry.scoreSweepCannotTellCount,
+      0
+    ),
+    kickoffsChanged: entries.reduce((total, entry) => total + entry.kickoffsChanged, 0),
     years,
   };
 }
@@ -623,6 +653,13 @@ function rebuildTarget(target: SchedulerExecutionTarget): SchedulerExecutionTarg
         // already-stored valid row keeps parsing instead of degrading the
         // System Health row to `invalid` until the next cron run rewrites it.
         invalidLifecycleTargets: target.invalidLifecycleTargets ?? 0,
+        // PLATFORM-107 legacy compatibility: pre-sweeper receipts omit these
+        // counters and normalize to explicit zero.
+        scoreRepairs: target.scoreRepairs ?? 0,
+        scoreDifferences: target.scoreDifferences ?? 0,
+        scoreSweepFailures: target.scoreSweepFailures ?? 0,
+        scoreSweepCannotTellCount: target.scoreSweepCannotTellCount ?? 0,
+        kickoffsChanged: target.kickoffsChanged ?? 0,
         years: target.years
           .slice(0, MAX_SCHEDULER_TARGET_YEARS)
           .map((entry) => ({ year: entry.year, operation: entry.operation })),
@@ -761,6 +798,13 @@ function isValidStoredTarget(value: unknown, job: ExternalSchedulerJob): boolean
         // PRESENT value still rejects the whole record.
         (target.invalidLifecycleTargets === undefined ||
           isNonNegativeInteger(target.invalidLifecycleTargets)) &&
+        (target.scoreRepairs === undefined || isNonNegativeInteger(target.scoreRepairs)) &&
+        (target.scoreDifferences === undefined || isNonNegativeInteger(target.scoreDifferences)) &&
+        (target.scoreSweepFailures === undefined ||
+          isNonNegativeInteger(target.scoreSweepFailures)) &&
+        (target.scoreSweepCannotTellCount === undefined ||
+          isNonNegativeInteger(target.scoreSweepCannotTellCount)) &&
+        (target.kickoffsChanged === undefined || isNonNegativeInteger(target.kickoffsChanged)) &&
         isValidYearEntries(target.years, 'operation', SCHEDULE_OPERATIONS)
       );
     case 'rankings-years':

@@ -224,7 +224,14 @@ export function summarizeReceiptTarget(target: SchedulerExecutionReceipt['target
         target.invalidLifecycleTargets > 0
           ? ` · ${target.invalidLifecycleTargets} unusable lifecycle target(s)`
           : '';
-      return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}${yearDetail}${unusable}`;
+      const sweep = [
+        target.scoreRepairs > 0 ? `${target.scoreRepairs} score repair(s)` : '',
+        target.scoreDifferences > 0 ? `${target.scoreDifferences} score difference(s)` : '',
+        target.scoreSweepFailures > 0 ? `${target.scoreSweepFailures} score sweep failure(s)` : '',
+        target.kickoffsChanged > 0 ? `${target.kickoffsChanged} kickoff change(s)` : '',
+      ].filter(Boolean);
+      const sweepDetail = sweep.length > 0 ? ` · ${sweep.join(' · ')}` : '';
+      return `${target.totalYears} year(s)${target.truncated ? ' (truncated)' : ''}${yearDetail}${unusable}${sweepDetail}`;
     }
     case 'rankings-years': {
       // PLATFORM-086F2H1R3 — refused CANDIDATES (leagues, not distinct years:

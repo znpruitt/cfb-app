@@ -28,6 +28,7 @@
 
 import type { CacheEntry } from '@/app/api/schedule/cache';
 import type { SeasonType } from '@/lib/schedule/cfbdSchedule';
+import type { FinalScoreDifferenceIdentity } from '@/lib/schedule/finalScoreSweep';
 
 export type FullSeasonScheduleRefreshStatus = 'success' | 'no-op' | 'failure' | 'in-progress';
 
@@ -72,6 +73,19 @@ export type FullSeasonScheduleRefreshResult = {
   rowsCommitted: number;
   /** Whether committed schedule CONTENT changed (drives standings invalidation). */
   dataChanged: boolean;
+  /** Final score gaps filled through the existing per-partition score merge. */
+  scoreRepairs: number;
+  /** Existing immutable finals whose scores differed from this CFBD observation. */
+  scoreDifferenceCount: number;
+  /** Bounded game/partition identities for the differing finals. */
+  scoreDifferences: ReadonlyArray<FinalScoreDifferenceIdentity>;
+  /** Whether `scoreDifferences` was bounded below `scoreDifferenceCount`. */
+  scoreDifferencesTruncated: boolean;
+  /** Score partitions whose gap-fill merge failed after the schedule commit. */
+  scoreSweepFailedPartitions: ReadonlyArray<{ week: number; seasonType: SeasonType }>;
+  scoreSweepCannotTellCount: number;
+  /** Games present in both schedule observations whose kickoff instant changed. */
+  kickoffsChanged: number;
   /**
    * Whether THIS refresh started the schedule provider-fetch stage
    * (PLATFORM-086E1B instrumentation). `false` for every pre-provider exit —
@@ -149,6 +163,13 @@ export function fullSeasonScheduleRefreshResult(params: {
   rowsReceived?: number;
   rowsCommitted?: number;
   dataChanged?: boolean;
+  scoreRepairs?: number;
+  scoreDifferenceCount?: number;
+  scoreDifferences?: ReadonlyArray<FinalScoreDifferenceIdentity>;
+  scoreDifferencesTruncated?: boolean;
+  scoreSweepFailedPartitions?: ReadonlyArray<{ week: number; seasonType: SeasonType }>;
+  scoreSweepCannotTellCount?: number;
+  kickoffsChanged?: number;
   providerCallAttempted?: boolean;
   observedAt?: string | null;
   committedAt?: string | null;
@@ -166,6 +187,13 @@ export function fullSeasonScheduleRefreshResult(params: {
     rowsReceived: params.rowsReceived ?? 0,
     rowsCommitted: params.rowsCommitted ?? 0,
     dataChanged: params.dataChanged ?? false,
+    scoreRepairs: params.scoreRepairs ?? 0,
+    scoreDifferenceCount: params.scoreDifferenceCount ?? 0,
+    scoreDifferences: params.scoreDifferences ?? [],
+    scoreDifferencesTruncated: params.scoreDifferencesTruncated ?? false,
+    scoreSweepFailedPartitions: params.scoreSweepFailedPartitions ?? [],
+    scoreSweepCannotTellCount: params.scoreSweepCannotTellCount ?? 0,
+    kickoffsChanged: params.kickoffsChanged ?? 0,
     providerCallAttempted: params.providerCallAttempted ?? false,
     observedAt: params.observedAt ?? null,
     committedAt: params.committedAt ?? null,

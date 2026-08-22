@@ -8,10 +8,12 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateReadFailureForTests,
+  __setAppStateWriteFailureForTests,
   getAppState,
   setAppState,
   setDatasetAutoRefreshEnabled,
   setGlobalPause,
+  getProviderRefreshStatus,
   acquireScheduleRefreshLease,
   MUTABLE_ENV,
   ORIGINAL_CONSOLE_LOG,
@@ -27,6 +29,22 @@ import {
   runRoute,
   type League,
 } from './_routeHarness.ts';
+import { weekPartitionScope } from '../../../../../lib/providerRefreshScope.ts';
+
+function finalGameBody(year: number, week = 1): string {
+  return JSON.stringify([
+    {
+      id: year * 10 + week,
+      week,
+      home_team: 'Texas',
+      away_team: 'Rice',
+      start_date: `${year}-09-01T00:00:00Z`,
+      home_points: 31,
+      away_points: 14,
+      completed: true,
+    },
+  ]);
+}
 
 // 1 — missing CRON_SECRET → 401, one failure event, no context/provider work.
 test('missing CRON_SECRET → 401, one failure event, no work', async () => {
@@ -162,13 +180,26 @@ test('ordinary maintenance with open gates delegates to E1A once and maps succes
   assert.equal(stored?.value?.items?.length, 1);
 });
 
+test('ordinary schedule maintenance honors the independent Scores automation toggle', async () => {
+  await seedSeasonLeague(2031);
+  await seedSchedule(2031, ORDINARY_KICKOFF);
+  await setDatasetAutoRefreshEnabled('scores', false);
+  stubProvider({ 2031: { regular: finalGameBody(2031), postseason: '[]' } });
+
+  const { res, events } = await runRoute();
+  const body = (await res.json()) as { result: string };
+  assert.equal(body.result, 'success', 'the schedule dataset remains enabled');
+  assert.equal(events[0]!.years[0]!.scoreRepairs, 0);
+  assert.equal(await getAppState('scores', '2031-1-regular'), null);
+});
+
 // 16/17 — critical maintenance bypasses the pause AND the toggle.
 test('postseason-boundary maintenance runs despite global pause and toggle off', async () => {
   await seedSeasonLeague(2020);
   await seedSchedule(2020, CRITICAL_KICKOFF);
   await setGlobalPause(true);
   await setDatasetAutoRefreshEnabled('schedule', false);
-  stubProvider({ 2020: { regular: gameBody(2020), postseason: '[]' } });
+  stubProvider({ 2020: { regular: finalGameBody(2020), postseason: '[]' } });
   const { res, events } = await runRoute();
   const body = (await res.json()) as { result: string };
   assert.equal(res.status, 200);
@@ -177,13 +208,19 @@ test('postseason-boundary maintenance runs despite global pause and toggle off',
   assert.equal(entry.operation, 'postseason-boundary');
   assert.equal(entry.result, 'success');
   assert.ok(fetchLog.length > 0, 'the critical year reached the provider');
+  assert.equal(
+    await getAppState('scores', '2020-1-regular'),
+    null,
+    'the noncritical score sweep still honors global pause'
+  );
 });
 
-// 18 — the critical path does not read settings (a settings-store outage is invisible).
-test('a critical-only invocation never consults the settings store', async () => {
+// 18 — a settings outage cannot block critical schedule work, but its score
+// backstop fails closed because Scores automation is noncritical.
+test('a critical-only invocation survives settings failure with its score sweep disabled', async () => {
   await seedSeasonLeague(2020);
   await seedSchedule(2020, CRITICAL_KICKOFF);
-  stubProvider({ 2020: { regular: gameBody(2020), postseason: '[]' } });
+  stubProvider({ 2020: { regular: finalGameBody(2020), postseason: '[]' } });
   __setAppStateReadFailureForTests(new Error('settings down'), 'provider-refresh-settings');
   const { res, events } = await runRoute();
   __setAppStateReadFailureForTests(null);
@@ -191,6 +228,7 @@ test('a critical-only invocation never consults the settings store', async () =>
   assert.equal(res.status, 200);
   assert.equal(body.result, 'success', 'no settings dependency on the critical path');
   assert.equal(events[0]!.years[0]!.result, 'success');
+  assert.equal(await getAppState('scores', '2020-1-regular'), null);
 });
 
 // 19 — a settings failure blocks ordinary work.
@@ -208,6 +246,35 @@ test('a settings-store failure blocks ordinary maintenance with settings-unavail
   assert.equal(entry.result, 'failure');
   assert.equal(entry.reason, 'settings-unavailable');
   assert.equal(fetchLog.length, 0, 'no provider work on a blocked ordinary year');
+});
+
+test('a score-sweep commit failure makes the cron year and provider status truthful', async () => {
+  await seedSeasonLeague(2031);
+  await seedSchedule(2031, ORDINARY_KICKOFF);
+  stubProvider({ 2031: { regular: finalGameBody(2031), postseason: '[]' } });
+  __setAppStateWriteFailureForTests(new Error('scores down'), 'scores');
+  let run: Awaited<ReturnType<typeof runRoute>>;
+  try {
+    run = await runRoute();
+  } finally {
+    __setAppStateWriteFailureForTests(null);
+  }
+  const { res, events } = run;
+
+  const body = (await res.json()) as {
+    result: string;
+    years: Array<{ result: string; reason: string }>;
+  };
+  assert.equal(body.result, 'failure');
+  assert.equal(body.years[0]?.result, 'failure');
+  assert.equal(body.years[0]?.reason, 'score-sweep-failed');
+  assert.equal(events[0]!.years[0]!.result, 'failure');
+  assert.deepEqual(events[0]!.years[0]!.scoreSweepFailedPartitions, [
+    { week: 1, seasonType: 'regular' },
+  ]);
+  const status = await getProviderRefreshStatus('scores', weekPartitionScope(2031, 1, 'regular'));
+  assert.equal(status.latestAttemptOutcome, 'failed');
+  assert.equal(status.lastError?.code, 'score-sweep-durable-commit-failed');
 });
 
 // 20 — a settings failure cannot block a critical year in a mixed invocation.
@@ -352,12 +419,19 @@ test('exactly one structured event per invocation with only approved keys', asyn
       Object.keys(year).sort(),
       [
         'dataChanged',
+        'kickoffsChanged',
         'operation',
         'providerCallAttempted',
         'reason',
         'result',
         'rowsCommitted',
         'rowsReceived',
+        'scoreDifferenceCount',
+        'scoreDifferences',
+        'scoreDifferencesTruncated',
+        'scoreRepairs',
+        'scoreSweepCannotTellCount',
+        'scoreSweepFailedPartitions',
         'year',
       ],
       'year-entry schema is the exact allowlist'

@@ -1,4 +1,6 @@
 import type { FullSeasonScheduleRefreshReason } from './fullSeasonScheduleRefreshResult.ts';
+import type { FinalScoreDifferenceIdentity } from './finalScoreSweep.ts';
+import type { SeasonType } from './cfbdSchedule.ts';
 import type { WeeklyScheduleRefreshOperation } from './weeklyRefreshOperation.ts';
 
 /**
@@ -68,11 +70,19 @@ export type ScheduleRefreshCronYearExecution = {
     | 'automation-paused-or-disabled'
     | 'season-transition-owner'
     | 'canonical-context-unavailable'
-    | 'settings-unavailable';
+    | 'settings-unavailable'
+    | 'score-sweep-failed';
   providerCallAttempted: boolean;
   rowsReceived: number;
   rowsCommitted: number;
   dataChanged: boolean;
+  scoreRepairs: number;
+  scoreDifferenceCount: number;
+  scoreDifferences: ReadonlyArray<FinalScoreDifferenceIdentity>;
+  scoreDifferencesTruncated: boolean;
+  scoreSweepFailedPartitions: ReadonlyArray<{ week: number; seasonType: SeasonType }>;
+  scoreSweepCannotTellCount: number;
+  kickoffsChanged: number;
 };
 
 /** The exact allowlisted shape serialized to a single Vercel log line. */
@@ -194,6 +204,20 @@ export function emitScheduleRefreshCronExecutionEvent(
         rowsReceived: entry.rowsReceived,
         rowsCommitted: entry.rowsCommitted,
         dataChanged: entry.dataChanged,
+        scoreRepairs: entry.scoreRepairs,
+        scoreDifferenceCount: entry.scoreDifferenceCount,
+        scoreDifferences: entry.scoreDifferences.map((difference) => ({
+          providerGameId: difference.providerGameId,
+          week: difference.week,
+          seasonType: difference.seasonType,
+        })),
+        scoreDifferencesTruncated: entry.scoreDifferencesTruncated,
+        scoreSweepFailedPartitions: entry.scoreSweepFailedPartitions.map((partition) => ({
+          week: partition.week,
+          seasonType: partition.seasonType,
+        })),
+        scoreSweepCannotTellCount: entry.scoreSweepCannotTellCount,
+        kickoffsChanged: entry.kickoffsChanged,
       })),
       invalidLifecycleTargets: state.invalidLifecycleTargets,
       durationMs,

@@ -50,6 +50,40 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-107-FINAL-SCORE-SWEEPER-v2
+
+- Purpose: Give a provider-final, score-required game that missed its ordinary live-polling window
+  automatic eventual recovery on the next weekly schedule refresh, while keeping recorded finals
+  immutable and measuring kickoff churn.
+- Scope: The whole-season schedule wire/normalization seam, an opt-in final-score sweep through the
+  existing `mergeScoresIntoPartition` authority, exact score-refresh status resolution, cron
+  event/receipt projections, and tests. No schedule-cadence, polling-window, standings-coverage, or
+  `scoreCacheReader.scoreIdentityKey` change; no faster live reconciliation or general identity fix.
+- Outcome: Weekly cron refreshes now group CFBD finals by provider week and season type, match cache
+  coverage by exact `seasonType:providerGameId`, and submit only missing usable finals. Existing
+  finals are never restated; different scores are logged with bounded identity. Blank ids and
+  duplicate ids fail closed and are counted, covered partitions resolve `no-op`, kickoff-change
+  measurement runs outside the durable transaction, and repair/difference/failure/cannot-tell/
+  kickoff counts reach the run event and receipt. The original team-identity fallback was deleted
+  after 8,519 production rows across three seasons showed zero idless score rows. Identity caveat:
+  unique provider-id rows repair and attach even when participant resolution blocked live polling;
+  idless rows are refused and can still fail attachment.
+- Review / verification: Initial implementation `aa25f351`, first remediation `e8aacce1`, and the
+  owner-authorized final reconstruction `f67c2435`. The reconstruction is net -1 line against its
+  immediate parent and removes the sweeper's team-identity machinery. A confirming Codex review on
+  the exact head found no credible in-scope P0/P1/P2. Claude review triage left three accepted
+  low-severity residues, recorded only in `docs/next-tasks.md`; the owner directed documentation
+  closeout rather than a third code round. All four required mutations independently fail their
+  tests: disabled sweep, removed pre-merge filter, removed difference reporting, and idless cached
+  final allowed to fall through. Exact implementation-head gates: focused 46/46 vs base 35/35
+  (+11); clean full
+  suite 4,204/4,204 vs base 4,185/4,185 (+19), exit 0; TypeScript, `lint:all`, and
+  `git diff --check` exit 0. An earlier full run correctly counted as failed despite `# fail 0`
+  because one file timed out/cancelled and the process exited 1; that file then passed 4/4 alone and
+  the clean full rerun exited 0.
+- Status: Implemented at `f67c2435` — PR #505 open (2026-08-21); not merged or shipped. This is the
+  owner-directed pre-merge closeout after the final authorized remediation round.
+
 ### PLATFORM-106-SCHEDULE-REFRESH-TEST-SPLIT-v1
 
 - Purpose: Stop two test files crossing the 30-second per-file budget under full-suite contention,

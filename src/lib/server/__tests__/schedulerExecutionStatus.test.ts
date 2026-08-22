@@ -174,8 +174,24 @@ test('all five job target shapes persist with exact allowlisted target keys', as
       providerCallAttempted: true,
       target: scheduleYearsTarget(
         [
-          { year: 2025, operation: 'postseason-boundary' },
-          { year: 2026, operation: 'preseason-maintenance' },
+          {
+            year: 2025,
+            operation: 'postseason-boundary',
+            scoreRepairs: 0,
+            scoreDifferenceCount: 0,
+            scoreSweepFailedPartitions: [],
+            scoreSweepCannotTellCount: 0,
+            kickoffsChanged: 0,
+          },
+          {
+            year: 2026,
+            operation: 'preseason-maintenance',
+            scoreRepairs: 0,
+            scoreDifferenceCount: 0,
+            scoreSweepFailedPartitions: [],
+            scoreSweepCannotTellCount: 0,
+            kickoffsChanged: 0,
+          },
         ],
         0
       ),
@@ -209,7 +225,18 @@ test('all five job target shapes persist with exact allowlisted target keys', as
       kind: 'schedule-years',
       // PLATFORM-086F2H1R2 — present after a parse even when a legacy receipt
       // omits it, because the rebuild normalizes it to 0.
-      keys: ['invalidLifecycleTargets', 'kind', 'totalYears', 'truncated', 'years'].sort(),
+      keys: [
+        'invalidLifecycleTargets',
+        'kickoffsChanged',
+        'kind',
+        'scoreDifferences',
+        'scoreRepairs',
+        'scoreSweepCannotTellCount',
+        'scoreSweepFailures',
+        'totalYears',
+        'truncated',
+        'years',
+      ].sort(),
     },
     {
       job: 'rankings',
@@ -263,7 +290,20 @@ test('all seven jobs derive the correct source and persist their target shape', 
     }),
     liveScoresInput({
       job: 'schedule-refresh',
-      target: scheduleYearsTarget([{ year: 2026, operation: null }], 0),
+      target: scheduleYearsTarget(
+        [
+          {
+            year: 2026,
+            operation: null,
+            scoreRepairs: 0,
+            scoreDifferenceCount: 0,
+            scoreSweepFailedPartitions: [],
+            scoreSweepCannotTellCount: 0,
+            kickoffsChanged: 0,
+          },
+        ],
+        0
+      ),
     }),
     liveScoresInput({
       job: 'rankings',
@@ -550,6 +590,11 @@ test('multi-year targets cap at eight entries with truthful totalYears and trunc
   const many = Array.from({ length: 10 }, (_, i) => ({
     year: 2020 + i,
     operation: 'ordinary-maintenance' as const,
+    scoreRepairs: 0,
+    scoreDifferenceCount: 0,
+    scoreSweepFailedPartitions: [],
+    scoreSweepCannotTellCount: 0,
+    kickoffsChanged: 0,
   }));
   const capped = scheduleYearsTarget(many, 0);
   assert.equal(capped.totalYears, 10);

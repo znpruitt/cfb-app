@@ -17,6 +17,7 @@ import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateReadFailureForTests,
+  __setAppStateWriteFailureForTests,
   getAppState,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
@@ -252,6 +253,7 @@ export {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
   __setAppStateReadFailureForTests,
+  __setAppStateWriteFailureForTests,
   getAppState,
   setAppState,
   setDatasetAutoRefreshEnabled,
