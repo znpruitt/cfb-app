@@ -1994,11 +1994,11 @@ Supersedes: (none)
     require `unresolved.length > 0`, or move the played guard above it.
 
     - **Backlog slug (provisional):** `PLATFORM-WEEK-RESOLUTION-RESIDUE-v1`
-    - **Sequencing (revised 2026-08-21):** (b) has landed, and item 66 is implemented in open
-      PR #505 pending merge. After it lands, (a) remains broad and cheap and closes (d) as a side
-      effect; (c/e) remain a separate week-resolution policy slice.
-    - **Recommended platform order across the queue:** merge item 66 (PR #505) → redesign and implement
-      63 → 64(a/d) → the `appStateStore` pool timeouts (item 20 — a 3-client pool with no checkout or
+    - **Sequencing (revised 2026-08-21):** (b) and the underlying item 66 recovery path have landed.
+      Item 64(a) remains broad and cheap and closes (d) as a side effect; (c/e) remain a separate
+      week-resolution policy slice.
+    - **Recommended platform order across the queue:** redesign and implement 63 → 64(a/d) → the
+      `appStateStore` pool timeouts (item 20 — a 3-client pool with no checkout or
       statement timeout can make every database-backed route wait indefinitely, not just drafts) →
       the deletion/adoption guard (item 46 — adopting a slug for a PAST season lets nightly rollover
       overwrite a genuine archive, available to a platform admin today) → membership authority
@@ -2054,29 +2054,16 @@ Supersedes: (none)
     who is the commissioner". This entry exists so that assumption is visible when it stops holding,
     rather than rediscovered from a mis-credited pick.
 
-66. 🟡 **Final-score recovery after the polling window — IMPLEMENTED, PR #505 OPEN.**
-    `PLATFORM-107-FINAL-SCORE-SWEEPER-v2` adds the requested weekly backstop without changing the
-    weekly schedule cadence, live polling window, or cumulative standings coverage gate. The cron's
-    existing whole-season CFBD payload supplies final candidates; coverage is exact
-    `seasonType:providerGameId` equality; only cache gaps reach `mergeScoresIntoPartition`; and both
-    the required pre-merge filter and the transaction-fresh guard preserve every existing final.
-    A conflicting score is counted and logged with bounded game/partition identity, never written.
+66. ✅ **MERGED — final-score recovery after the polling window.**
+    `PLATFORM-107-FINAL-SCORE-SWEEPER-v2` shipped via PR #505 (`878a3466`) on 2026-08-21. The weekly
+    schedule refresh now fills missing provider finals through the existing score writer, preserves
+    every cached final, reports score differences and identity ambiguity, and measures kickoff
+    changes without altering schedule cadence, live polling windows, or the standings coverage gate.
+    Runtime identity limits are documented in `docs/architecture/week-resolution.md`; execution and
+    verification live in `docs/prompt-registry.md`; the three accepted low-severity residues remain
+    in this document's canonical deferral section.
 
-    Missing/blank ids and duplicate provider ids are fail-closed `cannot-tell` cases: no duplicate
-    final is created, the partition is reported failed, and bounded counts reach the cron event and
-    receipt. Covered partitions resolve their exact score-refresh status as `no-op`. Kickoff changes
-    are also counted outside the schedule transaction, so measurement cannot abort a durable write.
-    The sweep is opt-in at the weekly cron seam; other full-season schedule refreshes stay
-    schedule-only.
-
-    Identity caveat: a unique provider id repairs and attaches end to end even if participant
-    resolution prevented live polling, because attachment has an independent provider-id path. A
-    row without a provider id is deliberately refused and may still produce `ignored_score_row`;
-    this is not a universal game-identity repair. Implementation/review/verification detail lives in
-    `docs/prompt-registry.md`. PR #505 is not merged or shipped; three accepted low-severity residues
-    are recorded in this document's canonical deferral section.
-
-67. **Game-level completed-score gap diagnostics — after item 66 merges.** Current System Health score
+67. **Game-level completed-score gap diagnostics.** Current System Health score
     coverage is slate-granular: a week counts as covered when any canonical terminal score row exists,
     so one missing completed game in an otherwise healthy slate is invisible. Add a game-granular
     diagnostic using the shared conclusion/identity authorities, with enough game and partition
@@ -2085,7 +2072,7 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-GAME-SCORE-GAP-DIAGNOSTICS-v1`
 
-68. **Archive integrity when cumulative coverage is incomplete — after item 66 merges.** Rollover strips
+68. **Archive integrity when cumulative coverage is incomplete.** Rollover strips
     live `played` state but persists coverage. Audit the residual case where a season reaches archive
     time with an unresolved score-required owned game, then choose and test an explicit policy:
     refuse/defer archive publication, mark it repairable, or provide a deterministic rebuild path.
@@ -3235,7 +3222,7 @@ documents may link here but must not maintain duplicate descriptions. Do not mar
 unless verified in merged work.
 
 - ~~**CSV current-season guard** vs sanctioned admin override.~~ **Resolved — PLATFORM-083** (audited in PLAN-002). `PUT /api/owners` now guards active-season overwrites: replacing an already-populated active-season roster requires an explicit `?override=1` repair confirmation (surfaced in both the CSV import panel and inline roster editor); historical/backfill and initial-creation writes are unguarded. Route stays platform-admin-only; no new league-admin role. See `docs/architecture/identity-and-ownership.md`.
-- **PLATFORM-107 accepted low-severity residue (owner-directed pre-merge closeout, 2026-08-21).**
+- **PLATFORM-107 accepted low-severity residue (2026-08-21).**
   Three findings remain intentionally unfixed after the final authorized remediation round: (1) all
   per-partition score-refresh attempts in one sweep share the same `startedAt`, so the aggregate
   provider-health selector can break a mixed-outcome activity tie by scope key instead of actual
@@ -3245,8 +3232,7 @@ unless verified in merged work.
   not a behavior change. (3) when divergent aggregate and child finals have exactly equal effective
   timestamps, unordered durable-read results can choose either row for difference comparison, making
   that immutable-score log nondeterministic; the pre-merge filter still refuses every rewrite.
-  These are not scheduled, and the explicit final-round rule forbids another code remediation on PR
-  #505; revisit separately after merge if their operational evidence warrants it.
+  These are not scheduled; revisit separately if their operational evidence warrants it.
 - **Expected-absence applicability for `scores` / `odds` / `rankings` (deferred at PLATFORM-090, 2026-08-10).** PLATFORM-090 gave only `game-stats` a canonical applicability state, so on a genuinely COLD deployment (no cached data for the year at all) those three datasets still render yellow `No cached data` and re-degrade `Provider data` and `Overall`, exactly as game-stats did. Each is silent for its own reason and none is an actionable gap in that state: the live-scores cron skips `no-polling-target` and the scores diagnostics are gated on a completed slate, while `odds-cache-missing` and `rankings-cache-missing` are `info` severity, which the freshness stoplight does not consult. Extending the concept requires a canonical applicability authority PER DATASET — none may borrow game-stats' slate semantics, and `ProviderCacheAvailability === 'absent'` must not become globally neutral. Not reachable in the state that prompted PLATFORM-090 (that deployment had the other three caches populated, which is why only the Game stats row was yellow). Not scheduled.
 - **Provider-data diagnostics build the canonical slate on every call (deferred at PLATFORM-090, 2026-08-10).** Publishing the game-stats expectation requires the canonical slate, so `getProviderDataDiagnostics` now builds it whenever a schedule is cached — previously it was built only when a completed slate existed. In the preseason state the feature targets, each System Health render and each `GET /api/admin/provider-status` therefore pays a team-catalog read, an alias-map read, and a `buildScheduleFromApi` over the season; the provider-status route pays it for a value it never reads. The build is already skipped when the year has no usable cached schedule. Not fixed because both obvious remedies are worse: gating on `completedSlates.length > 0` reinstates the wrong basis PLATFORM-090 re-derived away, and gating on a caller-supplied "do you consume expectations" flag makes the authority's output depend on a caller hint. A lazy/memoized slate seam shared with the coverage pass is the real fix. Correctness is unaffected. Not scheduled.
 - **Owner-identity mapping across seasons** (renamed/returning owners; owner display names are raw strings today).

@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-08-02
+Last verified: 2026-08-21
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -3917,6 +3917,27 @@ Key architectural decisions across Phase 5:
   `PALETTE_LIGHT` remains exported, so a new caller can reintroduce light palettes; Members and
   Matchups were not visually walked. See the canonical deferrals/current queue in
   `docs/next-tasks.md`.
+
+### PLATFORM-107 — Weekly Final-Score Sweeper — Complete
+
+- **Status:** Complete — merged to `main` via PR #505 (merge commit `878a3466`), 2026-08-21.
+- **PROMPT_ID(s):** `PLATFORM-107-FINAL-SCORE-SWEEPER-v2` (the final reconstruction of the v1
+  implementation after two owner-authorized remediation rounds).
+- **Outcome:** The weekly full-season schedule refresh is now the bounded backstop for a provider
+  final that was never saved inside the live polling window. It groups final candidates by provider
+  week and season type, matches coverage by exact provider game id, filters covered games before
+  handing gaps to the existing transactional score writer, and never rewrites an existing final;
+  different scores are logged for investigation. Missing/duplicate ids fail closed and are counted,
+  already-covered partitions resolve `no-op`, repair and bounded failure metrics reach the scheduler
+  event/receipt, and kickoff-change measurement cannot abort the schedule commit. The weekly cadence,
+  polling windows, cumulative standings coverage gate, and score-cache dedup authority are unchanged.
+- **Verification:** Reviewed implementation head `f67c2435` mutation-proved gap filling,
+  pre-merge no-overwrite filtering, difference reporting, and idless-row refusal. Focused tests were
+  46/46 (+11 from base) and the clean full suite was 4,204/4,204 (+19), with TypeScript,
+  `lint:all`, and diff checks clean. The confirming Codex review found no credible in-scope P0/P1/P2;
+  the final Claude triage left three accepted low-severity follow-ups without reopening the branch.
+- **Open follow-ups:** See the PLATFORM-107 residue and items 67–69 in the canonical queue/deferral
+  list in `docs/next-tasks.md`.
 
 ### Template for future entries
 
