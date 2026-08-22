@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import {
   __applyUpstreamPacingForTests,
+  __isUpstreamPacingDisabledForTests,
   __resetUpstreamPacingForTests,
   type UpstreamPacingPolicy,
 } from '../fetchUpstream.ts';
@@ -78,6 +79,14 @@ async function withPacingEnvironment(
 }
 
 const POLICY: UpstreamPacingPolicy = { key: 'cfbd-test', minIntervalMs: 150 };
+
+test('the shared runner satisfies the real fail-closed pacing guard', () => {
+  assert.equal(
+    __isUpstreamPacingDisabledForTests(),
+    true,
+    'shared test runner did not activate the guarded upstream pacing disable'
+  );
+});
 
 test('same-key pacing spaces reservations and serializes the tail chain', async () => {
   await withPacingEnvironment({ disabled: false, nodeTestProcess: true }, async () => {

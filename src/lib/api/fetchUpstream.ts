@@ -231,6 +231,8 @@ async function applyPacing(
       paceNextAllowedAtByKey.set(policy.key, clock.now() + policy.minIntervalMs);
     });
 
+  // Keep the raw tail so the next reservation's catch is what releases the
+  // chain after a rejected pacing wait. Callers still observe their own error.
   paceTailByKey.set(policy.key, run);
 
   await run;
@@ -431,6 +433,11 @@ export async function fetchUpstreamJson<T>(
 export function __resetUpstreamPacingForTests(): void {
   paceNextAllowedAtByKey.clear();
   paceTailByKey.clear();
+}
+
+/** Test-only observation of the real process guard used by the shared runner. */
+export function __isUpstreamPacingDisabledForTests(): boolean {
+  return isUpstreamPacingDisabledForTestProcess();
 }
 
 /** Test-only injected-clock seam for deterministic pacing coverage. */
