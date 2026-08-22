@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-08-21
+Last verified: 2026-08-22
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -3938,6 +3938,25 @@ Key architectural decisions across Phase 5:
   the final Claude triage left three accepted low-severity follow-ups without reopening the branch.
 - **Open follow-ups:** See the PLATFORM-107 residue and items 67–69 in the canonical queue/deferral
   list in `docs/next-tasks.md`.
+
+### PLATFORM-108 — Test-only Upstream Pacing Bypass — Complete
+
+- **Status:** Complete — merged to `main` via PR #506 (merge commit `1896b149`), 2026-08-22.
+- **PROMPT_ID(s):** `PLATFORM-108-TEST-PACING-AND-STARTUP-v1`.
+- **Outcome:** Tests no longer pay production provider rate-limit delays. The shared runner sets an
+  explicit pacing-disable flag, and the upstream helper honors it only when Node also supplies its
+  test-child signal, so missing or uncertain environment evidence fails closed to normal pacing.
+  An injected clock directly covers same-key spacing and serialization, key independence, and
+  rejection recovery without real sleeping. All eleven provider interval values and production
+  behavior remain unchanged.
+- **Verification:** The fail-closed guard, bypass, and serialization observer were mutation-proven;
+  independent final review found no actionable regression. Exact final PR head `bfe0906f` passed the
+  focused 21/21 suite (+6 from base), full 4,210/4,210 suite (+6, zero cancelled), TypeScript,
+  `lint:all`, and diff checks. The schedule-refresh route family improved from a 15.79 s base best to
+  a 5.69 s post-change best on the same host; full-suite samples remain load-sensitive observations,
+  not a reproducible percentage claim.
+- **Open follow-ups:** Item 71 in `docs/next-tasks.md` retains the unresolved JSDOM-heavy startup and
+  per-file timeout decision; PLATFORM-108 did not directly optimize that class.
 
 ### Template for future entries
 

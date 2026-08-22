@@ -90,8 +90,9 @@ Rules:
   seconds; `docs/next-tasks.md` item 71 retains the unresolved startup/limit decision.
   `AllTimeStandingsTable.test.tsx` makes zero provider calls, so this change helps it only indirectly
   through lower suite contention, not its JSDOM startup.
-- Status: Implemented — final confirming reviews complete. Reviewed proof head `f67327f1`; merge
-  pending.
+- Status: Merged via PR #506 (`1896b149`), 2026-08-22. Reviewed proof head `f67327f1`; exact final PR
+  head `bfe0906f` passed the focused 21/21 (+6), full 4,210/4,210 (+6, zero cancelled), TypeScript,
+  `lint:all`, and diff-check gates. A final post-closeout review found no actionable regressions.
 
 ### PLATFORM-107-FINAL-SCORE-SWEEPER-v2
 

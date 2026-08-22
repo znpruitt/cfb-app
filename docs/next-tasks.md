@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-08-21
+Last verified: 2026-08-22
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -2091,12 +2091,13 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `POLISH-STANDINGS-COVERAGE-COPY-v1`
 
-70. 🟡 **IMPLEMENTED — test-only upstream pacing bypass; merge pending.**
-    `PLATFORM-108-TEST-PACING-AND-STARTUP-v1` makes the shared test runner bypass provider pacing
-    only when its explicit flag and Node's test-child signal are both present, while production and
-    uncertain environments continue to pace. The gate now has deterministic direct coverage. This
-    slice leaves the 30-second per-file limit unchanged; execution, review, mutation proof, and
-    measurement detail live in `docs/prompt-registry.md`.
+70. ✅ **MERGED — test-only upstream pacing bypass.**
+    `PLATFORM-108-TEST-PACING-AND-STARTUP-v1` shipped via PR #506 (`1896b149`) on 2026-08-22. The
+    shared test runner now bypasses provider pacing only when its explicit flag and Node's test-child
+    signal are both present; production and uncertain environments continue to pace. The gate has
+    deterministic direct coverage, no provider interval changed, and the 30-second per-file limit
+    remains unchanged. Item 71 owns the unresolved JSDOM/startup decision; execution and verification
+    detail live in `docs/prompt-registry.md`.
 
 71. 🔴 **JSDOM-heavy test startup and loaded-host timeout headroom.** PLATFORM-108 removes provider
     pacing from tests but does not directly optimize the file that triggered this work:
