@@ -90,6 +90,7 @@ export function runTests(argumentsToRun, spawnProcess = spawnSync) {
       ...process.env,
       APP_STATE_TEST_ISOLATION: '1',
       TSX_TSCONFIG_PATH: 'tsconfig.test.json',
+      UPSTREAM_PACING_DISABLED: '1',
     },
     stdio: 'inherit',
   });

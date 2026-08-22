@@ -25,10 +25,16 @@ test('the shared runner passes its computed concurrency cap to the Node child pr
       'utf8'
     );
     let spawnedArguments: readonly string[] | undefined;
+    let spawnedEnvironment: NodeJS.ProcessEnv | undefined;
 
-    const fakeSpawn = ((executable: string, args: readonly string[]) => {
+    const fakeSpawn = ((
+      executable: string,
+      args: readonly string[],
+      options: { env?: NodeJS.ProcessEnv }
+    ) => {
       assert.equal(executable, process.execPath);
       spawnedArguments = args;
+      spawnedEnvironment = options.env;
       return { status: 0 };
     }) as typeof spawnSync;
 
@@ -41,6 +47,8 @@ test('the shared runner passes its computed concurrency cap to the Node child pr
       `--test-concurrency=${nodeTestConcurrency()}`,
       testPath,
     ]);
+    assert.equal(spawnedEnvironment?.APP_STATE_TEST_ISOLATION, '1');
+    assert.equal(spawnedEnvironment?.UPSTREAM_PACING_DISABLED, '1');
   } finally {
     await rm(fixtureRoot, { recursive: true, force: true });
   }

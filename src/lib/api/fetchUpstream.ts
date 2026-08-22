@@ -96,6 +96,11 @@ const DEFAULT_RETRY_HTTP_STATUSES = [408, 425, 429, 500, 502, 503, 504];
 const paceNextAllowedAtByKey = new Map<string, number>();
 const paceTailByKey = new Map<string, Promise<void>>();
 
+type UpstreamPacingClock = {
+  now: () => number;
+  sleep: (ms: number, signal?: AbortSignal) => Promise<void>;
+};
+
 function toHeaderObject(headers?: HeadersInit): Record<string, string> {
   if (!headers) return {};
 
@@ -190,11 +195,27 @@ async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+const systemPacingClock: UpstreamPacingClock = {
+  now: () => Date.now(),
+  sleep,
+};
+
+function isUpstreamPacingDisabledForTestProcess(): boolean {
+  // Fail closed: the explicit opt-out is honored only inside a Node test child.
+  // `NODE_TEST_CONTEXT=child-v8` is supplied by `node --test` itself on the
+  // pinned runtime; the shared runner supplies only UPSTREAM_PACING_DISABLED.
+  // If either signal is absent or changes, production pacing remains enabled.
+  return (
+    process.env.UPSTREAM_PACING_DISABLED === '1' && process.env.NODE_TEST_CONTEXT === 'child-v8'
+  );
+}
+
 async function applyPacing(
   policy: UpstreamPacingPolicy | undefined,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  clock: UpstreamPacingClock = systemPacingClock
 ): Promise<void> {
-  if (!policy || policy.minIntervalMs <= 0) return;
+  if (!policy || policy.minIntervalMs <= 0 || isUpstreamPacingDisabledForTestProcess()) return;
 
   const previous = paceTailByKey.get(policy.key) ?? Promise.resolve();
 
@@ -202,19 +223,17 @@ async function applyPacing(
     .catch(() => undefined)
     .then(async () => {
       const nextAllowedAt = paceNextAllowedAtByKey.get(policy.key) ?? 0;
-      const waitMs = Math.max(0, nextAllowedAt - Date.now());
+      const waitMs = Math.max(0, nextAllowedAt - clock.now());
       if (waitMs > 0) {
-        await sleep(waitMs, signal);
+        await clock.sleep(waitMs, signal);
       }
 
-      paceNextAllowedAtByKey.set(policy.key, Date.now() + policy.minIntervalMs);
+      paceNextAllowedAtByKey.set(policy.key, clock.now() + policy.minIntervalMs);
     });
 
-  const settled = run.then(
-    () => undefined,
-    () => undefined
-  );
-  paceTailByKey.set(policy.key, settled);
+  // Keep the raw tail so the next reservation's catch is what releases the
+  // chain after a rejected pacing wait. Callers still observe their own error.
+  paceTailByKey.set(policy.key, run);
 
   await run;
 }
@@ -414,4 +433,18 @@ export async function fetchUpstreamJson<T>(
 export function __resetUpstreamPacingForTests(): void {
   paceNextAllowedAtByKey.clear();
   paceTailByKey.clear();
+}
+
+/** Test-only observation of the real process guard used by the shared runner. */
+export function __isUpstreamPacingDisabledForTests(): boolean {
+  return isUpstreamPacingDisabledForTestProcess();
+}
+
+/** Test-only injected-clock seam for deterministic pacing coverage. */
+export function __applyUpstreamPacingForTests(
+  policy: UpstreamPacingPolicy | undefined,
+  clock: UpstreamPacingClock,
+  signal?: AbortSignal
+): Promise<void> {
+  return applyPacing(policy, signal, clock);
 }
