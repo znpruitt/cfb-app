@@ -70,6 +70,10 @@ All commands are defined in [`package.json`](package.json):
 - `npm run test:file -- <path-or-glob...>` — run one or more exact test files or
   globs with the same isolation, TypeScript config, and timeout as the full
   suite. Exact App Router paths containing `[brackets]` are handled literally.
+  The shared runner sets `UPSTREAM_PACING_DISABLED=1`; the fetch helper honors
+  it only inside Node's test child (`NODE_TEST_CONTEXT=child-v8`), so pacing
+  fails closed if either signal is absent. Never configure this flag for an app
+  runtime.
 - `npm run test:lib`, `npm run test:api`, and `npm run test:components` — focused
   subsystem slices for local iteration; they overlap with and do not partition
   the full suite.

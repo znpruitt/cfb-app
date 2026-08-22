@@ -2091,6 +2091,14 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `POLISH-STANDINGS-COVERAGE-COPY-v1`
 
+70. 🟡 **IMPLEMENTED — test-only upstream pacing bypass; merge pending.**
+    `PLATFORM-108-TEST-PACING-AND-STARTUP-v1` makes the shared test runner bypass provider pacing
+    only when its explicit flag and Node's test-child signal are both present, while production and
+    uncertain environments continue to pace. The gate now has deterministic direct coverage. The
+    re-measurement supports retaining the 30-second per-file limit; this does not directly optimize
+    JSDOM-heavy component startup, including `AllTimeStandingsTable.test.tsx`. Execution, review,
+    mutation proof, and measurement detail live in `docs/prompt-registry.md`.
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.

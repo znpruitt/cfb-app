@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-08-21
+Last verified: 2026-08-22
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -49,6 +49,39 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### PLATFORM-108-TEST-PACING-AND-STARTUP-v1
+
+- Purpose: Stop test suites paying the production provider pacing delay, deliberately cover the
+  shared pacing gate, and re-measure the suite before deciding whether to change the 30-second
+  per-file limit.
+- Scope: `fetchUpstream.ts` pacing policy, the shared `run-tests.mjs` child environment, one
+  injected-clock pacing suite, the runner contract suite, and this closeout. No provider interval,
+  test-file layout, JSDOM setup, per-file timeout, schedule cadence, or production provider behavior
+  changed.
+- Outcome: The runner sets `UPSTREAM_PACING_DISABLED=1`; `applyPacing` honors it only when Node also
+  supplies the exact test-child signal `NODE_TEST_CONTEXT=child-v8`. This is deliberately independent
+  of `NODE_ENV` (route harnesses overwrite it) and `APP_STATE_TEST_ISOLATION` (store isolation has one
+  meaning). Missing or changed signals fail closed to pacing. An injected clock now proves same-key
+  spacing and serialization, cross-key independence, and rejected-tail recovery in milliseconds; an
+  ambient assertion proves the real shared runner activates the conjunction. No `minIntervalMs`
+  value changed.
+- Review / verification: Implementation `5302ae9c`; one accepted review remediation `ade0f5d5`
+  added the ambient runner/guard proof and documented why the raw tail makes the requested rejection
+  catch observable. Both confirming reviews found no credible in-scope P0/P1/P2. Mutations were
+  discriminating: removing the production guard failed the fail-closed test; disabling the bypass
+  restored the 62-test route family to 17.08 s, inside the base range. Exact-head measurement on the
+  same host, best of three: the current schedule-refresh `route*.test.ts` family (the historical
+  monolith was split by PLATFORM-106) improved 15.79 s → 5.69 s (-10.10 s, 64.0%); full suite improved
+  262.19 s → 166.75 s (-95.44 s, 36.4%). A successful streaming-reporter run passed 4,210/4,210 and
+  measured the slowest files at 9.45 s (`page.creation.test.tsx`), 8.52 s
+  (`AllTimeStandingsTable.test.tsx`), 8.43 s (`ScoreAttachmentRecoveryPanel.test.tsx`), 8.30 s
+  (`TrendsDetailSurface.test.tsx`), and 8.04 s (`maintenanceActionWiring.test.tsx`), leaving 20.55 s
+  headroom; two earlier silent-reporter attempts exited 1 with cancellations and were discarded.
+  The limit therefore stays 30 seconds. `AllTimeStandingsTable.test.tsx` makes zero provider calls,
+  so this change helps it only indirectly through lower suite contention, not its JSDOM startup.
+- Status: Implemented — pre-merge review complete. Exact implementation head `ade0f5d5`; merge
+  pending.
 
 ### PLATFORM-107-FINAL-SCORE-SWEEPER-v2
 
@@ -124,12 +157,12 @@ Rules:
   `run() is being called recursively within a test file. skipping running files.` and the run
   terminates in ~2 s. The fix was still correct, at a lower severity than claimed.
 
-**Not addressed here, and still available.** ~14.9 s of `route.test.ts`'s runtime was real `sleep()`
-in the shared CFBD pacing gate (`fetchUpstream.ts` `paceNextAllowedAtByKey`, `minIntervalMs: 150` on
-key `cfbd`): setting it to 0 took the file 29,437 ms → 14,570 ms with all 60 tests passing. The suites
-stub `globalThis.fetch`, so the gate paces a provider that is not there. Nothing in `src/` tests the
-gate itself, so it is currently exercised only as that tax. Independent of this branch and not
-foreclosed by it.
+**Resolved by PLATFORM-108.** The PLATFORM-106 measurement found that ~14.9 s of the historical
+`route.test.ts` runtime was real `sleep()` in the shared CFBD pacing gate: setting its interval to 0
+took the file 29,437 ms → 14,570 ms with all 60 tests passing. PLATFORM-108 removed that test-only tax
+centrally without changing any interval value and added deliberate gate coverage; its independent
+same-host before/after measurements are recorded in the PLATFORM-108 entry above rather than
+reusing this historical experiment as shipped evidence.
 
 ### PLATFORM-105A-SCORE-COVERAGE-INTEGRITY-v1
 
