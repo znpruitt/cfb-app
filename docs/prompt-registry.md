@@ -71,7 +71,7 @@ Rules:
   production ever set them, verified across every non-test caller by both reviewers. The `error`
   STATE is deliberately KEPT — `STANDINGS_COVERAGE_UNAVAILABLE` still produces it and
   `StandingsPanel` still styles it amber.
-- Review / verification: implementation `4e86809b`, then THREE remediation rounds — `a3b4955c`, `581010ca`, and the round recorded below. Both reviewers
+- Review / verification: implementation `4e86809b`, then FOUR remediation rounds — `a3b4955c`, `581010ca`, and the round recorded below. Both reviewers
   ran against `4e86809b` before anything was touched — Claude implemented this slice AND wrote the
   item it implements, so neither the change nor its rationale had an independent reader until then.
   Codex: no credible P0/P1/P2. `/code-review`: one medium, two low. **All four findings were the
@@ -103,6 +103,19 @@ Rules:
   round 2, at the render site the correction was about — because the round-2 verification grepped
   the exact phrase rather than the concept. That is the same error as the mutation claims: checking
   something narrower than what was asserted.
+
+  **A FOURTH round found the split that made the third incomplete.** Both reviewers cleared the
+  source change — Codex returned clean, `/code-review` found no correctness defect — but
+  `/code-review` noticed that VISIBILITY was still decided by `coverage.message` while the TEXT
+  derived from `coverage.state`: split authority over the exact field this slice exists to distrust.
+  Writing the test for it exposed something the finding had not: BOTH helpers began
+  `if (!coverage.message) return null`, so state never actually decided anything, and moving the
+  component gate alone changed nothing. `{ state: 'partial', message: null }` rendered no notice at
+  all — incomplete standings presented as complete. Both helpers now branch on state first. Also
+  narrowed two comments that asserted more than the code enforced (only `partial` is normalized;
+  `error` passes through), pinned both helper forms side by side rather than only the
+  subject-bearing one, and moved item 69's opening diagnosis into past tense — its line references
+  no longer resolved.
 
   Mutation-proven in this round: reverting the Overview render site fails
   `overview names the subject of an incomplete standings notice`; deriving coverage from all games

@@ -7,6 +7,7 @@ import {
   deriveFinalOwnedParticipations,
   deriveStandings,
   deriveStandingsCoverage,
+  standingsCoverageNotice,
   standingsCoverageNoticeWithSubject,
 } from '../standings.ts';
 
@@ -422,31 +423,48 @@ test('standings coverage remains complete for a legitimately scoreless canceled 
 // POLISH-011: two surfaces, two forms. Overview has no standings heading to
 // supply the subject; a blind prefix would double up on the error string, which
 // already names itself.
-test('the coverage notice names its subject only where the surface cannot', () => {
+test('both coverage notice forms derive from state, and differ only in the subject', () => {
   const rosterByTeam = new Map([['Texas', 'Alex']]);
   const missingScore = [
     game({ key: 'final-owned', csvAway: 'Texas', csvHome: 'Baylor', status: 'final' }),
   ];
   const partial = deriveStandingsCoverage(missingScore, rosterByTeam, {});
 
-  assert.equal(partial.message, 'Waiting on complete results');
+  // The PAIR, side by side — round 3 exists because the two surfaces drifted.
+  assert.equal(standingsCoverageNotice(partial), 'Waiting on complete results');
   assert.equal(
     standingsCoverageNoticeWithSubject(partial),
     'Standings — waiting on complete results'
   );
 
+  // Both IGNORE the stored message for `partial`: a snapshot carrying retired
+  // copy still renders current wording on either surface.
+  const stale = {
+    state: 'partial' as const,
+    message: 'Standings may be incomplete — some completed game scores are not available yet.',
+  };
+  assert.equal(standingsCoverageNotice(stale), 'Waiting on complete results');
+  assert.equal(
+    standingsCoverageNoticeWithSubject(stale),
+    'Standings — waiting on complete results'
+  );
+
   // A message that already names its subject is returned untouched, so Overview
   // can never render "Standings: Standings coverage is unavailable."
+  const unavailable = {
+    state: 'error' as const,
+    message: 'Standings coverage is unavailable.',
+  };
+  assert.equal(standingsCoverageNotice(unavailable), 'Standings coverage is unavailable.');
   assert.equal(
-    standingsCoverageNoticeWithSubject({
-      state: 'error',
-      message: 'Standings coverage is unavailable.',
-    }),
+    standingsCoverageNoticeWithSubject(unavailable),
     'Standings coverage is unavailable.'
   );
 
   // Complete coverage renders nothing on either surface.
-  assert.equal(standingsCoverageNoticeWithSubject({ state: 'complete', message: null }), null);
+  const complete = { state: 'complete' as const, message: null };
+  assert.equal(standingsCoverageNotice(complete), null);
+  assert.equal(standingsCoverageNoticeWithSubject(complete), null);
 });
 
 test('an incomplete standings snapshot makes one claim, whatever caused the gap', () => {

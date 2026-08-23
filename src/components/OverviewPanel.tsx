@@ -1428,6 +1428,9 @@ export default function OverviewPanel({
     standingsHistory,
     standingsCoverage,
   });
+  // POLISH-011 round 4: one field decides both visibility and text — see the
+  // matching note in StandingsPanel.
+  const coverageNotice = standingsCoverageNoticeWithSubject(coverageForRender);
   // GB Race section guard: render whenever the chosen history carries owner
   // rows in any week. The chart components handle flat / partial weeks
   // gracefully; we only need to suppress the section when there's truly
@@ -1563,10 +1566,11 @@ export default function OverviewPanel({
         {/* POLISH-011: this notice sits above standings, FBS polls and insights
             together under a tab reading "Overview", so it names its subject.
             `StandingsPanel` uses the short form because it is already inside the
-            standings view — it has no heading of its own. NEITHER surface renders
-            `coverage.message` raw: coverage is durable and cached, so stale copy
-            must never reach a member. */}
-        {coverageForRender.message ? (
+            standings view — it has no heading of its own. Neither surface renders
+            a raw `partial` message: coverage is durable and cached, so retired
+            copy must never reach a member. Other states pass through — see the
+            scope note on `standingsCoverageNotice`. */}
+        {coverageNotice ? (
           <p
             className={`mb-3 text-sm ${
               coverageForRender.state === 'error'
@@ -1574,7 +1578,7 @@ export default function OverviewPanel({
                 : 'text-gray-600 dark:text-zinc-300'
             }`}
           >
-            {standingsCoverageNoticeWithSubject(coverageForRender)}
+            {coverageNotice}
           </p>
         ) : null}
         {viewModel.standingsTopN.length === 0 ? (

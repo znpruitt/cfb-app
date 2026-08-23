@@ -2081,13 +2081,17 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-ARCHIVE-COVERAGE-INTEGRITY-v1`
 
-69. 🟡 **IMPLEMENTED, merge pending — standings coverage banner copy.** `StandingsPanel:266`
-    renders `coverage.message`. The canonical path (`leagueStandings.ts:927`) passes no options, so
-    only the third variant can render: “Standings may be incomplete — some completed game scores are
-    not available yet.” The other two (“still loading”, “could not be loaded”) are reachable only from
-    the legacy client-derived path and are effectively dead copy.
+69. 🟡 **IMPLEMENTED, merge pending — standings coverage banner copy.**
 
-    **Why the current sentence is wrong.** The banner means exactly one thing: an owned game has
+    **The diagnosis, as it stood BEFORE implementation** (line references are historical and no
+    longer resolve): `StandingsPanel` rendered `coverage.message` directly. The canonical path passed
+    no options, so only the third variant could render — “Standings may be incomplete — some
+    completed game scores are not available yet.” The other two (“still loading”, “could not be
+    loaded”) were reachable only from the legacy client-derived path and were effectively dead copy.
+    All three are gone: both surfaces now derive their text from `coverage.state`, and the two dead
+    variants were deleted along with the options that fed them.
+
+    **Why the old sentence was wrong.** The banner means exactly one thing: an owned game has
     score-bearing conclusion evidence and no usable final. **It does NOT mean automatic repair was
     attempted and failed** — an earlier version of this entry claimed that and was wrong (Codex,
     2026-08-23). PLATFORM-107's sweep runs after the schedule commit but only when the caller asks:

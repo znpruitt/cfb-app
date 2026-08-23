@@ -122,13 +122,23 @@ export function deriveStandingsCoverage(
 /**
  * The coverage notice each member surface should render.
  *
- * NEITHER surface renders `coverage.message` directly, and that is the point.
- * `coverage` is DURABLE — `seasonRollover` freezes it into season archives, and
- * canonical standings are cached with `revalidate: false` under a key that does
- * not change when copy changes, so a snapshot minted before a wording change
- * keeps serving the retired sentence until some unrelated invalidation, which
- * may never come for a quiet league. Both surfaces therefore derive their text
- * from `state`, and stale prose is never displayed.
+ * Neither surface renders `coverage.message` directly for the `partial` state,
+ * and that is the point. `coverage` is DURABLE — `seasonRollover` freezes it into
+ * season archives, and canonical standings are cached with `revalidate: false`
+ * under a key that does not change when copy changes, so a snapshot minted before
+ * a wording change keeps serving the retired sentence until some unrelated
+ * invalidation, which may never come for a quiet league.
+ *
+ * SCOPE, precisely: `complete` renders nothing, `partial` is normalized from
+ * STATE ALONE — a stored message is never consulted, so a snapshot whose message
+ * is absent or retired still shows current wording — and `error` passes its
+ * message through verbatim, which is safe ONLY because the sole `error` producers
+ * today are the live `*_COVERAGE_UNAVAILABLE` constants — nothing durable emits
+ * one. `docs/next-tasks.md` item 69 leaves open whether `error` gains its own
+ * string; the first writer that PERSISTS an `error` message reintroduces exactly
+ * the stale-copy defect this function exists to prevent, and must normalize here
+ * too. An earlier version of this comment claimed neither surface ever renders
+ * the raw message, which was wider than the code.
  *
  * An earlier round applied this reasoning to Overview ONLY and left
  * `StandingsPanel` echoing the raw message. Both reviewers caught it: the same
@@ -149,14 +159,16 @@ export function deriveStandingsCoverage(
  * display text.
  */
 export function standingsCoverageNotice(coverage: StandingsCoverage): string | null {
-  if (!coverage.message) return null;
-  return coverage.state === 'partial' ? COVERAGE_INCOMPLETE : coverage.message;
+  if (coverage.state === 'complete') return null;
+  if (coverage.state === 'partial') return COVERAGE_INCOMPLETE;
+  return coverage.message;
 }
 
 /** As {@link standingsCoverageNotice}, for a surface that must name its subject. */
 export function standingsCoverageNoticeWithSubject(coverage: StandingsCoverage): string | null {
-  if (!coverage.message) return null;
-  return coverage.state === 'partial' ? COVERAGE_INCOMPLETE_WITH_SUBJECT : coverage.message;
+  if (coverage.state === 'complete') return null;
+  if (coverage.state === 'partial') return COVERAGE_INCOMPLETE_WITH_SUBJECT;
+  return coverage.message;
 }
 
 function toOwnedFinalResult(

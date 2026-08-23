@@ -99,6 +99,36 @@ const history: StandingsHistory = {
 // change keeps serving the retired sentence, possibly forever on a quiet
 // league. This pins that the RETIRED copy can never reach a member, which is
 // the whole point of the slice.
+// POLISH-011 round 4: ONE field decides both visibility and text. The gate used
+// to read `coverage.message` while the text derived from `coverage.state` —
+// split authority over the very field this slice exists to distrust. A snapshot
+// carrying a null message with a partial state would then render NOTHING, and a
+// member would see incomplete standings presented as complete.
+test('standings panel shows the notice for partial coverage even with no stored message', () => {
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2025}
+      coverage={{ state: 'partial', message: null }}
+      rows={[
+        {
+          owner: 'Alex',
+          wins: 3,
+          losses: 1,
+          winPct: 0.75,
+          pointsFor: 120,
+          pointsAgainst: 99,
+          pointDifferential: 21,
+          gamesBack: 0,
+          finalGames: 4,
+        },
+      ]}
+    />
+  );
+
+  assert.match(html, /Waiting on complete results/);
+});
+
 test('standings panel never renders retired coverage copy from a stale snapshot', () => {
   const staleSnapshot = {
     state: 'partial' as const,
