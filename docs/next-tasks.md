@@ -2118,9 +2118,11 @@ Supersedes: (none)
       which game, which partition, and whether a sweep ran and how it failed. That is item 67's
       work; do not duplicate it on the member surface.
 
-    Remaining implementation questions, small: whether the `error` coverage state keeps a distinct
-    string or collapses into the same claim, and whether the two dead variants are removed or wired
-    up. Neither changes the member-facing decision above.
+    Both implementation questions are SETTLED: the two dead variants were deleted, and the `error`
+    state kept its own string — it passes `coverage.message` through while `complete` and `partial`
+    derive from state. One residue, recorded not queued: `{ state: 'error', message: null }` would
+    render nothing. Unreachable today, since both `*_COVERAGE_UNAVAILABLE` constants carry a
+    message, but the first writer to persist a message-less error must normalize it.
 
     Implemented as `POLISH-011-STANDINGS-COVERAGE-COPY-v1` on
     `polish/011-standings-coverage-copy`; execution and review record live in

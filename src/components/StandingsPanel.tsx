@@ -178,12 +178,18 @@ export default function StandingsPanel({
     history: historyForRender,
     coverage: coverageForRender,
   } = resolveStandingsCanonicalInputs({ canonicalStandings, rows, standingsHistory, coverage });
-  // POLISH-011 round 4: ONE field decides both whether the notice renders and
+  // POLISH-011 round 4: one value decides both whether the notice renders and
   // what it says. The visibility gate previously read `coverage.message` while
   // the text derived from `coverage.state` — split authority over a value this
   // branch exists to distrust, so `{ state: 'partial', message: null }` would
   // have shown a member nothing at all and presented incomplete standings as
   // complete.
+  //
+  // EXACT SCOPE: state decides for `complete` and `partial`. `error` still
+  // returns its own message, so `{ state: 'error', message: null }` renders
+  // nothing — unreachable today (both `*_COVERAGE_UNAVAILABLE` constants carry
+  // one), but the type permits it. An earlier version of this comment said ONE
+  // field decides all three, which was wider than the code.
   const coverageNotice = standingsCoverageNotice(coverageForRender);
   const showMoveColumn = seasonContext !== 'final';
   const visibleRows = React.useMemo(

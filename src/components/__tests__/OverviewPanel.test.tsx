@@ -612,6 +612,26 @@ test('overview panel summary shows season-complete champion, second, and third',
 // green — the helper was pinned in standings.test.ts while the render site that
 // exists to use it was not. This renders the panel with the REAL canonical
 // partial coverage and asserts the subject-bearing form reaches the markup.
+// POLISH-011 round 4 residue (Codex, P3): the `partial/null` case was pinned for
+// StandingsPanel only. Reverting `standingsCoverageNoticeWithSubject` to the old
+// message-first form would have left every Overview test green, because the
+// wiring fixture uses `deriveStandingsCoverage`, which always supplies a message.
+// One-surface coverage is this slice's recurring defect; both are pinned now.
+test('overview shows the notice for partial coverage even with no stored message', () => {
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={{ state: 'partial', message: null }}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+    />
+  );
+
+  assert.match(html, /Standings — waiting on complete results/);
+});
+
 test('overview names the subject of an incomplete standings notice', () => {
   const partial = deriveStandingsCoverage(
     [game({ key: 'owned-final', status: 'final', csvAway: 'Away', csvHome: 'Home' })],

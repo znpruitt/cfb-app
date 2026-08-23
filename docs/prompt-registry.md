@@ -120,8 +120,10 @@ Rules:
   Mutation-proven in this round: reverting the Overview render site fails
   `overview names the subject of an incomplete standings notice`; deriving coverage from all games
   instead of cumulative fails `deriveStandingsHistory derives coverage onto each week snapshot`;
-  dropping the subject from the helper fails `the coverage notice names its subject only where the
-  surface cannot` plus both Overview tests.
+  dropping the subject from the helper fails `both coverage notice forms derive from state, and
+  differ only in the subject` plus both Overview tests. (Round 4 renamed that test and this line
+  kept citing the old name — a proof pointing at a test that did not exist, found by `/code-review`
+  on `27eb7580`. Fourth verification claim in this entry to reach wider than what was checked.)
 - Status: IMPLEMENTED AND REVIEW-COMPLETE, NOT MERGED — branch
   `polish/011-standings-coverage-copy`. The head SHA is deliberately NOT recorded here: two
   earlier versions of this line named a head that a later remediation round immediately made stale,
