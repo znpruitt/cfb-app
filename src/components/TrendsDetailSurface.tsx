@@ -1099,7 +1099,7 @@ function TrendChartBody({
  * is what keeps the hook count stable across a metric switch, since both charts
  * share one fiber. Do not add a hook to this function.
  */
-function SharedTrendChart(props: React.ComponentProps<typeof TrendChartBody>) {
+export function SharedTrendChart(props: React.ComponentProps<typeof TrendChartBody>) {
   if (props.rows.length === 0) {
     return (
       <section className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">

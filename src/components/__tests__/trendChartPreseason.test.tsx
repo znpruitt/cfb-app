@@ -5,7 +5,7 @@ import { dom } from '../../test/domEnvironment.ts';
 import React from 'react';
 import { cleanup, fireEvent, render } from '@testing-library/react';
 
-import TrendsDetailSurface from '../TrendsDetailSurface';
+import TrendsDetailSurface, { SharedTrendChart } from '../TrendsDetailSurface';
 import { selectGamesBackTrend, selectWinPctTrend } from '../../lib/selectors/trends';
 import type { StandingsHistory } from '../../lib/standingsHistory';
 
@@ -106,6 +106,74 @@ test('switching to the Win % tab in preseason does not crash', () => {
   // The click itself threw before POLISH-012 — React unwound the tree and the
   // page fell to the error boundary.
   fireEvent.click(getByText('Win %'));
+
+  cleanup();
+});
+
+// ---------------------------------------------------------------------------
+// Both reviewers found the tests above cover the SELECTOR alignment and give the
+// hook extraction nothing. Proven in a worktree: revert `TrendsDetailSurface`
+// to the old hooks-then-early-return shape, keep the `trends.ts` filter, and
+// both stay green — because the filter makes the two row sets always agree, so
+// the surface never crosses the empty boundary and `TrendChartBody` never mounts.
+//
+// The extraction is what survives a FUTURE divergence, so it needs its own
+// guard. Driving the wrapper directly across empty → non-empty at the same
+// position is the shape that would have crashed before the split, and it also
+// exercises the non-empty render, which nothing else here does.
+// ---------------------------------------------------------------------------
+
+const NON_EMPTY_ROWS = [
+  {
+    ownerId: 'Ballard',
+    ownerName: 'Ballard',
+    points: [
+      { week: 1, value: 0 },
+      { week: 2, value: 1 },
+    ],
+    latest: 1,
+  },
+  {
+    ownerId: 'BHooper',
+    ownerName: 'BHooper',
+    points: [
+      { week: 1, value: 1 },
+      { week: 2, value: 0 },
+    ],
+    latest: 0,
+  },
+];
+
+test('the trend chart survives crossing the empty boundary at one position', () => {
+  assert.ok(dom);
+
+  const chart = (rows: typeof NON_EMPTY_ROWS) => (
+    <SharedTrendChart
+      title="Games Back"
+      metric="games-back"
+      seasonIsFinal={false}
+      rows={rows}
+      focusedOwnerIds={new Set<string>()}
+      selectedOwnerId={null}
+      viewportWidth={1024}
+      onSelectOwner={() => {}}
+      getOwnerTrendColor={() => '#888'}
+    />
+  );
+
+  // Empty first: the wrapper's own branch, no hooks.
+  const { rerender, container } = render(chart([]));
+  assert.match(container.textContent ?? '', /No trend data available yet\./);
+
+  // Then non-empty AT THE SAME POSITION. Before the split this transition ran a
+  // different number of hooks on one fiber and threw.
+  rerender(chart(NON_EMPTY_ROWS));
+  assert.doesNotMatch(container.textContent ?? '', /No trend data available yet\./);
+  assert.ok(container.querySelector('svg'), 'the non-empty case must actually draw');
+
+  // And back, which is the direction the production crash took.
+  rerender(chart([]));
+  assert.match(container.textContent ?? '', /No trend data available yet\./);
 
   cleanup();
 });

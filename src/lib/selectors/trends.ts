@@ -191,15 +191,24 @@ export function selectRankTrend(args: { standingsHistory: StandingsHistory }): R
     selectResolvedStandingsWeeks(standingsHistory);
   const owners = deriveOwnerOrderFromLatestStandings(standingsHistory, latestResolvedWeek);
 
-  return owners.map((owner) => {
-    const points = weeks.flatMap((week) => {
-      const weekStandings = standingsHistory.byWeek[week]?.standings ?? [];
-      const rankIndex = weekStandings.findIndex((row) => row.owner === owner);
-      if (rankIndex === -1) return [];
-      return [{ week, value: rankIndex + 1 }];
-    });
-    return { ownerId: owner, ownerName: owner, points };
-  });
+  return (
+    owners
+      .map((owner) => {
+        const points = weeks.flatMap((week) => {
+          const weekStandings = standingsHistory.byWeek[week]?.standings ?? [];
+          const rankIndex = weekStandings.findIndex((row) => row.owner === owner);
+          if (rankIndex === -1) return [];
+          return [{ week, value: rankIndex + 1 }];
+        });
+        return { ownerId: owner, ownerName: owner, points };
+      })
+      // POLISH-012: ONE convention in this file. This selector has no consumer
+      // today, but leaving it with the old shape means the next component that
+      // renders rank beside another metric inherits the exact divergence that
+      // crashed the standings page — two selectors disagreeing about whether
+      // "no resolved weeks" means "no rows".
+      .filter((series) => series.points.length > 0)
+  );
 }
 
 export function selectGamesBackTrendFull(args: {
