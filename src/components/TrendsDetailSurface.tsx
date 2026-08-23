@@ -544,7 +544,23 @@ function MobileLegend({
   );
 }
 
-function SharedTrendChart({
+/**
+ * POLISH-012: the wrapper below owns the empty case and runs NO hooks; every hook
+ * lives here, in a component that only mounts when there is data.
+ *
+ * The bug this replaces: `SharedTrendChart` ran five hooks, took an early return
+ * for `rows.length === 0`, then ran three more. Both metric charts sit in a
+ * ternary at the same position, so React reconciles them onto ONE fiber — and the
+ * two trend selectors disagree about the empty case (`selectGamesBackTrend`
+ * returns a series per owner with no points; `selectWinPctTrend` filters those
+ * away entirely). In preseason that made Games Back render the body (8 hooks) and
+ * Win % take the early return (5 hooks), so switching tabs threw "Rendered fewer
+ * hooks than expected" and the standings page went to the error boundary.
+ *
+ * Reachable only after PLATFORM-105: before it every week counted as resolved, so
+ * both metrics always had points and the counts happened to match.
+ */
+function TrendChartBody({
   title,
   metric,
   seasonIsFinal,
@@ -595,21 +611,6 @@ function SharedTrendChart({
   const containerRef = React.useRef<HTMLDivElement | null>(null);
   const hasScrolledRef = React.useRef(false);
   const [containerWidth, setContainerWidth] = React.useState(0);
-
-  if (rows.length === 0) {
-    return (
-      <section className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
-        {!hideTitle ? (
-          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
-            {title}
-          </h2>
-        ) : null}
-        <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
-          No trend data available yet.
-        </p>
-      </section>
-    );
-  }
 
   const rawGeometry = buildSharedChartGeometry(rows);
   const geometry = (() => {
@@ -1091,6 +1092,29 @@ function SharedTrendChart({
       </div>
     </section>
   );
+}
+
+/**
+ * Hook-free by construction. Owning the empty case HERE — before any hook runs —
+ * is what keeps the hook count stable across a metric switch, since both charts
+ * share one fiber. Do not add a hook to this function.
+ */
+export function SharedTrendChart(props: React.ComponentProps<typeof TrendChartBody>) {
+  if (props.rows.length === 0) {
+    return (
+      <section className="rounded-xl border border-gray-200 bg-gray-50/70 p-4 dark:border-zinc-800 dark:bg-zinc-900/60">
+        {!props.hideTitle ? (
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-gray-600 dark:text-zinc-300">
+            {props.title}
+          </h2>
+        ) : null}
+        <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
+          No trend data available yet.
+        </p>
+      </section>
+    );
+  }
+  return <TrendChartBody {...props} />;
 }
 
 export default function TrendsDetailSurface({

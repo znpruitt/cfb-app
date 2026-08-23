@@ -71,21 +71,31 @@ export function selectGamesBackTrend(args: {
     selectResolvedStandingsWeeks(standingsHistory);
   const owners = deriveOwnerOrderFromLatestStandings(standingsHistory, latestResolvedWeek);
 
-  return owners.map((owner) => {
-    const ownerSeries = standingsHistory.byOwner[owner] ?? [];
-    const pointByWeek = new Map(ownerSeries.map((point) => [point.week, point]));
-    const points = weeks.flatMap((week) => {
-      const point = pointByWeek.get(week);
-      if (!point) return [];
-      return [{ week, value: point.gamesBack }];
-    });
+  return (
+    owners
+      .map((owner) => {
+        const ownerSeries = standingsHistory.byOwner[owner] ?? [];
+        const pointByWeek = new Map(ownerSeries.map((point) => [point.week, point]));
+        const points = weeks.flatMap((week) => {
+          const point = pointByWeek.get(week);
+          if (!point) return [];
+          return [{ week, value: point.gamesBack }];
+        });
 
-    return {
-      ownerId: owner,
-      ownerName: owner,
-      points,
-    };
-  });
+        return {
+          ownerId: owner,
+          ownerName: owner,
+          points,
+        };
+      })
+      // POLISH-012: MATCHES `selectWinPctTrend`. Without this, no resolved weeks
+      // produced one point-less series PER OWNER here while win% produced none at
+      // all — so in preseason the two metric charts disagreed about whether there
+      // was anything to draw. They share a fiber, so that divergence is what made
+      // the hook-count crash reachable. "No resolved weeks" must mean "no rows"
+      // for both, which is also the honest answer: there is nothing to chart.
+      .filter((series) => series.points.length > 0)
+  );
 }
 
 /**
@@ -181,15 +191,24 @@ export function selectRankTrend(args: { standingsHistory: StandingsHistory }): R
     selectResolvedStandingsWeeks(standingsHistory);
   const owners = deriveOwnerOrderFromLatestStandings(standingsHistory, latestResolvedWeek);
 
-  return owners.map((owner) => {
-    const points = weeks.flatMap((week) => {
-      const weekStandings = standingsHistory.byWeek[week]?.standings ?? [];
-      const rankIndex = weekStandings.findIndex((row) => row.owner === owner);
-      if (rankIndex === -1) return [];
-      return [{ week, value: rankIndex + 1 }];
-    });
-    return { ownerId: owner, ownerName: owner, points };
-  });
+  return (
+    owners
+      .map((owner) => {
+        const points = weeks.flatMap((week) => {
+          const weekStandings = standingsHistory.byWeek[week]?.standings ?? [];
+          const rankIndex = weekStandings.findIndex((row) => row.owner === owner);
+          if (rankIndex === -1) return [];
+          return [{ week, value: rankIndex + 1 }];
+        });
+        return { ownerId: owner, ownerName: owner, points };
+      })
+      // POLISH-012: ONE convention in this file. This selector has no consumer
+      // today, but leaving it with the old shape means the next component that
+      // renders rank beside another metric inherits the exact divergence that
+      // crashed the standings page — two selectors disagreeing about whether
+      // "no resolved weeks" means "no rows".
+      .filter((series) => series.points.length > 0)
+  );
 }
 
 export function selectGamesBackTrendFull(args: {
