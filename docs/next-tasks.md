@@ -2153,6 +2153,44 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-TEST-STARTUP-HEADROOM-v1`
 
+72. **Empty states for the trend charts — DECIDED, not implemented.** Queued 2026-08-23 out of
+    POLISH-012, which fixed the crash next door and deliberately left this alone.
+
+    **The bug.** Overview renders the “GB Race” heading, its `SectionDivider` and a “Full standings”
+    link over a completely empty body. `historyForRenderHasStandings` (`OverviewPanel.tsx:1438`) asks
+    whether ANY week carries owner rows — and `deriveStandingsHistory` computes `standings`
+    cumulatively for every week regardless of `played`, so in preseason every week carries a full
+    0-0 table and the answer is yes. Meanwhile `MiniTrendsGrid` and `GbChangeTable` both return
+    `null`. Both reviewers found it independently; the owner confirmed it on screen. Pre-existing,
+    made reachable by PLATFORM-105.
+
+    **OWNER DECISION (2026-08-23): keep the section, explain the gap — option 1.** A
+    correctly-sized container with a centred message and NO axes. Do NOT hide the section: the app's
+    convention one row up on the same page is `emptyMessage="No recent results yet—completed games
+    will appear here."` (`OverviewPanel.tsx:1645`), and hiding would make the layout jump when week
+    one resolves.
+
+    **Do NOT draw a preseason week axis**, which was the tempting middle option. Postseason weeks are
+    remapped to `maxRegularSeasonWeek + providerWeek` (`schedule.ts:398`), so a season's timeline is
+    not `1..15` — 2025's postseason sits at canonical 16, 28, 29. 2026's bracket is not yet
+    populated, so an axis drawn now would silently reshape by December. An axis that changes shape
+    under the reader is worse than none, and it forfeits the “no layout jump” benefit anyway.
+
+    Also in scope, same defect family:
+
+    - `SeasonArcChart` passes the RAW archive while `MiniTrendsGrid` draws its x-axis from every
+      week; an archive whose trailing weeks never reached complete coverage gets `W14`/`W15`
+      gridlines with no line behind them. `OverviewPanel` slices to resolved weeks
+      (`sliceStandingsHistoryToRecentWeeks`); this call site does not.
+    - THREE wordings exist for one idea: “No recent results yet—completed games will appear here.”,
+      “No trend data available.”, “No trend data available yet.” Unify.
+
+    **The rule worth carrying out of POLISH-012:** a parent must not predict a child's rendering from
+    a DIFFERENT input than the child uses. Both defects here are that shape. Where a guard is needed,
+    ask the same selector the child asks.
+
+    - **Backlog slug (provisional):** `POLISH-TREND-EMPTY-STATES-v1`
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.

@@ -50,6 +50,51 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### POLISH-012-TREND-CHART-HOOKS-CRASH-v1
+
+- Purpose: Fix a LIVE production crash — clicking the Win % chart tab on the standings page threw
+  and dropped the whole page to the error boundary — and enforce the rule that prevents its class.
+- Scope: `SharedTrendChart` / `TrendChartBody` in `TrendsDetailSurface.tsx`, the three trend
+  selectors in `selectors/trends.ts`, `history/SeasonArcChart.tsx`, `eslint.config.mjs`, and tests.
+- Outcome: two causes, both fixed. `SharedTrendChart` ran five hooks, took an early return for
+  `rows.length === 0`, then ran three more; both metric charts sit in a ternary at the SAME position
+  so React reconciles them onto ONE fiber, and a metric switch crossing that boundary changed the
+  hook count. Extracted `TrendChartBody` (all hooks, no early return) behind a hook-free wrapper.
+  Separately the selectors disagreed about the empty case — `selectWinPctTrend` filtered point-less
+  series, `selectGamesBackTrend` did not — which is what made one metric render the body while the
+  other took the early return. All three selectors now filter.
+- Review / verification: implementation `06da7137`, two rounds `927c628d` and `9cf66b2c`. Both
+  reviewers each round. Gates at the merged head: full suite 4219/4219 exit 0 (0 cancelled),
+  `tsc` exit 0, `lint:all` exit 0 WITH the new rule active, `git diff --check` exit 0.
+- Status: Merged (PR #508, `013ec32b`, 2026-08-23) and PROMOTED the same day —
+  `turfwar.games` serves `cfb-d3n6iu700`, verified by ancestry and a 200 smoke check.
+
+**A CORRECT FIX MADE A LATENT BUG REACHABLE.** `TrendsDetailSurface` was untouched by every recent
+promotion. PLATFORM-105 exposed this: before it, every week counted as resolved — the defect 105
+fixed — so both metrics always had points and the hook counts happened to match. Preseason having
+zero resolved weeks is correct, and it is what broke the page. Two days live before an owner click
+found it. Worth remembering when judging the blast radius of a "narrow" correctness fix.
+
+**THE TWO REVIEWERS SPLIT, AND THE ONE THAT MEASURED WAS RIGHT.** Adding the games-back filter
+changed a consumer: `SeasonArcChart` guarded on `standingsHistory.weeks.length === 0`, which stopped
+predicting whether `MiniTrendsGrid` would draw anything. Codex audited the same consumers by
+inspection and cleared them; `/code-review` rendered the output and measured 1139 chars of SVG
+before, 0 after. Same question, same files, opposite answers. **Weight a measurement over a reading
+when reviewers disagree.**
+
+**A COMMENT BECAME A LINT RULE.** The first fix was guarded only by "Do not add a hook to this
+function." `eslint-plugin-react-hooks` was already a devDependency and simply was not registered.
+Measured both directions rather than asserted: it reports exactly the three offending hooks against
+the pre-fix file, zero across the fixed tree, and a probe component with a hook after an early
+return makes `lint:all` exit 1 — so the gate fires repo-wide, not just where the comment sits.
+
+**A PRESEASON WEEK AXIS CANNOT BE DRAWN HONESTLY** (established while scoping the empty-state
+follow-up). Postseason weeks are remapped to `maxRegularSeasonWeek + providerWeek`
+(`schedule.ts:398`), so a completed season's timeline is not `1..15` — 2025's postseason sits at
+canonical 16, 28 and 29. 2026's bracket is not fully populated, so an axis drawn in August would
+silently reshape by December. This is why the queued empty state is a correctly-sized container
+with a centred message and NO axes.
+
 ### POLISH-011-STANDINGS-COVERAGE-COPY-v1
 
 - Purpose: Replace the member-facing standings coverage message with the owner's decided wording,
