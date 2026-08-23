@@ -39,7 +39,7 @@ import {
   formatDraftScheduleDetail,
   selectPreseasonBannerState,
 } from '../lib/selectors/preseasonBanner';
-import { selectSeasonContext } from '../lib/selectors/seasonContext';
+import type { SeasonContext } from '../lib/selectors/seasonContext';
 import { buildScheduleFromApi, fetchSeasonSchedule, type AppGame } from '../lib/schedule';
 import { fetchTeamsCatalog } from '../lib/teamsCatalog';
 import type { TeamCatalogItem } from '../lib/teamIdentity';
@@ -111,6 +111,18 @@ type CFBScheduleAppProps = {
   assignmentMethod?: 'draft' | 'manual' | null;
   mostRecentArchivedYear?: number;
   canonicalStandings?: CanonicalStandings;
+  /**
+   * PLATFORM-109 — derived on the server by `canonicalStandingsClientProps`,
+   * which the league pages spread alongside `canonicalStandings`. The clock is
+   * still read by a request-time consumer (AGENTS.md invariant 3); it is just
+   * the server component rather than the browser, so the whole season's pending
+   * game list no longer has to cross the boundary for the browser to reduce it
+   * to this string.
+   *
+   * Defaults to `selectSeasonContext`'s own answer for an absent history, which
+   * is what an isolated render (a test, an ad-hoc mount) previously computed.
+   */
+  seasonContext?: SeasonContext;
   initialGames?: AppGame[];
   initialIssues?: string[];
   initialRoster?: OwnerRow[];
@@ -250,6 +262,7 @@ export default function CFBScheduleApp({
   assignmentMethod,
   mostRecentArchivedYear,
   canonicalStandings,
+  seasonContext = 'in-season',
   initialGames = [],
   initialIssues = [],
   initialRoster = [],
@@ -694,11 +707,6 @@ export default function CFBScheduleApp({
     // once canonical revalidates — no client-derived supplement re-enters here.
     return buildOwnerColorMap(canonicalOwnerColorOrder, isDark);
   }, [canonicalOwnerColorOrder, isDark]);
-
-  const seasonContext = useMemo(
-    () => selectSeasonContext({ standingsHistory: canonicalHistory }),
-    [canonicalHistory]
-  );
 
   const activeWeekForDisplay = selectedWeek ?? 0;
   const activeWeekLabel =
@@ -1765,6 +1773,7 @@ export default function CFBScheduleApp({
                   standingsLeaders={overviewSnapshot.standingsLeaders}
                   standingsHistory={canonicalHistory}
                   standingsCoverage={canonicalCoverage}
+                  seasonContext={seasonContext}
                   matchupMatrix={overviewSnapshot.matchupMatrix}
                   liveItems={overviewSnapshot.liveItems}
                   keyMatchups={overviewSnapshot.keyMatchups}

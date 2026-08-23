@@ -1281,6 +1281,10 @@ test('overview panel renders top 3 shared insights in selector order without dup
     <OverviewPanel
       standingsLeaders={standingsHistory.byWeek[3]?.standings ?? []}
       standingsHistory={standingsHistory}
+      // PLATFORM-109: the panel no longer derives this from the history it is
+      // given; the season context arrives as a prop, so the caller supplies the
+      // same value this test already computes for its expectation.
+      seasonContext={selectSeasonContext({ standingsHistory })}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
       liveItems={[]}
@@ -1863,6 +1867,10 @@ test('overview panel renders League Storylines section when selector emits story
         },
       ]}
       standingsHistory={standingsHistory}
+      // PLATFORM-109: the panel no longer derives this from the history it is
+      // given; the season context arrives as a prop, so the caller supplies the
+      // same value this test already computes for its expectation.
+      seasonContext={selectSeasonContext({ standingsHistory })}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
       liveItems={[]}

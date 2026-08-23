@@ -3,6 +3,7 @@ import type { StandingsSubview } from '../../../../components/StandingsPanel';
 import { getLeague } from '../../../../lib/leagueRegistry';
 import { getPreseasonOwners } from '../../../../lib/preseasonOwnerStore';
 import { listSeasonArchives } from '../../../../lib/seasonArchive';
+import { canonicalStandingsClientProps } from '../../../../lib/selectors/canonicalStandingsClient';
 import { getCanonicalStandings } from '../../../../lib/selectors/leagueStandings';
 import { resolveDisplayLeagueStatus } from '../../../../lib/selectors/leagueLifecycle';
 import { isPlatformAdminSession } from '../../../../lib/server/adminAuth';
@@ -51,7 +52,7 @@ export default async function LeagueStandingsPage({
         leagueStatus={resolveDisplayLeagueStatus(league)}
         assignmentMethod={league?.assignmentMethod}
         mostRecentArchivedYear={mostRecentArchivedYear}
-        canonicalStandings={canonicalStandings}
+        {...canonicalStandingsClientProps(canonicalStandings)}
         initialPreseasonOwners={preseasonOwners}
         initialStandingsSubview={initialStandingsSubview}
         isAdmin={isAdmin}

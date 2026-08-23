@@ -818,3 +818,56 @@ test('POLISH-005: no admin-only affordance is offered to a member', () => {
   assert.doesNotMatch(html, /Open Data Management/);
   assert.doesNotMatch(html, /\/admin\//, 'no admin deep link');
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-109 — the season context arrives as a server-derived prop.
+//
+// It used to be computed here, from `standingsHistory.byWeek[*].pending`, which
+// meant the whole season's unplayed-game list had to be serialized to the
+// browser. These two renders share a history whose only pending game kicked off
+// long ago — the input that made the old client-side computation answer `final`
+// — and differ only in the prop, so a component that went back to deriving the
+// value from the history would fail the first of them.
+// ---------------------------------------------------------------------------
+
+function canonicalWithLongPastPendingGame(): CanonicalStandings {
+  const base = canonicalStandings(['Alice', 'Bob']);
+  return {
+    ...base,
+    standingsHistory: {
+      weeks: [1],
+      byWeek: {
+        1: {
+          week: 1,
+          standings: [],
+          coverage: { state: 'complete', message: null },
+          played: false,
+          pending: [{ key: 'g-1', week: 1, kickoff: '2020-09-05T18:00:00.000Z' }],
+        },
+      },
+      byOwner: {},
+    },
+  };
+}
+
+test('PLATFORM-109: the standings Move column follows the seasonContext prop, not the history', () => {
+  const inSeason = renderWithAppContext(
+    <CFBScheduleApp
+      initialWeekViewMode="standings"
+      initialGames={[game({ week: 1 })]}
+      canonicalStandings={canonicalWithLongPastPendingGame()}
+      seasonContext="in-season"
+    />
+  );
+  assert.match(inSeason, /Move/, 'an in-season prop must keep the Move column');
+
+  const final = renderWithAppContext(
+    <CFBScheduleApp
+      initialWeekViewMode="standings"
+      initialGames={[game({ week: 1 })]}
+      canonicalStandings={canonicalWithLongPastPendingGame()}
+      seasonContext="final"
+    />
+  );
+  assert.doesNotMatch(final, /Move/, 'a final prop must drop the Move column');
+});

@@ -25,7 +25,7 @@ import {
   selectOverviewViewModel,
   type PrioritizedOverviewItem,
 } from '../lib/selectors/overview';
-import { selectSeasonContext } from '../lib/selectors/seasonContext';
+import type { SeasonContext } from '../lib/selectors/seasonContext';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import { selectFreshOwnerPendingDelta } from '../lib/selectors/liveDelta';
 import type { LiveDelta } from '../lib/selectors/liveDelta';
@@ -1375,6 +1375,12 @@ type OverviewPanelProps = {
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   rankings?: RankingsResponse | null;
   standingsHistory?: StandingsHistory | null;
+  /**
+   * PLATFORM-109 — server-derived, see the matching note on `CFBScheduleApp`.
+   * Defaults to `selectSeasonContext`'s answer for an absent history so an
+   * isolated render behaves as it did when this was computed here.
+   */
+  seasonContext?: SeasonContext;
   leagueSlug?: string;
   engineInsights?: Insight[];
   lifecycleState?: LifecycleState;
@@ -1401,6 +1407,7 @@ export default function OverviewPanel({
   rankingsByTeamId = new Map(),
   rankings = null,
   standingsHistory = null,
+  seasonContext = 'in-season',
   leagueSlug,
   engineInsights = [],
   lifecycleState,
@@ -1480,8 +1487,6 @@ export default function OverviewPanel({
     ]
   );
   const sharedInsights = React.useMemo(() => {
-    const seasonContext = selectSeasonContext({ standingsHistory: historyForRender });
-
     // Insight narratives compare against historyForRender's resolved weeks. If
     // we feed deriveLeagueInsights raw rowsForRender during a partial week, the
     // current snapshot reflects unresolved game state while the history deltas
@@ -1519,7 +1524,7 @@ export default function OverviewPanel({
       merged.push(insight);
     }
     return merged.slice(0, OVERVIEW_INSIGHT_SLOTS);
-  }, [historyForRender, rowsForRender, engineInsights]);
+  }, [historyForRender, rowsForRender, engineInsights, seasonContext]);
 
   const positionDeltaData = React.useMemo(() => {
     if (!historyForRender) return null;
