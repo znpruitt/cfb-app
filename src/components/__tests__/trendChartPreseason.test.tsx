@@ -8,6 +8,7 @@ import { cleanup, fireEvent, render } from '@testing-library/react';
 import TrendsDetailSurface, { SharedTrendChart } from '../TrendsDetailSurface';
 import { selectGamesBackTrend, selectWinPctTrend } from '../../lib/selectors/trends';
 import type { StandingsHistory } from '../../lib/standingsHistory';
+import { TREND_EMPTY_MESSAGE } from '../../lib/trendEmptyState';
 
 // ---------------------------------------------------------------------------
 // POLISH-012 — the live crash a member hit on 2026-08-23.
@@ -163,17 +164,17 @@ test('the trend chart survives crossing the empty boundary at one position', () 
 
   // Empty first: the wrapper's own branch, no hooks.
   const { rerender, container } = render(chart([]));
-  assert.match(container.textContent ?? '', /No trend data available yet\./);
+  assert.ok((container.textContent ?? '').includes(TREND_EMPTY_MESSAGE));
 
   // Then non-empty AT THE SAME POSITION. Before the split this transition ran a
   // different number of hooks on one fiber and threw.
   rerender(chart(NON_EMPTY_ROWS));
-  assert.doesNotMatch(container.textContent ?? '', /No trend data available yet\./);
+  assert.ok(!(container.textContent ?? '').includes(TREND_EMPTY_MESSAGE));
   assert.ok(container.querySelector('svg'), 'the non-empty case must actually draw');
 
   // And back, which is the direction the production crash took.
   rerender(chart([]));
-  assert.match(container.textContent ?? '', /No trend data available yet\./);
+  assert.ok((container.textContent ?? '').includes(TREND_EMPTY_MESSAGE));
 
   cleanup();
 });

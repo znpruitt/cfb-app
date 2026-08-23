@@ -1071,10 +1071,12 @@ test('overview panel shows win percent empty-state copy when no resolved standin
     />
   );
 
-  // With no resolved standings history (the only week has empty standings), the
-  // trend / GB Race section is omitted entirely rather than rendering a zeroed
-  // "Latest: 0.0%" win-percentage trend.
-  assert.doesNotMatch(html, /GB Race/);
+  // POLISH-013 (owner decision, 2026-08-23): the section is no longer omitted.
+  // It renders with an explained empty state, so the page does not jump when the
+  // first week resolves. What must still NOT appear is the zeroed
+  // "Latest: 0.0%" win-percentage trend this test was written for.
+  assert.match(html, /GB Race/);
+  assert.match(html, /No completed games yet—trends will appear here\./);
   assert.doesNotMatch(html, /Latest: 0\.0%/);
 });
 
@@ -2153,4 +2155,100 @@ test('overview panel renders date plus Time TBD instead of the placeholder clock
 
   assert.match(html, /Tue, Sep 1 · Time TBD/);
   assert.doesNotMatch(html, /12:00 AM/);
+});
+
+// ---------------------------------------------------------------------------
+// POLISH-013 — the GB Race section explains its gap instead of rendering a
+// heading over nothing.
+//
+// `deriveStandingsHistory` builds a cumulative standings table for EVERY week
+// regardless of `played`, so in preseason every week carries a full 0-0 table.
+// The old section guard asked exactly that question — "does any week carry owner
+// rows?" — while both children ask the trend selector, which yields nothing
+// until a week resolves. Heading, divider and link over an empty body.
+// ---------------------------------------------------------------------------
+
+/** Owners and weeks exist; nothing is played, so nothing resolves. */
+function unresolvedHistory(): StandingsHistory {
+  const owners = ['Alice', 'Bob'];
+  const rows = owners.map((owner) => ({
+    owner,
+    wins: 0,
+    losses: 0,
+    ties: 0,
+    winPct: 0,
+    pointsFor: 0,
+    pointsAgainst: 0,
+    pointDifferential: 0,
+    gamesBack: 0,
+    finalGames: 0,
+  }));
+  const weeks = [1, 2, 3];
+  const byWeek: StandingsHistory['byWeek'] = {};
+  for (const week of weeks) {
+    byWeek[week] = {
+      week,
+      standings: rows,
+      coverage: { state: 'complete', message: null },
+      played: false,
+      pending: [],
+    };
+  }
+  const byOwner: StandingsHistory['byOwner'] = {};
+  for (const owner of owners) {
+    byOwner[owner] = weeks.map((week) => ({
+      week,
+      wins: 0,
+      losses: 0,
+      ties: 0,
+      winPct: 0,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 0,
+      gamesBack: 0,
+    }));
+  }
+  return { weeks, byWeek, byOwner };
+}
+
+function renderOverviewWithHistory(history: StandingsHistory): string {
+  return renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsHistory={history}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+}
+
+test('POLISH-013: GB Race explains the gap when no week has resolved', () => {
+  const html = renderOverviewWithHistory(unresolvedHistory());
+
+  // The section stays — hiding it makes the page jump when week one resolves.
+  assert.match(html, /GB Race/);
+  assert.match(html, /No completed games yet—trends will appear here\./);
+  // And it draws no axis. A preseason week axis would reshape once the
+  // postseason bracket populates, so the empty state carries none.
+  assert.doesNotMatch(html, />W1</, 'no week gridline label may be drawn');
+});
+
+test('POLISH-013: GB Race draws the charts once a week resolves', () => {
+  // Positive control: the same fixture shape MUST be able to draw, or the test
+  // above would pass against a section that can only ever show the message.
+  const history = unresolvedHistory();
+  history.byWeek[1] = { ...history.byWeek[1]!, played: true };
+  history.byOwner.Bob = history.byOwner.Bob!.map((point) =>
+    point.week === 1 ? { ...point, gamesBack: 1 } : point
+  );
+
+  const html = renderOverviewWithHistory(history);
+
+  assert.match(html, /GB Race/);
+  assert.doesNotMatch(html, /No completed games yet—trends will appear here\./);
+  assert.match(html, />W1</, 'the resolved week must be drawn');
 });

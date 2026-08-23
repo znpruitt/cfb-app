@@ -67,3 +67,42 @@ export function selectResolvedStandingsWeeks(
     previousResolvedWeek,
   };
 }
+
+/**
+ * The history restricted to its RESOLVED weeks, optionally to the last `n` of
+ * them.
+ *
+ * Every trend surface draws from resolved weeks, but not every one of them said
+ * so. `MiniTrendsGrid` takes its x-axis domain from `standingsHistory.weeks`, so
+ * a caller that hands it the raw history gets a labelled gridline for each week
+ * the selectors will then decline to populate — a `W14`/`W15` column with no
+ * line behind it, which is the archive half of POLISH-013.
+ *
+ * Resolved rather than merely played: a played week whose coverage is incomplete
+ * is dropped by the trend selectors, so slicing on `played` alone still leaves a
+ * labelled column with no series behind it.
+ *
+ * Moved here from `OverviewPanel` in POLISH-013. It was a derivation living in a
+ * client component (AGENTS.md core rule 9), which is also why the archive call
+ * site could not reach it.
+ */
+export function sliceStandingsHistoryToResolvedWeeks(
+  history: StandingsHistory,
+  options?: { last?: number }
+): StandingsHistory {
+  const resolved = selectResolvedStandingsWeeks(history).resolvedWeeks;
+  const weeks = typeof options?.last === 'number' ? resolved.slice(-options.last) : resolved;
+  const weekSet = new Set(weeks);
+  return {
+    weeks,
+    byWeek: Object.fromEntries(
+      Object.entries(history.byWeek).filter(([week]) => weekSet.has(Number(week)))
+    ),
+    byOwner: Object.fromEntries(
+      Object.entries(history.byOwner).map(([owner, points]) => [
+        owner,
+        points.filter((point) => weekSet.has(point.week)),
+      ])
+    ),
+  };
+}

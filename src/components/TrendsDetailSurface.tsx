@@ -7,6 +7,7 @@ import { type SeasonContext } from '../lib/selectors/seasonContext';
 import { selectGamesBackTrend, selectWinBars, selectWinPctTrend } from '../lib/selectors/trends';
 import type { StandingsHistory } from '../lib/standingsHistory';
 import { deriveFocusedOwners, type FocusMode } from '../lib/trendsFocus';
+import { TREND_EMPTY_MESSAGE } from '../lib/trendEmptyState';
 
 type MetricKind = 'games-back' | 'win-pct';
 type LayoutMode = 'standalone' | 'embedded';
@@ -1108,9 +1109,7 @@ export function SharedTrendChart(props: React.ComponentProps<typeof TrendChartBo
             {props.title}
           </h2>
         ) : null}
-        <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">
-          No trend data available yet.
-        </p>
+        <p className="mt-2 text-sm text-gray-500 dark:text-zinc-400">{TREND_EMPTY_MESSAGE}</p>
       </section>
     );
   }

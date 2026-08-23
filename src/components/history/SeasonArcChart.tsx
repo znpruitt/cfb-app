@@ -3,8 +3,10 @@
 import React from 'react';
 import MiniTrendsGrid from '@/components/MiniTrendsGrid';
 import { buildOwnerColorMap, isDarkTheme } from '@/lib/ownerColors';
+import { sliceStandingsHistoryToResolvedWeeks } from '@/lib/selectors/historyResolution';
 import { selectGamesBackTrend } from '@/lib/selectors/trends';
 import type { StandingsHistory } from '@/lib/standingsHistory';
+import { TREND_EMPTY_MESSAGE } from '@/lib/trendEmptyState';
 
 type Props = {
   standingsHistory: StandingsHistory;
@@ -16,6 +18,17 @@ export default function SeasonArcChart({ standingsHistory, year }: Props): React
     const allOwners = Object.keys(standingsHistory.byOwner);
     return buildOwnerColorMap(allOwners, isDarkTheme());
   }, [standingsHistory.byOwner]);
+
+  // POLISH-013: `MiniTrendsGrid` takes its x-axis domain from
+  // `standingsHistory.weeks`, so handing it the RAW archive draws a labelled
+  // gridline for every week — including trailing weeks whose coverage never
+  // completed, which the trend selectors then decline to populate. Overview
+  // slices before it draws; this call site did not, so an archived season with
+  // an incomplete tail showed `W14`/`W15` columns with no line behind them.
+  const resolvedHistory = React.useMemo(
+    () => sliceStandingsHistoryToResolvedWeeks(standingsHistory),
+    [standingsHistory]
+  );
 
   // POLISH-012: ask the SELECTOR, not `weeks`. `MiniTrendsGrid` renders nothing
   // when the series are empty, and since games-back now discards point-less
@@ -37,9 +50,9 @@ export default function SeasonArcChart({ standingsHistory, year }: Props): React
         Games back from first place, week by week.
       </p>
       {hasTrendData ? (
-        <MiniTrendsGrid standingsHistory={standingsHistory} ownerColorMap={ownerColorMap} />
+        <MiniTrendsGrid standingsHistory={resolvedHistory} ownerColorMap={ownerColorMap} />
       ) : (
-        <p className="text-sm text-gray-500 dark:text-zinc-400">No trend data available.</p>
+        <p className="text-sm text-gray-500 dark:text-zinc-400">{TREND_EMPTY_MESSAGE}</p>
       )}
     </section>
   );

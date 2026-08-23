@@ -7,6 +7,7 @@ import { cleanup, render } from '@testing-library/react';
 
 import SeasonArcChart from '../SeasonArcChart';
 import type { StandingsHistory } from '../../../lib/standingsHistory';
+import { TREND_EMPTY_MESSAGE } from '../../../lib/trendEmptyState';
 
 // ---------------------------------------------------------------------------
 // POLISH-012 — the guard here must agree with what MiniTrendsGrid will render.
@@ -72,7 +73,7 @@ test('season arc shows its fallback when weeks exist but none resolved', () => {
 
   // The regression: weeks.length !== 0, so the old guard rendered the grid,
   // which returned null — heading and subtitle over nothing.
-  assert.match(container.textContent ?? '', /No trend data available\./);
+  assert.ok((container.textContent ?? '').includes(TREND_EMPTY_MESSAGE));
   assert.equal(container.querySelector('svg'), null, 'nothing should be drawn');
   cleanup();
 });
@@ -83,7 +84,21 @@ test('season arc draws the chart once a week resolves', () => {
 
   // Positive control: the same fixture shape MUST be able to draw, or the test
   // above would pass against a component that can only ever show the fallback.
-  assert.doesNotMatch(container.textContent ?? '', /No trend data available\./);
+  assert.ok(!(container.textContent ?? '').includes(TREND_EMPTY_MESSAGE));
   assert.ok(container.querySelector('svg'), 'the resolved case must draw');
+  cleanup();
+});
+
+test('POLISH-013: the season arc draws no gridline for a week that never resolved', () => {
+  assert.ok(dom);
+  // Weeks 1-3 exist; only 1 and 2 resolved. `MiniTrendsGrid` takes its x-axis
+  // domain from `standingsHistory.weeks`, so handing it the raw archive labels a
+  // W3 column the trend selectors will never populate.
+  const { container } = render(<SeasonArcChart standingsHistory={archive([1, 2])} year={2024} />);
+
+  const text = container.textContent ?? '';
+  assert.ok(text.includes('W1'), 'the resolved weeks must still be labelled');
+  assert.ok(text.includes('W2'), 'the resolved weeks must still be labelled');
+  assert.ok(!text.includes('W3'), 'an unresolved trailing week must not be labelled');
   cleanup();
 });
