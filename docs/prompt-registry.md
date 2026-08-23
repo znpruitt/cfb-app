@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-08-22
+Last verified: 2026-08-23
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -49,6 +49,47 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### POLISH-011-STANDINGS-COVERAGE-COPY-v1
+
+- Purpose: Replace the member-facing standings coverage message with the owner's decided wording,
+  and remove two coverage variants no production caller could reach.
+- Scope: `deriveStandingsCoverage`, the `coverageOptions` pass-through on `deriveStandingsHistory`,
+  the Overview notice, and their tests. Coverage SEMANTICS untouched — what makes coverage partial
+  or complete remains PLATFORM-105A's, cumulative fail-closed propagation included.
+- Outcome: the incomplete state makes ONE claim, `Waiting on complete results`. Overview renders
+  `Standings — waiting on complete results` through `standingsCoverageNoticeWithSubject`, because
+  the identical line sits there above standings, FBS polls and insights together and a bare
+  fragment cannot say which is waiting; `StandingsPanel` keeps the short form because its own
+  heading supplies the subject. Both forms are written out, never derived by string inspection — a
+  blind prefix would have produced "Standings: Standings coverage is unavailable." The
+  `isLoadingScores`/`hasScoreLoadError` options and their two messages are deleted: nothing in
+  production ever set them, verified across every non-test caller by both reviewers. The `error`
+  STATE is deliberately KEPT — `STANDINGS_COVERAGE_UNAVAILABLE` still produces it and
+  `StandingsPanel` still styles it amber.
+- Review / verification: implementation `4e86809b`, one remediation round `a3b4955c`. Both reviewers
+  ran against `4e86809b` before anything was touched — Claude implemented this slice AND wrote the
+  item it implements, so neither the change nor its rationale had an independent reader until then.
+  Codex: no credible P0/P1/P2. `/code-review`: one medium, two low. **All four findings were the
+  author's, and the medium is a rule violation worth recording** — Overview is a SECOND READER of
+  `coverage.message` that was never enumerated. The writers of coverage were audited exhaustively
+  and correctly; the readers were not audited at all. Mutation-proven: incomplete→complete fails 4
+  tests, complete-unreachable fails 4 including both positive controls, and dropping the Overview
+  subject fails the notice test. Gates at `a3b4955c`, each its own command: full suite 4210/4210
+  exit 0 with 0 cancelled, `tsc --noEmit` exit 0, `lint:all` exit 0, `git diff --check` exit 0.
+- Status: IMPLEMENTED AND REVIEW-COMPLETE, NOT MERGED — branch
+  `polish/011-standings-coverage-copy`, head `a3b4955c`.
+
+**A claim corrected in three places, because it was wrong in all of them.** The first
+implementation's comment — and `docs/next-tasks.md` item 69, and the author's reasoning presented
+to the owner in conversation — asserted that reaching the incomplete branch means automatic repair
+ALREADY RAN and failed. Codex disproved it: PLATFORM-107's sweep runs after the schedule commit
+only when the caller asks for it. A manual full-year admin refresh does not
+(`api/schedule/route.ts` full-season path), and the weekly cron skips it whenever score automation
+is paused or disabled (`api/cron/schedule-refresh/route.ts`). Partial coverage therefore proves a
+missing usable result and nothing more. The correction STRENGTHENS the shipped wording: a result
+may still be genuinely en route, which is what makes "Waiting" honest, and what
+"…are not available YET" got wrong was promising an imminence the predicate cannot support.
 
 ### PLATFORM-108-TEST-PACING-AND-STARTUP-v1
 

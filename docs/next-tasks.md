@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-08-22
+Last verified: 2026-08-23
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -2081,7 +2081,7 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-ARCHIVE-COVERAGE-INTEGRITY-v1`
 
-69. **DECIDED, not yet implemented — standings coverage banner copy.** `StandingsPanel:266`
+69. 🟡 **IMPLEMENTED, merge pending — standings coverage banner copy.** `StandingsPanel:266`
     renders `coverage.message`. The canonical path (`leagueStandings.ts:927`) passes no options, so
     only the third variant can render: “Standings may be incomplete — some completed game scores are
     not available yet.” The other two (“still loading”, “could not be loaded”) are reachable only from
@@ -2116,7 +2116,11 @@ Supersedes: (none)
     string or collapses into the same claim, and whether the two dead variants are removed or wired
     up. Neither changes the member-facing decision above.
 
-    - **Backlog slug (provisional):** `POLISH-STANDINGS-COVERAGE-COPY-v1`
+    Implemented as `POLISH-011-STANDINGS-COVERAGE-COPY-v1` on
+    `polish/011-standings-coverage-copy` (head `a3b4955c`); execution and review record live in
+    `docs/prompt-registry.md`. Both remaining implementation questions are settled: the two dead
+    variants were deleted, and the `error` state was kept because `STANDINGS_COVERAGE_UNAVAILABLE`
+    still produces it and `StandingsPanel` still styles it amber.
 
 70. ✅ **MERGED — test-only upstream pacing bypass.**
     `PLATFORM-108-TEST-PACING-AND-STARTUP-v1` shipped via PR #506 (`1896b149`) on 2026-08-22. The
