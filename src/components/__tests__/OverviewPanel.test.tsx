@@ -773,12 +773,17 @@ test('overview panel keeps standings as the only condensed ranking table', () =>
     />
   );
 
-  // Exactly one condensed standings table is rendered (one "Standings" heading
-  // with its single "Full standings →" link).
+  // Exactly one condensed standings table is rendered (one "Standings" heading).
   const standingsHeaderOccurrences = html.match(/>Standings</g) ?? [];
   assert.equal(standingsHeaderOccurrences.length, 1);
+  // POLISH-013 remediation: TWO "Full standings" links now, not one. This
+  // fixture supplies owner rows and no history, and per the owner decision
+  // (2026-08-23) the GB Race section renders for any league with owners — so its
+  // header contributes a second link, exactly as it always did whenever the
+  // section was visible. The link count was a proxy for "is GB Race here"; the
+  // heading count above is this test's actual subject and is unchanged.
   const fullStandingsLinks = html.match(/Full standings →/g) ?? [];
-  assert.equal(fullStandingsLinks.length, 1);
+  assert.equal(fullStandingsLinks.length, 2);
   assert.doesNotMatch(html, /League snapshot/);
   // Standings is positioned ahead of the results (Featured games) section.
   assert.ok(html.indexOf('>Standings<') < html.indexOf('Featured games'));
@@ -2226,29 +2231,100 @@ function renderOverviewWithHistory(history: StandingsHistory): string {
   );
 }
 
+/**
+ * The GB Race section's own markup.
+ *
+ * Review found the first version of these tests asserting on `>W1<` across the
+ * WHOLE page, which three unrelated producers emit — the condensed standings
+ * header, the chart's x-axis, and the GB change table. It could not tell "the
+ * chart drew" from "the standings table grew a column", and that is precisely
+ * what masked the one-resolved-week gap below.
+ */
+function gbRaceMarkup(html: string): string {
+  const start = html.indexOf('GB Race');
+  assert.ok(start >= 0, 'the GB Race section must be present');
+  return html.slice(start);
+}
+
 test('POLISH-013: GB Race explains the gap when no week has resolved', () => {
-  const html = renderOverviewWithHistory(unresolvedHistory());
+  const gbRace = gbRaceMarkup(renderOverviewWithHistory(unresolvedHistory()));
 
   // The section stays — hiding it makes the page jump when week one resolves.
-  assert.match(html, /GB Race/);
-  assert.match(html, /No completed games yet—trends will appear here\./);
-  // And it draws no axis. A preseason week axis would reshape once the
-  // postseason bracket populates, so the empty state carries none.
-  assert.doesNotMatch(html, />W1</, 'no week gridline label may be drawn');
+  assert.match(gbRace, /No completed games yet—trends will appear here\./);
+  // And it draws nothing at all: no chart, so no axis. A preseason week axis
+  // would reshape once the postseason bracket populates.
+  assert.ok(!gbRace.includes('<svg'), 'the empty state must draw no chart');
 });
 
-test('POLISH-013: GB Race draws the charts once a week resolves', () => {
-  // Positive control: the same fixture shape MUST be able to draw, or the test
-  // above would pass against a section that can only ever show the message.
+test('POLISH-013: one resolved week draws POINTS, not an invisible line', () => {
+  // A one-point series builds a moveto-only path, which SVG does not render — so
+  // this state used to pass the guard and draw an empty box. Owner decision
+  // (2026-08-23): draw the points.
   const history = unresolvedHistory();
   history.byWeek[1] = { ...history.byWeek[1]!, played: true };
   history.byOwner.Bob = history.byOwner.Bob!.map((point) =>
     point.week === 1 ? { ...point, gamesBack: 1 } : point
   );
 
-  const html = renderOverviewWithHistory(history);
+  const gbRace = gbRaceMarkup(renderOverviewWithHistory(history));
 
-  assert.match(html, /GB Race/);
-  assert.doesNotMatch(html, /No completed games yet—trends will appear here\./);
-  assert.match(html, />W1</, 'the resolved week must be drawn');
+  assert.ok(!gbRace.includes('No completed games yet'), 'one resolved week is not empty');
+  assert.ok(gbRace.includes('<svg'), 'the chart must render');
+  assert.ok(gbRace.includes('<circle'), 'a single resolved week must be drawn as points');
+  assert.ok(!/<path d="M[^"]*L/.test(gbRace), 'there is no second point to draw a line to');
+});
+
+test('POLISH-013: two resolved weeks draw a line', () => {
+  // Positive control for the shape above: the same fixture MUST be able to
+  // produce a real line, or the point-marker assertion would prove nothing.
+  const history = unresolvedHistory();
+  for (const week of [1, 2]) {
+    history.byWeek[week] = { ...history.byWeek[week]!, played: true };
+  }
+  history.byOwner.Bob = history.byOwner.Bob!.map((point) =>
+    point.week === 1 ? { ...point, gamesBack: 1 } : point
+  );
+
+  const gbRace = gbRaceMarkup(renderOverviewWithHistory(history));
+
+  assert.ok(/<path d="M[^"]*L/.test(gbRace), 'two resolved weeks must draw a line');
+});
+
+test('POLISH-013: the section renders for a league with owners but no history at all', () => {
+  // `preseason-names` — owners confirmed, no draft yet — has owner rows and a
+  // NULL history. Gating on history alone still made the section appear out of
+  // nowhere, just at the draft instead of at week one.
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsLeaders}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  const gbRace = gbRaceMarkup(html);
+  assert.match(gbRace, /No completed games yet—trends will appear here\./);
+  assert.ok(!gbRace.includes('<svg'), 'nothing to draw without a history');
+});
+
+test('POLISH-013: the section stays hidden for a league with no owners', () => {
+  // "Add owners to populate standings" is the real blocker there, and the
+  // standings panel above already says so.
+  const html = renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={[]}
+      standingsCoverage={coverage}
+      matchupMatrix={{ owners: [], rows: [] }}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+    />
+  );
+
+  assert.doesNotMatch(html, /GB Race/);
 });

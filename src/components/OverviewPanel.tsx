@@ -1434,6 +1434,15 @@ export default function OverviewPanel({
     [historyForRender]
   );
   const gbRaceHasTrendData = gbRaceSeries.length > 0;
+  // OWNER DECISION (2026-08-23, remediation): the section applies whenever the
+  // league HAS owners, history or not. A league with confirmed preseason owners
+  // and no draft yet has canonical source `preseason-names` and therefore NO
+  // standings history at all, so gating on history alone still made the section
+  // appear out of nowhere — the same layout jump the decision rejected, just
+  // moved from week one to the draft. A league with no owners keeps the section
+  // hidden: "add owners" is the real blocker there, and the standings panel
+  // above already says so.
+  const gbRaceSectionApplies = rowsForRender.length > 0;
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const weekLabelFn = React.useMemo(() => {
     const labelMap = buildWeekLabelMap(games);
@@ -1678,7 +1687,7 @@ export default function OverviewPanel({
       ) : null}
 
       {/* GB Race */}
-      {historyForRender ? (
+      {gbRaceSectionApplies ? (
         <>
           <SectionDivider />
           <section>
@@ -1690,7 +1699,7 @@ export default function OverviewPanel({
                 </ViewMoreLink>
               }
             />
-            {gbRaceHasTrendData ? (
+            {gbRaceHasTrendData && historyForRender ? (
               <div className="mt-2.5 flex flex-col gap-3 sm:flex-row">
                 <div className="min-w-0 flex-1">
                   <MiniTrendsGrid

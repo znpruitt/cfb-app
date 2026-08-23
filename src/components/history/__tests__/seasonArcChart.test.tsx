@@ -102,3 +102,18 @@ test('POLISH-013: the season arc draws no gridline for a week that never resolve
   assert.ok(!text.includes('W3'), 'an unresolved trailing week must not be labelled');
   cleanup();
 });
+
+test('POLISH-013 remediation: an interior unresolved week keeps its place on the axis', () => {
+  assert.ok(dom);
+  // Weeks 1-3; week 2 never reached complete coverage but week 3 did. Trimming
+  // every unresolved week would render W1 and W3 adjacent — and the grid spaces
+  // by array INDEX, not week number — so a two-week swing would read as one.
+  // Only the trailing tail is trimmed, so week 2 keeps its position.
+  const { container } = render(<SeasonArcChart standingsHistory={archive([1, 3])} year={2024} />);
+
+  const text = container.textContent ?? '';
+  assert.ok(text.includes('W1'), 'first resolved week must be labelled');
+  assert.ok(text.includes('W3'), 'last resolved week must be labelled');
+  assert.ok(text.includes('W2'), 'the interior unresolved week must keep its axis position');
+  cleanup();
+});

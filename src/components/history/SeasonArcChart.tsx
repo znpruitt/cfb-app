@@ -3,7 +3,7 @@
 import React from 'react';
 import MiniTrendsGrid from '@/components/MiniTrendsGrid';
 import { buildOwnerColorMap, isDarkTheme } from '@/lib/ownerColors';
-import { sliceStandingsHistoryToResolvedWeeks } from '@/lib/selectors/historyResolution';
+import { trimTrailingUnresolvedWeeks } from '@/lib/selectors/historyResolution';
 import { selectGamesBackTrend } from '@/lib/selectors/trends';
 import type { StandingsHistory } from '@/lib/standingsHistory';
 import { TREND_EMPTY_MESSAGE } from '@/lib/trendEmptyState';
@@ -25,8 +25,12 @@ export default function SeasonArcChart({ standingsHistory, year }: Props): React
   // completed, which the trend selectors then decline to populate. Overview
   // slices before it draws; this call site did not, so an archived season with
   // an incomplete tail showed `W14`/`W15` columns with no line behind them.
-  const resolvedHistory = React.useMemo(
-    () => sliceStandingsHistoryToResolvedWeeks(standingsHistory),
+  //
+  // Remediation: trim only the TAIL. Dropping every unresolved week also closed
+  // interior gaps, and the grid spaces by index — so a missing week 7 rendered
+  // W6 and W8 adjacent and compressed a two-week swing into one.
+  const drawnHistory = React.useMemo(
+    () => trimTrailingUnresolvedWeeks(standingsHistory),
     [standingsHistory]
   );
 
@@ -36,9 +40,13 @@ export default function SeasonArcChart({ standingsHistory, year }: Props): React
   // archived season whose cumulative coverage never completed has weeks but no
   // resolved ones, and this section rendered its heading and subtitle over an
   // empty body while its own fallback was skipped.
+  // Ask the question of the history this component actually DRAWS, not the one
+  // it was handed — the rule this slice exists to enforce. The two agree today,
+  // which is exactly why deriving the guard from the drawn history costs nothing
+  // and makes divergence structurally impossible.
   const hasTrendData = React.useMemo(
-    () => selectGamesBackTrend({ standingsHistory }).length > 0,
-    [standingsHistory]
+    () => selectGamesBackTrend({ standingsHistory: drawnHistory }).length > 0,
+    [drawnHistory]
   );
 
   return (
@@ -50,7 +58,7 @@ export default function SeasonArcChart({ standingsHistory, year }: Props): React
         Games back from first place, week by week.
       </p>
       {hasTrendData ? (
-        <MiniTrendsGrid standingsHistory={resolvedHistory} ownerColorMap={ownerColorMap} />
+        <MiniTrendsGrid standingsHistory={drawnHistory} ownerColorMap={ownerColorMap} />
       ) : (
         <p className="text-sm text-gray-500 dark:text-zinc-400">{TREND_EMPTY_MESSAGE}</p>
       )}

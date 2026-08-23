@@ -91,7 +91,46 @@ export function sliceStandingsHistoryToResolvedWeeks(
   options?: { last?: number }
 ): StandingsHistory {
   const resolved = selectResolvedStandingsWeeks(history).resolvedWeeks;
-  const weeks = typeof options?.last === 'number' ? resolved.slice(-options.last) : resolved;
+  const last = options?.last;
+  // `slice(-0)` is `slice(0)` — the WHOLE array — so an explicit request for zero
+  // recent weeks used to return every resolved week. Review caught it; no caller
+  // passes 0 today, but this is a shared helper with a public wrapper.
+  const weeks = typeof last === 'number' ? (last > 0 ? resolved.slice(-last) : []) : resolved;
+  const weekSet = new Set(weeks);
+  return {
+    weeks,
+    byWeek: Object.fromEntries(
+      Object.entries(history.byWeek).filter(([week]) => weekSet.has(Number(week)))
+    ),
+    byOwner: Object.fromEntries(
+      Object.entries(history.byOwner).map(([owner, points]) => [
+        owner,
+        points.filter((point) => weekSet.has(point.week)),
+      ])
+    ),
+  };
+}
+
+/**
+ * The history with its TRAILING unresolved weeks removed, and nothing else.
+ *
+ * POLISH-013 remediation. Slicing an archive to only its resolved weeks fixed the
+ * reported defect — trailing `W14`/`W15` gridlines with no line behind them — and
+ * introduced a quieter one: `MiniTrendsGrid` spaces gridlines by array INDEX, not
+ * by week number, so dropping an unresolved week in the MIDDLE renders its
+ * neighbours adjacent. An archived season whose week 7 never reached complete
+ * coverage would show W6 and W8 side by side, and a two-week swing would read as
+ * a one-week swing.
+ *
+ * The reported defect is entirely about the TAIL, so only the tail is trimmed.
+ * Interior gaps stay where they are, at their true x positions, with no series
+ * drawn across them.
+ */
+export function trimTrailingUnresolvedWeeks(history: StandingsHistory): StandingsHistory {
+  const { latestResolvedWeek } = selectResolvedStandingsWeeks(history);
+  if (latestResolvedWeek === null) return { weeks: [], byWeek: {}, byOwner: {} };
+
+  const weeks = history.weeks.filter((week) => week <= latestResolvedWeek);
   const weekSet = new Set(weeks);
   return {
     weeks,
