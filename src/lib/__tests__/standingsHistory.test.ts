@@ -257,14 +257,14 @@ test('deriveStandingsHistory derives coverage onto each week snapshot', () => {
   // if coverage were derived for only the first or only the last snapshot.
   const games = [
     game({
-      key: 'missing-final-score',
+      key: 'week-one-scored',
       week: 1,
       csvAway: 'A-Team',
       csvHome: 'B-Team',
       status: 'final',
     }),
     game({
-      key: 'week-two-scored',
+      key: 'week-two-missing',
       week: 2,
       csvAway: 'A-Team',
       csvHome: 'B-Team',
@@ -277,39 +277,40 @@ test('deriveStandingsHistory derives coverage onto each week snapshot', () => {
     'B-Team': 'Beta',
   };
 
-  const scoresByKey = {
-    'missing-final-score': {
-      status: 'Scheduled',
-      time: 'Delayed',
-      away: { team: 'A-Team', score: null },
-      home: { team: 'B-Team', score: null },
-    },
-  };
-
-  const history = deriveStandingsHistory({ games, rosterByTeam, scoresByKey });
-  for (const week of [1, 2]) {
-    assert.equal(history.byWeek[week]?.coverage.state, 'partial', `week ${week} coverage state`);
-    assert.equal(
-      history.byWeek[week]?.coverage.message,
-      'Waiting on complete results',
-      `week ${week} coverage message`
-    );
-  }
-
-  // Positive control: the same fixture reads complete once the score lands, so a
-  // snapshot that can only ever say "partial" would fail here.
   const finalScore = (away: number, home: number) => ({
     status: 'final',
     time: 'Final',
     away: { team: 'A-Team', score: away },
     home: { team: 'B-Team', score: home },
   });
+
+  // The gap is in week TWO, not week one. An earlier version put it in week one,
+  // where cumulative propagation makes BOTH weeks partial — indistinguishable
+  // from a single global coverage copied to every snapshot. Scoring week one and
+  // omitting week two forces the two derivations apart: cumulative must read
+  // [complete, partial], a global or first-snapshot-copied derivation cannot.
+  const scoresByKey = {
+    'week-one-scored': finalScore(24, 10),
+  };
+
+  const history = deriveStandingsHistory({ games, rosterByTeam, scoresByKey });
+  assert.equal(history.byWeek[1]?.coverage.state, 'complete', 'week 1 is fully scored');
+  assert.equal(history.byWeek[1]?.coverage.message, null, 'week 1 carries no notice');
+  assert.equal(history.byWeek[2]?.coverage.state, 'partial', 'week 2 is missing its result');
+  assert.equal(
+    history.byWeek[2]?.coverage.message,
+    'Waiting on complete results',
+    'week 2 carries the notice'
+  );
+
+  // Positive control: the same fixture reads complete throughout once week two's
+  // score lands, so an observer that can only ever say "partial" would fail here.
   const scored = deriveStandingsHistory({
     games,
     rosterByTeam,
     scoresByKey: {
-      'missing-final-score': finalScore(24, 10),
-      'week-two-scored': finalScore(17, 21),
+      'week-one-scored': finalScore(24, 10),
+      'week-two-missing': finalScore(17, 21),
     },
   });
   for (const week of [1, 2]) {

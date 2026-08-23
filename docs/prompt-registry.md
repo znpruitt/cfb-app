@@ -60,8 +60,12 @@ Rules:
 - Outcome: the incomplete state makes ONE claim, `Waiting on complete results`. Overview renders
   `Standings — waiting on complete results` through `standingsCoverageNoticeWithSubject`, because
   the identical line sits there above standings, FBS polls and insights together and a bare
-  fragment cannot say which is waiting; `StandingsPanel` keeps the short form because its own
-  heading supplies the subject. Both forms are written out, never derived by string inspection — a
+  fragment cannot say which is waiting; `StandingsPanel` keeps the short form because the
+  surrounding view is already the standings view (the "League Table" sub-tab under the "Standings"
+  primary tab), so the subject is established before the notice is read. It has no heading of its
+  own — an earlier version of this entry said it did, in four places, and was wrong. Dispatch is on
+  `state === 'partial'`, NOT on message text: `coverage` is durable (archived by `seasonRollover`,
+  cached with `revalidate: false`), so a snapshot carrying older prose must still get its subject. A
   blind prefix would have produced "Standings: Standings coverage is unavailable." The
   `isLoadingScores`/`hasScoreLoadError` options and their two messages are deleted: nothing in
   production ever set them, verified across every non-test caller by both reviewers. The `error`
@@ -73,10 +77,24 @@ Rules:
   Codex: no credible P0/P1/P2. `/code-review`: one medium, two low. **All four findings were the
   author's, and the medium is a rule violation worth recording** — Overview is a SECOND READER of
   `coverage.message` that was never enumerated. The writers of coverage were audited exhaustively
-  and correctly; the readers were not audited at all. Mutation-proven: incomplete→complete fails 4
-  tests, complete-unreachable fails 4 including both positive controls, and dropping the Overview
-  subject fails the notice test. Gates at `a3b4955c`, each its own command: full suite 4210/4210
-  exit 0 with 0 cancelled, `tsc --noEmit` exit 0, `lint:all` exit 0, `git diff --check` exit 0.
+  and correctly; the readers were not audited at all.
+
+  **A SECOND round followed, because the first round's own claims did not hold.** Both reviewers
+  independently found the same two defects in it: the Overview WIRING was untested (reverting the
+  render site to `coverage.message` left 80/80 green — the headline change of the round had no
+  test), and the widened two-week fixture still could not discriminate, because the gap sat in week
+  one where cumulative propagation makes both weeks `partial` anyway. This entry previously asserted
+  "dropping the Overview subject fails the notice test"; that was TRUE of the pure helper and FALSE
+  of the wiring, and it is the third time in two slices a mutation was reported as proving something
+  wider than it reached. The fixture is now cut so cumulative and global derivations diverge
+  (`[complete, partial]`), and each mutation is confirmed against the NAMED test rather than against
+  a red suite.
+
+  Mutation-proven in this round: reverting the Overview render site fails
+  `overview names the subject of an incomplete standings notice`; deriving coverage from all games
+  instead of cumulative fails `deriveStandingsHistory derives coverage onto each week snapshot`;
+  dropping the subject from the helper fails `the coverage notice names its subject only where the
+  surface cannot` plus both Overview tests.
 - Status: IMPLEMENTED AND REVIEW-COMPLETE, NOT MERGED — branch
   `polish/011-standings-coverage-copy`, head `a3b4955c`.
 

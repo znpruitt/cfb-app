@@ -123,21 +123,28 @@ export function deriveStandingsCoverage(
  * The same coverage fact for a surface that does NOT sit under a standings
  * heading.
  *
- * `StandingsPanel` renders `coverage.message` directly — its own heading supplies
- * the subject. Overview renders this instead: there the identical line sits above
- * standings, FBS polls and insights together, so a bare fragment cannot say which
- * of the three is waiting.
+ * `StandingsPanel` renders `coverage.message` directly: the surrounding view is
+ * already the standings view — the "League Table" sub-tab under the "Standings"
+ * primary tab — so the subject is established before the notice is read. Overview
+ * renders this instead: there the identical line sits above standings, FBS polls
+ * and insights together, under a tab that reads "Overview", so a bare fragment
+ * cannot say which of the three is waiting.
  *
- * A blind "Standings: " prefix would be wrong — `STANDINGS_COVERAGE_UNAVAILABLE`
- * already names its own subject and would read "Standings: Standings coverage is
- * unavailable." Both forms are therefore written out, never derived by string
- * inspection.
+ * A blind "Standings: " prefix would be wrong — the `*_COVERAGE_UNAVAILABLE`
+ * constants already name their own subject and would read "Standings: Standings
+ * coverage is unavailable." Both forms are therefore written out.
+ *
+ * Dispatch is on STATE, not on the message text. An earlier version compared the
+ * message to a module constant, which both reviewers flagged: `coverage` is
+ * DURABLE — `seasonRollover` freezes it into season archives and canonical
+ * standings are cached with `revalidate: false` — so a snapshot minted before a
+ * copy change carries the old prose and would silently miss its subject. State is
+ * the structural discriminator; prose is not. If `partial` ever gains more than
+ * one meaning, add a reason code rather than inspecting display text.
  */
 export function standingsCoverageNoticeWithSubject(coverage: StandingsCoverage): string | null {
   if (!coverage.message) return null;
-  return coverage.message === COVERAGE_INCOMPLETE
-    ? COVERAGE_INCOMPLETE_WITH_SUBJECT
-    : coverage.message;
+  return coverage.state === 'partial' ? COVERAGE_INCOMPLETE_WITH_SUBJECT : coverage.message;
 }
 
 function toOwnedFinalResult(

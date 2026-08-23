@@ -2105,11 +2105,13 @@ Supersedes: (none)
       (see above), so “waiting” is truthful.
     - **Overview (member):** the SAME fact with its subject named — **“Standings — waiting on
       complete results”**. Decided 2026-08-23 after review found a second reader: Overview renders
-      the identical message above standings, FBS polls and insights together, where a bare fragment
-      cannot say which is waiting. `StandingsPanel` keeps the short form because its own heading
-      supplies the subject.
+      the identical message above standings, FBS polls and insights together, under a tab reading
+      “Overview”, where a bare fragment cannot say which is waiting. `StandingsPanel` keeps the short
+      form because the surrounding view IS the standings view — the “League Table” sub-tab under the
+      “Standings” primary tab. It has no heading of its own; an earlier version of this entry said it
+      did and was wrong.
     - **System Health (operator):** the actionable detail belongs here, not in front of members —
-      which game, which partition, and that the sweep attempted repair and failed. That is item 67's
+      which game, which partition, and whether a sweep ran and how it failed. That is item 67's
       work; do not duplicate it on the member surface.
 
     Remaining implementation questions, small: whether the `error` coverage state keeps a distinct
