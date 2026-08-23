@@ -7,6 +7,8 @@ import {
   deriveFinalOwnedParticipations,
   deriveStandings,
   deriveStandingsCoverage,
+  standingsCoverageNotice,
+  standingsCoverageNoticeWithSubject,
 } from '../standings.ts';
 
 function game(overrides: Partial<AppGame>): AppGame {
@@ -367,7 +369,7 @@ test('standings coverage stays partial when schedule completion exposes a missin
 
   assert.deepEqual(deriveStandingsCoverage(games, rosterByTeam, {}), {
     state: 'partial',
-    message: 'Standings may be incomplete — some completed game scores are not available yet.',
+    message: 'Waiting on complete results',
   });
 });
 
@@ -413,28 +415,98 @@ test('standings coverage remains complete for a legitimately scoreless canceled 
   });
 });
 
-test('standings coverage reports partial while completed game scores are still loading', () => {
-  const games = [
+// POLISH-011: the incomplete state makes exactly ONE claim. The loading/error
+// variants were removed because no production caller could ever supply the
+// options that produced them; a test feeding those options would have been
+// defending a path that does not exist. The `error` STATE is still reachable —
+// but from `STANDINGS_COVERAGE_UNAVAILABLE`, not from here.
+// POLISH-011: two surfaces, two forms. Overview has no standings heading to
+// supply the subject; a blind prefix would double up on the error string, which
+// already names itself.
+test('both coverage notice forms derive from state, and differ only in the subject', () => {
+  const rosterByTeam = new Map([['Texas', 'Alex']]);
+  const missingScore = [
     game({ key: 'final-owned', csvAway: 'Texas', csvHome: 'Baylor', status: 'final' }),
   ];
-  const rosterByTeam = new Map([['Texas', 'Alex']]);
+  const partial = deriveStandingsCoverage(missingScore, rosterByTeam, {});
 
-  assert.deepEqual(deriveStandingsCoverage(games, rosterByTeam, {}, { isLoadingScores: true }), {
-    state: 'partial',
-    message: 'Standings may be incomplete — some completed game scores are still loading.',
-  });
+  // The PAIR, side by side — round 3 exists because the two surfaces drifted.
+  assert.equal(standingsCoverageNotice(partial), 'Waiting on complete results');
+  assert.equal(
+    standingsCoverageNoticeWithSubject(partial),
+    'Standings — waiting on complete results'
+  );
+
+  // Both IGNORE the stored message for `partial`: a snapshot carrying retired
+  // copy still renders current wording on either surface.
+  const stale = {
+    state: 'partial' as const,
+    message: 'Standings may be incomplete — some completed game scores are not available yet.',
+  };
+  assert.equal(standingsCoverageNotice(stale), 'Waiting on complete results');
+  assert.equal(
+    standingsCoverageNoticeWithSubject(stale),
+    'Standings — waiting on complete results'
+  );
+
+  // A message that already names its subject is returned untouched, so Overview
+  // can never render "Standings: Standings coverage is unavailable."
+  const unavailable = {
+    state: 'error' as const,
+    message: 'Standings coverage is unavailable.',
+  };
+  assert.equal(standingsCoverageNotice(unavailable), 'Standings coverage is unavailable.');
+  assert.equal(
+    standingsCoverageNoticeWithSubject(unavailable),
+    'Standings coverage is unavailable.'
+  );
+
+  // Complete coverage renders nothing on either surface.
+  const complete = { state: 'complete' as const, message: null };
+  assert.equal(standingsCoverageNotice(complete), null);
+  assert.equal(standingsCoverageNoticeWithSubject(complete), null);
 });
 
-test('standings coverage reports error when completed game scores fail to load', () => {
-  const games = [
+test('an incomplete standings snapshot makes one claim, whatever caused the gap', () => {
+  const rosterByTeam = new Map([['Texas', 'Alex']]);
+  const missingScore = [
     game({ key: 'final-owned', csvAway: 'Texas', csvHome: 'Baylor', status: 'final' }),
   ];
-  const rosterByTeam = new Map([['Texas', 'Alex']]);
+  const scoreWithoutPoints = {
+    'final-owned': {
+      status: 'final',
+      time: 'Final',
+      away: { team: 'Texas', score: null },
+      home: { team: 'Baylor', score: null },
+    },
+  };
 
-  assert.deepEqual(deriveStandingsCoverage(games, rosterByTeam, {}, { hasScoreLoadError: true }), {
-    state: 'error',
-    message: 'Standings may be incomplete — some completed game scores could not be loaded.',
+  const noScoreAtAll = deriveStandingsCoverage(missingScore, rosterByTeam, {});
+  const finalWithoutPoints = deriveStandingsCoverage(
+    missingScore,
+    rosterByTeam,
+    scoreWithoutPoints
+  );
+
+  assert.deepEqual(noScoreAtAll, { state: 'partial', message: 'Waiting on complete results' });
+  assert.deepEqual(finalWithoutPoints, {
+    state: 'partial',
+    message: 'Waiting on complete results',
   });
+
+  // Positive control: the same fixture reads complete once the points land, so
+  // this observer can distinguish the two states.
+  assert.deepEqual(
+    deriveStandingsCoverage(missingScore, rosterByTeam, {
+      'final-owned': {
+        status: 'final',
+        time: 'Final',
+        away: { team: 'Texas', score: 21 },
+        home: { team: 'Baylor', score: 17 },
+      },
+    }),
+    { state: 'complete', message: null }
+  );
 });
 
 // Regression tests for wins-first precedence (league rule enforcement)

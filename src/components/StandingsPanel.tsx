@@ -13,6 +13,7 @@ import type { LiveDelta } from '../lib/selectors/liveDelta';
 import { resolveStandingsCanonicalInputs } from '../lib/selectors/standingsCanonicalInputs';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import { deriveStandingsMovementByOwner } from '../lib/selectors/standingsMovement';
+import { standingsCoverageNotice } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
 
@@ -177,6 +178,19 @@ export default function StandingsPanel({
     history: historyForRender,
     coverage: coverageForRender,
   } = resolveStandingsCanonicalInputs({ canonicalStandings, rows, standingsHistory, coverage });
+  // POLISH-011 round 4: one value decides both whether the notice renders and
+  // what it says. The visibility gate previously read `coverage.message` while
+  // the text derived from `coverage.state` — split authority over a value this
+  // branch exists to distrust, so `{ state: 'partial', message: null }` would
+  // have shown a member nothing at all and presented incomplete standings as
+  // complete.
+  //
+  // EXACT SCOPE: state decides for `complete` and `partial`. `error` still
+  // returns its own message, so `{ state: 'error', message: null }` renders
+  // nothing — unreachable today (both `*_COVERAGE_UNAVAILABLE` constants carry
+  // one), but the type permits it. An earlier version of this comment said ONE
+  // field decides all three, which was wider than the code.
+  const coverageNotice = standingsCoverageNotice(coverageForRender);
   const showMoveColumn = seasonContext !== 'final';
   const visibleRows = React.useMemo(
     () => rowsForRender.filter((r) => r.owner !== 'NoClaim'),
@@ -263,7 +277,7 @@ export default function StandingsPanel({
 
   return (
     <section className="space-y-3 sm:rounded-xl sm:border sm:border-gray-300 sm:bg-gray-50 sm:p-4 sm:shadow-sm sm:dark:border-zinc-700 sm:dark:bg-zinc-900">
-      {coverageForRender.message ? (
+      {coverageNotice ? (
         <p
           className={`text-sm ${
             coverageForRender.state === 'error'
@@ -271,7 +285,7 @@ export default function StandingsPanel({
               : 'text-gray-600 dark:text-zinc-300'
           }`}
         >
-          {coverageForRender.message}
+          {coverageNotice}
         </p>
       ) : null}
       <div

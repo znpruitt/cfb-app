@@ -40,6 +40,7 @@ import {
 } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
+import { standingsCoverageNoticeWithSubject } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
@@ -1427,6 +1428,9 @@ export default function OverviewPanel({
     standingsHistory,
     standingsCoverage,
   });
+  // POLISH-011 round 4: one field decides both visibility and text — see the
+  // matching note in StandingsPanel.
+  const coverageNotice = standingsCoverageNoticeWithSubject(coverageForRender);
   // GB Race section guard: render whenever the chosen history carries owner
   // rows in any week. The chart components handle flat / partial weeks
   // gracefully; we only need to suppress the section when there's truly
@@ -1559,7 +1563,14 @@ export default function OverviewPanel({
 
       {/* Standings · FBS Polls · Insights */}
       <section>
-        {coverageForRender.message ? (
+        {/* POLISH-011: this notice sits above standings, FBS polls and insights
+            together under a tab reading "Overview", so it names its subject.
+            `StandingsPanel` uses the short form because it is already inside the
+            standings view — it has no heading of its own. Neither surface renders
+            a raw `partial` message: coverage is durable and cached, so retired
+            copy must never reach a member. Other states pass through — see the
+            scope note on `standingsCoverageNotice`. */}
+        {coverageNotice ? (
           <p
             className={`mb-3 text-sm ${
               coverageForRender.state === 'error'
@@ -1567,7 +1578,7 @@ export default function OverviewPanel({
                 : 'text-gray-600 dark:text-zinc-300'
             }`}
           >
-            {coverageForRender.message}
+            {coverageNotice}
           </p>
         ) : null}
         {viewModel.standingsTopN.length === 0 ? (

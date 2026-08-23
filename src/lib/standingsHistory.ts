@@ -184,12 +184,8 @@ export function deriveStandingsHistory(args: {
   games: AppGame[];
   rosterByTeam: Map<string, string> | Record<string, string>;
   scoresByKey: Record<string, ScorePack>;
-  coverageOptions?: {
-    isLoadingScores?: boolean;
-    hasScoreLoadError?: boolean;
-  };
 }): StandingsHistory {
-  const { games, scoresByKey, coverageOptions } = args;
+  const { games, scoresByKey } = args;
   const rosterByTeam = normalizeRosterByTeam(args.rosterByTeam);
   const weeks = deriveOrderedWeeks(games);
 
@@ -231,12 +227,7 @@ export function deriveStandingsHistory(args: {
 
     const snapshot = deriveStandings(cumulativeGames, rosterByTeam, scoresByKey);
     const standings = toHistoryStandingsRows(snapshot.rows);
-    const coverage = deriveStandingsCoverage(
-      cumulativeGames,
-      rosterByTeam,
-      scoresByKey,
-      coverageOptions
-    );
+    const coverage = deriveStandingsCoverage(cumulativeGames, rosterByTeam, scoresByKey);
 
     // PLAYED is judged over THIS week's games, not the cumulative list — the
     // question is whether this week happened, and every earlier week already

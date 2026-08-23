@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-08-22
+Last verified: 2026-08-23
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -49,6 +49,97 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### POLISH-011-STANDINGS-COVERAGE-COPY-v1
+
+- Purpose: Replace the member-facing standings coverage message with the owner's decided wording,
+  and remove two coverage variants no production caller could reach.
+- Scope: `deriveStandingsCoverage`, the `coverageOptions` pass-through on `deriveStandingsHistory`,
+  the Overview notice, and their tests. Coverage SEMANTICS untouched — what makes coverage partial
+  or complete remains PLATFORM-105A's, cumulative fail-closed propagation included.
+- Outcome: the incomplete state makes ONE claim, `Waiting on complete results`. Overview renders
+  `Standings — waiting on complete results` through `standingsCoverageNoticeWithSubject`, because
+  the identical line sits there above standings, FBS polls and insights together and a bare
+  fragment cannot say which is waiting; `StandingsPanel` keeps the short form because the
+  surrounding view is already the standings view (the "League Table" sub-tab under the "Standings"
+  primary tab), so the subject is established before the notice is read. It has no heading of its
+  own — an earlier version of this entry said it did, in four places, and was wrong. Dispatch is on
+  `state === 'partial'`, NOT on message text: `coverage` is durable (archived by `seasonRollover`,
+  cached with `revalidate: false`), so a snapshot carrying older prose must still get its subject. A
+  blind prefix would have produced "Standings: Standings coverage is unavailable." The
+  `isLoadingScores`/`hasScoreLoadError` options and their two messages are deleted: nothing in
+  production ever set them, verified across every non-test caller by both reviewers. The `error`
+  STATE is deliberately KEPT — `STANDINGS_COVERAGE_UNAVAILABLE` still produces it and
+  `StandingsPanel` still styles it amber.
+- Review / verification: implementation `4e86809b`, then FOUR remediation rounds — `a3b4955c`, `581010ca`, and the round recorded below. Both reviewers
+  ran against `4e86809b` before anything was touched — Claude implemented this slice AND wrote the
+  item it implements, so neither the change nor its rationale had an independent reader until then.
+  Codex: no credible P0/P1/P2. `/code-review`: one medium, two low. **All four findings were the
+  author's, and the medium is a rule violation worth recording** — Overview is a SECOND READER of
+  `coverage.message` that was never enumerated. The writers of coverage were audited exhaustively
+  and correctly; the readers were not audited at all.
+
+  **A SECOND round followed, because the first round's own claims did not hold.** Both reviewers
+  independently found the same two defects in it: the Overview WIRING was untested (reverting the
+  render site to `coverage.message` left 80/80 green — the headline change of the round had no
+  test), and the widened two-week fixture still could not discriminate, because the gap sat in week
+  one where cumulative propagation makes both weeks `partial` anyway. This entry previously asserted
+  "dropping the Overview subject fails the notice test"; that was TRUE of the pure helper and FALSE
+  of the wiring, and it is the third time in two slices a mutation was reported as proving something
+  wider than it reached. The fixture is now cut so cumulative and global derivations diverge
+  (`[complete, partial]`), and each mutation is confirmed against the NAMED test rather than against
+  a red suite.
+
+  **A THIRD round followed, on the same fault line.** Both reviewers independently found that the
+  durability argument had been applied to Overview ONLY: `StandingsPanel` still echoed
+  `coverage.message` raw, so a canonical snapshot warmed before the deploy would render the NEW
+  wording on Overview and the RETIRED sentence on the standings page — the surface the owner's
+  decision was actually about — with no invalidation coming for a quiet league. Codex rated it P2.
+  Fixed by giving both surfaces a state-derived notice (`standingsCoverageNotice` and its
+  subject-bearing sibling); neither renders `coverage.message` directly any more. Cache versioning
+  was considered and rejected: it would discard every league's canonical standings at once and
+  still would not clear the copy already frozen into archives. `/code-review` separately found a
+  FIFTH instance of the "its own heading supplies the subject" claim — in a comment written during
+  round 2, at the render site the correction was about — because the round-2 verification grepped
+  the exact phrase rather than the concept. That is the same error as the mutation claims: checking
+  something narrower than what was asserted.
+
+  **A FOURTH round found the split that made the third incomplete.** Both reviewers cleared the
+  source change — Codex returned clean, `/code-review` found no correctness defect — but
+  `/code-review` noticed that VISIBILITY was still decided by `coverage.message` while the TEXT
+  derived from `coverage.state`: split authority over the exact field this slice exists to distrust.
+  Writing the test for it exposed something the finding had not: BOTH helpers began
+  `if (!coverage.message) return null`, so state never actually decided anything, and moving the
+  component gate alone changed nothing. `{ state: 'partial', message: null }` rendered no notice at
+  all — incomplete standings presented as complete. Both helpers now branch on state first. Also
+  narrowed two comments that asserted more than the code enforced (only `partial` is normalized;
+  `error` passes through), pinned both helper forms side by side rather than only the
+  subject-bearing one, and moved item 69's opening diagnosis into past tense — its line references
+  no longer resolved.
+
+  Mutation-proven in this round: reverting the Overview render site fails
+  `overview names the subject of an incomplete standings notice`; deriving coverage from all games
+  instead of cumulative fails `deriveStandingsHistory derives coverage onto each week snapshot`;
+  dropping the subject from the helper fails `both coverage notice forms derive from state, and
+  differ only in the subject` plus both Overview tests. (Round 4 renamed that test and this line
+  kept citing the old name — a proof pointing at a test that did not exist, found by `/code-review`
+  on `27eb7580`. Fourth verification claim in this entry to reach wider than what was checked.)
+- Status: IMPLEMENTED AND REVIEW-COMPLETE, NOT MERGED — branch
+  `polish/011-standings-coverage-copy`. The head SHA is deliberately NOT recorded here: two
+  earlier versions of this line named a head that a later remediation round immediately made stale,
+  and a reader following it landed on a tree these verification claims did not hold for. Read the
+  branch.
+
+**A claim corrected in three places, because it was wrong in all of them.** The first
+implementation's comment — and `docs/next-tasks.md` item 69, and the author's reasoning presented
+to the owner in conversation — asserted that reaching the incomplete branch means automatic repair
+ALREADY RAN and failed. Codex disproved it: PLATFORM-107's sweep runs after the schedule commit
+only when the caller asks for it. A manual full-year admin refresh does not
+(`api/schedule/route.ts` full-season path), and the weekly cron skips it whenever score automation
+is paused or disabled (`api/cron/schedule-refresh/route.ts`). Partial coverage therefore proves a
+missing usable result and nothing more. The correction STRENGTHENS the shipped wording: a result
+may still be genuinely en route, which is what makes "Waiting" honest, and what
+"…are not available YET" got wrong was promising an imminence the predicate cannot support.
 
 ### PLATFORM-108-TEST-PACING-AND-STARTUP-v1
 

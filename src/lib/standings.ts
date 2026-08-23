@@ -45,6 +45,11 @@ export type StandingsCoverage = {
 
 export const NO_CLAIM_OWNER = 'NoClaim';
 
+/** The one claim an incomplete standings snapshot makes (POLISH-011). */
+const COVERAGE_INCOMPLETE = 'Waiting on complete results';
+/** The same claim for surfaces with no standings heading to supply the subject. */
+const COVERAGE_INCOMPLETE_WITH_SUBJECT = 'Standings — waiting on complete results';
+
 /**
  * Splits a sorted list of owner standings into real-owner rows and the NoClaim
  * aggregate (when present). Mirrors the canonical selector's filter so every
@@ -75,11 +80,7 @@ function hasOwnedTeam(game: AppGame, rosterByTeam: Map<string, string>): boolean
 export function deriveStandingsCoverage(
   games: AppGame[],
   rosterByTeam: Map<string, string>,
-  scoresByKey: Record<string, ScorePack>,
-  options?: {
-    isLoadingScores?: boolean;
-    hasScoreLoadError?: boolean;
-  }
+  scoresByKey: Record<string, ScorePack>
 ): StandingsCoverage {
   const hasMissingFinalScores = games.some((game) => {
     const score = scoresByKey[game.key];
@@ -94,24 +95,80 @@ export function deriveStandingsCoverage(
     return { state: 'complete', message: null };
   }
 
-  if (options?.hasScoreLoadError) {
-    return {
-      state: 'error',
-      message: 'Standings may be incomplete — some completed game scores could not be loaded.',
-    };
-  }
-
-  if (options?.isLoadingScores) {
-    return {
-      state: 'partial',
-      message: 'Standings may be incomplete — some completed game scores are still loading.',
-    };
-  }
-
+  // POLISH-011 (owner decision, 2026-08-22). The member surface makes ONE simple
+  // claim; the actionable detail — which game, which partition, whether a sweep
+  // ran — belongs on System Health (item 67), not here.
+  //
+  // This branch means exactly one thing: an owned game has score-bearing
+  // conclusion evidence and no usable final. It does NOT mean automatic repair
+  // was attempted and failed. PLATFORM-107's sweep runs after the schedule
+  // commit, but only when the caller asks for it: a manual full-year admin
+  // refresh does not (`api/schedule/route.ts` full-season path), and the weekly
+  // cron skips it whenever score automation is paused or disabled
+  // (`api/cron/schedule-refresh/route.ts`). So a result may still be genuinely
+  // en route — which is why "Waiting" is the honest verb, and why the earlier
+  // "…are not available YET" was not: it promised a specific imminence this
+  // predicate cannot support, and "may be incomplete" hedged a fact we hold
+  // positive evidence for.
+  //
+  // The `error` STATE is deliberately not produced here. It remains reachable via
+  // `STANDINGS_COVERAGE_UNAVAILABLE` and still drives the amber styling.
   return {
     state: 'partial',
-    message: 'Standings may be incomplete — some completed game scores are not available yet.',
+    message: COVERAGE_INCOMPLETE,
   };
+}
+
+/**
+ * The coverage notice each member surface should render.
+ *
+ * Neither surface renders `coverage.message` directly for the `partial` state,
+ * and that is the point. `coverage` is DURABLE — `seasonRollover` freezes it into
+ * season archives, and canonical standings are cached with `revalidate: false`
+ * under a key that does not change when copy changes, so a snapshot minted before
+ * a wording change keeps serving the retired sentence until some unrelated
+ * invalidation, which may never come for a quiet league.
+ *
+ * SCOPE, precisely: `complete` renders nothing, `partial` is normalized from
+ * STATE ALONE — a stored message is never consulted, so a snapshot whose message
+ * is absent or retired still shows current wording — and `error` passes its
+ * message through verbatim, which is safe ONLY because the sole `error` producers
+ * today are the live `*_COVERAGE_UNAVAILABLE` constants — nothing durable emits
+ * one. `docs/next-tasks.md` item 69 leaves open whether `error` gains its own
+ * string; the first writer that PERSISTS an `error` message reintroduces exactly
+ * the stale-copy defect this function exists to prevent, and must normalize here
+ * too. An earlier version of this comment claimed neither surface ever renders
+ * the raw message, which was wider than the code.
+ *
+ * An earlier round applied this reasoning to Overview ONLY and left
+ * `StandingsPanel` echoing the raw message. Both reviewers caught it: the same
+ * snapshot would render the new wording on Overview and the deleted sentence on
+ * the standings page — the surface the owner's decision was actually about.
+ *
+ * The two forms differ only in whether the surface supplies the subject.
+ * `StandingsPanel` sits inside the standings view already (the "League Table"
+ * sub-tab under the "Standings" primary tab), so the short form reads fine.
+ * Overview shows the identical line above standings, FBS polls and insights
+ * together under a tab reading "Overview", so a bare fragment cannot say which
+ * of the three is waiting.
+ *
+ * A blind "Standings: " prefix would be wrong — the `*_COVERAGE_UNAVAILABLE`
+ * constants already name their own subject and would read "Standings: Standings
+ * coverage is unavailable." Both forms are written out instead. If `partial`
+ * ever gains more than one meaning, add a reason code rather than inspecting
+ * display text.
+ */
+export function standingsCoverageNotice(coverage: StandingsCoverage): string | null {
+  if (coverage.state === 'complete') return null;
+  if (coverage.state === 'partial') return COVERAGE_INCOMPLETE;
+  return coverage.message;
+}
+
+/** As {@link standingsCoverageNotice}, for a surface that must name its subject. */
+export function standingsCoverageNoticeWithSubject(coverage: StandingsCoverage): string | null {
+  if (coverage.state === 'complete') return null;
+  if (coverage.state === 'partial') return COVERAGE_INCOMPLETE_WITH_SUBJECT;
+  return coverage.message;
 }
 
 function toOwnedFinalResult(

@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-08-22
+Last verified: 2026-08-23
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -2081,33 +2081,54 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-ARCHIVE-COVERAGE-INTEGRITY-v1`
 
-69. **DECIDED, not yet implemented — standings coverage banner copy.** `StandingsPanel:266`
-    renders `coverage.message`. The canonical path (`leagueStandings.ts:927`) passes no options, so
-    only the third variant can render: “Standings may be incomplete — some completed game scores are
-    not available yet.” The other two (“still loading”, “could not be loaded”) are reachable only from
-    the legacy client-derived path and are effectively dead copy.
+69. 🟡 **IMPLEMENTED, merge pending — standings coverage banner copy.**
 
-    **Why the current sentence is wrong.** `sweepMissingFinalScores` runs immediately after the
-    schedule commit IN THE SAME INVOCATION (`fullSeasonScheduleRefresh.ts:398`), so the run that
-    learns a game is `completed` also fills its score from the same CFBD payload. If a member ever
-    sees this banner it means we have positive evidence the game finished, we have no score, AND the
-    automatic repair already ran without fixing it. “Yet” promises a wait that ended days earlier;
-    “may be” hedges a fact we hold positive evidence for.
+    **The diagnosis, as it stood BEFORE implementation** (line references are historical and no
+    longer resolve): `StandingsPanel` rendered `coverage.message` directly. The canonical path passed
+    no options, so only the third variant could render — “Standings may be incomplete — some
+    completed game scores are not available yet.” The other two (“still loading”, “could not be
+    loaded”) were reachable only from the legacy client-derived path and were effectively dead copy.
+    All three are gone: both surfaces now derive their text from `coverage.state`, and the two dead
+    variants were deleted along with the options that fed them.
+
+    **Why the old sentence was wrong.** The banner means exactly one thing: an owned game has
+    score-bearing conclusion evidence and no usable final. **It does NOT mean automatic repair was
+    attempted and failed** — an earlier version of this entry claimed that and was wrong (Codex,
+    2026-08-23). PLATFORM-107's sweep runs after the schedule commit but only when the caller asks:
+    a manual full-year admin refresh does not (`api/schedule/route.ts` full-season path), and the
+    weekly cron skips it whenever score automation is paused or disabled
+    (`api/cron/schedule-refresh/route.ts`). A result may therefore still be genuinely en route —
+    which is what makes “Waiting” honest, and what “…are not available YET” got wrong: it promised a
+    specific imminence the predicate cannot support. “May be” separately hedged a fact we hold
+    positive evidence for.
 
     **OWNER DECISION (2026-08-22).** Split by audience:
 
     - **Standings page (member):** a simple claim — **“Waiting on complete results”**. No count, no
-      cause, no hedge. A member cannot act on the cause, and the dominant remaining case (a failed
-      partition write) genuinely does retry on the next weekly run, so “waiting” is truthful.
+      cause, no hedge. A member cannot act on the cause, and a result may genuinely still be coming
+      (see above), so “waiting” is truthful.
+    - **Overview (member):** the SAME fact with its subject named — **“Standings — waiting on
+      complete results”**. Decided 2026-08-23 after review found a second reader: Overview renders
+      the identical message above standings, FBS polls and insights together, under a tab reading
+      “Overview”, where a bare fragment cannot say which is waiting. `StandingsPanel` keeps the short
+      form because the surrounding view IS the standings view — the “League Table” sub-tab under the
+      “Standings” primary tab. It has no heading of its own; an earlier version of this entry said it
+      did and was wrong.
     - **System Health (operator):** the actionable detail belongs here, not in front of members —
-      which game, which partition, and that the sweep attempted repair and failed. That is item 67's
+      which game, which partition, and whether a sweep ran and how it failed. That is item 67's
       work; do not duplicate it on the member surface.
 
-    Remaining implementation questions, small: whether the `error` coverage state keeps a distinct
-    string or collapses into the same claim, and whether the two dead variants are removed or wired
-    up. Neither changes the member-facing decision above.
+    Both implementation questions are SETTLED: the two dead variants were deleted, and the `error`
+    state kept its own string — it passes `coverage.message` through while `complete` and `partial`
+    derive from state. One residue, recorded not queued: `{ state: 'error', message: null }` would
+    render nothing. Unreachable today, since both `*_COVERAGE_UNAVAILABLE` constants carry a
+    message, but the first writer to persist a message-less error must normalize it.
 
-    - **Backlog slug (provisional):** `POLISH-STANDINGS-COVERAGE-COPY-v1`
+    Implemented as `POLISH-011-STANDINGS-COVERAGE-COPY-v1` on
+    `polish/011-standings-coverage-copy`; execution and review record live in
+    `docs/prompt-registry.md`. Both remaining implementation questions are settled: the two dead
+    variants were deleted, and the `error` state was kept because `STANDINGS_COVERAGE_UNAVAILABLE`
+    still produces it and `StandingsPanel` still styles it amber.
 
 70. ✅ **MERGED — test-only upstream pacing bypass.**
     `PLATFORM-108-TEST-PACING-AND-STARTUP-v1` shipped via PR #506 (`1896b149`) on 2026-08-22. The
