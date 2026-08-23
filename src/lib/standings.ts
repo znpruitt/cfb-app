@@ -75,11 +75,7 @@ function hasOwnedTeam(game: AppGame, rosterByTeam: Map<string, string>): boolean
 export function deriveStandingsCoverage(
   games: AppGame[],
   rosterByTeam: Map<string, string>,
-  scoresByKey: Record<string, ScorePack>,
-  options?: {
-    isLoadingScores?: boolean;
-    hasScoreLoadError?: boolean;
-  }
+  scoresByKey: Record<string, ScorePack>
 ): StandingsCoverage {
   const hasMissingFinalScores = games.some((game) => {
     const score = scoresByKey[game.key];
@@ -94,23 +90,23 @@ export function deriveStandingsCoverage(
     return { state: 'complete', message: null };
   }
 
-  if (options?.hasScoreLoadError) {
-    return {
-      state: 'error',
-      message: 'Standings may be incomplete — some completed game scores could not be loaded.',
-    };
-  }
-
-  if (options?.isLoadingScores) {
-    return {
-      state: 'partial',
-      message: 'Standings may be incomplete — some completed game scores are still loading.',
-    };
-  }
-
+  // POLISH-011 (owner decision, 2026-08-22). The member surface makes ONE simple
+  // claim; the actionable detail — which game, which partition, that the sweep
+  // attempted repair and failed — belongs on System Health (item 67), not here.
+  //
+  // The previous wording ("…are not available YET", "Standings MAY BE incomplete")
+  // became wrong when PLATFORM-107 landed: `sweepMissingFinalScores` runs in the
+  // SAME invocation as the schedule commit, so the run that learns a game is
+  // `completed` also fills its score from the same CFBD payload. Reaching this
+  // branch therefore means automatic repair ALREADY RAN and did not fix it — the
+  // wait ended days earlier — and "may be" hedged a fact we hold positive
+  // evidence for.
+  //
+  // The `error` STATE is deliberately not produced here. It remains reachable via
+  // `STANDINGS_COVERAGE_UNAVAILABLE` and still drives the amber styling.
   return {
     state: 'partial',
-    message: 'Standings may be incomplete — some completed game scores are not available yet.',
+    message: 'Waiting on complete results',
   };
 }
 

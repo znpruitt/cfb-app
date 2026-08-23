@@ -316,7 +316,7 @@ test('standings panel renders secondary coverage warning when standings are part
       season={2025}
       coverage={{
         state: 'partial',
-        message: 'Standings may be incomplete — some completed game scores are still loading.',
+        message: 'Waiting on complete results',
       }}
       rows={[
         {
@@ -334,10 +334,7 @@ test('standings panel renders secondary coverage warning when standings are part
     />
   );
 
-  assert.match(
-    html,
-    /Standings may be incomplete — some completed game scores are still loading\./
-  );
+  assert.match(html, /Waiting on complete results/);
 });
 
 test('standings panel embeds shared trend charts alongside table', () => {
@@ -1073,8 +1070,7 @@ test('standings panel uses canonical history for movement column when canonical 
 // coverage all come from the same canonical snapshot when supplied.
 // ---------------------------------------------------------------------------
 
-const LOCAL_PARTIAL_MESSAGE =
-  'Standings may be incomplete — some completed game scores are still loading.';
+const LOCAL_PARTIAL_MESSAGE = 'Waiting on complete results';
 
 test('canonical partial coverage overrides contradictory local complete coverage', () => {
   const html = renderToStaticMarkup(

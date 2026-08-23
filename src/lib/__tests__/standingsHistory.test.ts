@@ -248,7 +248,11 @@ test('deriveStandingsHistory preserves tie/no-decision semantics and byWeek/byOw
   }
 });
 
-test('deriveStandingsHistory forwards coverage options into each week snapshot', () => {
+// POLISH-011: the coverage OPTIONS this test was written for are gone — nothing
+// in production ever supplied them. What is still worth pinning is that coverage
+// is derived onto every week snapshot at all, which is what the standings series
+// and `selectResolvedStandingsWeeks` read.
+test('deriveStandingsHistory derives coverage onto each week snapshot', () => {
   const games = [
     game({
       key: 'missing-final-score',
@@ -273,23 +277,24 @@ test('deriveStandingsHistory forwards coverage options into each week snapshot',
     },
   };
 
-  const errorAwareHistory = deriveStandingsHistory({
-    games,
-    rosterByTeam,
-    scoresByKey,
-    coverageOptions: { hasScoreLoadError: true },
-  });
-  assert.equal(errorAwareHistory.byWeek[1]?.coverage.state, 'error');
+  const history = deriveStandingsHistory({ games, rosterByTeam, scoresByKey });
+  assert.equal(history.byWeek[1]?.coverage.state, 'partial');
+  assert.equal(history.byWeek[1]?.coverage.message, 'Waiting on complete results');
 
-  const loadingAwareHistory = deriveStandingsHistory({
+  // Positive control: the same fixture reads complete once the score lands, so a
+  // snapshot that can only ever say "partial" would fail here.
+  const scored = deriveStandingsHistory({
     games,
     rosterByTeam,
-    scoresByKey,
-    coverageOptions: { isLoadingScores: true },
+    scoresByKey: {
+      'missing-final-score': {
+        status: 'final',
+        time: 'Final',
+        away: { team: 'A-Team', score: 24 },
+        home: { team: 'B-Team', score: 10 },
+      },
+    },
   });
-  assert.equal(loadingAwareHistory.byWeek[1]?.coverage.state, 'partial');
-  assert.equal(
-    loadingAwareHistory.byWeek[1]?.coverage.message,
-    'Standings may be incomplete — some completed game scores are still loading.'
-  );
+  assert.equal(scored.byWeek[1]?.coverage.state, 'complete');
+  assert.equal(scored.byWeek[1]?.coverage.message, null);
 });
