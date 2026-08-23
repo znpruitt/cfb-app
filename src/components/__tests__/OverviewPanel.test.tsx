@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import OverviewPanel from '../OverviewPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
+import { TREND_EMPTY_MESSAGE } from '../../lib/trendEmptyState';
 import { selectSeasonContext } from '../../lib/selectors/seasonContext';
 import type { LiveDelta } from '../../lib/selectors/liveDelta';
 import { deriveStandingsCoverage } from '../../lib/standings';
@@ -1081,7 +1082,7 @@ test('overview panel shows win percent empty-state copy when no resolved standin
   // first week resolves. What must still NOT appear is the zeroed
   // "Latest: 0.0%" win-percentage trend this test was written for.
   assert.match(html, /GB Race/);
-  assert.match(html, /No completed games yet—trends will appear here\./);
+  assert.match(html, TREND_EMPTY_MESSAGE_RE);
   assert.doesNotMatch(html, /Latest: 0\.0%/);
 });
 
@@ -2240,6 +2241,10 @@ function renderOverviewWithHistory(history: StandingsHistory): string {
  * chart drew" from "the standings table grew a column", and that is precisely
  * what masked the one-resolved-week gap below.
  */
+const TREND_EMPTY_MESSAGE_RE = new RegExp(
+  TREND_EMPTY_MESSAGE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+);
+
 function gbRaceMarkup(html: string): string {
   const start = html.indexOf('GB Race');
   assert.ok(start >= 0, 'the GB Race section must be present');
@@ -2250,7 +2255,7 @@ test('POLISH-013: GB Race explains the gap when no week has resolved', () => {
   const gbRace = gbRaceMarkup(renderOverviewWithHistory(unresolvedHistory()));
 
   // The section stays — hiding it makes the page jump when week one resolves.
-  assert.match(gbRace, /No completed games yet—trends will appear here\./);
+  assert.match(gbRace, TREND_EMPTY_MESSAGE_RE);
   // And it draws nothing at all: no chart, so no axis. A preseason week axis
   // would reshape once the postseason bracket populates.
   assert.ok(!gbRace.includes('<svg'), 'the empty state must draw no chart');
@@ -2268,10 +2273,24 @@ test('POLISH-013: one resolved week draws POINTS, not an invisible line', () => 
 
   const gbRace = gbRaceMarkup(renderOverviewWithHistory(history));
 
-  assert.ok(!gbRace.includes('No completed games yet'), 'one resolved week is not empty');
+  assert.ok(!gbRace.includes(TREND_EMPTY_MESSAGE), 'one resolved week is not empty');
   assert.ok(gbRace.includes('<svg'), 'the chart must render');
   assert.ok(gbRace.includes('<circle'), 'a single resolved week must be drawn as points');
   assert.ok(!/<path d="M[^"]*L/.test(gbRace), 'there is no second point to draw a line to');
+
+  // And the points must be INSIDE the plot area. The leader is at 0 GB by
+  // definition and `yOfGb(0, …)` is the top edge, so the first version of this
+  // marker was centred on y=0 and inline SVG clipped half of it away — on every
+  // one-week chart there is. Asserting only that a circle EXISTS is what let
+  // that through, so assert where it is.
+  const circles = [...gbRace.matchAll(/<circle[^>]*cy="([\d.]+)"[^>]*r="([\d.]+)"/g)];
+  assert.ok(circles.length > 0, 'the markers must be findable');
+  for (const [, cy, r] of circles) {
+    assert.ok(
+      Number(cy) >= Number(r),
+      `a marker at cy=${cy} with r=${r} is clipped by the top of the plot area`
+    );
+  }
 });
 
 test('POLISH-013: two resolved weeks draw a line', () => {
@@ -2307,7 +2326,7 @@ test('POLISH-013: the section renders for a league with owners but no history at
   );
 
   const gbRace = gbRaceMarkup(html);
-  assert.match(gbRace, /No completed games yet—trends will appear here\./);
+  assert.match(gbRace, TREND_EMPTY_MESSAGE_RE);
   assert.ok(!gbRace.includes('<svg'), 'nothing to draw without a history');
 });
 

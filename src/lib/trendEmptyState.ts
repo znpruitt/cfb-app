@@ -8,10 +8,13 @@
  * body. They are one fact — no week has resolved yet, so there is no series —
  * and they now read the same.
  *
- * The shape follows the convention already on the Overview page ("No recent
- * results yet—completed games will appear here."): name what is missing, then
- * say what will appear once it arrives. It states the CAUSE a member can
- * understand — completed games — rather than the internal vocabulary ("trend
- * data") that told them nothing.
+ * It names what the chart actually needs — resolved WEEKS — and promises
+ * nothing. An earlier version read "No completed games yet—trends will appear
+ * here." and was wrong twice, both reachable: a Saturday in week one can have
+ * one game final and another in progress, so a completed result sits on screen
+ * directly above a sentence denying any exist; and on an archived season whose
+ * coverage never resolved a week, "will appear here" promises data that can
+ * never arrive. Owner decision, 2026-08-23, after the confirming review
+ * escalated it.
  */
-export const TREND_EMPTY_MESSAGE = 'No completed games yet—trends will appear here.';
+export const TREND_EMPTY_MESSAGE = 'Not enough weekly results to show a trend.';

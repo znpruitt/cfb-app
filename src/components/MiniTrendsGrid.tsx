@@ -129,12 +129,20 @@ export default function MiniTrendsGrid({
         if (s.points.length === 1) {
           const point = s.points[0]!;
           const weekIndex = weeks.indexOf(point.week);
+          const radius = i === 0 ? 2.75 : 2.25;
+          // The leader is at 0 GB by definition, and `yOfGb(0, …)` is 0 — the
+          // very top of the plot area — so a marker centred there had half of
+          // itself outside the viewBox and inline SVG clips it. Every chart has
+          // a leader, so this was every one-week chart. Confirming review caught
+          // it; the first version of the test below asserted only that a circle
+          // EXISTED, which is why it did not.
+          const cy = Math.min(Math.max(yOfGb(point.value, paddedMax), radius), CHART_H - radius);
           return (
             <circle
               key={s.ownerId}
               cx={xOfWeek(weekIndex < 0 ? 0 : weekIndex, weeks.length)}
-              cy={yOfGb(point.value, paddedMax)}
-              r={i === 0 ? 2.75 : 2.25}
+              cy={cy}
+              r={radius}
               fill={color}
               fillOpacity={0.9}
             />
