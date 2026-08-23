@@ -119,8 +119,11 @@ type CFBScheduleAppProps = {
    * game list no longer has to cross the boundary for the browser to reduce it
    * to this string.
    *
-   * Defaults to `selectSeasonContext`'s own answer for an absent history, which
-   * is what an isolated render (a test, an ad-hoc mount) previously computed.
+   * Defaults to `in-season`, which is what this component used to compute for an
+   * absent or empty history. It is NOT a general reproduction of the old
+   * behavior: an isolated render (a test, an ad-hoc mount) that supplies a
+   * history and omits this prop now gets `in-season` where it would once have
+   * derived something else. Every league route passes it.
    */
   seasonContext?: SeasonContext;
   initialGames?: AppGame[];

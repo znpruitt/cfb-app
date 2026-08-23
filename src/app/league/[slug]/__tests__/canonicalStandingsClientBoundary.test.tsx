@@ -9,7 +9,7 @@ import {
   setAppState,
 } from '@/lib/server/appStateStore';
 import { getCanonicalStandings, type CanonicalStandings } from '@/lib/selectors/leagueStandings';
-import type { SeasonContext } from '@/lib/selectors/seasonContext';
+import { selectSeasonContext, type SeasonContext } from '@/lib/selectors/seasonContext';
 import type { StandingsHistoryWeekSnapshot } from '@/lib/standingsHistory';
 
 import LeagueRootPage from '../page';
@@ -144,6 +144,7 @@ test('no league surface ships the pending game list to the client', async () => 
 
 test('every league surface passes the derived season context instead', async () => {
   await seedLeagueWithAPendingGame();
+  const unstripped = await getCanonicalStandings({ slug: SLUG });
 
   for (const [name, render] of SURFACES) {
     const props = appProps(await render(SLUG));
@@ -155,9 +156,16 @@ test('every league surface passes the derived season context instead', async () 
       props.seasonContext !== undefined,
       `${name} must pass the server-derived season context`
     );
-    assert.ok(
-      ['in-season', 'postseason', 'final'].includes(props.seasonContext),
-      `${name} season context must be a valid value, got ${String(props.seasonContext)}`
+
+    // And it must be the RIGHT value, not merely a legal one. Review found this
+    // test asserting only "one of three strings", which would have passed for a
+    // hardcoded answer — and which is why the reclassification defect below
+    // survived every gate. The comparison is against the UNSTRIPPED snapshot,
+    // i.e. the exact computation the browser used to perform for itself.
+    assert.equal(
+      props.seasonContext,
+      selectSeasonContext({ standingsHistory: unstripped.standingsHistory }),
+      `${name} season context must equal the pre-projection answer`
     );
   }
 });

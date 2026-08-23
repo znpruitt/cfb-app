@@ -23,7 +23,7 @@ import {
   type WinPctSeries,
 } from './trends';
 import { selectLeagueStorylines, type LeagueStoryline } from './storylines';
-import { selectSeasonContext } from './seasonContext';
+import { selectSeasonContext, type SeasonContext } from './seasonContext';
 
 // Canonical → Derived invariant: overview selectors consume canonical snapshot inputs
 // and return pure, presentation-agnostic derived data.
@@ -939,6 +939,18 @@ export function selectOverviewViewModel(params: {
     }[];
   };
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+  /**
+   * PLATFORM-109 remediation — the season context, when the caller already holds
+   * one. The league routes derive it server-side from the UNSTRIPPED canonical
+   * snapshot and pass it down, so this selector no longer re-derives a value that
+   * already exists one layer up.
+   *
+   * Optional, and re-derived when absent: `selectSeasonContext` itself now
+   * refuses to call a pending-less history final unless every week was played,
+   * so the fallback is correct rather than merely unreached. Passing it is still
+   * preferred — one derivation, one answer.
+   */
+  seasonContext?: SeasonContext;
   standingsLimit?: number;
   featuredLimit?: number;
   resultsLimit?: number;
@@ -952,6 +964,7 @@ export function selectOverviewViewModel(params: {
     keyMatchups,
     matchupMatrix,
     rankingsByTeamId,
+    seasonContext: seasonContextOverride,
     standingsLimit = OVERVIEW_STANDINGS_LIMIT,
     featuredLimit = OVERVIEW_FEATURED_MATCHUPS_LIMIT,
     resultsLimit = OVERVIEW_RESULTS_LIMIT,
@@ -996,7 +1009,7 @@ export function selectOverviewViewModel(params: {
   const gamesBackTrend = standingsHistory ? selectGamesBackTrend({ standingsHistory }) : [];
   const winPctTrend = standingsHistory ? selectWinPctTrend({ standingsHistory }) : [];
   const winBars = standingsHistory ? selectWinBars({ standingsHistory }) : [];
-  const seasonContext = selectSeasonContext({ standingsHistory });
+  const seasonContext = seasonContextOverride ?? selectSeasonContext({ standingsHistory });
   const storylines = selectLeagueStorylines({
     standingsHistory,
     gamesBackTrend,

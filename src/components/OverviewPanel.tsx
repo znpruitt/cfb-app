@@ -1377,8 +1377,13 @@ type OverviewPanelProps = {
   standingsHistory?: StandingsHistory | null;
   /**
    * PLATFORM-109 — server-derived, see the matching note on `CFBScheduleApp`.
-   * Defaults to `selectSeasonContext`'s answer for an absent history so an
-   * isolated render behaves as it did when this was computed here.
+   *
+   * Defaults to `in-season`, which is what this component used to compute for an
+   * absent or empty history. It is NOT a general reproduction of the old
+   * behavior: an isolated render that supplies a history and omits this prop now
+   * gets `in-season` where it would once have derived something else. An earlier
+   * version of this comment claimed otherwise and review caught it. Every
+   * production render passes the prop — `CFBScheduleApp` always supplies it.
    */
   seasonContext?: SeasonContext;
   leagueSlug?: string;
@@ -1474,6 +1479,12 @@ export default function OverviewPanel({
         keyMatchups,
         matchupMatrix,
         rankingsByTeamId,
+        // PLATFORM-109 remediation: the history this component holds has had
+        // `pending` stripped, so the view model must NOT re-derive the season
+        // context from it. Both independent reviews found this call reclassifying
+        // a live season as `final`. The server already derived the answer from
+        // the unstripped snapshot; pass it rather than asking again.
+        seasonContext,
       }),
     [
       rowsForRender,
@@ -1484,6 +1495,7 @@ export default function OverviewPanel({
       keyMatchups,
       matchupMatrix,
       rankingsByTeamId,
+      seasonContext,
     ]
   );
   const sharedInsights = React.useMemo(() => {
