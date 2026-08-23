@@ -124,11 +124,18 @@ Rules:
   differ only in the subject` plus both Overview tests. (Round 4 renamed that test and this line
   kept citing the old name — a proof pointing at a test that did not exist, found by `/code-review`
   on `27eb7580`. Fourth verification claim in this entry to reach wider than what was checked.)
-- Status: IMPLEMENTED AND REVIEW-COMPLETE, NOT MERGED — branch
-  `polish/011-standings-coverage-copy`. The head SHA is deliberately NOT recorded here: two
-  earlier versions of this line named a head that a later remediation round immediately made stale,
-  and a reader following it landed on a tree these verification claims did not hold for. Read the
-  branch.
+- Status: Merged (PR #507, `15573589`, 2026-08-23). Reviewed head `5a404ed7`. NOT PROMOTED —
+  member-facing UI reaches the league only when a deployment carrying it is promoted; the merge
+  builds and does not ship.
+
+  **Four remediation rounds, one defect shape.** Every round applied a fix or a test to ONE of the
+  two member surfaces: Overview was missed entirely; then its fix shipped untested; then
+  `StandingsPanel` was left rendering the raw message while Overview normalized; then the
+  `partial/null` regression test covered only `StandingsPanel`. Each round's finding was the same
+  shape one layer down, and each was found by review rather than by the author. The generalisable
+  correction is recorded outside this repo as a binding rule: a mutation proves only what it
+  TOUCHES, and only via the assertion that FIRES — three claims in this entry were reported as
+  proven from a red suite that a different test had produced.
 
 **A claim corrected in three places, because it was wrong in all of them.** The first
 implementation's comment — and `docs/next-tasks.md` item 69, and the author's reasoning presented

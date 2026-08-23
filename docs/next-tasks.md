@@ -2081,7 +2081,7 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-ARCHIVE-COVERAGE-INTEGRITY-v1`
 
-69. 🟡 **IMPLEMENTED, merge pending — standings coverage banner copy.**
+69. ✅ **MERGED — standings coverage banner copy.** PR #507 (`15573589`), 2026-08-23. Merged, NOT promoted: member-facing UI reaches the league only on promotion.
 
     **The diagnosis, as it stood BEFORE implementation** (line references are historical and no
     longer resolve): `StandingsPanel` rendered `coverage.message` directly. The canonical path passed
