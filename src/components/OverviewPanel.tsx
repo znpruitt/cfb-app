@@ -1561,8 +1561,11 @@ export default function OverviewPanel({
       {/* Standings · FBS Polls · Insights */}
       <section>
         {/* POLISH-011: this notice sits above standings, FBS polls and insights
-            together, so it names its subject. `StandingsPanel` renders the bare
-            `coverage.message` because its own heading already supplies one. */}
+            together under a tab reading "Overview", so it names its subject.
+            `StandingsPanel` uses the short form because it is already inside the
+            standings view — it has no heading of its own. NEITHER surface renders
+            `coverage.message` raw: coverage is durable and cached, so stale copy
+            must never reach a member. */}
         {coverageForRender.message ? (
           <p
             className={`mb-3 text-sm ${

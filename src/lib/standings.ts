@@ -120,28 +120,40 @@ export function deriveStandingsCoverage(
 }
 
 /**
- * The same coverage fact for a surface that does NOT sit under a standings
- * heading.
+ * The coverage notice each member surface should render.
  *
- * `StandingsPanel` renders `coverage.message` directly: the surrounding view is
- * already the standings view — the "League Table" sub-tab under the "Standings"
- * primary tab — so the subject is established before the notice is read. Overview
- * renders this instead: there the identical line sits above standings, FBS polls
- * and insights together, under a tab that reads "Overview", so a bare fragment
- * cannot say which of the three is waiting.
+ * NEITHER surface renders `coverage.message` directly, and that is the point.
+ * `coverage` is DURABLE — `seasonRollover` freezes it into season archives, and
+ * canonical standings are cached with `revalidate: false` under a key that does
+ * not change when copy changes, so a snapshot minted before a wording change
+ * keeps serving the retired sentence until some unrelated invalidation, which
+ * may never come for a quiet league. Both surfaces therefore derive their text
+ * from `state`, and stale prose is never displayed.
+ *
+ * An earlier round applied this reasoning to Overview ONLY and left
+ * `StandingsPanel` echoing the raw message. Both reviewers caught it: the same
+ * snapshot would render the new wording on Overview and the deleted sentence on
+ * the standings page — the surface the owner's decision was actually about.
+ *
+ * The two forms differ only in whether the surface supplies the subject.
+ * `StandingsPanel` sits inside the standings view already (the "League Table"
+ * sub-tab under the "Standings" primary tab), so the short form reads fine.
+ * Overview shows the identical line above standings, FBS polls and insights
+ * together under a tab reading "Overview", so a bare fragment cannot say which
+ * of the three is waiting.
  *
  * A blind "Standings: " prefix would be wrong — the `*_COVERAGE_UNAVAILABLE`
  * constants already name their own subject and would read "Standings: Standings
- * coverage is unavailable." Both forms are therefore written out.
- *
- * Dispatch is on STATE, not on the message text. An earlier version compared the
- * message to a module constant, which both reviewers flagged: `coverage` is
- * DURABLE — `seasonRollover` freezes it into season archives and canonical
- * standings are cached with `revalidate: false` — so a snapshot minted before a
- * copy change carries the old prose and would silently miss its subject. State is
- * the structural discriminator; prose is not. If `partial` ever gains more than
- * one meaning, add a reason code rather than inspecting display text.
+ * coverage is unavailable." Both forms are written out instead. If `partial`
+ * ever gains more than one meaning, add a reason code rather than inspecting
+ * display text.
  */
+export function standingsCoverageNotice(coverage: StandingsCoverage): string | null {
+  if (!coverage.message) return null;
+  return coverage.state === 'partial' ? COVERAGE_INCOMPLETE : coverage.message;
+}
+
+/** As {@link standingsCoverageNotice}, for a surface that must name its subject. */
 export function standingsCoverageNoticeWithSubject(coverage: StandingsCoverage): string | null {
   if (!coverage.message) return null;
   return coverage.state === 'partial' ? COVERAGE_INCOMPLETE_WITH_SUBJECT : coverage.message;

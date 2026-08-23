@@ -2119,7 +2119,7 @@ Supersedes: (none)
     up. Neither changes the member-facing decision above.
 
     Implemented as `POLISH-011-STANDINGS-COVERAGE-COPY-v1` on
-    `polish/011-standings-coverage-copy` (head `a3b4955c`); execution and review record live in
+    `polish/011-standings-coverage-copy`; execution and review record live in
     `docs/prompt-registry.md`. Both remaining implementation questions are settled: the two dead
     variants were deleted, and the `error` state was kept because `STANDINGS_COVERAGE_UNAVAILABLE`
     still produces it and `StandingsPanel` still styles it amber.

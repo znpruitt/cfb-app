@@ -92,6 +92,46 @@ const history: StandingsHistory = {
   },
 };
 
+// POLISH-011 round 3: BOTH reviewers found that StandingsPanel echoed
+// `coverage.message` raw while Overview normalized it. Coverage is durable —
+// archived by seasonRollover and cached with `revalidate: false` under a key
+// that does not change when copy does — so a snapshot minted before a wording
+// change keeps serving the retired sentence, possibly forever on a quiet
+// league. This pins that the RETIRED copy can never reach a member, which is
+// the whole point of the slice.
+test('standings panel never renders retired coverage copy from a stale snapshot', () => {
+  const staleSnapshot = {
+    state: 'partial' as const,
+    message: 'Standings may be incomplete — some completed game scores are not available yet.',
+  };
+
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2025}
+      coverage={staleSnapshot}
+      rows={[
+        {
+          owner: 'Alex',
+          wins: 3,
+          losses: 1,
+          winPct: 0.75,
+          pointsFor: 120,
+          pointsAgainst: 99,
+          pointDifferential: 21,
+          gamesBack: 0,
+          finalGames: 4,
+        },
+      ]}
+    />
+  );
+
+  assert.match(html, /Waiting on complete results/);
+  assert.doesNotMatch(html, /Standings may be incomplete/);
+  // The short form, not Overview's: this surface is already the standings view.
+  assert.doesNotMatch(html, /Standings — waiting on complete results/);
+});
+
 test('standings panel renders expected columns and metrics', () => {
   const html = renderToStaticMarkup(
     <StandingsPanel
@@ -1086,7 +1126,11 @@ test('canonical partial coverage overrides contradictory local complete coverage
     />
   );
 
-  assert.match(html, /Canonical partial coverage\./);
+  // POLISH-011 round 3: the panel renders the canonical notice for any `partial`
+  // state rather than echoing a caller-supplied message, so this asserts the
+  // CANONICAL snapshot won — the local prop said `complete`, which renders
+  // nothing at all.
+  assert.match(html, /Waiting on complete results/);
 });
 
 test('archive canonical complete coverage suppresses a stale local partial warning', () => {

@@ -13,6 +13,7 @@ import type { LiveDelta } from '../lib/selectors/liveDelta';
 import { resolveStandingsCanonicalInputs } from '../lib/selectors/standingsCanonicalInputs';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import { deriveStandingsMovementByOwner } from '../lib/selectors/standingsMovement';
+import { standingsCoverageNotice } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
 
@@ -271,7 +272,7 @@ export default function StandingsPanel({
               : 'text-gray-600 dark:text-zinc-300'
           }`}
         >
-          {coverageForRender.message}
+          {standingsCoverageNotice(coverageForRender)}
         </p>
       ) : null}
       <div

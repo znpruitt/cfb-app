@@ -71,7 +71,7 @@ Rules:
   production ever set them, verified across every non-test caller by both reviewers. The `error`
   STATE is deliberately KEPT — `STANDINGS_COVERAGE_UNAVAILABLE` still produces it and
   `StandingsPanel` still styles it amber.
-- Review / verification: implementation `4e86809b`, one remediation round `a3b4955c`. Both reviewers
+- Review / verification: implementation `4e86809b`, then THREE remediation rounds — `a3b4955c`, `581010ca`, and the round recorded below. Both reviewers
   ran against `4e86809b` before anything was touched — Claude implemented this slice AND wrote the
   item it implements, so neither the change nor its rationale had an independent reader until then.
   Codex: no credible P0/P1/P2. `/code-review`: one medium, two low. **All four findings were the
@@ -90,13 +90,30 @@ Rules:
   (`[complete, partial]`), and each mutation is confirmed against the NAMED test rather than against
   a red suite.
 
+  **A THIRD round followed, on the same fault line.** Both reviewers independently found that the
+  durability argument had been applied to Overview ONLY: `StandingsPanel` still echoed
+  `coverage.message` raw, so a canonical snapshot warmed before the deploy would render the NEW
+  wording on Overview and the RETIRED sentence on the standings page — the surface the owner's
+  decision was actually about — with no invalidation coming for a quiet league. Codex rated it P2.
+  Fixed by giving both surfaces a state-derived notice (`standingsCoverageNotice` and its
+  subject-bearing sibling); neither renders `coverage.message` directly any more. Cache versioning
+  was considered and rejected: it would discard every league's canonical standings at once and
+  still would not clear the copy already frozen into archives. `/code-review` separately found a
+  FIFTH instance of the "its own heading supplies the subject" claim — in a comment written during
+  round 2, at the render site the correction was about — because the round-2 verification grepped
+  the exact phrase rather than the concept. That is the same error as the mutation claims: checking
+  something narrower than what was asserted.
+
   Mutation-proven in this round: reverting the Overview render site fails
   `overview names the subject of an incomplete standings notice`; deriving coverage from all games
   instead of cumulative fails `deriveStandingsHistory derives coverage onto each week snapshot`;
   dropping the subject from the helper fails `the coverage notice names its subject only where the
   surface cannot` plus both Overview tests.
 - Status: IMPLEMENTED AND REVIEW-COMPLETE, NOT MERGED — branch
-  `polish/011-standings-coverage-copy`, head `a3b4955c`.
+  `polish/011-standings-coverage-copy`. The head SHA is deliberately NOT recorded here: two
+  earlier versions of this line named a head that a later remediation round immediately made stale,
+  and a reader following it landed on a tree these verification claims did not hold for. Read the
+  branch.
 
 **A claim corrected in three places, because it was wrong in all of them.** The first
 implementation's comment — and `docs/next-tasks.md` item 69, and the author's reasoning presented
