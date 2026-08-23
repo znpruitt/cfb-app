@@ -45,6 +45,11 @@ export type StandingsCoverage = {
 
 export const NO_CLAIM_OWNER = 'NoClaim';
 
+/** The one claim an incomplete standings snapshot makes (POLISH-011). */
+const COVERAGE_INCOMPLETE = 'Waiting on complete results';
+/** The same claim for surfaces with no standings heading to supply the subject. */
+const COVERAGE_INCOMPLETE_WITH_SUBJECT = 'Standings — waiting on complete results';
+
 /**
  * Splits a sorted list of owner standings into real-owner rows and the NoClaim
  * aggregate (when present). Mirrors the canonical selector's filter so every
@@ -91,23 +96,48 @@ export function deriveStandingsCoverage(
   }
 
   // POLISH-011 (owner decision, 2026-08-22). The member surface makes ONE simple
-  // claim; the actionable detail — which game, which partition, that the sweep
-  // attempted repair and failed — belongs on System Health (item 67), not here.
+  // claim; the actionable detail — which game, which partition, whether a sweep
+  // ran — belongs on System Health (item 67), not here.
   //
-  // The previous wording ("…are not available YET", "Standings MAY BE incomplete")
-  // became wrong when PLATFORM-107 landed: `sweepMissingFinalScores` runs in the
-  // SAME invocation as the schedule commit, so the run that learns a game is
-  // `completed` also fills its score from the same CFBD payload. Reaching this
-  // branch therefore means automatic repair ALREADY RAN and did not fix it — the
-  // wait ended days earlier — and "may be" hedged a fact we hold positive
-  // evidence for.
+  // This branch means exactly one thing: an owned game has score-bearing
+  // conclusion evidence and no usable final. It does NOT mean automatic repair
+  // was attempted and failed. PLATFORM-107's sweep runs after the schedule
+  // commit, but only when the caller asks for it: a manual full-year admin
+  // refresh does not (`api/schedule/route.ts` full-season path), and the weekly
+  // cron skips it whenever score automation is paused or disabled
+  // (`api/cron/schedule-refresh/route.ts`). So a result may still be genuinely
+  // en route — which is why "Waiting" is the honest verb, and why the earlier
+  // "…are not available YET" was not: it promised a specific imminence this
+  // predicate cannot support, and "may be incomplete" hedged a fact we hold
+  // positive evidence for.
   //
   // The `error` STATE is deliberately not produced here. It remains reachable via
   // `STANDINGS_COVERAGE_UNAVAILABLE` and still drives the amber styling.
   return {
     state: 'partial',
-    message: 'Waiting on complete results',
+    message: COVERAGE_INCOMPLETE,
   };
+}
+
+/**
+ * The same coverage fact for a surface that does NOT sit under a standings
+ * heading.
+ *
+ * `StandingsPanel` renders `coverage.message` directly — its own heading supplies
+ * the subject. Overview renders this instead: there the identical line sits above
+ * standings, FBS polls and insights together, so a bare fragment cannot say which
+ * of the three is waiting.
+ *
+ * A blind "Standings: " prefix would be wrong — `STANDINGS_COVERAGE_UNAVAILABLE`
+ * already names its own subject and would read "Standings: Standings coverage is
+ * unavailable." Both forms are therefore written out, never derived by string
+ * inspection.
+ */
+export function standingsCoverageNoticeWithSubject(coverage: StandingsCoverage): string | null {
+  if (!coverage.message) return null;
+  return coverage.message === COVERAGE_INCOMPLETE
+    ? COVERAGE_INCOMPLETE_WITH_SUBJECT
+    : coverage.message;
 }
 
 function toOwnedFinalResult(

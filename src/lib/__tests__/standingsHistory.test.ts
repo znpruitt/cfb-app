@@ -253,10 +253,19 @@ test('deriveStandingsHistory preserves tie/no-decision semantics and byWeek/byOw
 // is derived onto every week snapshot at all, which is what the standings series
 // and `selectResolvedStandingsWeeks` read.
 test('deriveStandingsHistory derives coverage onto each week snapshot', () => {
+  // TWO weeks, because the name says "each". A one-week fixture would pass even
+  // if coverage were derived for only the first or only the last snapshot.
   const games = [
     game({
       key: 'missing-final-score',
       week: 1,
+      csvAway: 'A-Team',
+      csvHome: 'B-Team',
+      status: 'final',
+    }),
+    game({
+      key: 'week-two-scored',
+      week: 2,
       csvAway: 'A-Team',
       csvHome: 'B-Team',
       status: 'final',
@@ -278,23 +287,33 @@ test('deriveStandingsHistory derives coverage onto each week snapshot', () => {
   };
 
   const history = deriveStandingsHistory({ games, rosterByTeam, scoresByKey });
-  assert.equal(history.byWeek[1]?.coverage.state, 'partial');
-  assert.equal(history.byWeek[1]?.coverage.message, 'Waiting on complete results');
+  for (const week of [1, 2]) {
+    assert.equal(history.byWeek[week]?.coverage.state, 'partial', `week ${week} coverage state`);
+    assert.equal(
+      history.byWeek[week]?.coverage.message,
+      'Waiting on complete results',
+      `week ${week} coverage message`
+    );
+  }
 
   // Positive control: the same fixture reads complete once the score lands, so a
   // snapshot that can only ever say "partial" would fail here.
+  const finalScore = (away: number, home: number) => ({
+    status: 'final',
+    time: 'Final',
+    away: { team: 'A-Team', score: away },
+    home: { team: 'B-Team', score: home },
+  });
   const scored = deriveStandingsHistory({
     games,
     rosterByTeam,
     scoresByKey: {
-      'missing-final-score': {
-        status: 'final',
-        time: 'Final',
-        away: { team: 'A-Team', score: 24 },
-        home: { team: 'B-Team', score: 10 },
-      },
+      'missing-final-score': finalScore(24, 10),
+      'week-two-scored': finalScore(17, 21),
     },
   });
-  assert.equal(scored.byWeek[1]?.coverage.state, 'complete');
-  assert.equal(scored.byWeek[1]?.coverage.message, null);
+  for (const week of [1, 2]) {
+    assert.equal(scored.byWeek[week]?.coverage.state, 'complete', `week ${week} scored state`);
+    assert.equal(scored.byWeek[week]?.coverage.message, null, `week ${week} scored message`);
+  }
 });

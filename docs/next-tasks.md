@@ -2087,18 +2087,27 @@ Supersedes: (none)
     not available yet.” The other two (“still loading”, “could not be loaded”) are reachable only from
     the legacy client-derived path and are effectively dead copy.
 
-    **Why the current sentence is wrong.** `sweepMissingFinalScores` runs immediately after the
-    schedule commit IN THE SAME INVOCATION (`fullSeasonScheduleRefresh.ts:398`), so the run that
-    learns a game is `completed` also fills its score from the same CFBD payload. If a member ever
-    sees this banner it means we have positive evidence the game finished, we have no score, AND the
-    automatic repair already ran without fixing it. “Yet” promises a wait that ended days earlier;
-    “may be” hedges a fact we hold positive evidence for.
+    **Why the current sentence is wrong.** The banner means exactly one thing: an owned game has
+    score-bearing conclusion evidence and no usable final. **It does NOT mean automatic repair was
+    attempted and failed** — an earlier version of this entry claimed that and was wrong (Codex,
+    2026-08-23). PLATFORM-107's sweep runs after the schedule commit but only when the caller asks:
+    a manual full-year admin refresh does not (`api/schedule/route.ts` full-season path), and the
+    weekly cron skips it whenever score automation is paused or disabled
+    (`api/cron/schedule-refresh/route.ts`). A result may therefore still be genuinely en route —
+    which is what makes “Waiting” honest, and what “…are not available YET” got wrong: it promised a
+    specific imminence the predicate cannot support. “May be” separately hedged a fact we hold
+    positive evidence for.
 
     **OWNER DECISION (2026-08-22).** Split by audience:
 
     - **Standings page (member):** a simple claim — **“Waiting on complete results”**. No count, no
-      cause, no hedge. A member cannot act on the cause, and the dominant remaining case (a failed
-      partition write) genuinely does retry on the next weekly run, so “waiting” is truthful.
+      cause, no hedge. A member cannot act on the cause, and a result may genuinely still be coming
+      (see above), so “waiting” is truthful.
+    - **Overview (member):** the SAME fact with its subject named — **“Standings — waiting on
+      complete results”**. Decided 2026-08-23 after review found a second reader: Overview renders
+      the identical message above standings, FBS polls and insights together, where a bare fragment
+      cannot say which is waiting. `StandingsPanel` keeps the short form because its own heading
+      supplies the subject.
     - **System Health (operator):** the actionable detail belongs here, not in front of members —
       which game, which partition, and that the sweep attempted repair and failed. That is item 67's
       work; do not duplicate it on the member surface.

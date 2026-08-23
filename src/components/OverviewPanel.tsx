@@ -40,6 +40,7 @@ import {
 } from '../lib/rankings';
 import { getGameParticipantTeamId, type AppGame } from '../lib/schedule';
 import type { ScorePack } from '../lib/scores';
+import { standingsCoverageNoticeWithSubject } from '../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../lib/standings';
 import type { StandingsHistory } from '../lib/standingsHistory';
 import { getPresentationTimeZone } from '../lib/weekPresentation';
@@ -1559,6 +1560,9 @@ export default function OverviewPanel({
 
       {/* Standings · FBS Polls · Insights */}
       <section>
+        {/* POLISH-011: this notice sits above standings, FBS polls and insights
+            together, so it names its subject. `StandingsPanel` renders the bare
+            `coverage.message` because its own heading already supplies one. */}
         {coverageForRender.message ? (
           <p
             className={`mb-3 text-sm ${
@@ -1567,7 +1571,7 @@ export default function OverviewPanel({
                 : 'text-gray-600 dark:text-zinc-300'
             }`}
           >
-            {coverageForRender.message}
+            {standingsCoverageNoticeWithSubject(coverageForRender)}
           </p>
         ) : null}
         {viewModel.standingsTopN.length === 0 ? (

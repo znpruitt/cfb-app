@@ -7,6 +7,7 @@ import {
   deriveFinalOwnedParticipations,
   deriveStandings,
   deriveStandingsCoverage,
+  standingsCoverageNoticeWithSubject,
 } from '../standings.ts';
 
 function game(overrides: Partial<AppGame>): AppGame {
@@ -418,6 +419,36 @@ test('standings coverage remains complete for a legitimately scoreless canceled 
 // options that produced them; a test feeding those options would have been
 // defending a path that does not exist. The `error` STATE is still reachable —
 // but from `STANDINGS_COVERAGE_UNAVAILABLE`, not from here.
+// POLISH-011: two surfaces, two forms. Overview has no standings heading to
+// supply the subject; a blind prefix would double up on the error string, which
+// already names itself.
+test('the coverage notice names its subject only where the surface cannot', () => {
+  const rosterByTeam = new Map([['Texas', 'Alex']]);
+  const missingScore = [
+    game({ key: 'final-owned', csvAway: 'Texas', csvHome: 'Baylor', status: 'final' }),
+  ];
+  const partial = deriveStandingsCoverage(missingScore, rosterByTeam, {});
+
+  assert.equal(partial.message, 'Waiting on complete results');
+  assert.equal(
+    standingsCoverageNoticeWithSubject(partial),
+    'Standings — waiting on complete results'
+  );
+
+  // A message that already names its subject is returned untouched, so Overview
+  // can never render "Standings: Standings coverage is unavailable."
+  assert.equal(
+    standingsCoverageNoticeWithSubject({
+      state: 'error',
+      message: 'Standings coverage is unavailable.',
+    }),
+    'Standings coverage is unavailable.'
+  );
+
+  // Complete coverage renders nothing on either surface.
+  assert.equal(standingsCoverageNoticeWithSubject({ state: 'complete', message: null }), null);
+});
+
 test('an incomplete standings snapshot makes one claim, whatever caused the gap', () => {
   const rosterByTeam = new Map([['Texas', 'Alex']]);
   const missingScore = [
