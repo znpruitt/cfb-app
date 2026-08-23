@@ -2514,5 +2514,14 @@ test('PLATFORM-109: an explicit seasonContext overrides the derivation', () => {
   // The caller's answer wins over the local derivation — which is what lets the
   // league routes hand down the one value they derived from the unstripped
   // snapshot instead of every consumer deriving its own.
+  //
+  // NOT PINNED, deliberately: that `OverviewPanel` forwards its prop into this
+  // selector. `seasonContext` reaches only `viewModel.storylines`, which nothing
+  // renders today — rendering the panel with `in-season` and with `final` was
+  // measured to produce byte-identical markup, so no behavioural assertion can
+  // discriminate. A source scan could, and would be exactly the speculative
+  // proof machinery AGENTS.md warns against. This becomes pinnable the moment a
+  // surface renders storylines; until then the selector contract above is the
+  // real guarantee, and the honest statement is that the wire is unpinned.
   assert.notDeepEqual(overridden.storylines, derived.storylines);
 });

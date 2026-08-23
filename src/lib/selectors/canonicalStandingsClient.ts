@@ -22,13 +22,21 @@ import { selectSeasonContext, type SeasonContext } from './seasonContext';
  * object, so a page cannot ship the stripped history without the context that
  * replaces it.
  *
- * HAZARD: do NOT pass the projected history back into `selectSeasonContext`. Its
- * abandonment test is `unresolved.every(...)`, which is vacuously true for an
- * empty list, so a history with no `pending` anywhere answers `final` regardless
- * of what actually happened. That is the latent trap recorded under item 64 in
- * `docs/next-tasks.md`; this projection is the one place that manufactures such
- * a history, which is why the context is derived HERE, from the unstripped
- * snapshot, and handed onward as a value rather than left to be re-derived.
+ * This projection is the only code that manufactures a pending-less history from
+ * a live one, and it used to be a trap: `selectSeasonContext`'s abandonment test
+ * is `unresolved.every(...)`, vacuously true for an empty list, so the stripped
+ * copy answered `final` for a season that had not started. Two independent
+ * reviews found it reaching `selectOverviewViewModel`.
+ *
+ * `selectSeasonContext` no longer accepts that input — it requires the emptiness
+ * to be a fact, so a stripped history with an unplayed week now answers
+ * `in-season` correctly. The earlier version of this note said a projected
+ * history ALWAYS reads `final`, which the fix made untrue; the confirming review
+ * caught the stale claim.
+ *
+ * The context is still derived HERE, from the unstripped snapshot, and handed
+ * onward as a value. One derivation beats a correct re-derivation in every
+ * consumer.
  */
 export type CanonicalStandingsClientProps = {
   canonicalStandings: CanonicalStandings | undefined;

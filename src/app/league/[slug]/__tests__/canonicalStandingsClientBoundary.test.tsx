@@ -95,6 +95,54 @@ async function seedLeagueWithAPendingGame(): Promise<void> {
   });
 }
 
+/**
+ * A league whose only game is FINAL. Every week is played with nothing pending,
+ * so the season context is `final` — the answer the fixture above can never
+ * produce, and therefore the one that makes the equality assertion below capable
+ * of catching a hardcoded value.
+ */
+async function seedLeagueWithAFinishedSeason(): Promise<void> {
+  await addLeague({
+    slug: SLUG,
+    displayName: 'Turf War',
+    year: YEAR,
+    createdAt: '2026-01-01T00:00:00.000Z',
+    status: { state: 'season', year: YEAR },
+  });
+  await setAppState(`owners:${SLUG}:${YEAR}`, 'csv', 'team,owner\nTexas,Alice\nGeorgia,Bob\n');
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    items: [
+      {
+        id: '401000002',
+        week: 1,
+        startDate: `${YEAR}-09-05T18:00:00.000Z`,
+        neutralSite: false,
+        conferenceGame: false,
+        homeTeam: 'Texas',
+        awayTeam: 'Georgia',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'final',
+        seasonType: 'regular',
+      },
+    ],
+  });
+  await setAppState('scores', `${YEAR}-all-regular`, {
+    items: [
+      {
+        id: '401000002',
+        seasonType: 'regular',
+        startDate: `${YEAR}-09-05T18:00:00.000Z`,
+        week: 1,
+        status: 'final',
+        home: { team: 'Texas', score: 31 },
+        away: { team: 'Georgia', score: 17 },
+        time: null,
+      },
+    ],
+  });
+}
+
 beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
@@ -157,15 +205,37 @@ test('every league surface passes the derived season context instead', async () 
       `${name} must pass the server-derived season context`
     );
 
-    // And it must be the RIGHT value, not merely a legal one. Review found this
-    // test asserting only "one of three strings", which would have passed for a
-    // hardcoded answer — and which is why the reclassification defect below
-    // survived every gate. The comparison is against the UNSTRIPPED snapshot,
-    // i.e. the exact computation the browser used to perform for itself.
+    // And it must be the RIGHT value, not merely a legal one: the comparison is
+    // against the UNSTRIPPED snapshot, i.e. the exact computation the browser
+    // used to perform for itself.
+    //
+    // On its own this case cannot catch a route that hardcoded `in-season`,
+    // because that IS the answer here. The finished-season test below supplies
+    // the discriminating value. An earlier version of this comment claimed this
+    // assertion alone was enough, and the confirming review was right that it
+    // was not.
     assert.equal(
       props.seasonContext,
       selectSeasonContext({ standingsHistory: unstripped.standingsHistory }),
       `${name} season context must equal the pre-projection answer`
     );
+  }
+});
+
+test('a finished season reaches the client as `final`, not the default', async () => {
+  // The discriminating half of the assertion above. Every route must report the
+  // season OVER here; a hardcoded `in-season`, a dropped prop falling back to its
+  // default, or a projection that lost the answer all fail this.
+  await seedLeagueWithAFinishedSeason();
+  const unstripped = await getCanonicalStandings({ slug: SLUG });
+  assert.equal(
+    selectSeasonContext({ standingsHistory: unstripped.standingsHistory }),
+    'final',
+    'the fixture must actually produce a finished season, or this proves nothing'
+  );
+
+  for (const [name, render] of SURFACES) {
+    const props = appProps(await render(SLUG));
+    assert.equal(props.seasonContext, 'final', `${name} must report the finished season`);
   }
 });
