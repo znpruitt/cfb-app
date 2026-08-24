@@ -64,13 +64,20 @@ Rules:
   plot area. Three wordings for one idea became `TREND_EMPTY_MESSAGE`, reworded to name what the
   chart needs and promise nothing. `SeasonArcChart` is otherwise unchanged from `main`: the axis
   trim was cut, and the trailing-gridline defect it targeted REMAINS OPEN as item 73.
-- Review / verification: implementation `5bf7c5db`; remediation `3c06c8ce`; owner-approved rounds
-  `29987cd4` and the axis fix below. Both reviewers each round. Gates at the final commit: full
-  suite exit 0, `tsc` exit 0, `lint:all` exit 0. Every BEHAVIORAL fix is mutation-proven against the
-  code it claims to fix — the axis trim in both wrong directions. **The copy change is a contract
-  pin, not a mutation-proven regression test**: its assertions import the production constant, so
-  changing the constant moves the oracle with it and the tests stay green. An earlier version of
-  this entry said every fix was mutation-proven; confirming review was right that this overstated it.
+- Review / verification: implementation `5bf7c5db`; remediation `3c06c8ce`; owner-approved round
+  `29987cd4`; scope cut `3f75b874`. Both reviewers every round — five each. Gates at the final
+  commit: full suite 4224/4224 exit 0, `tsc` exit 0, `lint:all` exit 0.
+
+  Mutation-proven against the code each claims to fix: the section guard (restoring the
+  hide-when-empty condition fails the empty-state tests), the one-point markers (removing the circle
+  branch fails), and the clamp (unclamping fails with the offending coordinates). **The copy change
+  is a CONTRACT PIN, not a mutation-proven regression test** — its assertions import the production
+  constant, so changing the constant moves the oracle with it and the tests stay green.
+
+  **Nothing here covers the `W14`/`W15` axis defect.** That work was cut (item 73); an earlier
+  version of this bullet cited "the axis trim in both wrong directions" as mutation-proven, which
+  became false when the cut removed the implementation and its tests. Two successive versions of
+  this same bullet overstated coverage and review caught both.
 - Status: Implemented — PR #510 open.
 
 **FOUR FINDINGS, ONE ROOT: THE SECTION STATED A CAUSE IT HAD NOT ESTABLISHED.** One resolved week
