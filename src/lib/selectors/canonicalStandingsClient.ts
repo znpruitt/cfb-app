@@ -29,10 +29,15 @@ import { selectSeasonContext, type SeasonContext } from './seasonContext';
  * reviews found it reaching `selectOverviewViewModel`.
  *
  * `selectSeasonContext` no longer accepts that input — it requires the emptiness
- * to be a fact, so a stripped history with an unplayed week now answers
- * `in-season` correctly. The earlier version of this note said a projected
- * history ALWAYS reads `final`, which the fix made untrue; the confirming review
- * caught the stale claim.
+ * to be a fact, so a stripped history whose weeks are merely UNPLAYED now answers
+ * `in-season` correctly. (An earlier version of this note said a projected
+ * history ALWAYS reads `final`, which the fix made untrue.)
+ *
+ * That is not the same as safe to re-derive from. A season that ended on an
+ * ABANDONED game has a week marked `played: false` — because something was
+ * pending — so the stripped copy answers `in-season` where the truth is `final`.
+ * The projection's own return value is right; a re-derivation from what it
+ * returns is not. Review caught this note describing only the first half.
  *
  * The context is still derived HERE, from the unstripped snapshot, and handed
  * onward as a value. One derivation beats a correct re-derivation in every

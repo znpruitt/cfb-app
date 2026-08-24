@@ -945,10 +945,22 @@ export function selectOverviewViewModel(params: {
    * snapshot and pass it down, so this selector no longer re-derives a value that
    * already exists one layer up.
    *
-   * Optional, and re-derived when absent: `selectSeasonContext` itself now
-   * refuses to call a pending-less history final unless every week was played,
-   * so the fallback is correct rather than merely unreached. Passing it is still
-   * preferred — one derivation, one answer.
+   * Optional, and re-derived when absent — but the fallback is UNREACHED, and
+   * WRONG IF REACHED. `selectSeasonContext` refuses to call a pending-less
+   * history final unless every week was played, which is right for a season
+   * still running and wrong for one that ended on an abandoned game: that week
+   * is `played: false` precisely because something was pending, so once `pending`
+   * is stripped the re-derivation answers `in-season` where the truth is `final`.
+   * Measured on this branch — server `final`, prop `final`, stripped
+   * re-derivation `in-season`.
+   *
+   * Nothing reaches it today: all five league routes pass the prop. An earlier
+   * version of this note claimed the fallback was correct, which review
+   * disproved. Making the parameter REQUIRED would delete the trap instead of
+   * documenting it, at the cost of touching every test call site; recorded as a
+   * follow-up rather than done here.
+   *
+   * Pass it. One derivation, one answer.
    */
   seasonContext?: SeasonContext;
   standingsLimit?: number;

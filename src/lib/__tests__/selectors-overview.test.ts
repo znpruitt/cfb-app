@@ -2515,13 +2515,19 @@ test('PLATFORM-109: an explicit seasonContext overrides the derivation', () => {
   // league routes hand down the one value they derived from the unstripped
   // snapshot instead of every consumer deriving its own.
   //
-  // NOT PINNED, deliberately: that `OverviewPanel` forwards its prop into this
-  // selector. `seasonContext` reaches only `viewModel.storylines`, which nothing
-  // renders today — rendering the panel with `in-season` and with `final` was
-  // measured to produce byte-identical markup, so no behavioural assertion can
-  // discriminate. A source scan could, and would be exactly the speculative
-  // proof machinery AGENTS.md warns against. This becomes pinnable the moment a
-  // surface renders storylines; until then the selector contract above is the
-  // real guarantee, and the honest statement is that the wire is unpinned.
+  // NOT PINNED: that `OverviewPanel` forwards its prop into THIS selector. The
+  // value lands on `viewModel.storylines`, which no surface renders, so deleting
+  // that one forwarding fails no test — verified by deleting it, not assumed.
+  //
+  // An earlier version of this note claimed the panel's markup was byte-
+  // identical with `in-season` and with `final`. That was false and review
+  // disproved it: the panel ALSO forwards the prop to `deriveLeagueInsights`,
+  // which is render-observable and is now pinned in `OverviewPanel.test.tsx`.
+  // The measurement behind the false claim came from a single fixture that
+  // emitted no context-sensitive insights, stated as a general fact.
+  //
+  // So: one of the two forwardings is pinned at the render level, the other is
+  // unpinnable until a surface renders storylines, and this selector contract is
+  // what guards it meanwhile.
   assert.notDeepEqual(overridden.storylines, derived.storylines);
 });
