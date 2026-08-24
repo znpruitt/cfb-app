@@ -50,6 +50,45 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### POLISH-013-TREND-EMPTY-STATES-v1
+
+- Purpose: stop Overview's "GB Race" rendering a heading, a divider and a link over a completely
+  empty body, and close `docs/next-tasks.md` item 72.
+- Scope: `OverviewPanel.tsx` (section guard + empty state), `MiniTrendsGrid.tsx` (one-point series),
+  `history/SeasonArcChart.tsx`, `TrendsDetailSurface.tsx`, new `lib/trendEmptyState.ts`,
+  `selectors/historyResolution.ts`; tests.
+- Outcome: the section asks `selectGamesBackTrend` — the selector both children reduce to — and
+  keeps rendering when it is empty, with an explained empty state and no axes. It applies whenever
+  the league has owner rows, so a `preseason-names` league no longer sees it appear at the draft.
+  One-point series render as points rather than an invisible moveto-only path, clamped inside the
+  plot area. `SeasonArcChart` trims only its trailing unresolved weeks. Three wordings for one idea
+  became `TREND_EMPTY_MESSAGE`, reworded to name what the chart needs and promise nothing.
+- Review / verification: implementation `5bf7c5db`; remediation `3c06c8ce`; owner-approved second
+  round `29987cd4`. Both reviewers each round. Gates at `29987cd4`: full suite 4226/4226 exit 0,
+  `tsc` exit 0, `lint:all` exit 0. Each fix mutation-proven against the code it claims to fix.
+- Status: Implemented — PR not yet open. `/code-review` confirming pass on `29987cd4` outstanding.
+
+**FOUR FINDINGS, ONE ROOT: THE SECTION STATED A CAUSE IT HAD NOT ESTABLISHED.** One resolved week
+drew nothing; `preseason-names` stayed hidden and popped in later; a league with no owners was told
+about completed games; and the copy named a blocker it could not verify. Rather than patch four
+things, the round stopped and took the shape back to the owner — the pattern this project's own
+notes call _findings that rhyme_.
+
+**THE GUARD WAS RIGHT AND THE CHART STILL DREW NOTHING.** `selectGamesBackTrend` returns a series at
+ONE resolved week, but a one-point series builds `M235.0,0.0` with no drawing command and SVG
+renders nothing for it. Asking the same selector the child asks — the rule this slice exists to
+enforce — was necessary and not sufficient, because the child's own rendering had a threshold the
+selector could not express.
+
+**THE REMEDIATION INTRODUCED ITS OWN DEFECT, AND THE TEST COULD NOT SEE IT.** The point markers were
+clipped: the leader sits at 0 GB by definition, `yOfGb(0, …)` is the top edge, and the test asserted
+a `<circle>` EXISTED and nothing about where. Same shape as the `>W1<` assertion the previous round
+had already been caught on — presence asserted where the claim was about position.
+
+**COPY APPROVED TWICE WAS STILL WRONG.** The owner confirmed the wording twice, both times on my
+framing. Only when review supplied the counter-example — a final game inside an unresolved week —
+did the inaccuracy become visible. Bring the failing case, not the sentence.
+
 ### POLISH-012-TREND-CHART-HOOKS-CRASH-v1
 
 - Purpose: Fix a LIVE production crash — clicking the Win % chart tab on the standings page threw

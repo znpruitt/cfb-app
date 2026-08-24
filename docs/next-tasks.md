@@ -2153,8 +2153,11 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-TEST-STARTUP-HEADROOM-v1`
 
-72. **Empty states for the trend charts — DECIDED, not implemented.** Queued 2026-08-23 out of
-    POLISH-012, which fixed the crash next door and deliberately left this alone.
+72. ✅ **IMPLEMENTED — `POLISH-013-TREND-EMPTY-STATES-v1`, PR not yet open.** Queued 2026-08-23 out
+    of POLISH-012, which fixed the crash next door and deliberately left this alone. The diagnosis
+    below is preserved as it stood; four owner decisions during execution changed the answer in ways
+    the entry did not anticipate, recorded at the end. Execution record in
+    `docs/prompt-registry.md`.
 
     **The bug.** Overview renders the “GB Race” heading, its `SectionDivider` and a “Full standings”
     link over a completely empty body. `historyForRenderHasStandings` (`OverviewPanel.tsx:1438`) asks
@@ -2189,7 +2192,28 @@ Supersedes: (none)
     a DIFFERENT input than the child uses. Both defects here are that shape. Where a guard is needed,
     ask the same selector the child asks.
 
-    - **Backlog slug (provisional):** `POLISH-TREND-EMPTY-STATES-v1`
+    **WHAT EXECUTION CHANGED, beyond the decision recorded above.**
+
+    - **The empty state alone was not enough — week ONE drew nothing either.** At exactly one
+      resolved week every series builds a moveto-only path (`M235.0,0.0`), which SVG does not
+      render, so the guard said "draw" and the chart was an empty box with axes: the same defect
+      one week later. Verified by rendering, not reasoned about. OWNER DECISION: draw the points.
+      A follow-on round found those markers CLIPPED — the leader is at 0 GB by definition and
+      `yOfGb(0, …)` is the top edge — and clamped them into the plot area.
+    - **The section had to widen past "has a history".** A league with confirmed preseason owners
+      and no draft has canonical source `preseason-names` and NO standings history, so gating on
+      history still made the section appear out of nowhere at the draft. OWNER DECISION: it applies
+      whenever the league has owner rows; a league with no owners keeps it hidden.
+    - **The copy named a cause it could not support.** "No completed games yet—trends will appear
+      here." is false when a game is final in an unresolved week — a completed result can sit on
+      screen directly above it — and promises an immutable archive trends it can never gain. OWNER
+      DECISION after review escalated it: "Not enough weekly results to show a trend."
+    - **A regression this slice introduced and then removed.** Slicing the archive to its resolved
+      weeks also closed INTERIOR gaps, and `MiniTrendsGrid` spaces by array index — so an archive
+      missing week 7 rendered W6 and W8 adjacent and read a two-week swing as one. Only the trailing
+      tail is trimmed, which is the defect actually reported.
+
+    - **Backlog slug (provisional, now assigned):** `POLISH-013-TREND-EMPTY-STATES-v1`
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
