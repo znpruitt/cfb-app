@@ -2261,10 +2261,11 @@ test('POLISH-013: GB Race explains the gap when no week has resolved', () => {
   assert.ok(!gbRace.includes('<svg'), 'the empty state must draw no chart');
 });
 
-test('POLISH-013: one resolved week draws POINTS, not an invisible line', () => {
-  // A one-point series builds a moveto-only path, which SVG does not render — so
-  // this state used to pass the guard and draw an empty box. Owner decision
-  // (2026-08-23): draw the points.
+test('POLISH-013: one resolved week still explains the gap — a single point cannot be drawn', () => {
+  // `MiniTrendsGrid` joins points with `L`, so a one-point series emits a
+  // moveto-only path and SVG draws nothing. Point markers were tried and cut:
+  // coincident markers hid each other and the leader was the one covered. The
+  // section keeps saying what it can honestly say until two weeks resolve.
   const history = unresolvedHistory();
   history.byWeek[1] = { ...history.byWeek[1]!, played: true };
   history.byOwner.Bob = history.byOwner.Bob!.map((point) =>
@@ -2273,29 +2274,13 @@ test('POLISH-013: one resolved week draws POINTS, not an invisible line', () => 
 
   const gbRace = gbRaceMarkup(renderOverviewWithHistory(history));
 
-  assert.ok(!gbRace.includes(TREND_EMPTY_MESSAGE), 'one resolved week is not empty');
-  assert.ok(gbRace.includes('<svg'), 'the chart must render');
-  assert.ok(gbRace.includes('<circle'), 'a single resolved week must be drawn as points');
-  assert.ok(!/<path d="M[^"]*L/.test(gbRace), 'there is no second point to draw a line to');
-
-  // And the points must be INSIDE the plot area. The leader is at 0 GB by
-  // definition and `yOfGb(0, …)` is the top edge, so the first version of this
-  // marker was centred on y=0 and inline SVG clipped half of it away — on every
-  // one-week chart there is. Asserting only that a circle EXISTS is what let
-  // that through, so assert where it is.
-  const circles = [...gbRace.matchAll(/<circle[^>]*cy="([\d.]+)"[^>]*r="([\d.]+)"/g)];
-  assert.ok(circles.length > 0, 'the markers must be findable');
-  for (const [, cy, r] of circles) {
-    assert.ok(
-      Number(cy) >= Number(r),
-      `a marker at cy=${cy} with r=${r} is clipped by the top of the plot area`
-    );
-  }
+  assert.match(gbRace, TREND_EMPTY_MESSAGE_RE);
+  assert.ok(!gbRace.includes('<svg'), 'one point is not a trend, so nothing is drawn');
 });
 
 test('POLISH-013: two resolved weeks draw a line', () => {
-  // Positive control for the shape above: the same fixture MUST be able to
-  // produce a real line, or the point-marker assertion would prove nothing.
+  // The control: the same fixture MUST be able to produce a real line, or the
+  // assertion above would pass against a section that can never draw at all.
   const history = unresolvedHistory();
   for (const week of [1, 2]) {
     history.byWeek[week] = { ...history.byWeek[week]!, played: true };
@@ -2306,6 +2291,7 @@ test('POLISH-013: two resolved weeks draw a line', () => {
 
   const gbRace = gbRaceMarkup(renderOverviewWithHistory(history));
 
+  assert.ok(!gbRace.includes(TREND_EMPTY_MESSAGE), 'two resolved weeks is a trend');
   assert.ok(/<path d="M[^"]*L/.test(gbRace), 'two resolved weeks must draw a line');
 });
 

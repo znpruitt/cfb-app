@@ -2197,9 +2197,15 @@ Supersedes: (none)
     - **The empty state alone was not enough — week ONE drew nothing either.** At exactly one
       resolved week every series builds a moveto-only path (`M235.0,0.0`), which SVG does not
       render, so the guard said "draw" and the chart was an empty box with axes: the same defect
-      one week later. Verified by rendering, not reasoned about. OWNER DECISION: draw the points.
-      A follow-on round found those markers CLIPPED — the leader is at 0 GB by definition and
-      `yOfGb(0, …)` is the top edge — and clamped them into the plot area.
+      one week later. Verified by rendering, not reasoned about. The section now requires a
+      DRAWABLE series — at least one with two points — and keeps explaining the gap until then.
+
+      **Point markers were tried and CUT, after failing three times.** Owner decision was to draw
+      the one-point case; the markers were then found CLIPPED (the leader is at 0 GB by definition
+      and `yOfGb(0, …)` is the top edge) and clamped; then found COINCIDENT — every owner tied at
+      0 GB gets identical geometry, and the leader is drawn first and largest, so five owners
+      rendered as two visible dots with the leader buried, in exactly the week-one state the
+      markers existed for. Item 74 is the fix that deletes the special case instead.
     - **The section had to widen past "has a history".** A league with confirmed preseason owners
       and no draft has canonical source `preseason-names` and NO standings history, so gating on
       history still made the section appear out of nowhere at the draft. OWNER DECISION: it applies
@@ -2246,6 +2252,34 @@ Supersedes: (none)
     and misrepresent values, unlike clamping a single marker.
 
     - **Backlog slug (provisional):** `POLISH-ARCHIVE-AXIS-DOMAIN-v1`
+
+74. 🔴 **Plot the season origin so week one is an ordinary trend.** Queued 2026-08-23 (owner idea,
+    out of POLISH-013 after point markers failed three times).
+
+    **The insight: there is no such thing as a one-point week.** Every owner starts 0-0, and
+    `standings.ts:305` already defines a 0-0 record as `winPct: 0`, so an origin at 0 games back /
+    0.000 / 0 wins states what the app already claims rather than inventing data. Give the trend
+    series that origin and week one becomes a normal two-point segment through the ordinary code
+    path — no one-point branch, no marker clamp, no paint order, no coincident-marker handling. The
+    entire class of defect stops existing.
+
+    **Constraints, both from this project's own history:**
+
+    - **All three trend selectors or none.** If games-back gains an origin and win% does not, the
+      two metric charts disagree about the empty case at week one — the exact divergence behind the
+      POLISH-012 hook crash.
+    - **The axis label must not be `W0`.** Verified against the cached schedules: CFBD serves
+      week 0 and week 1 as ONE bucket (2026 week 1 spans Aug 27 → Sep 7, 389 games, against week 2's
+      three days; no cached season has a week-0 bucket), so there is no collision — but "W0" would
+      still imply a week that our data does not model. "Start", or no label.
+    - Archives inherit it, since `SeasonArcChart` and the trends detail surface read the same
+      selectors. Probably an improvement; it changes every historical chart, so decide deliberately.
+
+    **Timing.** This only changes what ONE resolved week looks like. Week one of 2026 resolves
+    around Aug 31 and stops mattering when week two resolves around Sep 8, so landing it before
+    Aug 31 means the cut costs nothing visible.
+
+    - **Backlog slug (provisional):** `POLISH-TREND-SEASON-ORIGIN-v1`
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the

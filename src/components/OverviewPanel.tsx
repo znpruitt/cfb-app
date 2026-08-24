@@ -1448,7 +1448,20 @@ export default function OverviewPanel({
     () => (historyForRender ? selectGamesBackTrend({ standingsHistory: historyForRender }) : []),
     [historyForRender]
   );
-  const gbRaceHasTrendData = gbRaceSeries.length > 0;
+  // A series must be DRAWABLE, not merely present. `MiniTrendsGrid` builds a path
+  // by joining points with `L`, so a one-point series emits a moveto-only path
+  // ("M235.0,0.0") and SVG renders nothing for it — the guard would say "draw"
+  // and the section would be an empty box with axes, which is the defect this
+  // slice exists to close arriving one week later.
+  //
+  // Drawing point markers instead was tried and cut: coincident markers hid each
+  // other, and the leader — drawn first and largest — was the one covered, so
+  // five owners rendered as two dots in exactly the week-one state the markers
+  // were added for. The real fix is to plot the season's origin (every owner
+  // starts 0-0 and 0 games back), which makes week one an ordinary two-point
+  // segment and deletes this threshold entirely. That is its own slice; see
+  // `docs/next-tasks.md` item 74.
+  const gbRaceHasTrendData = gbRaceSeries.some((series) => series.points.length >= 2);
   // OWNER DECISION (2026-08-23, remediation): the section applies whenever the
   // league HAS owners, history or not. A league with confirmed preseason owners
   // and no draft yet has canonical source `preseason-names` and therefore NO

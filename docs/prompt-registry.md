@@ -60,17 +60,18 @@ Rules:
 - Outcome: the section asks `selectGamesBackTrend` — the selector both children reduce to — and
   keeps rendering when it is empty, with an explained empty state and no axes. It applies whenever
   the league has owner rows, so a `preseason-names` league no longer sees it appear at the draft.
-  One-point series render as points rather than an invisible moveto-only path, clamped inside the
-  plot area. Three wordings for one idea became `TREND_EMPTY_MESSAGE`, reworded to name what the
-  chart needs and promise nothing. `SeasonArcChart` is otherwise unchanged from `main`: the axis
-  trim was cut, and the trailing-gridline defect it targeted REMAINS OPEN as item 73.
+  The section requires a DRAWABLE series — one with at least two points — because a one-point series
+  emits a moveto-only path that SVG does not render. Three wordings for one idea became
+  `TREND_EMPTY_MESSAGE`, reworded to name what the chart needs and promise nothing. `MiniTrendsGrid`
+  and `SeasonArcChart` are otherwise unchanged from `main`: both the point markers and the archive
+  axis trim were cut, and the defects they targeted remain open as items 74 and 73.
 - Review / verification: implementation `5bf7c5db`; remediation `3c06c8ce`; owner-approved round
   `29987cd4`; scope cut `3f75b874`. Both reviewers every round — five each. Gates at the final
   commit: full suite 4224/4224 exit 0, `tsc` exit 0, `lint:all` exit 0.
 
   Mutation-proven against the code each claims to fix: the section guard (restoring the
-  hide-when-empty condition fails the empty-state tests), the one-point markers (removing the circle
-  branch fails), and the clamp (unclamping fails with the offending coordinates). **The copy change
+  hide-when-empty condition fails the empty-state tests) and the drawability threshold (reverting it
+  to mere presence fails the one-resolved-week test). **The copy change
   is a CONTRACT PIN, not a mutation-proven regression test** — its assertions import the production
   constant, so changing the constant moves the oracle with it and the tests stay green.
 
@@ -96,6 +97,19 @@ selector could not express.
 clipped: the leader sits at 0 GB by definition, `yOfGb(0, …)` is the top edge, and the test asserted
 a `<circle>` EXISTED and nothing about where. Same shape as the `>W1<` assertion the previous round
 had already been caught on — presence asserted where the claim was about position.
+
+**TWO SCOPE CUTS, AND BOTH WERE THE RIGHT CALL.** The archive axis trim failed three times and the
+one-point markers failed three times; each individual fix was small, plausible, and generated the
+next finding. Neither was cut because the attempts were careless — they were cut because a UI
+empty-state slice was carrying two other people's problems. What shipped is the part that never
+produced a finding in five review rounds.
+
+**THE MARKERS' LAST FAILURE IS THE ONE WORTH REMEMBERING.** Clipped markers were clamped; then
+review rendered five owners tied at 0 GB and found the markers COINCIDENT — identical geometry, the
+leader drawn first and largest and therefore buried, five owners showing as two dots, in exactly the
+week-one state the markers existed for. **A fix that only works when values differ is not a fix for
+a chart whose first week is mostly ties.** The owner's answer deleted the special case rather than
+repairing it: plot the season's origin, and week one is an ordinary two-point segment (item 74).
 
 **THE SCOPE WAS WRONG, NOT THE ATTEMPTS.** The archive axis trim failed three times in three
 different ways — resolved-only closed interior gaps; trailing-only handed back the leading edge;

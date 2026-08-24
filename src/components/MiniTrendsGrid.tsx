@@ -119,35 +119,6 @@ export default function MiniTrendsGrid({
       {/* Series paths — leader slightly thicker */}
       {series.map((s, i) => {
         const color = ownerColorMap[s.ownerName] ?? '#888';
-        // POLISH-013 remediation — a ONE-POINT series builds a moveto-only path
-        // ("M235.0,145.5"), and SVG draws nothing for a subpath carrying no
-        // drawing command. So at exactly one resolved week every owner's line
-        // was invisible and the chart was an empty box with axes — the same
-        // "heading over nothing" this slice exists to close, arriving one week
-        // later. Verified by rendering it, not reasoned about.
-        // OWNER DECISION (2026-08-23): draw the point.
-        if (s.points.length === 1) {
-          const point = s.points[0]!;
-          const weekIndex = weeks.indexOf(point.week);
-          const radius = i === 0 ? 2.75 : 2.25;
-          // The leader is at 0 GB by definition, and `yOfGb(0, …)` is 0 — the
-          // very top of the plot area — so a marker centred there had half of
-          // itself outside the viewBox and inline SVG clips it. Every chart has
-          // a leader, so this was every one-week chart. Confirming review caught
-          // it; the first version of the test below asserted only that a circle
-          // EXISTED, which is why it did not.
-          const cy = Math.min(Math.max(yOfGb(point.value, paddedMax), radius), CHART_H - radius);
-          return (
-            <circle
-              key={s.ownerId}
-              cx={xOfWeek(weekIndex < 0 ? 0 : weekIndex, weeks.length)}
-              cy={cy}
-              r={radius}
-              fill={color}
-              fillOpacity={0.9}
-            />
-          );
-        }
         const d = buildPath(s.points, weeks, paddedMax);
         return d ? (
           <path
