@@ -50,6 +50,53 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-109-STANDINGS-PENDING-PAYLOAD-v1
+
+- Purpose: stop shipping the whole season's unplayed-game list to the browser so the browser can
+  reduce it to one of three strings, and close `docs/next-tasks.md` item 64(a) and 64(d).
+- Scope: new `selectors/canonicalStandingsClient.ts`; the five `league/[slug]` route pages;
+  `CFBScheduleApp` and `OverviewPanel` prop contracts; `selectors/seasonContext.ts`,
+  `selectors/overview.ts`, `selectors/leagueStandings.ts`, `insights/loadInsights.ts`; tests.
+- Outcome: `canonicalStandingsClientProps` derives the season context server-side from the
+  UNSTRIPPED snapshot and strips `pending` before the client boundary; the pages spread both
+  together so one cannot ship without the other. Measured on the real production 2026 schedule
+  (3,610 rows): 898 pending entries, canonical snapshot 80,922 → 16,789 JSON bytes. Item 64's
+  recorded 3,221-entry / 245KB figure was NOT reproduced; both are kept in that entry rather than
+  one overwriting the other. 64(d): `computeLifecycle` and `buildLeagueInsightContext` now pass the
+  `currentDate` they already held — documentation of intent, not a behavior change.
+- Review / verification: implementation `5acd2f15`; remediation `03b18b19`; two approved follow-on
+  rounds `99cf5125` and `76148acc`. Both reviewers each round. Gates at `76148acc`: full suite
+  4237/4237 exit 0, `tsc` exit 0, `lint:all` exit 0. Every fix mutation-proven against the code it
+  claims to fix.
+- Status: Implemented — PR not yet open. One confirming review outstanding on the final commit.
+
+**BOTH REVIEWERS FOUND THE SAME P1, AND IT WAS THE HAZARD I HAD ALREADY WRITTEN DOWN.** The module
+carried a comment warning that a stripped history must never reach `selectSeasonContext`, because
+`unresolved.every(...)` is vacuously true for an empty list. `selectOverviewViewModel` did exactly
+that, one call away, and `OverviewPanel` fed it. **Writing the hazard down is not the same as
+looking for it.** I had grepped for CLIENT COMPONENTS calling the selector and never traced the
+selector chain a component calls.
+
+**THE FIRST ROOT FIX WAS WRONG AND AN EXISTING TEST CAUGHT IT.** Requiring every week to be played
+reinstates the all-shell-playoff-week defect PLATFORM-105 removed. The discriminator is not "was
+`pending` stripped" but "can this week's games answer at all" — `pending: []` is a positive fact,
+an absent `pending` on an unplayed week is silence. Both of item 64's suggested cheap fixes fail the
+same way.
+
+**A TEST THAT ASSERTS A LEGAL VALUE PROVES NOTHING.** The route-boundary test asserted
+`seasonContext` was one of three legal strings, which a hardcoded answer passes — and that is why
+the P1 survived every gate. Strengthening it to compare against the pre-projection computation still
+was not enough while every fixture resolved to `in-season`; a finished-season fixture is what makes
+it discriminating.
+
+**I STATED A MEASUREMENT I HAD NOT MADE.** I claimed the panel rendered byte-identical markup with
+`in-season` and with `final`, from ONE probe fixture that emitted no context-sensitive insights, and
+used it to justify leaving a wire unpinned. Review disproved it by mutation. `OverviewPanel` forwards
+the prop to two places: `deriveLeagueInsights` (render-observable, now pinned) and
+`selectOverviewViewModel` (lands on unrendered `viewModel.storylines`, genuinely unpinnable —
+verified by deleting it and seeing a green suite). One wrong sentence had collapsed two different
+wires.
+
 ### POLISH-012-TREND-CHART-HOOKS-CRASH-v1
 
 - Purpose: Fix a LIVE production crash — clicking the Win % chart tab on the standings page threw
