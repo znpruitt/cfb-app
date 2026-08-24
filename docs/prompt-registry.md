@@ -63,10 +63,14 @@ Rules:
   One-point series render as points rather than an invisible moveto-only path, clamped inside the
   plot area. `SeasonArcChart` trims only its trailing unresolved weeks. Three wordings for one idea
   became `TREND_EMPTY_MESSAGE`, reworded to name what the chart needs and promise nothing.
-- Review / verification: implementation `5bf7c5db`; remediation `3c06c8ce`; owner-approved second
-  round `29987cd4`. Both reviewers each round. Gates at `29987cd4`: full suite 4226/4226 exit 0,
-  `tsc` exit 0, `lint:all` exit 0. Each fix mutation-proven against the code it claims to fix.
-- Status: Implemented — PR not yet open. `/code-review` confirming pass on `29987cd4` outstanding.
+- Review / verification: implementation `5bf7c5db`; remediation `3c06c8ce`; owner-approved rounds
+  `29987cd4` and the axis fix below. Both reviewers each round. Gates at the final commit: full
+  suite exit 0, `tsc` exit 0, `lint:all` exit 0. Every BEHAVIORAL fix is mutation-proven against the
+  code it claims to fix — the axis trim in both wrong directions. **The copy change is a contract
+  pin, not a mutation-proven regression test**: its assertions import the production constant, so
+  changing the constant moves the oracle with it and the tests stay green. An earlier version of
+  this entry said every fix was mutation-proven; confirming review was right that this overstated it.
+- Status: Implemented — PR #510 open.
 
 **FOUR FINDINGS, ONE ROOT: THE SECTION STATED A CAUSE IT HAD NOT ESTABLISHED.** One resolved week
 drew nothing; `preseason-names` stayed hidden and popped in later; a league with no owners was told
@@ -84,6 +88,14 @@ selector could not express.
 clipped: the leader sits at 0 GB by definition, `yOfGb(0, …)` is the top edge, and the test asserted
 a `<circle>` EXISTED and nothing about where. Same shape as the `>W1<` assertion the previous round
 had already been caught on — presence asserted where the claim was about position.
+
+**THE AXIS FIX WAS WRONG TWICE, IN OPPOSITE DIRECTIONS.** The original sliced to resolved weeks
+only: both edges trimmed, interior gaps closed, so a missing week 7 rendered W6 and W8 adjacent and
+a two-week swing read as one. The first remediation trimmed only the tail: interior preserved,
+leading edge handed straight back, so an archive first resolving at week 3 labelled W1 and W2 with
+nothing drawn under them — the reported defect at the other end of the axis. Neither confirming pass
+caught it until the third. The answer neither version had is trim BOTH edges and leave the interior
+alone, now pinned against both wrong shapes.
 
 **COPY APPROVED TWICE WAS STILL WRONG.** The owner confirmed the wording twice, both times on my
 framing. Only when review supplied the counter-example — a final game inside an unresolved week —

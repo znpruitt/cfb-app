@@ -103,6 +103,21 @@ test('POLISH-013: the season arc draws no gridline for a week that never resolve
   cleanup();
 });
 
+test('POLISH-013: a LEADING unresolved week is trimmed like a trailing one', () => {
+  assert.ok(dom);
+  // The first remediation trimmed only the tail and handed the leading edge
+  // straight back: an archive that first resolved at week 2 labelled a W1 column
+  // with nothing drawn under it — the same defect this slice exists to close, at
+  // the other end of the axis. Confirming review caught it; verified by render.
+  const { container } = render(<SeasonArcChart standingsHistory={archive([2, 3])} year={2024} />);
+
+  const text = container.textContent ?? '';
+  assert.ok(!text.includes('W1'), 'an unresolved leading week must not be labelled');
+  assert.ok(text.includes('W2'), 'the first resolved week must be labelled');
+  assert.ok(text.includes('W3'), 'the last resolved week must be labelled');
+  cleanup();
+});
+
 test('POLISH-013 remediation: an interior unresolved week keeps its place on the axis', () => {
   assert.ok(dom);
   // Weeks 1-3; week 2 never reached complete coverage but week 3 did. Trimming

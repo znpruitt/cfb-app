@@ -3,7 +3,7 @@
 import React from 'react';
 import MiniTrendsGrid from '@/components/MiniTrendsGrid';
 import { buildOwnerColorMap, isDarkTheme } from '@/lib/ownerColors';
-import { trimTrailingUnresolvedWeeks } from '@/lib/selectors/historyResolution';
+import { trimUnresolvedEdgeWeeks } from '@/lib/selectors/historyResolution';
 import { selectGamesBackTrend } from '@/lib/selectors/trends';
 import type { StandingsHistory } from '@/lib/standingsHistory';
 import { TREND_EMPTY_MESSAGE } from '@/lib/trendEmptyState';
@@ -26,11 +26,12 @@ export default function SeasonArcChart({ standingsHistory, year }: Props): React
   // slices before it draws; this call site did not, so an archived season with
   // an incomplete tail showed `W14`/`W15` columns with no line behind them.
   //
-  // Remediation: trim only the TAIL. Dropping every unresolved week also closed
-  // interior gaps, and the grid spaces by index — so a missing week 7 rendered
-  // W6 and W8 adjacent and compressed a two-week swing into one.
+  // Both EDGES, interior preserved. Dropping every unresolved week also closed
+  // interior gaps (the grid spaces by index, so a missing week 7 rendered W6 and
+  // W8 adjacent); trimming only the tail handed the leading edge back. See the
+  // helper — each half was got wrong once.
   const drawnHistory = React.useMemo(
-    () => trimTrailingUnresolvedWeeks(standingsHistory),
+    () => trimUnresolvedEdgeWeeks(standingsHistory),
     [standingsHistory]
   );
 

@@ -112,25 +112,43 @@ export function sliceStandingsHistoryToResolvedWeeks(
 }
 
 /**
- * The history with its TRAILING unresolved weeks removed, and nothing else.
+ * The history with its unresolved EDGE weeks removed at BOTH ends, and the
+ * interior left alone.
  *
- * POLISH-013 remediation. Slicing an archive to only its resolved weeks fixed the
- * reported defect — trailing `W14`/`W15` gridlines with no line behind them — and
- * introduced a quieter one: `MiniTrendsGrid` spaces gridlines by array INDEX, not
- * by week number, so dropping an unresolved week in the MIDDLE renders its
- * neighbours adjacent. An archived season whose week 7 never reached complete
- * coverage would show W6 and W8 side by side, and a two-week swing would read as
- * a one-week swing.
+ * `MiniTrendsGrid` takes its x-axis domain from `standingsHistory.weeks` and
+ * labels a gridline for each one, but the trend selectors populate only RESOLVED
+ * weeks. Any unresolved week at either edge is therefore a labelled column with
+ * no line behind it — the defect POLISH-013 exists to close.
  *
- * The reported defect is entirely about the TAIL, so only the tail is trimmed.
- * Interior gaps stay where they are, at their true x positions, with no series
- * drawn across them.
+ * Both ends, and the interior preserved, because each half was got wrong once:
+ *
+ *  - Slicing to ONLY the resolved weeks (the original) removed both edges but
+ *    also closed interior gaps. The grid spaces gridlines by array INDEX, not by
+ *    week number, so an archive missing week 7 rendered W6 and W8 adjacent and a
+ *    two-week swing read as a one-week swing.
+ *  - Trimming only the TAIL (the first remediation) preserved the interior and
+ *    handed the leading edge straight back: weeks 1–2 of an archive that first
+ *    resolved at week 3 were labelled with nothing drawn under them. Confirming
+ *    review caught it, and it was verified by rendering.
+ *
+ * NOTE what an interior gap actually looks like: `buildPath` joins consecutive
+ * points with `L`, so the line is DRAWN ACROSS the gap rather than broken at it —
+ * weeks `[1,2,3]` resolving only 1 and 3 render one segment through the W2
+ * gridline. An earlier version of this comment claimed the opposite. Preserving
+ * the gap keeps the x-axis honest about elapsed time; it does not punch a hole in
+ * the series, and breaking the subpath there would be a separate change.
  */
-export function trimTrailingUnresolvedWeeks(history: StandingsHistory): StandingsHistory {
-  const { latestResolvedWeek } = selectResolvedStandingsWeeks(history);
-  if (latestResolvedWeek === null) return { weeks: [], byWeek: {}, byOwner: {} };
+export function trimUnresolvedEdgeWeeks(history: StandingsHistory): StandingsHistory {
+  const { resolvedWeeks } = selectResolvedStandingsWeeks(history);
+  const firstResolvedWeek = resolvedWeeks[0];
+  const latestResolvedWeek = resolvedWeeks[resolvedWeeks.length - 1];
+  if (firstResolvedWeek === undefined || latestResolvedWeek === undefined) {
+    return { weeks: [], byWeek: {}, byOwner: {} };
+  }
 
-  const weeks = history.weeks.filter((week) => week <= latestResolvedWeek);
+  const weeks = history.weeks.filter(
+    (week) => week >= firstResolvedWeek && week <= latestResolvedWeek
+  );
   const weekSet = new Set(weeks);
   return {
     weeks,

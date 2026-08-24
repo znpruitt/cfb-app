@@ -2153,7 +2153,7 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-TEST-STARTUP-HEADROOM-v1`
 
-72. ✅ **IMPLEMENTED — `POLISH-013-TREND-EMPTY-STATES-v1`, PR not yet open.** Queued 2026-08-23 out
+72. ✅ **IMPLEMENTED — `POLISH-013-TREND-EMPTY-STATES-v1`, PR #510.** Queued 2026-08-23 out
     of POLISH-012, which fixed the crash next door and deliberately left this alone. The diagnosis
     below is preserved as it stood; four owner decisions during execution changed the answer in ways
     the entry did not anticipate, recorded at the end. Execution record in
@@ -2208,10 +2208,12 @@ Supersedes: (none)
       here." is false when a game is final in an unresolved week — a completed result can sit on
       screen directly above it — and promises an immutable archive trends it can never gain. OWNER
       DECISION after review escalated it: "Not enough weekly results to show a trend."
-    - **A regression this slice introduced and then removed.** Slicing the archive to its resolved
-      weeks also closed INTERIOR gaps, and `MiniTrendsGrid` spaces by array index — so an archive
-      missing week 7 rendered W6 and W8 adjacent and read a two-week swing as one. Only the trailing
-      tail is trimmed, which is the defect actually reported.
+    - **The axis trim was wrong twice, in opposite directions.** Slicing the archive to its
+      resolved weeks closed INTERIOR gaps — `MiniTrendsGrid` spaces by array index, so an archive
+      missing week 7 rendered W6 and W8 adjacent and read a two-week swing as one. Trimming only the
+      TAIL fixed that and handed the LEADING edge back: an archive first resolving at week 3
+      labelled W1 and W2 with nothing drawn under them, which is the reported defect at the other
+      end. Both edges are now trimmed and the interior preserved, pinned against both wrong shapes.
 
     - **Backlog slug (provisional, now assigned):** `POLISH-013-TREND-EMPTY-STATES-v1`
 
