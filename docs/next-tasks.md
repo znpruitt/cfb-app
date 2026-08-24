@@ -3355,7 +3355,17 @@ unless verified in merged work.
   branch already three rounds deep. Related: that `OverviewPanel` forwards its prop INTO that
   selector is unpinnable today — the value lands on `viewModel.storylines`, which no surface renders,
   verified by deleting the forwarding and watching the suite stay green. It becomes pinnable the
-  moment a surface renders storylines. Not scheduled.
+  moment a surface renders storylines.
+
+  **A sixth route can opt out silently (added 2026-08-23 from the confirming review).**
+  `seasonContext` is an optional prop defaulting to `'in-season'` on both `CFBScheduleApp` and
+  `OverviewPanel`. A future route that passes `canonicalStandings` but forgets the
+  `canonicalStandingsClientProps` spread COMPILES CLEANLY and renders a finished season as live —
+  the Move column shown on Standings, the champion-margin storyline suppressed on Overview. The
+  route-boundary test covers today's five surfaces and cannot force a sixth to opt in. Pairing the
+  two values in one returned object mitigates this for anyone who uses the helper; the exposure is a
+  caller who does not. The same required-parameter change that deletes the fallback trap above would
+  also close this, which is why they are recorded together. Not scheduled.
 
 - ~~**CSV current-season guard** vs sanctioned admin override.~~ **Resolved — PLATFORM-083** (audited in PLAN-002). `PUT /api/owners` now guards active-season overwrites: replacing an already-populated active-season roster requires an explicit `?override=1` repair confirmation (surfaced in both the CSV import panel and inline roster editor); historical/backfill and initial-creation writes are unguarded. Route stays platform-admin-only; no new league-admin role. See `docs/architecture/identity-and-ownership.md`.
 - **PLATFORM-107 accepted low-severity residue (2026-08-21).**
