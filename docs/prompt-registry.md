@@ -55,14 +55,15 @@ Rules:
 - Purpose: stop Overview's "GB Race" rendering a heading, a divider and a link over a completely
   empty body, and close `docs/next-tasks.md` item 72.
 - Scope: `OverviewPanel.tsx` (section guard + empty state), `MiniTrendsGrid.tsx` (one-point series),
-  `history/SeasonArcChart.tsx`, `TrendsDetailSurface.tsx`, new `lib/trendEmptyState.ts`,
-  `selectors/historyResolution.ts`; tests.
+  new `lib/trendEmptyState.ts` adopted by `SeasonArcChart` and `TrendsDetailSurface`; tests. The
+  archive AXIS work originally in scope was cut at the fourth review — see below and item 73.
 - Outcome: the section asks `selectGamesBackTrend` — the selector both children reduce to — and
   keeps rendering when it is empty, with an explained empty state and no axes. It applies whenever
   the league has owner rows, so a `preseason-names` league no longer sees it appear at the draft.
   One-point series render as points rather than an invisible moveto-only path, clamped inside the
-  plot area. `SeasonArcChart` trims only its trailing unresolved weeks. Three wordings for one idea
-  became `TREND_EMPTY_MESSAGE`, reworded to name what the chart needs and promise nothing.
+  plot area. Three wordings for one idea became `TREND_EMPTY_MESSAGE`, reworded to name what the
+  chart needs and promise nothing. `SeasonArcChart` is otherwise unchanged from `main`: the axis
+  trim was cut, and the trailing-gridline defect it targeted REMAINS OPEN as item 73.
 - Review / verification: implementation `5bf7c5db`; remediation `3c06c8ce`; owner-approved rounds
   `29987cd4` and the axis fix below. Both reviewers each round. Gates at the final commit: full
   suite exit 0, `tsc` exit 0, `lint:all` exit 0. Every BEHAVIORAL fix is mutation-proven against the
@@ -89,13 +90,15 @@ clipped: the leader sits at 0 GB by definition, `yOfGb(0, …)` is the top edge,
 a `<circle>` EXISTED and nothing about where. Same shape as the `>W1<` assertion the previous round
 had already been caught on — presence asserted where the claim was about position.
 
-**THE AXIS FIX WAS WRONG TWICE, IN OPPOSITE DIRECTIONS.** The original sliced to resolved weeks
-only: both edges trimmed, interior gaps closed, so a missing week 7 rendered W6 and W8 adjacent and
-a two-week swing read as one. The first remediation trimmed only the tail: interior preserved,
-leading edge handed straight back, so an archive first resolving at week 3 labelled W1 and W2 with
-nothing drawn under them — the reported defect at the other end of the axis. Neither confirming pass
-caught it until the third. The answer neither version had is trim BOTH edges and leave the interior
-alone, now pinned against both wrong shapes.
+**THE SCOPE WAS WRONG, NOT THE ATTEMPTS.** The archive axis trim failed three times in three
+different ways — resolved-only closed interior gaps; trailing-only handed back the leading edge;
+both-edges-by-numeric-comparison emptied the chart entirely for an unsorted `weeks` array, which is
+strictly worse than the defect it replaced. Each fix was small, plausible, and produced the next
+finding. At the fourth review it was CUT from this slice rather than patched a fourth time, and
+re-queued as item 73 where the actual root can be addressed: durable archive reads validate and sort
+nothing, so a chart component was being asked to tolerate data the read boundary should never have
+handed it. **Two owner-facing bullets bundled into one UI slice is what made three rounds look like
+progress.**
 
 **COPY APPROVED TWICE WAS STILL WRONG.** The owner confirmed the wording twice, both times on my
 framing. Only when review supplied the counter-example — a final game inside an unresolved week —

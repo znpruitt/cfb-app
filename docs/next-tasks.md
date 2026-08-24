@@ -2208,14 +2208,44 @@ Supersedes: (none)
       here." is false when a game is final in an unresolved week — a completed result can sit on
       screen directly above it — and promises an immutable archive trends it can never gain. OWNER
       DECISION after review escalated it: "Not enough weekly results to show a trend."
-    - **The axis trim was wrong twice, in opposite directions.** Slicing the archive to its
-      resolved weeks closed INTERIOR gaps — `MiniTrendsGrid` spaces by array index, so an archive
-      missing week 7 rendered W6 and W8 adjacent and read a two-week swing as one. Trimming only the
-      TAIL fixed that and handed the LEADING edge back: an archive first resolving at week 3
-      labelled W1 and W2 with nothing drawn under them, which is the reported defect at the other
-      end. Both edges are now trimmed and the interior preserved, pinned against both wrong shapes.
+    - **The archive axis trim was CUT FROM THIS SLICE — see item 73.** It was item 72's second
+      bullet and it failed three times in three different ways; the scope, not the attempt, was
+      wrong. `SeasonArcChart` is unchanged from `main` here apart from adopting the shared empty-state
+      sentence, so the `W14`/`W15` trailing-gridline defect it described REMAINS OPEN.
 
     - **Backlog slug (provisional, now assigned):** `POLISH-013-TREND-EMPTY-STATES-v1`
+
+73. 🔴 **Archive season-arc axis — CUT FROM POLISH-013, needs its own slice.** Queued 2026-08-23
+    after three failed attempts inside a UI empty-state slice. The defect is real and unchanged:
+    `MiniTrendsGrid` takes its x-axis domain from `standingsHistory.weeks` and labels a gridline per
+    week, while the trend selectors populate only RESOLVED weeks — so an archived season whose
+    coverage never completed at either end renders labelled columns with no line behind them.
+
+    **Three attempts, three different failures. Do not repeat them:**
+
+    - **Resolved-weeks-only slice** — trims both edges, but also closes INTERIOR gaps. The grid
+      spaces gridlines by array INDEX, not week number, so an archive missing week 7 renders W6 and
+      W8 adjacent and a two-week swing reads as a one-week swing.
+    - **Trailing-only trim** — preserves the interior, hands the LEADING edge straight back: an
+      archive first resolving at week 3 labels W1 and W2 with nothing drawn under them.
+    - **Both edges by numeric comparison** — correct for sorted input, and for UNSORTED `weeks` the
+      first/last resolved values are taken by array POSITION while the filter compares numerically,
+      producing an unsatisfiable predicate (`week >= 3 && week <= 1`) that empties the chart
+      entirely. Strictly worse than the defect it replaced.
+
+    **The root is not in the chart.** `readSeasonArchiveFromStore` returns the durable value with no
+    validation and no sort; `deriveOrderedWeeks` sorts what the current builder writes, so sortedness
+    is a convention the read path does not enforce. Fix the boundary before the presentation, and
+    decide explicitly whether an unresolved interior week should be drawn ACROSS (today's behaviour —
+    `buildPath` joins consecutive points with `L`, which one reviewer judged correct as net movement
+    over the true elapsed distance) or should break the subpath.
+
+    Also unresolved and adjacent: `MiniTrendsGrid`'s multi-point paths are unclamped, so a true-0-GB
+    leader loses half its stroke at the top edge on every chart with two or more resolved weeks.
+    Deliberately not clamped in POLISH-013 — clamping a LINE would shift the whole series downward
+    and misrepresent values, unlike clamping a single marker.
+
+    - **Backlog slug (provisional):** `POLISH-ARCHIVE-AXIS-DOMAIN-v1`
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the

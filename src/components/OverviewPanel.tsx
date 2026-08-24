@@ -3,10 +3,7 @@ import Link from 'next/link';
 
 import MiniTrendsGrid from './MiniTrendsGrid';
 import ViewMoreLink, { viewMoreLinkClass } from './navigation/ViewMoreLink';
-import {
-  selectResolvedStandingsWeeks,
-  sliceStandingsHistoryToResolvedWeeks,
-} from '@/lib/selectors/historyResolution';
+import { selectResolvedStandingsWeeks } from '@/lib/selectors/historyResolution';
 import { TREND_EMPTY_MESSAGE } from '@/lib/trendEmptyState';
 import { selectGamesBackTrend, selectPositionDeltas } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
@@ -61,15 +58,33 @@ import RankedTeamName from './RankedTeamName';
  * ten weeks of every season. Review caught it; my tests did not, because none of
  * them look at this surface.
  *
- * POLISH-013 moved the derivation itself to `historyResolution`, where the
- * archive's season-arc call site can reach it too; this stays as the named
- * Overview-sized form of it.
+ * Resolved rather than merely played: a played week whose coverage is incomplete
+ * is dropped by the trend selectors, so slicing on `played` alone still leaves a
+ * labelled column with no series behind it.
  */
 export function sliceStandingsHistoryToRecentWeeks(
   history: StandingsHistory,
   n: number
 ): StandingsHistory {
-  return sliceStandingsHistoryToResolvedWeeks(history, { last: n });
+  // RESOLVED, not merely played. A played week whose coverage is incomplete is
+  // dropped by `selectGamesBackTrend`, so slicing on `played` alone still leaves
+  // a labelled column with no series behind it. Resolved is the domain the trend
+  // selectors actually populate — and it is the shared predicate rather than a
+  // fourth hand-rolled copy of it.
+  const recentWeeks = selectResolvedStandingsWeeks(history).resolvedWeeks.slice(-n);
+  const weekSet = new Set(recentWeeks);
+  return {
+    weeks: recentWeeks,
+    byWeek: Object.fromEntries(
+      Object.entries(history.byWeek).filter(([w]) => weekSet.has(Number(w)))
+    ),
+    byOwner: Object.fromEntries(
+      Object.entries(history.byOwner).map(([owner, pts]) => [
+        owner,
+        pts.filter((p) => weekSet.has(p.week)),
+      ])
+    ),
+  };
 }
 
 function deltaTextColor(delta: number | null): string {
