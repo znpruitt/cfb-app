@@ -68,7 +68,9 @@ Rules:
   rounds `99cf5125` and `76148acc`. Both reviewers each round. Gates at `76148acc`: full suite
   4237/4237 exit 0, `tsc` exit 0, `lint:all` exit 0. Every fix mutation-proven against the code it
   claims to fix.
-- Status: Implemented — PR not yet open. One confirming review outstanding on the final commit.
+- Status: Implemented — PR #509 open. The last `/code-review` ran against `99cf5125` and raised
+  three findings, all documentation/proof-surface; all three are addressed in `76148acc`. No
+  confirming pass has run against the final commit.
 
 **BOTH REVIEWERS FOUND THE SAME P1, AND IT WAS THE HAZARD I HAD ALREADY WRITTEN DOWN.** The module
 carried a comment warning that a stripped history must never reach `selectSeasonContext`, because
