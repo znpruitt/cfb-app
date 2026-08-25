@@ -2282,7 +2282,9 @@ Supersedes: (none)
     **What shipped, and two corrections to the plan below.** `selectGamesBackTrend` carries
     `origin: number | null`; `isDrawableTrendSeries` is the single authority the Overview guard,
     `SeasonArcChart` and `MiniTrendsGrid` all ask; `seasonOriginApplies` decides when the origin is
-    honest; the grid gives it a leading column, unlabelled (owner decision, 2026-08-25).
+    honest; the grid gives it a leading column labelled **Preseason** (owner decision, 2026-08-25,
+    revising an earlier call to leave it blank — a bare gridline explains nothing, and `preseason` is
+    already this app's own lifecycle vocabulary rather than an invented week).
 
     **"All three trend selectors" was wrong twice.** `selectWinBars` has no points — it is a bar row.
     And win% should NOT have an origin: 0.000 is the floor of a 0-1 axis, not "level", so it would

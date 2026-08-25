@@ -60,7 +60,8 @@ Rules:
   record — everyone level at 0 games back — rather than inventing data, and gives a one-week series
   the second endpoint a line needs. Measured: one resolved week renders `M7.0,0.0 L462.9,0.0` and
   `M7.0,0.0 L462.9,145.5` where the pre-fix render produced moveto-only paths. The origin is NOT a
-  point and mints no week number; the grid gives it a leading column, unlabelled (owner decision).
+  point and mints no week number; the grid gives it a leading column labelled **Preseason** (owner
+  decision) — a lifecycle state, not a week, which is why it cannot collide with canonical week 0.
 
   **It is drawn only when NO GAME HAS CONCLUDED before the first drawn week** (`seasonOriginApplies`,
   which reads `finalGames` from the standings). Two review rounds went to establishing that no week

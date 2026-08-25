@@ -2291,7 +2291,10 @@ test('POLISH-014: one resolved week DRAWS, from the season origin', () => {
     /<path d="M[^"]*L/.test(gbRace),
     'a real line, not the moveto-only path that rendered nothing'
   );
-  // The origin is not a week and carries no label; only week one is named.
+  // The origin is labelled by its LIFECYCLE STATE, not a week number (owner
+  // decision, 2026-08-25). "W0" would imply a week, and canonical week 0 is a
+  // real value `AppGame.week` can hold.
+  assert.ok(gbRace.includes('>Preseason<'), 'the origin is labelled Preseason');
   assert.ok(gbRace.includes('>W1<'), 'the resolved week is labelled');
   assert.ok(!/>W0</.test(gbRace), 'the origin must not be labelled as a week');
 });
@@ -2524,6 +2527,7 @@ test('POLISH-014: a recent-week WINDOW draws no origin', () => {
     ['>W3<', '>W4<', '>W5<', '>W6<', '>W7<'],
     'the last five resolved weeks'
   );
+  assert.ok(!chart.includes('>Preseason<'), 'a mid-season window has no preseason column');
 
   // Each drawn series must have exactly one coordinate per labelled week — a
   // sixth would be the origin, placed one interval before W3.

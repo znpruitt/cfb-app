@@ -31,6 +31,9 @@ function yOfGb(gb: number, maxGb: number): number {
  */
 const ORIGIN_COLUMN = 0;
 
+/** The x-axis label for the origin column. Not a week — a lifecycle state. */
+const ORIGIN_LABEL = 'Preseason';
+
 /**
  * Columns are the weeks, plus ONE leading column for the origin when it is drawn.
  *
@@ -202,16 +205,18 @@ export default function MiniTrendsGrid({
       })}
 
       {/* Week labels on x-axis */}
-      {weeks.map((week, i) => {
-        // Column 0 is the origin and is deliberately UNLABELLED (owner decision,
-        // 2026-08-25): it is not a week, and naming it would imply one.
-        const x = xOfWeek(weekColumn(i, hasOrigin), columnCount(weeks, hasOrigin));
-        // Without an origin column the first week sits at x=0 and needs the
-        // left anchor it always had; with one it is interior.
-        const anchor = i === weeks.length - 1 ? 'end' : !hasOrigin && i === 0 ? 'start' : 'middle';
+      {(hasOrigin ? [ORIGIN_LABEL, ...weeks] : weeks).map((week, i) => {
+        // The origin column is labelled "Preseason" (owner decision, 2026-08-25,
+        // revising an earlier call to leave it blank). It is not a week and must
+        // not be named like one — and `preseason` is already this app's own
+        // lifecycle vocabulary, so the label says exactly what the point is: the
+        // state every owner was in before a game had been played.
+        const x = xOfWeek(i, columnCount(weeks, hasOrigin));
+        const isLast = i === (hasOrigin ? weeks.length : weeks.length - 1);
+        const anchor = isLast ? 'end' : i === 0 ? 'start' : 'middle';
         return (
           <text
-            key={`xl-${week}`}
+            key={`xl-${String(week)}`}
             x={x}
             y={CHART_H + LABEL_H - 4}
             textAnchor={anchor}
@@ -219,7 +224,7 @@ export default function MiniTrendsGrid({
             fill="currentColor"
             fillOpacity={0.4}
           >
-            {labelFn(week)}
+            {week === ORIGIN_LABEL ? ORIGIN_LABEL : labelFn(week as number)}
           </text>
         );
       })}
