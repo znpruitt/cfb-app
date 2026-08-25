@@ -87,9 +87,10 @@ Rules:
   version of this bullet cited "the axis trim in both wrong directions" as mutation-proven, which
   became false when the cut removed the implementation and its tests. Two successive versions of
   this same bullet overstated coverage and review caught both.
-- Status: **Merged** (PR #510, `cf159341`, 2026-08-25). **NOT promoted** — `turfwar.games` still
-  serves `cfb-d3n6iu700` (built 2026-08-23); the merge produced `cfb-67cxjp0tx`, Ready and awaiting
-  promotion, which will carry BOTH this slice and PLATFORM-109 to production together. Gates on the
+- Status: **Merged** (PR #510, `cf159341`, 2026-08-25) and **PROMOTED** the same day —
+  `turfwar.games` resolves to `cfb-67cxjp0tx` (`dpl_5HLPrLmkyU2Qr7D1Eo4Cirdg8hPt`), verified by
+  re-resolving the domain after the promotion rather than by the CLI's success message, with a 200
+  smoke check. That one build carried BOTH this slice and PLATFORM-109 live together. Gates on the
   merged `main` (`cf159341`): full suite 4242/4242 exit 0, `tsc` exit 0, `lint:all` exit 0.
 
 **FOUR FINDINGS, ONE ROOT: THE SECTION STATED A CAUSE IT HAD NOT ESTABLISHED.** One resolved week
@@ -154,9 +155,10 @@ did the inaccuracy become visible. Bring the failing case, not the sentence.
   rounds `99cf5125` and `76148acc`. Both reviewers each round. Gates at `76148acc`: full suite
   4237/4237 exit 0, `tsc` exit 0, `lint:all` exit 0. Every fix mutation-proven against the code it
   claims to fix.
-- Status: **Merged** (PR #509, `be80181a`, 2026-08-25). **NOT promoted** — `turfwar.games` still
-  serves `cfb-d3n6iu700` (built 2026-08-23); the merge produced `cfb-hh5biukc6`, Ready and awaiting
-  promotion, so none of this reaches a member yet. Both reviewers cleared the final commit
+- Status: **Merged** (PR #509, `be80181a`, 2026-08-25) and **PROMOTED** the same day, carried live
+  by the PR #510 merge build `cfb-67cxjp0tx` (`dpl_5HLPrLmkyU2Qr7D1Eo4Cirdg8hPt`) rather than by its
+  own build `cfb-hh5biukc6`, which was superseded unpromoted. Verified by re-resolving
+  `turfwar.games`. Both reviewers cleared the final commit
   (`a0a7657d`); the two LOW findings from that pass — the unreached-and-wrong re-derivation fallback,
   and a sixth route being able to omit the prop silently — are tracked in `docs/next-tasks.md`.
 

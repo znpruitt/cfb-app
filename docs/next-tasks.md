@@ -1942,8 +1942,8 @@ Supersedes: (none)
     the confirming passes of both reviewers. None is a regression against `main`; each is smaller
     than the defect PLATFORM-105 fixed.
 
-    **(a) ✅ MERGED — `PLATFORM-109-STANDINGS-PENDING-PAYLOAD-v1` via PR #509 (`be80181a`,
-    2026-08-25). NOT promoted: production still serves the 2026-08-23 build.**
+    **(a) ✅ MERGED and LIVE — `PLATFORM-109-STANDINGS-PENDING-PAYLOAD-v1` via PR #509
+    (`be80181a`, 2026-08-25), promoted the same day inside the PR #510 build `cfb-67cxjp0tx`.**
     `standingsHistory.byWeek[*].pending` held one `{key, week, kickoff}` per unplayed real game for
     the whole season and was passed from a server component into `'use client' CFBScheduleApp`. The
     five league routes now spread `canonicalStandingsClientProps`, which derives the season context
@@ -2175,8 +2175,8 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-TEST-STARTUP-HEADROOM-v1`
 
-72. ✅ **MERGED — `POLISH-013-TREND-EMPTY-STATES-v1` via PR #510 (`cf159341`, 2026-08-25). NOT
-    promoted: production still serves the 2026-08-23 build.** Queued 2026-08-23 out
+72. ✅ **MERGED and LIVE — `POLISH-013-TREND-EMPTY-STATES-v1` via PR #510 (`cf159341`,
+    2026-08-25), promoted the same day as `cfb-67cxjp0tx`.** Queued 2026-08-23 out
     of POLISH-012, which fixed the crash next door and deliberately left this alone. The diagnosis
     below is preserved as it stood; four owner decisions during execution changed the answer in ways
     the entry did not anticipate, recorded at the end. Execution record in
