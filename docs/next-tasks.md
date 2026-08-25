@@ -2268,12 +2268,32 @@ Supersedes: (none)
     - **All three trend selectors or none.** If games-back gains an origin and win% does not, the
       two metric charts disagree about the empty case at week one — the exact divergence behind the
       POLISH-012 hook crash.
-    - **The axis label must not be `W0`.** Verified against the cached schedules: CFBD serves
-      week 0 and week 1 as ONE bucket (2026 week 1 spans Aug 27 → Sep 7, 389 games, against week 2's
-      three days; no cached season has a week-0 bucket), so there is no collision — but "W0" would
-      still imply a week that our data does not model. "Start", or no label.
+    - **The origin must not be keyed as week `0`, and this correction matters more than the label.**
+      An earlier version of this item said the app does not model week 0 and that there was
+      therefore no collision. **Both halves were wrong**, and the mistake was checking the wrong
+      layer: `/api/schedule` serves PROVIDER weeks, where the opening games all arrive as week 1, but
+      `buildRegularSeasonWeekCalendar` (`regularSeasonWeekCalendar.ts`) detects a smaller earlier
+      cluster also arriving as provider week 1 and mints it as CANONICAL week 0 —
+      `WeekCorrectionReason: 'derived_week_0_from_opening_cluster'`, pinned by test to `[0, 1]`.
+      Canonical week 0 is a real value `AppGame.week` can hold.
+
+      Measured across every cached season (2026, 2025, 2024): none currently derives one, because
+      the date clustering merges the opener into a single cluster spanning provider weeks 1 and 2.
+      That is an accident of this data, not a guarantee — a season with a genuine gap before the
+      opener would derive week 0 and a numeric-`0` origin would sit on top of a real point.
+
+      So the origin needs a representation OUTSIDE the week domain — a sentinel, or a separate
+      field — not week `0` with a friendly label. The label ("Start", or none) is a separate and
+      much smaller decision.
     - Archives inherit it, since `SeasonArcChart` and the trends detail surface read the same
       selectors. Probably an improvement; it changes every historical chart, so decide deliberately.
+
+    **Also folded in here:** at one resolved week the GB Race hides `GbChangeTable` along with the
+    chart. Its week-over-week deltas are all `·` in that state, but it was the only surface showing
+    CURRENT games-back for owners outside the condensed table's top five — so in an eight-owner
+    league, owners 6–8 lose their GB until they follow "Full standings". An acceptable tradeoff for
+    one week, but "nothing useful is lost" is not literally true, and the origin restores the chart
+    anyway.
 
     **Timing.** This only changes what ONE resolved week looks like. Week one of 2026 resolves
     around Aug 31 and stops mattering when week two resolves around Sep 8, so landing it before
