@@ -178,3 +178,38 @@ test('PLATFORM-105: a season with no pending games is over, whatever the weeks s
 
   assert.equal(selectSeasonContext({ standingsHistory }), 'final');
 });
+
+test('PLATFORM-109: a history whose pending lists were STRIPPED is not final', () => {
+  // The client-facing projection (`canonicalStandingsClientProps`) removes
+  // `pending` from every week. `unresolved.every(...)` is vacuously true for the
+  // resulting empty list, so this history used to answer `final` for a season
+  // that has not started — which two independent reviews found reaching
+  // `selectOverviewViewModel` through the Overview surface.
+  const standingsHistory = createHistory({
+    weeks: [1, 2, 3],
+    resolvedWeeks: [],
+    playedWeeks: [],
+  });
+  for (const week of standingsHistory.weeks) {
+    delete standingsHistory.byWeek[week]!.pending;
+  }
+
+  assert.equal(selectSeasonContext({ standingsHistory }), 'in-season');
+});
+
+test('PLATFORM-109: a stripped history of a FINISHED season is still final', () => {
+  // The discriminator is not "was pending stripped" — it is whether this week's
+  // games can answer at all. Every week here was played, so they can, and the
+  // answer is unchanged by the stripping. This is also the durable-archive
+  // shape: `buildSeasonArchive` carries no `pending` either.
+  const standingsHistory = createHistory({
+    weeks: [1, 2, 3],
+    resolvedWeeks: [1, 2, 3],
+    playedWeeks: [1, 2, 3],
+  });
+  for (const week of standingsHistory.weeks) {
+    delete standingsHistory.byWeek[week]!.pending;
+  }
+
+  assert.equal(selectSeasonContext({ standingsHistory }), 'final');
+});

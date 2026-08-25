@@ -2344,3 +2344,190 @@ test('selectOverviewViewModel applies final-season storyline phrasing and suppre
   );
   assert.match(model.storylines[0]?.text ?? '', /won the title by 2 games/i);
 });
+
+// ---------------------------------------------------------------------------
+// PLATFORM-109 remediation — the view model must not re-derive the season
+// context from a history that has had `pending` stripped.
+//
+// Both independent reviews found this: the five league routes now ship a
+// stripped snapshot to the client, `OverviewPanel` handed it straight to this
+// selector, and `selectSeasonContext`'s `unresolved.every(...)` is vacuously
+// true for an empty list — so a live season was reclassified `final` and the
+// storylines described a title that had been won.
+// ---------------------------------------------------------------------------
+
+const baseContext: OverviewContext = {
+  scopeLabel: 'League',
+  scopeDetail: 'Week 2',
+  emphasis: 'upcoming',
+  highlightsTitle: '',
+  highlightsDescription: '',
+  liveDescription: '',
+  sectionOrder: ['highlights', 'standings', 'matrix', 'live'],
+};
+
+function liveHistoryWithAnUnplayedWeek(): StandingsHistory {
+  const rows = (aliceWins: number) => [
+    {
+      owner: 'Alice',
+      wins: aliceWins,
+      losses: 0,
+      ties: 0,
+      winPct: 1,
+      pointsFor: 40,
+      pointsAgainst: 10,
+      pointDifferential: 30,
+      gamesBack: 0,
+      finalGames: aliceWins,
+    },
+    {
+      owner: 'Bob',
+      wins: 0,
+      losses: aliceWins,
+      ties: 0,
+      winPct: 0,
+      pointsFor: 10,
+      pointsAgainst: 40,
+      pointDifferential: -30,
+      gamesBack: aliceWins,
+      finalGames: aliceWins,
+    },
+  ];
+  return {
+    weeks: [1, 2],
+    byWeek: {
+      1: {
+        week: 1,
+        standings: rows(1),
+        coverage: { state: 'complete', message: null },
+        played: true,
+        pending: [],
+      },
+      2: {
+        week: 2,
+        standings: rows(1),
+        coverage: { state: 'complete', message: null },
+        played: false,
+        // Kicks off next Saturday — pending, nowhere near abandoned.
+        pending: [{ key: 'w2-g1', week: 2, kickoff: '2099-09-05T18:00:00.000Z' }],
+      },
+    },
+    byOwner: {
+      Alice: [
+        {
+          week: 1,
+          wins: 1,
+          losses: 0,
+          ties: 0,
+          winPct: 1,
+          pointsFor: 40,
+          pointsAgainst: 10,
+          pointDifferential: 30,
+          gamesBack: 0,
+        },
+      ],
+      Bob: [
+        {
+          week: 1,
+          wins: 0,
+          losses: 1,
+          ties: 0,
+          winPct: 0,
+          pointsFor: 10,
+          pointsAgainst: 40,
+          pointDifferential: -30,
+          gamesBack: 1,
+        },
+      ],
+    },
+  };
+}
+
+function stripPending(history: StandingsHistory): StandingsHistory {
+  const byWeek: StandingsHistory['byWeek'] = {};
+  for (const [week, snapshot] of Object.entries(history.byWeek)) {
+    const copy = { ...snapshot };
+    delete copy.pending;
+    byWeek[Number(week)] = copy;
+  }
+  return { ...history, byWeek };
+}
+
+function viewModelFor(standingsHistory: StandingsHistory) {
+  return selectOverviewViewModel({
+    standingsLeaders: standingsHistory.byWeek[1]!.standings.map((row) => ({
+      owner: row.owner,
+      wins: row.wins,
+      losses: row.losses,
+      winPct: row.winPct,
+      pointsFor: row.pointsFor,
+      pointsAgainst: row.pointsAgainst,
+      pointDifferential: row.pointDifferential,
+      gamesBack: row.gamesBack,
+      finalGames: row.finalGames,
+    })),
+    standingsHistory,
+    standingsCoverage: { state: 'complete', message: null } as StandingsCoverage,
+    context: baseContext,
+    liveItems: [],
+    keyMatchups: [],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  });
+}
+
+test('PLATFORM-109: stripping pending does not change the view model', () => {
+  const live = liveHistoryWithAnUnplayedWeek();
+
+  // The whole point: the client copy and the server copy must describe the same
+  // season. Before the fix the stripped copy read `final` and produced
+  // completed-season storylines.
+  assert.deepEqual(viewModelFor(stripPending(live)), viewModelFor(live));
+});
+
+test('PLATFORM-109: an explicit seasonContext overrides the derivation', () => {
+  const live = liveHistoryWithAnUnplayedWeek();
+  const params = {
+    standingsLeaders: live.byWeek[1]!.standings.map((row) => ({
+      owner: row.owner,
+      wins: row.wins,
+      losses: row.losses,
+      winPct: row.winPct,
+      pointsFor: row.pointsFor,
+      pointsAgainst: row.pointsAgainst,
+      pointDifferential: row.pointDifferential,
+      gamesBack: row.gamesBack,
+      finalGames: row.finalGames,
+    })),
+    standingsHistory: live,
+    standingsCoverage: { state: 'complete', message: null } as StandingsCoverage,
+    context: baseContext,
+    liveItems: [],
+    keyMatchups: [],
+    matchupMatrix: { owners: [], rows: [] },
+    rankingsByTeamId: new Map(),
+  };
+
+  const derived = selectOverviewViewModel(params);
+  const overridden = selectOverviewViewModel({ ...params, seasonContext: 'final' });
+
+  // The caller's answer wins over the local derivation — which is what lets the
+  // league routes hand down the one value they derived from the unstripped
+  // snapshot instead of every consumer deriving its own.
+  //
+  // NOT PINNED: that `OverviewPanel` forwards its prop into THIS selector. The
+  // value lands on `viewModel.storylines`, which no surface renders, so deleting
+  // that one forwarding fails no test — verified by deleting it, not assumed.
+  //
+  // An earlier version of this note claimed the panel's markup was byte-
+  // identical with `in-season` and with `final`. That was false and review
+  // disproved it: the panel ALSO forwards the prop to `deriveLeagueInsights`,
+  // which is render-observable and is now pinned in `OverviewPanel.test.tsx`.
+  // The measurement behind the false claim came from a single fixture that
+  // emitted no context-sensitive insights, stated as a general fact.
+  //
+  // So: one of the two forwardings is pinned at the render level, the other is
+  // unpinnable until a surface renders storylines, and this selector contract is
+  // what guards it meanwhile.
+  assert.notDeepEqual(overridden.storylines, derived.storylines);
+});

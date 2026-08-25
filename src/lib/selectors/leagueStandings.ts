@@ -792,7 +792,16 @@ function computeLifecycle(
   games: AppGame[],
   currentDate: Date
 ): LifecycleState {
-  const seasonContext = selectSeasonContext({ standingsHistory: standingsHistory ?? null });
+  // PLATFORM-109 (item 64d): pass the pinned `currentDate` rather than letting
+  // the selector read its own `new Date()`. This does not make a cached
+  // lifecycle self-refreshing — the whole snapshot is still pinned to the
+  // request that warmed it, exactly as this function's doc comment says — but it
+  // makes that pinning explicit and testable instead of an implicit wall-clock
+  // read inside a cached compute path.
+  const seasonContext = selectSeasonContext({
+    standingsHistory: standingsHistory ?? null,
+    now: currentDate,
+  });
   const regularWeeks = deriveRegularWeeks(games);
   const currentWeek = games.length > 0 ? chooseDefaultWeek({ games, regularWeeks }) : null;
   const totalRegularSeasonWeeks = deriveTotalRegularSeasonWeeks(games);

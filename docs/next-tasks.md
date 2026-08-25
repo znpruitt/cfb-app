@@ -1942,13 +1942,19 @@ Supersedes: (none)
     the confirming passes of both reviewers. None is a regression against `main`; each is smaller
     than the defect PLATFORM-105 fixed.
 
-    **(a) `pending` is serialized to the browser — the one with broad user impact.**
-    `standingsHistory.byWeek[*].pending` holds one `{key, week, kickoff}` per unplayed real game for
-    the whole season and is passed from a server component into `'use client' CFBScheduleApp`.
-    Measured: **3,221 entries ≈ 245KB** added to the RSC payload of the hottest route at week 1,
-    shrinking weekly. Fix: compute `seasonContext` server-side and pass the string, or collapse
-    `pending` to a per-week count plus earliest kickoff. **This also removes (d)**, because the client
-    would stop evaluating the clock at all.
+    **(a) ✅ IMPLEMENTED — `PLATFORM-109-STANDINGS-PENDING-PAYLOAD-v1`, PR #509.**
+    `standingsHistory.byWeek[*].pending` held one `{key, week, kickoff}` per unplayed real game for
+    the whole season and was passed from a server component into `'use client' CFBScheduleApp`. The
+    five league routes now spread `canonicalStandingsClientProps`, which derives the season context
+    at request time from the UNSTRIPPED snapshot and drops `pending` before the boundary.
+
+    **The 3,221-entry / 245KB figure recorded here was not reproduced.** Seeding the real production
+    2026 schedule (3,610 rows) measured 898 pending entries and a canonical snapshot of
+    80,922 → 16,789 JSON bytes — 64,133 removed, 79% of the snapshot. Different fixture or season is
+    the likely explanation, and raw JSON is not RSC wire bytes; both numbers are recorded rather than
+    one overwriting the other.
+
+    **"This also removes (d)" was wrong** — see (d). Execution record in `docs/prompt-registry.md`.
 
     **(b) ✅ MERGED — `PLATFORM-105A-SCORE-COVERAGE-INTEGRITY-v1` via PR #503 (`31db3706`).** A
     scoreless owned game with score-bearing conclusion evidence can no longer resolve a cumulative
@@ -1979,19 +1985,34 @@ Supersedes: (none)
     — verified, all five drop it, including `computeLifecycle` inside
     `dataCachedCanonicalStandings` and `buildLeagueInsightContext` inside `dataCachedRawInsights`,
     both of which were handed a `currentDate`. Effect is a season verdict frozen at cache-warm time:
-    LATE rather than wrong, and only reachable in the abandoned-game case. Fixed for free by (a).
+    LATE rather than wrong, and only reachable in the abandoned-game case.
+
+    ✅ **ADDRESSED in PLATFORM-109**, but not "for free by (a)" as this entry claimed: the client
+    ceasing to evaluate the clock did nothing about the two CACHED callers, which needed their own
+    one-line change each to pass the `currentDate` they already held. Review is right that this is
+    documentation of intent rather than a behavior fix — on a cache hit the compute does not run, and
+    on a miss `currentDate ≈ new Date()` — so the implicit wall-clock read is gone but no observable
+    behavior changed.
 
     **(e) Elapsed-time conclusions are still not surfaced.** When the season is accepted as over
     because every pending kickoff is eight hours past, nothing records which games were accepted
     without a result. One is a hurricane; twenty is a broken score feed, and they look identical to
     an operator today. The model doc now states this as absent rather than describing it as present.
 
-    **Also latent, not live:** `selectSeasonContext`'s `unresolved.every(...)` returns `'final'` for
-    an empty list, and it runs before the "anything played" guard — so a history whose weeks carry no
-    `pending` array reports the season over. Verified that **no production path** passes such a
-    history (all five callers pass the full canonical history; archives legitimately have none, and
-    the pre-deploy cache is busted by the shape version). A trap for the next caller. Cheap fix:
-    require `unresolved.length > 0`, or move the played guard above it.
+    **The latent vacuous-`final` trap — ✅ CLOSED by PLATFORM-109, and it stopped being latent
+    first.** `selectSeasonContext`'s `unresolved.every(...)` returns `'final'` for an empty list, so a
+    history whose weeks carry no `pending` array reported the season over. PLATFORM-109 created the
+    first production path that manufactures such a history, and BOTH reviewers caught the stripped
+    copy reaching `selectOverviewViewModel` and reclassifying a live season. The `final` branch now
+    requires the emptiness to be a FACT, per week: `pending` present (even empty) can answer;
+    `pending` absent but the week PLAYED can answer — the durable archive; `pending` absent and not
+    played cannot.
+
+    **Neither cheap fix recorded above would have worked.** Requiring `unresolved.length > 0` breaks
+    the abandoned-game escape hatch, and moving the played guard above it leaves the stripped case
+    answering `final` because `played` survives stripping. The first attempt at the fix took the
+    every-week-played form and broke the 2026-08-20 all-bracket-week ruling; the existing test for
+    that ruling is what caught it.
 
     - **Backlog slug (provisional):** `PLATFORM-WEEK-RESOLUTION-RESIDUE-v1`
     - **Sequencing (revised 2026-08-21):** (b) and the underlying item 66 recovery path have landed.
@@ -3320,6 +3341,31 @@ proven draft-blocking failure, and it is the one an operator reaches on draft ni
 Explicitly deferred, not scheduled — this is their single canonical home (per `AGENTS.md`). Other
 documents may link here but must not maintain duplicate descriptions. Do not mark any complete
 unless verified in merged work.
+
+- **`selectOverviewViewModel`'s `seasonContext` fallback is unreached AND wrong if reached
+  (PLATFORM-109, 2026-08-23).** The parameter is optional and re-derives from the history when
+  absent. `selectSeasonContext` refuses to call a pending-less history final unless every week was
+  played — right for a season still running, wrong for one that ended on an ABANDONED game, whose
+  week is `played: false` precisely because something was pending. So a re-derivation from the
+  stripped copy answers `in-season` where the truth is `final`. Measured: server `final`, prop
+  `final`, stripped re-derivation `in-season`. Nothing reaches it — all five league routes pass the
+  prop — so this replaced a vacuous-`final` trap with a vacuous-`in-season` one rather than removing
+  the class. **Making the parameter REQUIRED deletes it**, at the cost of updating roughly twenty
+  test call sites; deferred at the review round limit, four days before the season opener, on a
+  branch already three rounds deep. Related: that `OverviewPanel` forwards its prop INTO that
+  selector is unpinnable today — the value lands on `viewModel.storylines`, which no surface renders,
+  verified by deleting the forwarding and watching the suite stay green. It becomes pinnable the
+  moment a surface renders storylines.
+
+  **A sixth route can opt out silently (added 2026-08-23 from the confirming review).**
+  `seasonContext` is an optional prop defaulting to `'in-season'` on both `CFBScheduleApp` and
+  `OverviewPanel`. A future route that passes `canonicalStandings` but forgets the
+  `canonicalStandingsClientProps` spread COMPILES CLEANLY and renders a finished season as live —
+  the Move column shown on Standings, the champion-margin storyline suppressed on Overview. The
+  route-boundary test covers today's five surfaces and cannot force a sixth to opt in. Pairing the
+  two values in one returned object mitigates this for anyone who uses the helper; the exposure is a
+  caller who does not. The same required-parameter change that deletes the fallback trap above would
+  also close this, which is why they are recorded together. Not scheduled.
 
 - ~~**CSV current-season guard** vs sanctioned admin override.~~ **Resolved — PLATFORM-083** (audited in PLAN-002). `PUT /api/owners` now guards active-season overwrites: replacing an already-populated active-season roster requires an explicit `?override=1` repair confirmation (surfaced in both the CSV import panel and inline roster editor); historical/backfill and initial-creation writes are unguarded. Route stays platform-admin-only; no new league-admin role. See `docs/architecture/identity-and-ownership.md`.
 - **PLATFORM-107 accepted low-severity residue (2026-08-21).**
