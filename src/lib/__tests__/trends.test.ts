@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { StandingsHistory } from '../standingsHistory';
-import { selectGamesBackTrend, selectWinBars, selectWinPctTrend } from '../selectors/trends';
+import {
+  SEASON_ORIGIN_GAMES_BACK,
+  SEASON_ORIGIN_WIN_PCT,
+  isDrawableTrendSeries,
+  selectGamesBackTrend,
+  selectWinBars,
+  selectWinPctTrend,
+} from '../selectors/trends';
 
 function buildHistory(): StandingsHistory {
   return {
@@ -458,4 +465,101 @@ test('selectWinBars falls back deterministically when no resolved standings are 
 
   const rows = selectWinBars({ standingsHistory: history });
   assert.deepEqual(rows, []);
+});
+
+// ---------------------------------------------------------------------------
+// POLISH-014 — the season origin.
+//
+// Every owner starts 0-0 and level, so a series with any plotted week has a
+// second endpoint and one resolved week is an ordinary segment. The origin is
+// NOT a point: no week number is right for both charts, so each places it in its
+// own coordinate system. See `GamesBackSeries.origin`.
+// ---------------------------------------------------------------------------
+
+function originHistory(resolvedWeeks: number[]): StandingsHistory {
+  const owners = ['Alice', 'Bob'];
+  const byWeek: StandingsHistory['byWeek'] = {};
+  for (const week of resolvedWeeks) {
+    byWeek[week] = {
+      week,
+      standings: owners.map((owner, index) => ({
+        owner,
+        wins: 1,
+        losses: 0,
+        ties: 0,
+        winPct: 1,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+        gamesBack: index,
+        finalGames: 1,
+      })),
+      coverage: { state: 'complete', message: null },
+      played: true,
+      pending: [],
+    };
+  }
+  const byOwner: StandingsHistory['byOwner'] = {};
+  owners.forEach((owner, index) => {
+    byOwner[owner] = resolvedWeeks.map((week) => ({
+      week,
+      wins: 1,
+      losses: 0,
+      ties: 0,
+      winPct: 1,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 0,
+      gamesBack: index,
+    }));
+  });
+  return { weeks: resolvedWeeks, byWeek, byOwner };
+}
+
+test('POLISH-014: a series with plotted weeks carries the origin', () => {
+  const history = originHistory([1]);
+  const gb = selectGamesBackTrend({ standingsHistory: history });
+  const wp = selectWinPctTrend({ standingsHistory: history });
+
+  assert.equal(gb.length, 2);
+  for (const series of gb) assert.equal(series.origin, SEASON_ORIGIN_GAMES_BACK);
+  for (const series of wp) assert.equal(series.origin, SEASON_ORIGIN_WIN_PCT);
+});
+
+test('POLISH-014: no resolved weeks means no series, and therefore no origin', () => {
+  // The origin must never resurrect a chart for a season that has not started.
+  const history = originHistory([1]);
+  history.byWeek[1] = { ...history.byWeek[1]!, played: false };
+
+  assert.deepEqual(selectGamesBackTrend({ standingsHistory: history }), []);
+  assert.deepEqual(selectWinPctTrend({ standingsHistory: history }), []);
+});
+
+test('POLISH-014: both point-based selectors gain the origin together', () => {
+  // POLISH-012's hook crash came from these two disagreeing about the empty case
+  // while sharing a fiber. They must agree about the origin for the same reason.
+  for (const weeks of [[1], [1, 2], []]) {
+    const history = originHistory(weeks);
+    const gb = selectGamesBackTrend({ standingsHistory: history });
+    const wp = selectWinPctTrend({ standingsHistory: history });
+    assert.equal(
+      gb.length,
+      wp.length,
+      `series count must match for weeks ${JSON.stringify(weeks)}`
+    );
+    assert.deepEqual(
+      gb.map((s) => s.origin === null),
+      wp.map((s) => s.origin === null),
+      `origin presence must match for weeks ${JSON.stringify(weeks)}`
+    );
+  }
+});
+
+test('POLISH-014: drawability counts the origin as an endpoint', () => {
+  // One plotted week plus the origin is two endpoints — a line.
+  assert.equal(isDrawableTrendSeries({ points: [{}], origin: 0 }), true);
+  // Without an origin, one point is a moveto-only path that SVG will not draw.
+  assert.equal(isDrawableTrendSeries({ points: [{}], origin: null }), false);
+  assert.equal(isDrawableTrendSeries({ points: [], origin: 0 }), false);
+  assert.equal(isDrawableTrendSeries({ points: [{}, {}], origin: null }), true);
 });

@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { selectGamesBackTrend } from '../lib/selectors/trends';
+import { isDrawableTrendSeries, selectGamesBackTrend } from '../lib/selectors/trends';
 import type { StandingsHistory } from '../lib/standingsHistory';
 
 const CHART_H = 160;
@@ -21,16 +21,45 @@ function yOfGb(gb: number, maxGb: number): number {
   return (gb / Math.max(0.1, maxGb)) * CHART_H;
 }
 
-function buildPath(points: SeriesPoint[], weeks: number[], maxGb: number): string {
-  if (points.length === 0) return '';
-  const weekIndexMap = new Map(weeks.map((w, i) => [w, i]));
-  return points
-    .map((p, i) => {
-      const xi = weekIndexMap.get(p.week) ?? 0;
-      const x = xOfWeek(xi, weeks.length);
-      const y = yOfGb(p.value, maxGb);
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-    })
+/**
+ * POLISH-014 — this chart's x-domain is the season ORIGIN followed by the weeks.
+ *
+ * The origin is not a week and carries no week number (see `GamesBackSeries.origin`),
+ * so it lives at column 0 here and every week shifts one column right. That is
+ * what makes ONE resolved week an ordinary two-point segment instead of a
+ * moveto-only path SVG refuses to draw.
+ */
+const ORIGIN_COLUMN = 0;
+
+function columnCount(weeks: number[]): number {
+  return weeks.length + 1;
+}
+
+function buildPath(
+  points: SeriesPoint[],
+  origin: number | null,
+  weeks: number[],
+  maxGb: number
+): string {
+  const weekIndexMap = new Map(weeks.map((w, i) => [w, i + 1]));
+  const total = columnCount(weeks);
+
+  const coords: Array<{ x: number; y: number }> = [];
+  if (origin !== null) {
+    coords.push({ x: xOfWeek(ORIGIN_COLUMN, total), y: yOfGb(origin, maxGb) });
+  }
+  for (const point of points) {
+    const column = weekIndexMap.get(point.week);
+    // A point whose week is not in the domain is DROPPED, not silently placed at
+    // column 0. The previous `?? 0` collapsed such a point onto the first column,
+    // which is the shape of bug this file has produced twice.
+    if (column === undefined) continue;
+    coords.push({ x: xOfWeek(column, total), y: yOfGb(point.value, maxGb) });
+  }
+
+  if (coords.length === 0) return '';
+  return coords
+    .map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x.toFixed(1)},${c.y.toFixed(1)}`)
     .join(' ');
 }
 
@@ -54,7 +83,10 @@ export default function MiniTrendsGrid({
   const series = allSeries.slice(0, CONTENDERS);
 
   const weeks = standingsHistory.weeks;
-  if (weeks.length === 0 || series.length === 0) return null;
+  // POLISH-014: ONE drawability authority, shared with the Overview guard and
+  // `SeasonArcChart`. This file used to render whenever a series existed, which
+  // is how a one-point series produced an empty box with axes.
+  if (weeks.length === 0 || !series.some(isDrawableTrendSeries)) return null;
 
   // Y scale: max GB across all owners + 10% padding
   const maxGb = Math.max(1, ...series.flatMap((s) => s.points.map((p) => p.value)));
@@ -100,11 +132,11 @@ export default function MiniTrendsGrid({
       </text>
 
       {/* Vertical grid lines at each week */}
-      {weeks.map((week, i) => {
-        const x = xOfWeek(i, weeks.length);
+      {[null, ...weeks].map((week, i) => {
+        const x = xOfWeek(i, columnCount(weeks));
         return (
           <line
-            key={`vg-${week}`}
+            key={`vg-${week ?? 'origin'}`}
             x1={x}
             y1={0}
             x2={x}
@@ -119,7 +151,7 @@ export default function MiniTrendsGrid({
       {/* Series paths — leader slightly thicker */}
       {series.map((s, i) => {
         const color = ownerColorMap[s.ownerName] ?? '#888';
-        const d = buildPath(s.points, weeks, paddedMax);
+        const d = buildPath(s.points, s.origin, weeks, paddedMax);
         return d ? (
           <path
             key={s.ownerId}
@@ -136,8 +168,11 @@ export default function MiniTrendsGrid({
 
       {/* Week labels on x-axis */}
       {weeks.map((week, i) => {
-        const x = xOfWeek(i, weeks.length);
-        const anchor = i === 0 ? 'start' : i === weeks.length - 1 ? 'end' : 'middle';
+        // Column 0 is the origin and is deliberately UNLABELLED (owner decision,
+        // 2026-08-25): it is not a week, and naming it would imply one.
+        const column = i + 1;
+        const x = xOfWeek(column, columnCount(weeks));
+        const anchor = i === weeks.length - 1 ? 'end' : 'middle';
         return (
           <text
             key={`xl-${week}`}

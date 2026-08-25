@@ -2276,8 +2276,28 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `POLISH-ARCHIVE-AXIS-DOMAIN-v1`
 
-74. 🔴 **Plot the season origin so week one is an ordinary trend.** Queued 2026-08-23 (owner idea,
-    out of POLISH-013 after point markers failed three times).
+74. ✅ **IMPLEMENTED — `POLISH-014-TREND-SEASON-ORIGIN-v1`, PR not yet open.** Queued 2026-08-23
+    (owner idea, out of POLISH-013 after point markers failed three times).
+
+    **What shipped, and one correction to the plan below.** Both POINT-BASED selectors carry
+    `origin: number | null`; `isDrawableTrendSeries` is the single authority the Overview guard,
+    `SeasonArcChart` and `MiniTrendsGrid` all ask; the grid places the origin at column 0, unlabelled
+    (owner decision, 2026-08-25). **This item said "all three trend selectors" and that was wrong** —
+    `selectWinBars` returns per-owner totals with no points at all, so an origin is meaningless
+    there. The POLISH-012 divergence was between the two point-based selectors, and those are the two
+    that moved together.
+
+    **The representation was forced by the two charts disagreeing about what `week` means.**
+    `TrendsDetailSurface` reads it as a coordinate on a linear scale, so any fixed sentinel misplaces
+    the origin whenever the first plotted week is not 1; `MiniTrendsGrid` reads it as a key into an
+    index map, where an unknown week silently collapsed onto the first column via `?? 0`. No fake
+    week number is right for both, so the origin is a separate field and each chart places it in its
+    own coordinate system.
+
+    **Still open, deliberately:** `TrendsDetailSurface` ignores `origin`. It already draws a
+    one-point series as markers, so it has no defect to fix, and its axis-tick geometry is coupled to
+    `weekMin`/`weekMax` in a way that deserves its own slice. Adopting the origin there is a
+    consistency improvement, not a repair.
 
     **The insight: there is no such thing as a one-point week.** Every owner starts 0-0, and
     `standings.ts:305` already defines a 0-0 record as `winPct: 0`, so an origin at 0 games back /

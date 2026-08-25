@@ -3,7 +3,7 @@
 import React from 'react';
 import MiniTrendsGrid from '@/components/MiniTrendsGrid';
 import { buildOwnerColorMap, isDarkTheme } from '@/lib/ownerColors';
-import { selectGamesBackTrend } from '@/lib/selectors/trends';
+import { isDrawableTrendSeries, selectGamesBackTrend } from '@/lib/selectors/trends';
 import type { StandingsHistory } from '@/lib/standingsHistory';
 import { TREND_EMPTY_MESSAGE } from '@/lib/trendEmptyState';
 
@@ -24,8 +24,13 @@ export default function SeasonArcChart({ standingsHistory, year }: Props): React
   // archived season whose cumulative coverage never completed has weeks but no
   // resolved ones, and this section rendered its heading and subtitle over an
   // empty body while its own fallback was skipped.
+  // POLISH-014: ask whether a series can be DRAWN, not whether one exists. This
+  // guard was still mere presence after POLISH-013 gave the same file its empty
+  // sentence, so an archive with exactly one resolved week rendered the axes over
+  // moveto-only paths — the very "empty box" the sentence exists to prevent.
+  // `isDrawableTrendSeries` is shared with the Overview guard and the grid.
   const hasTrendData = React.useMemo(
-    () => selectGamesBackTrend({ standingsHistory }).length > 0,
+    () => selectGamesBackTrend({ standingsHistory }).some(isDrawableTrendSeries),
     [standingsHistory]
   );
 

@@ -2271,15 +2271,12 @@ test('POLISH-013: GB Race explains the gap when no week has resolved', () => {
   assert.ok(!gbRace.includes('<svg'), 'the empty state must draw no chart');
 });
 
-test('POLISH-013: one resolved week still explains the gap — a single point cannot be drawn', () => {
-  // `MiniTrendsGrid` joins points with `L`, so a one-point series emits a
-  // moveto-only path and SVG draws nothing. Point markers were tried and cut:
-  // coincident markers hid each other and the leader was the one covered.
-  //
-  // NOT a claim that one point is undrawable in general — `TrendsDetailSurface`
-  // draws it with per-point markers today, which is exactly why Overview and the
-  // surface its own link points to disagree in this state. Item 74 closes both
-  // by giving week one a second point.
+test('POLISH-014: one resolved week DRAWS, from the season origin', () => {
+  // POLISH-013 pinned the opposite — that one resolved week could not be drawn
+  // and had to keep explaining the gap. That was true of `MiniTrendsGrid`, which
+  // draws lines only, and it is what three attempts at point markers tried and
+  // failed to work around. The origin makes week one an ordinary two-point
+  // segment: every owner starts 0-0 and level, so there is a second endpoint.
   const history = unresolvedHistory();
   history.byWeek[1] = { ...history.byWeek[1]!, played: true };
   history.byOwner.Bob = history.byOwner.Bob!.map((point) =>
@@ -2288,11 +2285,15 @@ test('POLISH-013: one resolved week still explains the gap — a single point ca
 
   const gbRace = gbRaceMarkup(renderOverviewWithHistory(history));
 
-  assert.match(gbRace, TREND_EMPTY_MESSAGE_RE);
+  assert.ok(!gbRace.includes(TREND_EMPTY_MESSAGE), 'one resolved week is drawable now');
+  assert.ok(gbRace.includes('<svg'), 'the chart must render');
   assert.ok(
-    !gbRace.includes('<svg'),
-    'MiniTrendsGrid draws lines only, so one point yields a moveto-only path'
+    /<path d="M[^"]*L/.test(gbRace),
+    'a real line, not the moveto-only path that rendered nothing'
   );
+  // The origin is not a week and carries no label; only week one is named.
+  assert.ok(gbRace.includes('>W1<'), 'the resolved week is labelled');
+  assert.ok(!/>W0</.test(gbRace), 'the origin must not be labelled as a week');
 });
 
 test('POLISH-013: two resolved weeks draw a line', () => {

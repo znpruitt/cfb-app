@@ -88,3 +88,23 @@ test('season arc draws the chart once a week resolves', () => {
   assert.ok(container.querySelector('svg'), 'the resolved case must draw');
   cleanup();
 });
+
+test('POLISH-014: one resolved week draws here too, from the origin', () => {
+  assert.ok(dom);
+  // The MEDIUM this closes: after POLISH-013 this guard was still mere presence,
+  // so exactly one resolved week rendered the axes over moveto-only paths — an
+  // empty box, which is the very thing the fallback sentence exists to prevent.
+  // The guard now asks the shared drawability authority, and the origin supplies
+  // the second endpoint.
+  const { container } = render(<SeasonArcChart standingsHistory={archive([1])} year={2024} />);
+
+  const text = container.textContent ?? '';
+  assert.ok(!text.includes(TREND_EMPTY_MESSAGE), 'one resolved week is drawable now');
+  const paths = [...container.querySelectorAll('path')].map((p) => p.getAttribute('d') ?? '');
+  assert.ok(paths.length > 0, 'the chart must draw');
+  assert.ok(
+    paths.some((d) => /M[^ ]* L/.test(d) || /M[\d.,]+ L/.test(d) || d.includes('L')),
+    `expected a real line, got ${JSON.stringify(paths)}`
+  );
+  cleanup();
+});

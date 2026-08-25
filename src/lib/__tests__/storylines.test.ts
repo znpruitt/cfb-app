@@ -4,6 +4,7 @@ import test from 'node:test';
 import { selectLeagueStorylines } from '../selectors/storylines';
 import type { StandingsHistory } from '../standingsHistory';
 import type { GamesBackSeries, WinBarsRow, WinPctSeries } from '../selectors/trends';
+import { SEASON_ORIGIN_GAMES_BACK, SEASON_ORIGIN_WIN_PCT } from '../selectors/trends';
 
 function buildHistory(
   weeks: Array<{ week: number; rows: Array<{ owner: string; wins: number }> }>
@@ -53,12 +54,25 @@ function buildHistory(
   };
 }
 
+// POLISH-014: storylines read only the LAST point (`latestValue`), so the origin
+// cannot change any storyline. It is set here to what the selectors produce for a
+// series that has plotted weeks, so these fixtures stay representative.
 function gb(ownerName: string, value: number): GamesBackSeries {
-  return { ownerId: ownerName, ownerName, points: [{ week: 1, value }] };
+  return {
+    ownerId: ownerName,
+    ownerName,
+    points: [{ week: 1, value }],
+    origin: SEASON_ORIGIN_GAMES_BACK,
+  };
 }
 
 function wp(ownerName: string, value: number): WinPctSeries {
-  return { ownerId: ownerName, ownerName, points: [{ week: 1, value }] };
+  return {
+    ownerId: ownerName,
+    ownerName,
+    points: [{ week: 1, value }],
+    origin: SEASON_ORIGIN_WIN_PCT,
+  };
 }
 
 function bar(ownerName: string, wins: number, winPct: number): WinBarsRow {

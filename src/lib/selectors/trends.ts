@@ -13,6 +13,19 @@ export type GamesBackSeries = {
   ownerId: string;
   ownerName: string;
   points: GamesBackSeriesPoint[];
+  /**
+   * The value every owner held before the season started, or null when the
+   * series has no plotted weeks. See {@link SEASON_ORIGIN_GAMES_BACK}.
+   *
+   * Deliberately NOT a point: a point needs a `week`, and there is no week
+   * number that is right for both charts. `TrendsDetailSurface` reads `week` as
+   * a coordinate on a linear scale, so a fixed sentinel misplaces the origin
+   * whenever the first plotted week is not 1; `MiniTrendsGrid` reads it as a key
+   * into an index map, where an unknown week silently collapses onto the first
+   * column. Each chart places the origin in its OWN coordinate system instead,
+   * and no fake week is minted anywhere.
+   */
+  origin: number | null;
 };
 
 export type WinPctSeriesPoint = {
@@ -24,6 +37,8 @@ export type WinPctSeries = {
   ownerId: string;
   ownerName: string;
   points: WinPctSeriesPoint[];
+  /** As {@link GamesBackSeries.origin}. See {@link SEASON_ORIGIN_WIN_PCT}. */
+  origin: number | null;
 };
 
 export type WinBarsRow = {
@@ -35,6 +50,41 @@ export type WinBarsRow = {
   winPct: number;
   gamesBack: number;
 };
+
+/**
+ * POLISH-014 — where every owner starts.
+ *
+ * Before any game is played every owner is 0-0, level with everyone else. Games
+ * back is therefore 0, and win% is 0 because `deriveStandings` already defines a
+ * 0-0 record that way (`standings.ts`: `winPct: decisions > 0 ? wins / decisions : 0`).
+ * The origin states what the app already claims about an unplayed record; it
+ * does not invent data.
+ *
+ * It exists so that ONE resolved week is an ordinary two-point segment rather
+ * than a special case. A single point builds a moveto-only path that SVG will not
+ * draw, and three attempts to special-case that — markers, a clamp, a paint
+ * order — each produced the next defect (`docs/next-tasks.md` item 74).
+ */
+export const SEASON_ORIGIN_GAMES_BACK = 0;
+export const SEASON_ORIGIN_WIN_PCT = 0;
+
+/**
+ * Can this series actually be drawn as a line?
+ *
+ * ONE authority, because three surfaces ask: the Overview GB Race guard,
+ * `SeasonArcChart`, and `MiniTrendsGrid` itself. POLISH-013 shipped the answer in
+ * two of the three and the third kept rendering an empty box with axes — the
+ * defect class this project has hit repeatedly by fixing a call site by name
+ * instead of by class.
+ *
+ * A line needs two endpoints. The origin counts as one of them.
+ */
+export function isDrawableTrendSeries(series: {
+  points: unknown[];
+  origin: number | null;
+}): boolean {
+  return series.points.length + (series.origin === null ? 0 : 1) >= 2;
+}
 
 function deriveOwnerOrderFromLatestStandings(
   standingsHistory: StandingsHistory,
@@ -86,6 +136,10 @@ export function selectGamesBackTrend(args: {
           ownerId: owner,
           ownerName: owner,
           points,
+          // Only when something is plotted. A series with no resolved weeks stays
+          // empty and is filtered below, so the origin can never resurrect a chart
+          // for a season that has not started.
+          origin: points.length > 0 ? SEASON_ORIGIN_GAMES_BACK : null,
         };
       })
       // POLISH-012: MATCHES `selectWinPctTrend`. Without this, no resolved weeks
@@ -126,6 +180,10 @@ export function selectWinPctTrend(args: { standingsHistory: StandingsHistory }):
         ownerId: owner,
         ownerName: owner,
         points,
+        // Matches `selectGamesBackTrend`. The two point-based selectors gain the
+        // origin TOGETHER: POLISH-012's hook crash came from exactly this pair
+        // disagreeing about the empty case while sharing a fiber.
+        origin: points.length > 0 ? SEASON_ORIGIN_WIN_PCT : null,
       };
     })
     .filter((series) => series.points.length > 0);
