@@ -1,5 +1,5 @@
 import { hasGameBeenAbandoned, type StandingsHistory } from '../standingsHistory';
-import { selectPlayedWeeks } from './historyResolution';
+import { isPlayedWeek, selectPlayedWeeks } from './historyResolution';
 
 export type SeasonContext = 'in-season' | 'postseason' | 'final';
 
@@ -41,7 +41,37 @@ export function selectSeasonContext(args: {
   const unresolved = standingsHistory.weeks.flatMap(
     (week) => standingsHistory.byWeek[week]?.pending ?? []
   );
-  if (unresolved.every((game) => hasGameBeenAbandoned(game, evaluatedAt))) return 'final';
+
+  // PLATFORM-109 remediation — `unresolved.every(...)` is VACUOUSLY TRUE for an
+  // empty list, so "nothing pending" used to answer `final` on its own. That is
+  // right when the emptiness is a FACT (every week said `pending: []`) and wrong
+  // when it merely means nobody told us: PLATFORM-109 began stripping `pending`
+  // before the snapshot crosses to the client, and two independent reviews
+  // caught the stripped copy reaching `selectOverviewViewModel` and reclassifying
+  // a live season as over. `docs/next-tasks.md` item 64 recorded this as latent.
+  // It stopped being latent.
+  //
+  // So the question is per week: can this week's games answer at all?
+  //  - `pending` PRESENT (even empty) — yes. An empty list is the positive fact
+  //    that nothing is being waited on, which is what lets an all-bracket
+  //    playoff week stop blocking a finished season (owner ruling, 2026-08-20).
+  //  - `pending` ABSENT but the week was PLAYED — yes, and this is the durable
+  //    archive: `buildSeasonArchive` strips the field, and an archive is a
+  //    completed season by construction.
+  //  - `pending` ABSENT and NOT played — no. Nothing here says the season ended;
+  //    it falls through to the phase test below.
+  //
+  // A first attempt required every week to be played, which is simpler and
+  // wrong: it reinstates the exact all-shell-playoff-week defect PLATFORM-105
+  // removed. The existing test for that ruling is what caught it.
+  const gamesCanAnswer = standingsHistory.weeks.every((week) => {
+    const snapshot = standingsHistory.byWeek[week];
+    if (!snapshot) return false;
+    return snapshot.pending !== undefined || isPlayedWeek(standingsHistory, week);
+  });
+  if (gamesCanAnswer && unresolved.every((game) => hasGameBeenAbandoned(game, evaluatedAt))) {
+    return 'final';
+  }
 
   const playedWeeks = selectPlayedWeeks(standingsHistory);
   if (playedWeeks.length === 0) return 'in-season';

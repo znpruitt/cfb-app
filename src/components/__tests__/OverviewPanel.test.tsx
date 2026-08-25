@@ -7,7 +7,7 @@ import OverviewPanel from '../OverviewPanel';
 import type { OverviewContext, OverviewGameItem, OwnerMatchupMatrix } from '../../lib/overview';
 import { deriveLeagueInsights, deriveOverviewInsights } from '../../lib/selectors/insights';
 import { TREND_EMPTY_MESSAGE } from '../../lib/trendEmptyState';
-import { selectSeasonContext } from '../../lib/selectors/seasonContext';
+import { selectSeasonContext, type SeasonContext } from '../../lib/selectors/seasonContext';
 import type { LiveDelta } from '../../lib/selectors/liveDelta';
 import { deriveStandingsCoverage } from '../../lib/standings';
 import type { OwnerStandingsRow, StandingsCoverage } from '../../lib/standings';
@@ -1289,6 +1289,10 @@ test('overview panel renders top 3 shared insights in selector order without dup
     <OverviewPanel
       standingsLeaders={standingsHistory.byWeek[3]?.standings ?? []}
       standingsHistory={standingsHistory}
+      // PLATFORM-109: the panel no longer derives this from the history it is
+      // given; the season context arrives as a prop, so the caller supplies the
+      // same value this test already computes for its expectation.
+      seasonContext={selectSeasonContext({ standingsHistory })}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
       liveItems={[]}
@@ -1871,6 +1875,10 @@ test('overview panel renders League Storylines section when selector emits story
         },
       ]}
       standingsHistory={standingsHistory}
+      // PLATFORM-109: the panel no longer derives this from the history it is
+      // given; the season context arrives as a prop, so the caller supplies the
+      // same value this test already computes for its expectation.
+      seasonContext={selectSeasonContext({ standingsHistory })}
       standingsCoverage={coverage}
       matchupMatrix={matchupMatrix}
       liveItems={[]}
@@ -2332,4 +2340,121 @@ test('POLISH-013: the section stays hidden for a league with no owners', () => {
   );
 
   assert.doesNotMatch(html, /GB Race/);
+});
+
+// ---------------------------------------------------------------------------
+// PLATFORM-109 round 3 — the season context prop CHANGES WHAT RENDERS.
+//
+// I previously left this wire unpinned and wrote a comment justifying it with a
+// measurement: that rendering with `in-season` and with `final` produced
+// byte-identical markup. That measurement was taken with one fixture that
+// happened to emit no context-sensitive insights, and I stated it as a general
+// fact. Review disproved it by mutating the prop out of two existing tests in
+// this file and watching them fail.
+//
+// `OverviewPanel` forwards the prop to TWO places, and they are not equivalent:
+//
+//   1. `sharedInsights` -> `deriveLeagueInsights`, where the champion-margin
+//      storyline is gated on `final`. RENDER-OBSERVABLE, and this pins it.
+//   2. `viewModel` -> `selectOverviewViewModel`, which puts it on
+//      `viewModel.storylines` — a field no surface renders today. Measured, not
+//      assumed: deleting that second forwarding fails NO test, including this
+//      one. It is genuinely unpinnable at the render level until something
+//      renders storylines, and a source scan asserting the call shape would be
+//      the speculative proof machinery AGENTS.md forbids. The selector-level
+//      override test in `selectors-overview.test.ts` is its guarantee.
+// ---------------------------------------------------------------------------
+
+function renderCompletedSeasonOverview(seasonContext: SeasonContext): string {
+  const standingsHistory = standingsHistoryFromSnapshots([
+    {
+      week: 1,
+      standings: [
+        {
+          owner: 'Alice',
+          wins: 4,
+          losses: 1,
+          winPct: 0.8,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 10,
+          gamesBack: 0,
+          finalGames: 5,
+        },
+        {
+          owner: 'Bob',
+          wins: 2,
+          losses: 3,
+          winPct: 0.4,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: -5,
+          gamesBack: 2,
+          finalGames: 5,
+        },
+      ],
+    },
+    {
+      week: 2,
+      standings: [
+        {
+          owner: 'Alice',
+          wins: 5,
+          losses: 1,
+          winPct: 0.833,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: 12,
+          gamesBack: 0,
+          finalGames: 6,
+        },
+        {
+          owner: 'Bob',
+          wins: 2,
+          losses: 4,
+          winPct: 0.333,
+          pointsFor: 0,
+          pointsAgainst: 0,
+          pointDifferential: -6,
+          gamesBack: 3,
+          finalGames: 6,
+        },
+      ],
+    },
+  ]);
+
+  return renderToStaticMarkup(
+    <OverviewPanel
+      standingsLeaders={standingsHistory.byWeek[2]!.standings.map((row) => ({
+        owner: row.owner,
+        wins: row.wins,
+        losses: row.losses,
+        winPct: row.winPct,
+        pointsFor: row.pointsFor,
+        pointsAgainst: row.pointsAgainst,
+        pointDifferential: row.pointDifferential,
+        gamesBack: row.gamesBack,
+        finalGames: row.finalGames,
+      }))}
+      standingsHistory={standingsHistory}
+      standingsCoverage={coverage}
+      matchupMatrix={matchupMatrix}
+      liveItems={[]}
+      keyMatchups={[]}
+      context={defaultContext}
+      displayTimeZone="UTC"
+      seasonContext={seasonContext}
+    />
+  );
+}
+
+test('PLATFORM-109: the seasonContext prop is observable in the rendered panel', () => {
+  const asFinal = renderCompletedSeasonOverview('final');
+  const asInSeason = renderCompletedSeasonOverview('in-season');
+
+  // The discriminating claim: a completed-season storyline appears only when the
+  // context says the season is over.
+  assert.match(asFinal, /Champion margin/, 'a final season must describe its champion');
+  assert.doesNotMatch(asInSeason, /Champion margin/, 'a live season must not describe a champion');
+  assert.notEqual(asFinal, asInSeason, 'the prop must change the markup');
 });

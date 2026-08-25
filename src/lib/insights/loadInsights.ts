@@ -330,7 +330,9 @@ export async function buildLeagueInsightContext(
         .map((w) => standingsHistory.byWeek[w])
         .filter((s): s is NonNullable<typeof s> => Boolean(s))
     : [];
-  const seasonContext = selectSeasonContext({ standingsHistory });
+  // PLATFORM-109 (item 64d): the pinned `currentDate` this context is built for,
+  // not a fresh wall-clock read inside the cached compute path.
+  const seasonContext = selectSeasonContext({ standingsHistory, now: currentDate });
 
   return buildInsightContext(
     slug,

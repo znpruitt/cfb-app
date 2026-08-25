@@ -23,7 +23,7 @@ import {
   type WinPctSeries,
 } from './trends';
 import { selectLeagueStorylines, type LeagueStoryline } from './storylines';
-import { selectSeasonContext } from './seasonContext';
+import { selectSeasonContext, type SeasonContext } from './seasonContext';
 
 // Canonical → Derived invariant: overview selectors consume canonical snapshot inputs
 // and return pure, presentation-agnostic derived data.
@@ -939,6 +939,30 @@ export function selectOverviewViewModel(params: {
     }[];
   };
   rankingsByTeamId: Map<string, TeamRankingEnrichment>;
+  /**
+   * PLATFORM-109 remediation — the season context, when the caller already holds
+   * one. The league routes derive it server-side from the UNSTRIPPED canonical
+   * snapshot and pass it down, so this selector no longer re-derives a value that
+   * already exists one layer up.
+   *
+   * Optional, and re-derived when absent — but the fallback is UNREACHED, and
+   * WRONG IF REACHED. `selectSeasonContext` refuses to call a pending-less
+   * history final unless every week was played, which is right for a season
+   * still running and wrong for one that ended on an abandoned game: that week
+   * is `played: false` precisely because something was pending, so once `pending`
+   * is stripped the re-derivation answers `in-season` where the truth is `final`.
+   * Measured on this branch — server `final`, prop `final`, stripped
+   * re-derivation `in-season`.
+   *
+   * Nothing reaches it today: all five league routes pass the prop. An earlier
+   * version of this note claimed the fallback was correct, which review
+   * disproved. Making the parameter REQUIRED would delete the trap instead of
+   * documenting it, at the cost of touching every test call site; recorded as a
+   * follow-up rather than done here.
+   *
+   * Pass it. One derivation, one answer.
+   */
+  seasonContext?: SeasonContext;
   standingsLimit?: number;
   featuredLimit?: number;
   resultsLimit?: number;
@@ -952,6 +976,7 @@ export function selectOverviewViewModel(params: {
     keyMatchups,
     matchupMatrix,
     rankingsByTeamId,
+    seasonContext: seasonContextOverride,
     standingsLimit = OVERVIEW_STANDINGS_LIMIT,
     featuredLimit = OVERVIEW_FEATURED_MATCHUPS_LIMIT,
     resultsLimit = OVERVIEW_RESULTS_LIMIT,
@@ -996,7 +1021,7 @@ export function selectOverviewViewModel(params: {
   const gamesBackTrend = standingsHistory ? selectGamesBackTrend({ standingsHistory }) : [];
   const winPctTrend = standingsHistory ? selectWinPctTrend({ standingsHistory }) : [];
   const winBars = standingsHistory ? selectWinBars({ standingsHistory }) : [];
-  const seasonContext = selectSeasonContext({ standingsHistory });
+  const seasonContext = seasonContextOverride ?? selectSeasonContext({ standingsHistory });
   const storylines = selectLeagueStorylines({
     standingsHistory,
     gamesBackTrend,

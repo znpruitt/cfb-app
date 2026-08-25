@@ -26,7 +26,7 @@ import {
   selectOverviewViewModel,
   type PrioritizedOverviewItem,
 } from '../lib/selectors/overview';
-import { selectSeasonContext } from '../lib/selectors/seasonContext';
+import type { SeasonContext } from '../lib/selectors/seasonContext';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import { selectFreshOwnerPendingDelta } from '../lib/selectors/liveDelta';
 import type { LiveDelta } from '../lib/selectors/liveDelta';
@@ -1376,6 +1376,17 @@ type OverviewPanelProps = {
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>;
   rankings?: RankingsResponse | null;
   standingsHistory?: StandingsHistory | null;
+  /**
+   * PLATFORM-109 — server-derived, see the matching note on `CFBScheduleApp`.
+   *
+   * Defaults to `in-season`, which is what this component used to compute for an
+   * absent or empty history. It is NOT a general reproduction of the old
+   * behavior: an isolated render that supplies a history and omits this prop now
+   * gets `in-season` where it would once have derived something else. An earlier
+   * version of this comment claimed otherwise and review caught it. Every
+   * production render passes the prop — `CFBScheduleApp` always supplies it.
+   */
+  seasonContext?: SeasonContext;
   leagueSlug?: string;
   engineInsights?: Insight[];
   lifecycleState?: LifecycleState;
@@ -1402,6 +1413,7 @@ export default function OverviewPanel({
   rankingsByTeamId = new Map(),
   rankings = null,
   standingsHistory = null,
+  seasonContext = 'in-season',
   leagueSlug,
   engineInsights = [],
   lifecycleState,
@@ -1499,6 +1511,12 @@ export default function OverviewPanel({
         keyMatchups,
         matchupMatrix,
         rankingsByTeamId,
+        // PLATFORM-109 remediation: the history this component holds has had
+        // `pending` stripped, so the view model must NOT re-derive the season
+        // context from it. Both independent reviews found this call reclassifying
+        // a live season as `final`. The server already derived the answer from
+        // the unstripped snapshot; pass it rather than asking again.
+        seasonContext,
       }),
     [
       rowsForRender,
@@ -1509,11 +1527,10 @@ export default function OverviewPanel({
       keyMatchups,
       matchupMatrix,
       rankingsByTeamId,
+      seasonContext,
     ]
   );
   const sharedInsights = React.useMemo(() => {
-    const seasonContext = selectSeasonContext({ standingsHistory: historyForRender });
-
     // Insight narratives compare against historyForRender's resolved weeks. If
     // we feed deriveLeagueInsights raw rowsForRender during a partial week, the
     // current snapshot reflects unresolved game state while the history deltas
@@ -1551,7 +1568,7 @@ export default function OverviewPanel({
       merged.push(insight);
     }
     return merged.slice(0, OVERVIEW_INSIGHT_SLOTS);
-  }, [historyForRender, rowsForRender, engineInsights]);
+  }, [historyForRender, rowsForRender, engineInsights, seasonContext]);
 
   const positionDeltaData = React.useMemo(() => {
     if (!historyForRender) return null;
