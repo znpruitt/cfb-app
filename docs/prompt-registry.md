@@ -87,7 +87,10 @@ Rules:
   version of this bullet cited "the axis trim in both wrong directions" as mutation-proven, which
   became false when the cut removed the implementation and its tests. Two successive versions of
   this same bullet overstated coverage and review caught both.
-- Status: Implemented — PR #510 open.
+- Status: **Merged** (PR #510, `cf159341`, 2026-08-25). **NOT promoted** — `turfwar.games` still
+  serves `cfb-d3n6iu700` (built 2026-08-23); the merge produced `cfb-67cxjp0tx`, Ready and awaiting
+  promotion, which will carry BOTH this slice and PLATFORM-109 to production together. Gates on the
+  merged `main` (`cf159341`): full suite 4242/4242 exit 0, `tsc` exit 0, `lint:all` exit 0.
 
 **FOUR FINDINGS, ONE ROOT: THE SECTION STATED A CAUSE IT HAD NOT ESTABLISHED.** One resolved week
 drew nothing; `preseason-names` stayed hidden and popped in later; a league with no owners was told
