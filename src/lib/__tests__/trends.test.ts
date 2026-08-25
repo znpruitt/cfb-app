@@ -601,3 +601,48 @@ test('POLISH-014: the origin does not apply to a recent-week window', () => {
   assert.equal(seasonOriginApplies(history, 3), false, 'weeks 1-2 were played');
   assert.equal(seasonOriginApplies(history, undefined), false, 'nothing drawn, nothing to anchor');
 });
+
+test('POLISH-014: a postponed game does not hide the week that was played', () => {
+  // Review's second-round MEDIUM, and the OPPOSITE polarity of the first.
+  // `played` is `realGames.length > 0 && pending.length === 0`, and `pending`
+  // retains postponed games — so one postponed week-1 game leaves that week
+  // `played: false` PERMANENTLY while its other games have already moved the
+  // cumulative standings. Asking `selectPlayedWeeks` therefore saw no football
+  // before week 2 and drew everyone level.
+  const history = originHistory([1, 2]);
+  history.byWeek[1] = {
+    ...history.byWeek[1]!,
+    played: false,
+    pending: [{ key: 'postponed', week: 1, kickoff: null }],
+  };
+
+  // Week 1 is not drawn (unresolved), but its results exist.
+  assert.ok(
+    history.byWeek[1]!.standings.some((row) => row.finalGames > 0),
+    'the fixture must carry week-1 results, or it proves nothing'
+  );
+  assert.equal(
+    seasonOriginApplies(history, 2),
+    false,
+    'games concluded in week 1, so nobody was level immediately before W2'
+  );
+});
+
+test('POLISH-014: a genuinely unplayed leading week does not block the origin', () => {
+  // The control for the test above: a week with no results is not evidence of
+  // football, so the origin remains honest.
+  const history = originHistory([1, 2]);
+  history.byWeek[1] = {
+    ...history.byWeek[1]!,
+    played: false,
+    standings: history.byWeek[1]!.standings.map((row) => ({
+      ...row,
+      wins: 0,
+      losses: 0,
+      finalGames: 0,
+      gamesBack: 0,
+    })),
+  };
+
+  assert.equal(seasonOriginApplies(history, 2), true);
+});

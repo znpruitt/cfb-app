@@ -1461,8 +1461,16 @@ export default function OverviewPanel({
   // Asking the right selector was necessary and not sufficient. The parent asked
   // it of the FULL history, where the origin is always present, while the chart
   // re-asked it of a recent WINDOW with the origin withheld — so the two could
-  // still disagree, which review found. There is now one series, derived once
-  // and handed to the child, and the guard asks about that.
+  // still disagree, which review found.
+  //
+  // They now agree because they are given the SAME INPUTS — the same sliced
+  // history and the same origin decision — not because they share a value: the
+  // child re-derives, and additionally caps at its own `CONTENDERS` limit, which
+  // the parent does not apply. An earlier version of this comment claimed one
+  // series "derived once and handed to the child", which is not the mechanism.
+  // No divergence is reachable today (`deriveStandings` emits a row per roster
+  // owner every week, so drawability is uniform across series), but the guarantee
+  // is input equality, and that is what a future change has to preserve.
   // A series must be DRAWABLE, not merely present. `MiniTrendsGrid` builds a path
   // by joining points with `L`, so a one-point series emits a moveto-only path
   // ("M235.0,0.0") and SVG renders nothing for it — the guard would say "draw"
@@ -1479,8 +1487,10 @@ export default function OverviewPanel({
   // once a season passes five the window no longer begins at the season's start
   // and the origin would sit one interval before (say) W11 — compressing the
   // whole omitted season into that interval and showing a divergence from level
-  // that never happened. Review caught it. The origin is drawn only when nothing
-  // was cut before the first plotted week.
+  // that never happened. Review caught it. The origin is drawn only when NO GAME
+  // HAS CONCLUDED before the first plotted week — `seasonOriginApplies` reads
+  // `finalGames` from the standings rather than trusting a week flag, because two
+  // rounds of review showed both polarities of `played` get this wrong.
   const gbRaceChartHistory = React.useMemo(
     () => (historyForRender ? sliceStandingsHistoryToRecentWeeks(historyForRender, 5) : null),
     [historyForRender]

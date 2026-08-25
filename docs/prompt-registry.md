@@ -62,21 +62,21 @@ Rules:
   `M7.0,0.0 L462.9,145.5` where the pre-fix render produced moveto-only paths. The origin is NOT a
   point and mints no week number; the grid gives it a leading column, unlabelled (owner decision).
 
-  **It is drawn only when nothing was PLAYED before the first drawn week** (`seasonOriginApplies`).
-  Overview charts the last five RESOLVED weeks, so from week six the window starts mid-season; and a
-  week can be played with incomplete coverage, which makes it unresolved and invisible to the trend
-  selectors while still being football that happened. Both were found by review — see below.
+  **It is drawn only when NO GAME HAS CONCLUDED before the first drawn week** (`seasonOriginApplies`,
+  which reads `finalGames` from the standings). Two review rounds went to establishing that no week
+  flag answers that question — see below.
 
   Win% deliberately has NO origin: 0.000 is the floor of that axis, not "level", so every line would
   start at the bottom and drag the converged y-domain to zero. This item's stated constraint that all
   three selectors move together was wrong on two counts and is corrected in `docs/next-tasks.md`.
-- Review / verification: implementation `c1b5fad7`, one remediation round. Gates re-measured after
-  remediation: full suite 4251/4251 exit 0, `tsc` exit 0, `lint:all` exit 0. Mutation-proven:
-  removing the origin fails four tests across the selector and both chart surfaces; reverting
-  drawability to mere presence fails its own; comparing against the first RESOLVED rather than first
-  PLAYED week fails the played-but-unresolved test; and restoring the parent/child guard divergence
-  fails the agreement test.
-- Status: Implemented — PR not yet open. One review round complete; no confirming pass yet.
+- Review / verification: implementation `c1b5fad7`; two remediation rounds, the second owner-approved
+  for a defect the first introduced. Gates re-measured after the second: full suite 4253/4253 exit 0,
+  `tsc` exit 0, `lint:all` exit 0. Every fix mutation-proven against the claim it makes: removing the
+  origin fails four tests across the selector and both chart surfaces; reverting drawability to mere
+  presence fails its own; the first-RESOLVED-week comparison fails the played-but-unresolved test;
+  restoring the parent/child guard divergence fails the agreement test; and reverting the predicate
+  to the `played` flag fails the postponed-game test.
+- Status: Implemented — PR not yet open. Two review rounds complete; no confirming pass on the second.
 
 **THE REPRESENTATION WAS DECIDED BY A SEAM AUDIT, NOT A PREFERENCE.** The two charts read `week`
 differently — a coordinate on a linear scale in `TrendsDetailSurface`, a key into an index map in
@@ -92,6 +92,13 @@ either: 0.000 is the floor of a 0-1 axis, not "level", so it would start every l
 flatten the chart. The POLISH-012 divergence was about the EMPTY case — whether the two selectors
 agree that there is nothing to draw — and the origin does not change series counts, so the asymmetry
 cannot reproduce it.
+
+**NO WEEK FLAG ANSWERS "HAS ANY FOOTBALL BEEN PLAYED".** Two rounds, two polarities of the same
+mistake. `played: true` with incomplete coverage is unresolved and invisible to the trend selectors;
+`played: false` from ONE postponed game hides a week whose other results already moved the standings,
+permanently. The snapshot carried the evidence the whole time — `finalGames` — and both attempts
+reached for a proxy instead. **When a predicate keeps being wrong in opposite directions, the input
+is wrong, not the threshold.**
 
 **"THE ARCHIVE IS THE WHOLE SEASON" WAS NOT ENOUGH.** Review found both surfaces asserting the origin
 on evidence that did not support it: Overview compared against the first RESOLVED week, and the

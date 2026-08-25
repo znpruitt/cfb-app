@@ -2290,12 +2290,26 @@ Supersedes: (none)
     was about the EMPTY case, and the origin does not change series counts, so the asymmetry cannot
     reproduce it.
 
-    **The origin is drawn only when nothing was PLAYED before the first drawn week.** Review found
-    two ways this slice asserted it without evidence: Overview compared against the first RESOLVED
-    week, and the season arc passed a literal `true`. Since PLATFORM-105 a week can be played with
-    incomplete coverage — unresolved, invisible to the trend selectors, still football that happened
-    — so both would have drawn everyone level immediately before a week that had games behind it.
-    Overview also charts the last five resolved weeks, so from week six its window starts mid-season.
+    **The origin is drawn only when NO GAME HAS CONCLUDED before the first drawn week**, and getting
+    that predicate right took two review rounds because NO WEEK FLAG ANSWERS IT:
+
+    - Comparing against the first RESOLVED week is wrong — since PLATFORM-105 a week can be
+      `played: true` with incomplete coverage, which makes it unresolved and invisible to the trend
+      selectors while still being football that happened.
+    - Asking `selectPlayedWeeks` is the OPPOSITE polarity of the same error. `played` is
+      `realGames.length > 0 && pending.length === 0`, and `pending` retains postponed games, so ONE
+      postponed week-1 game leaves that week `played: false` permanently while its other games have
+      already moved the cumulative standings.
+
+    `seasonOriginApplies` now reads `finalGames` from the standings — the evidence both flags were
+    standing in for. Overview additionally charts the last five resolved weeks, so from week six its
+    window starts mid-season and the omitted games count.
+
+    **Recorded, not changed:** at exactly one resolved week the section now renders `GbChangeTable`
+    beside the chart with a single week column of `·` placeholders, because there is no previous week
+    to difference against. The table still shows current games-back for every owner — the information
+    that was lost when the whole section was hidden — so a placeholder column is the honest form of
+    that state rather than a defect.
 
     **The representation was forced by the two charts disagreeing about what `week` means.**
     `TrendsDetailSurface` reads it as a coordinate on a linear scale, so any fixed sentinel misplaces

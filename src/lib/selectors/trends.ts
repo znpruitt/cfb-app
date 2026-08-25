@@ -2,7 +2,7 @@ import type { StandingsHistory } from '../standingsHistory';
 import type { AppGame } from '../schedule';
 import type { ScorePack } from '../scores';
 import { classifyScorePackStatus } from '../gameStatus';
-import { selectPlayedWeeks, selectResolvedStandingsWeeks } from './historyResolution';
+import { selectResolvedStandingsWeeks } from './historyResolution';
 
 export type GamesBackSeriesPoint = {
   week: number;
@@ -83,27 +83,41 @@ export const SEASON_ORIGIN_GAMES_BACK = 0;
  */
 
 /**
- * Is "nobody has played yet" true immediately before `firstDrawnWeek`?
+ * Is "no game has concluded yet" true immediately before `firstDrawnWeek`?
  *
- * The origin asserts every owner level at 0-0. That is only honest when no game
- * has been PLAYED before the first week the chart draws.
+ * The origin asserts every owner level at 0-0, so it is honest only when no
+ * result exists before the first week the chart draws. This asks the STANDINGS
+ * for that — `finalGames` counts concluded games — rather than inferring it from
+ * a week flag. Two rounds of review went to learning that no flag answers it:
  *
- * The obvious test — comparing against the first RESOLVED week — is wrong, and
- * review caught it: since PLATFORM-105 a week can be `played: true` with
- * incomplete coverage, which makes it unresolved and therefore invisible to the
- * trend selectors. Weeks 1-2 played but partial and week 3 resolved would have
- * drawn everyone level immediately before W3, after two weeks of football.
+ *  - The first version compared against the first RESOLVED week. Since
+ *    PLATFORM-105 a week can be `played: true` with incomplete coverage, which
+ *    makes it unresolved and invisible to the trend selectors — so weeks 1-2
+ *    played but partial, with week 3 resolved, drew everyone level before W3
+ *    after two weeks of football.
+ *  - The second version asked `selectPlayedWeeks`, which is the OPPOSITE
+ *    polarity of the same mistake. `played` is
+ *    `realGames.length > 0 && pending.length === 0`, and `pending` deliberately
+ *    retains postponed games, so ONE postponed week-1 game leaves that week
+ *    `played: false` permanently while its other games have already moved the
+ *    cumulative standings. Review probed it: first drawn week 2,
+ *    `seasonOriginApplies` true, week 1 carrying real results.
  *
- * Also false for a recent-window slice: Overview charts the last five resolved
- * weeks, so from week six onward the window starts mid-season and the omitted
- * weeks were played.
+ * `finalGames` is the evidence both flags were standing in for.
+ *
+ * Also false for a recent-window slice — Overview charts the last five resolved
+ * weeks, so from week six the window starts mid-season and earlier games count.
  */
 export function seasonOriginApplies(
   fullHistory: StandingsHistory,
   firstDrawnWeek: number | undefined
 ): boolean {
   if (firstDrawnWeek === undefined) return false;
-  return !selectPlayedWeeks(fullHistory).some((week) => week < firstDrawnWeek);
+  return !fullHistory.weeks.some(
+    (week) =>
+      week < firstDrawnWeek &&
+      (fullHistory.byWeek[week]?.standings ?? []).some((row) => row.finalGames > 0)
+  );
 }
 
 /**
