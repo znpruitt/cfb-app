@@ -2279,13 +2279,23 @@ Supersedes: (none)
 74. ✅ **IMPLEMENTED — `POLISH-014-TREND-SEASON-ORIGIN-v1`, PR not yet open.** Queued 2026-08-23
     (owner idea, out of POLISH-013 after point markers failed three times).
 
-    **What shipped, and one correction to the plan below.** Both POINT-BASED selectors carry
+    **What shipped, and two corrections to the plan below.** `selectGamesBackTrend` carries
     `origin: number | null`; `isDrawableTrendSeries` is the single authority the Overview guard,
-    `SeasonArcChart` and `MiniTrendsGrid` all ask; the grid places the origin at column 0, unlabelled
-    (owner decision, 2026-08-25). **This item said "all three trend selectors" and that was wrong** —
-    `selectWinBars` returns per-owner totals with no points at all, so an origin is meaningless
-    there. The POLISH-012 divergence was between the two point-based selectors, and those are the two
-    that moved together.
+    `SeasonArcChart` and `MiniTrendsGrid` all ask; `seasonOriginApplies` decides when the origin is
+    honest; the grid gives it a leading column, unlabelled (owner decision, 2026-08-25).
+
+    **"All three trend selectors" was wrong twice.** `selectWinBars` has no points — it is a bar row.
+    And win% should NOT have an origin: 0.000 is the floor of a 0-1 axis, not "level", so it would
+    start every line at the bottom and drag the converged y-domain to zero. The POLISH-012 divergence
+    was about the EMPTY case, and the origin does not change series counts, so the asymmetry cannot
+    reproduce it.
+
+    **The origin is drawn only when nothing was PLAYED before the first drawn week.** Review found
+    two ways this slice asserted it without evidence: Overview compared against the first RESOLVED
+    week, and the season arc passed a literal `true`. Since PLATFORM-105 a week can be played with
+    incomplete coverage — unresolved, invisible to the trend selectors, still football that happened
+    — so both would have drawn everyone level immediately before a week that had games behind it.
+    Overview also charts the last five resolved weeks, so from week six its window starts mid-season.
 
     **The representation was forced by the two charts disagreeing about what `week` means.**
     `TrendsDetailSurface` reads it as a coordinate on a linear scale, so any fixed sentinel misplaces

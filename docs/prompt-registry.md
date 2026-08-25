@@ -56,16 +56,27 @@ Rules:
   item 74 and the two MEDIUM findings folded into it.
 - Scope: `selectors/trends.ts` (origin on both point-based series, shared drawability authority),
   `MiniTrendsGrid.tsx`, `OverviewPanel.tsx` and `history/SeasonArcChart.tsx` guards; tests.
-- Outcome: every owner starts 0-0 and level, so `SEASON_ORIGIN_GAMES_BACK`/`SEASON_ORIGIN_WIN_PCT`
-  state what `deriveStandings` already claims about an unplayed record rather than inventing data.
-  With a second endpoint, one resolved week draws a real segment — measured, `M7.0,0.0 L462.9,0.0`
-  and `M7.0,0.0 L462.9,145.5` where the pre-fix render produced moveto-only paths. The origin is NOT
-  a point and mints no week number; the grid places it at column 0, unlabelled (owner decision).
-  `isDrawableTrendSeries` is one authority for all three surfaces that ask.
-- Review / verification: gates at the implementation commit — full suite 4247/4247 exit 0, `tsc`
-  exit 0, `lint:all` exit 0. Mutation-proven: removing the origin fails four tests across the
-  selector and both chart surfaces; reverting drawability to mere presence fails its own test.
-- Status: Implemented — PR not yet open; no review has run yet.
+- Outcome: `SEASON_ORIGIN_GAMES_BACK` states what `deriveStandings` already claims about an unplayed
+  record — everyone level at 0 games back — rather than inventing data, and gives a one-week series
+  the second endpoint a line needs. Measured: one resolved week renders `M7.0,0.0 L462.9,0.0` and
+  `M7.0,0.0 L462.9,145.5` where the pre-fix render produced moveto-only paths. The origin is NOT a
+  point and mints no week number; the grid gives it a leading column, unlabelled (owner decision).
+
+  **It is drawn only when nothing was PLAYED before the first drawn week** (`seasonOriginApplies`).
+  Overview charts the last five RESOLVED weeks, so from week six the window starts mid-season; and a
+  week can be played with incomplete coverage, which makes it unresolved and invisible to the trend
+  selectors while still being football that happened. Both were found by review — see below.
+
+  Win% deliberately has NO origin: 0.000 is the floor of that axis, not "level", so every line would
+  start at the bottom and drag the converged y-domain to zero. This item's stated constraint that all
+  three selectors move together was wrong on two counts and is corrected in `docs/next-tasks.md`.
+- Review / verification: implementation `c1b5fad7`, one remediation round. Gates re-measured after
+  remediation: full suite 4251/4251 exit 0, `tsc` exit 0, `lint:all` exit 0. Mutation-proven:
+  removing the origin fails four tests across the selector and both chart surfaces; reverting
+  drawability to mere presence fails its own; comparing against the first RESOLVED rather than first
+  PLAYED week fails the played-but-unresolved test; and restoring the parent/child guard divergence
+  fails the agreement test.
+- Status: Implemented — PR not yet open. One review round complete; no confirming pass yet.
 
 **THE REPRESENTATION WAS DECIDED BY A SEAM AUDIT, NOT A PREFERENCE.** The two charts read `week`
 differently — a coordinate on a linear scale in `TrendsDetailSurface`, a key into an index map in
@@ -75,9 +86,19 @@ collide with a real unresolved week. **No fake week number is right for both**, 
 a separate field. Enumerating the readers' MEANINGS before writing is what turned a plausible design
 into a wrong one on paper instead of in review.
 
-**THE ITEM'S OWN CONSTRAINT WAS WRONG.** It said all three trend selectors must move together.
-`selectWinBars` has no points — it is a bar row, not a line — so an origin is meaningless there. The
-POLISH-012 divergence was between the two point-based selectors. Corrected in the item.
+**THE ITEM'S OWN CONSTRAINT WAS WRONG TWICE.** It said all three trend selectors must move together.
+`selectWinBars` has no points — it is a bar row, not a line. And win% should not have an origin
+either: 0.000 is the floor of a 0-1 axis, not "level", so it would start every line at the bottom and
+flatten the chart. The POLISH-012 divergence was about the EMPTY case — whether the two selectors
+agree that there is nothing to draw — and the origin does not change series counts, so the asymmetry
+cannot reproduce it.
+
+**"THE ARCHIVE IS THE WHOLE SEASON" WAS NOT ENOUGH.** Review found both surfaces asserting the origin
+on evidence that did not support it: Overview compared against the first RESOLVED week, and the
+season arc passed a literal `true`. Since PLATFORM-105 a week can be played with incomplete coverage
+— unresolved, invisible to the trend selectors, and still football that happened — so an archive
+whose opening weeks never resolved would draw everyone level immediately before the first week it
+plots. The predicate had to be about PLAYED weeks, and it had to be shared.
 
 **THIS DELETED A DEFECT CLASS RATHER THAN REPAIRING IT.** POLISH-013 tried point markers three times
 — invisible moveto-only path, then clipped markers, then coincident markers hiding each other and

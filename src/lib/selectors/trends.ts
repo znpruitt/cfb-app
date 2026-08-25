@@ -2,7 +2,7 @@ import type { StandingsHistory } from '../standingsHistory';
 import type { AppGame } from '../schedule';
 import type { ScorePack } from '../scores';
 import { classifyScorePackStatus } from '../gameStatus';
-import { selectResolvedStandingsWeeks } from './historyResolution';
+import { selectPlayedWeeks, selectResolvedStandingsWeeks } from './historyResolution';
 
 export type GamesBackSeriesPoint = {
   week: number;
@@ -37,8 +37,6 @@ export type WinPctSeries = {
   ownerId: string;
   ownerName: string;
   points: WinPctSeriesPoint[];
-  /** As {@link GamesBackSeries.origin}. See {@link SEASON_ORIGIN_WIN_PCT}. */
-  origin: number | null;
 };
 
 export type WinBarsRow = {
@@ -66,7 +64,47 @@ export type WinBarsRow = {
  * order — each produced the next defect (`docs/next-tasks.md` item 74).
  */
 export const SEASON_ORIGIN_GAMES_BACK = 0;
-export const SEASON_ORIGIN_WIN_PCT = 0;
+
+/**
+ * WIN% HAS NO ORIGIN, deliberately.
+ *
+ * A first version gave it one at 0.000 on the reasoning that `deriveStandings`
+ * already defines a 0-0 record that way. True of the DATA and wrong for the
+ * CHART: on a 0-1 win% axis, 0.000 is the worst possible value, not "level", so
+ * every line would begin at the floor and the converged y-domain would be
+ * dragged to 0, flattening the whole chart. Games back is different — 0 there
+ * genuinely means level with everyone.
+ *
+ * Nothing consumed it (`TrendsDetailSurface` ignores `origin` entirely), so it
+ * was removed rather than left as a trap. Adopting an origin for win% needs its
+ * own baseline decision; the series count is unaffected either way, so the
+ * POLISH-012 empty-case divergence this slice worried about cannot arise from
+ * the asymmetry.
+ */
+
+/**
+ * Is "nobody has played yet" true immediately before `firstDrawnWeek`?
+ *
+ * The origin asserts every owner level at 0-0. That is only honest when no game
+ * has been PLAYED before the first week the chart draws.
+ *
+ * The obvious test — comparing against the first RESOLVED week — is wrong, and
+ * review caught it: since PLATFORM-105 a week can be `played: true` with
+ * incomplete coverage, which makes it unresolved and therefore invisible to the
+ * trend selectors. Weeks 1-2 played but partial and week 3 resolved would have
+ * drawn everyone level immediately before W3, after two weeks of football.
+ *
+ * Also false for a recent-window slice: Overview charts the last five resolved
+ * weeks, so from week six onward the window starts mid-season and the omitted
+ * weeks were played.
+ */
+export function seasonOriginApplies(
+  fullHistory: StandingsHistory,
+  firstDrawnWeek: number | undefined
+): boolean {
+  if (firstDrawnWeek === undefined) return false;
+  return !selectPlayedWeeks(fullHistory).some((week) => week < firstDrawnWeek);
+}
 
 /**
  * Can this series actually be drawn as a line?
@@ -180,10 +218,6 @@ export function selectWinPctTrend(args: { standingsHistory: StandingsHistory }):
         ownerId: owner,
         ownerName: owner,
         points,
-        // Matches `selectGamesBackTrend`. The two point-based selectors gain the
-        // origin TOGETHER: POLISH-012's hook crash came from exactly this pair
-        // disagreeing about the empty case while sharing a fiber.
-        origin: points.length > 0 ? SEASON_ORIGIN_WIN_PCT : null,
       };
     })
     .filter((series) => series.points.length > 0);

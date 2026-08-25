@@ -2468,3 +2468,123 @@ test('PLATFORM-109: the seasonContext prop is observable in the rendered panel',
   assert.doesNotMatch(asInSeason, /Champion margin/, 'a live season must not describe a champion');
   assert.notEqual(asFinal, asInSeason, 'the prop must change the markup');
 });
+
+test('POLISH-014: a recent-week WINDOW draws no origin', () => {
+  // Review's P2. GB Race charts the last five RESOLVED weeks, so once a season
+  // passes five the window no longer begins at the season's start. Drawing the
+  // origin there would put "everyone level" one interval before the first
+  // retained week, compressing the whole omitted season into that interval and
+  // showing a divergence that never happened.
+  const owners = ['Alice', 'Bob'];
+  const weeks = [1, 2, 3, 4, 5, 6, 7];
+  const byWeek: StandingsHistory['byWeek'] = {};
+  for (const week of weeks) {
+    byWeek[week] = {
+      week,
+      standings: owners.map((owner, index) => ({
+        owner,
+        wins: week,
+        losses: 0,
+        ties: 0,
+        winPct: 1,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+        gamesBack: index * week,
+        finalGames: week,
+      })),
+      coverage: { state: 'complete', message: null },
+      played: true,
+      pending: [],
+    };
+  }
+  const byOwner: StandingsHistory['byOwner'] = {};
+  owners.forEach((owner, index) => {
+    byOwner[owner] = weeks.map((week) => ({
+      week,
+      wins: week,
+      losses: 0,
+      ties: 0,
+      winPct: 1,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 0,
+      gamesBack: index * week,
+    }));
+  });
+
+  const gbRace = gbRaceMarkup(renderOverviewWithHistory({ weeks, byWeek, byOwner }));
+
+  // Scope to the CHART. `gbRaceMarkup` runs to the end of the document, and the
+  // GB change table beside the chart emits the same week labels.
+  const chart = gbRace.slice(gbRace.indexOf('<svg'), gbRace.indexOf('</svg>'));
+  const labels = chart.match(/>W\d+</g) ?? [];
+  assert.deepEqual(
+    labels,
+    ['>W3<', '>W4<', '>W5<', '>W6<', '>W7<'],
+    'the last five resolved weeks'
+  );
+
+  // Each drawn series must have exactly one coordinate per labelled week — a
+  // sixth would be the origin, placed one interval before W3.
+  const paths = chart.match(/<path d="[^"]*"/g) ?? [];
+  assert.ok(paths.length > 0, 'the window must still draw');
+  for (const path of paths) {
+    const coordinates = (path.match(/[ML]\d/g) ?? []).length;
+    assert.equal(coordinates, labels.length, `expected one point per week, got ${path}`);
+  }
+});
+
+test('POLISH-014: the guard and the chart agree when the origin is withheld', () => {
+  // Review's third MEDIUM, and the POLISH-013 empty-box defect returning through
+  // a new seam. Weeks 1-2 played with incomplete coverage, week 3 resolved: the
+  // FULL history's series carries an origin and looks drawable, while the chart
+  // withholds the origin (football was played before W3), sees one point, and
+  // draws nothing. If the guard asks the full history it renders a heading, a
+  // divider and a link over an empty column.
+  const owners = ['Alice', 'Bob'];
+  const weeks = [1, 2, 3];
+  const byWeek: StandingsHistory['byWeek'] = {};
+  for (const week of weeks) {
+    byWeek[week] = {
+      week,
+      standings: owners.map((owner, index) => ({
+        owner,
+        wins: week,
+        losses: 0,
+        ties: 0,
+        winPct: 1,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+        gamesBack: index * week,
+        finalGames: week,
+      })),
+      // Played, but coverage never completed — so unresolved, and invisible to
+      // the trend selectors while still being football that happened.
+      coverage:
+        week === 3 ? { state: 'complete', message: null } : { state: 'partial', message: 'x' },
+      played: true,
+      pending: [],
+    };
+  }
+  const byOwner: StandingsHistory['byOwner'] = {};
+  owners.forEach((owner, index) => {
+    byOwner[owner] = weeks.map((week) => ({
+      week,
+      wins: week,
+      losses: 0,
+      ties: 0,
+      winPct: 1,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 0,
+      gamesBack: index * week,
+    }));
+  });
+
+  const gbRace = gbRaceMarkup(renderOverviewWithHistory({ weeks, byWeek, byOwner }));
+
+  assert.match(gbRace, TREND_EMPTY_MESSAGE_RE, 'the section must explain itself, not draw nothing');
+  assert.ok(!gbRace.includes('<svg'), 'no empty chart column');
+});

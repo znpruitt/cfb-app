@@ -4,8 +4,8 @@ import test from 'node:test';
 import type { StandingsHistory } from '../standingsHistory';
 import {
   SEASON_ORIGIN_GAMES_BACK,
-  SEASON_ORIGIN_WIN_PCT,
   isDrawableTrendSeries,
+  seasonOriginApplies,
   selectGamesBackTrend,
   selectWinBars,
   selectWinPctTrend,
@@ -523,7 +523,9 @@ test('POLISH-014: a series with plotted weeks carries the origin', () => {
 
   assert.equal(gb.length, 2);
   for (const series of gb) assert.equal(series.origin, SEASON_ORIGIN_GAMES_BACK);
-  for (const series of wp) assert.equal(series.origin, SEASON_ORIGIN_WIN_PCT);
+  // Win% deliberately has NONE — 0.000 is the floor of that axis, not "level".
+  assert.equal(wp.length, 2);
+  assert.ok(!('origin' in wp[0]!), 'win% series must not carry an origin');
 });
 
 test('POLISH-014: no resolved weeks means no series, and therefore no origin', () => {
@@ -547,11 +549,9 @@ test('POLISH-014: both point-based selectors gain the origin together', () => {
       wp.length,
       `series count must match for weeks ${JSON.stringify(weeks)}`
     );
-    assert.deepEqual(
-      gb.map((s) => s.origin === null),
-      wp.map((s) => s.origin === null),
-      `origin presence must match for weeks ${JSON.stringify(weeks)}`
-    );
+    // What must match is the EMPTY case — POLISH-012's hook crash came from these
+    // two disagreeing about whether there was anything to draw. The origin
+    // asymmetry cannot cause that: it does not change series counts.
   }
 });
 
@@ -562,4 +562,42 @@ test('POLISH-014: drawability counts the origin as an endpoint', () => {
   assert.equal(isDrawableTrendSeries({ points: [{}], origin: null }), false);
   assert.equal(isDrawableTrendSeries({ points: [], origin: 0 }), false);
   assert.equal(isDrawableTrendSeries({ points: [{}, {}], origin: null }), true);
+});
+
+test('POLISH-014: the origin applies only when nothing was PLAYED before the first drawn week', () => {
+  // Review's HIGH. Comparing against the first RESOLVED week is not the same
+  // question: since PLATFORM-105 a week can be played with incomplete coverage,
+  // which makes it unresolved and invisible to the trend selectors. Weeks 1-2
+  // played but partial and week 3 resolved would have drawn everyone level
+  // immediately before W3, after two weeks of football.
+  const history = originHistory([1, 2, 3]);
+  history.byWeek[1] = {
+    ...history.byWeek[1]!,
+    played: true,
+    coverage: { state: 'partial', message: 'x' },
+  };
+  history.byWeek[2] = {
+    ...history.byWeek[2]!,
+    played: true,
+    coverage: { state: 'partial', message: 'x' },
+  };
+
+  const drawn = selectGamesBackTrend({ standingsHistory: history });
+  const firstDrawnWeek = drawn[0]?.points[0]?.week;
+  assert.equal(firstDrawnWeek, 3, 'only week 3 resolves, so week 3 is what gets drawn');
+  assert.equal(
+    seasonOriginApplies(history, firstDrawnWeek),
+    false,
+    'two played weeks precede it, so nobody was level immediately before W3'
+  );
+
+  // And the control: with nothing played before it, the origin is honest.
+  const clean = originHistory([1, 2]);
+  assert.equal(seasonOriginApplies(clean, 1), true);
+});
+
+test('POLISH-014: the origin does not apply to a recent-week window', () => {
+  const history = originHistory([1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(seasonOriginApplies(history, 3), false, 'weeks 1-2 were played');
+  assert.equal(seasonOriginApplies(history, undefined), false, 'nothing drawn, nothing to anchor');
 });

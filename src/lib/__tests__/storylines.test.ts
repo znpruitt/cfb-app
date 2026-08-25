@@ -4,7 +4,7 @@ import test from 'node:test';
 import { selectLeagueStorylines } from '../selectors/storylines';
 import type { StandingsHistory } from '../standingsHistory';
 import type { GamesBackSeries, WinBarsRow, WinPctSeries } from '../selectors/trends';
-import { SEASON_ORIGIN_GAMES_BACK, SEASON_ORIGIN_WIN_PCT } from '../selectors/trends';
+import { SEASON_ORIGIN_GAMES_BACK } from '../selectors/trends';
 
 function buildHistory(
   weeks: Array<{ week: number; rows: Array<{ owner: string; wins: number }> }>
@@ -67,12 +67,7 @@ function gb(ownerName: string, value: number): GamesBackSeries {
 }
 
 function wp(ownerName: string, value: number): WinPctSeries {
-  return {
-    ownerId: ownerName,
-    ownerName,
-    points: [{ week: 1, value }],
-    origin: SEASON_ORIGIN_WIN_PCT,
-  };
+  return { ownerId: ownerName, ownerName, points: [{ week: 1, value }] };
 }
 
 function bar(ownerName: string, wins: number, winPct: number): WinBarsRow {
