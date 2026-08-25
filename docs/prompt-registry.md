@@ -54,9 +54,11 @@ Rules:
 
 - Purpose: stop Overview's "GB Race" rendering a heading, a divider and a link over a completely
   empty body, and close `docs/next-tasks.md` item 72.
-- Scope: `OverviewPanel.tsx` (section guard + empty state), `MiniTrendsGrid.tsx` (one-point series),
-  new `lib/trendEmptyState.ts` adopted by `SeasonArcChart` and `TrendsDetailSurface`; tests. The
-  archive AXIS work originally in scope was cut at the fourth review — see below and item 73.
+- Scope AS SHIPPED: `OverviewPanel.tsx` (section guard + empty state) and new
+  `lib/trendEmptyState.ts`, adopted by `SeasonArcChart` and `TrendsDetailSurface`; tests. TWO scopes
+  were cut under review and `MiniTrendsGrid.tsx` and `selectors/historyResolution.ts` are byte-identical
+  to `main` in the shipped diff: the archive AXIS trim (item 73) and the one-point POINT MARKERS
+  (item 74). An earlier version of this line still named the markers as shipped scope.
 - Outcome: the section asks `selectGamesBackTrend` — the selector both children reduce to — and
   keeps rendering when it is empty, with an explained empty state and no axes. It applies whenever
   the league has owner rows, so a `preseason-names` league no longer sees it appear at the draft.
@@ -66,8 +68,14 @@ Rules:
   and `SeasonArcChart` are otherwise unchanged from `main`: both the point markers and the archive
   axis trim were cut, and the defects they targeted remain open as items 74 and 73.
 - Review / verification: implementation `5bf7c5db`; remediation `3c06c8ce`; owner-approved round
-  `29987cd4`; scope cut `3f75b874`. Both reviewers every round — five each. Gates at the final
-  commit: full suite 4224/4224 exit 0, `tsc` exit 0, `lint:all` exit 0.
+  `29987cd4`; axis scope cut `3f75b874`; marker scope cut `a82575f4`; `origin/main` merge `7c3c0c3e`
+  (PLATFORM-109 / PR #509). Both reviewers every round — six each. Gates re-measured at the FINAL
+  commit: full suite 4242/4242 exit 0, `tsc` exit 0, `lint:all` exit 0.
+
+  The figure previously recorded here was 4224, measured at `bbce4aa9` and never re-measured after
+  two further commits landed — including the merge, which brought PLATFORM-109's tests. Review
+  caught it. A gate figure attached to a commit it was not measured on is the same class of false
+  claim as the six others this entry records.
 
   Mutation-proven against the code each claims to fix: the section guard (restoring the
   hide-when-empty condition fails the empty-state tests) and the drawability threshold (reverting it

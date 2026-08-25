@@ -1915,9 +1915,11 @@ test('overview panel omits League Storylines section when no storylines are avai
 });
 
 test('overview panel renders trends detail link in League Trends section', () => {
-  // The trends surface is now the "GB Race" section, which only renders when
-  // resolved standings history is present. Its "Full standings →" link points
-  // at the trends view (?view=trends#trends).
+  // The trends surface is the "GB Race" section, which renders for any league
+  // with owner rows — history or not, resolved or not. Its "Full standings →"
+  // link points at the trends view (?view=trends#trends). An earlier version of
+  // this comment said the section required resolved standings history, which
+  // POLISH-013 made untrue.
   const html = renderToStaticMarkup(
     <OverviewPanel
       standingsLeaders={standingsLeaders}
@@ -2272,8 +2274,12 @@ test('POLISH-013: GB Race explains the gap when no week has resolved', () => {
 test('POLISH-013: one resolved week still explains the gap — a single point cannot be drawn', () => {
   // `MiniTrendsGrid` joins points with `L`, so a one-point series emits a
   // moveto-only path and SVG draws nothing. Point markers were tried and cut:
-  // coincident markers hid each other and the leader was the one covered. The
-  // section keeps saying what it can honestly say until two weeks resolve.
+  // coincident markers hid each other and the leader was the one covered.
+  //
+  // NOT a claim that one point is undrawable in general — `TrendsDetailSurface`
+  // draws it with per-point markers today, which is exactly why Overview and the
+  // surface its own link points to disagree in this state. Item 74 closes both
+  // by giving week one a second point.
   const history = unresolvedHistory();
   history.byWeek[1] = { ...history.byWeek[1]!, played: true };
   history.byOwner.Bob = history.byOwner.Bob!.map((point) =>
@@ -2283,7 +2289,10 @@ test('POLISH-013: one resolved week still explains the gap — a single point ca
   const gbRace = gbRaceMarkup(renderOverviewWithHistory(history));
 
   assert.match(gbRace, TREND_EMPTY_MESSAGE_RE);
-  assert.ok(!gbRace.includes('<svg'), 'one point is not a trend, so nothing is drawn');
+  assert.ok(
+    !gbRace.includes('<svg'),
+    'MiniTrendsGrid draws lines only, so one point yields a moveto-only path'
+  );
 });
 
 test('POLISH-013: two resolved weeks draw a line', () => {

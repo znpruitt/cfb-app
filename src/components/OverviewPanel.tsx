@@ -1454,8 +1454,12 @@ export default function OverviewPanel({
   // over nothing at all.
   //
   // `selectGamesBackTrend` is what both children reduce to, and since POLISH-012
-  // it yields no rows at all when no week has resolved. One question, asked of
-  // the same authority, for the parent and both children.
+  // it yields no rows at all when no week has resolved — so the parent asks the
+  // same AUTHORITY the children ask. It does not ask the same QUESTION: the
+  // threshold below is stricter than either child's own guard, because a child
+  // can be handed a series it cannot actually draw. An earlier version of this
+  // comment claimed one question for parent and both children, which the
+  // drawability threshold made untrue.
   const gbRaceSeries = React.useMemo(
     () => (historyForRender ? selectGamesBackTrend({ standingsHistory: historyForRender }) : []),
     [historyForRender]

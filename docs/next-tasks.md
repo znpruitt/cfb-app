@@ -2309,6 +2309,23 @@ Supersedes: (none)
     - Archives inherit it, since `SeasonArcChart` and the trends detail surface read the same
       selectors. Probably an improvement; it changes every historical chart, so decide deliberately.
 
+    **Two MEDIUM findings from the final review fold in here, because the origin closes both
+    (2026-08-25).**
+
+    - **`SeasonArcChart` never got the drawability threshold.** Its guard is still
+      `selectGamesBackTrend(...).length > 0`, so an archive with exactly ONE resolved week renders
+      the SVG with `0 GB`/`1 GB` anchors and week labels while its only paths are `M7.0,0.0` and
+      `M7.0,145.5` — moveto-only, nothing drawn. That is the "empty box with axes" this slice
+      defines as the defect, in the other `MiniTrendsGrid` caller. POLISH-013 gave that file the
+      shared sentence but not the guard; deliberately not patched, because the origin makes week one
+      drawable there too.
+    - **Overview contradicts the surface its own link points to.** At one resolved week GB Race says
+      "Not enough weekly results to show a trend" above a `Full standings →` link, and
+      `TrendsDetailSurface` in that same state DRAWS — it renders per-point `<circle>` markers, so a
+      member clicks from "not enough results" into a chart of the same data. **One point is not
+      undrawable in general; `MiniTrendsGrid` simply draws lines only.** Week one of 2026 resolves
+      around Aug 31, so this is live for roughly that week unless the origin lands first.
+
     **Also folded in here:** at one resolved week the GB Race hides `GbChangeTable` along with the
     chart. Its week-over-week deltas are all `·` in that state, but it was the only surface showing
     CURRENT games-back for owners outside the condensed table's top five — so in an eight-owner
