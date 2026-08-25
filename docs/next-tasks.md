@@ -1942,7 +1942,8 @@ Supersedes: (none)
     the confirming passes of both reviewers. None is a regression against `main`; each is smaller
     than the defect PLATFORM-105 fixed.
 
-    **(a) ✅ IMPLEMENTED — `PLATFORM-109-STANDINGS-PENDING-PAYLOAD-v1`, PR #509.**
+    **(a) ✅ MERGED — `PLATFORM-109-STANDINGS-PENDING-PAYLOAD-v1` via PR #509 (`be80181a`,
+    2026-08-25). NOT promoted: production still serves the 2026-08-23 build.**
     `standingsHistory.byWeek[*].pending` held one `{key, week, kickoff}` per unplayed real game for
     the whole season and was passed from a server component into `'use client' CFBScheduleApp`. The
     five league routes now spread `canonicalStandingsClientProps`, which derives the season context

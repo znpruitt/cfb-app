@@ -68,9 +68,11 @@ Rules:
   rounds `99cf5125` and `76148acc`. Both reviewers each round. Gates at `76148acc`: full suite
   4237/4237 exit 0, `tsc` exit 0, `lint:all` exit 0. Every fix mutation-proven against the code it
   claims to fix.
-- Status: Implemented — PR #509 open. The last `/code-review` ran against `99cf5125` and raised
-  three findings, all documentation/proof-surface; all three are addressed in `76148acc`. No
-  confirming pass has run against the final commit.
+- Status: **Merged** (PR #509, `be80181a`, 2026-08-25). **NOT promoted** — `turfwar.games` still
+  serves `cfb-d3n6iu700` (built 2026-08-23); the merge produced `cfb-hh5biukc6`, Ready and awaiting
+  promotion, so none of this reaches a member yet. Both reviewers cleared the final commit
+  (`a0a7657d`); the two LOW findings from that pass — the unreached-and-wrong re-derivation fallback,
+  and a sixth route being able to omit the prop silently — are tracked in `docs/next-tasks.md`.
 
 **BOTH REVIEWERS FOUND THE SAME P1, AND IT WAS THE HAZARD I HAD ALREADY WRITTEN DOWN.** The module
 carried a comment warning that a stripped history must never reach `selectSeasonContext`, because
