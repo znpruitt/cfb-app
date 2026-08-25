@@ -89,22 +89,32 @@ test('season arc draws the chart once a week resolves', () => {
   cleanup();
 });
 
-test('POLISH-014: one resolved week draws here too, from the origin', () => {
+test('POLISH-014: one resolved week explains itself here rather than drawing an empty box', () => {
   assert.ok(dom);
-  // The MEDIUM this closes: after POLISH-013 this guard was still mere presence,
-  // so exactly one resolved week rendered the axes over moveto-only paths — an
-  // empty box, which is the very thing the fallback sentence exists to prevent.
-  // The guard now asks the shared drawability authority, and the origin supplies
-  // the second endpoint.
+  // The season origin is Overview-only (item 74): this surface hands
+  // `MiniTrendsGrid` the RAW archive, whose week domain still includes unresolved
+  // weeks at both ends (item 73), and a preseason anchor on an axis that is
+  // already wrong compounds it. So one resolved week is still one point here —
+  // a moveto-only path SVG will not draw.
+  //
+  // What POLISH-014 DOES fix here is the guard: it asked mere presence, so this
+  // state used to render the axes over nothing instead of the sentence.
   const { container } = render(<SeasonArcChart standingsHistory={archive([1])} year={2024} />);
 
   const text = container.textContent ?? '';
-  assert.ok(!text.includes(TREND_EMPTY_MESSAGE), 'one resolved week is drawable now');
-  const paths = [...container.querySelectorAll('path')].map((p) => p.getAttribute('d') ?? '');
-  assert.ok(paths.length > 0, 'the chart must draw');
-  assert.ok(
-    paths.some((d) => /M[^ ]* L/.test(d) || /M[\d.,]+ L/.test(d) || d.includes('L')),
-    `expected a real line, got ${JSON.stringify(paths)}`
-  );
+  assert.ok((text ?? '').includes(TREND_EMPTY_MESSAGE), 'one point is not a drawable trend');
+  assert.equal(container.querySelector('svg'), null, 'no axes over an empty body');
+  cleanup();
+});
+
+test('POLISH-014: the archive draws no preseason column', () => {
+  assert.ok(dom);
+  // Control for the above: two resolved weeks DO draw, and still without an
+  // origin — the season arc's x-axis is weeks only.
+  const { container } = render(<SeasonArcChart standingsHistory={archive([1, 2])} year={2024} />);
+
+  const text = container.textContent ?? '';
+  assert.ok(!text.includes('Preseason'), 'the origin belongs to Overview, not the archive');
+  assert.ok(container.querySelector('svg'), 'two resolved weeks must draw');
   cleanup();
 });

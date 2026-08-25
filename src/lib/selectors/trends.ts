@@ -116,7 +116,15 @@ export function seasonOriginApplies(
   return !fullHistory.weeks.some(
     (week) =>
       week < firstDrawnWeek &&
-      (fullHistory.byWeek[week]?.standings ?? []).some((row) => row.finalGames > 0)
+      (fullHistory.byWeek[week]?.standings ?? []).some(
+        // `finalGames` is typed required but durable archives predate it, and
+        // `undefined > 0` is false rather than an error — so the RECORD half has
+        // to stand on its own. This mirrors the precedent already established in
+        // `insights/generators/existing.ts`, which this predicate should have
+        // followed the first time; `byWeek` standings are cumulative, so a
+        // decision on the record answers the same question.
+        (row) => row.finalGames > 0 || row.wins + row.losses + row.ties > 0
+      )
   );
 }
 

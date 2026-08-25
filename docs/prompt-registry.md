@@ -54,8 +54,10 @@ Rules:
 
 - Purpose: make week one an ordinary trend instead of a special case, closing `docs/next-tasks.md`
   item 74 and the two MEDIUM findings folded into it.
-- Scope: `selectors/trends.ts` (origin on both point-based series, shared drawability authority),
-  `MiniTrendsGrid.tsx`, `OverviewPanel.tsx` and `history/SeasonArcChart.tsx` guards; tests.
+- Scope AS SHIPPED: `selectors/trends.ts` (origin on games-back, `seasonOriginApplies`, shared
+  drawability authority), `MiniTrendsGrid.tsx`, the `OverviewPanel.tsx` guard, and the
+  `history/SeasonArcChart.tsx` guard; tests. The ORIGIN itself is Overview-only — the archive was cut
+  at the confirming review; that surface takes the drawability guard and nothing else.
 - Outcome: `SEASON_ORIGIN_GAMES_BACK` states what `deriveStandings` already claims about an unplayed
   record — everyone level at 0 games back — rather than inventing data, and gives a one-week series
   the second endpoint a line needs. Measured: one resolved week renders `M7.0,0.0 L462.9,0.0` and
@@ -93,6 +95,14 @@ either: 0.000 is the floor of a 0-1 axis, not "level", so it would start every l
 flatten the chart. The POLISH-012 divergence was about the EMPTY case — whether the two selectors
 agree that there is nothing to draw — and the origin does not change series counts, so the asymmetry
 cannot reproduce it.
+
+**THE ARCHIVE WAS CUT BECAUSE ITS AXIS IS ALREADY WRONG.** Both confirming-review findings landed on
+`SeasonArcChart`, and neither was really about the origin: that surface passes the RAW archive, whose
+week domain includes unresolved weeks at both ends (item 73), so it already labels columns with no
+line under them. A preseason anchor on a broken axis compounds the problem — it produced a `Preseason`
+label overlapping `W1` at 15-week density (30.4 units between ticks, ~40-unit label) and a FALSE
+origin on legacy archives. **Fix the domain before decorating it.** Third scope cut across
+POLISH-013/014, and each one removed a class rather than an instance.
 
 **NO WEEK FLAG ANSWERS "HAS ANY FOOTBALL BEEN PLAYED".** Two rounds, two polarities of the same
 mistake. `played: true` with incomplete coverage is unresolved and invisible to the trend selectors;

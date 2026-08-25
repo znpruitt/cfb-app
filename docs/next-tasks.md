@@ -2303,8 +2303,10 @@ Supersedes: (none)
       postponed week-1 game leaves that week `played: false` permanently while its other games have
       already moved the cumulative standings.
 
-    `seasonOriginApplies` now reads `finalGames` from the standings — the evidence both flags were
-    standing in for. Overview additionally charts the last five resolved weeks, so from week six its
+    `seasonOriginApplies` now reads the standings — `finalGames`, OR the record, because
+    `finalGames` is typed required and durable archives predate it, so `undefined > 0` is silently
+    false. That pairing is the precedent already established in `insights/generators/existing.ts`,
+    which this predicate should have followed from the start. Overview additionally charts the last five resolved weeks, so from week six its
     window starts mid-season and the omitted games count.
 
     **Recorded, not changed:** at exactly one resolved week the section now renders `GbChangeTable`
@@ -2319,6 +2321,17 @@ Supersedes: (none)
     index map, where an unknown week silently collapsed onto the first column via `?? 0`. No fake
     week number is right for both, so the origin is a separate field and each chart places it in its
     own coordinate system.
+
+    **THE ORIGIN IS OVERVIEW-ONLY — the archive was cut at the confirming review.** Both remaining
+    findings landed on `SeasonArcChart` and neither was really about the origin: it hands
+    `MiniTrendsGrid` the RAW archive, whose week domain still includes unresolved weeks at BOTH ends
+    (item 73), so a 15-week archive already labels columns with no line under them. Anchoring a
+    preseason point onto an axis that is wrong at both ends compounds it. Concretely, the origin
+    there produced (a) a `Preseason` label overlapping `W1` at 15-week density — 30.4 viewBox units
+    between ticks against a ~40-unit label — and (b) a FALSE origin on legacy archives, because
+    `finalGames` is typed required but durable archives predate it. That surface keeps POLISH-014's
+    drawability guard, which fixes its real defect (one resolved week rendering axes over nothing),
+    and nothing else. **Fix item 73 before giving the season arc an origin.**
 
     **Still open, deliberately:** `TrendsDetailSurface` ignores `origin`. It already draws a
     one-point series as markers, so it has no defect to fix, and its axis-tick geometry is coupled to

@@ -3,11 +3,7 @@
 import React from 'react';
 import MiniTrendsGrid from '@/components/MiniTrendsGrid';
 import { buildOwnerColorMap, isDarkTheme } from '@/lib/ownerColors';
-import {
-  isDrawableTrendSeries,
-  seasonOriginApplies,
-  selectGamesBackTrend,
-} from '@/lib/selectors/trends';
+import { isDrawableTrendSeries, selectGamesBackTrend } from '@/lib/selectors/trends';
 import type { StandingsHistory } from '@/lib/standingsHistory';
 import { TREND_EMPTY_MESSAGE } from '@/lib/trendEmptyState';
 
@@ -28,29 +24,24 @@ export default function SeasonArcChart({ standingsHistory, year }: Props): React
   // archived season whose cumulative coverage never completed has weeks but no
   // resolved ones, and this section rendered its heading and subtitle over an
   // empty body while its own fallback was skipped.
-  // POLISH-014: ask whether a series can be DRAWN, not whether one exists. This
-  // guard was still mere presence after POLISH-013 gave the same file its empty
-  // sentence, so an archive with exactly one resolved week rendered the axes over
-  // moveto-only paths — the very "empty box" the sentence exists to prevent.
-  // `isDrawableTrendSeries` is shared with the Overview guard and the grid.
-  // An archive is the whole season, but that is NOT enough to justify the origin:
-  // this chart plots only RESOLVED weeks, and its own POLISH-012 note describes
-  // the reachable case where early weeks were played and never resolved. The
-  // shared predicate asks the real question — was anything played before the
-  // first week we draw?
-  const originApplies = React.useMemo(
+  //
+  // POLISH-014: presence was still not enough — a ONE-point series builds a
+  // moveto-only path SVG will not draw, so exactly one resolved week rendered
+  // axes over nothing. `isDrawableTrendSeries` is the shared authority.
+  //
+  // The origin is stripped first because this surface does not draw it: the
+  // season origin is Overview-only (item 74). The archive hands `MiniTrendsGrid`
+  // the RAW history, whose week domain still includes unresolved weeks (item 73),
+  // and anchoring a preseason point onto an axis that is already wrong at both
+  // ends compounds the problem rather than fixing it. The child strips the origin
+  // for the same reason, so parent and child judge the same series.
+  const hasTrendData = React.useMemo(
     () =>
-      seasonOriginApplies(
-        standingsHistory,
-        selectGamesBackTrend({ standingsHistory })[0]?.points[0]?.week
-      ),
+      selectGamesBackTrend({ standingsHistory })
+        .map((series) => ({ ...series, origin: null }))
+        .some(isDrawableTrendSeries),
     [standingsHistory]
   );
-  const hasTrendData = React.useMemo(() => {
-    const series = selectGamesBackTrend({ standingsHistory });
-    const drawn = originApplies ? series : series.map((s) => ({ ...s, origin: null }));
-    return drawn.some(isDrawableTrendSeries);
-  }, [standingsHistory, originApplies]);
 
   return (
     <section className="space-y-2">
@@ -61,11 +52,7 @@ export default function SeasonArcChart({ standingsHistory, year }: Props): React
         Games back from first place, week by week.
       </p>
       {hasTrendData ? (
-        <MiniTrendsGrid
-          standingsHistory={standingsHistory}
-          ownerColorMap={ownerColorMap}
-          startsAtSeasonStart={originApplies}
-        />
+        <MiniTrendsGrid standingsHistory={standingsHistory} ownerColorMap={ownerColorMap} />
       ) : (
         <p className="text-sm text-gray-500 dark:text-zinc-400">{TREND_EMPTY_MESSAGE}</p>
       )}

@@ -646,3 +646,33 @@ test('POLISH-014: a genuinely unplayed leading week does not block the origin', 
 
   assert.equal(seasonOriginApplies(history, 2), true);
 });
+
+test('POLISH-014: a legacy archive row without `finalGames` still counts as football', () => {
+  // Review's finding, and the precedent was already in this repo:
+  // `insights/generators/existing.ts` pairs `finalGames > 0` with a record check
+  // precisely because durable archives predate the field, and `undefined > 0` is
+  // false rather than an error. The first version of this predicate took only
+  // half of that pair, so a legacy archive whose opening weeks never resolved
+  // drew "everyone level" mid-season.
+  const history = originHistory([1, 2]);
+  history.byWeek[1] = {
+    ...history.byWeek[1]!,
+    coverage: { state: 'partial', message: 'x' },
+    standings: history.byWeek[1]!.standings.map((row) => {
+      const legacy = { ...row, wins: 1, losses: 0 } as Partial<typeof row>;
+      delete legacy.finalGames;
+      return legacy as typeof row;
+    }),
+  };
+
+  assert.equal(
+    history.byWeek[1]!.standings[0]!.finalGames,
+    undefined,
+    'the fixture must actually omit finalGames, or it proves nothing'
+  );
+  assert.equal(
+    seasonOriginApplies(history, 2),
+    false,
+    'a 1-0 record is evidence a game concluded, whatever the archive recorded'
+  );
+});
