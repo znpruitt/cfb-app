@@ -50,6 +50,89 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### POLISH-013-TREND-EMPTY-STATES-v1
+
+- Purpose: stop Overview's "GB Race" rendering a heading, a divider and a link over a completely
+  empty body, and close `docs/next-tasks.md` item 72.
+- Scope AS SHIPPED: `OverviewPanel.tsx` (section guard + empty state) and new
+  `lib/trendEmptyState.ts`, adopted by `SeasonArcChart` and `TrendsDetailSurface`; tests. TWO scopes
+  were cut under review and `MiniTrendsGrid.tsx` and `selectors/historyResolution.ts` are byte-identical
+  to `main` in the shipped diff: the archive AXIS trim (item 73) and the one-point POINT MARKERS
+  (item 74). An earlier version of this line still named the markers as shipped scope.
+- Outcome: the section asks `selectGamesBackTrend` — the selector both children reduce to — and
+  keeps rendering when it is empty, with an explained empty state and no axes. It applies whenever
+  the league has owner rows, so a `preseason-names` league no longer sees it appear at the draft.
+  The section requires a DRAWABLE series — one with at least two points — because a one-point series
+  emits a moveto-only path that SVG does not render. Three wordings for one idea became
+  `TREND_EMPTY_MESSAGE`, reworded to name what the chart needs and promise nothing. `MiniTrendsGrid`
+  and `SeasonArcChart` are otherwise unchanged from `main`: both the point markers and the archive
+  axis trim were cut, and the defects they targeted remain open as items 74 and 73.
+- Review / verification: implementation `5bf7c5db`; remediation `3c06c8ce`; owner-approved round
+  `29987cd4`; axis scope cut `3f75b874`; marker scope cut `a82575f4`; `origin/main` merge `7c3c0c3e`
+  (PLATFORM-109 / PR #509). Both reviewers every round — six each. Gates re-measured at the FINAL
+  commit: full suite 4242/4242 exit 0, `tsc` exit 0, `lint:all` exit 0.
+
+  The figure previously recorded here was 4224, measured at `bbce4aa9` and never re-measured after
+  two further commits landed — including the merge, which brought PLATFORM-109's tests. Review
+  caught it. A gate figure attached to a commit it was not measured on is the same class of false
+  claim as the six others this entry records.
+
+  Mutation-proven against the code each claims to fix: the section guard (restoring the
+  hide-when-empty condition fails the empty-state tests) and the drawability threshold (reverting it
+  to mere presence fails the one-resolved-week test). **The copy change
+  is a CONTRACT PIN, not a mutation-proven regression test** — its assertions import the production
+  constant, so changing the constant moves the oracle with it and the tests stay green.
+
+  **Nothing here covers the `W14`/`W15` axis defect.** That work was cut (item 73); an earlier
+  version of this bullet cited "the axis trim in both wrong directions" as mutation-proven, which
+  became false when the cut removed the implementation and its tests. Two successive versions of
+  this same bullet overstated coverage and review caught both.
+- Status: Implemented — PR #510 open.
+
+**FOUR FINDINGS, ONE ROOT: THE SECTION STATED A CAUSE IT HAD NOT ESTABLISHED.** One resolved week
+drew nothing; `preseason-names` stayed hidden and popped in later; a league with no owners was told
+about completed games; and the copy named a blocker it could not verify. Rather than patch four
+things, the round stopped and took the shape back to the owner — the pattern this project's own
+notes call _findings that rhyme_.
+
+**THE GUARD WAS RIGHT AND THE CHART STILL DREW NOTHING.** `selectGamesBackTrend` returns a series at
+ONE resolved week, but a one-point series builds `M235.0,0.0` with no drawing command and SVG
+renders nothing for it. Asking the same selector the child asks — the rule this slice exists to
+enforce — was necessary and not sufficient, because the child's own rendering had a threshold the
+selector could not express.
+
+**THE REMEDIATION INTRODUCED ITS OWN DEFECT, AND THE TEST COULD NOT SEE IT.** The point markers were
+clipped: the leader sits at 0 GB by definition, `yOfGb(0, …)` is the top edge, and the test asserted
+a `<circle>` EXISTED and nothing about where. Same shape as the `>W1<` assertion the previous round
+had already been caught on — presence asserted where the claim was about position.
+
+**TWO SCOPE CUTS, AND BOTH WERE THE RIGHT CALL.** The archive axis trim failed three times and the
+one-point markers failed three times; each individual fix was small, plausible, and generated the
+next finding. Neither was cut because the attempts were careless — they were cut because a UI
+empty-state slice was carrying two other people's problems. What shipped is the part that never
+produced a finding in five review rounds.
+
+**THE MARKERS' LAST FAILURE IS THE ONE WORTH REMEMBERING.** Clipped markers were clamped; then
+review rendered five owners tied at 0 GB and found the markers COINCIDENT — identical geometry, the
+leader drawn first and largest and therefore buried, five owners showing as two dots, in exactly the
+week-one state the markers existed for. **A fix that only works when values differ is not a fix for
+a chart whose first week is mostly ties.** The owner's answer deleted the special case rather than
+repairing it: plot the season's origin, and week one is an ordinary two-point segment (item 74).
+
+**THE SCOPE WAS WRONG, NOT THE ATTEMPTS.** The archive axis trim failed three times in three
+different ways — resolved-only closed interior gaps; trailing-only handed back the leading edge;
+both-edges-by-numeric-comparison emptied the chart entirely for an unsorted `weeks` array, which is
+strictly worse than the defect it replaced. Each fix was small, plausible, and produced the next
+finding. At the fourth review it was CUT from this slice rather than patched a fourth time, and
+re-queued as item 73 where the actual root can be addressed: durable archive reads validate and sort
+nothing, so a chart component was being asked to tolerate data the read boundary should never have
+handed it. **Two owner-facing bullets bundled into one UI slice is what made three rounds look like
+progress.**
+
+**COPY APPROVED TWICE WAS STILL WRONG.** The owner confirmed the wording twice, both times on my
+framing. Only when review supplied the counter-example — a final game inside an unresolved week —
+did the inaccuracy become visible. Bring the failing case, not the sentence.
+
 ### PLATFORM-109-STANDINGS-PENDING-PAYLOAD-v1
 
 - Purpose: stop shipping the whole season's unplayed-game list to the browser so the browser can

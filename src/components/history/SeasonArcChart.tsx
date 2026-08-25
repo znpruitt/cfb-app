@@ -5,6 +5,7 @@ import MiniTrendsGrid from '@/components/MiniTrendsGrid';
 import { buildOwnerColorMap, isDarkTheme } from '@/lib/ownerColors';
 import { selectGamesBackTrend } from '@/lib/selectors/trends';
 import type { StandingsHistory } from '@/lib/standingsHistory';
+import { TREND_EMPTY_MESSAGE } from '@/lib/trendEmptyState';
 
 type Props = {
   standingsHistory: StandingsHistory;
@@ -39,7 +40,7 @@ export default function SeasonArcChart({ standingsHistory, year }: Props): React
       {hasTrendData ? (
         <MiniTrendsGrid standingsHistory={standingsHistory} ownerColorMap={ownerColorMap} />
       ) : (
-        <p className="text-sm text-gray-500 dark:text-zinc-400">No trend data available.</p>
+        <p className="text-sm text-gray-500 dark:text-zinc-400">{TREND_EMPTY_MESSAGE}</p>
       )}
     </section>
   );

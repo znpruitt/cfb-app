@@ -2175,8 +2175,11 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-TEST-STARTUP-HEADROOM-v1`
 
-72. **Empty states for the trend charts — DECIDED, not implemented.** Queued 2026-08-23 out of
-    POLISH-012, which fixed the crash next door and deliberately left this alone.
+72. ✅ **IMPLEMENTED — `POLISH-013-TREND-EMPTY-STATES-v1`, PR #510.** Queued 2026-08-23 out
+    of POLISH-012, which fixed the crash next door and deliberately left this alone. The diagnosis
+    below is preserved as it stood; four owner decisions during execution changed the answer in ways
+    the entry did not anticipate, recorded at the end. Execution record in
+    `docs/prompt-registry.md`.
 
     **The bug.** Overview renders the “GB Race” heading, its `SectionDivider` and a “Full standings”
     link over a completely empty body. `historyForRenderHasStandings` (`OverviewPanel.tsx:1438`) asks
@@ -2211,7 +2214,131 @@ Supersedes: (none)
     a DIFFERENT input than the child uses. Both defects here are that shape. Where a guard is needed,
     ask the same selector the child asks.
 
-    - **Backlog slug (provisional):** `POLISH-TREND-EMPTY-STATES-v1`
+    **WHAT EXECUTION CHANGED, beyond the decision recorded above.**
+
+    - **The empty state alone was not enough — week ONE drew nothing either.** At exactly one
+      resolved week every series builds a moveto-only path (`M235.0,0.0`), which SVG does not
+      render, so the guard said "draw" and the chart was an empty box with axes: the same defect
+      one week later. Verified by rendering, not reasoned about. The section now requires a
+      DRAWABLE series — at least one with two points — and keeps explaining the gap until then.
+
+      **Point markers were tried and CUT, after failing three times.** Owner decision was to draw
+      the one-point case; the markers were then found CLIPPED (the leader is at 0 GB by definition
+      and `yOfGb(0, …)` is the top edge) and clamped; then found COINCIDENT — every owner tied at
+      0 GB gets identical geometry, and the leader is drawn first and largest, so five owners
+      rendered as two visible dots with the leader buried, in exactly the week-one state the
+      markers existed for. Item 74 is the fix that deletes the special case instead.
+    - **The section had to widen past "has a history".** A league with confirmed preseason owners
+      and no draft has canonical source `preseason-names` and NO standings history, so gating on
+      history still made the section appear out of nowhere at the draft. OWNER DECISION: it applies
+      whenever the league has owner rows; a league with no owners keeps it hidden.
+    - **The copy named a cause it could not support.** "No completed games yet—trends will appear
+      here." is false when a game is final in an unresolved week — a completed result can sit on
+      screen directly above it — and promises an immutable archive trends it can never gain. OWNER
+      DECISION after review escalated it: "Not enough weekly results to show a trend."
+    - **The archive axis trim was CUT FROM THIS SLICE — see item 73.** It was item 72's second
+      bullet and it failed three times in three different ways; the scope, not the attempt, was
+      wrong. `SeasonArcChart` is unchanged from `main` here apart from adopting the shared empty-state
+      sentence, so the `W14`/`W15` trailing-gridline defect it described REMAINS OPEN.
+
+    - **Backlog slug (provisional, now assigned):** `POLISH-013-TREND-EMPTY-STATES-v1`
+
+73. 🔴 **Archive season-arc axis — CUT FROM POLISH-013, needs its own slice.** Queued 2026-08-23
+    after three failed attempts inside a UI empty-state slice. The defect is real and unchanged:
+    `MiniTrendsGrid` takes its x-axis domain from `standingsHistory.weeks` and labels a gridline per
+    week, while the trend selectors populate only RESOLVED weeks — so an archived season whose
+    coverage never completed at either end renders labelled columns with no line behind them.
+
+    **Three attempts, three different failures. Do not repeat them:**
+
+    - **Resolved-weeks-only slice** — trims both edges, but also closes INTERIOR gaps. The grid
+      spaces gridlines by array INDEX, not week number, so an archive missing week 7 renders W6 and
+      W8 adjacent and a two-week swing reads as a one-week swing.
+    - **Trailing-only trim** — preserves the interior, hands the LEADING edge straight back: an
+      archive first resolving at week 3 labels W1 and W2 with nothing drawn under them.
+    - **Both edges by numeric comparison** — correct for sorted input, and for UNSORTED `weeks` the
+      first/last resolved values are taken by array POSITION while the filter compares numerically,
+      producing an unsatisfiable predicate (`week >= 3 && week <= 1`) that empties the chart
+      entirely. Strictly worse than the defect it replaced.
+
+    **The root is not in the chart.** `readSeasonArchiveFromStore` returns the durable value with no
+    validation and no sort; `deriveOrderedWeeks` sorts what the current builder writes, so sortedness
+    is a convention the read path does not enforce. Fix the boundary before the presentation, and
+    decide explicitly whether an unresolved interior week should be drawn ACROSS (today's behaviour —
+    `buildPath` joins consecutive points with `L`, which one reviewer judged correct as net movement
+    over the true elapsed distance) or should break the subpath.
+
+    Also unresolved and adjacent: `MiniTrendsGrid`'s multi-point paths are unclamped, so a true-0-GB
+    leader loses half its stroke at the top edge on every chart with two or more resolved weeks.
+    Deliberately not clamped in POLISH-013 — clamping a LINE would shift the whole series downward
+    and misrepresent values, unlike clamping a single marker.
+
+    - **Backlog slug (provisional):** `POLISH-ARCHIVE-AXIS-DOMAIN-v1`
+
+74. 🔴 **Plot the season origin so week one is an ordinary trend.** Queued 2026-08-23 (owner idea,
+    out of POLISH-013 after point markers failed three times).
+
+    **The insight: there is no such thing as a one-point week.** Every owner starts 0-0, and
+    `standings.ts:305` already defines a 0-0 record as `winPct: 0`, so an origin at 0 games back /
+    0.000 / 0 wins states what the app already claims rather than inventing data. Give the trend
+    series that origin and week one becomes a normal two-point segment through the ordinary code
+    path — no one-point branch, no marker clamp, no paint order, no coincident-marker handling. The
+    entire class of defect stops existing.
+
+    **Constraints, both from this project's own history:**
+
+    - **All three trend selectors or none.** If games-back gains an origin and win% does not, the
+      two metric charts disagree about the empty case at week one — the exact divergence behind the
+      POLISH-012 hook crash.
+    - **The origin must not be keyed as week `0`, and this correction matters more than the label.**
+      An earlier version of this item said the app does not model week 0 and that there was
+      therefore no collision. **Both halves were wrong**, and the mistake was checking the wrong
+      layer: `/api/schedule` serves PROVIDER weeks, where the opening games all arrive as week 1, but
+      `buildRegularSeasonWeekCalendar` (`regularSeasonWeekCalendar.ts`) detects a smaller earlier
+      cluster also arriving as provider week 1 and mints it as CANONICAL week 0 —
+      `WeekCorrectionReason: 'derived_week_0_from_opening_cluster'`, pinned by test to `[0, 1]`.
+      Canonical week 0 is a real value `AppGame.week` can hold.
+
+      Measured across every cached season (2026, 2025, 2024): none currently derives one, because
+      the date clustering merges the opener into a single cluster spanning provider weeks 1 and 2.
+      That is an accident of this data, not a guarantee — a season with a genuine gap before the
+      opener would derive week 0 and a numeric-`0` origin would sit on top of a real point.
+
+      So the origin needs a representation OUTSIDE the week domain — a sentinel, or a separate
+      field — not week `0` with a friendly label. The label ("Start", or none) is a separate and
+      much smaller decision.
+    - Archives inherit it, since `SeasonArcChart` and the trends detail surface read the same
+      selectors. Probably an improvement; it changes every historical chart, so decide deliberately.
+
+    **Two MEDIUM findings from the final review fold in here, because the origin closes both
+    (2026-08-25).**
+
+    - **`SeasonArcChart` never got the drawability threshold.** Its guard is still
+      `selectGamesBackTrend(...).length > 0`, so an archive with exactly ONE resolved week renders
+      the SVG with `0 GB`/`1 GB` anchors and week labels while its only paths are `M7.0,0.0` and
+      `M7.0,145.5` — moveto-only, nothing drawn. That is the "empty box with axes" this slice
+      defines as the defect, in the other `MiniTrendsGrid` caller. POLISH-013 gave that file the
+      shared sentence but not the guard; deliberately not patched, because the origin makes week one
+      drawable there too.
+    - **Overview contradicts the surface its own link points to.** At one resolved week GB Race says
+      "Not enough weekly results to show a trend" above a `Full standings →` link, and
+      `TrendsDetailSurface` in that same state DRAWS — it renders per-point `<circle>` markers, so a
+      member clicks from "not enough results" into a chart of the same data. **One point is not
+      undrawable in general; `MiniTrendsGrid` simply draws lines only.** Week one of 2026 resolves
+      around Aug 31, so this is live for roughly that week unless the origin lands first.
+
+    **Also folded in here:** at one resolved week the GB Race hides `GbChangeTable` along with the
+    chart. Its week-over-week deltas are all `·` in that state, but it was the only surface showing
+    CURRENT games-back for owners outside the condensed table's top five — so in an eight-owner
+    league, owners 6–8 lose their GB until they follow "Full standings". An acceptable tradeoff for
+    one week, but "nothing useful is lost" is not literally true, and the origin restores the chart
+    anyway.
+
+    **Timing.** This only changes what ONE resolved week looks like. Week one of 2026 resolves
+    around Aug 31 and stops mattering when week two resolves around Sep 8, so landing it before
+    Aug 31 means the cut costs nothing visible.
+
+    - **Backlog slug (provisional):** `POLISH-TREND-SEASON-ORIGIN-v1`
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the

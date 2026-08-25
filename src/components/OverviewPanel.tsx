@@ -4,6 +4,7 @@ import Link from 'next/link';
 import MiniTrendsGrid from './MiniTrendsGrid';
 import ViewMoreLink, { viewMoreLinkClass } from './navigation/ViewMoreLink';
 import { selectResolvedStandingsWeeks } from '@/lib/selectors/historyResolution';
+import { TREND_EMPTY_MESSAGE } from '@/lib/trendEmptyState';
 import { selectGamesBackTrend, selectPositionDeltas } from '../lib/selectors/trends';
 import { buildWeekLabelMap, formatWeekLabel } from '../lib/weekLabel';
 import { getGameOwners } from '../lib/gameOwnership';
@@ -1443,14 +1444,49 @@ export default function OverviewPanel({
   // POLISH-011 round 4: one field decides both visibility and text — see the
   // matching note in StandingsPanel.
   const coverageNotice = standingsCoverageNoticeWithSubject(coverageForRender);
-  // GB Race section guard: render whenever the chosen history carries owner
-  // rows in any week. The chart components handle flat / partial weeks
-  // gracefully; we only need to suppress the section when there's truly
-  // nothing to plot (preseason-names, empty source).
-  const historyForRenderHasStandings =
-    historyForRender?.weeks.some(
-      (week) => (historyForRender.byWeek[week]?.standings.length ?? 0) > 0
-    ) ?? false;
+  // POLISH-013 — ask the SAME selector the two children ask.
+  //
+  // The old guard asked whether any week carried owner rows, and
+  // `deriveStandingsHistory` builds a cumulative standings table for every week
+  // regardless of `played` — so in preseason every week carries a full 0-0 table
+  // and the answer was yes, while `MiniTrendsGrid` and `GbChangeTable` both
+  // returned null. The section rendered its heading, its divider and its link
+  // over nothing at all.
+  //
+  // `selectGamesBackTrend` is what both children reduce to, and since POLISH-012
+  // it yields no rows at all when no week has resolved — so the parent asks the
+  // same AUTHORITY the children ask. It does not ask the same QUESTION: the
+  // threshold below is stricter than either child's own guard, because a child
+  // can be handed a series it cannot actually draw. An earlier version of this
+  // comment claimed one question for parent and both children, which the
+  // drawability threshold made untrue.
+  const gbRaceSeries = React.useMemo(
+    () => (historyForRender ? selectGamesBackTrend({ standingsHistory: historyForRender }) : []),
+    [historyForRender]
+  );
+  // A series must be DRAWABLE, not merely present. `MiniTrendsGrid` builds a path
+  // by joining points with `L`, so a one-point series emits a moveto-only path
+  // ("M235.0,0.0") and SVG renders nothing for it — the guard would say "draw"
+  // and the section would be an empty box with axes, which is the defect this
+  // slice exists to close arriving one week later.
+  //
+  // Drawing point markers instead was tried and cut: coincident markers hid each
+  // other, and the leader — drawn first and largest — was the one covered, so
+  // five owners rendered as two dots in exactly the week-one state the markers
+  // were added for. The real fix is to plot the season's origin (every owner
+  // starts 0-0 and 0 games back), which makes week one an ordinary two-point
+  // segment and deletes this threshold entirely. That is its own slice; see
+  // `docs/next-tasks.md` item 74.
+  const gbRaceHasTrendData = gbRaceSeries.some((series) => series.points.length >= 2);
+  // OWNER DECISION (2026-08-23, remediation): the section applies whenever the
+  // league HAS owners, history or not. A league with confirmed preseason owners
+  // and no draft yet has canonical source `preseason-names` and therefore NO
+  // standings history at all, so gating on history alone still made the section
+  // appear out of nowhere — the same layout jump the decision rejected, just
+  // moved from week one to the draft. A league with no owners keeps the section
+  // hidden: "add owners" is the real blocker there, and the standings panel
+  // above already says so.
+  const gbRaceSectionApplies = rowsForRender.length > 0;
   const timeZone = displayTimeZone ?? getPresentationTimeZone();
   const weekLabelFn = React.useMemo(() => {
     const labelMap = buildWeekLabelMap(games);
@@ -1700,7 +1736,7 @@ export default function OverviewPanel({
       ) : null}
 
       {/* GB Race */}
-      {historyForRender && historyForRenderHasStandings ? (
+      {gbRaceSectionApplies ? (
         <>
           <SectionDivider />
           <section>
@@ -1712,23 +1748,35 @@ export default function OverviewPanel({
                 </ViewMoreLink>
               }
             />
-            <div className="mt-2.5 flex flex-col gap-3 sm:flex-row">
-              <div className="min-w-0 flex-1">
-                <MiniTrendsGrid
-                  standingsHistory={sliceStandingsHistoryToRecentWeeks(historyForRender, 5)}
-                  weekLabel={weekLabelFn}
-                  ownerColorMap={ownerColorMap}
-                />
+            {gbRaceHasTrendData && historyForRender ? (
+              <div className="mt-2.5 flex flex-col gap-3 sm:flex-row">
+                <div className="min-w-0 flex-1">
+                  <MiniTrendsGrid
+                    standingsHistory={sliceStandingsHistoryToRecentWeeks(historyForRender, 5)}
+                    weekLabel={weekLabelFn}
+                    ownerColorMap={ownerColorMap}
+                  />
+                </div>
+                <div className="shrink-0">
+                  <GbChangeTable
+                    standingsHistory={historyForRender}
+                    standingsLeaders={rowsForRender}
+                    weekLabel={weekLabelFn}
+                    ownerColorMap={ownerColorMap}
+                  />
+                </div>
               </div>
-              <div className="shrink-0">
-                <GbChangeTable
-                  standingsHistory={historyForRender}
-                  standingsLeaders={rowsForRender}
-                  weekLabel={weekLabelFn}
-                  ownerColorMap={ownerColorMap}
-                />
+            ) : (
+              // OWNER DECISION (2026-08-23): keep the section and explain the
+              // gap. Hiding it makes the page jump when week one resolves, and
+              // the convention one row up on this same page is an explained
+              // empty state rather than a disappearing section. No axes — a
+              // preseason week axis would silently reshape once the postseason
+              // bracket populates (`schedule.ts` remaps postseason weeks).
+              <div className="mt-2.5">
+                <EmptyState message={TREND_EMPTY_MESSAGE} compact />
               </div>
-            </div>
+            )}
           </section>
         </>
       ) : null}

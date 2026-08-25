@@ -7,6 +7,7 @@ import { cleanup, render } from '@testing-library/react';
 
 import SeasonArcChart from '../SeasonArcChart';
 import type { StandingsHistory } from '../../../lib/standingsHistory';
+import { TREND_EMPTY_MESSAGE } from '../../../lib/trendEmptyState';
 
 // ---------------------------------------------------------------------------
 // POLISH-012 — the guard here must agree with what MiniTrendsGrid will render.
@@ -72,7 +73,7 @@ test('season arc shows its fallback when weeks exist but none resolved', () => {
 
   // The regression: weeks.length !== 0, so the old guard rendered the grid,
   // which returned null — heading and subtitle over nothing.
-  assert.match(container.textContent ?? '', /No trend data available\./);
+  assert.ok((container.textContent ?? '').includes(TREND_EMPTY_MESSAGE));
   assert.equal(container.querySelector('svg'), null, 'nothing should be drawn');
   cleanup();
 });
@@ -83,7 +84,7 @@ test('season arc draws the chart once a week resolves', () => {
 
   // Positive control: the same fixture shape MUST be able to draw, or the test
   // above would pass against a component that can only ever show the fallback.
-  assert.doesNotMatch(container.textContent ?? '', /No trend data available\./);
+  assert.ok(!(container.textContent ?? '').includes(TREND_EMPTY_MESSAGE));
   assert.ok(container.querySelector('svg'), 'the resolved case must draw');
   cleanup();
 });
