@@ -2401,6 +2401,49 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `POLISH-TREND-SEASON-ORIGIN-v1`
 
+75. 🔴 **The season transition is anchored to a game no league can see.** Diagnosed 2026-08-23,
+    recorded 2026-08-26 — it was discussed and then lost from this file, which is the failure this
+    entry exists to stop repeating.
+
+    **Mechanism.** `fullSeasonScheduleFetch.ts` calls `buildCfbdGamesUrl({ year, seasonType, week: null })`
+    with NO `division` argument — the builder supports one (`cfbd.ts`), the full-season fetch does not
+    pass it — so CFBD returns every division and all of it is committed as canonical schedule rows.
+    `deriveFirstGameDate` (`scheduleProbe.ts`) then takes the minimum `startDate` across ALL of them,
+    filtering only for a parseable date. Its docstring guards against excluding Week 0 and says
+    nothing about divisions, because the question never arose. The season-transition cron gates on
+    `firstGameDate − 24h`, so a league's lifecycle flips on the earliest game of any division.
+
+    **Measured, 2026.** 3,610 dated rows, 2,722 involving zero FBS teams; 63 rows sit before the
+    first FBS game. The anchor is Ohio Dominican @ Morehead State, and the first FBS game is
+    2026-08-29T16:00Z (North Carolina @ TCU).
+
+    **The real problem is not that it fires early — it is that the anchor is UNSTABLE.** On 2026-08-23
+    that game carried `startTimeTBD: true` with a midnight placeholder of `2026-08-27T04:00Z`; by
+    2026-08-26 it had firmed to `2026-08-27T22:00Z`, sliding the transition gate 18 hours and moving
+    the flip from the Aug 26 run to the Aug 27 run. It moved later this time; nothing prevents it
+    moving earlier. A lifecycle transition should not be triggered by the least reliable timestamp in
+    the dataset.
+
+    **Fix:** filter `deriveFirstGameDate` to rows with at least one participant resolvable against
+    the team catalog — the same authority every downstream consumer already applies, which is why
+    non-FBS games are invisible everywhere else (they resolve to null participants and drop out of
+    the canonical slate). The probe is the only consumer that reads RAW provider rows.
+
+    **Do NOT fix it by adding `division: 'fbs'` to the fetch.** The app deliberately caches all
+    divisions; §8c of the deployment runbook exists because non-FBS postseason rows matter for
+    identity classification.
+
+    **Second consumer, lower priority:** `inferredSeasonStart` carries the same value to
+    `StandingsPanel`, which renders `Season starts {date}` — so a member would be told the season
+    starts on a Division II game's date. Only reachable when the standings table has no owner rows
+    (a league before owner confirmation), because `CFBScheduleApp` seeds a placeholder roster
+    otherwise; not reachable for an established league.
+
+    Also worth handling: `deriveFirstGameDate` ignores `startTimeTBD`, so a placeholder midnight can
+    be EARLIER than the real kickoff and pull the gate forward. Prefer a non-TBD row, with a fallback.
+
+    - **Backlog slug (provisional):** `PLATFORM-TRANSITION-ANCHOR-v1`
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.
