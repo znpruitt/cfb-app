@@ -54,6 +54,8 @@ import {
   acquireScheduleRefreshLease,
   releaseScheduleRefreshLease,
 } from './scheduleRefreshLease.ts';
+import { loadScheduleDisappearanceFallback } from './scheduleDisappearanceBaseline.ts';
+import { emitScheduleGamesVanishedEvent } from './scheduleDisappearanceLog.ts';
 
 /** A full-season refresh always covers BOTH partitions; both are required. */
 const FULL_SEASON_SEASON_TYPES: readonly SeasonType[] = ['regular', 'postseason'];
@@ -122,8 +124,9 @@ async function commitFullSeasonSchedule(params: {
   year: number;
   observedAtMs: number;
   items: ScheduleItem[];
+  partitionFallbackPriorItems: readonly unknown[];
 }): Promise<CommitOutcome> {
-  const { year, observedAtMs, items } = params;
+  const { year, observedAtMs, items, partitionFallbackPriorItems } = params;
   const key = scheduleKey(year);
 
   let outcome:
@@ -216,6 +219,12 @@ async function commitFullSeasonSchedule(params: {
       // must never turn a confirmed durable schedule commit into a failure.
       kickoffsChanged = 0;
     }
+    emitScheduleGamesVanishedEvent({
+      year,
+      observedAt: new Date(observedAtMs).toISOString(),
+      priorItems: outcome.priorItems.length > 0 ? outcome.priorItems : partitionFallbackPriorItems,
+      nextItems: items,
+    });
   }
   return {
     kind: outcome.kind,
@@ -258,8 +267,10 @@ export async function refreshFullSeasonSchedule(params: {
   // Step 1 — fail fast if the prior durable schedule state cannot be read. A read
   // outage means we cannot safely classify empty responses or order observations,
   // so we refuse BEFORE taking the lease or contacting the provider.
+  let initialAggregateValue: unknown = null;
   try {
-    await getAppState<CacheEntry>('schedule', scheduleKey(year));
+    const initialAggregate = await getAppState<CacheEntry>('schedule', scheduleKey(year));
+    initialAggregateValue = initialAggregate?.value ?? null;
   } catch {
     return fullSeasonScheduleRefreshResult({
       reason: 'canonical-context-unavailable',
@@ -314,7 +325,17 @@ export async function refreshFullSeasonSchedule(params: {
       });
     }
 
-    // Step 4/5 — one observation instant captured immediately before provider work.
+    // Capture the partition-only canonical baseline before provider work. A
+    // transaction-fresh populated aggregate still wins at commit time; this is
+    // used only for the first aggregate publication over legacy child keys.
+    const partitionFallbackPriorItems = await loadScheduleDisappearanceFallback({
+      year,
+      aggregateValue: initialAggregateValue,
+    });
+
+    // Step 4/5 — the caller's one observation instant, fixed before provider work.
+    // Fallback eligibility comes from snapshot order above, never from comparing a
+    // child entry's `at` against this possibly reused multi-year clock value.
     const observedAtMs = now;
     const observedAt = new Date(observedAtMs).toISOString();
 
@@ -386,7 +407,12 @@ export async function refreshFullSeasonSchedule(params: {
       o.kind === 'rows' ? o.scoreCannotTellPartitions : []
     );
 
-    const commit = await commitFullSeasonSchedule({ year, observedAtMs, items });
+    const commit = await commitFullSeasonSchedule({
+      year,
+      observedAtMs,
+      items,
+      partitionFallbackPriorItems,
+    });
 
     // PLATFORM-107: this is deliberately opt-in from the weekly cron. The shared
     // authority also serves historical repair and season transition; enabling a
