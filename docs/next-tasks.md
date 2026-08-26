@@ -2444,6 +2444,33 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-TRANSITION-ANCHOR-v1`
 
+76. 🔴 **The team catalog's freshness can only be learned by changing it.** Found 2026-08-26 while
+    trying to close §8b step 1 of the deployment runbook.
+
+    `updatedAt` on the durable team catalog is not observable read-only anywhere:
+    `/api/admin/team-database` exposes only `POST`; `/api/teams` calls `getTeamDatabaseFile()` and
+    projects item fields, dropping the timestamp; and `ReferenceDataPanel` renders `updatedAt` solely
+    from a sync RESPONSE. **The only way to see when the catalog was last synced is to sync it.**
+
+    That makes §8b step 1 unanswerable, and the step matters: the section's own preamble distinguishes
+    read-time override sanitization of SERVED items from a resync that makes the DURABLE record
+    canonical. Correct serving is consistent with both, so the timestamp is the only discriminator —
+    and it is unreachable.
+
+    **Fix:** expose it read-only. Either add `updatedAt`/`source` to the `/api/teams` response meta,
+    or add a `GET` to the admin route. Small, and it closes a runbook step that cannot otherwise be
+    closed without spending a provider call and mutating durable state.
+
+    **Related, and probably the reason it was never noticed:** System Health reports provider
+    freshness for scores, odds, rankings and game stats, but not for the team catalog — even though
+    catalog-derived state appears there. An operator looking for catalog freshness goes to System
+    Health and finds nothing, and the sync control itself lives on Data Maintenance & Recovery
+    (`/admin/data/cache`), deliberately relocated by PLATFORM-086F2D1 on the principle that System
+    Health observes and Data Maintenance mutates. That split is coherent, but it left the catalog
+    with a mutate control and no observe surface.
+
+    - **Backlog slug (provisional):** `PLATFORM-CATALOG-FRESHNESS-READ-v1`
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.

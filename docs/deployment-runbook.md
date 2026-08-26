@@ -447,8 +447,12 @@ no record here.
   read-time override application already sanitizes SERVED items from deploy, and the resync is what
   makes the DURABLE record canonical. So correct served aliases and correct resolution are consistent
   BOTH with the resync having run and with the overrides masking an unsynced durable snapshot. The
-  catalog's `updatedAt` (admin diagnostics → Team Database) is the only thing that distinguishes them,
-  and it has not been recorded here.
+  catalog's `updatedAt` is the only thing that distinguishes them — **and the app does not expose it
+  read-only.** `/api/admin/team-database` has only a `POST`; `/api/teams` reads the catalog but
+  projects item fields and drops the timestamp; the Reference Data panel (`/admin/data/cache`, NOT
+  Diagnostics — relocated by PLATFORM-086F2D1) displays `updatedAt` only from a sync RESPONSE. The
+  only way to learn when the catalog was last synced is to sync it, which changes the thing being
+  observed. **Step 1 is therefore not closable as written**; see `docs/next-tasks.md` item 76.
 - **Step 3 — VERIFIED (operator-run, 2026-08-26).** All four resolution assertions pass against
   production:
 
@@ -466,8 +470,9 @@ no record here.
   read-only procedure with no checked-in CLI; there is no record here that it was repeated against
   the synced catalog's `updatedAt`.
 
-Remaining to close this section: record the catalog `updatedAt` (step 1) and rerun the read-only
-`PLATFORM-086H3E` parity audit (step 4). Neither affects serving behaviour, which is verified above.
+Remaining to close this section: step 1 needs a read-only way to observe the catalog `updatedAt`
+(item 76) before it can be answered at all, and step 4 needs the read-only `PLATFORM-086H3E` parity
+audit rerun. Neither affects serving behaviour, which is verified above.
 
 ---
 
