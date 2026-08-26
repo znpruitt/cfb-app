@@ -2518,6 +2518,50 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `INSIGHTS-CFBD-ADVANCED-ANALYTICS-TRIAL-v1`
 
+77. 🧹 **A league that reaches `season` before drafting tells members to contact the commissioner.**
+    Found 2026-08-26 while checking what the season-transition cron would do to a league drafting
+    later that week. **Long-term cleanup only — the owner judged it a non-issue for now** (the
+    affected league is a family league drafting in person, and the window is a few hours).
+
+    **What happens.** `completeSeasonTransition` has no roster or draft check: its only refusals are a
+    structurally invalid year, already being in the target season, and not being in `preseason` for
+    that year. So an undrafted league flips on schedule. `resolveSeason` then finds no live roster and
+    falls to `preseasonAwaitingKickoffSnapshot`, and `StandingsPanel` branches on whether
+    `inferredSeasonStart` is still ahead — after it passes, the copy collapses onto
+    **"Standings unavailable. Contact your commissioner."**, the same string used for genuinely broken
+    states. The preseason banner stops rendering at the same moment (it gates on
+    `state === 'preseason'`), so the league loses its draft messaging exactly when the draft is
+    imminent. It self-heals the moment the draft writes owners.
+
+    Concretely for 2026: the flip lands ~22h before the anchor game, and the anchor is
+    `2026-08-27T22:00Z`, so a league drafting after that date sees the diagnostic copy in between.
+
+    **OWNER'S SHAPE FOR THE FIX (2026-08-26): present the DRAFT STATE as the copy** — "Draft
+    unscheduled. Contact commissioner." or "Draft is scheduled for 8/27/2026 @ 7:00 PM" — rather than
+    a generic fault. The vocabulary already exists: `selectPreseasonBannerState`
+    (`selectors/preseasonBanner.ts`) returns exactly those variants, including `draft-scheduled` with
+    a `scheduledAt`, plus `draft-live`, `draft-paused`, `awaiting-roster-draft-dated` and
+    `roster-confirmed`.
+
+    **Two reasons it is a slice and not a patch:**
+
+    - `StandingsPanel` receives none of the draft inputs (`assignmentMethod`, `draftPhase`,
+      `draftScheduledAt`). They need threading from the server component — the same shape as
+      PLATFORM-109's `seasonContext` prop.
+    - `selectPreseasonBannerState` gates on `leagueStatus?.state === 'preseason'`
+      (`preseasonBanner.ts:181`), which is precisely the state the league is NOT in when the bad copy
+      appears. Its draft-state derivation has to be separated from its preseason gate.
+
+    **Respect PLATFORM-091's finding when doing it.** That slice existed because a LIFECYCLE state
+    licensed a DRAFT-STATUS claim — `· Date TBD` was the tell, a qualifier that existed only to
+    survive a null. Loosening the preseason gate is the same move in reverse, so it needs the same
+    guards: `manual` assignment must never render "draft unscheduled", and a stale draft record must
+    never name a date for a league that has switched away from drafting.
+
+    Reserve "Standings unavailable" for the case where the app genuinely does not know.
+
+    - **Backlog slug (provisional):** `POLISH-PRESEASON-STANDINGS-COPY-v1`
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.
