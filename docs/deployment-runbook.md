@@ -433,61 +433,28 @@ the last.
 5. Confirm scores refresh behavior looks acceptable during a live or recently completed game window.
 6. Confirm the `/admin` link is only shared with the platform-admin/operator group.
 
-## 8b) Post-merge team-catalog sync (PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY) — ✅ ALIAS SAFETY DONE, parity rerun outstanding
+## 8b) Post-merge team-catalog sync (PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY) — ✅ COMPLETED 2026-07-24
 
-**Status (2026-08-26): the alias-safety work is DONE — steps 1-3 accounted for; step 4 outstanding.**
-Steps 2 and 3 are verified against production, and step 1 rests on operator attestation that the
-resync ran before the TSC draft. The section stays short of a blanket ✅ because the `PLATFORM-086H3E`
-parity rerun (step 4) has no record here, and because step 1's evidence is testimony rather than a
-captured `updatedAt`.
+**Status: PERFORMED and verified 2026-07-24.** The executed record lives in `docs/prompt-registry.md`
+under `PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY-*` (PR #405) and
+`PLATFORM-086-SCHEDULE-NON-FBS-POSTSEASON-CLASSIFICATION-SAFETY-*` (PR #406):
 
-- **Step 2 — VERIFIED.** The durable catalog served by `/api/teams?level=FBS` (138 items) passes all
-  four alias assertions: `San Diego State` alts exclude `sandiego` and include `sdsu`,
-  `San José State` alts include `san jose`, and `New Mexico State` alts exclude `newmexico`.
-- **Step 1 — ATTESTED by the operator (recorded 2026-08-26), timestamp not captured.** The owner
-  states the team-database resync WAS run, before the TSC draft, and that it was the only way to get
-  the draft functioning correctly against the 138-team catalog. That answers the substantive question
-  this step exists to ask — the durable record was rebuilt, so the corrected aliases are not merely
-  read-time override sanitization over an unsynced snapshot.
+- **Step 1 — the resync ran, catalog `updatedAt` `2026-07-24T05:50:09.813Z`**, recorded in the PR #405
+  entry. (The owner separately resynced again before the TSC draft, which was the only way to get the
+  draft working against the 138-team catalog — a later, independent run.)
+- **Steps 2 and 3 — alias and resolver assertions pass.** Re-verified against production 2026-08-26:
+  the catalog serves 138 items with the corrected alts, and `San Diego` resolves to `sandiego`
+  (distinct real school, `subdivision: UNKNOWN`, not ownable) while `SDSU` → `sandiegostate`,
+  `San Jose` → `sanjosestate`, `New Mexico` → `newmexico`.
+- **Step 4 — the `PLATFORM-086H3E` parity audit rerun was PERFORMED 2026-07-24 and parity was
+  CONFIRMED**: 2021/2023/2024/2025 exact, 2022's sole residual the accepted `401506450`. Record
+  preserved in the PR #406 entry.
 
-  Corroborating, and independently verified twice (2026-08-23 and 2026-08-26): the durable catalog
-  served by `/api/teams?level=FBS` carries 138 items whose school set is identical to the checked-in
-  seed `src/data/teams.json`.
+An earlier revision of this status block (2026-08-26) said steps 1 and 4 were unverified. That was
+wrong — it was written without checking the registry, where both had been recorded since July.
 
-  This is OPERATOR ATTESTATION, not a machine-read record. The exact `updatedAt` is still not
-  captured, and step 4 below wants it as a recorded prerequisite — which is currently impossible for
-  the reason given next.
-
-  The distinction the step exists to draw, retained because it explains why the attestation matters:
-  read-time override application already sanitizes SERVED items from deploy, and the resync is what
-  makes the DURABLE record canonical. So correct served aliases and correct resolution are consistent
-  BOTH with the resync having run and with the overrides masking an unsynced durable snapshot. The
-  catalog's `updatedAt` is the only thing that distinguishes them — **and the app does not expose it
-  read-only.** `/api/admin/team-database` has only a `POST`; `/api/teams` reads the catalog but
-  projects item fields and drops the timestamp; the Reference Data panel (`/admin/data/cache`, NOT
-  Diagnostics — relocated by PLATFORM-086F2D1) displays `updatedAt` only from a sync RESPONSE. The
-  only way to learn when the catalog was last synced is to sync it, which changes the thing being
-  observed. **Step 1 is therefore not closable as written**; see `docs/next-tasks.md` item 76.
-- **Step 3 — VERIFIED (operator-run, 2026-08-26).** All four resolution assertions pass against
-  production:
-
-  | input | `canonicalId` | |
-  | --- | --- | --- |
-  | `San Diego` | `sandiego` | distinct from `sandiegostate`; `subdivision: UNKNOWN`, `isOwnable: false` |
-  | `SDSU` | `sandiegostate` | FBS, ownable |
-  | `San Jose` | `sanjosestate` | FBS, ownable |
-  | `New Mexico` | `newmexico` | FBS, ownable |
-
-  `San Diego` satisfies the requirement in the STRONGER of the two permitted ways: the section allows
-  "distinct or unresolved", and it resolves to a distinct real school rather than failing to resolve.
-  That is the collision the whole fix exists to prevent.
-- **Step 4 — NOT verified.** The `PLATFORM-086H3E` production parity audit rerun is an approved
-  read-only procedure with no checked-in CLI; there is no record here that it was repeated against
-  the synced catalog's `updatedAt`.
-
-Remaining to close this section: step 1 needs a read-only way to observe the catalog `updatedAt`
-(item 76) before it can be answered at all, and step 4 needs the read-only `PLATFORM-086H3E` parity
-audit rerun. Neither affects serving behaviour, which is verified above.
+The steps below are the historical procedure. Do NOT replay them; a forced resync spends a provider
+call and rewrites durable state that is already correct.
 
 ---
 
@@ -527,8 +494,14 @@ After the derived-alias-safety fix (or any future `src/data/alias-overrides.json
 
 ## 8c) Post-merge schedule refresh (PLATFORM-086-SCHEDULE-NON-FBS-POSTSEASON-CLASSIFICATION-SAFETY) — ✅ COMPLETED
 
-**Status: the required outcome is PRESENT and verified (2026-08-26).** Both years' identity
-assertions below were re-run against the production cache-only `/api/schedule` response and pass:
+**Status: PERFORMED 2026-07-24; outcome re-verified 2026-08-26.** The refreshes and the parity-audit
+rerun this section requires were executed on 2026-07-24 and recorded in `docs/prompt-registry.md`
+under PR #406 — parity confirmed, 2021/2023/2024/2025 exact, 2022's sole residual the accepted
+`401506450`. §8d later re-ran full-year refreshes for 2021-2025 (2026-07-26), so the current durable
+rows may come from either run.
+
+Both years' identity assertions below were additionally re-run against the production cache-only
+`/api/schedule` response on 2026-08-26 and pass:
 
 - **2024** — the four FCS / Division III championship rows (`401729786`, `401738295`, `401738307`,
   `401729787`) carry distinct `postseason-*` event keys, none prefixed `cfp-`; the two CFP
@@ -537,11 +510,9 @@ assertions below were re-run against the production cache-only `/api/schedule` r
 - **2025** — the same shape holds for `401840097`, `401833989`, `401840096`, `401833990`, the
   semifinals `401769075` / `401769074`, and `401769076`.
 
-**What performed it is most likely §8d**, whose completed record (2026-07-26) states that the durable
-2021–2025 schedule caches carry the corrected identities after full-year refreshes covering exactly
-these seasons. This section records the OUTCOME as verified rather than claiming its own curl
-sequence was executed separately; the distinction matters if a future drift investigation needs to
-know which run produced the current rows.
+An earlier revision of this status block (2026-08-26) speculated that §8d had performed this
+section's work as a side effect, because it recorded the outcome as verified without checking the
+registry. The registry says this section's own sequence ran on 2026-07-24.
 
 The verification above is read-only. The steps below are retained as the historical procedure and
 must NOT be replayed merely because this document is being read — re-running the forced full-year

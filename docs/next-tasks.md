@@ -2452,10 +2452,17 @@ Supersedes: (none)
     projects item fields, dropping the timestamp; and `ReferenceDataPanel` renders `updatedAt` solely
     from a sync RESPONSE. **The only way to see when the catalog was last synced is to sync it.**
 
-    §8b step 1 was closed by OPERATOR ATTESTATION instead (the owner ran the resync before the TSC
-    draft — it was the only way to get the draft working against the 138-team catalog). That is the
-    right answer for that step, and it is also the point: the only durable record of a routine
-    maintenance action is someone remembering they performed it. The step matters because: the section's own preamble distinguishes
+    **This is narrower than first written.** §8b step 1 turned out to be already answered:
+    `docs/prompt-registry.md` records the catalog `updatedAt` as `2026-07-24T05:50:09.813Z` under the
+    PR #405 entry. The process compensated for the missing surface — the operator captured the value
+    in the ledger at the time. An earlier version of this item claimed the only durable record was
+    someone remembering they performed the action; that was wrong, and it was written without
+    checking the registry.
+
+    What remains true is the gap itself: there is no way to answer "when was the catalog last
+    synced?" TODAY without syncing it. The July value cannot tell you whether a later resync
+    happened — and one did, before the TSC draft, with no captured timestamp. The step matters
+    because: the section's own preamble distinguishes
     read-time override sanitization of SERVED items from a resync that makes the DURABLE record
     canonical. Correct serving is consistent with both, so the timestamp is the only discriminator —
     and it is unreachable.
