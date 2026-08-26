@@ -2481,6 +2481,43 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `PLATFORM-CATALOG-FRESHNESS-READ-v1`
 
+77. **CFBD advanced game analytics — IN-SEASON DISCOVERY TRIAL, not committed implementation.**
+    Recorded 2026-08-25 after reviewing CFBD's per-game `/game/box/advanced` response against the
+    existing partition-level `/games/teams` pipeline. This is a potential postgame enrichment layer,
+    not a season-readiness blocker and never a source for schedules, game status, scores, standings,
+    or terminal-game classification.
+
+    **What it could buy.** The response adds play-derived team metrics — PPA, success rate,
+    explosiveness, field position, scoring opportunities / points per opportunity, havoc, and
+    rushing-line / second-level / open-field splits — plus quarter splits and player PPA / usage.
+    Candidate product outcomes are a “Why they won” recap; owner-level efficiency, explosiveness,
+    havoc, finishing-drives, field-position, and trench-identity insights; player-impact / workhorse
+    spotlights; and an excitement-based game-of-the-week treatment. The conventional yards,
+    turnovers, possession, and third-down facts already supplied by `/games/teams` remain useful and
+    are not replaced. The endpoint adds no canceled/postponed/rescheduled state.
+
+    **Trial to run once real 2026 completed games exist.** Use a small, explicit sample of completed
+    games and record: response availability and publication delay; missing/null/partial fields by
+    game class; stability across a later reread; team/game identity quality; whether the narratives
+    are understandable and materially better than the existing box-score insights; response size;
+    and exact CFBD call cost. Missing advanced evidence is absence, never numeric zero, and must not
+    degrade the current game-stats coverage authority.
+
+    **Endpoint decision is part of the trial.** `/game/box/advanced` is keyed by ONE provider game ID,
+    so a full-slate implementation costs one call per game. Compare it with the partition-capable
+    `/stats/game/advanced` endpoint for team-level owner aggregation; reserve the per-game box score
+    for value that actually requires its quarter, player, field-position, scoring-opportunity, or
+    havoc detail. If pursued, fetch only after a canonical final, cache globally by provider game ID,
+    deduplicate across leagues, preserve prior-good observations, and keep all consumers optional and
+    fail-closed. Do not live-poll this endpoint.
+
+    **Trial exit:** report measured coverage, latency, quota cost, and three representative candidate
+    cards before choosing one of: no implementation; team-level partition enrichment only; or a
+    bounded per-game enrichment pipeline. Any production path is a separate reviewed platform slice
+    using the existing provider-boundary, durable-first, refresh-status, and diagnostics contracts.
+
+    - **Backlog slug (provisional):** `INSIGHTS-CFBD-ADVANCED-ANALYTICS-TRIAL-v1`
+
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the
 activation evidence lives in `docs/deployment-runbook.md`.
