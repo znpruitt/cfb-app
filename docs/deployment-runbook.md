@@ -469,7 +469,29 @@ After the derived-alias-safety fix (or any future `src/data/alias-overrides.json
 
 4. Rerun the established `PLATFORM-086H3E` production parity audit (the approved read-only audit procedure — there is no checked-in CLI) with the synced catalog's `updatedAt` recorded as its prerequisite. Do not claim H3E parity until that rerun completes.
 
-## 8c) Post-merge schedule refresh (PLATFORM-086-SCHEDULE-NON-FBS-POSTSEASON-CLASSIFICATION-SAFETY)
+## 8c) Post-merge schedule refresh (PLATFORM-086-SCHEDULE-NON-FBS-POSTSEASON-CLASSIFICATION-SAFETY) — ✅ COMPLETED
+
+**Status: the required outcome is PRESENT and verified (2026-08-26).** Both years' identity
+assertions below were re-run against the production cache-only `/api/schedule` response and pass:
+
+- **2024** — the four FCS / Division III championship rows (`401729786`, `401738295`, `401738307`,
+  `401729787`) carry distinct `postseason-*` event keys, none prefixed `cfp-`; the two CFP
+  semifinals (`401677189`, `401677191`) are `cfp-semifinal-*` with `playoffRound: "semifinal"`; and
+  `401677192` is `national-championship` / `national_championship`.
+- **2025** — the same shape holds for `401840097`, `401833989`, `401840096`, `401833990`, the
+  semifinals `401769075` / `401769074`, and `401769076`.
+
+**What performed it is most likely §8d**, whose completed record (2026-07-26) states that the durable
+2021–2025 schedule caches carry the corrected identities after full-year refreshes covering exactly
+these seasons. This section records the OUTCOME as verified rather than claiming its own curl
+sequence was executed separately; the distinction matters if a future drift investigation needs to
+know which run produced the current rows.
+
+The verification above is read-only. The steps below are retained as the historical procedure and
+must NOT be replayed merely because this document is being read — re-running the forced full-year
+refreshes would spend provider quota and replace durable rows that are already correct.
+
+---
 
 After the non-FBS postseason classification fix is merged and deployed, the durable 2024 and 2025 schedule caches still carry the defective shared `cfp-semifinal` identities on FCS / Division III championship rows and must be re-normalized. Deploy the merged correction before refreshing data. If the pending team-catalog sync from §8b has not been completed, perform and verify that first.
 
