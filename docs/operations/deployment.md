@@ -1,70 +1,124 @@
 # Deployment
 
 Status: Current
-Last verified: 2026-07-26
+Last verified: 2026-08-26
 Owner: Project documentation
-Canonical for: high-level deploy/env/auth-secret/cron overview and operational checks
-Supersedes: (none — the detailed step-by-step operator checklist remains [../deployment-runbook.md](../deployment-runbook.md); this doc is the high-level companion)
+Canonical for: high-level deploy, environment, auth-secret, scheduler, and operational-check orientation
+Supersedes: (none — the detailed procedure is `docs/deployment-runbook.md`)
 
-This is the orientation layer for deploying and operating the app. For the full step-by-step operator checklist (exact commands, per-phase gates, failure-diagnosis playbook) use [../deployment-runbook.md](../deployment-runbook.md), which stays current and is the authoritative procedure. This page summarizes _what_ has to be in place and _why_; the runbook is _how_.
+This document explains what must be in place and why. Use
+[`../deployment-runbook.md`](../deployment-runbook.md) for exact commands, promotion gates, secret
+rotation, scheduler management, incident response, backup, restore, and rollback.
 
-## Environment variables (high level)
+## Production deployment model
 
-Names only — never commit real values; configure them in the hosting platform's secret store.
+Merging to `main` creates a production build but does not by itself move `turfwar.games`. Automatic
+custom-domain assignment is disabled; production changes only when the intended deployment is
+explicitly promoted. Scheduler receipts carry the executing build commit when Vercel exposes it, so
+System Health can distinguish merged code from the build actually handling cron work.
 
-**Required in production**
+Preview deployments are not production evidence. A long-lived preview branch can have its own
+database branch and stale scheduler receipts; verify production through the promoted domain and
+production environment.
 
-| Variable             | Purpose                                                                                                                                                                                                                                                |
-| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`       | Postgres connection for the app-state store. Production **requires** it — the store throws (`production-misconfigured`) rather than fall back to the file store. See [../architecture/storage-and-caching.md](../architecture/storage-and-caching.md). |
-| `CFBD_API_KEY`       | CFBD provider key (schedule/scores). Quota is tier-derived from the provider-reported patron level (current key: Tier 1 = 5,000 calls/month).                                                                                                          |
-| `ODDS_API_KEY`       | The Odds API key. Quota ~500 credits/month.                                                                                                                                                                                                            |
-| Clerk keys           | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` + `CLERK_SECRET_KEY` — identity & app roles.                                                                                                                                                                       |
-| `CRON_SECRET`        | Bearer secret for `/api/cron/*` (shared by all QStash schedules). Missing → every scheduled run fails closed (`401`), stopping season transition/rollover/stats ingestion/live-score polling/automatic Odds polling/weekly schedule maintenance/automatic rankings publication.                 |
-| `LEAGUE_AUTH_SECRET` | HMAC key for the per-league password gate. Required whenever any league sets a password; the gate throws on a missing/empty value.                                                                                                                     |
+## Environment variables
 
-**Transitional / optional**
+Configure secrets in the hosting platform; never commit values.
 
-| Variable                                       | Purpose                                                                                                                                                                  |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `ADMIN_API_TOKEN`                              | Transitional admin-API fallback (Auth Invariant #5) for machine callers; retire in Phase 8. When unset, non-production treats requests as authorized for local dev only. |
-| `NEXT_PUBLIC_SEASON`, `PGSSLMODE`, debug flags | Optional overrides — see the runbook.                                                                                                                                    |
+| Variable | Requirement and purpose |
+| --- | --- |
+| `DATABASE_URL` | Required in production. Postgres backing for `app_state`; production fails closed instead of using the file fallback. |
+| `CFBD_API_KEY` | Required for authorized CFBD schedule, score, rankings, teams/conferences, and game-stats refreshes. |
+| `ODDS_API_KEY` | Required for authorized The Odds API refreshes. |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Clerk identity and the platform-admin role. |
+| `CRON_SECRET` | Shared bearer secret for all seven `/api/cron/*` routes. A missing/mismatched value returns `401` before lifecycle or provider work. |
+| `LEAGUE_AUTH_SECRET` | Required whenever any league uses the private-link password gate; grants no admin role. |
+| `ADMIN_API_TOKEN` | Transitional optional fallback for approved machine/admin API callers. Do not build new flows around it; planned removal belongs to the reviewed commissioner/member authorization work after replacement Clerk scoping exists. |
 
-The three auth secrets are **independent** (see [../architecture/auth-and-privacy.md](../architecture/auth-and-privacy.md)): Clerk (identity/roles), `ADMIN_API_TOKEN` (admin-API fallback), and `LEAGUE_AUTH_SECRET` (per-league privacy gate). The league password grants no role and no provider-refresh authority.
+Optional overrides such as `NEXT_PUBLIC_SEASON`, `PGSSLMODE`, and diagnostic flags are cataloged in
+the runbook. Clerk, `ADMIN_API_TOKEN`, `LEAGUE_AUTH_SECRET`, and `CRON_SECRET` are independent
+security boundaries; see
+[`../architecture/auth-and-privacy.md`](../architecture/auth-and-privacy.md).
 
-## Cron & scheduled work
+## Scheduler ownership
 
-Scheduled routes under `/api/cron/*` authenticate with `Bearer ${CRON_SECRET}` (independent of admin auth) and drive season transition, season rollover, game-stats ingestion, live-score polling, Odds polling, and weekly schedule maintenance. The scheduling boundary is: **external provider polling → QStash; internal lifecycle reconciliation → Vercel Cron.** The game-stats route (`turfwar-game-stats-15m`, every 15 minutes), the live-scores route (`turfwar-live-scores-3m`, every 3 minutes), and the Odds route (`turfwar-odds-hourly`, hourly — **ACTIVE**, provisioned by §8g) are triggered by external QStash schedules; a fourth, `/api/cron/schedule-refresh` (weekly schedule maintenance, `turfwar-schedule-weekly`, Tuesdays 12:00 UTC — PLATFORM-086E1B, corrected by E1B1 for preseason coverage: cache-armed early-preseason years get ordinary weekly maintenance while unarmed/final-week preseason defers to the daily season-transition cron), is **ACTIVE — provisioned by the runbook §8h sequence (2026-07-29)**; while the 2026 leagues remain in preseason its deliveries defer provider work truthfully (`skipped / season-transition-owner`) to the daily season-transition cron. A fifth, `/api/cron/rankings` (publication-aware rankings refresh, `turfwar-rankings-publication`, 04:00 and 22:00 UTC — PLATFORM-086E2B; the application's publication policy, not the heartbeat, decides when provider work is due), is **ACTIVE — provisioned by the runbook §8j sequence (2026-07-30)**; deliveries outside a due publication window skip provider-free (`not-a-heartbeat-slot` / `no-window-due` / `publication-window-complete`). All are intentionally absent from `vercel.json`, which retains only the daily lifecycle crons. All schedules forward the SAME `CRON_SECRET`. Scheduled work keeps provider caches warm through authorized refreshes, so public reads stay quota-free (see [../architecture/game-data-flow.md](../architecture/game-data-flow.md)). A missing/rotated-away `CRON_SECRET` disables these calls — verify exact delivery authentication after any secret rotation (which spans all provisioned schedules — §8j documents the five-schedule rotation order (the rankings schedule exists as of 2026-07-30); §8h recorded the earlier four-schedule order).
+The scheduling boundary is external provider polling through QStash and internal lifecycle
+reconciliation through Vercel Cron.
 
-**Schedule refresh safety guarantees (PLATFORM-085B / 085C).** Both schedule refresh paths refuse to publish a partial or schema-drifted schedule as complete. A CFBD partition that fails (fetch error, non-array response, or a **nonempty** payload that maps to **zero** rows) is treated as uncertainty, not empty:
+| Job | Scheduler | Fixed trigger |
+| --- | --- | --- |
+| Game stats | QStash `turfwar-game-stats-15m` | Every 15 minutes |
+| Live scores | QStash `turfwar-live-scores-3m` | Every 3 minutes |
+| Odds | QStash `turfwar-odds-hourly` | Hourly |
+| Schedule maintenance | QStash `turfwar-schedule-weekly` | Tuesdays 12:00 UTC |
+| Rankings | QStash `turfwar-rankings-publication` | 04:00 and 22:00 UTC |
+| Season transition | Vercel Cron | Daily 00:00 UTC |
+| Season rollover | Vercel Cron | Daily 00:00 UTC |
 
-- `/api/cron/season-transition` probes/caches the season schedule and flips leagues preseason → season at kickoff. On any partition failure it retains the prior-good durable schedule/probe and reports `partialFailure` in that year's result — the next run retries. It does **not** guarantee an immediate transition on a partial-provider day; a league flips only off a validated (current or prior-good) schedule probe.
-- authorized `/api/schedule` (admin `bypassCache=1`) returns `502` on a failed/drifted partition and does not overwrite the prior-good durable schedule cache, so a subsequent public read still serves the last good schedule.
+The five QStash jobs are intentionally absent from `vercel.json`; versioned manager scripts own
+their external schedule definitions. All seven routes authenticate with `Bearer ${CRON_SECRET}`.
+The fixed trigger is a delivery ceiling: application policy decides whether an invocation has an
+eligible target and whether provider work is due. Provider-free skips are normal.
 
-Neither is a real-time updater — freshness is bounded by the cron/refresh cadence, and neither spends provider quota on public reads. A genuinely empty provider array (postseason before bowl season, a future week) is valid absence, not a failure. Both full-season writers (and the historical repair) converge on the E1A shared authority, which classifies an empty response against the transaction-fresh prior durable schedule; a genuine store outage fails fast (`canonical-context-unavailable`) before any lease/attempt/provider work, so no attempt is stranded `in-progress`. Game-stats, live-score, automatic Odds polling, and weekly schedule-maintenance automation are all active (Odds via PLATFORM-086C2 through §8g; the weekly schedule route via PLATFORM-086E1B/E1B1 through §8h, 2026-07-29 — currently deferring 2026 provider work truthfully to the daily season-transition cron while the leagues remain in preseason); the rankings cadence (PLATFORM-086E2) is still planned.
+Rotate `CRON_SECRET` as one coordinated operation across the Vercel environment and all five QStash
+schedules. Follow runbook §8k; a partially rotated set silently disables whichever jobs still carry
+the old value.
 
-## Provider-refresh observability & controls (PLATFORM-086A)
+## Provider and cache safety
 
-The `/admin/diagnostics` **Provider Data Status** panel gives operators one place to see, per provider dataset (scores/schedule/odds/rankings/conferences/game-stats): the newest attempt's **explicit state** (in progress / interrupted / succeeded / partial / failed / **completed with no applicable data**), or — when no PLATFORM-086A refresh-status record exists yet — a cache-aware no-history state (_serving cached data · no refresh history recorded_ / _no cached data or refresh history_ / conservative _no refresh history recorded_ when availability is unknown), last successful refresh + age, last error, rows committed, partial-failure state, cache-only missing-data warnings, CFBD/Odds quota, and a manual refresh button. The newest attempt's state is read from an explicit outcome field, so an in-flight, interrupted, or valid-no-op probe is never mislabeled as a leftover success or failure (PLATFORM-086A rereview). Cache availability is determined cache-only (`getProviderCacheStates`), so missing observability history is never equated with missing data. Odds quota is read from **durable storage on every panel load**, so a refresh on another instance is reflected rather than masked by a stale process memo. **CFBD quota** is reconciled once by a shared model (`normalizeProviderQuota`) consumed by both this panel and the legacy API Usage panel — the canonical **Tier 1 limit is 5,000 calls**, `used + remaining = limit`, and an internally-inconsistent provider observation is reported honestly (fall back to the canonical Tier limit, or "quota status unavailable") rather than as an impossible "remaining of limit" combination. The panel isolates all year-scoped state to the currently selected year (request seq + `AbortController` + echoed-year + live selected-year guard; manual-refresh state keyed by `${year}:${dataset}`), so a response, error, spinner, or "Refresh complete" for one year can never surface under another. Durable status itself is keyed by a **canonical target scope** (PLATFORM-086A-SCOPED), so each card reflects only its own target (year / global / canonical-odds) and a refresh for another year, a single partition/week, or a filtered odds query never advances the card's status — the card shows a small scope chip stating which target it reflects. Only a **whole-target** operation advances the year card: the schedule year card advances only on a full-year schedule refresh (a targeted `seasonType`/week repair records its own partition), and the scores year card advances only on an aggregate refresh covering **every applicable** partition (a week-specific refresh or an aggregate subset that omits an applicable sibling records its own partition) — PLATFORM-086A-SCOPED-STATUS review remediation. A completion token that resolves a different dataset or scope than it was begun for is rejected (write skipped), so a concurrent cross-year/cross-partition refresh cannot cross-contaminate another card. It also exposes two operator settings, persisted durably (`provider-refresh-settings`):
+Public schedule, score, Odds, rankings, and game-stat reads are cache-only. Only authenticated admin
+refreshes and cron jobs may contact providers. Provider-backed writers follow durable-first order:
+fetch/normalize, durable commit, process-cache update, invalidation, then response.
 
-- **Global pause** — shown as **Global provider pause: Off/On**, it halts **noncritical** automatic provider polling. It does **not** block manual admin refresh, and it does **not** block lifecycle-critical OPERATIONS — the season-transition/rollover crons and the weekly schedule cron's postseason-boundary maintenance (PLATFORM-086E1B) — which are exempt by never consulting `isAutoRefreshAllowed` (the helper itself carries no dataset-level bypass), so preseason→season transitions and the season-rollover boundary never stall on an operator pause. The label change alters no persisted setting or cron behavior.
-- **Per-dataset enable/disable** — turns automatic refresh off for one dataset without deleting prior-good data or blocking manual repair.
+Full-season schedule refreshes use one completeness authority. A required partition fetch failure,
+non-array payload, or nonempty-to-zero normalization is uncertainty: retain prior-good data and
+report failure. An exact empty partition can be valid absence. An all-empty result over a populated
+schedule is a rejected replacement, not a healthy empty commit. Season transition uses the same
+classification and never changes lifecycle state from an uncertain probe.
 
-**Manual refresh honesty.** A manual score refresh is ONE aggregate action under a **single** `scores` refresh attempt, so the whole operator action resolves as one truthful status and a partition's success or valid no-op can never erase another partition's failure. The **server** derives the **applicable** partitions cache-only from the requested year's schedule (regular, plus postseason once the schedule carries bowls), so it does not fire a doomed postseason request mid-regular-season even if the client omits the list, and a valid empty CFBD partition is a successful no-op rather than dragging the action to failure — but if any applicable partition fails, the aggregate reports failure (with the failed partitions listed, prior-good last-success preserved). A route that degraded to a bundled/prior-good/stale fallback (conferences with no CFBD key **or an empty/malformed provider payload** → `meta.fallbackUsed`; rankings rejecting an empty/drifted replacement → `meta.stale`/`meta.rebuildRequired`) is reported as a failure ("fallback data is still serving"), never as "Refresh complete." Conferences reference data does not legitimately disappear, so a non-array (`conferences-invalid-payload`) or empty/zero-usable (`conferences-no-usable-rows`) response is a failure that retains prior-good rather than committing an empty cache. A failed refresh's panel message is cache-state-aware — a cold first failure with no cache says "no cached data is available," not "prior-good still serving" — and game-stats manual-action state is keyed by year + week + season type so a result never shows against a partition that was not refreshed.
+Provider-refresh status is scoped to the exact attempted target and is observability only. Failed
+and no-op attempts do not advance last success; success is recorded only after a confirmed durable
+commit. Scheduler receipts independently show whether an authenticated scheduled invocation ran.
 
-**Diagnostics measure real coverage, not presence (PLATFORM-086A 4th/5th/6th review).** The panel's missing-data warnings judge content, not markers: a completed slate's **score** coverage requires a canonical **terminal** row (final/canceled — an in-progress numeric row does not silence the missing-final warning); **game-stats** coverage is the participant-verified `evaluatePartitionCoverage` against the canonical schedule/slate (`src/lib/gameStats/coverage.ts` is only a cached-**presence** probe, not the coverage authority; a `games: []`, all-dropped, or participant-mismatched record is not coverage), only **stat-producing** games are expected (a disrupted-only slate is not applicable — no warning, and the cron never polls it), and the cron/manual refresh flow through the ONE `ingestGameStatsPartitionResponse` coordinator + `interpretGameStatsRefreshOutcome` interpreter — an exact empty CFBD array is an `empty-response` **no-op** (no empty write), a non-array top-level payload is `invalid-payload`, and a nonempty payload with no persistable observations is `no-persistable-observations` (both **failures**); **rankings** coverage requires ≥1 usable week and each partition (regular/postseason) is validated **independently before combining** — a nonempty partition normalizing to zero usable weeks is schema drift (`rankings-partition-schema-drift`, prior-good retained) so a healthy partition cannot mask a drifted one, while a raw-empty response is a pre-poll no-op (no prior-good) or a rejected empty replacement (prior-good exists); and **odds** staleness is measured from the selected season's **canonical** `odds-cache` entry only, **separate from** the CFBD/Odds **quota** display and from filtered query variants — a quota timestamp or a filtered-markets refresh cannot make this season's stale served odds look fresh. Status classification is **separator-agnostic**: the shared `gameStatus` classifier normalizes provider/cache enum labels (`STATUS_CANCELED`, `STATUS_POSTPONED`, hyphen/space variants) before matching, so an underscore-delimited enum is not silently misbucketed. An **empty schedule** refresh over an already-populated schedule is rejected (prior-good retained), not stored and then labelled a no-op — and the **season-transition cron** applies the **same shared classifier** as the authorized schedule route, so an empty probe over a populated prior-good schedule is a rejected failure (prior-good retained, the league does not flip off it) rather than a silent no-op.
+## System Health and maintenance
 
-**Current automation coverage vs. planned.** Five datasets have a job that consumes these settings: **game-stats** (every 15 minutes), **scores** (the live-score poll, every 3 minutes — PLATFORM-086B2B), **odds** (`GET /api/cron/odds`, hourly — PLATFORM-086C2, active), and **schedule** (the weekly maintenance route `GET /api/cron/schedule-refresh` — PLATFORM-086E1B + E1B1, **active**; its `turfwar-schedule-weekly` schedule was provisioned by the §8h sequence, 2026-07-29). The Schedule toggle gates ONLY the ordinary operations (active-season weekly maintenance and cache-armed early-preseason maintenance) — the lifecycle-critical season-transition cron, the weekly cron's postseason-boundary maintenance, and its transition-owned preseason deferrals are unaffected by it. The fifth is **rankings** (`GET /api/cron/rankings` — PLATFORM-086E2B, **ACTIVE; `turfwar-rankings-publication` provisioned by §8j, 2026-07-30**): ALL rankings automation is noncritical, so the Rankings toggle (or the global pause) gates every automatic rankings refresh while the authorized manual refresh stays ungated. The one remaining dataset (conferences) has **no automatic job** — its setting persists as intent, and the panel's "Policy" line describes a _planned_ cadence, not automation already running. Cadence is version-controlled, not editable from the panel: the two lifecycle crons (season-transition, season-rollover) are in `vercel.json`, while the game-stats poll (external **QStash** schedule `turfwar-game-stats-15m`), the live-scores poll (`turfwar-live-scores-3m`), the odds poll (`turfwar-odds-hourly`), the weekly schedule poll (`turfwar-schedule-weekly`), and the rankings publication heartbeat (`turfwar-rankings-publication`) call their cron routes — `vercel.json` owns none of them. Application code owns eligibility: `pollingTarget.ts` (game-stats) and `src/lib/liveScores/pollingTarget.ts` (live scores) each enforce the kickoff-window bound and the at-most-one-partition-per-run rule, and with no eligible target the run makes no CFBD quota probe, no provider call, and opens no provider-refresh attempt (e.g. a gates-open live-scores delivery with no in-window game returns HTTP 200 `skipped / no-polling-target`, `providerCallAttempted: false`). Visible browser tabs additionally refresh scores cache-only on the same 3-minute cadence (no provider call, no quota).
+`/admin/diagnostics` renders System Health for the server-resolved operational season. It separates
+scheduler delivery/execution, canonical cache/evidence health, provider-refresh outcomes,
+automation settings, quota, and storage. The model writes nothing; its only provider contact is one
+cached CFBD usage observation. It has no year selector and no provider-refresh buttons.
+
+System Health can pause noncritical provider automation globally or disable one of the five live
+setting consumers: game stats, scores, Odds, ordinary schedule maintenance, and rankings.
+Lifecycle-critical season transition, season rollover, and postseason-boundary schedule work are
+exempt. Conferences remain manual-only.
+
+`/admin/data/cache` owns every provider-spending refresh, rebuild, historical repair, and emergency
+recovery action. Each action discloses its nominal cost, durable mutations, automation owner, and
+routine/recovery/emergency class from `src/lib/admin/maintenanceActions.ts`. Manual actions remain
+available when automatic jobs are paused.
 
 ## Deploy-time checks
 
-- **Storage mode:** confirm `getAppStateStorageStatus()` reports `postgres` (not `production-misconfigured`) — i.e. `DATABASE_URL` is set and reachable.
-- **Auth wiring:** platform-admin sign-in reaches `/admin` and `/debug`; a non-admin is redirected; `/api/admin/*` + `/api/debug/*` reject unauthenticated calls.
-- **Cron:** a manual authorized `/api/cron/*` call with the Bearer secret returns success; without it, `401`.
-- **Provider quota:** public `/api/scores` and `/api/odds` serve cache without spending quota; only admin `refresh=1` spends it.
+- Confirm the intended build, not merely a newer build, is promoted to the production domain.
+- Confirm `getAppStateStorageStatus()` resolves to Postgres and the production database is reachable.
+- Confirm platform-admin pages open for the authorized Clerk account; wrong-role/signed-out access
+  fails closed; admin/debug APIs reject unauthenticated requests.
+- Inspect all five QStash schedules and both Vercel Cron entries. Verify their exact URLs, methods,
+  cadence, retry policy, and shared bearer-secret wiring.
+- Confirm each job's System Health receipt reports the promoted build after its next fixed slot.
+- Verify public data routes serve durable caches without provider calls; run provider-spending checks
+  only through the disclosed admin actions.
+- Check CFBD and Odds headroom before opening gates or running broad recovery/backfill operations.
 
-## Rollback, backup & restore
+## Rollback, backup, and restore
 
-Follow the runbook's procedures. In brief: durable state lives entirely in the `app_state` table (Postgres), so back it up with standard Postgres tooling; application rollback is a redeploy of the prior build. Because caches are tag-invalidated (not time-expiring), a rollback that changes derivation logic may warrant a standings-tag invalidation so snapshots recompute. See the runbook for the exact backup/restore and rollback steps.
+Durable application state lives in Postgres `app_state`; use the runbook's database procedures and
+standard Postgres backup tooling. Application rollback is promotion of the prior verified build,
+not a Git history rewrite. A rollback that changes derivation behavior may also require the
+documented cache invalidation/rebuild procedure.
 
-**Game-stats writer-control fence (post-activation).** Production writer control is durably `active`; H2 is the only authorized game-stats writer. **Never return production to `legacy`** after activation. The emergency stop is `active → read-only-safe`, with recovery only through `read-only-safe → active`; pause both automation gates and the QStash schedule before a stop or rollback. The `init:writer-control` legacy initializer is retained for a brand-new environment's pre-fence bootstrap only, not for production recovery. See [`../ai/game-stats-writer-fence.md`](../ai/game-stats-writer-fence.md) and the detailed §8e procedure in the runbook.
+Game-stats writer control is durably `active`. Never return production to `legacy`. For an ingestion
+incident, close the automation gates and pause QStash first; use `active -> read-only-safe` only when
+the durable writer fence is required, then recover through `read-only-safe -> active`. The exact
+sequence is in runbook §8e and the architecture is in
+[`../ai/game-stats-writer-fence.md`](../ai/game-stats-writer-fence.md).

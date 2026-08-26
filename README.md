@@ -1,7 +1,7 @@
 # CFB App
 
 Status: Current
-Last verified: 2026-07-26
+Last verified: 2026-08-26
 Owner: Project documentation
 Canonical for: repository onboarding — what this app is, how to run it, and where the authoritative docs live
 Supersedes: (none — replaces the original create-next-app boilerplate)
@@ -30,16 +30,13 @@ this README:
 - **[`docs/README.md`](docs/README.md)** — the full documentation map: which doc
   owns what, plus lifecycle/status conventions.
 
-Upstream → downstream flow: CFBD provider schedule → schedule normalization +
-team-identity resolution (`src/lib/teamIdentity.ts`) → canonical game model
-(`AppGame`) → score and odds attachment → durable game-stat evidence
-evaluation/projection against canonical games → ownership / standings /
-analytics → UI. Identity resolution happens _during_ canonical construction
-(`buildScheduleFromApi`) through the centralized team-identity layer; the
-schedule is the source of truth. Scores and odds attach onto the canonical
-`AppGame`, whereas durable game-stat evidence is evaluated and projected against
-canonical games (it is not stored inline on `AppGame`) and never creates a
-parallel game identity. Diagnose upstream-first, in that order.
+Upstream → downstream flow: authorized admin/cron refresh → provider adapter → durable provider
+cache → schedule normalization + team-identity resolution (`src/lib/teamIdentity.ts`) → canonical
+game model (`AppGame`) → score, odds, ownership, and presentation overlays → standings/analytics →
+UI. Member/public reads are cache-only. Durable game-stat evidence is evaluated and projected
+against canonical games (not stored inline on `AppGame`) and never creates a parallel identity.
+See [`docs/CFB_APP_ARCHITECTURE.md`](docs/CFB_APP_ARCHITECTURE.md) for the compact pipeline and
+diagnose upstream-first in that order.
 
 Source entrypoints: the App Router routes live under `src/app/` (the root page
 is `src/app/page.tsx`, the root layout is `src/app/layout.tsx`); shared logic

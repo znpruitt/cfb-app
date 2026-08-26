@@ -246,7 +246,8 @@ independently. **Queued, not fixed.**
   conclusion evidence feeding them so a scoreless `completed` game cannot publish a resolved
   standings snapshot.
 - **The recap's authority.** `season_wrap` trusts the LIFECYCLE — rollover fired, so the season is
-  over — not this derived signal, and that stays true. Item 52 records why gating it on coverage was
-  considered and rejected.
+  over — not this derived signal, and that stays true. Gating the recap on coverage was considered
+  and rejected because one unresolved score would otherwise blank a truthful completed-season recap
+  for the entire offseason; coverage remains a separately surfaced data-health fact.
 - **Per-consumer patches.** The four surfaces that inherit the confusion are fixed here, at the
   source. None of them grows a workaround.

@@ -1,16 +1,16 @@
 # Architecture Overview
 
 Status: Current
-Last verified: 2026-07-26
+Last verified: 2026-08-26
 Owner: Project documentation
 Canonical for: high-level runtime architecture, data-flow overview, source-of-truth hierarchy, architecture-doc index
-Supersedes: (none — complements `AGENTS.md`; the `docs/CFB_APP_ARCHITECTURE.md` pipeline sketch is the one-line version of the data flow below)
+Supersedes: (none — complements `AGENTS.md`; the `docs/CFB_APP_ARCHITECTURE.md` pipeline sketch is the compact version of the data flow below)
 
 This is the entry point for **current** runtime architecture. `AGENTS.md` remains the binding source for architecture invariants and agent operating rules; this doc and its siblings under `docs/architecture/` describe how the running system fits together so you don't have to reconstruct it from campaign retrospectives or audit prompts.
 
 ## High-level structure
 
-A Next.js (App Router) college-football office-pool app. It is **API-first**: CFBD is the upstream source of truth for schedule and scores, The Odds API for betting odds. A small managed Postgres (`app_state`) holds durable shared state (aliases, owner rosters, postseason overrides, team-database snapshot, cached provider snapshots). Members read shared cached state; season-persistent data changes only through admin/commissioner flows.
+A Next.js (App Router) college-football office-pool app. It is **API-first**: CFBD is the upstream source of truth for schedule and scores, The Odds API for betting odds. A small managed Postgres (`app_state`) holds durable shared state (aliases, owner rosters, postseason overrides, team-database snapshot, cached provider snapshots). Members read shared cached state; season-persistent data changes only through platform-admin actions or authenticated automatic jobs.
 
 - **`src/app/`** — routes. `src/app/api/*` are provider adapters (`schedule`, `scores`, `odds`, `teams`, `aliases`, `owners`, `debug/*`, `cron/*`); `src/app/league/[slug]/*` and `src/app/admin/*` are the pages.
 - **`src/components/CFBScheduleApp.tsx`** — the client orchestrator: holds top-level state, coordinates bootstrap/refresh, wires UI. Not a place for parsing/matching logic.
@@ -45,7 +45,7 @@ API response → normalization layer → canonical game model → attachment lay
 | Live in-progress annotations                                      | client `LiveDelta` overlay (never merged into canonical at render time)           |
 | Scores / odds                                                     | CFBD / The Odds API, attached to canonical games; public reads are cache-only     |
 | Game-stats evidence / owner analytics                             | CFBD `/games/teams` → H2 durable merge (`active` writer control) → evidence projection keyed to the canonical schedule |
-| User identity + app role                                          | Clerk (`platform_admin` / `commissioner` / `member`)                              |
+| User identity + app role                                          | Clerk; only `platform_admin` is currently an authorizing role                     |
 | Per-league page access                                            | league password gate (`LEAGUE_AUTH_SECRET`) — separate from Clerk, grants no role |
 
 ## Deeper architecture docs
@@ -53,9 +53,11 @@ API response → normalization layer → canonical game model → attachment lay
 - [game-data-flow.md](game-data-flow.md) — schedule → canonical games, score/odds attachment, game-stats ingestion/evidence flow, provider cache/quota policy.
 - [identity-and-ownership.md](identity-and-ownership.md) — `teamIdentity.ts`, alias precedence, `gameOwnership.ts`, CSV's role.
 - [standings.md](standings.md) — canonical standings authority, LiveDelta, NoClaim, cache invalidation, lifecycle states.
+- [week-resolution.md](week-resolution.md) — distinct predicates for played-week resolution and
+  archive-ready score coverage.
 - [auth-and-privacy.md](auth-and-privacy.md) — Clerk vs `ADMIN_API_TOKEN` vs league password; route/API auth.
 - [storage-and-caching.md](storage-and-caching.md) — `app_state` store, alias/standings cache keys/tags, provider caches.
-- [admin-control-plane.md](admin-control-plane.md) — admin route/action inventory, target admin information architecture, scheduler-receipt contract, the PLATFORM-086F2 migration map.
+- [admin-control-plane.md](admin-control-plane.md) — current admin information architecture, route/action ownership, and scheduler-receipt contract.
 - Operations: [deployment.md](../operations/deployment.md), [diagnostics.md](../operations/diagnostics.md).
 
 ## Current docs vs historical docs

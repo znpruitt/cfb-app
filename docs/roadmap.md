@@ -1,7 +1,7 @@
 # CFB App Roadmap
 
 Status: Current
-Last verified: 2026-07-30
+Last verified: 2026-08-26
 Owner: Project documentation
 Canonical for: high-level product/platform roadmap and development philosophy only
 Supersedes: (none)
@@ -30,6 +30,11 @@ Prompt format and registry guidance live in `docs/prompt-registry.md`.
 All foundational work is complete: architecture stabilization, production hardening, league UX, visual redesign, multi-league support, historical analytics, draft tool, admin auth, product design audit (7A–7F), commissioner self-service, season lifecycle, and launch prep.
 
 Active work is organized into named workstream campaigns (see below). Phase numbering is retired — existing `P{n}` prompt IDs are grandfathered; new prompts use `{CAMPAIGN}-{###}` format.
+
+The current near-term focus is season-operations reliability: truthful lifecycle timing,
+rescheduled-kickoff reconciliation, completed-score gap diagnostics, bounded database waits, and
+archive integrity. Exact ordering and open implementation slices live only in
+`docs/next-tasks.md`.
 
 ## Production data policy
 
@@ -206,8 +211,8 @@ Enrich the existing insights panel on the overview page with contextual, data-dr
 
 **Two weekly in-season pulses:**
 
-- **Monday 6am ET (11am UTC) — Look Back:** Weekend recap, notable results, standings movement, trash-talk fodder, owner vs owner outcomes, surprising performances
-- **Thursday 6am ET (11am UTC) — Forward Look:** Games to watch this weekend, owner vs owner collision preview, rivalry implications, who needs a win
+- **Monday 6am ET — Look Back:** Weekend recap, notable results, standings movement, trash-talk fodder, owner vs owner outcomes, surprising performances
+- **Thursday 6am ET — Forward Look:** Games to watch this weekend, owner vs owner collision preview, rivalry implications, who needs a win
 
 **Data sources (tiered by availability):**
 
@@ -258,9 +263,26 @@ intentionally random. Any future "difficulty" or visibility control must not rei
 win totals as draft inputs — it is limited to neutral factual context (schedule shape, preseason AP
 rank, ranked-opponent count, prior-season record).
 
+#### League Setup and Roster Authority (planned continuation)
+
+The live draft path is established, but commissioner recovery and membership authority still span
+confirmed owners, the published draft, and the team→owner roster. The next campaign should converge
+assignment-method validation, reopen/reset/publication recovery, mid-season membership repair, and
+the manual-assignment dead end without guessing identity from display-name equality. Multi-user
+drafting remains separately gated on stable pick attribution, serialized writers, and bounded
+database waits. See the grouped Draft and membership items in `docs/next-tasks.md`.
+
 ---
 
 ### Platform
+
+#### Season Operations Reliability (active)
+
+Keep the season trustworthy after launch: lifecycle transitions must anchor to games a league can
+actually see; schedule corrections and delete/recreate reschedules must reach the canonical model in
+time; inferred disruptions and missing completed scores must be diagnosable; and archive publication
+must have an explicit incomplete-coverage policy. This is a sequence of small platform slices, not a
+single broad PR. `docs/next-tasks.md` owns the current order and acceptance context.
 
 #### Provider Refresh Observability & Automation (PLATFORM-086)
 
@@ -269,12 +291,14 @@ The provider campaign: truthful refresh observability first, then narrow correct
 Provider limits (canonical): CFBD Tier 1 = 5,000 calls/month; The Odds API = 500 credits/month (current request cost 3 credits; Odds automation targets ~450 credits with a ~50-credit safety buffer).
 
 The campaign is **complete**, PLATFORM-086F2 included (the admin control-plane IA redesign, closed
-2026-08-08 by its final slice F2J; the audited plan and slice-by-slice outcome map remain at
-`docs/architecture/admin-control-plane.md`). All provider automation shipped and activated: game-stats polling
+2026-08-08 by its final slice F2J; its current authority is
+`docs/architecture/admin-control-plane.md`, while the completed migration record is archived at
+`docs/archive/operations/admin-control-plane-f2-2026.md`). All provider automation shipped and activated: game-stats polling
 (15-minute), live-score polling (3-minute), Odds polling (hourly), weekly schedule maintenance +
 automatic presentation enrichment, and publication-aware rankings automation. Per-slice execution
-records live in `docs/prompt-registry.md`; outcome milestones in `docs/completed-work.md`; operator
-activation evidence in `docs/deployment-runbook.md` §8e–§8j.
+records live in `docs/prompt-registry.md`; outcome milestones in `docs/completed-work.md`; current
+operator controls in `docs/deployment-runbook.md` §8e–§8k; historical activation evidence in
+`docs/archive/operations/provider-activation-2026.md`.
 
 | Slice | What it owns | Status |
 | --- | --- | --- |
@@ -287,7 +311,7 @@ activation evidence in `docs/deployment-runbook.md` §8e–§8j.
 | 086C (C1/C2/C3) | Odds refresh authority, polling activation, cache UI hydration | ✅ Complete — active in production (§8g; PRs #419–#421) |
 | 086E1 (E1A/E1B/E1B1/E1C1/E1C2) | Schedule refresh authority, weekly automation, presentation enrichment | ✅ Complete — active in production (§8h; §8i observation pending, passive; PRs #422–#426) |
 | 086E2 (E2A/E2B) | Rankings refresh authority, publication-aware automation | ✅ Complete — active in production (§8j; PRs #427–#428) |
-| 086F2 | Admin control-plane IA redesign (F2A audit/IA doc + F2B–F2J implementation slices; plan: `docs/architecture/admin-control-plane.md`) | ✅ **Complete** — every slice F2A–F2J merged or explicitly retired; closed 2026-08-08 by F2J (PR #463, `d9a8e93`). The per-slice record lives in `docs/prompt-registry.md` and `docs/completed-work.md`; this row is deliberately no longer a running log of every slice. Notable outcomes: F2G1 retired draft assistance; F2H1R5 retired in full (re-planned as the unscheduled PLATFORM-087); F2H2 shipped two slices of five chartered, retiring two and rescoping one; F2H4 retired `/admin/season` outright; F2I found and covered an irreversible, untested league delete |
+| 086F2 | Admin control-plane IA redesign (F2A audit through F2J closeout) | ✅ **Complete** — closed 2026-08-08 by F2J (PR #463, `d9a8e93`). Current behavior lives in `docs/architecture/admin-control-plane.md`; the campaign outcome map is archived in `docs/archive/operations/admin-control-plane-f2-2026.md`; prompt and shipped-work detail remains in the two ledgers. Notable outcomes: F2G1 retired draft assistance, F2H4 retired `/admin/season`, and F2I made league deletion explicit and regression-covered. |
 | 086D | Absorbed into 086A; retired — do not reuse the ID | — |
 
 Conferences remain manual — no automation task exists or is planned.
@@ -424,10 +448,11 @@ Systematic review and rewrite of all user-facing strings for consistent voice an
 - ✅ Alias-model sequence complete (PLATFORM-055 → 067): stored global scope is the primary alias store; the hidden league editor and league-scoped runtime layer were removed (PLATFORM-064/067). Final runtime precedence: **stored global → year → SEED_ALIASES**.
 - **Superseded goal:** "remove legacy year-scoped alias support code" is no longer pursued — the accepted final model (PLATFORM-067) **intentionally retains the year scope as a runtime layer** below stored global. Year-scoped aliases are a supported precedence tier, not legacy code pending deletion.
 
-#### History Page — Filter Former Owners (planned)
+#### History Page — Filter Former Owners ✓ Complete
 
-- Add a "filter former owners" tab or toggle on the history page so members can collapse the view to active roster only
-- Current state: former owners are visually distinguished (muted + badge) but still occupy table rows; some members will want a strict active-roster view
+History's Active-only control now derives membership from the confirmed current roster, with a
+latest-archive fallback before a new roster is confirmed, and actually removes former owners from
+the ranking view. Shipped through POLISH-009; outcome details live in `docs/completed-work.md`.
 
 #### History Rework — Career Stats Surface (planned)
 
@@ -493,7 +518,7 @@ All completed work is detailed in `docs/completed-work.md`. Key milestones:
 | Insights Panel UI Redesign + Polish                 | ✅ Complete                 |
 | Pairing Cards                                       | 🔄 Planned                  |
 | Luck Score + Bounce-Back Generators                 | 🔄 Planned                  |
-| Insights — "See All" Page                           | 🔄 Planned                  |
+| Insights — "See All" Page                           | ✅ Complete                 |
 | Insights Panel — Microlabel Palette                 | 🔄 Planned                  |
 | Insights Ranker — Priority Tuning                   | 🔄 Planned                  |
 | History Rework — Career Stats Surface               | 🔄 Planned                  |
