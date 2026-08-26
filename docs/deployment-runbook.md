@@ -435,26 +435,39 @@ the last.
 
 ## 8b) Post-merge team-catalog sync (PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY) — ⚠️ PARTIALLY VERIFIED
 
-**Status (2026-08-26): step 2 verified from production; steps 3 and 4 NOT verified.** Unlike §8c,
-this section cannot be confirmed end to end from outside the admin boundary, so it is deliberately
-NOT marked complete.
+**Status (2026-08-26): the alias-safety OUTCOME is verified (steps 2 and 3); steps 1 and 4 are not.**
+Deliberately not marked complete — the served behaviour is right, but this section explicitly
+distinguishes served correctness from a resynced durable record, and the downstream parity rerun has
+no record here.
 
 - **Step 2 — VERIFIED.** The durable catalog served by `/api/teams?level=FBS` (138 items) passes all
   four alias assertions: `San Diego State` alts exclude `sandiego` and include `sdsu`,
   `San José State` alts include `san jose`, and `New Mexico State` alts exclude `newmexico`.
-- **Step 1 — NOT verified.** Whether the `POST /api/admin/team-database` resync was actually run, and
-  with what `updatedAt`, is not observable from the served payload. The step-2 result is consistent
-  with it having been run, and also with the corrected aliases arriving by another route.
-- **Step 3 — NOT verified.** `/api/debug/resolve-team` is admin-gated and returns `401` unauthenticated,
-  so the four resolution assertions (`San Diego` must NOT resolve to `sandiegostate`; `SDSU` →
-  `sandiegostate`; `San Jose` → `sanjosestate`; `New Mexico` → `newmexico`) have not been re-run here.
+- **Step 1 — NOT verified, and steps 2/3 cannot stand in for it.** This section's own preamble is why:
+  read-time override application already sanitizes SERVED items from deploy, and the resync is what
+  makes the DURABLE record canonical. So correct served aliases and correct resolution are consistent
+  BOTH with the resync having run and with the overrides masking an unsynced durable snapshot. The
+  catalog's `updatedAt` (admin diagnostics → Team Database) is the only thing that distinguishes them,
+  and it has not been recorded here.
+- **Step 3 — VERIFIED (operator-run, 2026-08-26).** All four resolution assertions pass against
+  production:
+
+  | input | `canonicalId` | |
+  | --- | --- | --- |
+  | `San Diego` | `sandiego` | distinct from `sandiegostate`; `subdivision: UNKNOWN`, `isOwnable: false` |
+  | `SDSU` | `sandiegostate` | FBS, ownable |
+  | `San Jose` | `sanjosestate` | FBS, ownable |
+  | `New Mexico` | `newmexico` | FBS, ownable |
+
+  `San Diego` satisfies the requirement in the STRONGER of the two permitted ways: the section allows
+  "distinct or unresolved", and it resolves to a distinct real school rather than failing to resolve.
+  That is the collision the whole fix exists to prevent.
 - **Step 4 — NOT verified.** The `PLATFORM-086H3E` production parity audit rerun is an approved
   read-only procedure with no checked-in CLI; there is no record here that it was repeated against
   the synced catalog's `updatedAt`.
 
-An operator with admin credentials can close steps 3 and 4 read-only. Do not treat step 2 passing as
-evidence for the others — the whole point of the resolver diagnostic is that a correct-looking
-catalog can still resolve wrongly.
+Remaining to close this section: record the catalog `updatedAt` (step 1) and rerun the read-only
+`PLATFORM-086H3E` parity audit (step 4). Neither affects serving behaviour, which is verified above.
 
 ---
 
