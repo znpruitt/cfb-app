@@ -3,12 +3,13 @@
 Status: Current
 Last verified: 2026-08-26
 Owner: Project documentation
-Canonical for: Clerk identity and the platform-admin role, admin route/API gating, ADMIN_API_TOKEN fallback, league-password privacy gate, cron auth
+Canonical for: Clerk identity and app-role model, current platform-admin enforcement, planned commissioner/member scoping, ADMIN_API_TOKEN fallback, league-password privacy gate, cron auth
 Supersedes: (none — complements `AGENTS.md` → Auth Architecture Invariants; the deployment-runbook's auth summary is the operator-facing companion)
 
 Three **independent** mechanisms, deliberately kept separate:
 
-1. **Clerk** — user identity plus the one currently enforced app role: `platform_admin`.
+1. **Clerk** — user identity plus the planned `platform_admin | commissioner | member` app-role
+   model; only `platform_admin` authorizes requests today.
 2. **`ADMIN_API_TOKEN`** — a transitional admin-API fallback for machine/backward-compat callers.
 3. **`LEAGUE_AUTH_SECRET`** — the per-league password gate. It is **not** authentication and grants **no** role.
 
@@ -17,12 +18,14 @@ Do not conflate them. In particular, the league password never authorizes admin 
 ## Clerk identity & roles
 
 Clerk is the sole user-identity and app-role provider — no custom sessions or roll-your-own JWT
-verification. The only role currently recognized for authorization is
-`publicMetadata.role === 'platform_admin'`, through the canonical
-`isPlatformAdminClaims(sessionClaims)` predicate (`src/lib/auth/platformAdmin.ts`). Tests explicitly
-reject `commissioner` as an authorizing role. “Commissioner” and “member” are product/persona terms
-today, not enforced Clerk roles; league-scoped commissioner identity would require a separate,
-explicitly reviewed authorization model.
+verification. The planned `publicMetadata` model defines `platform_admin`, `commissioner`, and
+`member`; a commissioner will carry league scope such as
+`{ role: 'commissioner', leagues: ['tsc', 'family'] }`. Today the only role recognized for
+authorization is `publicMetadata.role === 'platform_admin'`, through the canonical
+`isPlatformAdminClaims(sessionClaims)` predicate (`src/lib/auth/platformAdmin.ts`), and tests
+correctly reject `commissioner` until the reviewed scoping work ships. That current rejection does
+not retire the roadmap direction: **Multi-tenant Commissioner Sign-up** and **Server Action Auth
+Hardening** own commissioner/member enforcement and league-scoped permissions.
 
 ## Platform-admin page gating (middleware)
 
@@ -43,9 +46,10 @@ Route-level auth lives in exactly one place — the Clerk middleware (`src/middl
 The game-stats data route **`/api/game-stats` is admin-only** (`src/lib/server/adminAuth`, authenticated BEFORE any query parsing or provider access, PLATFORM-086H3E). It is an operator/admin surface — cache-only projector reads unless an authorized `bypassCache=1` repair is requested — and is distinct from the QStash-triggered `/api/cron/game-stats` covered below.
 
 **`ADMIN_API_TOKEN` is a transitional fallback** (Auth Invariant #5), retained for backward
-compatibility. Do not build new flows that depend on it or claim a removal date before a reviewed
-replacement exists. When no token is configured, non-production environments treat requests as
-authorized for local development convenience; production must use real authentication.
+compatibility. Do not build new flows that depend on it. Its planned removal belongs to the reviewed
+commissioner/member authorization work and occurs only when the replacement Clerk role model is
+implemented. When no token is configured, non-production environments treat requests as authorized
+for local development convenience; production must use real authentication.
 
 Never hardcode `publicMetadata.role` checks in components or handlers; all role assertions go through the middleware, `requireAdminAuth`, and `requireAdminAction`. Draft admin gates go through `src/lib/server/canAccessDraftBoard.ts`.
 

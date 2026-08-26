@@ -33,7 +33,7 @@ Configure secrets in the hosting platform; never commit values.
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | Clerk identity and the platform-admin role. |
 | `CRON_SECRET` | Shared bearer secret for all seven `/api/cron/*` routes. A missing/mismatched value returns `401` before lifecycle or provider work. |
 | `LEAGUE_AUTH_SECRET` | Required whenever any league uses the private-link password gate; grants no admin role. |
-| `ADMIN_API_TOKEN` | Transitional optional fallback for approved machine/admin API callers. Do not build new flows around it or claim a removal date without a reviewed replacement. |
+| `ADMIN_API_TOKEN` | Transitional optional fallback for approved machine/admin API callers. Do not build new flows around it; planned removal belongs to the reviewed commissioner/member authorization work after replacement Clerk scoping exists. |
 
 Optional overrides such as `NEXT_PUBLIC_SEASON`, `PGSSLMODE`, and diagnostic flags are cataloged in
 the runbook. Clerk, `ADMIN_API_TOKEN`, `LEAGUE_AUTH_SECRET`, and `CRON_SECRET` are independent

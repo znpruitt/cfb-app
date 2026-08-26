@@ -281,11 +281,29 @@ npm run manage:game-stats-schedule
 
 Writer control must remain `active` for ingestion. Never transition back to `legacy`. For an
 ingestion incident: enable global pause, disable game-stats automation, pause and inspect the
-schedule, then—only if the incident calls for a writer fence—transition `active -> read-only-safe`.
-Resume only after the root cause is resolved: writer `read-only-safe -> active`, resume the schedule,
-enable the dataset, clear global pause last. See [`ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md)
-for the writer-control authority and the [activation archive](archive/operations/provider-activation-2026.md#game-stats-automation)
-for rollout evidence.
+schedule, then—only if the incident calls for a durable writer fence—validate and apply the stop:
+
+```bash
+npm run transition:writer-control -- --from active --to read-only-safe
+npm run transition:writer-control -- --from active --to read-only-safe --apply
+```
+
+Resume only after the root cause is resolved. Validate and apply recovery before resuming the
+schedule, enabling the dataset, and clearing global pause last:
+
+```bash
+npm run transition:writer-control -- --from read-only-safe --to active
+npm run transition:writer-control -- --from read-only-safe --to active --apply
+```
+
+Exit `0` is the only confirmed dry run or transition. Exit `2` is a refusal, exit `3` means the
+Postgres store is unavailable or not writable, and exit `4` means commit durability is
+**indeterminate**. On exit `4`, do not retry, repair, or assume which state won: rerun the relevant
+dry-run command, use its actual/expected-state report to confirm the durable state, and stop until the
+state is known. See [`ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) for the
+writer-control authority and the
+[activation archive](archive/operations/provider-activation-2026.md#game-stats-automation) for
+rollout evidence.
 
 ### §8f) Live scores — active
 
@@ -348,7 +366,7 @@ truthfully skips as `season-transition-owner` without provider work.
 
 A successful refresh may emit `schedule-games-vanished` when numeric CFBD game records disappear.
 That is observability, not another provider call or a refresh failure; follow
-[`operations/diagnostics.md`](operations/diagnostics.md#vanished-cfbd-schedule-records-platform-110).
+[`operations/diagnostics.md`](operations/diagnostics.md#vanished-cfbd-schedule-records).
 
 Postseason checkpoint: when CFBD publishes the championship slate, verify the durable championship
 row has a numeric provider ID, valid kickoff, structured playoff competition,

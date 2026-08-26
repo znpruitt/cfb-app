@@ -1,5 +1,9 @@
 # 2026 Production Activation Record
 
+> **Status: Archived — historical reference only** (as of 2026-08-26). Not current implementation
+> authority. See [`docs/archive/README.md`](../README.md); current procedures live in
+> [`docs/deployment-runbook.md`](../../deployment-runbook.md).
+
 Status: Archived
 Last verified: 2026-08-26
 Owner: Project documentation

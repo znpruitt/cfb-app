@@ -60,18 +60,21 @@ Rules:
   archive only the historical context still useful for future tasking. No runtime policy, cadence,
   permission, provider call, durable state, or deployment change. The owner approved each document
   reconstruction in sequence and then explicitly authorized the remaining cross-doc authority pass;
-  the cohesive commit diff is 22 files, +3,319/-10,608, dominated by deleting duplicated history from
-  the queue, prompt ledger, and operator references rather than runtime expansion.
-- Outcome: current docs now describe the platform-admin-only access boundary and all active provider
-  jobs; the admin and game-stats authorities were reconstructed around present behavior; completed
-  F2 migration history moved to a dated archive; doc maps and roadmap references point to the right
-  current or historical owner; two stale System Health automation descriptions were corrected.
+  review remediation added the binding auth authority and two directly cited current/source files;
+  the final branch diff is 25 files, +3,362/-10,616, still dominated by deleting duplicated history
+  from the queue, prompt ledger, and operator references rather than runtime expansion.
+- Outcome: current docs now distinguish today's platform-admin-only enforcement from the planned
+  commissioner/member role model and describe all active provider jobs; the admin and game-stats
+  authorities were reconstructed around present behavior; completed F2 migration history moved to a
+  dated archive; doc maps and roadmap references point to the right current or historical owner; two
+  stale System Health automation descriptions were corrected.
 - Review / verification: audited against live route inventories, auth helpers, maintenance-action
   descriptors, scheduler receipt types, provider settings, and writer-control/ingestion/evidence
-  code; static authority counts, Markdown structure, 106 current-doc local link targets,
-  stale-claim scans, and diff integrity verified. `npx tsc --noEmit` passed; focused admin/System
-  Health/game-stats regression suites passed 80/80; `npm run lint:all` passed, including Markdown
-  lint across 29 current files with zero issues.
+  code. Independent Claude and Codex reviews were gathered against `67195db3` before remediation;
+  the accepted authority, operator-procedure, link, archive-convention, and retained-rationale
+  findings were handled together under the owner's ruling that commissioner/member roles remain
+  planned product direction. Pre-remediation TypeScript, focused regression, lint, and Markdown
+  gates passed; remediation verification is reported against its exact commit in PR #513.
 - Status: Implemented on the feature branch; not yet merged.
 
 ### DOCS-017-APP-ARCHITECTURE-SKETCH-v1

@@ -27,6 +27,7 @@ This is the **source-of-truth map** for the project's documentation. Start here 
 | [`docs/architecture/game-data-flow.md`](architecture/game-data-flow.md) | Schedule → canonical games, score/odds attachment, game-stats ingestion/evidence flow, public cache-reader + authorized-refresh policy, provider quota | Current |
 | [`docs/architecture/identity-and-ownership.md`](architecture/identity-and-ownership.md) | Team-name canonicalization boundary, alias precedence, current-season ownership attribution, CSV's role | Current |
 | [`docs/architecture/standings.md`](architecture/standings.md) | Canonical standings authority, selector/LiveDelta boundaries, NoClaim, standings cache invalidation, lifecycle states | Current |
+| [`docs/architecture/week-resolution.md`](architecture/week-resolution.md) | Played-week resolution, standings score coverage, season finality, and their consumer boundaries | Current |
 | [`docs/architecture/auth-and-privacy.md`](architecture/auth-and-privacy.md) | Clerk identity/roles, platform-admin route/API gating, ADMIN_API_TOKEN fallback, league-password privacy gate, cron auth | Current |
 | [`docs/architecture/storage-and-caching.md`](architecture/storage-and-caching.md) | App-state store, alias/app-state storage, provider caches, standings cache keys/tags, legacy-alias cleanup status | Current |
 | [`docs/architecture/admin-control-plane.md`](architecture/admin-control-plane.md) | Current admin information architecture, route/action ownership, and scheduler-health receipt contract | Current |

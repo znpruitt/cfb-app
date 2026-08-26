@@ -192,10 +192,10 @@ export const listSeasonArchives = cache(async (leagueSlug: string): Promise<numb
 
 /**
  * Bust the cross-request archive cache for a league+year. Called from
- * `saveSeasonArchive` so every write path (admin rollover, cron
- * season-rollover, and any future writer) invalidates without per-call-site
- * wiring. The slug tag alone covers the year list and every per-year read; the
- * year tag is added for explicitness. Must run in a request context —
+ * `saveSeasonArchive` so the sole production writer (cron season-rollover)
+ * invalidates without per-call-site wiring. Any future writer must use this
+ * authority too. The slug tag alone covers the year list and every per-year
+ * read; the year tag is added for explicitness. Must run in a request context —
  * `saveSeasonArchive` swallows the out-of-context throw so scripts/tests still
  * write successfully.
  */

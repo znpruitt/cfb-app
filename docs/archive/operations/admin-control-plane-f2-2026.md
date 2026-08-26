@@ -1,5 +1,9 @@
 # PLATFORM-086F2 Admin Control-Plane Record
 
+> **Status: Archived — historical reference only** (as of 2026-08-26). Not current implementation
+> authority. See [`docs/archive/README.md`](../README.md); current admin authority lives in
+> [`docs/architecture/admin-control-plane.md`](../../architecture/admin-control-plane.md).
+
 Status: Archived
 Last verified: 2026-08-26
 Owner: Project documentation
