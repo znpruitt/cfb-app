@@ -88,3 +88,33 @@ test('season arc draws the chart once a week resolves', () => {
   assert.ok(container.querySelector('svg'), 'the resolved case must draw');
   cleanup();
 });
+
+test('POLISH-014: one resolved week explains itself here rather than drawing an empty box', () => {
+  assert.ok(dom);
+  // The season origin is Overview-only (item 74): this surface hands
+  // `MiniTrendsGrid` the RAW archive, whose week domain still includes unresolved
+  // weeks at both ends (item 73), and a preseason anchor on an axis that is
+  // already wrong compounds it. So one resolved week is still one point here —
+  // a moveto-only path SVG will not draw.
+  //
+  // What POLISH-014 DOES fix here is the guard: it asked mere presence, so this
+  // state used to render the axes over nothing instead of the sentence.
+  const { container } = render(<SeasonArcChart standingsHistory={archive([1])} year={2024} />);
+
+  const text = container.textContent ?? '';
+  assert.ok((text ?? '').includes(TREND_EMPTY_MESSAGE), 'one point is not a drawable trend');
+  assert.equal(container.querySelector('svg'), null, 'no axes over an empty body');
+  cleanup();
+});
+
+test('POLISH-014: the archive draws no preseason column', () => {
+  assert.ok(dom);
+  // Control for the above: two resolved weeks DO draw, and still without an
+  // origin — the season arc's x-axis is weeks only.
+  const { container } = render(<SeasonArcChart standingsHistory={archive([1, 2])} year={2024} />);
+
+  const text = container.textContent ?? '';
+  assert.ok(!text.includes('Preseason'), 'the origin belongs to Overview, not the archive');
+  assert.ok(container.querySelector('svg'), 'two resolved weeks must draw');
+  cleanup();
+});

@@ -13,6 +13,19 @@ export type GamesBackSeries = {
   ownerId: string;
   ownerName: string;
   points: GamesBackSeriesPoint[];
+  /**
+   * The value every owner held before the season started, or null when the
+   * series has no plotted weeks. See {@link SEASON_ORIGIN_GAMES_BACK}.
+   *
+   * Deliberately NOT a point: a point needs a `week`, and there is no week
+   * number that is right for both charts. `TrendsDetailSurface` reads `week` as
+   * a coordinate on a linear scale, so a fixed sentinel misplaces the origin
+   * whenever the first plotted week is not 1; `MiniTrendsGrid` reads it as a key
+   * into an index map, where an unknown week silently collapses onto the first
+   * column. Each chart places the origin in its OWN coordinate system instead,
+   * and no fake week is minted anywhere.
+   */
+  origin: number | null;
 };
 
 export type WinPctSeriesPoint = {
@@ -35,6 +48,103 @@ export type WinBarsRow = {
   winPct: number;
   gamesBack: number;
 };
+
+/**
+ * POLISH-014 — where every owner starts.
+ *
+ * Before any game is played every owner is 0-0, level with everyone else. Games
+ * back is therefore 0, and win% is 0 because `deriveStandings` already defines a
+ * 0-0 record that way (`standings.ts`: `winPct: decisions > 0 ? wins / decisions : 0`).
+ * The origin states what the app already claims about an unplayed record; it
+ * does not invent data.
+ *
+ * It exists so that ONE resolved week is an ordinary two-point segment rather
+ * than a special case. A single point builds a moveto-only path that SVG will not
+ * draw, and three attempts to special-case that — markers, a clamp, a paint
+ * order — each produced the next defect (`docs/next-tasks.md` item 74).
+ */
+export const SEASON_ORIGIN_GAMES_BACK = 0;
+
+/**
+ * WIN% HAS NO ORIGIN, deliberately.
+ *
+ * A first version gave it one at 0.000 on the reasoning that `deriveStandings`
+ * already defines a 0-0 record that way. True of the DATA and wrong for the
+ * CHART: on a 0-1 win% axis, 0.000 is the worst possible value, not "level", so
+ * every line would begin at the floor and the converged y-domain would be
+ * dragged to 0, flattening the whole chart. Games back is different — 0 there
+ * genuinely means level with everyone.
+ *
+ * Nothing consumed it (`TrendsDetailSurface` ignores `origin` entirely), so it
+ * was removed rather than left as a trap. Adopting an origin for win% needs its
+ * own baseline decision; the series count is unaffected either way, so the
+ * POLISH-012 empty-case divergence this slice worried about cannot arise from
+ * the asymmetry.
+ */
+
+/**
+ * Is "no game has concluded yet" true immediately before `firstDrawnWeek`?
+ *
+ * The origin asserts every owner level at 0-0, so it is honest only when no
+ * result exists before the first week the chart draws. This asks the STANDINGS
+ * for that — `finalGames` counts concluded games — rather than inferring it from
+ * a week flag. Two rounds of review went to learning that no flag answers it:
+ *
+ *  - The first version compared against the first RESOLVED week. Since
+ *    PLATFORM-105 a week can be `played: true` with incomplete coverage, which
+ *    makes it unresolved and invisible to the trend selectors — so weeks 1-2
+ *    played but partial, with week 3 resolved, drew everyone level before W3
+ *    after two weeks of football.
+ *  - The second version asked `selectPlayedWeeks`, which is the OPPOSITE
+ *    polarity of the same mistake. `played` is
+ *    `realGames.length > 0 && pending.length === 0`, and `pending` deliberately
+ *    retains postponed games, so ONE postponed week-1 game leaves that week
+ *    `played: false` permanently while its other games have already moved the
+ *    cumulative standings. Review probed it: first drawn week 2,
+ *    `seasonOriginApplies` true, week 1 carrying real results.
+ *
+ * `finalGames` is the evidence both flags were standing in for.
+ *
+ * Also false for a recent-window slice — Overview charts the last five resolved
+ * weeks, so from week six the window starts mid-season and earlier games count.
+ */
+export function seasonOriginApplies(
+  fullHistory: StandingsHistory,
+  firstDrawnWeek: number | undefined
+): boolean {
+  if (firstDrawnWeek === undefined) return false;
+  return !fullHistory.weeks.some(
+    (week) =>
+      week < firstDrawnWeek &&
+      (fullHistory.byWeek[week]?.standings ?? []).some(
+        // `finalGames` is typed required but durable archives predate it, and
+        // `undefined > 0` is false rather than an error — so the RECORD half has
+        // to stand on its own. This mirrors the precedent already established in
+        // `insights/generators/existing.ts`, which this predicate should have
+        // followed the first time; `byWeek` standings are cumulative, so a
+        // decision on the record answers the same question.
+        (row) => row.finalGames > 0 || row.wins + row.losses + row.ties > 0
+      )
+  );
+}
+
+/**
+ * Can this series actually be drawn as a line?
+ *
+ * ONE authority, because three surfaces ask: the Overview GB Race guard,
+ * `SeasonArcChart`, and `MiniTrendsGrid` itself. POLISH-013 shipped the answer in
+ * two of the three and the third kept rendering an empty box with axes — the
+ * defect class this project has hit repeatedly by fixing a call site by name
+ * instead of by class.
+ *
+ * A line needs two endpoints. The origin counts as one of them.
+ */
+export function isDrawableTrendSeries(series: {
+  points: unknown[];
+  origin: number | null;
+}): boolean {
+  return series.points.length + (series.origin === null ? 0 : 1) >= 2;
+}
 
 function deriveOwnerOrderFromLatestStandings(
   standingsHistory: StandingsHistory,
@@ -86,6 +196,10 @@ export function selectGamesBackTrend(args: {
           ownerId: owner,
           ownerName: owner,
           points,
+          // Only when something is plotted. A series with no resolved weeks stays
+          // empty and is filtered below, so the origin can never resurrect a chart
+          // for a season that has not started.
+          origin: points.length > 0 ? SEASON_ORIGIN_GAMES_BACK : null,
         };
       })
       // POLISH-012: MATCHES `selectWinPctTrend`. Without this, no resolved weeks

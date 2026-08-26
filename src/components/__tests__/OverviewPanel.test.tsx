@@ -2271,15 +2271,12 @@ test('POLISH-013: GB Race explains the gap when no week has resolved', () => {
   assert.ok(!gbRace.includes('<svg'), 'the empty state must draw no chart');
 });
 
-test('POLISH-013: one resolved week still explains the gap — a single point cannot be drawn', () => {
-  // `MiniTrendsGrid` joins points with `L`, so a one-point series emits a
-  // moveto-only path and SVG draws nothing. Point markers were tried and cut:
-  // coincident markers hid each other and the leader was the one covered.
-  //
-  // NOT a claim that one point is undrawable in general — `TrendsDetailSurface`
-  // draws it with per-point markers today, which is exactly why Overview and the
-  // surface its own link points to disagree in this state. Item 74 closes both
-  // by giving week one a second point.
+test('POLISH-014: one resolved week DRAWS, from the season origin', () => {
+  // POLISH-013 pinned the opposite — that one resolved week could not be drawn
+  // and had to keep explaining the gap. That was true of `MiniTrendsGrid`, which
+  // draws lines only, and it is what three attempts at point markers tried and
+  // failed to work around. The origin makes week one an ordinary two-point
+  // segment: every owner starts 0-0 and level, so there is a second endpoint.
   const history = unresolvedHistory();
   history.byWeek[1] = { ...history.byWeek[1]!, played: true };
   history.byOwner.Bob = history.byOwner.Bob!.map((point) =>
@@ -2288,11 +2285,18 @@ test('POLISH-013: one resolved week still explains the gap — a single point ca
 
   const gbRace = gbRaceMarkup(renderOverviewWithHistory(history));
 
-  assert.match(gbRace, TREND_EMPTY_MESSAGE_RE);
+  assert.ok(!gbRace.includes(TREND_EMPTY_MESSAGE), 'one resolved week is drawable now');
+  assert.ok(gbRace.includes('<svg'), 'the chart must render');
   assert.ok(
-    !gbRace.includes('<svg'),
-    'MiniTrendsGrid draws lines only, so one point yields a moveto-only path'
+    /<path d="M[^"]*L/.test(gbRace),
+    'a real line, not the moveto-only path that rendered nothing'
   );
+  // The origin is labelled by its LIFECYCLE STATE, not a week number (owner
+  // decision, 2026-08-25). "W0" would imply a week, and canonical week 0 is a
+  // real value `AppGame.week` can hold.
+  assert.ok(gbRace.includes('>Preseason<'), 'the origin is labelled Preseason');
+  assert.ok(gbRace.includes('>W1<'), 'the resolved week is labelled');
+  assert.ok(!/>W0</.test(gbRace), 'the origin must not be labelled as a week');
 });
 
 test('POLISH-013: two resolved weeks draw a line', () => {
@@ -2466,4 +2470,125 @@ test('PLATFORM-109: the seasonContext prop is observable in the rendered panel',
   assert.match(asFinal, /Champion margin/, 'a final season must describe its champion');
   assert.doesNotMatch(asInSeason, /Champion margin/, 'a live season must not describe a champion');
   assert.notEqual(asFinal, asInSeason, 'the prop must change the markup');
+});
+
+test('POLISH-014: a recent-week WINDOW draws no origin', () => {
+  // Review's P2. GB Race charts the last five RESOLVED weeks, so once a season
+  // passes five the window no longer begins at the season's start. Drawing the
+  // origin there would put "everyone level" one interval before the first
+  // retained week, compressing the whole omitted season into that interval and
+  // showing a divergence that never happened.
+  const owners = ['Alice', 'Bob'];
+  const weeks = [1, 2, 3, 4, 5, 6, 7];
+  const byWeek: StandingsHistory['byWeek'] = {};
+  for (const week of weeks) {
+    byWeek[week] = {
+      week,
+      standings: owners.map((owner, index) => ({
+        owner,
+        wins: week,
+        losses: 0,
+        ties: 0,
+        winPct: 1,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+        gamesBack: index * week,
+        finalGames: week,
+      })),
+      coverage: { state: 'complete', message: null },
+      played: true,
+      pending: [],
+    };
+  }
+  const byOwner: StandingsHistory['byOwner'] = {};
+  owners.forEach((owner, index) => {
+    byOwner[owner] = weeks.map((week) => ({
+      week,
+      wins: week,
+      losses: 0,
+      ties: 0,
+      winPct: 1,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 0,
+      gamesBack: index * week,
+    }));
+  });
+
+  const gbRace = gbRaceMarkup(renderOverviewWithHistory({ weeks, byWeek, byOwner }));
+
+  // Scope to the CHART. `gbRaceMarkup` runs to the end of the document, and the
+  // GB change table beside the chart emits the same week labels.
+  const chart = gbRace.slice(gbRace.indexOf('<svg'), gbRace.indexOf('</svg>'));
+  const labels = chart.match(/>W\d+</g) ?? [];
+  assert.deepEqual(
+    labels,
+    ['>W3<', '>W4<', '>W5<', '>W6<', '>W7<'],
+    'the last five resolved weeks'
+  );
+  assert.ok(!chart.includes('>Preseason<'), 'a mid-season window has no preseason column');
+
+  // Each drawn series must have exactly one coordinate per labelled week — a
+  // sixth would be the origin, placed one interval before W3.
+  const paths = chart.match(/<path d="[^"]*"/g) ?? [];
+  assert.ok(paths.length > 0, 'the window must still draw');
+  for (const path of paths) {
+    const coordinates = (path.match(/[ML]\d/g) ?? []).length;
+    assert.equal(coordinates, labels.length, `expected one point per week, got ${path}`);
+  }
+});
+
+test('POLISH-014: the guard and the chart agree when the origin is withheld', () => {
+  // Review's third MEDIUM, and the POLISH-013 empty-box defect returning through
+  // a new seam. Weeks 1-2 played with incomplete coverage, week 3 resolved: the
+  // FULL history's series carries an origin and looks drawable, while the chart
+  // withholds the origin (football was played before W3), sees one point, and
+  // draws nothing. If the guard asks the full history it renders a heading, a
+  // divider and a link over an empty column.
+  const owners = ['Alice', 'Bob'];
+  const weeks = [1, 2, 3];
+  const byWeek: StandingsHistory['byWeek'] = {};
+  for (const week of weeks) {
+    byWeek[week] = {
+      week,
+      standings: owners.map((owner, index) => ({
+        owner,
+        wins: week,
+        losses: 0,
+        ties: 0,
+        winPct: 1,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+        gamesBack: index * week,
+        finalGames: week,
+      })),
+      // Played, but coverage never completed — so unresolved, and invisible to
+      // the trend selectors while still being football that happened.
+      coverage:
+        week === 3 ? { state: 'complete', message: null } : { state: 'partial', message: 'x' },
+      played: true,
+      pending: [],
+    };
+  }
+  const byOwner: StandingsHistory['byOwner'] = {};
+  owners.forEach((owner, index) => {
+    byOwner[owner] = weeks.map((week) => ({
+      week,
+      wins: week,
+      losses: 0,
+      ties: 0,
+      winPct: 1,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 0,
+      gamesBack: index * week,
+    }));
+  });
+
+  const gbRace = gbRaceMarkup(renderOverviewWithHistory({ weeks, byWeek, byOwner }));
+
+  assert.match(gbRace, TREND_EMPTY_MESSAGE_RE, 'the section must explain itself, not draw nothing');
+  assert.ok(!gbRace.includes('<svg'), 'no empty chart column');
 });

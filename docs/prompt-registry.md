@@ -50,6 +50,80 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### POLISH-014-TREND-SEASON-ORIGIN-v1
+
+- Purpose: make week one an ordinary trend instead of a special case, closing `docs/next-tasks.md`
+  item 74 and the two MEDIUM findings folded into it.
+- Scope AS SHIPPED: `selectors/trends.ts` (origin on games-back, `seasonOriginApplies`, shared
+  drawability authority), `MiniTrendsGrid.tsx`, the `OverviewPanel.tsx` guard, and the
+  `history/SeasonArcChart.tsx` guard; tests. The ORIGIN itself is Overview-only — the archive was cut
+  at the confirming review; that surface takes the drawability guard and nothing else.
+- Outcome: `SEASON_ORIGIN_GAMES_BACK` states what `deriveStandings` already claims about an unplayed
+  record — everyone level at 0 games back — rather than inventing data, and gives a one-week series
+  the second endpoint a line needs. Measured: one resolved week renders `M7.0,0.0 L462.9,0.0` and
+  `M7.0,0.0 L462.9,145.5` where the pre-fix render produced moveto-only paths. The origin is NOT a
+  point and mints no week number; the grid gives it a leading column labelled **Preseason** (owner
+  decision) — a lifecycle state, not a week, which is why it cannot collide with canonical week 0.
+
+  **It is drawn only when NO GAME HAS CONCLUDED before the first drawn week** (`seasonOriginApplies`,
+  which reads `finalGames` from the standings). Two review rounds went to establishing that no week
+  flag answers that question — see below.
+
+  Win% deliberately has NO origin: 0.000 is the floor of that axis, not "level", so every line would
+  start at the bottom and drag the converged y-domain to zero. This item's stated constraint that all
+  three selectors move together was wrong on two counts and is corrected in `docs/next-tasks.md`.
+- Review / verification: implementation `c1b5fad7`; two remediation rounds, the second owner-approved
+  for a defect the first introduced. Gates re-measured after the second: full suite 4253/4253 exit 0,
+  `tsc` exit 0, `lint:all` exit 0. Every fix mutation-proven against the claim it makes: removing the
+  origin fails four tests across the selector and both chart surfaces; reverting drawability to mere
+  presence fails its own; the first-RESOLVED-week comparison fails the played-but-unresolved test;
+  restoring the parent/child guard divergence fails the agreement test; and reverting the predicate
+  to the `played` flag fails the postponed-game test.
+- Status: Implemented — PR not yet open. Two review rounds complete; no confirming pass on the second.
+
+**THE REPRESENTATION WAS DECIDED BY A SEAM AUDIT, NOT A PREFERENCE.** The two charts read `week`
+differently — a coordinate on a linear scale in `TrendsDetailSurface`, a key into an index map in
+`MiniTrendsGrid`, where an unknown week silently collapsed onto the first column via `?? 0`. A fixed
+sentinel breaks the linear chart whenever the first plotted week is not 1, and `firstWeek - 1` can
+collide with a real unresolved week. **No fake week number is right for both**, which is what forced
+a separate field. Enumerating the readers' MEANINGS before writing is what turned a plausible design
+into a wrong one on paper instead of in review.
+
+**THE ITEM'S OWN CONSTRAINT WAS WRONG TWICE.** It said all three trend selectors must move together.
+`selectWinBars` has no points — it is a bar row, not a line. And win% should not have an origin
+either: 0.000 is the floor of a 0-1 axis, not "level", so it would start every line at the bottom and
+flatten the chart. The POLISH-012 divergence was about the EMPTY case — whether the two selectors
+agree that there is nothing to draw — and the origin does not change series counts, so the asymmetry
+cannot reproduce it.
+
+**THE ARCHIVE WAS CUT BECAUSE ITS AXIS IS ALREADY WRONG.** Both confirming-review findings landed on
+`SeasonArcChart`, and neither was really about the origin: that surface passes the RAW archive, whose
+week domain includes unresolved weeks at both ends (item 73), so it already labels columns with no
+line under them. A preseason anchor on a broken axis compounds the problem — it produced a `Preseason`
+label overlapping `W1` at 15-week density (30.4 units between ticks, ~40-unit label) and a FALSE
+origin on legacy archives. **Fix the domain before decorating it.** Third scope cut across
+POLISH-013/014, and each one removed a class rather than an instance.
+
+**NO WEEK FLAG ANSWERS "HAS ANY FOOTBALL BEEN PLAYED".** Two rounds, two polarities of the same
+mistake. `played: true` with incomplete coverage is unresolved and invisible to the trend selectors;
+`played: false` from ONE postponed game hides a week whose other results already moved the standings,
+permanently. The snapshot carried the evidence the whole time — `finalGames` — and both attempts
+reached for a proxy instead. **When a predicate keeps being wrong in opposite directions, the input
+is wrong, not the threshold.**
+
+**"THE ARCHIVE IS THE WHOLE SEASON" WAS NOT ENOUGH.** Review found both surfaces asserting the origin
+on evidence that did not support it: Overview compared against the first RESOLVED week, and the
+season arc passed a literal `true`. Since PLATFORM-105 a week can be played with incomplete coverage
+— unresolved, invisible to the trend selectors, and still football that happened — so an archive
+whose opening weeks never resolved would draw everyone level immediately before the first week it
+plots. The predicate had to be about PLAYED weeks, and it had to be shared.
+
+**THIS DELETED A DEFECT CLASS RATHER THAN REPAIRING IT.** POLISH-013 tried point markers three times
+— invisible moveto-only path, then clipped markers, then coincident markers hiding each other and
+burying the leader — and each fix produced the next finding. The owner's answer was to give week one
+a second point. No one-point branch, no clamp, no paint order, no marker geometry: the special case
+stopped existing.
+
 ### POLISH-013-TREND-EMPTY-STATES-v1
 
 - Purpose: stop Overview's "GB Race" rendering a heading, a divider and a link over a completely

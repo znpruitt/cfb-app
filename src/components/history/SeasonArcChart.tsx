@@ -3,7 +3,7 @@
 import React from 'react';
 import MiniTrendsGrid from '@/components/MiniTrendsGrid';
 import { buildOwnerColorMap, isDarkTheme } from '@/lib/ownerColors';
-import { selectGamesBackTrend } from '@/lib/selectors/trends';
+import { isDrawableTrendSeries, selectGamesBackTrend } from '@/lib/selectors/trends';
 import type { StandingsHistory } from '@/lib/standingsHistory';
 import { TREND_EMPTY_MESSAGE } from '@/lib/trendEmptyState';
 
@@ -24,8 +24,22 @@ export default function SeasonArcChart({ standingsHistory, year }: Props): React
   // archived season whose cumulative coverage never completed has weeks but no
   // resolved ones, and this section rendered its heading and subtitle over an
   // empty body while its own fallback was skipped.
+  //
+  // POLISH-014: presence was still not enough — a ONE-point series builds a
+  // moveto-only path SVG will not draw, so exactly one resolved week rendered
+  // axes over nothing. `isDrawableTrendSeries` is the shared authority.
+  //
+  // The origin is stripped first because this surface does not draw it: the
+  // season origin is Overview-only (item 74). The archive hands `MiniTrendsGrid`
+  // the RAW history, whose week domain still includes unresolved weeks (item 73),
+  // and anchoring a preseason point onto an axis that is already wrong at both
+  // ends compounds the problem rather than fixing it. The child strips the origin
+  // for the same reason, so parent and child judge the same series.
   const hasTrendData = React.useMemo(
-    () => selectGamesBackTrend({ standingsHistory }).length > 0,
+    () =>
+      selectGamesBackTrend({ standingsHistory })
+        .map((series) => ({ ...series, origin: null }))
+        .some(isDrawableTrendSeries),
     [standingsHistory]
   );
 

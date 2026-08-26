@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { selectGamesBackTrend } from '../lib/selectors/trends';
+import { isDrawableTrendSeries, selectGamesBackTrend } from '../lib/selectors/trends';
 import type { StandingsHistory } from '../lib/standingsHistory';
 
 const CHART_H = 160;
@@ -21,16 +21,61 @@ function yOfGb(gb: number, maxGb: number): number {
   return (gb / Math.max(0.1, maxGb)) * CHART_H;
 }
 
-function buildPath(points: SeriesPoint[], weeks: number[], maxGb: number): string {
-  if (points.length === 0) return '';
-  const weekIndexMap = new Map(weeks.map((w, i) => [w, i]));
-  return points
-    .map((p, i) => {
-      const xi = weekIndexMap.get(p.week) ?? 0;
-      const x = xOfWeek(xi, weeks.length);
-      const y = yOfGb(p.value, maxGb);
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-    })
+/**
+ * POLISH-014 — this chart's x-domain is the season ORIGIN followed by the weeks.
+ *
+ * The origin is not a week and carries no week number (see `GamesBackSeries.origin`),
+ * so it lives at column 0 here and every week shifts one column right. That is
+ * what makes ONE resolved week an ordinary two-point segment instead of a
+ * moveto-only path SVG refuses to draw.
+ */
+const ORIGIN_COLUMN = 0;
+
+/** The x-axis label for the origin column. Not a week — a lifecycle state. */
+const ORIGIN_LABEL = 'Preseason';
+
+/**
+ * Columns are the weeks, plus ONE leading column for the origin when it is drawn.
+ *
+ * `hasOrigin` is a property of the whole chart, not of one series: reserving the
+ * column per-series would leave a blank leading column and shift every week right
+ * whenever the origin is withheld — which is the recent-window case Overview
+ * uses for most of the season.
+ */
+function columnCount(weeks: number[], hasOrigin: boolean): number {
+  return weeks.length + (hasOrigin ? 1 : 0);
+}
+
+function weekColumn(index: number, hasOrigin: boolean): number {
+  return index + (hasOrigin ? 1 : 0);
+}
+
+function buildPath(
+  points: SeriesPoint[],
+  origin: number | null,
+  weeks: number[],
+  maxGb: number,
+  hasOrigin: boolean
+): string {
+  const weekIndexMap = new Map(weeks.map((w, i) => [w, weekColumn(i, hasOrigin)]));
+  const total = columnCount(weeks, hasOrigin);
+
+  const coords: Array<{ x: number; y: number }> = [];
+  if (origin !== null) {
+    coords.push({ x: xOfWeek(ORIGIN_COLUMN, total), y: yOfGb(origin, maxGb) });
+  }
+  for (const point of points) {
+    const column = weekIndexMap.get(point.week);
+    // A point whose week is not in the domain is DROPPED, not silently placed at
+    // column 0. The previous `?? 0` collapsed such a point onto the first column,
+    // which is the shape of bug this file has produced twice.
+    if (column === undefined) continue;
+    coords.push({ x: xOfWeek(column, total), y: yOfGb(point.value, maxGb) });
+  }
+
+  if (coords.length === 0) return '';
+  return coords
+    .map((c, i) => `${i === 0 ? 'M' : 'L'}${c.x.toFixed(1)},${c.y.toFixed(1)}`)
     .join(' ');
 }
 
@@ -39,22 +84,47 @@ type Props = {
   /** Optional label override — e.g. "Bowl", "CFP", "CCG" for postseason weeks. */
   weekLabel?: (week: number) => string;
   ownerColorMap: Record<string, string>;
+  /**
+   * Does `standingsHistory` begin at the START OF THE SEASON?
+   *
+   * The origin means "before any game was played", so it may only be drawn when
+   * the first plotted week really is the season's first. Overview passes a
+   * RECENT-WINDOW slice (last five resolved weeks); placing the origin one
+   * interval before W11 would compress the whole omitted season into that
+   * interval and show every owner diverging from level immediately before it —
+   * a divergence that never happened.
+   *
+   * Defaults to FALSE deliberately. Omitting the origin costs a one-week chart
+   * its line; drawing it on a window states something untrue, and a silent
+   * default should fail toward the harmless side.
+   */
+  startsAtSeasonStart?: boolean;
 };
 
 export default function MiniTrendsGrid({
   standingsHistory,
   weekLabel,
   ownerColorMap,
+  startsAtSeasonStart = false,
 }: Props): React.ReactElement | null {
-  const allSeries = React.useMemo(
-    () => selectGamesBackTrend({ standingsHistory }),
-    [standingsHistory]
-  );
+  const allSeries = React.useMemo(() => {
+    const series = selectGamesBackTrend({ standingsHistory });
+    if (startsAtSeasonStart) return series;
+    // A recent window does not start at the season's start, so the origin is not
+    // this chart's to draw.
+    return series.map((entry) => ({ ...entry, origin: null }));
+  }, [standingsHistory, startsAtSeasonStart]);
   const CONTENDERS = 5;
   const series = allSeries.slice(0, CONTENDERS);
 
   const weeks = standingsHistory.weeks;
-  if (weeks.length === 0 || series.length === 0) return null;
+  // POLISH-014: ONE drawability authority, shared with the Overview guard and
+  // `SeasonArcChart`. This file used to render whenever a series existed, which
+  // is how a one-point series produced an empty box with axes.
+  if (weeks.length === 0 || !series.some(isDrawableTrendSeries)) return null;
+
+  // One fact for the whole chart: is a leading origin column being drawn at all?
+  const hasOrigin = series.some((entry) => entry.origin !== null);
 
   // Y scale: max GB across all owners + 10% padding
   const maxGb = Math.max(1, ...series.flatMap((s) => s.points.map((p) => p.value)));
@@ -100,11 +170,11 @@ export default function MiniTrendsGrid({
       </text>
 
       {/* Vertical grid lines at each week */}
-      {weeks.map((week, i) => {
-        const x = xOfWeek(i, weeks.length);
+      {(hasOrigin ? [null, ...weeks] : weeks).map((week, i) => {
+        const x = xOfWeek(i, columnCount(weeks, hasOrigin));
         return (
           <line
-            key={`vg-${week}`}
+            key={`vg-${week ?? 'origin'}`}
             x1={x}
             y1={0}
             x2={x}
@@ -119,7 +189,7 @@ export default function MiniTrendsGrid({
       {/* Series paths — leader slightly thicker */}
       {series.map((s, i) => {
         const color = ownerColorMap[s.ownerName] ?? '#888';
-        const d = buildPath(s.points, weeks, paddedMax);
+        const d = buildPath(s.points, s.origin, weeks, paddedMax, hasOrigin);
         return d ? (
           <path
             key={s.ownerId}
@@ -135,12 +205,18 @@ export default function MiniTrendsGrid({
       })}
 
       {/* Week labels on x-axis */}
-      {weeks.map((week, i) => {
-        const x = xOfWeek(i, weeks.length);
-        const anchor = i === 0 ? 'start' : i === weeks.length - 1 ? 'end' : 'middle';
+      {(hasOrigin ? [ORIGIN_LABEL, ...weeks] : weeks).map((week, i) => {
+        // The origin column is labelled "Preseason" (owner decision, 2026-08-25,
+        // revising an earlier call to leave it blank). It is not a week and must
+        // not be named like one — and `preseason` is already this app's own
+        // lifecycle vocabulary, so the label says exactly what the point is: the
+        // state every owner was in before a game had been played.
+        const x = xOfWeek(i, columnCount(weeks, hasOrigin));
+        const isLast = i === (hasOrigin ? weeks.length : weeks.length - 1);
+        const anchor = isLast ? 'end' : i === 0 ? 'start' : 'middle';
         return (
           <text
-            key={`xl-${week}`}
+            key={`xl-${String(week)}`}
             x={x}
             y={CHART_H + LABEL_H - 4}
             textAnchor={anchor}
@@ -148,7 +224,7 @@ export default function MiniTrendsGrid({
             fill="currentColor"
             fillOpacity={0.4}
           >
-            {labelFn(week)}
+            {week === ORIGIN_LABEL ? ORIGIN_LABEL : labelFn(week as number)}
           </text>
         );
       })}

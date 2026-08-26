@@ -2276,8 +2276,67 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `POLISH-ARCHIVE-AXIS-DOMAIN-v1`
 
-74. 🔴 **Plot the season origin so week one is an ordinary trend.** Queued 2026-08-23 (owner idea,
-    out of POLISH-013 after point markers failed three times).
+74. ✅ **IMPLEMENTED — `POLISH-014-TREND-SEASON-ORIGIN-v1`, PR not yet open.** Queued 2026-08-23
+    (owner idea, out of POLISH-013 after point markers failed three times).
+
+    **What shipped, and two corrections to the plan below.** `selectGamesBackTrend` carries
+    `origin: number | null`; `isDrawableTrendSeries` is the single authority the Overview guard,
+    `SeasonArcChart` and `MiniTrendsGrid` all ask; `seasonOriginApplies` decides when the origin is
+    honest; the grid gives it a leading column labelled **Preseason** (owner decision, 2026-08-25,
+    revising an earlier call to leave it blank — a bare gridline explains nothing, and `preseason` is
+    already this app's own lifecycle vocabulary rather than an invented week).
+
+    **"All three trend selectors" was wrong twice.** `selectWinBars` has no points — it is a bar row.
+    And win% should NOT have an origin: 0.000 is the floor of a 0-1 axis, not "level", so it would
+    start every line at the bottom and drag the converged y-domain to zero. The POLISH-012 divergence
+    was about the EMPTY case, and the origin does not change series counts, so the asymmetry cannot
+    reproduce it.
+
+    **The origin is drawn only when NO GAME HAS CONCLUDED before the first drawn week**, and getting
+    that predicate right took two review rounds because NO WEEK FLAG ANSWERS IT:
+
+    - Comparing against the first RESOLVED week is wrong — since PLATFORM-105 a week can be
+      `played: true` with incomplete coverage, which makes it unresolved and invisible to the trend
+      selectors while still being football that happened.
+    - Asking `selectPlayedWeeks` is the OPPOSITE polarity of the same error. `played` is
+      `realGames.length > 0 && pending.length === 0`, and `pending` retains postponed games, so ONE
+      postponed week-1 game leaves that week `played: false` permanently while its other games have
+      already moved the cumulative standings.
+
+    `seasonOriginApplies` now reads the standings — `finalGames`, OR the record, because
+    `finalGames` is typed required and durable archives predate it, so `undefined > 0` is silently
+    false. That pairing is the precedent already established in `insights/generators/existing.ts`,
+    which this predicate should have followed from the start. Overview additionally charts the last five resolved weeks, so from week six its
+    window starts mid-season and the omitted games count.
+
+    **Recorded, not changed:** at exactly one resolved week the section now renders `GbChangeTable`
+    beside the chart with a single week column of `·` placeholders, because there is no previous week
+    to difference against. The table still shows current games-back for every owner — the information
+    that was lost when the whole section was hidden — so a placeholder column is the honest form of
+    that state rather than a defect.
+
+    **The representation was forced by the two charts disagreeing about what `week` means.**
+    `TrendsDetailSurface` reads it as a coordinate on a linear scale, so any fixed sentinel misplaces
+    the origin whenever the first plotted week is not 1; `MiniTrendsGrid` reads it as a key into an
+    index map, where an unknown week silently collapsed onto the first column via `?? 0`. No fake
+    week number is right for both, so the origin is a separate field and each chart places it in its
+    own coordinate system.
+
+    **THE ORIGIN IS OVERVIEW-ONLY — the archive was cut at the confirming review.** Both remaining
+    findings landed on `SeasonArcChart` and neither was really about the origin: it hands
+    `MiniTrendsGrid` the RAW archive, whose week domain still includes unresolved weeks at BOTH ends
+    (item 73), so a 15-week archive already labels columns with no line under them. Anchoring a
+    preseason point onto an axis that is wrong at both ends compounds it. Concretely, the origin
+    there produced (a) a `Preseason` label overlapping `W1` at 15-week density — 30.4 viewBox units
+    between ticks against a ~40-unit label — and (b) a FALSE origin on legacy archives, because
+    `finalGames` is typed required but durable archives predate it. That surface keeps POLISH-014's
+    drawability guard, which fixes its real defect (one resolved week rendering axes over nothing),
+    and nothing else. **Fix item 73 before giving the season arc an origin.**
+
+    **Still open, deliberately:** `TrendsDetailSurface` ignores `origin`. It already draws a
+    one-point series as markers, so it has no defect to fix, and its axis-tick geometry is coupled to
+    `weekMin`/`weekMax` in a way that deserves its own slice. Adopting the origin there is a
+    consistency improvement, not a repair.
 
     **The insight: there is no such thing as a one-point week.** Every owner starts 0-0, and
     `standings.ts:305` already defines a 0-0 record as `winPct: 0`, so an origin at 0 games back /

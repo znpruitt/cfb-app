@@ -2,7 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { StandingsHistory } from '../standingsHistory';
-import { selectGamesBackTrend, selectWinBars, selectWinPctTrend } from '../selectors/trends';
+import {
+  SEASON_ORIGIN_GAMES_BACK,
+  isDrawableTrendSeries,
+  seasonOriginApplies,
+  selectGamesBackTrend,
+  selectWinBars,
+  selectWinPctTrend,
+} from '../selectors/trends';
 
 function buildHistory(): StandingsHistory {
   return {
@@ -458,4 +465,214 @@ test('selectWinBars falls back deterministically when no resolved standings are 
 
   const rows = selectWinBars({ standingsHistory: history });
   assert.deepEqual(rows, []);
+});
+
+// ---------------------------------------------------------------------------
+// POLISH-014 — the season origin.
+//
+// Every owner starts 0-0 and level, so a series with any plotted week has a
+// second endpoint and one resolved week is an ordinary segment. The origin is
+// NOT a point: no week number is right for both charts, so each places it in its
+// own coordinate system. See `GamesBackSeries.origin`.
+// ---------------------------------------------------------------------------
+
+function originHistory(resolvedWeeks: number[]): StandingsHistory {
+  const owners = ['Alice', 'Bob'];
+  const byWeek: StandingsHistory['byWeek'] = {};
+  for (const week of resolvedWeeks) {
+    byWeek[week] = {
+      week,
+      standings: owners.map((owner, index) => ({
+        owner,
+        wins: 1,
+        losses: 0,
+        ties: 0,
+        winPct: 1,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
+        gamesBack: index,
+        finalGames: 1,
+      })),
+      coverage: { state: 'complete', message: null },
+      played: true,
+      pending: [],
+    };
+  }
+  const byOwner: StandingsHistory['byOwner'] = {};
+  owners.forEach((owner, index) => {
+    byOwner[owner] = resolvedWeeks.map((week) => ({
+      week,
+      wins: 1,
+      losses: 0,
+      ties: 0,
+      winPct: 1,
+      pointsFor: 0,
+      pointsAgainst: 0,
+      pointDifferential: 0,
+      gamesBack: index,
+    }));
+  });
+  return { weeks: resolvedWeeks, byWeek, byOwner };
+}
+
+test('POLISH-014: a series with plotted weeks carries the origin', () => {
+  const history = originHistory([1]);
+  const gb = selectGamesBackTrend({ standingsHistory: history });
+  const wp = selectWinPctTrend({ standingsHistory: history });
+
+  assert.equal(gb.length, 2);
+  for (const series of gb) assert.equal(series.origin, SEASON_ORIGIN_GAMES_BACK);
+  // Win% deliberately has NONE — 0.000 is the floor of that axis, not "level".
+  assert.equal(wp.length, 2);
+  assert.ok(!('origin' in wp[0]!), 'win% series must not carry an origin');
+});
+
+test('POLISH-014: no resolved weeks means no series, and therefore no origin', () => {
+  // The origin must never resurrect a chart for a season that has not started.
+  const history = originHistory([1]);
+  history.byWeek[1] = { ...history.byWeek[1]!, played: false };
+
+  assert.deepEqual(selectGamesBackTrend({ standingsHistory: history }), []);
+  assert.deepEqual(selectWinPctTrend({ standingsHistory: history }), []);
+});
+
+test('POLISH-014: both point-based selectors gain the origin together', () => {
+  // POLISH-012's hook crash came from these two disagreeing about the empty case
+  // while sharing a fiber. They must agree about the origin for the same reason.
+  for (const weeks of [[1], [1, 2], []]) {
+    const history = originHistory(weeks);
+    const gb = selectGamesBackTrend({ standingsHistory: history });
+    const wp = selectWinPctTrend({ standingsHistory: history });
+    assert.equal(
+      gb.length,
+      wp.length,
+      `series count must match for weeks ${JSON.stringify(weeks)}`
+    );
+    // What must match is the EMPTY case — POLISH-012's hook crash came from these
+    // two disagreeing about whether there was anything to draw. The origin
+    // asymmetry cannot cause that: it does not change series counts.
+  }
+});
+
+test('POLISH-014: drawability counts the origin as an endpoint', () => {
+  // One plotted week plus the origin is two endpoints — a line.
+  assert.equal(isDrawableTrendSeries({ points: [{}], origin: 0 }), true);
+  // Without an origin, one point is a moveto-only path that SVG will not draw.
+  assert.equal(isDrawableTrendSeries({ points: [{}], origin: null }), false);
+  assert.equal(isDrawableTrendSeries({ points: [], origin: 0 }), false);
+  assert.equal(isDrawableTrendSeries({ points: [{}, {}], origin: null }), true);
+});
+
+test('POLISH-014: the origin applies only when nothing was PLAYED before the first drawn week', () => {
+  // Review's HIGH. Comparing against the first RESOLVED week is not the same
+  // question: since PLATFORM-105 a week can be played with incomplete coverage,
+  // which makes it unresolved and invisible to the trend selectors. Weeks 1-2
+  // played but partial and week 3 resolved would have drawn everyone level
+  // immediately before W3, after two weeks of football.
+  const history = originHistory([1, 2, 3]);
+  history.byWeek[1] = {
+    ...history.byWeek[1]!,
+    played: true,
+    coverage: { state: 'partial', message: 'x' },
+  };
+  history.byWeek[2] = {
+    ...history.byWeek[2]!,
+    played: true,
+    coverage: { state: 'partial', message: 'x' },
+  };
+
+  const drawn = selectGamesBackTrend({ standingsHistory: history });
+  const firstDrawnWeek = drawn[0]?.points[0]?.week;
+  assert.equal(firstDrawnWeek, 3, 'only week 3 resolves, so week 3 is what gets drawn');
+  assert.equal(
+    seasonOriginApplies(history, firstDrawnWeek),
+    false,
+    'two played weeks precede it, so nobody was level immediately before W3'
+  );
+
+  // And the control: with nothing played before it, the origin is honest.
+  const clean = originHistory([1, 2]);
+  assert.equal(seasonOriginApplies(clean, 1), true);
+});
+
+test('POLISH-014: the origin does not apply to a recent-week window', () => {
+  const history = originHistory([1, 2, 3, 4, 5, 6, 7]);
+  assert.equal(seasonOriginApplies(history, 3), false, 'weeks 1-2 were played');
+  assert.equal(seasonOriginApplies(history, undefined), false, 'nothing drawn, nothing to anchor');
+});
+
+test('POLISH-014: a postponed game does not hide the week that was played', () => {
+  // Review's second-round MEDIUM, and the OPPOSITE polarity of the first.
+  // `played` is `realGames.length > 0 && pending.length === 0`, and `pending`
+  // retains postponed games — so one postponed week-1 game leaves that week
+  // `played: false` PERMANENTLY while its other games have already moved the
+  // cumulative standings. Asking `selectPlayedWeeks` therefore saw no football
+  // before week 2 and drew everyone level.
+  const history = originHistory([1, 2]);
+  history.byWeek[1] = {
+    ...history.byWeek[1]!,
+    played: false,
+    pending: [{ key: 'postponed', week: 1, kickoff: null }],
+  };
+
+  // Week 1 is not drawn (unresolved), but its results exist.
+  assert.ok(
+    history.byWeek[1]!.standings.some((row) => row.finalGames > 0),
+    'the fixture must carry week-1 results, or it proves nothing'
+  );
+  assert.equal(
+    seasonOriginApplies(history, 2),
+    false,
+    'games concluded in week 1, so nobody was level immediately before W2'
+  );
+});
+
+test('POLISH-014: a genuinely unplayed leading week does not block the origin', () => {
+  // The control for the test above: a week with no results is not evidence of
+  // football, so the origin remains honest.
+  const history = originHistory([1, 2]);
+  history.byWeek[1] = {
+    ...history.byWeek[1]!,
+    played: false,
+    standings: history.byWeek[1]!.standings.map((row) => ({
+      ...row,
+      wins: 0,
+      losses: 0,
+      finalGames: 0,
+      gamesBack: 0,
+    })),
+  };
+
+  assert.equal(seasonOriginApplies(history, 2), true);
+});
+
+test('POLISH-014: a legacy archive row without `finalGames` still counts as football', () => {
+  // Review's finding, and the precedent was already in this repo:
+  // `insights/generators/existing.ts` pairs `finalGames > 0` with a record check
+  // precisely because durable archives predate the field, and `undefined > 0` is
+  // false rather than an error. The first version of this predicate took only
+  // half of that pair, so a legacy archive whose opening weeks never resolved
+  // drew "everyone level" mid-season.
+  const history = originHistory([1, 2]);
+  history.byWeek[1] = {
+    ...history.byWeek[1]!,
+    coverage: { state: 'partial', message: 'x' },
+    standings: history.byWeek[1]!.standings.map((row) => {
+      const legacy = { ...row, wins: 1, losses: 0 } as Partial<typeof row>;
+      delete legacy.finalGames;
+      return legacy as typeof row;
+    }),
+  };
+
+  assert.equal(
+    history.byWeek[1]!.standings[0]!.finalGames,
+    undefined,
+    'the fixture must actually omit finalGames, or it proves nothing'
+  );
+  assert.equal(
+    seasonOriginApplies(history, 2),
+    false,
+    'a 1-0 record is evidence a game concluded, whatever the archive recorded'
+  );
 });
