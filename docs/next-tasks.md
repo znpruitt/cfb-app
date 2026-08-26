@@ -1909,6 +1909,12 @@ Supersedes: (none)
     invisible to us for up to seven days, and PLATFORM-105 concludes a game from elapsed time when
     its kickoff is long past with no result.
 
+    **PLATFORM-110 adds detection evidence, not the repair.** Its pre-merge implementation emits a
+    runtime event after a successful full-season commit when a prior numeric CFBD game id vanishes.
+    That makes a delete-and-recreate reschedule visible once the schedule refresh observes it, while
+    same-id kickoff rewrites stay silent. It changes neither the weekly cadence nor CFBD call count,
+    and therefore closes neither (a) nor (b) below.
+
     **CORRECTION 1 — the seam is not `final-reconciliation`.** The original entry said that mode is
     armed by "a kickoff passed with no confirmed final". It is not:
     `resolveWindowState` (`pollingTarget.ts:61`) returns `pending-confirmation` ONLY when
@@ -2561,6 +2567,27 @@ Supersedes: (none)
     Reserve "Standings unavailable" for the case where the app genuinely does not know.
 
     - **Backlog slug (provisional):** `POLISH-PRESEASON-STANDINGS-COPY-v1`
+
+79. **Schedule vanished-game observability review residue — NON-BLOCKING.** Recorded 2026-08-26
+    from the two independent reviews of `PLATFORM-110-SCHEDULE-VANISHED-GAME-LOGGING-v2`. Production
+    behavior was accepted as sound; these proof/triage improvements were deliberately not folded
+    into the pre-merge closeout:
+
+    - The event does not encode whether its prior ids came from the transaction-fresh aggregate or
+      the pre-provider regular/postseason partition snapshot. Add an allowlisted
+      `baselineSource: 'aggregate' | 'partitions'` only if real log triage proves the distinction is
+      useful; do not restore the timestamp guard that suppressed valid later-year observations.
+    - The integration test named “transaction-fresh aggregate wins” seeds the aggregate before the
+      refresh, so it proves aggregate precedence and the partition-read gate, not the narrower race
+      where an aggregate is written after the fallback snapshot. The production transaction still
+      selects a populated aggregate correctly; add a path-matched race test before changing that
+      selection logic.
+    - The pre-existing changed-data fixture now keeps provider id `1` while changing the matchup so
+      the observability event stays quiet, but its comment still calls the second row a “DIFFERENT
+      game.” Treat it as content-change/invalidation coverage, not id-replacement coverage; the
+      numeric-id disappearance control is the dedicated `741` → `742` test.
+
+    - **Backlog slug (provisional):** `PLATFORM-SCHEDULE-VANISH-OBSERVABILITY-FOLLOWUPS-v1`
 
 The provider campaign's completed execution record (086A → G1 → G2 → H → I → F1 → B → C → E1 → E2,
 with activations §8e–§8j) lives in `docs/prompt-registry.md` and `docs/completed-work.md`; the

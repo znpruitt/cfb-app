@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-08-23
+Last verified: 2026-08-26
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -49,6 +49,48 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### PLATFORM-110-SCHEDULE-VANISHED-GAME-LOGGING-v2
+
+- Purpose: make a CFBD game record that disappears between canonical schedule snapshots visible to
+  operators without treating ordinary same-id rewrites as incidents.
+- Scope: the shared full-season schedule refresh authority, an observability-only partition
+  baseline reader, a secret-safe structured runtime event, direct helper tests, integration controls,
+  and operator documentation. No polling cadence, provider call, schedule identity, score, or UI
+  change.
+- Outcome: after a confirmed `written-clean` durable commit, positive numeric ids absent from the
+  new snapshot emit one `schedule-games-vanished` event. Same-id kickoff/team/venue rewrites are
+  silent; prior ids deduplicate; malformed rows are skipped individually; details cap at 25 while
+  preserving the total count; logging cannot fail the commit. A transaction-fresh populated
+  aggregate wins, otherwise a pre-provider regular/postseason snapshot supplies first-publication
+  observability without comparing its timestamp to a caller clock reused across years.
+- Review / verification: reconstruction commit `05a6c68a` was clean and exact-gated (`tsc`,
+  `lint:all`, focused 43/43, full suite 4274/4274). Nineteen tests were added: nine integration
+  controls protect baseline selection, commit-outcome gating, same-id silence, metric isolation and
+  commit ordering; four baseline-reader tests protect the read gate/error/malformed behavior; six
+  event-helper tests protect numeric identity, dedup/truncation, bounded allowlisted output and
+  best-effort failure. The pre-fix event assertion failed against clean main, and each production
+  mechanism was mutation-checked individually. Both independent reviewers assessed `05a6c68a`
+  before any change and found no credible P0/P1/P2; accepted non-blocking proof/triage residue is
+  queued as `docs/next-tasks.md` item 79.
+- Status: Implemented — pre-merge on `platform/schedule-vanished-game-logging-v2`; implementation
+  commit `05a6c68a`. Supersedes the stopped v1 attempt below.
+
+### PLATFORM-110-SCHEDULE-VANISHED-GAME-LOGGING-v1
+
+- Purpose: add the same vanished-record runtime signal to the full-season CFBD schedule refresh.
+- Scope: the stopped `platform/schedule-vanished-game-logging` branch (`8f347441`, `24badae2`,
+  `ee813bf6`) and its two remediation rounds.
+- Outcome: abandoned after review showed that its partition fallback compared child timestamps to a
+  single `nowMs` reused across the season-transition year loop. A live partition write during an
+  earlier year's provider work could therefore silence the later year's first aggregate comparison.
+  The replacement was re-derived from clean main; none of these commits was cherry-picked.
+- Review / verification: the first rounds corrected kickoff-metric contamination and added direct
+  event coverage, but mutation review proved the timestamp mechanism and fallback path were not
+  independently established. The remaining production defect triggered the repository's
+  reconstruction rule rather than a third patch.
+- Status: Superseded/unimplemented — never merged. Replaced by
+  `PLATFORM-110-SCHEDULE-VANISHED-GAME-LOGGING-v2`.
 
 ### POLISH-014-TREND-SEASON-ORIGIN-v1
 

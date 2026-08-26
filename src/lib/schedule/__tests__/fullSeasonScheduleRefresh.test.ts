@@ -85,6 +85,37 @@ async function runCapturingTags<T>(fn: () => Promise<T>): Promise<{ result: T; t
   });
 }
 
+type VanishedScheduleEvent = {
+  event: 'schedule-games-vanished';
+  year: number;
+  vanishedGameCount: number;
+  vanishedGames: Array<{ providerGameId: number }>;
+};
+
+async function captureVanishedScheduleEvents<T>(
+  fn: () => Promise<T>
+): Promise<{ result: T; events: VanishedScheduleEvent[] }> {
+  const events: VanishedScheduleEvent[] = [];
+  const originalLog = console.log;
+  console.log = (...args: unknown[]) => {
+    if (args.length !== 1 || typeof args[0] !== 'string') return;
+    try {
+      const candidate = JSON.parse(args[0]) as Partial<VanishedScheduleEvent>;
+      if (candidate.event === 'schedule-games-vanished') {
+        events.push(candidate as VanishedScheduleEvent);
+      }
+    } catch {
+      // Unrelated non-JSON log output is outside this observer.
+    }
+  };
+
+  try {
+    return { result: await fn(), events };
+  } finally {
+    console.log = originalLog;
+  }
+}
+
 test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
@@ -329,7 +360,7 @@ test('changed data commits durable-first and invalidates standings once', async 
 
   // Second run: a DIFFERENT game → content changes → written-clean + invalidate once.
   stubFetchBySeasonType(
-    game(2, 'Ohio State', 'Michigan', '2031-10-01T00:00:00Z', 2),
+    game(2, 'Ohio State', 'Michigan', '2031-10-01T00:00:00Z', 1),
     JSON.stringify([])
   );
   const { result, tags } = await runCapturingTags(() =>
@@ -617,6 +648,380 @@ test('a changed kickoff is counted by game identity without persisting score fie
   });
   assert.equal(result.kickoffsChanged, 1);
   assert.equal(result.scoreRepairs, 0);
+});
+
+test('a transaction-fresh aggregate wins over distinguishable partition fallback rows', async () => {
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: T0 - 60_000,
+    items: [
+      {
+        id: '601',
+        week: 5,
+        startDate: '2031-09-25T23:00:00Z',
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  await setAppState('schedule', `${YEAR}-all-regular`, {
+    at: T0 - 30_000,
+    items: [{ id: '701', week: 5, homeTeam: 'Georgia', awayTeam: 'Florida' }],
+  });
+  await setAppState('schedule', `${YEAR}-all-postseason`, {
+    at: T0 - 30_000,
+    items: [],
+  });
+  stubFetchBySeasonType(
+    game(5, 'Ohio State', 'Michigan', '2031-09-25T23:00:00Z', 602),
+    JSON.stringify([])
+  );
+
+  const { result, events } = await captureVanishedScheduleEvents(() =>
+    refreshFullSeasonSchedule({ year: YEAR, now: T0 })
+  );
+
+  assert.equal(result.reason, 'written-clean');
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.vanishedGameCount, 1);
+  assert.deepEqual(
+    events[0]?.vanishedGames.map((item) => item.providerGameId),
+    [601]
+  );
+});
+
+test('partition-only prior is logged on first aggregate commit even when its at exceeds caller now', async () => {
+  await setAppState('schedule', `${YEAR}-all-regular`, {
+    at: T0 + 3_600_000,
+    items: [
+      {
+        id: '701',
+        week: 5,
+        startDate: '2031-09-25T23:00:00Z',
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+  });
+  await setAppState('schedule', `${YEAR}-all-postseason`, {
+    at: T0 - 30_000,
+    items: [],
+  });
+  stubFetchBySeasonType(
+    game(5, 'Ohio State', 'Michigan', '2031-09-25T23:00:00Z', 702),
+    JSON.stringify([])
+  );
+
+  const { result, events } = await captureVanishedScheduleEvents(() =>
+    refreshFullSeasonSchedule({ year: YEAR, now: T0 })
+  );
+
+  assert.equal(result.reason, 'written-clean');
+  assert.equal(result.kickoffsChanged, 0, 'partition fallback does not redefine kickoff metrics');
+  assert.equal(events.length, 1);
+  assert.deepEqual(
+    events[0]?.vanishedGames.map((item) => item.providerGameId),
+    [701]
+  );
+});
+
+test('partition fallback is observability-only and does not redefine the kickoff metric', async () => {
+  await setAppState('schedule', `${YEAR}-all-regular`, {
+    at: T0 - 60_000,
+    items: [
+      {
+        id: '731',
+        week: 5,
+        startDate: '2031-09-25T23:00:00Z',
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+  });
+  await setAppState('schedule', `${YEAR}-all-postseason`, { at: T0 - 60_000, items: [] });
+  stubFetchBySeasonType(game(5, 'Texas', 'Rice', '2031-09-26T01:30:00Z', 731), JSON.stringify([]));
+
+  const result = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
+  assert.equal(result.reason, 'written-clean');
+  assert.equal(result.kickoffsChanged, 0);
+});
+
+test('same-id kickoff rewrites stay silent with a later numeric-id disappearance as control', async () => {
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: T0 - 60_000,
+    items: [
+      {
+        id: '741',
+        week: 5,
+        startDate: '2031-09-25T23:00:00Z',
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        status: 'scheduled',
+        seasonType: 'regular',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+
+  const { result: results, events } = await captureVanishedScheduleEvents(async () => {
+    stubFetchBySeasonType(
+      game(5, 'Texas', 'Rice', '2031-09-26T01:30:00Z', 741),
+      JSON.stringify([])
+    );
+    const rewritten = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
+
+    stubFetchBySeasonType(
+      game(5, 'Ohio State', 'Michigan', '2031-09-26T01:30:00Z', 742),
+      JSON.stringify([])
+    );
+    const replaced = await refreshFullSeasonSchedule({ year: YEAR, now: T0 + 1_000 });
+    return { rewritten, replaced };
+  });
+
+  assert.equal(results.rewritten.reason, 'written-clean');
+  assert.equal(results.rewritten.kickoffsChanged, 1);
+  assert.equal(results.replaced.reason, 'written-clean');
+  assert.equal(events.length, 1, 'the replacement proves the same aggregate observer');
+  assert.deepEqual(
+    events[0]?.vanishedGames.map((item) => item.providerGameId),
+    [741]
+  );
+});
+
+test('an empty aggregate falls back to the partition snapshot', async () => {
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: T0 - 60_000,
+    items: [],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  await setAppState('schedule', `${YEAR}-all-regular`, {
+    at: T0 - 30_000,
+    items: [
+      {
+        id: '711',
+        week: 5,
+        startDate: '2031-09-25T23:00:00Z',
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        seasonType: 'regular',
+      },
+    ],
+  });
+  await setAppState('schedule', `${YEAR}-all-postseason`, { at: T0 - 30_000, items: [] });
+  stubFetchBySeasonType(
+    game(5, 'Ohio State', 'Michigan', '2031-09-25T23:00:00Z', 712),
+    JSON.stringify([])
+  );
+
+  const { events } = await captureVanishedScheduleEvents(() =>
+    refreshFullSeasonSchedule({ year: YEAR, now: T0 })
+  );
+  assert.equal(events.length, 1);
+  assert.deepEqual(
+    events[0]?.vanishedGames.map((item) => item.providerGameId),
+    [711]
+  );
+});
+
+test('a child written after the pre-provider snapshot is not reported as vanished', async () => {
+  const positiveYear = YEAR + 1;
+  await setAppState('schedule', `${positiveYear}-all-regular`, {
+    at: T0 - 60_000,
+    items: [
+      {
+        id: '761',
+        week: 5,
+        startDate: '2031-09-25T23:00:00Z',
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        seasonType: 'regular',
+      },
+    ],
+  });
+  await setAppState('schedule', `${positiveYear}-all-postseason`, {
+    at: T0 - 60_000,
+    items: [],
+  });
+
+  const { events } = await captureVanishedScheduleEvents(async () => {
+    globalThis.fetch = (async (input: URL | string) => {
+      const url = new URL(typeof input === 'string' ? input : input.toString());
+      if (url.searchParams.get('seasonType') === 'postseason') {
+        return new Response('[]', { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      await setAppState('schedule', `${YEAR}-all-regular`, {
+        at: T0 + 1_000,
+        items: [{ id: '751', week: 5, homeTeam: 'Texas', awayTeam: 'Rice' }],
+      });
+      return new Response(game(5, 'Ohio State', 'Michigan', '2031-09-25T23:00:00Z', 752), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }) as typeof fetch;
+    const concurrentChild = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
+    assert.equal(concurrentChild.reason, 'written-clean');
+
+    stubFetchBySeasonType(
+      game(5, 'Ohio State', 'Michigan', '2031-09-25T23:00:00Z', 762),
+      JSON.stringify([])
+    );
+    const control = await refreshFullSeasonSchedule({ year: positiveYear, now: T0 });
+    assert.equal(control.reason, 'written-clean');
+  });
+
+  assert.deepEqual(
+    events.map((event) => event.year),
+    [positiveYear],
+    'only the partition row present before provider work is eligible'
+  );
+  assert.deepEqual(
+    events[0]?.vanishedGames.map((item) => item.providerGameId),
+    [761]
+  );
+});
+
+test('non-written aggregate outcomes emit nothing with a written path positive control', async () => {
+  const seedAggregate = async (year: number, id: number, at = T0 - 60_000) => {
+    await setAppState('schedule', `${year}-all-all`, {
+      at,
+      items: [
+        {
+          id: String(id),
+          week: 5,
+          startDate: '2031-09-25T23:00:00Z',
+          homeTeam: 'Texas',
+          awayTeam: 'Rice',
+          seasonType: 'regular',
+        },
+      ],
+      partialFailure: false,
+      failedSeasonTypes: [],
+    });
+  };
+  await seedAggregate(YEAR, 801);
+  await seedAggregate(YEAR + 1, 802, T0 + 60_000);
+  await seedAggregate(YEAR + 2, 803);
+  await seedAggregate(YEAR + 3, 804);
+
+  const { result: results, events } = await captureVanishedScheduleEvents(async () => {
+    stubFetchBySeasonType('throw', JSON.stringify([]));
+    const failed = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
+
+    stubFetchBySeasonType(game(5, 'Ohio State', 'Michigan', '2031-09-25T23:00:00Z', 902), '[]');
+    const stale = await refreshFullSeasonSchedule({ year: YEAR + 1, now: T0 });
+
+    stubFetchBySeasonType(JSON.stringify([]), JSON.stringify([]));
+    const rejected = await refreshFullSeasonSchedule({ year: YEAR + 2, now: T0 });
+
+    stubFetchBySeasonType(
+      game(5, 'Ohio State', 'Michigan', '2031-09-25T23:00:00Z', 904),
+      JSON.stringify([])
+    );
+    const written = await refreshFullSeasonSchedule({ year: YEAR + 3, now: T0 });
+    return { failed, stale, rejected, written };
+  });
+
+  assert.equal(results.failed.reason, 'partition-fetch-failed');
+  assert.equal(results.stale.reason, 'stale-observation');
+  assert.equal(results.rejected.reason, 'empty-replacement-rejected');
+  assert.equal(results.written.reason, 'written-clean');
+  assert.deepEqual(
+    events.map((event) => event.year),
+    [YEAR + 3],
+    'only the written control emits through the same aggregate baseline path'
+  );
+  assert.deepEqual(
+    events[0]?.vanishedGames.map((item) => item.providerGameId),
+    [804]
+  );
+});
+
+test('partition failure and empty response stay silent until a written fallback control', async () => {
+  await setAppState('schedule', `${YEAR}-all-regular`, {
+    at: T0 - 60_000,
+    items: [
+      {
+        id: '821',
+        week: 5,
+        startDate: '2031-09-25T23:00:00Z',
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        seasonType: 'regular',
+      },
+    ],
+  });
+  await setAppState('schedule', `${YEAR}-all-postseason`, { at: T0 - 60_000, items: [] });
+
+  const { result: results, events } = await captureVanishedScheduleEvents(async () => {
+    stubFetchBySeasonType(JSON.stringify([]), JSON.stringify([]));
+    const empty = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
+
+    stubFetchBySeasonType('throw', JSON.stringify([]));
+    const failed = await refreshFullSeasonSchedule({ year: YEAR, now: T0 + 1_000 });
+
+    stubFetchBySeasonType(
+      game(5, 'Ohio State', 'Michigan', '2031-09-25T23:00:00Z', 822),
+      JSON.stringify([])
+    );
+    const written = await refreshFullSeasonSchedule({ year: YEAR, now: T0 + 2_000 });
+    return { empty, failed, written };
+  });
+
+  assert.equal(results.empty.reason, 'empty-response');
+  assert.equal(results.failed.reason, 'partition-fetch-failed');
+  assert.equal(results.written.reason, 'written-clean');
+  assert.equal(events.length, 1, 'the written call proves the partition observer');
+  assert.deepEqual(
+    events[0]?.vanishedGames.map((item) => item.providerGameId),
+    [821]
+  );
+});
+
+test('a failed durable commit emits nothing before a later written positive control', async () => {
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    at: T0 - 60_000,
+    items: [
+      {
+        id: '831',
+        week: 5,
+        startDate: '2031-09-25T23:00:00Z',
+        homeTeam: 'Texas',
+        awayTeam: 'Rice',
+        seasonType: 'regular',
+      },
+    ],
+    partialFailure: false,
+    failedSeasonTypes: [],
+  });
+  stubFetchBySeasonType(
+    game(5, 'Ohio State', 'Michigan', '2031-09-25T23:00:00Z', 832),
+    JSON.stringify([])
+  );
+
+  const { result: results, events } = await captureVanishedScheduleEvents(async () => {
+    __setAppStateWriteFailureForTests(new Error('durable write down'), 'schedule');
+    const failed = await refreshFullSeasonSchedule({ year: YEAR, now: T0 });
+    __setAppStateWriteFailureForTests(null);
+    const written = await refreshFullSeasonSchedule({ year: YEAR, now: T0 + 1_000 });
+    return { failed, written };
+  });
+
+  assert.equal(results.failed.reason, 'durable-commit-failed');
+  assert.equal(results.written.reason, 'written-clean');
+  assert.equal(events.length, 1, 'only the confirmed durable commit emits');
+  assert.deepEqual(
+    events[0]?.vanishedGames.map((item) => item.providerGameId),
+    [831]
+  );
 });
 
 test('a malformed prior kickoff cannot abort or roll back the schedule commit', async () => {

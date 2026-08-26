@@ -805,7 +805,10 @@ A **401**, a missing delivery, any unexpected provider call/attempt/write, a div
 
 1. Turn Schedule automation **On** (only after the proof above).
 2. Perform one deliberate authorized route invocation, or wait for the following Tuesday's delivery.
-3. **If the year is still early preseason (or active-season ordinary)**: verify ONE complete E1A regular+postseason refresh for the year (`written-clean`/`unchanged-clean`, or a truthful no-op); exactly one structured event; the exact year-scoped provider-refresh status advanced; bounded provider usage (two CFBD `/games` requests per refreshed year); no partial/empty replacement (prior-good retained on any failure).
+3. **If the year is still early preseason (or active-season ordinary)**: verify ONE complete E1A regular+postseason refresh for the year (`written-clean`/`unchanged-clean`, or a truthful no-op); exactly one `schedule-refresh-cron` structured event; the exact year-scoped provider-refresh status advanced; bounded provider usage (two CFBD `/games` requests per refreshed year); no partial/empty replacement (prior-good retained on any failure).
+   A `written-clean` refresh may also emit the separate `schedule-games-vanished` runtime event when
+   numeric CFBD record ids disappear. It is observability, not another provider call or a refresh
+   failure; interpret it using [Diagnostics & Debugging](operations/diagnostics.md#vanished-cfbd-schedule-records-platform-110).
 4. **If the year is transition-owned** (inside the final seven days): leave the schedule active and verify the delivery reports `skipped / season-transition-owner` while the DAILY season-transition cron owns freshness — weekly provider work begins automatically once the lifecycle state becomes `season`.
 5. **Post-activation record**: complete a separate docs-only update recording the deployed commit, the QStash contract readback, the exact-authentication proof delivery, the first gated run's result/reason/operation/rows/data-change state, and the CFBD quota evidence.
 

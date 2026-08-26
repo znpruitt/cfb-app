@@ -64,6 +64,51 @@ Every full-season schedule writer (the full-year `/api/schedule?bypassCache=1` r
 
 A **concurrent** full-year refresh returns HTTP `409` with code `refresh-in-progress` and makes **no** provider request (a nonexpired `schedule-refresh-control/<year>` lease is held) — it records **no** attempt, so it never appears as a failure. A prior-durable-read outage fails fast as `canonical-context-unavailable` **before** any attempt, so the card shows no new attempt (not a dangling one).
 
+### Vanished CFBD schedule records (PLATFORM-110)
+
+A successful full-season schedule replacement can emit one best-effort, single-line JSON event in
+**Vercel Runtime Logs** when a positive numeric CFBD game id existed in the prior schedule snapshot
+but not in the newly committed snapshot:
+
+```json
+{
+  "event": "schedule-games-vanished",
+  "year": 2026,
+  "observedAt": "2026-08-26T12:00:00.000Z",
+  "vanishedGameCount": 1,
+  "vanishedGames": [
+    {
+      "providerGameId": 401234567,
+      "week": 2,
+      "seasonType": "regular",
+      "startDate": "2026-09-05T23:30:00.000Z",
+      "homeTeam": "Example State",
+      "awayTeam": "Example Tech"
+    }
+  ],
+  "truncated": false
+}
+```
+
+Interpret this as **provider-record disappearance**, not proof that a game was canceled. CFBD may
+delete the old record and publish a replacement id when a game is postponed or rescheduled. Rewrites
+on the same numeric id — including kickoff, team, venue, or other field changes — are deliberately
+silent. Id-less synthetic rows never establish numeric CFBD identity.
+
+The event is emitted only after a confirmed `written-clean` durable commit and process-cache
+publication. No event is emitted for unchanged, stale, empty, rejected, incomplete-provider, or
+store-failure outcomes. On the first aggregate publication, the comparison can use the already
+served regular/postseason partition snapshot when no populated aggregate existed before provider
+work; the event does not currently encode which baseline supplied the prior ids (tracked as a
+non-blocking follow-up in `docs/next-tasks.md` item 79).
+
+`vanishedGameCount` is the complete deduplicated count. `vanishedGames` contains at most 25 records;
+`truncated: true` means additional ids were omitted. Team/start strings are trimmed and capped at 160
+characters, malformed rows are skipped individually, and the event contains only the allowlisted
+fields above — never provider payloads, credentials, URLs, headers, or thrown messages. Logging is
+runtime-only and best-effort: it creates no durable receipt or admin card, spends no provider call,
+and a serialization/logging failure cannot alter the committed schedule.
+
 **Automatic season rollover** (`/api/cron/season-rollover`) is cache-only and makes no provider call. It requires a **structured** CFP national championship (`playoffRoundSource === 'cfbd-structured'`) with a confirmed complete final (via the centralized score attachment) plus the seven-day gate, evaluating each season year independently; the "latest postseason game" fallback is gone. When it does not roll, the per-year result's `reason` explains why — `no-season-schedule` / `no-structured-championship` / `score-missing` / `not-final` / `disrupted` / `waiting-period` are ordinary skips (no mutation), while a genuine durable read failure surfaces as `read-failed` in `errors` (success `false`), never a benign skip. `findNationalChampionshipGameDate` on the admin cache page is presentation-only and does not drive rollover.
 
 ### Game-stats scheduler execution logging (PLATFORM-086F1)
