@@ -2518,7 +2518,7 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `INSIGHTS-CFBD-ADVANCED-ANALYTICS-TRIAL-v1`
 
-77. 🧹 **A league that reaches `season` before drafting tells members to contact the commissioner.**
+78. 🧹 **A league that reaches `season` before drafting tells members to contact the commissioner.**
     Found 2026-08-26 while checking what the season-transition cron would do to a league drafting
     later that week. **Long-term cleanup only — the owner judged it a non-issue for now** (the
     affected league is a family league drafting in person, and the window is a few hours).
