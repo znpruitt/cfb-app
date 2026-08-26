@@ -533,6 +533,43 @@ state and separating draft derivation from the preseason-only banner gate.
 
 - Backlog slug: `POLISH-PRESEASON-STANDINGS-COPY-v1`
 
+### Item 80 — Next 16 upgrade is offseason-gated
+
+`npm audit` reports postcss `8.4.31` as high severity. Next hard-pins that exact version in every
+15.x release, so only Next 16 moves it. All four postcss advisories require attacker-controlled CSS
+and this build compiles only first-party and dependency CSS, so the finding is not a forcing
+function. Do not schedule the upgrade while live scoring, odds polling, and drafts are running;
+the trigger is the offseason, not the audit report.
+
+Most of the version-16 migration surface is already satisfied: `params`/`searchParams` are async
+throughout, `cookies()` is awaited at both call sites, ESLint runs directly on a flat config with no
+`next lint`, there is no custom webpack config, no `next/image` usage, and no parallel-route slots.
+
+The upgrade's real work is `revalidateTag`, which requires a `cacheLife` profile as its second
+argument in 16; the single-argument form becomes a TypeScript error. Five non-test call sites exist,
+in `src/lib/selectors/leagueStandings.ts` and `src/lib/seasonArchive.ts`. Do not apply `'max'`
+uniformly to clear the type error: that is stale-while-revalidate, whereas the current
+single-argument form expires immediately. `updateTag()` supplies read-your-writes semantics but is
+Server-Actions-only, and the draft write path reaches these tags through API route handlers
+(`/api/draft/[slug]/[year]/{pick,unpick,reset,confirm}`), which cannot use it. Decide per call site
+whether a confirmed pick may be followed by stale standings; that decision, not the rename, is the
+acceptance boundary.
+
+Raise `react` and `react-dom` off their exact `19.1.0` pin in the same slice. That pin satisfies no
+band of the installed Clerk peer range, so the bump clears a pre-existing mismatch as well as
+meeting the React 19.2 baseline the App Router expects.
+
+Keep `middleware.ts` out of scope. The `proxy.ts` rename is deprecation-only in 16, runs Node-only
+with a runtime that cannot be configured, and touches the platform-admin auth gate. Give it its own
+slice and confirm Clerk's support first — Clerk's own `proxy` export is its Frontend API domain
+proxy and is unrelated to the Next convention.
+
+Cache Components (`cacheComponents: true`) is a separate campaign, not part of this upgrade.
+Enabling it surfaces build errors for uncached data outside `<Suspense>` and requires adopting the
+model; a rename-only reading of that flag is wrong.
+
+- Backlog slug: `PLATFORM-NEXT16-UPGRADE-v1`
+
 ## Planned and parked campaigns
 
 These are valid future campaigns but are not activated implementation work:
