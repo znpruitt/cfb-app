@@ -2276,9 +2276,8 @@ Supersedes: (none)
 
     - **Backlog slug (provisional):** `POLISH-ARCHIVE-AXIS-DOMAIN-v1`
 
-74. ✅ **MERGED — `POLISH-014-TREND-SEASON-ORIGIN-v1` via PR #511 (`2b81da6a`, 2026-08-25). NOT
-    promoted: production still serves the earlier build, so week one shows the explained empty state
-    until `cfb-oa73ey24j` is promoted.** Queued 2026-08-23
+74. ✅ **MERGED and LIVE — `POLISH-014-TREND-SEASON-ORIGIN-v1` via PR #511 (`2b81da6a`,
+    2026-08-25), promoted the same day as `cfb-oa73ey24j`.** Queued 2026-08-23
     (owner idea, out of POLISH-013 after point markers failed three times).
 
     **What shipped, and two corrections to the plan below.** `selectGamesBackTrend` carries

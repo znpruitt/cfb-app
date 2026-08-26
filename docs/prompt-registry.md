@@ -79,11 +79,12 @@ Rules:
   presence fails its own; the first-RESOLVED-week comparison fails the played-but-unresolved test;
   restoring the parent/child guard divergence fails the agreement test; and reverting the predicate
   to the `played` flag fails the postponed-game test.
-- Status: **Merged** (PR #511, `2b81da6a`, 2026-08-25). **NOT promoted** — `turfwar.games` still
-  serves `cfb-67cxjp0tx` (built earlier the same day, carrying PLATFORM-109 and POLISH-013); the
-  merge produced `cfb-oa73ey24j`, Ready and awaiting promotion, so week one still shows the
-  explained empty state until it is promoted. Gates on the merged `main` (`2b81da6a`): full suite
-  4255/4255 exit 0, `tsc` exit 0, `lint:all` exit 0.
+- Status: **Merged** (PR #511, `2b81da6a`, 2026-08-25) and **PROMOTED** the same day —
+  `turfwar.games` resolves to `cfb-oa73ey24j` (`dpl_Gi26J2GiFtX6iJJPKFBmkXdA1up4`), verified by
+  re-resolving the domain after promotion rather than by the promoting command's own report, with a
+  200 smoke check. Week one of 2026 will therefore draw a line from a labelled `Preseason` point
+  when it resolves (~Aug 31), rather than the explained empty state. Gates on the merged `main`
+  (`2b81da6a`): full suite 4255/4255 exit 0, `tsc` exit 0, `lint:all` exit 0.
 
   Five review rounds, both reviewers each round. The final commit `5d224e95` was merged without a
   further pass, deliberately: it REMOVED the surface every remaining finding was on, leaving
