@@ -349,6 +349,27 @@ Test names, comments, commit messages, PR bodies, and registry entries are verif
 Claim only what was observed. If a claim is found false, correct it explicitly rather than carrying
 it into closeout documentation.
 
+**An assertion of ABSENCE requires a search, in prose as much as in tests.** Before writing
+_unverified_, _no record_, _not performed_, _nothing covers this_, or _there is no precedent_, search
+for the thing you are about to say is missing — `docs/prompt-registry.md`, `docs/deployment-runbook.md`,
+`docs/completed-work.md`, `docs/next-tasks.md`, and the code — and say what you searched. An absence
+claimed without a search is the prose form of a negative assertion with no positive control, and it
+costs more than silence: it sends the next reader to redo finished work, or to re-derive a rule this
+repo already settled. **This repo's ledgers usually already hold the answer.** Named failure cases
+(2026-08-26): §8b and §8c were marked unverified, and three commits were written reasoning around the
+gap, while both records had sat in the registry since 2026-07-24; and `seasonOriginApplies` reached
+for three successive wrong proxies for "has football been played" while
+`insights/generators/existing.ts` already carried the correct pairing, with a comment explaining why.
+
+**A measurement carries the scope it was taken at.** Name the fixture, the year, or the commit a
+figure came from, and do not generalise one probe into a property. Gate results attach to the commit
+they ran against: when the tree moves, re-measure or say the figure is from an earlier commit — a
+registry entry quoting a suite total from two commits back is a false claim even when the number was
+once true. Named failure cases (2026-08-26): "rendering the panel with `in-season` and with `final`
+produced byte-identical markup", generalised from a single fixture that emitted no context-sensitive
+insights and disproved by review within the hour; and a `4224/4224` gate figure carried forward across
+two commits, one of them a merge that added tests.
+
 ### Test accounting
 
 Report **test deltas and the risk each protects** — not a raw full-suite total. A full-suite count is a smoke signal, not evidence that the change is covered.
