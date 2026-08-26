@@ -2452,7 +2452,10 @@ Supersedes: (none)
     projects item fields, dropping the timestamp; and `ReferenceDataPanel` renders `updatedAt` solely
     from a sync RESPONSE. **The only way to see when the catalog was last synced is to sync it.**
 
-    That makes §8b step 1 unanswerable, and the step matters: the section's own preamble distinguishes
+    §8b step 1 was closed by OPERATOR ATTESTATION instead (the owner ran the resync before the TSC
+    draft — it was the only way to get the draft working against the 138-team catalog). That is the
+    right answer for that step, and it is also the point: the only durable record of a routine
+    maintenance action is someone remembering they performed it. The step matters because: the section's own preamble distinguishes
     read-time override sanitization of SERVED items from a resync that makes the DURABLE record
     canonical. Correct serving is consistent with both, so the timestamp is the only discriminator —
     and it is unreachable.

@@ -433,17 +433,32 @@ the last.
 5. Confirm scores refresh behavior looks acceptable during a live or recently completed game window.
 6. Confirm the `/admin` link is only shared with the platform-admin/operator group.
 
-## 8b) Post-merge team-catalog sync (PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY) — ⚠️ PARTIALLY VERIFIED
+## 8b) Post-merge team-catalog sync (PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY) — ✅ ALIAS SAFETY DONE, parity rerun outstanding
 
-**Status (2026-08-26): the alias-safety OUTCOME is verified (steps 2 and 3); steps 1 and 4 are not.**
-Deliberately not marked complete — the served behaviour is right, but this section explicitly
-distinguishes served correctness from a resynced durable record, and the downstream parity rerun has
-no record here.
+**Status (2026-08-26): the alias-safety work is DONE — steps 1-3 accounted for; step 4 outstanding.**
+Steps 2 and 3 are verified against production, and step 1 rests on operator attestation that the
+resync ran before the TSC draft. The section stays short of a blanket ✅ because the `PLATFORM-086H3E`
+parity rerun (step 4) has no record here, and because step 1's evidence is testimony rather than a
+captured `updatedAt`.
 
 - **Step 2 — VERIFIED.** The durable catalog served by `/api/teams?level=FBS` (138 items) passes all
   four alias assertions: `San Diego State` alts exclude `sandiego` and include `sdsu`,
   `San José State` alts include `san jose`, and `New Mexico State` alts exclude `newmexico`.
-- **Step 1 — NOT verified, and steps 2/3 cannot stand in for it.** This section's own preamble is why:
+- **Step 1 — ATTESTED by the operator (recorded 2026-08-26), timestamp not captured.** The owner
+  states the team-database resync WAS run, before the TSC draft, and that it was the only way to get
+  the draft functioning correctly against the 138-team catalog. That answers the substantive question
+  this step exists to ask — the durable record was rebuilt, so the corrected aliases are not merely
+  read-time override sanitization over an unsynced snapshot.
+
+  Corroborating, and independently verified twice (2026-08-23 and 2026-08-26): the durable catalog
+  served by `/api/teams?level=FBS` carries 138 items whose school set is identical to the checked-in
+  seed `src/data/teams.json`.
+
+  This is OPERATOR ATTESTATION, not a machine-read record. The exact `updatedAt` is still not
+  captured, and step 4 below wants it as a recorded prerequisite — which is currently impossible for
+  the reason given next.
+
+  The distinction the step exists to draw, retained because it explains why the attestation matters:
   read-time override application already sanitizes SERVED items from deploy, and the resync is what
   makes the DURABLE record canonical. So correct served aliases and correct resolution are consistent
   BOTH with the resync having run and with the overrides masking an unsynced durable snapshot. The
