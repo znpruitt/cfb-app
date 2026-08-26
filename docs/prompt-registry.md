@@ -79,7 +79,17 @@ Rules:
   presence fails its own; the first-RESOLVED-week comparison fails the played-but-unresolved test;
   restoring the parent/child guard divergence fails the agreement test; and reverting the predicate
   to the `played` flag fails the postponed-game test.
-- Status: Implemented — PR not yet open. Two review rounds complete; no confirming pass on the second.
+- Status: **Merged** (PR #511, `2b81da6a`, 2026-08-25). **NOT promoted** — `turfwar.games` still
+  serves `cfb-67cxjp0tx` (built earlier the same day, carrying PLATFORM-109 and POLISH-013); the
+  merge produced `cfb-oa73ey24j`, Ready and awaiting promotion, so week one still shows the
+  explained empty state until it is promoted. Gates on the merged `main` (`2b81da6a`): full suite
+  4255/4255 exit 0, `tsc` exit 0, `lint:all` exit 0.
+
+  Five review rounds, both reviewers each round. The final commit `5d224e95` was merged without a
+  further pass, deliberately: it REMOVED the surface every remaining finding was on, leaving
+  `SeasonArcChart` 16 lines from `main` (14 of them a comment), plus a one-line predicate clause
+  copied from established in-repo precedent. Its only new logic — the archive guard stripping an
+  origin it never draws — is mutation-pinned by the retargeted archive test.
 
 **THE REPRESENTATION WAS DECIDED BY A SEAM AUDIT, NOT A PREFERENCE.** The two charts read `week`
 differently — a coordinate on a linear scale in `TrendsDetailSurface`, a key into an index map in
