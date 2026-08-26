@@ -1909,11 +1909,11 @@ Supersedes: (none)
     invisible to us for up to seven days, and PLATFORM-105 concludes a game from elapsed time when
     its kickoff is long past with no result.
 
-    **PLATFORM-110 adds detection evidence, not the repair.** Its pre-merge implementation emits a
-    runtime event after a successful full-season commit when a prior numeric CFBD game id vanishes.
-    That makes a delete-and-recreate reschedule visible once the schedule refresh observes it, while
-    same-id kickoff rewrites stay silent. It changes neither the weekly cadence nor CFBD call count,
-    and therefore closes neither (a) nor (b) below.
+    **PLATFORM-110 adds detection evidence, not the repair.** Merged via PR #512 (`1d550c1e`,
+    2026-08-26), it emits a runtime event after a successful full-season commit when a prior numeric
+    CFBD game id vanishes. That makes a delete-and-recreate reschedule visible once the schedule
+    refresh observes it, while same-id kickoff rewrites stay silent. It changes neither the weekly
+    cadence nor CFBD call count, and therefore closes neither (a) nor (b) below.
 
     **CORRECTION 1 — the seam is not `final-reconciliation`.** The original entry said that mode is
     armed by "a kickoff passed with no confirmed final". It is not:

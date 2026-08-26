@@ -73,8 +73,9 @@ Rules:
   mechanism was mutation-checked individually. Both independent reviewers assessed `05a6c68a`
   before any change and found no credible P0/P1/P2; accepted non-blocking proof/triage residue is
   queued as `docs/next-tasks.md` item 79.
-- Status: Implemented — pre-merge on `platform/schedule-vanished-game-logging-v2`; implementation
-  commit `05a6c68a`. Supersedes the stopped v1 attempt below.
+- Status: **Merged** via PR #512 (merge commit `1d550c1e`, 2026-08-26). Implementation commit
+  `05a6c68a`; pre-merge closeout `4794fc04`. Supersedes the stopped v1 attempt below. Not promoted
+  as of this post-merge closeout.
 
 ### PLATFORM-110-SCHEDULE-VANISHED-GAME-LOGGING-v1
 

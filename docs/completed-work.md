@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-08-22
+Last verified: 2026-08-26
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -3957,6 +3957,28 @@ Key architectural decisions across Phase 5:
   not a reproducible percentage claim.
 - **Open follow-ups:** Item 71 in `docs/next-tasks.md` retains the unresolved JSDOM-heavy startup and
   per-file timeout decision; PLATFORM-108 did not directly optimize that class.
+
+### PLATFORM-110 — Vanished CFBD Schedule Record Logging — Complete
+
+- **Status:** Complete — merged to `main` via PR #512 (merge commit `1d550c1e`), 2026-08-26. Not
+  promoted as of this post-merge closeout.
+- **PROMPT_ID(s):** `PLATFORM-110-SCHEDULE-VANISHED-GAME-LOGGING-v2`; the v1 attempt was abandoned
+  unimplemented after two remediation rounds and reconstructed from clean `main`.
+- **Outcome:** A confirmed `written-clean` full-season schedule commit now emits one best-effort,
+  allowlisted `schedule-games-vanished` runtime event when a positive numeric CFBD game id existed
+  in the prior snapshot but not the new one. Same-id kickoff/team/venue rewrites stay silent;
+  malformed rows are isolated; duplicate ids deduplicate; details cap at 25 while retaining the
+  complete count; and logging can never fail the durable commit. A transaction-fresh aggregate is
+  authoritative, with a pre-provider regular/postseason snapshot supplying observability for the
+  first aggregate publication. Polling cadence, provider calls, schedule identity, scores, and UI
+  are unchanged.
+- **Verification:** Nineteen tests were added across integration, baseline-reader, and event-helper
+  suites. The pre-fix event assertion failed against clean `main`; load-bearing mechanisms were
+  mutation-checked individually; the final focused result was 43/43 and the clean full suite was
+  4274/4274 with TypeScript and `lint:all` green. Independent Codex and Claude reviews of
+  implementation commit `05a6c68a` found no credible in-scope P0/P1/P2.
+- **Open follow-ups:** Queue item 63 remains the actual reschedule-detection/repair redesign; item 79
+  records the accepted non-blocking proof and log-triage improvements.
 
 ### Template for future entries
 
