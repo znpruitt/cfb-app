@@ -6,13 +6,14 @@
  * any client-side freshness UI. It is the single source of truth for:
  *   - the `ProviderDataset` union used everywhere refresh status/settings key by
  *     dataset;
- *   - human-facing labels, provider names, and the CURRENT vs PLANNED automation
+ *   - human-facing labels, provider names, and the current automation/policy
  *     description for each dataset.
  *
- * IMPORTANT (honesty rule): `currentAutomation` describes what actually runs in
- * `vercel.json` today; `plannedPolicy` describes the future PLATFORM-086B–086E
- * cadence that is NOT active yet. The admin panel must present these distinctly
- * so operators are never told a planned job is already running.
+ * IMPORTANT (honesty rule): `currentAutomation` describes what actually runs
+ * today, whether through Vercel Cron or a versioned external-QStash manager.
+ * `plannedPolicy` is a grandfathered property name: for shipped datasets it
+ * summarizes the active fixed policy; for conferences it records that the
+ * dataset intentionally remains manual. Never present an active job as future.
  */
 
 export type ProviderDataset =
@@ -44,31 +45,28 @@ export type ProviderDatasetDescriptor = {
   label: string;
   provider: ProviderName;
   /**
-   * Whether an automatic refresh job for this dataset exists in versioned
-   * config TODAY — a `vercel.json` lifecycle cron or a fixed external QStash
-   * schedule provisioned by a versioned management CLI. `false` means
-   * manual/API-only.
+   * Whether an automatic refresh job for this dataset exists today — a
+   * `vercel.json` lifecycle cron or a fixed external QStash schedule provisioned
+   * by a versioned management CLI. `false` means manual/API-only.
    */
   hasActiveAutomation: boolean;
   /** Truthful description of the automation that runs today (or its absence). */
   currentAutomation: string;
   /**
-   * Read-only description of the fixed PLATFORM-086 cadence PLANNED for this
-   * dataset. Not active in this task — never render this as if it were running.
+   * Read-only fixed-policy summary. The property name predates activation; an
+   * `Active (...)` value describes shipped behavior, not future work.
    */
   plannedPolicy: string;
   /**
    * Lifecycle-critical automation (drives preseason→season/season→offseason
-   * transitions) is EXEMPT from the global noncritical auto-refresh pause. Only
-   * the season-transition cron (schedule dataset) is lifecycle-critical today.
+   * transitions) is EXEMPT from the global noncritical auto-refresh pause.
    */
   lifecycleCritical: boolean;
   /**
    * Whether an EXISTING automatic job consumes this dataset's auto-refresh
-   * enable/disable setting in this task. `game-stats` and `scores` (its live-score
-   * cron, PLATFORM-086B2B) do today; the others persist a setting that future
-   * 086C–086E jobs will consume. The panel uses this to avoid implying a toggle
-   * has an effect it does not yet have.
+   * enable/disable setting. Five do today: game stats, scores, Odds, ordinary
+   * schedule maintenance, and rankings. The panel uses this to avoid implying a
+   * toggle has an effect when no job consumes it (conferences).
    */
   autoRefreshSettingConsumed: boolean;
   /**
@@ -105,7 +103,7 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     provider: 'CFBD',
     hasActiveAutomation: true,
     currentAutomation:
-      'Preseason transition probe (season-transition cron, lifecycle-critical) plus the weekly in-season route GET /api/cron/schedule-refresh (QStash `turfwar-schedule-weekly`, Tuesdays 12:00 UTC once provisioned per runbook §8h): each active season year gets one complete regular+postseason refresh through the shared full-season authority. Ordinary weekly maintenance honors the global pause and this toggle; the postseason-boundary maintenance that establishes the season-rollover boundary (from 7 days before the latest regular-season kickoff, while leagues remain in season) is lifecycle-critical and exempt.',
+      'Preseason transition probe (season-transition cron, lifecycle-critical) plus the active weekly in-season route GET /api/cron/schedule-refresh (QStash `turfwar-schedule-weekly`, Tuesdays 12:00 UTC): each active season year gets one complete regular+postseason refresh through the shared full-season authority. Ordinary weekly maintenance honors the global pause and this toggle; the postseason-boundary maintenance that establishes the season-rollover boundary (from 7 days before the latest regular-season kickoff, while leagues remain in season) is lifecycle-critical and exempt.',
     plannedPolicy:
       'Active (PLATFORM-086E1B): fixed weekly Tuesday 12:00 UTC external trigger — the QStash schedule and cadence are version-controlled, never admin-editable. The toggle pauses ONLY ordinary weekly maintenance; the preseason transition and postseason-boundary maintenance remain exempt.',
     // Lifecycle-critical here means the dataset CONTAINS lifecycle-critical
@@ -139,7 +137,7 @@ export const PROVIDER_DATASET_DESCRIPTORS: Record<ProviderDataset, ProviderDatas
     provider: 'CFBD',
     hasActiveAutomation: true,
     currentAutomation:
-      'External QStash heartbeat (`turfwar-rankings-publication`, 04:00 and 22:00 UTC once provisioned per runbook §8j) → GET /api/cron/rankings. The application publication policy — not the heartbeat — decides whether provider work is due (AP/Coaches Sundays, preseason-discovery Mondays before kickoff, opening-week Tuesdays, CFP Wednesdays, final-poll Wednesdays); each due window is claimed durably exactly once, gated by a fresh CFBD /info probe above the 1,007-call rankings reserve, and refreshed through the shared rankings authority. The global pause + this Rankings toggle gate every automatic refresh; manual admin refresh stays available and ungated; public traffic stays cache-only.',
+      'Active external QStash heartbeat (`turfwar-rankings-publication`, 04:00 and 22:00 UTC) → GET /api/cron/rankings. The application publication policy — not the heartbeat — decides whether provider work is due (AP/Coaches Sundays, preseason-discovery Mondays before kickoff, opening-week Tuesdays, CFP Wednesdays, final-poll Wednesdays); each due window is claimed durably exactly once, gated by a fresh CFBD /info probe above the 1,007-call rankings reserve, and refreshed through the shared rankings authority. The global pause + this Rankings toggle gate every automatic refresh; manual admin refresh stays available and ungated; public traffic stays cache-only.',
     plannedPolicy:
       'Active (PLATFORM-086E2B): fixed 04:00/22:00 UTC external heartbeat — the QStash schedule, publication windows, and reserve are version-controlled, never admin-editable; the toggle pauses/resumes all automatic rankings refresh.',
     lifecycleCritical: false,

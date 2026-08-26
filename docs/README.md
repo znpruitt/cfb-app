@@ -1,7 +1,7 @@
 # Documentation Index
 
 Status: Current
-Last verified: 2026-07-30
+Last verified: 2026-08-26
 Owner: Project documentation
 Canonical for: documentation source-of-truth map and doc lifecycle/status definitions
 Supersedes: (none)
@@ -29,17 +29,17 @@ This is the **source-of-truth map** for the project's documentation. Start here 
 | [`docs/architecture/standings.md`](architecture/standings.md) | Canonical standings authority, selector/LiveDelta boundaries, NoClaim, standings cache invalidation, lifecycle states | Current |
 | [`docs/architecture/auth-and-privacy.md`](architecture/auth-and-privacy.md) | Clerk identity/roles, platform-admin route/API gating, ADMIN_API_TOKEN fallback, league-password privacy gate, cron auth | Current |
 | [`docs/architecture/storage-and-caching.md`](architecture/storage-and-caching.md) | App-state store, alias/app-state storage, provider caches, standings cache keys/tags, legacy-alias cleanup status | Current |
-| [`docs/architecture/admin-control-plane.md`](architecture/admin-control-plane.md) | Admin route/action inventory, target admin information-architecture ownership, scheduler-health receipt contract, PLATFORM-086F2 migration map | Current |
+| [`docs/architecture/admin-control-plane.md`](architecture/admin-control-plane.md) | Current admin information architecture, route/action ownership, and scheduler-health receipt contract | Current |
 | [`docs/operations/deployment.md`](operations/deployment.md) | High-level deploy/env/auth-secret/cron overview and operational checks (points at the runbook for step-by-step) | Current |
 | [`docs/operations/diagnostics.md`](operations/diagnostics.md) | Diagnostic endpoints, debug-surface auth, upstream-first debugging order | Current |
 | [`docs/deployment-runbook.md`](deployment-runbook.md) | Hosted deployment / operator checklist (detailed step-by-step; companion to `operations/deployment.md`) | Current |
 | [`docs/vision.md`](vision.md) | Product vision + canonical production data policy | Current |
 | [`docs/CFB_APP_ARCHITECTURE.md`](CFB_APP_ARCHITECTURE.md) | Quick upstream→downstream pipeline sketch (reference; `AGENTS.md` is canonical for architecture) | Current (reference) |
-| [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) | The game-stats activation / writer-control architecture record (PLATFORM-086H3 fence → C/D/E → PLATFORM-086H3E activation) | Current (architecture) |
+| [`docs/ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md) | Current game-stats writer control, ingestion/outcome authority, evidence coverage, and emergency fence behavior | Current (architecture) |
 | [`docs/ai/platform-086h3-contract.md`](ai/platform-086h3-contract.md) | The original PLATFORM-086H3 lifecycle contract — **frozen, superseded in part** (its revision/lineage design was dropped); point-in-time technical history, not current authority (see the writer-fence doc) | Superseded (frozen) |
 | [`docs/ai/platform-086h3c1-implementation-handoff.md`](ai/platform-086h3c1-implementation-handoff.md) | The C1 evidence-read-model implementation handoff — point-in-time technical history of a shipped slice, not current authority | Historical (point-in-time) |
 | [`docs/campaigns/`](campaigns/) | Per-campaign historical detail and shipped-behavior notes — intentionally retained historical campaign record (not archived) | Historical |
-| [`docs/archive/`](archive/) | Archived historical artifacts — audits (`archive/audits/`), design specs (`archive/designs/`), prompt records (`archive/prompts/`), the original prompt-governance model (`archive/governance/`), and older shipped-work logs (`archive/history/`) — historical reference only, not current authority. See [`docs/archive/README.md`](archive/README.md) | Archived |
+| [`docs/archive/`](archive/) | Archived historical artifacts — audits (`archive/audits/`), design specs (`archive/designs/`), prompt records (`archive/prompts/`), operations evidence (`archive/operations/`), the original prompt-governance model (`archive/governance/`), and older shipped-work logs (`archive/history/`) — historical reference only, not current authority. See [`docs/archive/README.md`](archive/README.md) | Archived |
 
 ## Documentation lifecycle statuses
 

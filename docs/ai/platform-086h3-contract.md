@@ -1,7 +1,7 @@
 # PLATFORM-086H3 — Game-Stats Lifecycle Architecture Contract (FROZEN)
 
 Status: Superseded (frozen) — point-in-time technical history; NOT current authority.
-Successor: [`game-stats-writer-fence.md`](game-stats-writer-fence.md) (current game-stats activation/writer-control architecture).
+Successor: [`game-stats-writer-fence.md`](game-stats-writer-fence.md) (current game-stats writer-control, ingestion, and evidence architecture).
 
 > **SUPERSEDED IN PART (2026-07 audit).** Two independent architectural audits
 > concluded that **prerequisite B as designed (the revision/status authority —

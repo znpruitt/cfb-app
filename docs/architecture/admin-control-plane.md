@@ -1,239 +1,177 @@
 # Admin Control Plane
 
 Status: Current
-Last verified: 2026-08-02
+Last verified: 2026-08-26
 Owner: Project documentation
-Canonical for: the admin route/action inventory, admin information-architecture ownership model, scheduler-health receipt contract, and the PLATFORM-086F2 migration map
-Supersedes: (none — companion to `docs/architecture/auth-and-privacy.md` for who may access these surfaces and `docs/operations/diagnostics.md` for debug endpoints)
+Canonical for: current admin information architecture, route/action ownership, and scheduler-health receipt contract
+Supersedes: the completed PLATFORM-086F2 migration plan, archived at `docs/archive/operations/admin-control-plane-f2-2026.md`
 
-This document is the source of truth for **what the admin area contains, what each action costs and mutates, which surface owns each responsibility, and how the area migrates to the target information architecture** (the PLATFORM-086F2 arc). It was produced by a read-only audit of clean `main` at `7d5741a` (2026-07-30) under `PLATFORM-086F2A-ADMIN-CONTROL-PLANE-IA-v1`; the "current" inventory sections describe that state and are updated as F2 slices land. Binding invariants stay in [`AGENTS.md`](../../AGENTS.md); the current queue stays in [`docs/next-tasks.md`](../next-tasks.md).
+This document describes the admin surface that exists now. Binding architecture and lifecycle
+invariants live in [`AGENTS.md`](../../AGENTS.md); authentication rules live in
+[`auth-and-privacy.md`](auth-and-privacy.md); operator procedures live in
+[`../deployment-runbook.md`](../deployment-runbook.md); current deferrals live only in
+[`../next-tasks.md`](../next-tasks.md).
+
+## Access boundary
+
+Every `/admin` page and admin API is restricted to Clerk users whose
+`publicMetadata.role === 'platform_admin'`, with the documented token fallback where applicable.
+“Commissioner Tools” is an information-architecture label for league-scoped work, not an enforced
+commissioner role. Commissioner and member self-service remain future product work.
 
 ## Locked decisions
 
-These were decided at audit acceptance and bind every F2 slice:
+1. **Admin URLs remain stable.** Reorganization changes ownership and presentation, not routes.
+2. **Every admin surface remains platform-admin-only.** No route infers authority from the
+   “Commissioner Tools” label.
+3. **The lifecycle cron is the sole season-rollover executor.** There is no admin rollover route,
+   page, force action, or manual archive-preview workflow.
+4. **Scheduler delivery and provider refresh are separate facts.** A scheduler receipt proves an
+   authenticated job reached and completed in the app; provider-refresh status describes the
+   attempted data target and durable outcome. Neither is inferred from the other.
+5. **Draft ordering is neutral.** SP+ ratings and betting win totals are not draft recommendation
+   inputs. Available teams use a deterministic alphabetical order with a stable canonical-id
+   tie-break; neutral factual context may still be shown.
 
-1. **Existing admin URLs remain stable.** The reorganization changes grouping, naming, and page content — not routes.
-2. **All `/admin` surfaces remain restricted to `platform_admin`.** "Commissioner Tools" describes the intended audience of a group, not a new permission role. No commissioner-role enforcement or self-service permissions are introduced by F2 (that is the separate Multi-tenant Commissioner Sign-up campaign; see `AGENTS.md` → Auth Architecture Invariants).
-3. **Manual rollover must use the same strict eligibility gate as automatic rollover.** The gate is `resolveNationalChampionshipRollover` (`src/lib/schedule/nationalChampionshipRollover.ts`): structured `cfbd-structured` CFP national-championship identification, confirmed complete final, and the seven-day delay. Exceptional forced recovery, if ever needed, requires a separately reviewed future operation — it is not an F2 deliverable.
-4. **Scheduler health uses latest-only durable execution receipts**, stored under a distinct scope, separate from `provider-refresh-status`. Scheduler delivery answers "did the job run?"; provider status answers "what data operation was attempted and committed?". Neither may be inferred from the other.
-5. **The draft experience embeds no SP+/win-total recommendation signal** (decided at F2G1, `PLATFORM-086F2G1`). SP+ ratings and betting win totals made team selection artificially easy and silently drove available-team ordering, so both were retired as draft inputs. Available teams are presented in one neutral, recommendation-free order (locale-aware alphabetical, stable canonical team-id tie-break) identical for the commissioner and spectator boards; only neutral factual context (identity, conference, colors, schedule shape, prior-season record, preseason AP rank, ranked-opponent count) may inform a pick. This does not change game-card/matchup Odds elsewhere in the app.
+## Information architecture
 
-## Terminology
+| Group | Surface | Responsibility |
+| --- | --- | --- |
+| Platform Operations | System Health | Scheduler delivery, provider/cache health, quota, storage, prioritized issues, and bounded automation safety controls. |
+| Platform Operations | Data Maintenance & Recovery | Provider refreshes, rebuilds, imports, historical repair, and emergency recovery, each with cost and mutation disclosure. |
+| Platform Configuration | League Management | League registry creation, naming, deletion, and platform-level league access configuration. |
+| Platform Configuration | Team Identity | Global alias repair and team-catalog maintenance. |
+| Platform Configuration | Draft Sequencing | Cross-league draft readiness and ordering. |
+| Commissioner Tools | League-scoped pages | Preseason setup, owner confirmation, roster/settings work, insights, draft/test controls, and historical repair entry points. The label does not grant access. |
 
-| Term | Meaning |
+System Health is observation-first. Its only mutations are the global automation pause and the
+enable controls for datasets with live consumers. Provider refreshes and data repair belong on Data
+Maintenance & Recovery.
+
+## Page routes
+
+Twelve current page routes exist under `src/app/admin/`:
+
+| Route | Responsibility |
 | --- | --- |
-| **Platform Operations** | The operator-facing group: System Health, Data Maintenance & Recovery. (Season Management was retired by F2H4 — rollover has no operator-reachable controls, so it had no decisions to host.) |
-| **Platform Configuration** | The registry/identity group: League Management, Team Identity |
-| **Commissioner Tools** | League-scoped management surfaces (`/admin/[slug]` and children). Audience label only — still `platform_admin`-gated |
-| **System Health** | Observation-first surface: automation gates, scheduler delivery, data freshness, quotas, storage, prioritized issues. Contains no provider-refresh or repair mutations |
-| **Data Maintenance & Recovery** | All provider refreshes, rebuilds, imports, and historical repairs, each disclosed with cost/target/effect/class |
-| **Action class** | Every maintenance action is classified `routine` (normal upkeep, usually automation-owned), `recovery` (manual repair of a known gap), or `emergency` (high-cost or wide-blast-radius operations such as the full game-stats backfill) |
-| **Scheduler receipt** | A latest-only durable record proving an external scheduler delivered a cron invocation, regardless of whether any provider work resulted |
+| `/admin` | Platform navigation and per-league entry points. |
+| `/admin/diagnostics` | System Health. |
+| `/admin/data/cache` | Data Maintenance & Recovery. |
+| `/admin/leagues` | League Management. |
+| `/admin/aliases` | Global Team Identity repair. |
+| `/admin/draft` | Cross-league draft sequencing/readiness. |
+| `/admin/[slug]` | League lifecycle summary and test controls. |
+| `/admin/[slug]/preseason` | Assignment method and setup completion. |
+| `/admin/[slug]/preseason/owners` | Preseason owner confirmation. |
+| `/admin/[slug]/roster` | Direct roster editing and historical/repair CSV entry. |
+| `/admin/[slug]/settings` | League display and access settings; lifecycle-owned fields are read-only. |
+| `/admin/[slug]/insights` | League-scoped Insights management. |
 
-Provider costs quoted below are **nominal per successful attempt**; retry/pacing can increase request attempts. Quota policy itself is owned by `AGENTS.md` and `docs/architecture/game-data-flow.md` (CFBD Tier 1 5,000 calls/month; The Odds API ~500 credits/month).
+There is no `/admin/season` page.
 
-## Current route inventory (audited at `7d5741a`)
+## Admin API surface
 
-Twelve page routes exist under `src/app/admin/`; the audit confirmed there are no others.
+The current routes under `src/app/api/admin/` are:
 
-| Route | Current responsibility | Finding |
+| Route | Methods | Responsibility |
 | --- | --- | --- |
-| `/admin` | Platform cards and per-league links | Flat grouping obscures the operations/configuration boundary. **F2J links `/admin/draft`**, which was previously reachable only by URL |
-| `/admin/diagnostics` | **System Health** (F2G): a current-status dashboard — stoplight overview, prioritized issues, scheduler delivery/execution, provider-data health, quota, storage, automation safety controls | The F2D1+F2D2 relocation is complete (no provider-data repair mutation here); the F2G rename/redesign is merged (PR #439) — repair links route to the owning surfaces |
-| `/admin/data/cache` | **Data Maintenance & Recovery** (F2C): provider maintenance/recovery, historical recovery — every action carries a cost/scope disclosure from the shared contract (`src/lib/admin/maintenanceActions.ts`) | Lifecycle rollover removed; since F2H4 NOTHING owns it as an admin surface — the daily cron executes it and System Health observes it; Diagnostics-owned mutations still relocate here in F2D; the "Season inputs" section (SP+ ratings + win totals) was retired by F2G1 |
-| `/admin/leagues` | Create/delete leagues; edit name (year read-only since F2B) | Duplicates per-league settings; the year-desynchronization hazard was resolved by F2B (year is lifecycle-managed) |
-| `/admin/aliases` | Global alias editing | Correct global scope, but "Aliases" understates its cross-league identity impact |
-| `/admin/draft` | Cross-league draft sequencing/readiness | **Surfaced by F2J** as a platform card. Known limitation recorded, not fixed: `rolloverNeeded` compares against the CALENDAR year rather than the lifecycle authority, so every league reads "behind" from January 1 until the CFP-gated rollover runs. The dead "run rollover first" instruction WAS corrected — manual rollover was retired by F2H3A/F2H4. **Round 2 corrected the replacement too:** it said "rollover is automatic" for every behind-year row, which is false in exactly the two cases that make the flag fire — `groupRolloverTargets` selects non-test leagues in `season`, so the demo league is excluded outright and a league already in offseason is not a target. The guidance now branches on actual eligibility and names the reason. The panel was also the only hard-coded-dark page in the admin surface; surfacing it made that reachable, so it now carries a light-mode variant like its siblings |
-| `/admin/[slug]` | League state, preseason transition, roster/settings links, test controls | Correct commissioner grouping; the render-time status write was removed by F2B |
-| `/admin/[slug]/preseason` | Assignment method and setup completion | Commissioner-scoped |
-| `/admin/[slug]/preseason/owners` | Owner confirmation | Commissioner-scoped |
-| `/admin/[slug]/roster` | Direct roster editing plus historical/repair CSV | Combines a commissioner operation with platform recovery |
-| `/admin/[slug]/settings` | Display name (editable); season year and founded year (read-only) | Season year is lifecycle-managed; **F2J froze the founded year at creation** (`league-founded-year-immutable`). A record with no recorded founding year shows "Not recorded" rather than a fabricated current year |
+| `/api/admin/provider-status` | GET, POST | Cache-only provider status/diagnostics and bounded automation settings. |
+| `/api/admin/usage` | GET | CFBD usage observation. |
+| `/api/admin/odds-usage` | GET | Durable Odds quota observation. |
+| `/api/admin/team-database` | POST | Team-catalog synchronization. |
+| `/api/admin/cache-historical-schedule` | POST | Historical schedule repair. |
+| `/api/admin/cache-historical-scores` | POST | Historical score repair. |
+| `/api/admin/storage` | GET | Storage diagnostics. |
+| `/api/admin/leagues` | GET, POST | League listing and creation. |
+| `/api/admin/leagues/[slug]` | PATCH, DELETE | Allowed league configuration and explicit deletion. |
+| `/api/admin/leagues/[slug]/password` | PUT, DELETE | League password configuration. |
 
-The admin API surface under `src/app/api/admin/` comprises: `provider-status` (GET/POST), `usage` (GET), `odds-usage` (GET), `team-database` (POST), `cache-historical-schedule` (POST), `cache-historical-scores` (POST), `storage` (GET), `leagues` (GET/POST), `leagues/[slug]` (PATCH/DELETE), and `leagues/[slug]/password` (PUT/DELETE). (F2G1 retired the `cache-sp-ratings` and `win-totals` routes along with SP+/win-total draft assistance.)
+Provider maintenance also calls the authorized schedule, scores, odds, rankings, conferences, and
+game-stats adapters. Their refresh authority and cache behavior are documented in
+[`game-data-flow.md`](game-data-flow.md).
 
-## Action, cost, and mutation inventory
+## Maintenance actions
 
-Target **destination** names the owning surface in the target IA (below); "Data Maintenance" is column shorthand for the Data Maintenance & Recovery group. Provider refreshes marked "authorized" go through the public provider route with admin credentials per the cache-reader + authorized-refresh policy (`docs/architecture/game-data-flow.md`) — note the forced-refresh parameter differs by family: schedule uses `bypassCache=1` (the schedule route does not parse `refresh=1`), while scores and Odds use `refresh=1`.
+`src/lib/admin/maintenanceActions.ts` is the presentation authority for exact action labels,
+nominal costs, durable mutations, automation owners, and action classes. It currently defines:
 
-| Action / API | Provider cost (nominal) | Durable effect | Automation owner | Destination |
-| --- | --- | --- | --- | --- |
-| `GET /api/admin/provider-status` | None | None | All provider jobs | System Health |
-| Provider global pause / dataset toggles (`POST /api/admin/provider-status`) | None | `provider-refresh-settings` | All noncritical jobs | System Health |
-| `GET /api/admin/usage` | One CFBD `/info` observation | None | Operator | System Health |
-| `GET /api/admin/odds-usage` | None | None | Odds refresh writers | System Health |
-| Full-year schedule refresh (authorized `bypassCache=1`) | 2 `/games` plus `/games/media`, and `/venues` when due: normally 3–4 | Schedule, probe, presentation caches, statuses; standings invalidation on change | Weekly QStash + lifecycle crons | Data Maintenance |
-| Aggregate score refresh (authorized `refresh=1`) | 1–2 CFBD `/games` partitions | Score caches/status; standings invalidation | Live-score QStash | Data Maintenance |
-| One game-stats partition | Usage probe plus one `/games/teams` request | Game-stat partition/status | Game-stats QStash | Data Maintenance |
-| Full game-stats backfill | Up to 19 dataset calls plus probes | Multiple game-stat partitions/statuses | Operator recovery | Data Maintenance (emergency class) |
-| Odds refresh (authorized `refresh=1`) | One three-credit `/odds` request, with quota observation | Raw/canonical Odds, usage, status | Hourly QStash | Data Maintenance |
-| Rankings refresh | 2 CFBD rankings partitions | Rankings/status | Publication QStash | Data Maintenance |
-| Conferences refresh | 1 CFBD request | Global conference cache/status | Manual only | Data Maintenance |
-| Team database sync (`POST /api/admin/team-database`) | 1 CFBD teams request | Global team catalog; standings invalidation | Manual only | Data Maintenance |
-| Historical schedule repair (`POST /api/admin/cache-historical-schedule`) | 0 when already accepted; otherwise 2 CFBD partitions | Historical schedule cache/status | Manual recovery | Data Maintenance |
-| Historical scores repair (`POST /api/admin/cache-historical-scores`) | 0 when cached; otherwise up to 2 partitions | Historical score cache + scoped year-rollup `provider-refresh-status` attempt (the pre-F2C status gap is closed — see operational clarity findings) | Manual recovery | Data Maintenance |
-| Score-attachment diagnostic (`GET /api/debug/scores-attachment`) | 1–2 CFBD score requests nominally; when the schedule/conference caches are stale or absent, its context loader (`loadDebugSeasonContext`) forwards admin credentials and adds up to 2 schedule partitions plus 1 conferences request; worse, if a season-wide score partition returns non-2xx, `fetchScoreRows` (`src/lib/scores.ts`) falls back to per-week refresh requests across that season type — the recovery path can issue dozens of CFBD requests while still returning HTTP 200 | Score caches/status (propagates `refresh=1` upstream — **not read-only**); may also refresh schedule/conference caches and statuses via the context loader | Operator diagnostic | Data Maintenance, clearly labeled as mutating |
-| Storage status (`GET /api/admin/storage`) | None | None | — | System Health |
-| ~~Rollover status + archive preview (`/api/admin/rollover`)~~ — **RETIRED (F2H4)**, along with `/admin/season`. The daily cron is the only rollover surface of any kind; its observable state is the `season-rollover` scheduler row on System Health | — | — | — | — |
-| ~~Archive listing~~ — **RETIRED (F2H4)**. The panel rendered year badges with no links; `/league/<slug>/history` navigates the same `listSeasonArchives` data per league | — | — | — | — |
-| League create/delete/configuration (`/api/admin/leagues*`) | None | League registry/settings | Platform operator | League Management |
-| Global alias save | None | Cross-league alias map; standings invalidation | Platform operator | Team Identity |
-| Preseason / owner / draft / roster actions | None | League lifecycle, owners, roster, draft state | Commissioner-intent operator | Commissioner Tools |
-| Historical roster CSV repair | None | Owner CSV and possibly global aliases | Platform recovery | Data Maintenance |
-| League password/privacy (`/api/admin/leagues/[slug]/password`) | None | League authentication configuration | Commissioner-intent operator | Commissioner Tools |
+| Class | Actions |
+| --- | --- |
+| Routine | Conferences refresh; team-database sync. |
+| Recovery | Full-year schedule; aggregate scores; one game-stats partition; Odds; rankings; historical schedule; historical scores. |
+| Emergency | Full game-stats backfill; score refresh plus attachment trace. |
 
-## Priority findings
+Costs are nominal successful-attempt estimates; retries can increase provider use. Disclosures do
+not authorize a request or establish success. The underlying route remains responsible for auth,
+validation, durable-first commit behavior, and truthful provider-refresh status.
 
-### High-priority correctness — ✅ RESOLVED by F2B (`PLATFORM-086F2B-LIFECYCLE-AUTHORITY-SAFETY-v1`)
+League-scoped server actions currently cover test-league status/reset controls, preseason entry,
+assignment method, owner confirmation, setup completion, test-owner CSV migration, and test draft
+completion. They are not provider-maintenance actions and must use the shared lifecycle/roster
+authorities described in `AGENTS.md`.
 
-The binding rules now live in `AGENTS.md` → **Lifecycle Authority Invariants**; the paragraphs below record the pre-F2B defects and their resolutions.
+## System Health contract
 
-1. **Manual rollover bypassed hardened lifecycle safety — resolved by F2B, then SUPERSEDED by F2H3A.** *The description below is the F2B-era contract and is retained as history; for current behavior see the F2H3A note that follows it.* Pre-F2B, `src/app/api/admin/rollover/route.ts` never imported the strict gate: its confirmed-execution branch flipped leagues to `offseason` with no eligibility check, while GET consulted only the weaker display-oriented `isSeasonComplete()` (since deleted), and it assumed one global season (`leagues[0].year`). Now the manual route is per-year and shares the automatic cron's authority end-to-end: target selection via `groupRolloverTargets` (`src/lib/rolloverTargeting.ts` — non-test `status.state === 'season'` leagues grouped exclusively by `status.year`, ascending), eligibility via `resolveNationalChampionshipRollover` re-evaluated on **every** POST (a stale preview never authorizes execution; refusals are `409 rollover-not-eligible` with the exact stable reason, `409 rollover-year-not-active`, or `503 rollover-eligibility-unavailable` on a durable read failure), group-atomic archive-first two-stage execution (any archive failure prevents every status transition for the group; the automatic cron keeps its per-league isolation — in neither path can a league transition without its own durable archive), every transition through the guarded `completeSeasonRollover` (the league must still be in `season` for the exact requested year at write time), truthful partial-failure reporting, and no force/emergency bypass. GET returns the sanitized per-year `ManualRolloverStatusResponse` (`src/lib/manualRollover.ts` — the shared client contract both panels decode). Both panels (`RolloverPanel`, `SeasonRolloverPanel`) send an explicit year on every request, never render an execute control for an ineligible/unavailable year, and render the authoritative per-year dates (the page-computed global "next rollover" estimate was removed); their consolidation into one surface remains F2H. **Superseded by PLATFORM-086F2H3A:** manual rollover EXECUTION is retired, so nothing above about the admin route's group-atomic two-stage execution, its `completeSeasonRollover` transitions, or its partial-failure reporting describes current behavior — that route now returns status and the archive PREVIEW and writes nothing, answering `confirmed: true` with `rollover-execution-retired` (409). `completeSeasonRollover`, archive-first ordering, and truthful partial-failure reporting all remain live in the season-rollover CRON, which is now the sole executor. `RolloverPanel` no longer exists; `SeasonRolloverPanel` is the one rollover surface, and the consolidation described as pending is complete.
-2. **League year had two competing authorities — resolved and guarded further by F2H1A.** The guarded write authority and the fixed-target demo-league control share `applyLifecycleStatus`: `season`/`preseason` synchronize the top-level `league.year` to `status.year` in one serialized registry write, while `offseason` writes the last authoritative season year (the outgoing `status.year`) into `league.year`. F2H1A routes the commissioner `beginPreseason` and `completeSetup` decisions through `guardedLifecycleWrite`, so their state check, exact-year check or successor derivation, and atomic projection all occur under the registry lock; concurrent/stale submissions refuse without writing. The pre-existing `completeSeasonRollover` still hand-rolls the equivalent projection inside its own exact-year transaction; F2H2 owns that convergence. Generic `updateLeague` rejects lifecycle fields (type- and runtime-level); `PATCH /api/admin/leagues/[slug]` rejects `year` (`409 league-year-lifecycle-managed`) and `status` (`409 league-status-lifecycle-managed`); creation seeds an explicit status and enforces the integer `2000..currentUTCYear+1` ingress horizon — though since PLATFORM-093 that horizon applies only to the ADOPTION path, because ordinary creation derives the season year and refuses a supplied one, and seeds `preseason` rather than `season`. Legacy missing-status recovery and rollover convergence remain later F2H slices, not claims of F2H1A; the cron migration landed in F2H1B (below); test-control convergence and the retirement of the arbitrary-slug setter landed in F2H1T1.
-3. **A page render mutated durable lifecycle state — resolved.** `src/app/admin/[slug]/page.tsx` no longer fire-and-forgets `updateLeagueStatus` during render; the legacy missing-status inference (`{ state: 'season', year: league.year }`) is read-only, and a regression test pins the registry byte-equivalent across renders.
+System Health consumes one server-built view model that writes nothing. The server resolves the
+relevant operational year and combines distinct facts without treating one as proof of another:
 
-### Operational clarity findings
+- scheduler delivery and execution;
+- provider-refresh attempt/outcome by canonical target scope;
+- durable cache content/freshness and evidence coverage;
+- CFBD and Odds usage observations;
+- storage availability;
+- automation pause/enable settings;
+- prioritized operator issues.
 
-- ~~Diagnostics performs manual provider refreshes, team-database writes, and score-cache mutations from what presents as an observational page.~~ **Fully resolved by the F2D1+F2D2 split**: `ProviderDataStatusPanel` no longer offers manual refreshes (System Health keeps only the global pause, dataset toggles, status, quota, and diagnostics); Odds/Rankings refreshes, Conferences, and the relocated Team Database sync live on Data Maintenance & Recovery (F2D1); and the mutating score tool is now the explicitly confirmed, emergency-class **score-attachment recovery** action there (F2D2) — one captured target drives its disclosure, mandatory confirmation (naming the target, cache mutations, and possible per-week fan-out), request, and result label, with the trace explicitly disclaiming that it proves upstream refresh success. The backend route/context-loader limitations stay separately owned by the server-fetch backlog.
-- ~~Provider costs, target scope, durable effects, and routine-versus-recovery intent are inconsistently disclosed across action surfaces.~~ **Resolved by F2C** for every action on Data Maintenance & Recovery: the shared presentation-only contract (`src/lib/admin/maintenanceActions.ts`, eight descriptors with routine/recovery/emergency classes) renders a compact keyboard-accessible disclosure adjacent to each action; the full game-stats backfill visibly identifies as the emergency action. Diagnostics-owned actions gain their disclosures when F2D relocates them.
-- **No rollover panel at all since F2H4** (this note is retained as history). **One rollover panel (`SeasonRolloverPanel`) since F2H3A.** F2C moved the per-year status panel to Season Management when rollover left the maintenance page, leaving it beside the eligible-year execution panel (`RolloverPanel`); F2H3A deleted the latter with manual execution, after porting its unique preview detail — the owners whose outcomes flip, by name, and the standings positions that move — into the survivor. Neither panel had been a superset of the other, so the merge was by CAPABILITY: deleting either one outright would have lost operator information.
-- The Provider Status card reads canonical year-rollup status, so healthy week-scoped live-score or game-stat activity can appear absent. Canonical dataset health and latest scoped activity must be shown separately.
-- Provider-refresh status cannot prove scheduler delivery: a harmless skip/no-target invocation creates no provider attempt, so its absence must not be read as scheduler failure (motivates the receipt contract below).
-- CFBD quota is loaded twice on Diagnostics: `AdminUsagePanel` and `ProviderDataStatusPanel` each perform an independent CFBD usage read per mount.
-- Stale automation descriptors: `src/lib/providerDatasets.ts` still hedges Schedule/Rankings automation with "once provisioned per runbook §8h/§8j" although both QStash schedules are active, and `src/lib/server/providerRefreshSettings.ts` plus `ProviderDataStatusPanel` retain "cadence is fixed in code / `vercel.json`" wording although the active schedules are QStash-managed.
-- ✅ **CLOSED by F2I — legacy-token error copy on `/admin/leagues`.** It said "Enter your token in the Auth panel above", but nothing on the page is labelled "Auth panel": `AdminAuthPanel` renders a `<details>` whose summary reads "Admin access token". The copy now names what actually renders and is defined once rather than three times. The remaining observation is unchanged and still open: the legacy `ADMIN_API_TOKEN` path is a transition-period fallback under Clerk (`AGENTS.md` → Auth Architecture Invariants), and its sunset is tracked in `docs/next-tasks.md` — F2I did not change that.
-- ~~Historical scores repair commits its cache write without recording a `provider-refresh-status` attempt.~~ **Resolved by F2C**: whenever provider work is required, `POST /api/admin/cache-historical-scores` records ONE truthful attempt against the exact `scores` year rollup (`scoresAggregateScope` — the repair always targets both complete partitions), begun after the auth/validation/active-year/cached exits but before credential validation. Outcomes: `cfbd-api-key-missing`, `cfbd-fetch-failed` (exact failed partitions), `cfbd-empty-unexpected` (an empty partition over prior-good rows or started schedule games is classified through the shared `classifyEmptyScoresResponse` BEFORE any write — nothing committed, prior rows retained; a genuinely absent target is a no-op with no empty commit), `durable-write-failed` (partial-write truth via the pure `classifyHistoricalScoreWrites`), or success recorded only after the attempted durable commits with `committedAt`/`commitSeq`/rows. Recording is best-effort and never changes the route's provider/cache outcome; no provider bodies, credentials, or storage errors are stored. Known residual hardening follow-up (raised at F2C review by both reviewers, deliberately NOT taken in F2C — the F2C contract pins "do not change its active-year rule"): the repair refuses only `seasonYearForToday()`, narrower than the historical-schedule sibling's league-lifecycle-aware `computeProtectedActiveYears` (force-proof). A repair against an unrolled prior season still in league `season`/`preseason` status can therefore overwrite that active league's score caches (pre-existing) AND its `scores:year:<year>` status rollup (new surface since F2C records status); a deliberate future-year repair can likewise pre-stamp a not-yet-active year's rollup. Adopt `computeProtectedActiveYears` here in a follow-up slice.
-- `/admin/[slug]/roster` combines direct roster editing (commissioner operation) with historical/repair CSV import (platform recovery) on one page for different audiences.
-- `/admin/draft` is reachable only by URL and duplicates league-scoped navigation.
-- ✅ **CLOSED by PLATFORM-103 — test-convention drift.** F2D removed the drifted co-located
-  Team Database duplicate; PLATFORM-103 relocated the four remaining route suites under their
-  nearest `__tests__/` directories without weakening their assertions. The canonical test command
-  now discovers every executable test below `src/`, including a misplaced one; the separate layout
-  guard then rejects any such file outside `__tests__/`. The canonical suite and convention are both
-  scoped to `src/` — tests elsewhere in the repository are not covered by this guarantee.
+All inputs are durable/cache reads except one deliberate CFBD usage observation through the ordinary
+10-minute cache; that call measures quota and does not refresh provider data. A failure or timeout in
+one input degrades only that fact instead of failing the whole dashboard.
 
-## Target information architecture
+The page has no independent year selector and does not trigger provider repair. Its settings only
+control automatic jobs that actually consume them; lifecycle-critical season transition/rollover
+jobs remain exempt, and manual admin refreshes remain available for recovery.
 
-| Group | Route retained | Responsibility |
-| --- | --- | --- |
-| Platform Operations → System Health | `/admin/diagnostics` | Automation gates, scheduler delivery, provider/cache freshness, quotas, storage, prioritized issues, each with a nullable repair destination (Data Maintenance / Team Identity, or none — F2H4 removed the Season Management member) |
-| Platform Operations → Data Maintenance & Recovery | `/admin/data/cache` | Provider refreshes, rebuilds, enrichment, imports, historical repairs, roster repair, diagnostic refreshes |
-| Platform Configuration → League Management | `/admin/leagues` | Registry, league creation/removal, product-configuration navigation; no generic lifecycle-year edit |
-| Platform Configuration → Team Identity | `/admin/aliases` | Global canonical matching corrections, cross-league warnings, diagnostics deep links |
-| Commissioner Tools | `/admin/[slug]` and children | League-scoped setup, owners, draft, direct roster management, display/privacy settings |
-| Compatibility | `/admin/draft` | Redirect or narrow index into league-scoped draft tools once its useful readiness summary is relocated |
+## Scheduler receipt contract
 
-System Health remains primarily observational. Global pause and dataset toggles stay there because they are operational safety controls; all provider refresh and repair mutations move to Data Maintenance & Recovery. Every mutation there is described through one shared action contract: provider, nominal cost, target scope, durable mutations, automation owner, and routine/recovery/emergency class.
+The seven external jobs are `live-scores`, `game-stats`, `odds`, `schedule-refresh`, `rankings`,
+`season-transition`, and `season-rollover`. The first five are QStash-owned; the two lifecycle jobs
+are Vercel Cron-owned.
 
-## Scheduler-health contract (owned by F2E1/F2E2)
+Each job stores one latest-only receipt under `scheduler-execution-status/<job>`. An allowlisted
+receipt contains an application-generated invocation id, start/completion instants, duration,
+closed result/reason values, whether provider work was attempted, a bounded typed target, scheduler
+owner derived from the job, and the deployment build commit when available. It never stores request
+objects, headers, URLs, credentials, provider payloads, arbitrary errors, or scheduler-supplied ids.
 
-**F2E status (the receipt WRITER is implemented for all seven scheduled jobs):** the five QStash-triggered routes each schedule one latest-only durable receipt under `scheduler-execution-status/<job>` with `source: 'qstash'` after successful authentication (PLATFORM-086F2E1); **F2E2A** (PLATFORM-086F2E2A) extends the same authority to the two Vercel-native lifecycle crons — season-transition and season-rollover, `source: 'vercel-cron'` — and adds their previously-missing secret-safe runtime execution-log events (`season-transition-cron` / `season-rollover-cron`, auth failures included). The audited **F2E2 split** leaves the cache-only admin reader and the cadence-aware delivery-health classification as **F2E2B**.
+Persistence is monotonic by `(startedAt, invocationId)`, so an older overlapping invocation cannot
+overwrite a newer delivery when it completes late. Malformed, mismatched, obsolete, or implausibly
+future-dated prior records are replaceable; a genuine read failure aborts the write. Receipt writes
+are best-effort and deferred after the response: they cannot change cron behavior or response
+status. Receipts remain separate from `provider-refresh-status` and contain no history or heartbeat
+table.
 
-A latest-only durable receipt is written under the distinct scope `scheduler-execution-status/<job>` for each externally scheduled job:
+## Automated transition convergence
 
-| Job | Route | Cadence |
-| --- | --- | --- |
-| Live scores | `GET /api/cron/live-scores` | Every 3 minutes (QStash `turfwar-live-scores-3m`) |
-| Game stats | `GET /api/cron/game-stats` | Every 15 minutes (QStash `turfwar-game-stats-15m`) |
-| Odds | `GET /api/cron/odds` | Hourly (QStash `turfwar-odds-hourly`) |
-| Weekly schedule | `GET /api/cron/schedule-refresh` | Weekly (QStash `turfwar-schedule-weekly`) |
-| Rankings | `GET /api/cron/rankings` | Twice daily (QStash `turfwar-rankings-publication`) |
-| Season transition | `GET /api/cron/season-transition` | Daily (Vercel cron) |
-| Season rollover | `GET /api/cron/season-rollover` | Daily (Vercel cron) |
+Season transition and season rollover are automatic, lifecycle-critical jobs. They are not gated by
+the noncritical provider automation pause/settings.
 
-Contract properties:
+- Transition evaluates production preseason candidates by their authoritative lifecycle year and
+  moves an eligible league into season through guarded lifecycle writes.
+- Rollover evaluates production leagues currently in season, identifies a completed structured CFP
+  national championship, observes the seven-day delay, builds each archive before transition, and
+  advances only through the guarded rollover authority.
+- Demo/test leagues are excluded from automatic rollover targeting.
+- Structurally invalid lifecycle targets are refused and surfaced in scheduler receipts instead of
+  being silently coerced.
+- No admin action bypasses these gates. Exceptional recovery would require a separately reviewed
+  operation rather than reintroducing a generic manual rollover.
 
-- Each receipt is allowlisted and secret-safe: `version` (`1`), job, `source`, an application-generated `invocationId` (`crypto.randomUUID`), result/reason, start/completion timestamps, duration, provider-call flag, and a bounded target summary (multi-year jobs cap at eight entries with `totalYears`/`truncated`). No credentials, tokens, upstream URLs, headers, provider payloads, league slugs, or raw errors. **`source` is DERIVED from `job` (never accepted from a route caller) and names the configured scheduler owner — `qstash` for the five QStash jobs, `vercel-cron` for the two lifecycle crons. It is proof of an authenticated application-boundary execution, NOT a cryptographic QStash-signature/provenance claim** — no QStash header (`Upstash-Message-Id`, `Upstash-Signature`, user-agent, …) is inspected or persisted, and no signing key or second authentication mechanism is introduced.
-- **Receipts are written only after successful cron authentication.** The cron URLs are publicly reachable; a receipt written on an auth failure would let any caller advance the "last delivery" timestamp and mask a broken QStash/Vercel credential. Unauthenticated or malformed invocations must never advance delivery health. Auth failures stay visible in the runtime execution-log events of the five QStash provider routes, which record them today; the two lifecycle crons currently emit **no** app-side execution event (their auth failures appear only in platform request logs), so F2E2 adds lifecycle execution-log events alongside their receipts to close that gap.
-- **Stale completions must not overwrite newer receipts.** With at-least-once or overlapping deliveries, an older invocation can complete after a newer one; the latest-only key must be committed with a monotonic ordering rule keyed on invocation start/delivery identity (the store's observation-ordered transaction pattern), not plain last-write-wins.
-- A skip or no-target result **proves healthy delivery**. Delivery health is classified cadence-aware (a 3-minute job is late on a different clock than a weekly one).
-- Receipt writes are best-effort: a store failure cannot change a cron response, provider behavior, cadence, or the existing execution-log events.
-- Latest-only storage keeps row count constant (one row per job); at current cadence this is approximately 604 receipt updates per day, dominated by the 3-minute live-score job.
-- The scope name `scheduler-execution-status` is unused at `7d5741a` (verified by repo-wide search) and is reserved by this contract.
-- This remains separate from `provider-refresh-status` — see locked decision 4.
-- **The reader/classifier is implemented (F2E2B, `src/lib/server/schedulerDeliveryHealth.ts`).** A cache-only server reader loads the scope ONCE and returns exactly seven state-bearing rows in canonical order; each carries its fixed UTC policy (cron, cadence label, grace), the `requiredStartedAt` slot, a `deliveryState` of `on-time | late | missing | invalid | unavailable`, and the safely-parsed receipt (or `null`). Delivery timeliness compares the receipt's `startedAt` — never `updatedAt`/`completedAt` — against the most recent fixed UTC schedule slot at/before (`now − grace`), and NEVER inspects `result`/`reason`/`providerCallAttempted`/target, so a timely skip/no-op/failure is still `on-time` (delivery and execution outcome stay separate facts). Per-job grace: live-scores 6 min, game-stats 30 min, odds/rankings 2 h, weekly schedule 24 h, the two lifecycle crons 65 min (Vercel Hobby per-hour precision). A missing key is `missing`, an unparseable row is `invalid` (never contaminating siblings), and a scope-read failure makes all seven `unavailable` — a missing/late receipt does NOT identify a root cause (scheduler failure vs non-provisioning vs best-effort store failure). It performs no provider call, HTTP request, quota probe, or write, and adds no UI. **F2F consumes this reader** to build the consolidated System Health view model (see the next section); **F2G** owns the UI.
+Current unresolved lifecycle decisions and limitations are listed only in
+[`../next-tasks.md`](../next-tasks.md#unresolved-decisions--known-deferrals).
 
-## System Health read model (owned by F2F)
+## History
 
-**F2F status (merged, PR #438 — `PLATFORM-086F2F-SYSTEM-HEALTH-READ-MODEL-v1`):** `buildSystemHealthViewModel({ year, nowMs?, loaders? })` (`src/lib/server/systemHealth.ts`) composes the six fact domains for an explicit, validated year and derives a deterministic, prioritized issue list. It is server-only: no route, UI, mutation, durable schema change, scheduler/provider behavior change, or internal HTTP; F2G renders it.
-
-- **Two axes, kept separate.** Seven scheduler jobs (delivery) and six provider datasets (data) are returned as distinct collections — NOT a 1:1 merge (`season-rollover` has no dataset; `conferences` has no job; `schedule-refresh` + `season-transition` both touch Schedule). The model never manufactures a combined "provider/job health" row.
-- **Six independent facts.** Scheduler DELIVERY (an authenticated invocation arrived on time), scheduler EXECUTION outcome (what the receipt reported), canonical DATA health (cache/evidence freshness via `providerDataDiagnostics`), automation GATES, quota, and storage each stay independent. Representable combinations include on-time delivery + failed execution, late delivery + last execution succeeded, and a failed provider attempt beside a healthy prior-good cache.
-- **A gate never excuses a missing delivery.** Automation pause/disable produce only informational issues that never demote a missing/late scheduler delivery and never move `overallState` off `healthy` by themselves.
-- **Safe provider-status reader** (`src/lib/server/providerRefreshHealth.ts`): one cache-only read of `provider-refresh-status`, six dataset rows, each with a separate `canonicalStatus` and `latestScopedActivity` (both retained even when they refer to the same record). Records are rebuilt field-by-field (never raw-cast); `lastError.message` and the free-form `source` are dropped (only a validated error code/status and a sanitized `hasError` flag survive); latest-activity is chosen by valid `lastAttemptAt` with a deterministic scope-key tie-break and gated to the scope kinds each dataset actually owns; malformed rows are isolated (`invalid`) and a scope-read failure degrades the subsystem to `unavailable` without fabricating empty history.
-- **Nullable, truthful repair destinations** (correcting the earlier "repair link" wording): each issue's `repair` is a closed union — Data Maintenance (`/admin/data/cache`), Team Identity (`/admin/aliases`), or **`null`**. **F2H4 removed the Season Management member**: it was only ever emitted for a LIFECYCLE scheduler execution fault, it named a page that could not repair one, and that page is now retired — so lifecycle faults join the `null` set below. A repair is `null` when no in-app repair exists (missing/late delivery, quota exhaustion, storage misconfiguration, unavailable observability reads, and manual-only game-stat evidence that a refresh cannot repair). **Lifecycle execution failures route NOWHERE (F2H4)** — there is no supported operation that repairs a production lifecycle record, and the page they used to name is retired. Identity mismatches route to Team Identity; other data defects to Data Maintenance.
-- **One deliberate CFBD quota observation** per build (ordinary 600 s cache, not `fresh`), evaluated against the largest active reserve (`RANKINGS_AUTOMATION_MIN_REMAINING` = 1,007); Odds headroom uses the actual automatic threshold (3-credit cost + 50 reserve = 53), never the legacy 25/10/5 UI thresholds. Canonical data freshness stays sourced from the cache/evidence authority, never provider-status timestamps.
-- **Deterministic aggregation.** Issue order is severity → axis → canonical job/dataset order → subject → code; only identical identities are de-duplicated; `overallState` is `critical` if any critical issue, else `degraded` if any warning, else `healthy` (info-only stays `healthy`).
-
-## System Health UI (owned by F2G)
-
-**F2G status (merged, PR #439 — `PLATFORM-086F2G-SYSTEM-HEALTH-UI-v1`):** `/admin/diagnostics` renders the F2F model server-side and presents as **System Health**, a current-status dashboard. It builds exactly ONE model for the **server-resolved operational season** (`resolveOperationalSeasonYear` — highest PRODUCTION `preseason`/`season` `status.year`, else highest PRODUCTION `league.year`, else calendar; the demo league is removed from the population before BOTH branches — PLATFORM-086F2H1T5; there is NO `?year=` selection seam), performs no `/api/admin/system-health`, no client GET to `/api/admin/provider-status` or `/api/admin/usage`, and no health/severity re-derivation in React. The incremental composition (`ProviderDataStatusPanel`, `AdminUsagePanel`, `AdminStorageStatusPanel`) is **retired**.
-
-- **IA order:** stoplight overview → prioritized issues → scheduler delivery (7 always-visible rows) → provider data (6 rows) → quota & storage (3 rows) → Automation safety controls (the only mutation surface, last). Scheduler and provider details are per-ROW forensic disclosures (`<details>` whose `<summary>` is the compact row), not section drawers, so opening one never shifts layout.
-- **Stoplight semantics** (small yellow/amber approved for this admin surface, never color-only): green healthy/current, yellow degraded/stale/late/unavailable, red critical/failed/misconfigured, gray intentionally paused/awaiting — always paired with a text state label. The **Overall** tile is a holistic rollup of the section tiles (never contradicts a section). Section-level status is a **server-side** read-model extension (`systemHealthPanels.ts`: `deriveSystemHealthPanels` + per-dataset `deriveDatasetFreshness`), deterministically tested — React only maps status → color.
-- **Truthful presentation:** delivery vs execution stay separate per scheduler row (a missing/invalid/unavailable receipt reads distinctly, never all "no receipt"); provider rows keep freshness vs latest-refresh-outcome vs automation as separate facts, timestamp the latest ATTEMPT (not a preserved prior success), and disclose sanitized failure detail (error code/status, failed partitions, rows, duration); storage is configuration-only ("Configured"/"Postgres configured", never a DB-liveness claim); automation distinguishes a global pause from a per-dataset "Partially disabled" and names Schedule's lifecycle-critical exemption. Repair links live ONLY in Prioritized issues (nullable, verbatim). Header names current platform status (only the provider-data section is season-scoped: "YYYY operational season").
-- **Safety/availability:** the settings POST (`/api/admin/provider-status` — `set-global-pause` / `set-dataset-enabled`, unchanged) is the sole mutation, preserving PLATFORM-086I feedback (attempt-scoped, `role="alert"`, control-linked, status-based message, no response body) and refreshing the server model on success. Each model loader is bounded by an 8 s timeout so a stalled provider/store read degrades that fact to `unavailable` rather than blocking the render. "Refresh view" rebuilds the server model; there is no browser polling.
-
-## Automated transition convergence (owned by F2H1B)
-
-**F2H1B status (✅ merged, PR #443 — `PLATFORM-086F2H1B-AUTOMATED-TRANSITION-CONVERGENCE-v1`):** the automated half of lifecycle-authority convergence. It changes no scheduler, cadence, provider call, probe policy, E1A contract, rollover behavior, archive/backfill, or UI. Targeting for the season-transition cron now excludes the demo league (F2H1T2), the weekly schedule cron does the same (F2H1T3, PR #449), and rankings targeting does too (F2H1T4, PR #450); the System Health operational year no longer counts it either (F2H1T5, PR #451). **The F2H1T demo-league automation policy is complete.** (`updateLeagueStatus` was retired separately by F2H1T1.)
-
-- **Guarded automatic transition.** `completeSeasonTransition(slug, targetYear)` (`src/lib/leagueRegistry.ts`) re-checks the expected state and exact year inside the serialized registry transaction and returns one of four closed scalar outcomes — `transitioned`, `already-in-target-season`, `league-removed`, `not-in-target-preseason` — carrying no league record, credential field, or exception text. The idempotent outcome additionally heals a stale top-level `league.year` projection.
-- **Four independent dispositions**, reported identically across the HTTP response, the runtime event, and the durable receipt, as counts only (never slugs): `targetLeagues`, `transitionedLeagues`, `alreadyInTargetSeasonLeagues`, `removedLeagues`, `refusedLeagues`. Only a refusal is anomalous — any refusal makes the year `partial` (System Health raises an execution issue for `failure`/`partial` only), while benign already/removed dispositions classify `no-op` only when the run committed NOTHING — `success` when an idempotent target's stale year projection was durably healed, or when E1A durably committed a schedule this run (`cached`) with the reasons `already-in-target-season`, `transition-targets-removed`, or `transition-not-required`. `transitioned` in the body means an actual write occurred, not that the year is complete.
-- **Invalidation pinned by outcome.** Confirmed transitions record their counters first and then invalidate; an idempotent delivery also invalidates, reconciling an overlapping invocation or a redelivery that still holds a preseason snapshot — NOT a later daily run, which no longer selects a league that already moved to `season`; removed and refused targets invalidate nothing. An invalidation throw after a confirmed commit reports `standings-invalidation-failed` and never rolls back or relabels the committed write — durable mutation and cache invalidation are not one atomic operation. The year is `partial` only when it recorded work (canonical data, a transition, a heal, or a refusal); an untouched idempotent match that then fails its bust wrote nothing, so it is a clean `failure`.
-- **Runtime envelope resolved.** The route declares `export const maxDuration = 300` on the default Node.js runtime, closing the carried deferral. This value depends on the project's confirmed **Vercel Hobby + Fluid Compute** configuration (verified 2026-08-04); Hobby without Fluid caps functions at 60s and rejects a larger value at build time, failing the entire deployment. `vercel.json`, the daily 00:00 UTC cadence, and the scheduler configuration are unchanged, and no `fluid` key was added.
-
-## Migration map — the F2 slice sequence
-
-Slices are sequenced so each PR is independently deployable and revertible; the binding PR-sizing rule in `docs/next-tasks.md` (stop-and-reassess at >15 files / >1,500 net lines) applies to every slice. Current slice status lives in `docs/next-tasks.md`; execution records land in `docs/prompt-registry.md`.
-
-| Slice | Kind | Scope |
-| --- | --- | --- |
-| **F2A** — Admin control-plane inventory and IA | Docs-only | This document, plus queue/roadmap/registry projections |
-| **F2B** — Lifecycle authority safety | Code | Converge manual rollover onto the strict automatic eligibility authority, make rollover per lifecycle year, remove unrestricted execution, eliminate render-time status seeding, and prevent generic league-year edits from bypassing lifecycle ownership |
-| **F2C** — Maintenance action model and page foundation | Code | Rename Data Cache to Data Maintenance & Recovery (URL preserved); introduce the shared action description contract (provider, nominal cost, target, durable mutations, automation owner, class); remove rollover from this page |
-| **F2D** — Operational mutation relocation (split at its audit into **F2D1** provider-maintenance relocation and **F2D2** score-attachment recovery relocation) | Code | D1: move provider manual refreshes + team database sync out of System Health, consolidate duplicate refresh controls, add the Odds/Rankings/Conferences/Team-Database disclosures. D2: relocate the mutating score-attachment tool as an explicitly confirmed emergency-class recovery action; System Health then keeps only gates and read-oriented diagnostics |
-| **F2E1** — External scheduler receipts | Code | ✅ Merged (PR #435) — the shared receipt authority (`src/lib/server/schedulerExecutionStatus.ts`) plus instrumentation of the five QStash-triggered routes; responses, provider behavior, cadence, and execution logs unchanged. No reader/UI |
-| **F2E2A** — Lifecycle scheduler receipts + events | Code | ✅ Merged (PR #436) — extend the receipt authority to season-transition and season-rollover (`source: 'vercel-cron'`) and add their previously-missing secret-safe runtime execution-log events (auth failures included); responses, lifecycle decisions, provider behavior, and cadence unchanged. No reader/UI |
-| **F2E2B** — Scheduler receipt reader + delivery classifier | Code | ✅ Merged (PR #437) — the cache-only server reader over all seven receipts + schedule-slot-aware delivery classifier (`src/lib/server/schedulerDeliveryHealth.ts`); safe receipt parsing exposed on the authority. Server-only: no route, UI, provider call, scheduler mutation, settings change, or durable write |
-| **F2F** — System-health read model | Code | ✅ Merged (PR #438) — one server-side view model (`src/lib/server/systemHealth.ts`) keeping scheduler delivery, execution outcome, canonical data health, automation gates, latest scoped attempts, quota, and storage distinct; stable issue codes with severity, safe static explanation, and a nullable repair destination. Consumes the F2E2B reader; **consumed by F2G**. Server-only |
-| **F2G** — System Health UI | Code | ✅ Merged (PR #439) — `/admin/diagnostics` renders the F2F model as a current-status dashboard: a stoplight overview + prioritized issues + always-visible scheduler/provider/quota-storage rows (row-level forensic disclosure) + Automation safety controls; server-resolved operational season (no `?year=` seam); the three incremental panels are retired. See the composition section below |
-| **F2G1** — Draft-assistance retirement | Code | ✅ Merged (PR #440) — draft-readiness slice inserted between F2G and F2H. Retire SP+ ratings and win totals as draft inputs: remove their loading from both draft server entry points, contract `selectDraftTeamInsights` (drop SP+/win-total inputs and derived fields), make available-team ordering neutral (alphabetical + stable team-id tie-break, identical for both boards), delete the `cache-sp-ratings`/`win-totals` routes + `SpRatingsCachePanel`/`WinTotalsUploadPanel` + their two maintenance descriptors + the orphaned CFBD SP+ URL helper, and remove the dead `autoPickMetric` setting. Auto-pick stays random; durable draft-state stays compatible; existing inert `sp-ratings`/`win-totals` rows are left untouched (no destructive cleanup) |
-| **F2H1A** — Lifecycle guards core | Code | ✅ Merged (PR #442) — one guarded registry authority for commissioner offseason→preseason and exact-year setup completion; atomic `status`/`year` projection; new-league year validation at ingress. Cron policy, recovery, rollover, test controls, and UI excluded |
-| **F2H1B** — Season-transition convergence | Code | ✅ Merged (PR #443) — the season-transition cron now commits through the guarded `completeSeasonTransition`; duplicate/deleted/refused dispositions are counted independently and agree across response, event, and receipt; invalidation is pinned by outcome; the route declares `maxDuration = 300`. Targeting is unchanged — that belongs to F2H1T2–T5. See the section below |
-| **F2H1T1** — Test-control safety | Code | ✅ Merged (PR #445) — slugless demo lifecycle authority (`setTestLeagueLifecycleState` / `resetTestLeagueLifecycle`) deriving and validating the year inside the registry transaction; `updateLeagueStatus` retired; the demo reset no longer deletes the SHARED `schedule-probe/<year>` record. No automatic job changes; `TestLeagueControls.tsx` untouched |
-| **F2H1SA** — Protected-path matcher coverage | Code | ✅ Merged (PR #446) — the middleware matcher's static-file exclusion was a substring rule, so `/admin/audit.css` skipped `clerkMiddleware` while still resolving to a worker where all nine Server Actions are registered. `/admin/:path*` and `/debug/:path*` are now matched explicitly (entries are OR'd — existence matters, position does not), with the `$` anchor added alongside to close the root-cause mid-path shape. Middleware BODY unchanged |
-| **F2H1SB** — Server Action authorization | Code | ✅ Merged (PR #447) — `requireAdminAction(name)` is the first statement of all nine exported admin actions, before any validation, read, write, cleanup, revalidation, or redirect. Resolves the shared closed `PlatformAdminDecision` with NO argument (a `Request` would reach the dev-open token branch). The blank-`CLERK_SECRET_KEY` refusal and the outage-vs-role-denial distinction live in `adminAuth.ts`, so the API-route helper inherits them too — middleware is a separate boundary calling Clerk directly and does NOT; throws rather than `redirect()`/`notFound()` (both of which would fetch or render the refused route), and logs one allowlisted event. Routing stays defense in depth, not the action's authority |
-| **F2H1T2** — Season-transition exclusion | Code | ✅ Merged (PR #448) — the demo league is filtered from `/api/cron/season-transition` BEFORE the zero-target decision and grouping, so a demo-only year reaches no probe, provider call, lifecycle write, invalidation, or count. Demo-only registries report `skipped / no-automatic-preseason-leagues`. The manual demo control inherited the standings invalidation the cron performed |
-| **F2H1T3** — Weekly-schedule exclusion | Code | ✅ Merged (PR #449) — `TEST_LEAGUE_SLUG` is filtered per league INSIDE the `/api/cron/schedule-refresh` year-ownership loop, never against the resolved target years, so a shared year keeps production maintenance and the demo can neither promote a year to the pause-exempt active-season policy nor demote a production season year. Demo-only active registries report `skipped / no-automatic-maintenance-target` with no per-year entry, provider request, settings read, probe/latch operation, presentation refresh, or receipt target. No duty is inherited: every durable key the route writes is year- or global-scoped |
-| **F2H1T4** — Rankings exclusion | Code | ✅ Merged (PR #450) — `selectRankingsTargetYears` resolves ownership from PRODUCTION leagues only, filtering `TEST_LEAGUE_SLUG` per league inside its ownership loop and returning `{ years, excludedDemoCandidate }`. A demo-only active registry reports `skipped / no-automatic-ranking-target`; a shared year keeps production maintenance and takes the production lifecycle. `lifecycle` is inert in the publication classifier, so the shared-year direction is a reporting-truth fix, not a policy change |
-| **F2H1T5** — System Health operational-year isolation | Code | ✅ Merged (PR #451) — `resolveOperationalSeasonYear` filters `TEST_LEAGUE_SLUG` from its population ONCE, before both resolution branches, so the demo league can no longer select the year System Health's provider-data axis reports on. UNCONDITIONAL, unlike F2H1T3/T4: the stored-year branch reads the top-level `league.year`, which is retained when the demo moves to `offseason`, so an active-only exclusion would still let a parked demo select the year. Numeric return, clamp, lifecycle authority, and both fallbacks unchanged |
-| **F2H1R1** — Registry-read truth + season-transition year validity | Code | ✅ Merged (PR #452) — `readLeagueRegistry()` classifies the container (`ok`/`missing`/`malformed`) with `getLeagues()` unchanged; the season-transition cron refuses a malformed container with `registry-malformed` and validates production `status.year` after the demo exclusion, reporting a run-level `invalidLifecycleTargets`. First of five slices (R2 weekly schedule, R3 rankings, R4 rollover, R5 System Health + the confirmed recovery, which lands last because it ARMS three jobs) |
-| **F2H1R2** — Weekly-schedule year validity | Code | ✅ Merged (PR #453) — `GET /api/cron/schedule-refresh` reads the registry container through `readLeagueRegistry()` (`failure / registry-malformed`, HTTP 200 per this route's controlled-outcome convention) and validates production `status.year` AFTER the demo exclusion, refusing an unusable year before any schedule read, probe, latch, settings read, billed E1A refresh, or presentation refresh — it previously reached CFBD as `year=undefined`. Run-level `invalidLifecycleTargets` on response, event, and receipt, accumulated on the run state so a later corrupt record cannot discard refusals already counted. Second of five slices |
-| **F2H1R3** — Rankings year validity | Code | ✅ Merged (PR #454) — `GET /api/cron/rankings` reads the container through `readLeagueRegistry()` (`failure / registry-malformed`, HTTP 200, kept BEHIND the automation gate) and `selectRankingsTargetYears` validates production `status.year` AFTER the demo exclusion, publishing refusals into a required sink so a corrupt record throwing mid-selection cannot discard them. Closes the fractional-AND-string CFP hazard: `Date.UTC` coerces, so a string year made the context-free publication window due and billed `/info` plus both partitions. Third of five slices |
-| **F2H1R4** — Rollover year validity | Code | ✅ Merged (PR #455) — the season-rollover cron and the shared manual `/api/admin/rollover` consumer read the container through `readLeagueRegistry()` (cron 500 `registry-malformed`, manual 409) and `groupRolloverTargets` validates production `status.year` after the demo exclusion, publishing refusals into a required sink. `completeSeasonRollover` validates independently inside its transaction, on BOTH the stored and requested year and BEFORE the equality check, refusing with a closed `unusable-target-year` that writes nothing. Refusal lands before any archive — the only consumer that writes durable data keyed on the year. Fourth of five slices; completes container truth on all four consumers |
-| **F2H1R5** — System Health validity + recovery | Code | RETIRED IN FULL by decision (2026-08-06); F2H1R is complete through merged R1–R4 plus recorded decisions. Every part defends a condition unreachable through current application writes, in a registry verified to hold two sound leagues. **R5a** System Health year validity is retired — its implementation (`e2c7188`, unmerged) established that stopping the silent year substitution requires either a plausibility bound that recorded item (l) reserves for all five consumers at once, or a refusal surface the slice excluded; the existing clamp and its AGENTS.md invariant are left unchanged. **R5b** record-level registry validation is RETIRED as a slice and re-planned as the **PLATFORM-087** registry-integrity campaign: two attempts (`dd591ca`, `f5d9b65`, neither merged) showed that classifying corrupt records — by dropping them OR by treating the container as malformed — creates falsehoods at the public, admin-CRUD, and diagnostics edges that cannot be deferred, and that writer gating without an atomic recovery operation makes a malformed registry unrepairable from inside the app. **R5c** the confirmed missing-status recovery is RETIRED: zero production targets, no write path can create one, and it armed three automation jobs |
-| **F2H1R** — Missing-lifecycle recovery | Code | Confirmed repair for genuinely missing legacy status with truthful corrupt-registry/missing-league handling and explicit targeting, rollover, operational-year, and invalidation consequences |
-| **F2H2** — Rollover and archive consolidation | Code | ✅ **Complete.** **F2H2A (PR #456)** retired the admin season backfill surface (route + panel deleted; the capability survives in `buildSeasonArchive`/`saveSeasonArchive`, still exercised by both rollover paths). **F2H2B (PR #457)** closed the daily rollover cron's two operator falsehoods: a demo-only run reported `no-season-leagues` (now `no-automatic-season-leagues`, matching the three sibling jobs), and a standings-invalidation throw was reported as a `status write failed` that had not happened (now separately caught). The audit RETIRED the projection/result convergence and duplicate-delivery items (different jobs; premise unsupported) and moved the rollover UI consolidation to F2H3 |
-| **F2H3** — Season Management presentation | Code | **F2H3A ✅ Merged (PR #458)** — retired manual rollover EXECUTION and consolidated the two rollover panels into one preview-only surface. **F2H3B1 ✅ Merged (PR #459)** — per-league lifecycle STATE and OWNERSHIP now render as two facts derived from the STORED status (a legacy missing-status record reaches no lifecycle job and no longer inherits the inferred season's automation claim); the demo league is described as manually controlled, closing the demo-UI-copy deferral from F2H1T2–T5; the demo lifecycle controls return typed results with persistent inline feedback, closing F2H1T1's deferral. **F2H3B2 ✅ Merged (PR #460)** — one combined System Health lifecycle-integrity issue (`lifecycle-data-unusable`, `warning`, global axis) derived from `invalidLifecycleTargets > 0` on any parsed receipt and NEVER from the run's `result`; no number displayed (per-job per-run record counts cannot be reduced to a league count) and `repair: null` (no production lifecycle repair exists — PLATFORM-087) |
-| **F2H4** — Season Management retirement | Code | ✅ **Merged (PR #461)** — `/admin/season` retired outright, with both panels, `POST\|GET /api/admin/rollover`, `src/lib/manualRollover.ts`, and `diffSeasonArchives`. Rollover is executed solely by the daily cron, which has **no automation-pause gate**, so the preview showed an irreversible write no operator could prevent; the archive panel rendered year badges with no links over data `/league/<slug>/history` already navigates. The `season-management` repair surface went with it, so lifecycle scheduler faults carry `repair: null`. **Known gap recorded:** a mixed multi-year skip collapses to `year-results` on the receipt, so the dashboard cannot explain either year (per-year reasons remain on the runtime event) |
-| **F2I** — Platform Configuration and Team Identity | Code | ✅ **Merged (PR #462).** Audit corrected the charter: Team Identity's global scope was already settled (PLATFORM-064/067) and the only real duplication was the display name — the actual finding was an IRREVERSIBLE league delete with ZERO tests. Shipped: a slug-typed delete confirmation enforced IN THE ROUTE (a static `ADMIN_API_TOKEN` reaches the endpoint without the UI), distinct codes for an absent vs a MISMATCHED confirmation, refusal of a slug whose previous league's data survives (a stopgap — it deletes nothing), configuration editing moved to `/admin/[slug]/settings`, and the "Aliases" → "Team Identity" rename. NOT done and recorded: the league password route has no tests; true privacy erasure is deferred |
-| **F2J** — Commissioner boundaries and navigation closeout | Code | ✅ **MERGED** (PR #463, `d9a8e93`, 2026-08-08) — **this slice completed F2.** The audit reversed the framing twice: there is NO commissioner identity in code (every league-scoped write requires platform admin; the league password gates READS only — verified route by route), so there was no boundary to build; and `foundedYear` is a FOUNDING year (the calendar year the record was created, shown as `Est. N`), **not** a first competition season. Shipped: `foundedYear` frozen after creation (`league-founded-year-immutable`, 409, refused wholesale), the orphaned `/admin/draft` surfaced as a platform card, first-ever suites for `LeagueSettingsForm` and the league-password route. **Charter disposition:** roster/CSV separation already satisfied by F2C/F2D; orphaned draft page done; `/admin` rebuild RETIRED by owner ruling; accessibility SPLIT — every `<label>` across the admin surfaces is now associated with its control (repo-wide check reports zero unassociated), and the manual cross-browser/keyboard/screen-reader pass is RETIRED as a charter item by owner ruling and re-planned as a dedicated pre-public-launch activity |
-
-## Verification expectations per slice
-
-- **Inventory (F2A):** markdown lint, link validation, and source-backed route/action completeness.
-- **Lifecycle (F2B):** mixed-year rollover, ineligible manual execution, confirmed structured final, render-without-write, and year-authority regressions.
-- **Maintenance (F2C/F2D):** every action's endpoint, provider-cost label, scope, confirmation behavior, and durable-effect disclosure.
-- **Scheduler receipts (F2E1/F2E2):** auth failures, skips, no-targets, successes, failures, store failures, secret canaries, and unchanged cron responses.
-- **Health model (F2F):** stale/missing/failed/scheduler-late distinctions, scoped-versus-rollup truth, severity ordering, and repair links.
-- **UI (F2G–F2J):** focused component tests plus authenticated browser verification of every admin route, keyboard navigation, responsive layout, dark mode, and absence of provider calls from observational loads except the single deliberate quota observation.
-- **Full gates for every code slice:** `npx tsc --noEmit`, `npm run lint:all`, `npm test`, `npm run build`, and `git diff --check`.
-
-## Assumptions and exclusions
-
-- No commissioner-role authentication or self-service permissions are introduced.
-- Existing URLs and API contracts remain compatible unless a correctness fix requires a narrowed mutation contract (the F2B rollover/league-year narrowing is the expected case).
-- Manual rollover EXECUTION no longer exists (F2H3A); the daily cron is the sole executor and the admin route is preview-only. The preview still cannot bypass automatic eligibility. An exceptional forced recovery would require a separately reviewed future operation with explicit semantics — never a restored generic execute control.
-- No scheduler cadence, QStash configuration, `vercel.json`, provider quota policy, canonical data model, or public league UI changes are part of F2.
-- UI work follows [`DESIGN.md`](../../DESIGN.md); this document defines ownership and behavior, not final visual styling.
+The completed F2 audit, migration decisions, intermediate rollover contracts, and per-slice outcome
+map are archived in
+[`../archive/operations/admin-control-plane-f2-2026.md`](../archive/operations/admin-control-plane-f2-2026.md).
+The prompt ledger and completed-work ledger retain the detailed implementation sequence.

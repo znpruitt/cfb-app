@@ -1,77 +1,94 @@
 # Production Deployment Runbook
 
 Status: Current
-Last verified: 2026-08-17
+Last verified: 2026-08-26
 Owner: Project documentation
-Canonical for: detailed hosted-deployment / operator checklist — the step-by-step operational companion to docs/operations/deployment.md
-Supersedes: (none)
+Canonical for: detailed hosted-deployment and production-operator procedures
+Supersedes: the pre-DOCS-016 deployment runbook, whose completed activation evidence is archived
 
-Use this runbook for deploying **turfwar.games** to Vercel with Clerk authentication.
+Use this runbook to deploy and operate **turfwar.games** on Vercel. For the shorter architectural
+summary, see [`operations/deployment.md`](operations/deployment.md). Completed 2026 rollout evidence
+is preserved in [`archive/operations/provider-activation-2026.md`](archive/operations/provider-activation-2026.md);
+it is historical evidence, not a procedure to replay.
 
-## 1) Create the hosted project
+## 1) Current production topology
 
-1. Create a new Vercel project from the GitHub repo.
-2. Confirm Vercel is building the default branch and preview deploys for pull requests.
-   **Building is not shipping** — see §6b. Merging to `main` produces a Production Deployment that
-   does not serve traffic until it is promoted.
-3. Set the custom domain to `turfwar.games` in Vercel project settings.
+- Vercel hosts the Next.js application. Production domains move only when a deployment is manually
+  promoted (§6b).
+- Neon Postgres stores shared application state. Preview deployments use child branches, never the
+  production connection (§6c).
+- Clerk supplies identity and the `platform_admin` role. League passwords use the separate
+  `LEAGUE_AUTH_SECRET` gate.
+- CFBD supplies schedules, scores, rankings, conferences, and game statistics. The Odds API supplies
+  betting lines.
+- Vercel Cron runs the two daily lifecycle jobs declared in `vercel.json`.
+- QStash runs the five externally scheduled provider jobs in §8.
 
-## 2) DNS and domain configuration
+| Scheduler | Route | Cadence (UTC) | Owner |
+| --- | --- | --- | --- |
+| Vercel Cron | `/api/cron/season-transition` | daily 00:00 | lifecycle |
+| Vercel Cron | `/api/cron/season-rollover` | daily 00:00 | lifecycle |
+| `turfwar-game-stats-15m` | `/api/cron/game-stats` | every 15 minutes | QStash |
+| `turfwar-live-scores-3m` | `/api/cron/live-scores` | every 3 minutes | QStash |
+| `turfwar-odds-hourly` | `/api/cron/odds` | hourly | QStash |
+| `turfwar-schedule-weekly` | `/api/cron/schedule-refresh` | Tuesdays 12:00 | QStash |
+| `turfwar-rankings-publication` | `/api/cron/rankings` | 04:00 and 22:00 daily | QStash |
 
-1. At the domain registrar (Porkbun), set the DNS records for `turfwar.games`:
-   - `A` / `CNAME` record pointing `turfwar.games` to Vercel (per Vercel's custom domain instructions).
-2. In the Clerk Dashboard, configure the production domain:
-   - Set the production domain to `turfwar.games`.
-   - Add the required CNAME records at Porkbun for Clerk's subdomain (e.g. `clerk.turfwar.games`).
-3. Confirm both Vercel and Clerk report the domain as verified.
+All seven routes require the same deployed `CRON_SECRET`. The five QStash schedules are intentionally
+absent from `vercel.json`.
 
-## 3) Create the Postgres database
+## 2) Create or reconnect the hosted project
 
-1. Create one small managed Postgres instance.
-2. Copy the full connection string.
-3. Confirm the database allows inbound connections from Vercel.
-4. Do not disable SSL unless the provider specifically requires it.
+1. Connect the GitHub repository to a Vercel project.
+2. Set the default branch to `main` and enable preview deployments for pull requests.
+3. Add `turfwar.games` and the intended `.vercel.app` production alias.
+4. Disable **Settings -> Environments -> Production -> Auto-assign Custom Production Domains** so
+   builds do not ship until explicitly promoted (§6b).
+5. Confirm the project uses the repository's `vercel.json`, including its ignored-build command and
+   exactly the two lifecycle crons.
 
-## 4) Set required environment variables in Vercel
+## 3) DNS, Clerk domain, and Postgres
 
-Set these for **Production** (and **Preview** for preview deploys). **`DATABASE_URL` is NOT the same
-value in both** — Preview points at a Neon CHILD BRANCH so preview testing cannot mutate production
-data. See §6c, which also explains why System Health's scheduler and provider sections are
-meaningless on preview.
+1. At Porkbun, apply Vercel's current A/CNAME records for `turfwar.games`.
+2. In Clerk, set the production domain to `turfwar.games`, apply Clerk's required CNAME records, and
+   wait until both Clerk and Vercel report verification.
+3. Create or select the production Neon Postgres database and copy its complete SSL connection
+   string.
+4. Set Preview `DATABASE_URL` to a Neon child branch, not the production database (§6c).
+5. Do not set `PGSSLMODE=disable` unless the database provider explicitly requires it.
 
-- `DATABASE_URL`
-- `CFBD_API_KEY`
-- `ODDS_API_KEY`
-- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
-- `CLERK_SECRET_KEY`
-- `CRON_SECRET` — long random value (e.g. `openssl rand -hex 32`). Bearer token every scheduled run must present. **Only the two lifecycle crons are declared in `vercel.json`** (`/api/cron/season-transition`, `/api/cron/season-rollover`, both daily 00:00 UTC). `/api/cron/game-stats` (every 15 min, see §8e), `/api/cron/live-scores` (every 3 min, see §8f), `/api/cron/odds` (hourly, see §8g), `/api/cron/schedule-refresh` (weekly, see §8h), and `/api/cron/rankings` (twice daily 04:00/22:00 UTC, see §8j — schedule NOT provisioned until §8j runs) are **not** in `vercel.json` — each is triggered by an external **QStash** schedule that forwards `Authorization: Bearer <CRON_SECRET>` to its unchanged route (Vercel Hobby rejects sub-daily crons). All external schedules forward the SAME `CRON_SECRET`. The cron routes **fail closed**: if this is missing or unset, every scheduled run returns `401` and automated season transition, season rollover, game-stats ingestion, live-score polling, and automatic Odds polling silently stop. `CRON_SECRET` is the route credential and is **deployed in Vercel**; it is distinct from `QSTASH_TOKEN`, the operator-held QStash **management** credential used only to provision/rotate the schedules (§8e/§8f/§8g) — `QSTASH_TOKEN` must never be set in Vercel or committed. Treat `CRON_SECRET` as required in any environment that runs the crons, and supply it locally when provisioning or rotating a QStash schedule.
-- `LEAGUE_AUTH_SECRET` — long random value (e.g. `openssl rand -hex 32`). HMAC-SHA256 signing key for the per-league password gate's `league_auth_<slug>` session cookie. Required whenever **any** league has a password set; the gate logic **throws on a missing/empty value** (fails loud), so a passworded league cannot be unlocked without it. No in-code default. See `docs/campaigns/league-privacy-password.md`.
+## 4) Environment variables
 
-Fallback auth (optional — only needed during Clerk migration):
+Set production values in Vercel. Set Preview values where the preview application requires them,
+using preview-safe credentials and the child database.
 
-- `ADMIN_API_TOKEN` — long random value. Used as a fallback when Clerk session is unavailable. Will be removed once all clients use Clerk.
+| Variable | Requirement |
+| --- | --- |
+| `DATABASE_URL` | Required; production and Preview must point to different databases. |
+| `CFBD_API_KEY` | Required for CFBD-backed refreshes. |
+| `ODDS_API_KEY` | Required for odds refreshes. |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Required for Clerk. |
+| `CLERK_SECRET_KEY` | Required for Clerk. |
+| `CRON_SECRET` | Required bearer credential for all seven cron routes. Use a long random value. |
+| `LEAGUE_AUTH_SECRET` | Required when any league has a password. Use a long random value. |
 
-Optional only when needed:
+`ADMIN_API_TOKEN` is an optional fallback during Clerk migration. It is not the league-password
+secret and should not replace Clerk for normal admin use.
 
-- `NEXT_PUBLIC_SEASON`
-- `PGSSLMODE=disable`
-- `NEXT_PUBLIC_DEBUG`
-- `DEBUG_CFBD`
-- `DEBUG_UPSTREAM`
+Optional variables: `NEXT_PUBLIC_SEASON`, `PGSSLMODE`, `NEXT_PUBLIC_DEBUG`, `DEBUG_CFBD`, and
+`DEBUG_UPSTREAM`. Leave debug variables unset in normal production.
 
-Recommended values/notes:
+`QSTASH_TOKEN` is different from `CRON_SECRET`: it is an operator-held management credential used
+by the five schedule-manager scripts. Never commit it or configure it in Vercel. The deployed
+`CRON_SECRET` is the credential QStash forwards. If `CRON_SECRET` is missing or mismatched, all seven
+cron routes fail closed with `401`, stopping lifecycle reconciliation, statistics ingestion,
+live-score polling, odds polling, weekly schedule maintenance, and rankings publication.
 
-- Get the Clerk keys from the Clerk Dashboard → API Keys (use the production instance keys).
-- Leave debug flags unset for normal production.
-- Set `NEXT_PUBLIC_SEASON` only if the app should stay pinned to a specific season.
+## 5) Configure authentication
 
-## 5) Configure Clerk authentication
+### Clerk session claim
 
-### A. Session token customization
-
-In the Clerk Dashboard → Sessions → Customize session token:
-
-Add the following claim:
+In Clerk Dashboard -> Sessions -> Customize session token, add:
 
 ```json
 {
@@ -79,164 +96,84 @@ Add the following claim:
 }
 ```
 
-This makes the user's `publicMetadata` (including `role`) available in the session JWT, which the middleware and `requireAdminAuth` use to authorize platform-admin access.
+### Platform administrator
 
-### B. Create a platform admin/operator account
+Create or open the operator user in Clerk and set Public metadata to:
 
-1. In the Clerk Dashboard → Users → Create user.
-2. Set the email and password.
-3. After creating the user, open the user detail page.
-4. Under **Public metadata**, set:
+```json
+{
+  "role": "platform_admin"
+}
+```
 
-   ```json
-   {
-     "role": "platform_admin"
-   }
-   ```
+After the user obtains a new session, confirm `/login` succeeds and `/admin` is accessible.
 
-5. Save. The user can now sign in at `/login` and access `/admin`.
+The three auth mechanisms are independent:
 
-### C. Auth flow summary
+- Clerk proves identity and the `platform_admin` role for `/admin` and admin APIs.
+- `ADMIN_API_TOKEN` is the temporary API fallback.
+- `LEAGUE_AUTH_SECRET` signs each passworded league's `league_auth_<slug>` cookie. It does not grant
+  platform-admin access.
 
-- **Middleware** (`src/middleware.ts`): All `/admin` routes require a Clerk session with `publicMetadata.role === "platform_admin"`. Unauthenticated users are redirected to `/login`. Authenticated users without the role are redirected to `/`.
-- **API routes** (`src/lib/server/adminAuth.ts`): `requireAdminAuth` checks the Clerk JWT first (platform_admin role required), then falls back to `ADMIN_API_TOKEN` header matching for backward compatibility.
-- **League page access** (`src/lib/leagueAuth.ts`): a league may set a password. When set, its pages are gated behind that password via a signed `league_auth_<slug>` session cookie (HMAC keyed by `LEAGUE_AUTH_SECRET`). This is a **per-league access gate**, separate from — and not a substitute for — Clerk authentication or app-admin authorization: Clerk establishes user identity and the `platform_admin` role; the league password only unlocks that one league's pages. A league with no password set remains open.
-- **Public surfaces**: No authentication required. Cross-league/provider surfaces (odds and scores endpoints) are public. Individual league pages/schedules/standings are public **only when that league has no password set**; once a password is configured they sit behind the league access gate above.
+## 6) First deployment
 
-These three mechanisms are independent: Clerk (identity + admin role), `ADMIN_API_TOKEN` (admin API fallback), and `LEAGUE_AUTH_SECRET` (league password gate).
+1. Save the required environment variables.
+2. Trigger a production build from `main`.
+3. Confirm the build reaches Ready.
+4. Promote it using §6b.
+5. Open `turfwar.games` and complete §7 before enabling or changing provider automation.
 
-## 6) Trigger the first production deployment
+## 6b) Production promotion
 
-1. Save the Vercel environment variables.
-2. Trigger a fresh production deploy.
-3. Open `turfwar.games`.
-4. Confirm the league page loads before deeper validation.
+Merging to `main` creates a production build but does **not** ship it. With automatic custom-domain
+assignment disabled, `turfwar.games` remains on the last promoted deployment. Both the external
+QStash jobs and the two Vercel lifecycle crons reach the promoted production deployment.
 
-## 6b) Promotion — merging to `main` does NOT ship
+To promote:
 
-**Owner change, 2026-08-17.** `Settings -> Environments -> Production -> Auto-assign Custom Production
-Domains` is **DISABLED**. (On the Hobby plan this is the control that exists; the
-`Automatically promote successful deployments` toggle named in Vercel's docs is not offered here.)
+1. Open Vercel -> Deployments.
+2. Select the Ready deployment by exact commit SHA. The newest row is not necessarily the intended
+   release.
+3. Choose **Promote to Production**.
+4. Confirm `vercel alias ls` or `vercel inspect turfwar.games` resolves the custom domain to the
+   intended deployment. Do not infer custom-domain assignment from `vercel inspect <deployment>`;
+   its Aliases block may omit custom domains.
+5. Confirm the site and §7 signoff checks before calling the change shipped.
 
-### What that changes
+`vercel promote` is the equivalent CLI operation when the Vercel CLI is available.
 
-| | Before | Now |
-| --- | --- | --- |
-| Merge to `main` | builds AND serves production | builds only |
-| `turfwar.games`, `cfb-app.vercel.app` | repointed automatically | stay on the last PROMOTED deployment |
-| Shipping | implicit | an explicit, separate act |
+For scheduled-job attribution, System Health records **Built from**. Read it together with the job's
+**Completed** timestamp. A recent receipt should name the promoted commit; an old receipt cannot
+establish which build a new run would use. The production binding was measured in 2026 and is
+recorded in the operations archive.
 
-`main` is therefore no longer a synonym for what members see. **Merged and live are now two
-different questions, and every claim about production has to say which one it means.** The
-`preview` branch keeps its existing job (`CLAUDE.md` -> Preview branch): it tracks the working
-branch continuously so the owner can click through what is being built.
+Rollback is promotion of the last known-good Ready deployment. If the release affects provider
+automation, close the relevant gates and pause the relevant external schedule before changing the
+served build (§8), then verify the rollback and reopen controls deliberately.
 
-### To promote
+## 6c) Preview database isolation
 
-1. Vercel -> project -> **Deployments**.
-2. Find the deployment for the commit you intend to ship — check the SHA, not the position in the
-   list. With auto-assign off, the newest build is routinely NOT the live one, so "the top row" is
-   no longer a safe proxy.
-3. Ellipsis -> **Promote to Production**.
-4. Confirm `turfwar.games` now serves that build before treating it as shipped.
+Preview uses a Neon child branch. It does not read or write production leagues, rosters, drafts,
+archives, provider caches, or scheduler receipts.
 
-`vercel promote` does the same from the CLI. The CLI is not installed in the maintenance
-environment; `npm i -g vercel` if a command-line path is wanted.
+The long-lived `preview` Git branch can reuse an old Neon branch and become increasingly stale as
+continued deployments keep it alive. A feature branch's own deployment normally receives a newer
+child branch copied near branch creation. Use a feature deployment when representative shared data
+matters, or deliberately recreate/reset the long-lived preview branch through Neon.
 
-### What follows the promoted deployment, and what may not
+Never use preview System Health to judge production scheduler or provider health:
 
-- **The custom domains** — by definition, that is what promotion moves.
-- **The five external QStash schedules** (§8e game stats, §8f live scores, §8g odds, §8h weekly
-  schedule, §8j rankings). Each is provisioned against a `turfwar.games` URL, so it hits whatever is
-  promoted. An unpromoted merge does not change their behaviour.
-- **The two Vercel-native crons in `vercel.json`** (`/api/cron/season-transition`,
-  `/api/cron/season-rollover`, daily 00:00 UTC) — **they follow the PROMOTED deployment.** Vercel
-  runs cron jobs on the production deployment that holds the production DOMAINS, not on the newest
-  production build. Promotion is what moves those domains, so an unpromoted merge does NOT change
-  lifecycle behaviour. This matters because those two routes perform LIFECYCLE WRITES
-  (preseason -> season, season rollover and archival).
+- Vercel and QStash invoke production URLs, so scheduler receipts are not written to Preview.
+- Provider status, quota observations, and durable cache freshness are separate preview records.
+- Empty/stale preview cards do not imply a production failure, and green preview cards do not prove
+  production health.
 
-  **Evidence, 2026-08-21, and its limits.** Vercel's own records place the production domain on the
-  promoted deployment: after promoting `792b27a6`, both `vercel alias ls` and
-  `vercel inspect turfwar.games` resolved `turfwar.games` to that deployment. The QStash side was
-  observed directly — the rankings receipt for the 04:00 UTC run read
-  `Built from: 6109df6f`, exactly the deployment holding the domain at that hour. The Vercel-native
-  binding rule itself comes from Vercel's own guidance, not from a receipt we have read, so this is
-  a well-supported INFERENCE and not yet a measurement. Confirm it the first time promoted and
-  newest-build DIVERGE — see the table below. While they are the same commit, the reading proves
-  nothing.
+Preview remains useful for UI, auth, and mutations against isolated data. Inspect production through
+the production domain and production store.
 
-  **Do not check domain assignment with `vercel inspect <deployment>`.** Its `Aliases` block lists
-  only the `.vercel.app` names and omits custom domains, so the promoted deployment appears not to
-  hold `turfwar.games` when it does. Use `vercel alias ls`, or `vercel inspect turfwar.games`.
+## 6d) Docs-only build gate
 
-  **Consequence worth stating plainly: promotion is now the ONLY thing that moves lifecycle
-  behaviour, and it is manual.** That is the isolation working. It also means a long stretch without
-  promoting leaves these two jobs running old lifecycle code indefinitely and silently.
-
-  **The app now answers this itself.** Every scheduler receipt records
-  `buildCommitSha` — the commit the executing deployment was built from — and System Health shows it
-  per job as **Built from**.
-
-  **To CONFIRM the binding, read `Built from` TOGETHER WITH `Completed`.** On its own the field
-  cannot tell you the safe answer. Run this only when the promoted deployment and the newest
-  production build are DIFFERENT commits; when they are the same, every hypothesis predicts the same
-  SHA. A no-op run still writes a receipt, so `Run` on `season-transition` answers it in a minute
-  without the job doing any work:
-
-  | What you see | What it means |
-  | --- | --- |
-  | A commit, and it is the UNPROMOTED one | Crons follow the newest production build — CONTRADICTING the rule above. An unpromoted merge CAN change lifecycle behaviour; treat as a live hazard and correct this section. |
-  | A commit, and it is the PROMOTED one | Crons follow the promoted deployment. The isolation holds. |
-  | No commit, and `Completed` is RECENT | Crons follow the promoted deployment, and that build predates this field — **also the isolation holding.** |
-  | No commit, and `Completed` is STALE | The job has not fired since this shipped. No conclusion yet; wait. |
-
-  Rows three and four render identically in the `Built from` cell, and only the run timestamp
-  separates "the answer is the safe one" from "nothing has happened yet". Until a build carrying this
-  field has itself been PROMOTED, row three is the expected reading of a healthy system — not a
-  fault, and not an absence of data.
-
-  Two prerequisites, or every receipt reads empty forever and feeds that same misreading: the
-  deployment must be Git-created (a CLI deploy supplies no commit), and Vercel's system environment
-  variables must be exposed to the runtime.
-
-  **Instrumentation VERIFIED in production, 2026-08-18 03:54 UTC.** The first receipt ever written by
-  a build carrying this field reported
-  `Built from: 43f0eed6be1f4432a40c7cbac404f364b5b9326a` — the exact commit promoted minutes earlier.
-  The run one tick before it (03:51, a minute pre-promotion) correctly read `not recorded`, written by
-  a build that had no such field. Both prerequisites therefore hold: the deployment is Git-created and
-  the runtime supplies `VERCEL_GIT_COMMIT_SHA`.
-
-  **ANSWERED, 2026-08-18 04:00 UTC: crons follow the PROMOTED deployment.**
-
-  The test: `6bf38538` was pushed to `main` and deliberately not promoted, giving two Ready
-  production builds — `43f0eed6` serving the domains, `6bf38538` newer and idle. The `live-scores`
-  tick at 04:00 reported `Built from: 43f0eed6`. Two earlier ticks were discarded as inconclusive:
-  03:51 predated the promotion, and 03:57 fired fifteen seconds before the newer build was even
-  created, so in both cases only one Ready build existed and the hypotheses could not separate.
-
-  This matches Vercel's documented behaviour — a cron is triggered by an HTTP request to the
-  project's production deployment URL, which with `Auto-assign Custom Production Domains` disabled
-  resolves to the promoted deployment.
-
-  **The consequence, and it is the reassuring one:** an unpromoted merge CANNOT change lifecycle
-  behaviour. `season-transition` and `season-rollover` execute the promoted build, so `main` can
-  accumulate work — including changes to those very routes — without any of it running until
-  promotion. Merging is genuinely safe; shipping is the deliberate act.
-
-  Recorded from ONE clean observation rather than a series. If a future reading contradicts it, trust
-  the reading and correct this paragraph.
-
-### Consequence for the documentation ledgers
-
-A slice is not "in production" at merge. `docs/next-tasks.md` and `docs/prompt-registry.md` record
-MERGE status; anything asserting production behaviour (activation checkpoints in §8e-§8j, and any
-"PRODUCTION-ACTIVE" claim) now additionally requires that the deployment carrying it was promoted.
-
-## 6d) Docs-only commits do not build
-
-**`vercel.json` → `ignoreCommand`**, added 2026-08-18. Kept in version control rather than the
-dashboard's Ignored Build Step field so it is reviewable and travels with the repo.
+`vercel.json` owns the ignored-build command:
 
 ```sh
 files=$(git diff --name-only HEAD^ HEAD) || exit 1;
@@ -245,697 +182,310 @@ echo "$files" | grep -qvE "^docs/|\.md$" && exit 1;
 exit 0
 ```
 
-**The exit codes are inverted from intuition: 0 SKIPS the build, 1 continues it.** Getting that
-backwards would silently stop deploying real code, which is the single worst failure this repo can
-have — a merge that produces no build is exactly the confusion that cost an hour on 2026-08-17.
+Vercel's exit semantics are important: `0` skips the build; `1` continues it. The command fails safe
+toward building:
 
-So every branch FAILS SAFE toward building:
-
-| Situation | Result |
+| Git result | Vercel action |
 | --- | --- |
-| `git diff` errors (shallow clone, no parent) | BUILD |
-| No files changed (an empty trigger commit) | BUILD |
-| Any changed file outside `docs/` and `*.md` | BUILD |
-| Every changed file is `docs/` or `*.md` | skip |
-
-Verified before shipping against real commits — `de58cc27`, `ebcef626` (docs) skip; `873fa2da`,
-`8585d844`, `43f0eed6` (code, a merge, and an empty commit) build. Nothing in `src/` reads a markdown
-file at runtime, so a skipped docs commit cannot change application behaviour.
-
-**What this does NOT do.** A skipped build still creates a deployment record, marked `Canceled`, and
-Vercel counts it toward the limits below. It saves build minutes and noise, not quota.
-
-### The limits it counts against (Hobby, verified 2026-08-18)
-
-| Limit | Value | Window |
-| --- | --- | --- |
-| Deployments per day | 100 | 86,400s |
-| Deployments per hour | 100 | 3,600s |
-| Concurrent builds | 1 | — |
-
-Two things the headline number hides:
-
-- **Scope is `owner`, not project** — the whole Vercel account, every project, not just `cfb-app`.
-- **86,400 seconds is a ROLLING window**, not a midnight reset. It drains continuously. Vercel's own
-  phrasing ("wait another day") reads like a daily reset and is misleading.
-
-**Measured 2026-08-17: 42 deployments in 24 hours**, comfortably under — and that was an unusually
-heavy day, because `CLAUDE.md` requires pushing `preview` with every branch commit and that day had
-an unusual number of them. A normal day is a fraction of it.
-
-**Concurrency of 1 explains the `Canceled` 3-second entries** in the deployment list: a new push
-supersedes an in-flight build. Those are not failures.
-
-**If quota ever becomes the binding constraint, `ignoreCommand` is the wrong lever** — it cannot help,
-since the record is created before the cancel. The lever is pushing `preview` less often.
-
-**If a docs commit ever needs to deploy anyway** — say the ignore rule itself is wrong — an empty
-commit forces it, because a commit with no changed files falls through to BUILD.
-
-## 6c) Preview reads a CHILD BRANCH of the database, not production
-
-**Deliberate, owner-confirmed 2026-08-17.** Vercel/Neon is allowed to spin off child branches of the
-production database for preview deployments, so that clicking through preview cannot mutate
-production data. `DATABASE_URL` is set for the Preview environment (§4) but does not point at the
-production database.
-
-A preview deployment therefore reads a SEPARATE STORE from production: league records, rosters,
-drafts, archives, cached provider data, and scheduler receipts are all its own.
-
-**The mechanism, confirmed in the Neon console 2026-08-17.** Vercel creates ONE Neon branch per GIT
-BRANCH, all children of `main`. Pushing a feature branch cuts a fresh branch (`preview/feat/...`)
-holding `main`'s data as of that push. But the long-lived `preview` git branch already HAS a branch —
-named `preview` — so pushing to it creates nothing and reuses the existing one, whose data is frozen
-at whenever it was last created.
-
-**A preview branch lives only while it has non-expired Vercel deployments.** Old preview deployments
-are pruned after a week and Neon auto-deletes the branch once none remain; the next push then cuts a
-fresh branch from current `main`. So the age of preview data is not a fixed lag — it is **"however
-long since that branch was last recreated"**, which depends on whether preview pushes ever paused for
-a week. Measured 2026-08-17: the `preview` branch held three-day-old scheduler receipts and had
-0.8 CU-hrs of compute against 0.02 for the per-feature branches, consistent with continuous reuse.
-
-**The counter-intuitive consequence: the more actively `preview` is used, the staler its data gets.**
-Daily pushes keep the branch alive, so it never expires and never refreshes.
-
-**The two preview URLs are therefore NOT equivalent.**
-
-| URL | Neon branch | Data |
-| --- | --- | --- |
-| `cfb-app-preview.vercel.app` | long-lived `preview` | stale, by design |
-| the branch's own deployment URL | `preview/<git-branch>` | copied from `main` at push time |
-
-Use the per-branch URL when preview needs to reflect anything like current league state, or reset the
-`preview` branch from `main` in the Neon console.
-
-### What this makes MEANINGLESS on preview
-
-**The Scheduler delivery section, always.** Nothing writes scheduler receipts to a preview branch:
-Vercel triggers a cron by requesting the PRODUCTION deployment URL, and all five external QStash
-schedules are provisioned against `turfwar.games`. So no scheduled invocation has ever reached
-preview. Its receipts sit at whatever they were when the branch was taken, while System Health
-compares them against wall-clock now — so every job whose cadence has elapsed since then reports
-`Late`, which within an hour or two means all of them.
-
-**Provider freshness, for the same reason.** `Odds snapshot`, canonical schedule age, and the
-dataset warnings under Prioritized issues all measure the age of data nobody is refreshing there.
-
-Both verdicts are CORRECT about the data they are reading. They are simply reading a snapshot, and
-they say nothing whatsoever about production.
-
-Observed 2026-08-17 as the worked example: preview reported six of seven jobs `Late` (last completed
-the previous Friday) and `Odds snapshot Thursday`, while production at the same moment reported every
-job `On time`, live scores delivered `1m ago`, and `Odds snapshot 18h ago`. Same application code.
-Different database.
-
-### What preview IS good for
-
-Rendering, layout, copy, navigation, interaction, and any logic that is a function of the data in the
-snapshot — which is the whole point of the branch, since a draft can be run end to end there without
-touching a real league.
-
-### The trap this closes
-
-A stale preview reads as a platform outage, and the natural next inference — "production is healthy,
-so it must be the change on preview" — is wrong for a structural reason that is invisible from the
-page. **Diagnose scheduler and provider health on production only** (`turfwar.games/admin/diagnostics`).
-If a preview reading disagrees with production, the branch is the first explanation to rule out, not
-the last.
-
-## 7) Must complete before production signoff
-
-### A. Auth verification
-
-1. Navigate to `turfwar.games/login`.
-2. Sign in with the platform admin Clerk account.
-3. Confirm you are redirected to `/admin`.
-4. Confirm the admin dashboard loads without redirect loops.
-5. In a separate browser or incognito window (not signed in), navigate to `/admin`.
-6. Confirm you are redirected to `/login`.
-
-### B. Storage/admin status
-
-1. Open `/admin` (signed in as platform admin).
-2. Find **Shared storage status**.
-3. Confirm:
-   - mode = `postgres`
-   - environment = `production`
-   - database configured = `Yes`
-
-### C. Admin/operator flows
-
-1. Upload the current owners CSV.
-2. Refresh the page.
-3. Confirm the owners data is still present.
-4. Save one safe alias change.
-5. Refresh the page.
-6. Confirm the alias persists.
-7. Save one safe postseason override.
-8. Refresh the page.
-9. Confirm the override persists.
-10. Run each admin refresh flow once:
-    - schedule rebuild
-    - odds refresh
-    - scores refresh
-    - team database sync
-
-### D. Non-admin member validation
-
-1. Open the site in a browser that is **not signed in to Clerk**.
-2. **Public (no-password) league:** confirm the main league page loads anonymously — no Clerk sign-in and no league password required.
-3. Confirm owners/aliases/overrides appear as expected.
-4. **Passworded league:** confirm the league password gate appears, that unlocking with the correct password loads the page, and that the unlock grants **no** admin or provider-refresh authority — it only unlocks that one league's pages.
-5. Navigate to `/admin` — confirm redirect to `/login` (Clerk-gated; the league password does not grant `/admin` access).
-
-### E. Shared-state cross-browser validation
-
-1. Open the site in a second browser or incognito window.
-2. Confirm the uploaded owners CSV is visible there.
-3. Confirm the saved alias is visible there.
-4. Confirm the saved postseason override is visible there.
-5. Confirm the second browser did not need local cache warm-up to see shared state.
-
-### F. Mobile/browser smoke test
-
-1. Check the production site in:
-   - mobile Safari
-   - Android Chrome
-   - one desktop browser
-2. Confirm the main league view loads.
-3. Confirm `/admin` is still usable enough for admin/operator tasks on a smaller screen.
-
-## 8) Should complete before member launch
-
-1. Repeat the admin/operator flow check with the near-final owners CSV and any real alias/override corrections.
-2. Confirm the production deploy is stable after at least one redeploy.
-3. Confirm the database survives redeploys and the shared state remains intact.
-4. Confirm odds behavior looks acceptable with the real `ODDS_API_KEY` and current quota policy.
-5. Confirm scores refresh behavior looks acceptable during a live or recently completed game window.
-6. Confirm the `/admin` link is only shared with the platform-admin/operator group.
-
-## 8b) Post-merge team-catalog sync (PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY) — ✅ COMPLETED 2026-07-24
-
-**Status: PERFORMED and verified 2026-07-24.** The executed record lives in `docs/prompt-registry.md`
-under `PLATFORM-086-TEAM-CATALOG-DERIVED-ALIAS-SAFETY-*` (PR #405) and
-`PLATFORM-086-SCHEDULE-NON-FBS-POSTSEASON-CLASSIFICATION-SAFETY-*` (PR #406):
-
-- **Step 1 — the resync ran, catalog `updatedAt` `2026-07-24T05:50:09.813Z`**, recorded in the PR #405
-  entry. (The owner separately resynced again before the TSC draft, which was the only way to get the
-  draft working against the 138-team catalog — a later, independent run.)
-- **Steps 2 and 3 — alias and resolver assertions pass.** Re-verified against production 2026-08-26:
-  the catalog serves 138 items with the corrected alts, and `San Diego` resolves to `sandiego`
-  (distinct real school, `subdivision: UNKNOWN`, not ownable) while `SDSU` → `sandiegostate`,
-  `San Jose` → `sanjosestate`, `New Mexico` → `newmexico`.
-- **Step 4 — the `PLATFORM-086H3E` parity audit rerun was PERFORMED 2026-07-24 and parity was
-  CONFIRMED**: 2021/2023/2024/2025 exact, 2022's sole residual the accepted `401506450`. Record
-  preserved in the PR #406 entry.
-
-An earlier revision of this status block (2026-08-26) said steps 1 and 4 were unverified. That was
-wrong — it was written without checking the registry, where both had been recorded since July.
-
-The steps below are the historical procedure. Do NOT replay them; a forced resync spends a provider
-call and rewrites durable state that is already correct.
-
----
-
-After the derived-alias-safety fix (or any future `src/data/alias-overrides.json` change) is merged and deployed, resync the durable team catalog so the stored snapshot itself carries the corrected aliases. (Read-time override application already sanitizes SERVED items from deploy; the resync makes the durable record canonical and rebuilds every derived alias.)
-
-1. Sign in as `platform_admin`, open `/admin/diagnostics`, expand **Team Database**, click **Update Team Database**; confirm the response reports `ok: true`, `source: "cfbd"`, a current `updatedAt`, and a nonzero written count. Machine equivalent (with `ADMIN_API_TOKEN` configured):
-
-   ```bash
-   curl --fail-with-body --silent --show-error \
-     --request POST \
-     --header "Accept: application/json" \
-     --header "Authorization: Bearer ${ADMIN_API_TOKEN}" \
-     https://turfwar.games/api/admin/team-database
-   ```
-
-   This rebuilds the catalog through the corrected `buildTeamDatabaseFile`, applies `alias-overrides.json`, writes `team-database/current`, and invalidates all canonical standings.
-
-2. Verify the durable catalog served by `/api/teams`:
-
-   ```bash
-   curl --fail-with-body --silent --show-error \
-     "https://turfwar.games/api/teams?level=FBS" |
-   jq -e '
-     ([.items[] | select(.school == "San Diego State")][0]) as $sdsu |
-     ([.items[] | select(.school == "San José State")][0]) as $sjsu |
-     ([.items[] | select(.school == "New Mexico State")][0]) as $nmsu |
-     (($sdsu.alts | index("sandiego")) == null) and
-     (($sdsu.alts | index("sdsu")) != null) and
-     (($sjsu.alts | index("san jose")) != null) and
-     (($nmsu.alts | index("newmexico")) == null)
-   '
-   ```
-
-3. Verify resolution through the admin-gated resolver diagnostic (`/api/debug/resolve-team`): `San Diego` must NOT resolve to `sandiegostate` (distinct or unresolved); `SDSU` → `sandiegostate`; `San Jose` → `sanjosestate`; `New Mexico` → `newmexico`. If any check fails, stop and inspect the effective alias diagnostic — never edit owners, drafts, archives, or CSV data as a workaround.
-
-4. Rerun the established `PLATFORM-086H3E` production parity audit (the approved read-only audit procedure — there is no checked-in CLI) with the synced catalog's `updatedAt` recorded as its prerequisite. Do not claim H3E parity until that rerun completes.
-
-## 8c) Post-merge schedule refresh (PLATFORM-086-SCHEDULE-NON-FBS-POSTSEASON-CLASSIFICATION-SAFETY) — ✅ COMPLETED
-
-**Status: PERFORMED 2026-07-24; outcome re-verified 2026-08-26.** The refreshes and the parity-audit
-rerun this section requires were executed on 2026-07-24 and recorded in `docs/prompt-registry.md`
-under PR #406 — parity confirmed, 2021/2023/2024/2025 exact, 2022's sole residual the accepted
-`401506450`. §8d later re-ran full-year refreshes for 2021-2025 (2026-07-26), so the current durable
-rows may come from either run.
-
-Both years' identity assertions below were additionally re-run against the production cache-only
-`/api/schedule` response on 2026-08-26 and pass:
-
-- **2024** — the four FCS / Division III championship rows (`401729786`, `401738295`, `401738307`,
-  `401729787`) carry distinct `postseason-*` event keys, none prefixed `cfp-`; the two CFP
-  semifinals (`401677189`, `401677191`) are `cfp-semifinal-*` with `playoffRound: "semifinal"`; and
-  `401677192` is `national-championship` / `national_championship`.
-- **2025** — the same shape holds for `401840097`, `401833989`, `401840096`, `401833990`, the
-  semifinals `401769075` / `401769074`, and `401769076`.
-
-An earlier revision of this status block (2026-08-26) speculated that §8d had performed this
-section's work as a side effect, because it recorded the outcome as verified without checking the
-registry. The registry says this section's own sequence ran on 2026-07-24.
-
-The verification above is read-only. The steps below are retained as the historical procedure and
-must NOT be replayed merely because this document is being read — re-running the forced full-year
-refreshes would spend provider quota and replace durable rows that are already correct.
-
----
-
-After the non-FBS postseason classification fix is merged and deployed, the durable 2024 and 2025 schedule caches still carry the defective shared `cfp-semifinal` identities on FCS / Division III championship rows and must be re-normalized. Deploy the merged correction before refreshing data. If the pending team-catalog sync from §8b has not been completed, perform and verify that first.
-
-Refresh the canonical full-year durable schedule for both affected seasons through the supported schedule route. Do **not** use the Historical Data Cache button: it sends `force: false` and can return `alreadyCached` without replacing the defective snapshot.
+| Diff errors or no parent | build |
+| No changed files | build |
+| Any file outside `docs/` and `*.md` | build |
+| Every changed file is under `docs/` or ends in `.md` | skip |
+
+A skipped build still creates a canceled deployment record and counts toward deployment quotas; it
+saves build work, not deployment-record quota. An empty commit forces a build if the ignore rule
+itself must be tested. Current Vercel limits can change, so consult Vercel's limits page before
+making quota decisions rather than preserving an old measurement here.
+
+## 7) Release signoff
+
+Run the full list for a new environment, auth/storage/provider-boundary change, or substantial
+release. For a narrow routine promotion, run the impacted subset plus the first four checks.
+
+1. The custom domain resolves to the intended commit.
+2. The main league page loads without a server error.
+3. `/login` works and a `platform_admin` can open `/admin`.
+4. Admin System Health reports storage mode `postgres`, not `file-fallback` or
+   `production-misconfigured`.
+5. A second browser observes shared admin changes, proving durable—not local-only—state.
+6. Schedule data loads through the API-backed route.
+7. Scores and odds public reads succeed without triggering unauthorized provider fetches.
+8. Owners upload/repair, alias editing, and diagnostics still load where the release touches them.
+9. The two Vercel lifecycle cron definitions remain present and the five QStash routes remain absent
+   from `vercel.json`.
+10. Each affected scheduler has a recent truthful receipt and **Built from** identifies the promoted
+    deployment.
+
+Do not open an automation gate merely to make a signoff card green. Diagnose the existing state
+first; mutations require the specific operating procedure below.
+
+## 8) Provider automation operations
+
+All manager scripts are read-only by default. A mutating action requires both the action and
+`--apply`. Always inspect first. On exit `4`, durability is indeterminate: inspect again and stop;
+never blind-retry.
+
+Every QStash schedule must use GET, retries 0, no callback/failure callback/queue/delay/flow-control
+policy, exactly one forwarded `Authorization: Bearer <CRON_SECRET>` header, and provider-side
+redaction whose readback is `REDACTED:<opaque>`. Readback proves schedule structure and redaction,
+not exact authentication. A gates-closed HTTP 200 delivery proves the forwarded credential; `401`,
+a missing delivery, provider activity despite closed gates, or an unexpected response is a stop
+condition.
+
+| Dataset | Manager | Application gate | Emergency stop |
+| --- | --- | --- | --- |
+| game stats | `manage:game-stats-schedule` | `game-stats` + global pause | close gates, pause schedule; writer `active -> read-only-safe` only if separately required |
+| scores | `manage:live-scores-schedule` | `scores` + global pause | close gates, pause schedule |
+| odds | `manage:odds-schedule` | `odds` + global pause | close gates, pause schedule |
+| schedule | `manage:schedule-refresh-schedule` | `schedule` + global pause for ordinary work | pause schedule; this is mandatory in a critical window |
+| rankings | `manage:rankings-schedule` | `rankings` + global pause | close gates, pause schedule |
+
+Generic inspect and control forms:
 
 ```bash
-for year in 2024 2025; do
-  curl --fail-with-body --silent --show-error \
-    --header "Accept: application/json" \
-    --header "Authorization: Bearer ${ADMIN_API_TOKEN}" \
-    "https://turfwar.games/api/schedule?year=${year}&bypassCache=1" \
-    --output "/tmp/platform-086-schedule-${year}.json"
-
-  jq -e '
-    .meta.source == "cfbd" and
-    .meta.cache == "miss" and
-    .meta.fallbackUsed == false and
-    .meta.partialFailure == false and
-    ((.meta.failedSeasonTypes // []) | length == 0) and
-    (.items | length > 0)
-  ' "/tmp/platform-086-schedule-${year}.json"
-done
+npm run <manager>
+npm run <manager> -- pause --apply
+npm run <manager> -- resume --apply
+npm run <manager> -- upsert --apply
 ```
 
-Verify 2024 identities:
+The `upsert` form requires operator-held `QSTASH_TOKEN` and local `CRON_SECRET`. Inspect does not
+need `CRON_SECRET`. To stop one noncritical job: enable global pause, disable its dataset, pause its
+schedule, and inspect. Resume in reverse: resume the schedule, enable the dataset, clear global
+pause last. The global pause is broader than a single-job stop.
+
+### §8b) Team-catalog correction — completed
+
+The 2026 catalog correction and H3E parity verification are complete. Current production
+reverification found 138 catalog entries and kept San Diego distinct from San Diego State. Do not
+rerun the historical repair. Evidence is in the [activation archive](archive/operations/provider-activation-2026.md#team-catalog-correction).
+
+### §8c) Schedule correction — completed
+
+The 2024–2025 postseason identity correction is complete and production-reverified. Non-FBS
+postseason games remain distinct from CFP rounds. Do not force refreshes merely to repeat that
+repair. Evidence and canonical provider IDs are in the [activation archive](archive/operations/provider-activation-2026.md#schedule-correction).
+
+### §8d) Schedule identity and archive backfills — completed
+
+The 2021–2025 schedule refresh, participant audit, and archive rebuild are complete. Evidence is in
+the [activation archive](archive/operations/provider-activation-2026.md#schedule-identity-and-archive-backfills).
+
+### §8e) Game statistics — active
+
+Contract: `turfwar-game-stats-15m`, GET `/api/cron/game-stats`, `*/15 * * * *`, retries 0.
 
 ```bash
-jq -e '
-  . as $root
-  | def byid($id): first($root.items[] | select(.id == $id));
-    ["401729786", "401738295", "401738307", "401729787"] as $nonfbs
-  | ["401677189", "401677191"] as $semis
-  | all($nonfbs[];
-      byid(.) != null and
-      (((byid(.).eventKey // "") | startswith("cfp-")) | not))
-    and
-    (([$nonfbs[] | byid(.).eventKey] | unique | length) == ($nonfbs | length))
-    and
-    all($semis[];
-      byid(.).postseasonSubtype == "playoff" and
-      byid(.).playoffRound == "semifinal" and
-      ((byid(.).eventKey // "") | startswith("cfp-semifinal"))
-    )
-    and
-    byid("401677192").postseasonSubtype == "playoff"
-    and
-    byid("401677192").playoffRound == "national_championship"
-    and
-    byid("401677192").eventKey == "national-championship"
-' /tmp/platform-086-schedule-2024.json
+npm run manage:game-stats-schedule
 ```
 
-Verify 2025 identities:
+Writer control must remain `active` for ingestion. Never transition back to `legacy`. For an
+ingestion incident: enable global pause, disable game-stats automation, pause and inspect the
+schedule, then—only if the incident calls for a writer fence—transition `active -> read-only-safe`.
+Resume only after the root cause is resolved: writer `read-only-safe -> active`, resume the schedule,
+enable the dataset, clear global pause last. See [`ai/game-stats-writer-fence.md`](ai/game-stats-writer-fence.md)
+for the writer-control authority and the [activation archive](archive/operations/provider-activation-2026.md#game-stats-automation)
+for rollout evidence.
+
+### §8f) Live scores — active
+
+Contract: `turfwar-live-scores-3m`, GET `/api/cron/live-scores`, `*/3 * * * *`, retries 0.
 
 ```bash
-jq -e '
-  . as $root
-  | def byid($id): first($root.items[] | select(.id == $id));
-    ["401840097", "401833989", "401840096", "401833990"] as $nonfbs
-  | ["401769075", "401769074"] as $semis
-  | all($nonfbs[];
-      byid(.) != null and
-      (((byid(.).eventKey // "") | startswith("cfp-")) | not))
-    and
-    (([$nonfbs[] | byid(.).eventKey] | unique | length) == ($nonfbs | length))
-    and
-    all($semis[];
-      byid(.).postseasonSubtype == "playoff" and
-      byid(.).playoffRound == "semifinal" and
-      ((byid(.).eventKey // "") | startswith("cfp-semifinal"))
-    )
-    and
-    byid("401769076").postseasonSubtype == "playoff"
-    and
-    byid("401769076").playoffRound == "national_championship"
-    and
-    byid("401769076").eventKey == "national-championship"
-' /tmp/platform-086-schedule-2025.json
+npm run manage:live-scores-schedule
 ```
 
-For each year, verify `/api/admin/provider-status?year=<year>` reports the schedule year scope with `latestAttemptOutcome: "succeeded"`, `partialFailure: false`, `rowsCommitted > 0`, and a current `lastSuccessAt`. Then make a cache-only `/api/schedule?year=<year>` request and repeat the identity assertions against the served response. If another process still serves a pre-refresh process-cache entry, wait for the established one-hour schedule TTL and recheck. Do not delete app-state rows or mutate other production records as a workaround.
+Server-side provider polling is bounded by the canonical kickoff-window target and handles at most
+one applicable partition per run. A visible current-season browser tab performs a cache-only score
+read on the same three-minute cadence; it never calls CFBD and is intentionally not gated by the
+provider automation settings. For an incident: global pause on, Scores automation off, pause and
+inspect the schedule. Activation evidence is [archived](archive/operations/provider-activation-2026.md#live-score-automation).
 
-Finally, rerun the established read-only `PLATFORM-086H3E` production parity audit for 2024 (the approved audit procedure — there is no checked-in H3E CLI; do not invent one). Record as prerequisites: the synced team catalog's `updatedAt`; the 2024 schedule refresh response's `meta.generatedAt`; the schedule provider-status `lastSuccessAt`. Do not claim H3E parity until the rerun completes. Do not modify game-stat evidence, ownership, archives, or activation state during the audit.
+**§8f step 5 (CLI authentication-proof reference):** with global pause on and Scores automation
+off, a scheduled delivery must return authenticated HTTP 200 `automation-paused-or-disabled`, open
+no provider-refresh attempt, and leave CFBD quota unchanged. `401` or provider work is a stop.
 
-## 8d) Post-merge schedule-identity correction (PLATFORM-086H3E4-SECOND-ROUND-CONFERENCE-COLLISION-REMEDIATION) — ✅ COMPLETED
+### §8g) Odds — active
 
-**Status: this correction sequence has been PERFORMED and verified clean (2026-07-26).** The durable 2021–2025 schedule caches carry the corrected identities, the 2024 archive holds the genuine Texas–Georgia game (no hybrid), and the refreshes, dual audits, and 2021–2025 archive backfills are all done. This section is retained as the **historical operator record**; it is NOT a step to repeat during activation. The §8e activation sequence VERIFIES these prerequisites READ-ONLY and STOPS on any drift — it does not re-refresh or re-backfill. Any future detected prerequisite drift is a stop condition requiring separately approved investigation.
+Contract: `turfwar-odds-hourly`, GET `/api/cron/odds`, `0 * * * *`, retries 0.
 
-Completed record (for audit reference):
+```bash
+npm run manage:odds-schedule
+```
 
-1. **Deployed** the merged correction (E4) while writer control remained `legacy`, provider pause remained enabled, and automatic game-stats refresh remained disabled.
-2. **Forced full-year schedule refreshes for 2021–2025** completed (`/api/schedule?year=<year>&bypassCache=1`, admin-authenticated): each new durable generation CFBD-backed, non-partial, duplicate-free, carrying positive numeric participant ids, with the year-scoped provider status succeeded and a cache-only recheck per year.
-3. **Corrected identities verified** per year: no "Second Round" row classifies `sec-championship` (or any FBS conference championship); `401673469` is Texas home / Georgia away with the genuine SEC Championship identity; `401729753` remains the UC Davis–Illinois State non-FBS game and is not activation-eligible; no unrelated schedule population or identity churn occurred.
-4. **`PLATFORM-086H3E-2024-ARCHIVE-PARTICIPANT-COLLISION-AUDIT-v1` rerun clean**: zero archive-versus-schedule participant mismatches attributable to this defect.
-5. **Complete PLATFORM-086H3E production participant-validation and archive/canonical parity audit rerun clean**: positive numeric ids everywhere applicable, **zero** `participant-validation-unavailable`, **zero** unexpected `identity-mismatch`, and parity with **only** the accepted 2022 game `401506450` excluded (analytics-incomplete upstream; not reopened, not special-cased).
-6. **All five 2021–2025 archive replacements completed** through the established `POST /api/admin/backfill` preview → explicit confirmed flow; each rebuilt archive carries a valid `gameStatSlate` snapshot paired with that archive's own `scoresByKey` (the 2024 backfill replaced the corrupted hybrid with the genuine Texas–Georgia game and its paired snapshot); `401506450` remains the sole accepted analytics-incomplete residual.
+The application—not the hourly heartbeat—decides whether provider work is due. Provider-free skips,
+including `early-lines-withdrawn` outside the expectation horizon, can be healthy. For an incident:
+global pause on, Odds automation off, pause and inspect the schedule. Activation evidence is
+[archived](archive/operations/provider-activation-2026.md#odds-automation).
 
-## 8e) PLATFORM-086H3E activation — operator sequence + production record
+**§8g step 5 (CLI authentication-proof reference):** with global pause on and Odds automation off,
+a scheduled delivery must return authenticated HTTP 200 `automation-paused-or-disabled`, open no
+provider-refresh attempt, and leave provider quota unchanged. `401` or provider work is a stop.
 
-The E3 build (final atomic wiring, MERGED via PR #410) changes serving behavior when it is promoted, but **writing stays operator-gated**: the fenced legacy writer persists only under writer-control `legacy`, H2 only under `active`, and in `armed` both refuse. **Automatic** refreshes are additionally gated by BOTH `isAutoRefreshAllowed('game-stats')` conditions — `globalPause == false` **and** the game-stats dataset `enabled != false`; a scheduled QStash delivery that arrives while EITHER gate is closed returns a provider-free paused/disabled result. Execute these steps **in order**; on ANY unexpected residual, refusal anomaly, prerequisite drift, or CLI exit `4` (indeterminate durability — reread with a dry run and STOP; never blind-retry), stop and investigate.
+### §8h) Weekly schedule maintenance — active
 
-**Production activation checkpoint — 2026-07-26.** Steps 1–13 below are complete; they are retained as the historical sequence and must not be replayed merely because this document is being read.
+Contract: `turfwar-schedule-weekly`, GET `/api/cron/schedule-refresh`, `0 12 * * 2` (Tuesday 12:00
+UTC), retries 0.
 
-- Production serves the exact reviewed code-bearing artifact: commit `a161e33`, deployment `dpl_73jnt1KDqaAE5dRT9BJ5uLRfpLEt`. Repository `main` carries the post-activation docs-only builds that were deliberately not promoted. Auto-assign Custom Production Domains has since been **re-enabled** (2026-07-26) after the post-activation documentation update.
-- Writer control transitioned `legacy → armed → active` and is now durably `active`. Production must never return to `legacy`; emergency fallback is `active → read-only-safe`.
-- Provider-free cache, missing-partition, historical Insights, Maleski career, archived-season, and career/season-record checks passed with no identity, unavailable-data, or failed-data warnings.
-- The one controlled manual proof targeted `2025 / week 16 / regular`: `success` / `written-clean`, durable coverage `1/1`, published `1`, zero identity mismatch, zero participant-validation unavailable, and exact scoped status `game-stats:week:2025:16:regular` with source `cfbd`, `rowsCommitted: 5`, no partial failure, and no last error.
-- CFBD `/info` probes consumed zero calls. The manual `/games/teams` proof consumed exactly one call (`4921 → 4920`); the confirmed remaining quota is `4920`, comfortably above the 1,000-call reserve.
-- QStash schedule `turfwar-game-stats-15m` is active and unpaused with the fixed 15-minute `GET` contract, retries `0`, no callbacks/queue/delay/scheduler retry, exactly one forwarded Authorization header, and provider-side credential redaction. Read-only inspection passed.
-- With global pause on and game-stats auto disabled, a scheduled delivery returned HTTP `200`; the route credential was therefore accepted, no provider-refresh attempt was created, and CFBD remained `4920`. The gates then opened in order: dataset enabled first, global pause cleared last.
-- Current live state: writer control `active`; QStash active/unpaused; game-stats auto enabled; global provider pause off; CFBD remaining `4920`. Score automation remains separate and was not activated.
-- **Closeout COMPLETE (2026-07-26):** multiple gates-open scheduled deliveries returned QStash HTTP `200` with CFBD quota unchanged at `4920` (no partition inside the polling window, so no provider-refresh attempt was created), and Auto-assign Custom Production Domains has been re-enabled. **H3E activation is fully closed — no remaining activation or closeout work.** The lack of an app-side structured log for the exact harmless skip reason is a known non-blocking PLATFORM-086F observability gap (the next related slice); it does not reopen H3E or justify a fake provider-refresh attempt.
+```bash
+npm run manage:schedule-refresh-schedule
+```
 
-**Preflight — read-only verification of the completed prerequisites (NO refresh, NO backfill).** The §8d correction sequence, the current-season refreshes, the participant/parity audits, and all five 2021–2025 archive backfills are **already complete** (§8d). Do NOT repeat them here. VERIFY read-only and STOP on any drift:
-
-1. **Confirm the exact staged, code-bearing deployment** is the reviewed merged build and is NOT yet serving `turfwar.games`.
-2. **Confirm writer control is `legacy`** (`npm run transition:writer-control -- --from legacy --to armed` as a DRY RUN only reports the current state; do not apply yet).
-3. **Confirm global provider pause is ENABLED.**
-4. **Confirm automatic game-stats refresh is DISABLED** (the per-dataset toggle).
-5. **Read-only verify the recorded prerequisites and fingerprints** from §8d: corrected schedule identities are durable for 2021–2025; the 2024 archive is the genuine Texas–Georgia game; every archive carries a valid paired `gameStatSlate` snapshot; participant/parity results are clean (zero `participant-validation-unavailable`, zero unexpected `identity-mismatch`, only `401506450` excluded).
-6. **STOP on any drift.** Do not automatically refresh schedules or run archive backfills during activation; any detected drift is a stop condition requiring separately approved investigation.
-
-7. **Activation — both automation gates stay CLOSED until the very end. Writer control `legacy → armed`**: dry-run then apply `npm run transition:writer-control -- --from legacy --to armed --apply`. In `armed` the old build's legacy writer refuses — automatic refreshes are already disabled and global pause is on.
-8. **Controlled release of the exact reviewed build** (verified against current Vercel docs): the E3 PR is merged with **Auto-assign Custom Production Domains** DISABLED (Vercel → Project → Settings → Environments → Production → Branch Tracking), so the merge built a true Production-environment deployment in **Staged** state serving no traffic. With control `armed`, **Promote** that exact staged deployment (dashboard ellipsis → Promote, or `vercel promote`) — instant, no rebuild. Re-enable the toggle after the post-activation docs update. **Pre-`active` rollback order (mandatory): Instant Rollback to the prior production deployment FIRST (still `armed`), verify the old fenced writer is serving, then `armed → legacy`. Never transition to `legacy` while the E build serves.**
-   **External trigger note:** the 15-minute game-stats poll is NOT a Vercel cron — `vercel.json` carries only the two daily lifecycle crons, and the poll is triggered by an external QStash schedule calling the unchanged `GET /api/cron/game-stats` (Vercel Hobby rejects sub-daily crons at deploy time, so there is **no Vercel-plan requirement** for the `*/15` cadence). The QStash schedule is provisioned in step 11 and is NOT part of this build's promotion.
-9. **Smoke test (strictly NO provider calls)**: authenticated cache-only `/api/game-stats` reads (admin-only on every request; distinct absence/read-failure/context outcomes; projector-only wire with no internal metadata), Insights/history/career analytics over the backfilled archives, and evidence-based diagnostics. Confirm the control record reads `armed` via a CLI dry-run — in `armed` both writers refuse by construction. Do NOT exercise a `bypassCache=1` refresh here.
-10. **`armed → active`** then **one controlled manual provider proof**: dry-run then apply `npm run transition:writer-control -- --from armed --to active --apply` (exit `4`: reread and stop). Then an explicit admin `bypassCache=1` refresh for one approved current-season `(year, providerWeek, seasonType)` target — this deliberate manual action is NOT subject to the automation gates. Verify ingestion (`refresh.outcome`/`reason`), the confirmed durable reread in `durable`, projection, analytics gating, exact scoped provider status, and quota accounting. **Determine empirically whether `/info` spends quota** (compare `remaining` before/after a usage probe) and record it.
-11. **Provision the external QStash trigger** — only AFTER the manual proof is clean, with global pause STILL enabled and the game-stats dataset STILL disabled. `QSTASH_TOKEN` (management-only; operator-held, never in Vercel or the repo) and `CRON_SECRET` (the deployed route credential Vercel holds, forwarded by QStash) must be in the operator's environment.
-    - **11a. Upsert the schedule**: `npm run manage:game-stats-schedule -- upsert --apply`. The CLI emits the FIXED contract only — schedule id `turfwar-game-stats-15m`, `POST /v2/schedules/https://turfwar.games/api/cron/game-stats`, `Upstash-Cron: */15 * * * *`, `Upstash-Method: GET`, `Upstash-Retries: 0`, `Upstash-Forward-Authorization: Bearer <CRON_SECRET>`, **`Upstash-Redact-Fields: header[Authorization]`** (provider-side redaction of the forwarded route credential), no callback/failure-callback/queue/workflow/scheduler-retry. Exit `4` (unconfirmed) → inspect (read-only) before any retry; never blind-retry.
-    - **11b. Inspect to verify the readback**: `npm run manage:game-stats-schedule` (read-only default; needs NO `CRON_SECRET`). Exit `0` requires the readback to match the fixed contract AND the forwarded Authorization to be **REDACTED** — a single entry of the form `REDACTED:<opaque>` (never plaintext or a `Bearer` value; plaintext means redaction is missing and the route secret would be exposed in QStash). This proves schedule STRUCTURE and provider-side REDACTION; it does **not** prove exact route authentication — the redacted digest is undocumented and unreproducible, so exact route auth is proven by step 12. A PAUSED note prints if the schedule is paused. The CLI never prints the token, forwarded secret, or digest.
-12. **Exact-authentication delivery proof** (gates STILL closed): wait for one scheduled QStash delivery.
-    - Provision + inspect (step 11) succeeded with global pause enabled and game-stats automation disabled.
-    - Wait for one scheduled delivery.
-    - Require **HTTP 200 with the paused/disabled result** (`skipped: "automatic game-stats refresh is paused or disabled"`).
-    - Verify **zero provider calls and no refresh attempt** (provider status shows no new attempt; CFBD `remaining` unchanged).
-    - A **401**, a missing delivery, or **any other result is a STOP condition** (a 401 means QStash's forwarded `Bearer <CRON_SECRET>` does not match the deployed route credential — do not open the gates).
-    - Only after this proof passes may the automation gates be opened (step 13).
-13. **Open both automation gates in order**: first **enable the game-stats dataset** (global pause STILL enabled); then **clear global pause LAST**. Verify BOTH gates are open (`globalPause == false` and the dataset `enabled != false`) before waiting for a live delivery.
-14. **Verify one LIVE scheduled 15-minute delivery** through QStash logs (filter by schedule id) AND application status: exactly one delivery with `maxRetries: 0`, an authenticated route response, at most one partition fetch honoring the kickoff-window bound, the 1,000-call reserve, both automation gates open, and the exact status mapping — with no score automation.
-15. **Post-activation record + operational procedures.** The emergency stop is `active → read-only-safe` (resume via `read-only-safe → active`); **never return to `legacy`**. Complete a separate docs-only status update recording the exact deployed commit, control transitions, refreshed years, audit evidence, archive backfills, manual proof, QStash provisioning + inspection, the exact-authentication delivery proof, the first live delivery, quota state (incl. the `/info` cost finding), and final control + gate state.
-
-    **Emergency stop order (both gates + schedule before any writer transition):** (1) **enable global pause**; (2) **disable automatic game-stats refresh** (dataset); (3) `npm run manage:game-stats-schedule -- pause --apply` (stop QStash deliveries); (4) perform any separately authorized writer transition (`active → read-only-safe`). Resume reverses it: writer `read-only-safe → active` → `npm run manage:game-stats-schedule -- resume --apply` → enable the dataset → clear global pause LAST. **Any rollback after schedule provisioning:** enable global pause, disable automatic refresh, and pause the QStash schedule FIRST — so no delivery can reach a provider before both controls are intentionally reopened.
-
-    **Coordinated `CRON_SECRET` rotation:** enable global pause → disable automatic refresh → `npm run manage:game-stats-schedule -- pause --apply` → update the deployed secret in Vercel → re-run `npm run manage:game-stats-schedule -- upsert --apply` (re-forwards the new value and re-applies redaction) → `npm run manage:game-stats-schedule` (inspect, verifies redaction while provider-disabled) → repeat the exact-authentication delivery proof (step 12) → `npm run manage:game-stats-schedule -- resume --apply` → enable the dataset → clear global pause LAST. **Once the live-scores schedule (§8f) also exists, `CRON_SECRET` is shared by BOTH schedules: rotation must pause AND re-upsert BOTH `turfwar-game-stats-15m` and `turfwar-live-scores-3m` before the new secret is re-enabled — see §8f.**
-
-## 8f) PLATFORM-086B2B activation — live-score polling operator sequence — ✅ COMPLETED
-
-**Status: this activation sequence has been PERFORMED — live-score polling is ACTIVE in production (2026-07-28).** The section below is retained as the **historical operator procedure** and the ongoing **emergency-stop / `CRON_SECRET`-rotation reference**; it is NOT a step to repeat. **Do NOT replay any step merely because this documentation is being read** — the QStash schedule is provisioned, both automation gates are open, and re-running provisioning/gate changes would be an unintended production mutation.
-
-**Production activation checkpoint (2026-07-28):**
-
-- QStash schedule `turfwar-live-scores-3m` is **active and unpaused**, fixed cadence **every 3 minutes**, `GET /api/cron/live-scores`.
-- **Gates-closed** scheduled delivery: HTTP `200`, result/reason `skipped / automation-paused-or-disabled` — the forwarded route credential was accepted, no provider-refresh attempt was created.
-- **Gates-open** scheduled delivery: HTTP `200`, result/reason `skipped / no-polling-target` — with `quotaChecked: false` and `providerCallAttempted: false` (no game inside the kickoff window at delivery time, so no quota probe and no provider call).
-- **CFBD quota held at the controlled activation baseline `4914 → 4914`** across these deliveries; no unexpected score-refresh attempt or durable score write occurred. (The earlier movement from `4920` to `4914` occurred **before** this controlled activation baseline and is **not** attributed to these deliveries — do not speculatively explain it.)
-- Final production settings: **Scores automatic refresh On**, **Global provider pause Off**, browser polling strictly cache-only, `vercel.json` unchanged (the schedule is external QStash, not a Vercel cron).
-- **The first legitimate game-window `/scoreboard` or final-reconciliation call is ordinary in-season monitoring, NOT an activation blocker or pending activation work** — activation is complete; that first billed call simply happens the next time a game is inside the kickoff window with the gates open.
-
----
-
-The B2B build (live-score activation wiring, PR #418) merged the previously-dormant B1 engine (`GET /api/cron/live-scores`) and B2A writer-lock convergence into an **operator-activatable** state, which the sequence below then activated. **Promoting the build does NOT start server-side score automation** — no `turfwar-live-scores-3m` QStash schedule exists until step 4 below, so the route stays dormant. What promotion DOES change immediately, and harmlessly: a **visible browser tab** on the **current season** now issues a **cache-only** `/api/scores` read every 3 minutes for games inside `[kickoff − 15 min, kickoff + 24 h]` (excluding canceled/postponed; in-window finals stay eligible so a `/games` reconciliation correction still reaches an open page, and age out of the window). These reads use a `live=1` durable-cache hint and spend **no CFBD/Odds quota and never trigger a provider fetch** (public cache-only path, PLATFORM-075); until the QStash schedule is provisioned they simply re-read a cache that only manual admin refresh updates, so the freshness label will read stale between manual refreshes. The browser read is intentionally NOT gated by the auto-refresh toggle/global pause (those gate quota-spending automation; a free cache read is not that).
-
-The **server-side** automation — the QStash `turfwar-live-scores-3m` schedule that makes `GET /api/cron/live-scores` poll CFBD `/scoreboard`+`/games` and durably merge scores — is gated by BOTH `isAutoRefreshAllowed('scores')` conditions (`globalPause == false` AND the `scores` dataset `enabled != false`); a scheduled delivery arriving while EITHER gate is closed returns HTTP `200` with a provider-free paused/disabled skip. **This activation is independent of the game-stats writer-control state** (score automation has no writer-control) and is a **distinct post-merge phase** — execute only after the PR is merged and deployed. On any CLI exit `4` (indeterminate durability), inspect read-only and STOP; never blind-retry.
-
-1. **Confirm the merged build is deployed** and the two lifecycle crons are still the only entries in `vercel.json` (`/api/cron/live-scores` is NOT a Vercel cron — Vercel Hobby rejects the `*/3` cadence; it is triggered externally by QStash).
-2. **Confirm both automation gates are CLOSED**: global provider pause **enabled** and the `scores` dataset auto-refresh **disabled** (admin provider-status panel). Both gate the server cron.
-3. **Confirm operator credentials are present** in the operator's environment (never in Vercel/repo): `QSTASH_TOKEN` (management-only) and `CRON_SECRET` (the deployed route credential Vercel holds, forwarded by QStash — the SAME value both schedules forward).
-4. **Provision the external QStash trigger** (gates STILL closed):
-   - **4a. Upsert**: `npm run manage:live-scores-schedule -- upsert --apply`. The CLI emits the FIXED contract only — schedule id `turfwar-live-scores-3m`, `POST /v2/schedules/https://turfwar.games/api/cron/live-scores`, `Upstash-Cron: */3 * * * *`, `Upstash-Method: GET`, `Upstash-Retries: 0`, `Upstash-Forward-Authorization: Bearer <CRON_SECRET>`, **`Upstash-Redact-Fields: header[Authorization]`**, no callback/failure-callback/queue/workflow/scheduler-retry. Exit `4` → inspect (read-only) before any retry.
-   - **4b. Inspect**: `npm run manage:live-scores-schedule` (read-only default; needs NO `CRON_SECRET`). Exit `0` requires the readback to match the fixed contract AND the forwarded Authorization to read back **REDACTED** (`REDACTED:<opaque>`, never plaintext/`Bearer`). This proves schedule STRUCTURE + provider-side REDACTION, not exact route authentication (proven by step 5).
-5. **Exact-authentication delivery proof** (gates STILL closed): wait for one scheduled delivery and require **HTTP 200 with the paused/disabled skip** (`automation-paused-or-disabled`), zero provider-refresh attempt created, CFBD quota unchanged. A **401**, a missing delivery, or any other result is a **STOP** condition (a 401 means QStash's forwarded `Bearer <CRON_SECRET>` does not match the deployed route credential — do not open the gates).
-6. **Open both gates in order**: first **enable the `scores` dataset** (global pause STILL enabled); then **clear global pause LAST**. Verify BOTH gates open before waiting for a live delivery.
-7. **Verify one LIVE 3-minute delivery** via QStash logs (filter by schedule id) AND application status: exactly one delivery with `maxRetries: 0`, an authenticated route response, at most ONE billed CFBD `/scoreboard` or `/games` request honoring the kickoff-window bound and the 1,000-call monthly reserve, both gates open, and a durable score merge (monotonic/newer-live protection intact). **QStash at-least-once delivery is accepted without a durable lease**: a duplicate delivery re-runs the same idempotent poll and the per-key advisory-locked merge tolerates it (no double-count; a re-observed row is a no-op or a monotonic no-op).
-8. **Post-activation record.** Complete a separate docs-only status update recording the exact deployed commit, QStash provisioning + inspection, the exact-authentication proof, the first live delivery, and final gate state.
-
-   **Emergency stop order (gates + schedule):** (1) **enable global pause**; (2) **disable the `scores` dataset auto-refresh**; (3) `npm run manage:live-scores-schedule -- pause --apply` (stop QStash deliveries). Resume reverses it: `npm run manage:live-scores-schedule -- resume --apply` → enable the dataset → clear global pause LAST. Any rollback after provisioning: close both gates and pause the schedule FIRST, so no delivery can reach a provider before the gates are intentionally reopened.
-
-   **Coordinated `CRON_SECRET` rotation now spans BOTH schedules** (they share the secret): enable global pause → disable BOTH the `game-stats` and `scores` datasets → `npm run manage:game-stats-schedule -- pause --apply` AND `npm run manage:live-scores-schedule -- pause --apply` → update the deployed secret in Vercel → re-run `upsert --apply` for BOTH schedules (re-forwards the new value + re-applies redaction) → inspect BOTH (verifies redaction while provider-disabled) → repeat the exact-authentication delivery proof for BOTH → `resume --apply` for BOTH → re-enable both datasets → clear global pause LAST. **Once the Odds schedule (§8g) also exists, `CRON_SECRET` is shared by all THREE schedules — rotation must pause AND re-upsert `turfwar-game-stats-15m`, `turfwar-live-scores-3m`, AND `turfwar-odds-hourly` before the new secret is re-enabled (see §8g).**
-
-## 8g) PLATFORM-086C2 activation — automatic Odds polling operator sequence — ✅ COMPLETED
-
-**Status: this activation sequence has been PERFORMED — automatic Odds polling is ACTIVE in production.** The `turfwar-odds-hourly` QStash schedule is provisioned and both automation gates are open, so `GET /api/cron/odds` runs on its hourly cadence. The section below is retained as the **historical operator procedure** and the ongoing **emergency-stop / `CRON_SECRET`-rotation reference**; it is NOT a step to repeat. **Do NOT replay any step merely because this documentation is being read** — the schedule is provisioned and re-running provisioning/gate changes would be an unintended production mutation.
-
-The C2 build (PR #420) converged the manual `GET /api/odds?refresh=1` route and the automatic cron onto ONE shared server-side execution authority (`executeOddsRefresh`), closed the pre-existing `ODDS_API_KEY` credential-exposure seam (upstream URL/message redaction), made public/member Odds reads durable-cache-only with a bounded (120 s) cross-instance memo, and activated the Odds provider descriptor (`hasActiveAutomation: true`, `autoRefreshSettingConsumed: true`) — all resting on the PLATFORM-086C1 refresh authority (durable per-target lease + observation ordering + atomic commit). Merging the build did not by itself start server-side Odds automation; the §8g sequence below then provisioned the schedule and opened the gates. Public/member `/api/odds` serves the **durable cache only** (never a self-fetch, never quota) and reflects cross-instance cron commits within the 120 s memo window; the hourly cron is what now keeps that cache warm (in addition to manual admin refresh).
-
-The **server-side** automation — the QStash `turfwar-odds-hourly` schedule that makes `GET /api/cron/odds` decide cadence and, only when a refresh is DUE, issue at most ONE billed `/odds` request — is gated by BOTH `isAutoRefreshAllowed('odds')` conditions (`globalPause == false` AND the `odds` dataset `enabled != false`); a scheduled delivery arriving while EITHER gate is closed returns HTTP `200` with a provider-free `skipped / automation-paused-or-disabled`. The hourly cadence is a CEILING, not the request rate: the pure policy issues a request only when the freshest completed signal is older than the cadence threshold for the STAGE the target is in, an eligible in-horizon game exists, and the durable automatic backoff is not active — so most hourly deliveries are provider-free `skipped / refresh-not-due` or `skipped / no-eligible-target`.
-
-**Staged cadence (PLATFORM-089).** The stage is chosen by the distance to the NEAREST eligible canonical kickoff:
-
-| Nearest eligible kickoff | Cadence | Receipt/event `cadence` |
-| --- | --- | --- |
-| Inside the 6 h before that America/Chicago date's first kickoff | 2 h | `pregame` |
-| ≤ 7 days | 6 h | `baseline` |
-| > 7 and ≤ 45 days | 24 h | `early` |
-| Nothing eligible inside 45 days | no request | `null` (`skipped / no-eligible-target`) |
-
-The polling horizon is **45 days**; it was 7 days through PLATFORM-086C2, which left already-downloaded lines unmaintained for weeks before a season and produced a standing `odds-cache-stale` health warning no operator action could clear. **Budget impact: about 3 credits/day** (one canonical request) while the nearest game is 7–45 days out — the 50-credit automation reserve, the quota-free `/sports` probe, the one-billed-request-per-due-invocation rule, and the hourly schedule itself are all unchanged. Expect `skipped / no-eligible-target` to be rare in the ~6 weeks before a season and normal in deep offseason.
-
-**`no-op / early-lines-withdrawn`** is an expected reason in the early window, not a fault: prior lines existed and the provider returned none while no game is inside the 7-day expectation horizon — a book withdrawing a far-out line. It records a completed check and, like any valid no-op, CLEARS the automatic failure count and backoff window — it is a successful check, not a suppressed error. The same disappearance with a game inside 7 days remains `failure / odds-empty-unexpected` (502, backoff), and a manual refresh is unchanged.
-
-**Odds health freshness** is judged from the canonical `odds-cache` entry (per binding invariant 1) and is only reported as actionable when a non-disrupted game falls inside that same 45-day polling horizon — so an old snapshot with nothing to poll for no longer warns. On any CLI exit `4` (indeterminate durability), inspect read-only and STOP; never blind-retry.
-
-1. **Confirm the merged build is deployed** and the two lifecycle crons are still the only entries in `vercel.json` (`/api/cron/odds` is NOT a Vercel cron — it is triggered externally by QStash, like game-stats and live-scores).
-2. **Confirm both automation gates are CLOSED**: global provider pause **enabled** and the `odds` dataset auto-refresh **disabled** (admin provider-status panel). Both gate the server cron.
-3. **Confirm operator credentials are present** in the operator's environment (never in Vercel/repo): `QSTASH_TOKEN` (management-only) and `CRON_SECRET` (the deployed route credential Vercel holds, forwarded by QStash — the SAME value all three schedules forward). `ODDS_API_KEY` must be set in Vercel (the cron fails closed with `500 / odds-api-key-missing`, release-only, if it is absent).
-4. **Provision the external QStash trigger** (gates STILL closed):
-   - **4a. Upsert**: `npm run manage:odds-schedule -- upsert --apply`. The CLI emits the FIXED contract only — schedule id `turfwar-odds-hourly`, `POST /v2/schedules/https://turfwar.games/api/cron/odds`, `Upstash-Cron: 0 * * * *`, `Upstash-Method: GET`, `Upstash-Retries: 0`, `Upstash-Forward-Authorization: Bearer <CRON_SECRET>`, **`Upstash-Redact-Fields: header[Authorization]`**, no callback/failure-callback/queue/workflow/scheduler-retry. Exit `4` → inspect (read-only) before any retry.
-   - **4b. Inspect**: `npm run manage:odds-schedule` (read-only default; needs NO `CRON_SECRET`). Exit `0` requires the readback to match the fixed contract AND the forwarded Authorization to read back **REDACTED** (`REDACTED:<opaque>`, never plaintext/`Bearer`). This proves schedule STRUCTURE + provider-side REDACTION, not exact route authentication (proven by step 5).
-5. **Exact-authentication delivery proof** (gates STILL closed): wait for one scheduled delivery and require **HTTP 200 with the paused/disabled skip** (`automation-paused-or-disabled`), zero provider-refresh attempt created, CFBD/Odds quota unchanged. A **401**, a missing delivery, or any other result is a **STOP** condition (a 401 means QStash's forwarded `Bearer <CRON_SECRET>` does not match the deployed route credential — do not open the gates).
-6. **Open both gates in order**: first **enable the `odds` dataset** (global pause STILL enabled); then **clear global pause LAST**. Verify BOTH gates open before waiting for a live delivery.
-7. **Verify one LIVE delivery** via QStash logs (filter by schedule id) AND the `odds-cron` runtime event (§8 diagnostics): exactly one delivery with `maxRetries: 0`, an authenticated route response, and either a provider-free skip (`refresh-not-due` / `no-eligible-target` / `quota-reserve`) or — when a refresh is genuinely due — the quota-free `/sports` probe followed by AT MOST ONE billed `/odds` request honoring the 50-credit automation reserve, both gates open, and a durable commit through the per-target lease. **QStash at-least-once delivery is accepted without a duplicate-spend risk**: the durable per-target lease serializes concurrent runs, the post-acquisition cadence re-check suppresses a redundant request after a just-completed manual refresh, and observation ordering makes a re-observed row a monotonic no-op.
-8. **Post-activation record.** Complete a separate docs-only status update recording the exact deployed commit, QStash provisioning + inspection, the exact-authentication proof, the first live delivery, and final gate state.
-
-   **Emergency stop order (gates + schedule):** (1) **enable global pause**; (2) **disable the `odds` dataset auto-refresh**; (3) `npm run manage:odds-schedule -- pause --apply` (stop QStash deliveries). Resume reverses it: `npm run manage:odds-schedule -- resume --apply` → enable the dataset → clear global pause LAST. Any rollback after provisioning: close both gates and pause the schedule FIRST, so no delivery can reach a provider before the gates are intentionally reopened.
-
-   **Coordinated `CRON_SECRET` rotation now spans all FOUR schedules** (they share the secret) — see §8h for the full four-schedule rotation order (`turfwar-game-stats-15m`, `turfwar-live-scores-3m`, `turfwar-odds-hourly`, `turfwar-schedule-weekly`).
-
-## 8h) PLATFORM-086E1B activation — weekly schedule maintenance operator sequence — ✅ COMPLETED
-
-**Status: this activation sequence has been PERFORMED — weekly schedule maintenance is ACTIVE in production (2026-07-29).** The section below is retained as the **historical operator procedure** and the ongoing **emergency-stop / `CRON_SECRET`-rotation reference**; it is NOT a step to repeat. **Do NOT replay any step merely because this documentation is being read** — the `turfwar-schedule-weekly` QStash schedule is provisioned, active, and unpaused, Schedule automation is On, and re-running provisioning/gate changes would be an unintended production mutation. (History preserved: E1B merged DORMANT via PR #423 — merging activated nothing; activation was then held for the E1B1 preseason coverage gap; the bounded correction E1B1 merged via PR #424; this operator sequence was executed afterward. The procedure below reflects the corrected E1B1 behavior.)
-
-**Production activation checkpoint — 2026-07-29.** PLATFORM-086E1B/E1B1 weekly schedule maintenance is active in production. QStash schedule `turfwar-schedule-weekly` was provisioned and inspected against the fixed Tuesday 12:00 UTC GET contract with retries 0 and provider-side Authorization redaction. A provider-free exact-authentication delivery while Schedule automation was Off returned HTTP 200 with `skipped / season-transition-owner` for 2026, `providerCallAttempted: false`, zero rows received or committed, and no data change. Schedule automation was then enabled, and a second authenticated delivery returned the same truthful provider-free deferral. This is the expected current state because the 2026 leagues remain in preseason and the daily season-transition cron currently owns schedule discovery/freshness. Final state: weekly QStash schedule active and unpaused, Schedule automation On, global provider pause Off. The first later `preseason-maintenance` or active-season provider refresh is ordinary ongoing operation and is not an activation blocker.
-
-Checkpoint evidence detail:
-
-- **Deployment:** PLATFORM-086E1B deployed from PR #423; PLATFORM-086E1B1 deployed from PR #424.
-- **Inspected fixed QStash contract** (`turfwar-schedule-weekly`, active and unpaused): `GET https://turfwar.games/api/cron/schedule-refresh`; cron `0 12 * * 2`; retries 0; exactly one forwarded Authorization header; provider-side Authorization redaction enabled.
-- **Provider-free exact-authentication delivery while Schedule automation was Off:** QStash message `msg_7YoJxFpwkEy5zBp3k2p1FanPwPaaCiDhrB3afW9BLnPYnmMK9P72h` → HTTP `200`, `skipped / season-transition-owner`, `providerCallAttempted: false`, zero rows received, zero rows committed, no data change. This proves QStash delivered the forwarded credential successfully and that the route made the truthful provider-free ownership decision. It does **NOT** prove ordinary Schedule-toggle gating — the result did not depend on the closed gate, because `season-transition-owner` defers before ordinary settings are relevant.
-- **Open-gate delivery** (after Schedule automation was turned On), 2026-07-29 20:47:44 UTC: HTTP `200`, `skipped / season-transition-owner`, `providerCallAttempted: false`, zero rows received, zero rows committed, no data change — expected, because the 2026 leagues remain in `preseason` and the durable schedule-probe/lifecycle conditions currently assign schedule discovery/freshness to the daily season-transition cron.
-- **No provider call was attempted by either delivery.**
-- **Final production state:** `turfwar-schedule-weekly` active and unpaused; Schedule automatic refresh **On**; global provider pause **Off**; current 2026 refresh owner: the daily season-transition cron; the weekly schedule route is active and authenticated, currently deferring provider work truthfully. Weekly provider maintenance begins automatically when ownership changes to `preseason-maintenance` or active-season maintenance. Probe arming and the first natural weekly provider-backed refresh are **not** activation blockers — activation is complete.
-
----
-
-The corrected route delegates each targeted year to the E1A full-season schedule authority (`refreshFullSeasonSchedule` — durable per-year lease, complete-before-commit, observation-ordered transaction) with **operation-aware** gating under this ownership model:
+Ownership is determined by application state:
 
 ```text
-Preseason, schedule/probe not armed        → daily season-transition owns discovery
-Preseason, first game known and > 7d away  → weekly E1B ordinary maintenance (`preseason-maintenance`)
-Preseason, within 7 days of first kickoff  → daily season-transition owns freshness + lifecycle transition
-Active season                              → weekly E1B `ordinary-maintenance`
-Postseason boundary                        → weekly E1B sticky lifecycle-critical `postseason-boundary`
+Preseason, schedule/probe not armed        -> daily season-transition discovery
+Preseason, first game known and >7d away   -> weekly preseason maintenance
+Preseason, within 7d of first kickoff      -> daily transition freshness/lifecycle
+Active season                              -> weekly ordinary maintenance
+Postseason boundary                        -> sticky lifecycle-critical maintenance
 ```
 
-**Ordinary operations** (`preseason-maintenance`, `ordinary-maintenance`) honor the global pause + the Schedule dataset toggle; **postseason-boundary maintenance** (from 7 days before the latest regular-season kickoff, sticky while leagues remain in `season`) is **lifecycle-critical and EXEMPT** — like the season-transition/rollover crons themselves. A transition-owned preseason year is an intentional provider-free deferral (`skipped / season-transition-owner`), never a failure. Every eligible refresh fetches the complete regular+postseason season; E1A's lease + observation ordering make duplicate/overlapping QStash deliveries safe. On any CLI exit `4` (indeterminate durability), inspect read-only and STOP; never blind-retry.
+`preseason-maintenance` and `ordinary-maintenance` honor the Schedule toggle and global pause.
+`postseason-boundary` is lifecycle-critical and bypasses both settings. During that critical window,
+pausing `turfwar-schedule-weekly` is the authoritative stop. A transition-owned preseason delivery
+truthfully skips as `season-transition-owner` without provider work.
 
-### Preflight
+A successful refresh may emit `schedule-games-vanished` when numeric CFBD game records disappear.
+That is observability, not another provider call or a refresh failure; follow
+[`operations/diagnostics.md`](operations/diagnostics.md#vanished-cfbd-schedule-records-platform-110).
 
-1. **Confirm the reviewed E1B1 commit is serving production**, and `vercel.json` still contains ONLY the two daily lifecycle jobs (season-transition, season-rollover) — `/api/cron/schedule-refresh` is externally triggered by QStash, never a Vercel cron.
-2. **Confirm the active year's current classification.** Safe provider-free activation-proof states:
+Postseason checkpoint: when CFBD publishes the championship slate, verify the durable championship
+row has a numeric provider ID, valid kickoff, structured playoff competition,
+`playoffRound: national_championship`, and `playoffRoundSource: cfbd-structured`. If provider data
+does not support those fields, stop and open a reviewed normalization task. Do not restore text
+inference or a latest-postseason fallback. Activation evidence is
+[archived](archive/operations/provider-activation-2026.md#weekly-schedule-maintenance).
 
-   ```text
-   preseason-maintenance + Schedule Off  → skipped / automation-paused-or-disabled
-   ordinary-maintenance  + Schedule Off  → skipped / automation-paused-or-disabled
-   season-transition-owner               → skipped / season-transition-owner (provider-free deferral)
-   ```
+### §8i) Schedule-presentation observation — pending
 
-   **STOP for user-approved activation planning ONLY if the year already classifies `postseason-boundary`** — that operation intentionally bypasses the Schedule toggle, so no gated proof exists in that window.
+There is nothing to provision or toggle. Presentation refresh is already attached to the active
+weekly schedule and daily season-transition authorities.
 
-3. **Turn the Schedule automatic-refresh toggle Off** (admin provider-status panel). Global pause may remain Off — the dataset toggle alone is sufficient for the ordinary proof.
-4. **Confirm operator credentials**: `QSTASH_TOKEN` (management-only; operator environment ONLY — never Vercel or the repo) and `CRON_SECRET` (the deployed route credential Vercel holds; the SAME value all four schedules forward).
-5. **Confirm no `turfwar-schedule-weekly` schedule exists** (`npm run manage:schedule-refresh-schedule` — read-only inspect), or inspect any existing schedule before mutation.
+Complete these observations from real production evidence:
 
-### Provision
+1. A provider-free weekly `season-transition-owner` skip emits one `schedule-refresh-cron` event and
+   no `schedule-presentation-refresh` event.
+2. The first qualifying populated `written-clean` or `unchanged-clean` canonical success emits a
+   separate `schedule-presentation-refresh` event with trigger `weekly` or `season-transition`.
+3. Record media and venue reasons plus quota evidence if available. `fresh-cache` with no `/venues`
+   call is normal while the venue catalog is younger than 30 days; `/venues` is due only at 30 days
+   or older.
+4. Close the matching item in `next-tasks.md` and add the production evidence here in a docs-only
+   closeout.
+
+The 2026-07-30 manual seed is already complete and must not be repeated. Ordinary schedule gates
+also stop presentation work because canonical refresh never begins. Lifecycle-critical transition
+and postseason-boundary work remains exempt; pausing the weekly QStash schedule is the weekly-route
+stop. Prior evidence is [archived](archive/operations/provider-activation-2026.md#schedule-presentation-observation).
+
+### §8j) Rankings publication — active
+
+Contract: `turfwar-rankings-publication`, GET `/api/cron/rankings`, `0 4,22 * * *`, retries 0.
 
 ```bash
-npm run manage:schedule-refresh-schedule -- upsert --apply
-npm run manage:schedule-refresh-schedule            # read-only inspect
+npm run manage:rankings-schedule
 ```
 
-Require: schedule id `turfwar-schedule-weekly`; destination `https://turfwar.games/api/cron/schedule-refresh`; cron `0 12 * * 2` (Tuesdays 12:00 UTC — QStash evaluates cron in UTC); method GET; retries 0; no callback/failure-callback/queue/delay/flow-control policy; exactly ONE forwarded Authorization header whose readback is **`REDACTED:<opaque>`** (provider-side redaction active; never plaintext). Inspect proves structure + redaction, NOT exact route authentication — that is the next step. Exit `4` is indeterminate: inspect before any retry.
+The publication policy—not every heartbeat—decides whether provider work is due. Healthy
+provider-free reasons include `not-a-heartbeat-slot`, `no-window-due`, and
+`publication-window-complete`. Delayed delivery beyond an exact slot skips truthfully; persistent
+delays warrant QStash latency investigation, not adding retries. For an incident: global pause on,
+Rankings automation off, pause and inspect the schedule. Authorized manual refresh remains
+available. Activation evidence is [archived](archive/operations/provider-activation-2026.md#rankings-publication).
 
-### Exact-authentication proof
+**§8j step 6 (CLI authentication-proof reference):** with global pause on and Rankings automation
+off, a scheduled delivery must return authenticated HTTP 200 `automation-paused-or-disabled`, make
+no quota check or provider attempt, and commit no rows. `401` or provider work is a stop.
 
-Keep the Schedule toggle **Off** and wait for the first scheduled delivery. Require **HTTP 200** with `providerCallAttempted: false` on every year entry, `rowsCommitted: 0`, exactly one `schedule-refresh-cron` runtime event, NO new schedule provider-refresh attempt, NO schedule write, and CFBD quota unchanged. The expected body/event depends on the year's window:
+### §8k) Rotate `CRON_SECRET` across all five QStash schedules
 
-- **Early preseason** (armed probe, first game > 7 days away): `skipped / automation-paused-or-disabled` with `operation: preseason-maintenance`.
-- **Within the final seven days (or unarmed probe)**: `skipped / season-transition-owner` — the daily transition cron owns the year; this is equally a valid provider-free authentication proof.
-- **Active season (ordinary window)**: `skipped / automation-paused-or-disabled` with `operation: ordinary-maintenance`.
-
-A **401**, a missing delivery, any unexpected provider call/attempt/write, a divergent contract, or any other response is a **STOP** condition.
-
-### Open the gate
-
-1. Turn Schedule automation **On** (only after the proof above).
-2. Perform one deliberate authorized route invocation, or wait for the following Tuesday's delivery.
-3. **If the year is still early preseason (or active-season ordinary)**: verify ONE complete E1A regular+postseason refresh for the year (`written-clean`/`unchanged-clean`, or a truthful no-op); exactly one `schedule-refresh-cron` structured event; the exact year-scoped provider-refresh status advanced; bounded provider usage (two CFBD `/games` requests per refreshed year); no partial/empty replacement (prior-good retained on any failure).
-   A `written-clean` refresh may also emit the separate `schedule-games-vanished` runtime event when
-   numeric CFBD record ids disappear. It is observability, not another provider call or a refresh
-   failure; interpret it using [Diagnostics & Debugging](operations/diagnostics.md#vanished-cfbd-schedule-records-platform-110).
-4. **If the year is transition-owned** (inside the final seven days): leave the schedule active and verify the delivery reports `skipped / season-transition-owner` while the DAILY season-transition cron owns freshness — weekly provider work begins automatically once the lifecycle state becomes `season`.
-5. **Post-activation record**: complete a separate docs-only update recording the deployed commit, the QStash contract readback, the exact-authentication proof delivery, the first gated run's result/reason/operation/rows/data-change state, and the CFBD quota evidence.
-
-### Emergency stop
-
-- **Ordinary window**: turn Schedule automation **Off** → `npm run manage:schedule-refresh-schedule -- pause --apply`.
-- **Critical (postseason-boundary) window**: `pause --apply` is the AUTHORITATIVE stop — the critical operation intentionally ignores the ordinary settings gates, so pausing the QStash schedule is what stops deliveries.
-- **Resume**: `npm run manage:schedule-refresh-schedule -- resume --apply` → enable Schedule automation. If the year is currently critical, resume the schedule only after the underlying issue is resolved.
-
-### Coordinated `CRON_SECRET` rotation (all FOUR schedules)
-
-`CRON_SECRET` now spans `turfwar-game-stats-15m`, `turfwar-live-scores-3m`, `turfwar-odds-hourly`, and `turfwar-schedule-weekly`. Rotation order:
+All five schedules forward the same secret, so rotation is one coordinated operation:
 
 1. Enable global pause.
-2. Disable the `game-stats`, `scores`, `odds`, AND `schedule` (ordinary) dataset toggles.
-3. `pause --apply` for ALL FOUR schedule managers.
-4. Update `CRON_SECRET` in Vercel.
-5. Re-run `upsert --apply` for ALL FOUR (re-forwards the new value + re-applies redaction).
-6. Inspect ALL FOUR (exact contract + redaction).
-7. Repeat the scheduled exact-authentication proofs with provider gates closed.
-8. `resume --apply` for ALL FOUR.
-9. Re-enable the datasets.
-10. Clear global pause LAST.
+2. Disable automatic game-stats, scores, odds, schedule, and rankings refresh.
+3. Pause all five managers with `pause --apply`; inspect all five and confirm they are paused. In a
+   postseason-boundary window, this Schedule pause—not its dataset toggle—is the critical stop.
+4. Update `CRON_SECRET` in Vercel Production, trigger a fresh production deployment, wait for it to
+   become Ready, and promote it. Environment-variable changes do not alter an already-built runtime.
+5. With the matching new `CRON_SECRET` and operator-held `QSTASH_TOKEN` local, run `upsert --apply`
+   for all five managers. This forwards the new bearer value and reapplies redaction.
+6. Inspect all five. Require the exact contracts, paused state, and one redacted Authorization
+   header. Exit `4` remains indeterminate: inspect and stop.
+7. Resume each schedule only long enough to obtain its gates-closed authentication delivery. Require
+   HTTP 200 and no provider attempt/quota change for the four noncritical jobs and ordinary schedule
+   maintenance. If Schedule is in `postseason-boundary`, its application gates are intentionally
+   bypassed: keep it paused until one normal provider-backed delivery is authorized, then use that
+   HTTP 200 as the authentication proof. A `401` or any policy-divergent activity is a stop condition.
+8. Pause again immediately if any proof fails. Otherwise resume all five, re-enable their datasets,
+   and clear global pause last.
+9. Confirm the two Vercel lifecycle routes also return authenticated results with the new secret at
+   their next run or through an authorized operator invocation.
 
-For a **postseason-boundary** Schedule window, pausing `turfwar-schedule-weekly` — NOT the Schedule toggle — is what guarantees no delivery during rotation (the critical operation ignores the toggle).
-
-### Postseason structured-data checkpoint
-
-When CFBD first publishes the postseason/championship slate, inspect the normalized durable schedule read-only. The CFP championship row must eventually carry: a numeric provider id, a valid kickoff, a structured playoff competition, `playoffRound: national_championship`, and `playoffRoundSource: cfbd-structured`. Until that evidence exists, automatic rollover remains fail-closed (PLATFORM-086E1A). **Do NOT restore text inference or the latest-postseason fallback if the provider shape differs** — treat a mismatch as a separately reviewed normalization task. This checkpoint does not block preseason E1B activation.
-
-## 8i) PLATFORM-086E1C2 — automatic schedule-presentation observation checkpoint — ⏳ PENDING (post-merge; NO provisioning step)
-
-**There is nothing to provision or toggle.** E1C2 wires the E1C1 presentation authority into the two ALREADY-ACTIVE canonical schedulers (`turfwar-schedule-weekly` and the daily season-transition Vercel cron), so merging the PR makes presentation refresh eligible on the next qualifying canonical success — activation is OBSERVATION ONLY. Do not create a schedule, change a toggle, or invoke anything to "activate" it. Record the observations below from actual production evidence only (Vercel Runtime Logs; the CFBD quota panel if captured) — never fabricate delivery IDs, call counts, timestamps, or quota values.
-
-What to observe, in order:
-
-1. **The E1C1 manual proof is already complete** (pre-E1C2): the 2026-07-30 02:37 UTC manual full-year seed committed media `written-clean` (456 rows) + venues `written-clean` (844 rows), aggregate `success`, terminal CFBD remaining `4899`. Nothing to repeat.
-2. **A provider-free weekly skip proves no presentation call occurs on non-qualifying runs.** While 2026 remains transition-owned (`skipped / season-transition-owner`), a weekly delivery emits ONE `schedule-refresh-cron` event and NO `schedule-presentation-refresh` event — the correct negative proof.
-3. **The first qualifying automatic canonical success** (a `written-clean`/`unchanged-clean` populated year on either cron) should emit a SEPARATE `schedule-presentation-refresh` event (`trigger: weekly` or `season-transition`) alongside the unchanged canonical event/response. Expected media reason: `written-clean` or `unchanged-clean`.
-4. **Normal venue behavior is `fresh-cache` with zero `/venues` calls** while the durable catalog (seeded 2026-07-30) is younger than 30 days; a `/venues` fetch is expected only once the catalog is ≥30 days old. Normal per-year bound: 2 canonical `/games` + 1 `/games/media` (+1 `/venues` only when due).
-5. **Emergency stop (ordinary weekly maintenance):** the existing Schedule toggle / global pause stops ordinary canonical years before E1A runs, which also stops their presentation work (no separate presentation gate exists). **Lifecycle-critical paths remain exempt by design:** the season-transition cron and a `postseason-boundary` weekly success still run canonical work and their piggybacked presentation refresh regardless of the gates; pausing `turfwar-schedule-weekly` (schedule manager `pause --apply`) is the authoritative stop for the weekly route, exactly as in §8h.
-
-After observing (2) and (3), complete a docs-only checkpoint here recording the observed events (date, trigger, media/venues reasons, and quota evidence if captured), then proceed to PLATFORM-086E2.
-
-## 8j) PLATFORM-086E2B activation — automatic rankings publication operator sequence — ✅ COMPLETED (2026-07-30)
-
-**Production activation record (2026-07-30):** the sequence below was EXECUTED and verified. `turfwar-rankings-publication` is provisioned, active, and unpaused; the contract readback verified exactly (`GET https://turfwar.games/api/cron/rankings`, cron `0 4,22 * * *`, retries `0`, exactly one provider-redacted forwarded Authorization header). **Gates-closed proof**: QStash message `msg_7YoJxFpwkEy4DbXxFQZ91MK8xiB1wPdpTVwXqzbabbkFQqCevikHu` delivered HTTP `200` `skipped / automation-paused-or-disabled` with no quota check and no provider work. **Open-gate proof**: an authenticated delivery returned HTTP `200` `skipped / not-a-heartbeat-slot` with `quotaChecked: false`, `providerCallAttempted: false`, and no rows or data changes — one of the sanctioned provider-free outcomes (step 8); per step 9, a provider-backed publication is ordinary monitoring, NOT an activation blocker. **Final state**: Rankings automation On, global pause Off, schedule active/unpaused, CFBD quota and provider status unchanged. The first natural due-window refresh (e.g. a Sunday 22:00 UTC weekly slot once polls exist) is observed via the `rankings-cron` event as routine monitoring.
-
-The original sequence (retained as the procedure record):
-
-**Merging the E2B build activates nothing**: the route (`GET /api/cron/rankings`), the descriptor flip (Rankings toggle interactive), and the management CLI ship dormant — **no `turfwar-rankings-publication` QStash schedule exists until this sequence provisions it**, and the application's publication policy (not the heartbeat) decides when provider work is due. Perform in order; record actual evidence only.
-
-1. **Deploy the reviewed merge** to production (ordinary promote flow).
-2. **Turn Rankings automation Off** (`/admin/diagnostics` → Provider Data Status → Rankings toggle). Leave every other dataset schedule untouched.
-3. **Read-only inspect** — `npm run manage:rankings-schedule` (no action = inspect) with operator-held `QSTASH_TOKEN` — and confirm no divergent `turfwar-rankings-publication` schedule already exists.
-4. **Provision**: `npm run manage:rankings-schedule -- upsert --apply` (requires `QSTASH_TOKEN` + `CRON_SECRET` locally; neither is ever printed).
-5. **Inspect the readback**: exact destination `https://turfwar.games/api/cron/rankings`, cron `0 4,22 * * *`, method GET, retries 0, exactly ONE forwarded Authorization header whose readback is provider-redacted (`REDACTED:<opaque>` — never the plaintext secret).
-6. **Gates-closed authentication proof**: with Rankings Off, verify one delivery (QStash logs + the `rankings-cron` runtime event) returns an authenticated HTTP 200 `skipped / automation-paused-or-disabled` with `quotaChecked: false`, no provider attempt, and zero `/info`/rankings requests.
-7. **Turn Rankings automation On.**
-8. **Open-gate policy proof**: observe one authenticated delivery that is either a provider-free skip (`not-a-heartbeat-slot`, `no-window-due`, or `publication-window-complete`) or a legitimate due-window refresh (fresh `/info` probe ≥ 1,007 remaining → at most one two-partition rankings refresh → durable window completion).
-9. **A first provider-backed publication is ordinary monitoring, not an activation blocker** — exact authentication plus truthful open-gate policy evaluation is sufficient to declare activation complete.
-10. **Record the actual evidence** (dates, event results/reasons, quota values if captured) in a later docs-only production checkpoint here.
-11. **Emergency stop**: Rankings toggle Off first (every automatic rankings refresh is noncritical and gated), then `npm run manage:rankings-schedule -- pause --apply` for the schedule itself; the global pause is the broader emergency control. The authorized manual refresh remains available throughout.
-12. **Coordinated `CRON_SECRET` rotation now spans all FIVE schedules** (they share the secret): enable global pause → disable the game-stats, scores, odds, schedule, AND rankings datasets → `pause --apply` for ALL FIVE (`turfwar-game-stats-15m`, `turfwar-live-scores-3m`, `turfwar-odds-hourly`, `turfwar-schedule-weekly`, `turfwar-rankings-publication`) → update the deployed secret in Vercel → `upsert --apply` for all five (re-forwards the new value + re-applies redaction) → inspect all five → repeat the exact-authentication delivery proof → `resume --apply` for all five → re-enable the datasets → clear global pause LAST.
-
-Operational notes: QStash at-least-once delivery is accepted without duplicate-spend risk (a completed publication window is durably immutable; unfinished claims are 5-minute token-safe; E2A's per-year lease + observation ordering protect the refresh itself). A delivery delayed past the minute-exact 04:00/22:00 slot skips truthfully as `not-a-heartbeat-slot` and the window waits for its next occurrence (retries are 0 by contract) — persistent delay-skips warrant checking QStash delivery latency, not the application.
+Do not rotate only one external schedule: that leaves the other four forwarding the retired secret.
 
 ## 9) Common failure diagnosis
 
-### Clerk sign-in fails or redirects loop
+### A merge is Ready but the site still shows old behavior
 
-- Check:
-  1. `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` are set in Vercel for the correct environment.
-  2. The Clerk production instance domain matches `turfwar.games`.
-  3. The CNAME record for `clerk.turfwar.games` is set at Porkbun and verified in Clerk.
-  4. The session token customization includes `publicMetadata`.
+The deployment is probably unpromoted. Compare the site's resolved deployment and commit SHA with
+the intended build, then use §6b. Do not change data or scheduler controls to compensate for an old
+served build.
 
-### A platform-admin user can sign in but gets redirected away from `/admin`
+### Preview System Health is stale, empty, or contradictory
 
-- Check:
-  1. The user's public metadata in Clerk Dashboard contains `{ "role": "platform_admin" }`.
-  2. The session token customization includes `{ "publicMetadata": "{{user.public_metadata}}" }`.
-  3. Redeploy after changing session token customization — the change requires a fresh JWT.
+Confirm the URL and Neon branch. Preview has isolated provider caches and no production scheduler
+receipts (§6c); inspect production before diagnosing a production outage.
 
-### API admin actions fail with `401`
+### A scheduled route returns `401`
 
-- Check:
-  1. The Clerk session is active (user is signed in).
-  2. The user has `platform_admin` role in public metadata.
-  3. If using the token fallback: `ADMIN_API_TOKEN` is set in Vercel and the request includes the token in the `x-admin-token` header or `Authorization: Bearer <token>` header.
+1. Confirm `CRON_SECRET` is present in the promoted Vercel Production deployment.
+2. For QStash, inspect the relevant schedule and require exactly one redacted Authorization header.
+3. If the secret was rotated, follow the complete five-schedule procedure in §8k.
+4. Keep gates closed until an HTTP 200 provider-free authentication proof succeeds.
 
-### `DATABASE_URL` missing or DB unreachable
+### Clerk sign-in fails or redirects repeatedly
 
-- Symptoms:
-  - storage panel does not show `postgres`
-  - production routes fail when shared state is read/written
-- Check:
-  1. `DATABASE_URL` exists in Vercel env vars.
-  2. The connection string is complete and not truncated.
-  3. The database accepts Vercel connections.
-  4. `PGSSLMODE=disable` is **not** set unless the provider requires it.
+1. Confirm the publishable and secret keys belong to the production Clerk instance.
+2. Confirm Clerk's production domain and DNS records.
+3. Confirm the session token includes `publicMetadata`.
+4. Obtain a fresh session after claim changes.
 
-### `CFBD_API_KEY` missing
+### A signed-in user cannot open `/admin`
 
-- Symptoms:
-  - schedule/scores/conferences/rankings/team sync fail
-- Check:
-  1. `CFBD_API_KEY` is set in Vercel env vars.
-  2. The key is valid and not expired/revoked.
+Confirm Clerk Public metadata contains `{ "role": "platform_admin" }`, the customized session token
+includes it, and the user has refreshed their session.
 
-### `ODDS_API_KEY` missing
+### Admin API actions return `401`
 
-- Symptoms:
-  - odds refresh/fetch fails
-- Check:
-  1. `ODDS_API_KEY` is set in Vercel env vars.
-  2. The key has remaining quota.
+Confirm the Clerk session and role. If intentionally using the fallback, confirm `ADMIN_API_TOKEN`
+is deployed and the request supplies it in `x-admin-token` or `Authorization: Bearer <token>`.
 
-### Storage panel reports the wrong mode
+### Postgres is missing or unreachable
 
-- If mode is `file-fallback`, you are not validating the intended hosted production path.
-- If mode is `production-misconfigured`, stop and fix `DATABASE_URL` before signoff.
+Confirm `DATABASE_URL` is complete, uses the intended environment, permits Vercel connections, and
+has the required SSL mode. `file-fallback` or `production-misconfigured` is a stop condition for
+production signoff. If two browsers disagree, verify they use the same environment and that the
+write actually succeeded.
 
-### Shared state does not appear across browsers
+### A provider refresh fails
 
-- Check:
-  1. The admin save action actually succeeded.
-  2. The storage panel reports `postgres`.
-  3. The second browser is loading the same URL/environment.
-  4. You are not relying on stale local data in only one browser.
+- CFBD-backed schedule, scores, rankings, conference, or statistics failures: confirm
+  `CFBD_API_KEY`, then inspect the exact scoped provider-refresh status and prior-good cache. Do not
+  interpret a valid no-op as failure or overwrite prior-good data manually.
+- Odds failures: confirm `ODDS_API_KEY`, quota, the canonical odds-cache status, and the hourly job's
+  policy reason.
+- For any job, read the latest structured cron event, outcome, scope, provider-call flag, rows
+  received/committed, and **Built from** before retrying.
+
+## 10) Backup, rollback, and incident record
+
+- Rely on Neon backups/branching according to the database plan, and verify restore capability
+  before a high-risk data migration.
+- Prefer Vercel promotion of a known-good Ready deployment for application rollback (§6b).
+- Close provider gates and pause affected QStash schedules before rolling back scheduler or writer
+  code. Never move the game-stats writer to `legacy`; use `read-only-safe` when its fence is needed.
+- Do not delete QStash schedules during an incident. Pause them so the contract remains inspectable
+  and recovery is reversible.
+- Record the incident timeline, exact commit/deployment, affected scope, controls changed, durable
+  state, and reopening proof in the appropriate diagnostics or campaign closeout document.

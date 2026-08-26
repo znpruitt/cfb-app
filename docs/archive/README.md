@@ -1,12 +1,15 @@
 # Documentation Archive
 
 Status: Current
-Last verified: 2026-07-09
+Last verified: 2026-08-26
 Owner: Project documentation
-Canonical for: archive policy and index of historical audit/design/prompt artifacts
+Canonical for: archive policy and index of historical audit/design/prompt/operations artifacts
 Supersedes: (none)
 
-This directory preserves **historical** documentation artifacts — point-in-time audits, design specs, and prompt records — that are kept for context but are **not current implementation authority**. Nothing here should be read as describing how the app works today.
+This directory preserves **historical** documentation artifacts — point-in-time audits, design
+specs, prompt records, and production activation evidence — that are kept for context but are **not
+current implementation authority**. Nothing here should be read as describing how the app works
+today.
 
 ## Where current authority lives
 
@@ -31,6 +34,9 @@ The prompt ledger ([`docs/prompt-registry.md`](../prompt-registry.md)) and the c
 - **`prompts/`** — standalone historical implementation-prompt artifacts (e.g. the Phase 2 Overview-revision prompt).
 - **`governance/`** — the original prompt-governance model (`cfb-engineering-operating-instructions.md`), superseded by `AGENTS.md` (binding rules) + `CLAUDE.md` (Claude workflow); retained for context/section references.
 - **`history/`** — older shipped-work logs (`completed-work-archive.md`, Phases 1–3); recent shipped work stays in the current [`docs/completed-work.md`](../completed-work.md) ledger.
+- **`operations/`** — dated production rollout, activation, and completed control-plane migration evidence displaced from current
+  runbooks. These records explain what was verified, but current procedures remain in
+  [`docs/deployment-runbook.md`](../deployment-runbook.md) and [`docs/operations/**`](../operations/).
 
 Each archived file carries an "Archived — historical reference only" (or "Historical / superseded") banner at the top.
 

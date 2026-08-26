@@ -3936,8 +3936,8 @@ Key architectural decisions across Phase 5:
   46/46 (+11 from base) and the clean full suite was 4,204/4,204 (+19), with TypeScript,
   `lint:all`, and diff checks clean. The confirming Codex review found no credible in-scope P0/P1/P2;
   the final Claude triage left three accepted low-severity follow-ups without reopening the branch.
-- **Open follow-ups:** See the PLATFORM-107 residue and items 67–69 in the canonical queue/deferral
-  list in `docs/next-tasks.md`.
+- **Open follow-ups:** See the PLATFORM-107 residue and items 67–68 in the canonical queue/deferral
+  list in `docs/next-tasks.md`; the former item 69 member copy is complete under POLISH-011.
 
 ### PLATFORM-108 — Test-only Upstream Pacing Bypass — Complete
 
@@ -3979,6 +3979,101 @@ Key architectural decisions across Phase 5:
   implementation commit `05a6c68a` found no credible in-scope P0/P1/P2.
 - **Open follow-ups:** Queue item 63 remains the actual reschedule-detection/repair redesign; item 79
   records the accepted non-blocking proof and log-triage improvements.
+
+### Season Setup and Draft Readiness — Complete
+
+- **Status:** Complete — merged through the PLATFORM-091→096, PLATFORM-099/100, and PLATFORM-102
+  slices between 2026-08-11 and 2026-08-16.
+- **PROMPT_ID(s):** `PLATFORM-091-PRESEASON-STATUS-BANNER-v1`,
+  `PLATFORM-092-PRESEASON-OWNER-CONFIRMATION-GATE-v2`,
+  `PLATFORM-093-NEW-LEAGUE-PRESEASON-BIRTH-v1`,
+  `PLATFORM-094-DRAFT-PUBLICATION-AND-READINESS-v2`,
+  `PLATFORM-095-PUBLICATION-WAYFINDING-v1`,
+  `PLATFORM-096-PRECONFIRMATION-PICK-EDITING-v1`, `PLATFORM-099-DRAFT-NIGHT-SAFETY-v1`,
+  `PLATFORM-100-NOCLAIM-SORTS-UNOWNED-v1`, and `PLATFORM-102-SERIALIZE-DRAFT-WRITERS-v1`.
+- **Outcome:** Preseason messaging now states observed draft/roster facts rather than inferring
+  readiness from lifecycle state. Drafts take owners from the confirmed roster, new leagues enter a
+  reachable preseason setup state, publication is a durable fact distinct from the last pick, and
+  the commissioner receives a coherent path from owner confirmation through editing, drafting,
+  publication, reopen, and guarded reset. `NoClaim` sorts with unowned teams, and mutations of an
+  existing draft serialize through the app-state transaction authority so concurrent expiry,
+  picking, undo, reset, and reopen operations cannot silently erase one another.
+- **Verification:** Each slice's review, regression proof, and exact merge record is preserved in
+  `docs/prompt-registry.md`; every slice passed its required TypeScript, lint, focused, and full-suite
+  gates before merge.
+- **Open follow-ups:** The canonical queue retains only the remaining setup/recovery, membership,
+  and future multi-writer work under items 12–25, 28, 37, 39, 45, 51, and 65.
+
+### Preview Isolation and Build-Gate Documentation — Complete
+
+- **Status:** Complete — preview received its own database on 2026-08-13; the contradictory preview
+  build-gate documentation was reconciled on `main` in `0232d525` on 2026-08-18.
+- **Outcome:** Preview testing no longer shares production durable state. Current documentation now
+  identifies `vercel.json`'s `ignoreCommand` as the effective docs-only build gate, distinguishes a
+  ref advance from a deployment, and treats the dashboard branch allowlist as present but
+  overridden rather than as the active mechanism.
+- **Verification:** Database isolation was confirmed independently by the owner. The documentation
+  correction was reviewed against observed preview build outcomes; the historical absence of a
+  `preview-codex` deployment remains a conditional investigation only if a second stable preview is
+  wanted.
+
+### Insights Preseason Truth and Engagement Expansion — Complete
+
+- **Status:** Complete — merged through INSIGHTS-019, INSIGHTS-023/023a, INSIGHTS-025, and
+  INSIGHTS-029→032 between 2026-08-15 and 2026-08-18.
+- **PROMPT_ID(s):** `INSIGHTS-019-DIAGNOSTIC-PAGE-v1`,
+  `INSIGHTS-023a-LEAGUE-MEMBERSHIP-v1`, `INSIGHTS-023-PRESEASON-GATES-v1`,
+  `INSIGHTS-025-MEMBERSHIP-CHANGES-v6`, `INSIGHTS-029-STOP-DRAINING-THE-FEED-v1`,
+  `INSIGHTS-030-LEAGUE-RECORD-POPULATION-v1`, `INSIGHTS-031-ROSTER-SCHEDULE-CONTENT-v1`, and
+  `INSIGHTS-032-SEASON-RECAP-v2`.
+- **Outcome:** The admin diagnostic page exposes the generated→served→Overview funnel. Insights now
+  distinguish league membership from team ownership, support safe preseason career facts, stop
+  suppression from draining unchanged standing facts, compute league-wide record claims against
+  the correct population, add roster/schedule self-play narratives and membership-change events,
+  and render a year-framed completed-season recap without hiding departed champions.
+- **Verification:** The prompt ledger preserves the measured real-league diagnostics, regression and
+  mutation proofs, independent reviews, and exact merge status for every slice.
+- **Open follow-ups:** Remaining gate, copy, selector-ownership, rotation, pulse, and parked
+  INSIGHTS-033 work is consolidated under items 30–38, 42–44, 54, 62, and 77 in the active queue.
+
+### Rankings, Week Resolution, and Standings-Coverage Integrity — Complete
+
+- **Status:** Complete — PLATFORM-104, PLATFORM-105, PLATFORM-105A, POLISH-011, and PLATFORM-109
+  merged between 2026-08-18 and 2026-08-25; the relevant UI changes were promoted with the
+  2026-08-25 production builds.
+- **PROMPT_ID(s):** `PLATFORM-104-POLL-SOURCE-MATCHING-v1`,
+  `PLATFORM-105-WEEK-RESOLUTION-v1`, `PLATFORM-105A-SCORE-COVERAGE-INTEGRITY-v1`,
+  `POLISH-011-STANDINGS-COVERAGE-COPY-v1`, and
+  `PLATFORM-109-STANDINGS-PENDING-PAYLOAD-v1`.
+- **Outcome:** Rankings use exact FBS poll-source matching instead of accepting lower-division
+  “Coaches” polls. A week is played only when its real games have concluded, a season is final only
+  when every real game has a result, and score-bearing conclusion evidence cannot resolve standings
+  without numeric points. Member surfaces now say “Waiting on complete results” without inventing a
+  cause, and the server/client boundary drops bulky per-game pending payloads only after deriving the
+  explicit season context from the unstripped canonical snapshot.
+- **Verification:** Production-data reproductions established the former week-one-final and poll
+  collision defects; focused regression suites and the full project gates passed at each reviewed
+  merge head. Detailed evidence remains in `docs/prompt-registry.md` and
+  `docs/architecture/week-resolution.md`.
+- **Open follow-ups:** Items 60, 64(c/e), 67, and 68 retain the remaining rankings recovery,
+  disruption, diagnostics, and archive-policy work.
+
+### Trend Empty States and Preseason Origin — Complete
+
+- **Status:** Complete and active in production — POLISH-013 merged via PR #510 and POLISH-014 via
+  PR #511, both promoted on 2026-08-25.
+- **PROMPT_ID(s):** `POLISH-013-TREND-EMPTY-STATES-v1` and
+  `POLISH-014-TREND-SEASON-ORIGIN-v1`.
+- **Outcome:** Overview trend sections now use one drawability authority and honest sparse-data copy
+  instead of rendering empty axes or hiding useful week-one context. Games-back trends can carry a
+  separately represented Preseason origin when no game concluded before the first plotted week;
+  the origin is not forged as canonical week zero and is omitted from mid-season windows and
+  legacy/played-history cases where it would be false.
+- **Verification:** Selector, component, and browser checks covered zero/one/multi-point states,
+  concluded-game precedence, legacy archives, and the independent coordinate systems used by the
+  compact and full charts. Exact review and gate records are in `docs/prompt-registry.md`.
+- **Open follow-ups:** Item 73 owns the archived season-arc axis domain and any later decision to
+  adopt the origin outside Overview.
 
 ### Template for future entries
 

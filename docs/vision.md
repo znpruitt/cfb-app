@@ -1,172 +1,186 @@
 # CFB App Vision
 
 Status: Current
-Last verified: 2026-07-09
+Last verified: 2026-08-26
 Owner: Project documentation
 Canonical for: product vision / intent and the canonical production data policy
 Supersedes: (none)
 
 ## Product intent
 
-The CFB app is a **hosted, league-first dashboard** for a college-football office pool. It should give league members a stable, low-friction place to check the current league picture, weekly matchups, standings, and relevant live context without needing commissioner intervention for ordinary use.
+Turf War is a **hosted, league-first dashboard** for a college-football office pool. It gives league
+members a stable, low-friction place to understand the current league picture, weekly matchups,
+standings, and relevant live context without needing commissioner intervention for ordinary use.
 
-The product remains **API-first**:
+The product remains **API-first and schedule-first**:
 
-- **CFBD** is the source of truth for schedule and scores.
+- **CFBD** is the source of truth for schedule and scores and the sole normal production score
+  provider.
 - **The Odds API** is the source of truth for betting odds.
-- The **schedule remains the canonical game universe** that all downstream score and odds attachment must respect.
+- The **schedule is the canonical game universe**. Scores, odds, ownership, standings, and
+  diagnostics attach to schedule-derived game identities rather than creating parallel game truth.
+
+The product should feel current and dependable while remaining economical for a small,
+commissioner-operated league. It is not intended to become a large operational platform merely to
+support ordinary in-season use.
+
+## Product promise
+
+A member should be able to open the league and, within seconds, understand:
+
+- who is leading;
+- what just happened;
+- what is live or approaching;
+- what matters next.
+
+Routine member use should not require a commissioner to refresh data manually, explain internal
+provider state, or repair a browser-specific cache. When upstream data is late or unavailable, the
+app should preserve prior-good shared state, communicate uncertainty honestly, and give operators a
+clear recovery path.
 
 ## Entry and access model (settled)
 
-Owner decision, 2026-08-08, recorded during the PLATFORM-088 homepage audit. This had been settled in
-practice and in conversation but was written down nowhere, which is how it drifted out of the
-homepage copy in the first place.
+Owner decision, 2026-08-08, recorded during the PLATFORM-088 homepage audit:
 
-- **Members reach their league through a link their commissioner shares with them.** That link is the
-  entry path.
-- **No public league directory and no slug-entry tool.** Leagues are not discoverable from the root;
-  knowing the URL is what grants you the page (subject to the per-league password gate where one is
-  set).
-- **No signup flow on the homepage.** Multi-tenant commissioner sign-up remains a planned roadmap
-  item (`docs/roadmap.md`); until it ships, league creation is a platform-admin operation.
-- **The signed-out root explains what Turf War is and points invited members at their link.** It is
-  an entry page, not a marketing site — see `DESIGN.md` → "Landing page" for the UI rules.
-- **Only platform admins see the league dashboard.** A signed-in non-admin sees the same public
-  landing a signed-out visitor sees. This matches middleware, which already refuses non-admins every
-  `/admin` route; the homepage used to hand them the full league list anyway.
+- **Members reach their league through a link their commissioner shares.** That link is the normal
+  entry path, subject to the league password gate where one is configured.
+- **There is no public league directory or slug-entry tool.** Leagues are not discoverable from the
+  root page.
+- **There is no signup flow on the homepage.** League creation is currently a platform-admin
+  operation. Conditional commissioner self-registration remains longer-term roadmap work.
+- **The signed-out root explains Turf War and directs invited members back to their league link.** It
+  is an entry page, not a general marketing site. `DESIGN.md` owns its visual and interaction rules.
+- **Only platform admins see the root league dashboard.** A signed-in non-admin sees the same public
+  landing as a signed-out visitor.
 
-When multi-tenant sign-up ships, this section is the thing to revisit first — several of these points
-exist only because commissioner self-service does not yet exist.
+If commissioner self-registration and invite-based tenancy ship, revisit this section deliberately.
+Do not let a future signup flow accidentally imply a public league directory or mandatory member
+accounts.
 
-## Prompt governance (execution hygiene)
+## Product and operating principles
 
-- Current prompt and documentation-governance rules live in `AGENTS.md` (binding) and `CLAUDE.md` (Claude-specific workflow) — including the standardized `PROMPT_ID`/`PURPOSE`/`SCOPE` header and the current ID format. `docs/prompt-registry.md` is the historical ledger of executed prompts.
+### 1. Schedule-first identity is non-negotiable
 
-## Production direction
+The schedule defines which games exist. Provider payloads, ownership overlays, and derived league
+state must reconcile to schedule-derived identities through the shared identity and attachment
+authorities.
 
-The app is a **low-maintenance hosted deployment** used for repeated member access during the season. Production hardening (Phase 2A) is complete, and the hosted preview is live.
+### 2. Members read shared state
 
-The production model optimizes for:
+Core league data must not depend on one browser's local cache. Commissioner-managed state and
+provider-backed snapshots live in shared storage so every member sees the same league truth.
 
-- stable league-member access from the web
-- deterministic schedule-first behavior
-- low surprise and low operational overhead
-- quota-conscious API usage
-- shared server-side state for commissioner-managed data
-- admin-controlled refresh of season-persistent data
-- public/member reads that primarily consume shared cached state rather than repeatedly hitting upstream APIs
+### 3. The durable footprint stays intentionally small
 
-## Core production principles
+Use one small managed database for the limited shared state the product needs. Add infrastructure
+only when a demonstrated production requirement justifies its operational cost.
 
-### 1. Schedule-first remains non-negotiable
+### 4. Provider work is controlled
 
-The schedule is the authoritative list of games. Scores, odds, standings, matchup context, and diagnostics must continue to attach to schedule-derived identities rather than introducing parallel matching systems.
+Ordinary public and member reads consume shared cached state. Provider calls and durable mutations
+belong to explicit authorized workflows: fixed scheduled jobs, lifecycle operations, and protected
+admin actions. Manual and automatic callers should share the same refresh authorities so they
+cannot disagree about validation, commit, or failure semantics.
 
-### 2. Hosted users should read shared state
+### 5. Freshness is conservative, quota-aware, and truthful
 
-League members should not depend on per-browser local caches for core league configuration. Commissioner-managed data should live in shared durable storage and be read consistently by all users.
+Scores and game statistics may refresh frequently around active game windows; odds, schedule, and
+rankings follow slower target-aware policies. Every policy must respect provider quotas, avoid work
+when no eligible target exists, preserve prior-good state on uncertainty, and expose failures to
+operators rather than silently substituting another source.
 
-### 3. Durable footprint stays intentionally small
+## Production data policy (canonical)
 
-Use one small managed database for the limited set of truly persistent shared data. Do not introduce a large operational stack unless there is a clear production need.
+This policy classifies data by authority and durability, not by one hard-coded refresh interval.
+Exact jobs and cadences belong in the runtime and operations documentation.
 
-### 4. Admin refresh controls season-persistent data
+### Durable league and operator state
 
-Season-long reference/configuration data should be stored durably and refreshed intentionally through commissioner/admin workflows. Ordinary member traffic should not trigger opportunistic rebuilds of season-persistent state.
-
-### 5. Live data stays conservative and quota-aware
-
-Freshness matters most for scores and selectively for odds, but monthly quotas remain the governing constraint. Avoid wasteful interval polling and prefer shared cache-first reads with conservative refresh policy.
-
-## Production data policy summary (canonical)
-
-> This is the canonical production data policy. `docs/roadmap.md` references this section rather than maintaining a separate copy.
-
-### Season-persistent / admin-refresh only
-
-Stored durably, read by all users, updated only via admin-triggered edit/refresh flows.
+Shared product state that represents an intentional league or operator decision.
 
 Examples:
 
-- owner roster
-- alias map
-- manual postseason overrides
-- team reference snapshot / team database
-- season schedule snapshot, when persisted for hosted stability
+- league registry and lifecycle state;
+- owner rosters and published draft assignments;
+- alias repairs and manual postseason overrides;
+- provider-refresh settings and writer-control state.
 
-### Cached / controlled refresh
+This data changes only through authorized commissioner/platform-admin workflows or explicit
+lifecycle transactions. Ordinary member traffic reads it but does not opportunistically rewrite it.
 
-Cached to reduce upstream cost. Refreshed by admin action and/or conservative TTLs. Public traffic should prefer shared cached snapshots over repeated upstream fetches.
+### Provider-backed shared snapshots
 
-Examples:
-
-- conference data
-- rankings
-- durable odds snapshots
-- diagnostics / usage snapshots
-
-### Live / freshness-sensitive
-
-Still cached when practical, but allowed to refresh more often than season-persistent data. No aggressive polling.
+Reconstructible upstream projections stored centrally to control quota usage and give all members a
+consistent view.
 
 Examples:
 
-- scores
-- near-window odds if retained in live mode
+- schedule and scores;
+- odds and rankings;
+- game statistics;
+- team and conference reference data.
+
+Schedule, scores, odds, rankings, and game statistics may be maintained by fixed, quota-aware
+scheduled jobs as well as protected manual repair actions. Team and conference reference data remain
+manually refreshed. Public/member paths remain cache-only. A failed or uncertain refresh preserves
+prior-good durable state, and a valid empty provider partition is treated as absence rather than
+fabricated failure or permission to erase good data.
+
+### Derived read models and observability
+
+Standings, insights, trends, matchup context, diagnostics summaries, and presentation caches are
+derived from canonical shared inputs. They may be cached for performance, but they do not become a
+second source of game, score, ownership, or provider truth. Observability records describe refresh
+and scheduler behavior; they never establish canonical data by themselves.
 
 ## What success looks like
 
-The hosted preview is live and meets these criteria:
+The product succeeds when:
 
-- league members can open the site and immediately see the shared owner roster, aliases, standings, and matchup context
-- schedule, conferences, rankings, and other reference data come from shared cached snapshots rather than ad hoc per-user rebuilds
-- commissioner edits and refreshes are intentional and protected
-- scores feel timely enough for hobby-scale use without burning through CFBD quota
-- odds remain useful without exhausting the smaller monthly Odds API budget
-- production recovery paths are simple and understandable when upstream APIs fail or quotas get tight
+- members can follow the league throughout the season without routine commissioner intervention;
+- every member sees the same roster, standings, schedule, and matchup context;
+- league state changes coherently as games complete;
+- automatic and manual refreshes use the same validated, durable-first behavior;
+- provider failures degrade to truthful stale or unavailable states rather than corrupting shared
+  data;
+- odds and scores feel timely without exhausting their monthly budgets;
+- recovery paths are bounded, understandable, and visible to operators;
+- the private-by-link access model remains clear and predictable.
 
-## League experience direction (additive product layer)
+## League experience direction
 
-Production correctness is required, but not sufficient. The hosted app must also communicate league state quickly and clearly for ordinary members.
+Production correctness is required but not sufficient. The member experience should communicate
+league state quickly, with the Overview as the highest-signal entry point.
 
-### Core league-experience requirement
+The Overview should prioritize:
 
-- A member should understand the current league state within seconds of opening the app.
-- Primary user questions to answer immediately:
-  - who is winning the league?
-  - what just happened?
-  - what matters right now?
-  - what should I look at next?
+1. leader and standings context;
+2. recent results;
+3. live games when applicable;
+4. weekly matchup context.
 
-### Overview page hierarchy target
+In season, the product should feel active rather than static: standings movement should be legible,
+recent outcomes easy to scan, and live-state language bounded by evidence. `DESIGN.md` remains
+canonical for the visual system, layout, interaction, and responsive behavior.
 
-The Overview page should be the highest-signal league entry point and should prioritize, in order:
+## Growth boundary
 
-1. leader / standings context
-2. recent results
-3. live games (when applicable)
-4. weekly matchup context
+Multi-league support exists today. Its architectural boundary should remain simple:
 
-### UI communication rules
+- schedule, scores, odds, rankings, conferences, and game statistics are shared global college
+  football data;
+- each league primarily adds its ownership, lifecycle, draft, and presentation overlay;
+- provider ingestion and canonical game construction are never duplicated per league;
+- current league creation and cross-league administration remain platform-admin managed.
 
-- Prefer signal over explanation: data-first presentation with clear visual hierarchy.
-- Reduce descriptive filler copy that competes with standings/results/live context.
-- Keep league-state surfaces scan-friendly on desktop and mobile.
-- During active game windows, emphasize that league state is changing as scores finalize.
+### Conditional commissioner signup
 
-### Seasonal “alive” expectation
+Commissioner self-registration is warranted only if multiple leagues are actively using the app and
+manual platform administration becomes a real bottleneck. The minimal expansion is:
 
-In-season behavior should feel active, not static:
+- commissioner account creation;
+- league creation and a shareable league URL;
+- a league picker for commissioners managing multiple leagues.
 
-- as games complete, the visible league picture should update coherently
-- standings movement should be legible
-- recent outcomes should remain easy to scan without digging through secondary panels
-
-### Future multi-league direction (scope guard)
-
-Future multi-league support should keep the current API-first, schedule-first model:
-
-- a commissioner may manage multiple private leagues
-- league-specific variation is primarily the ownership overlay (owner roster/mapping)
-- schedule/scores/odds/rankings/conferences remain shared global CFB data
-- avoid per-league duplication of CFBD ingestion or schedule pipelines
+Mandatory member accounts, public league discovery, and a full SaaS permissions model remain out of
+scope unless future usage demonstrates a concrete need.

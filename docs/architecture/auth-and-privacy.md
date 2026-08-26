@@ -1,14 +1,14 @@
 # Auth & Privacy
 
 Status: Current
-Last verified: 2026-08-04
+Last verified: 2026-08-26
 Owner: Project documentation
-Canonical for: Clerk identity/roles, platform-admin route/API gating, ADMIN_API_TOKEN fallback, league-password privacy gate, cron auth
+Canonical for: Clerk identity and the platform-admin role, admin route/API gating, ADMIN_API_TOKEN fallback, league-password privacy gate, cron auth
 Supersedes: (none — complements `AGENTS.md` → Auth Architecture Invariants; the deployment-runbook's auth summary is the operator-facing companion)
 
 Three **independent** mechanisms, deliberately kept separate:
 
-1. **Clerk** — user identity + app role (`platform_admin` / `commissioner` / `member`).
+1. **Clerk** — user identity plus the one currently enforced app role: `platform_admin`.
 2. **`ADMIN_API_TOKEN`** — a transitional admin-API fallback for machine/backward-compat callers.
 3. **`LEAGUE_AUTH_SECRET`** — the per-league password gate. It is **not** authentication and grants **no** role.
 
@@ -16,7 +16,13 @@ Do not conflate them. In particular, the league password never authorizes admin 
 
 ## Clerk identity & roles
 
-Clerk is the sole user-identity and app-role provider — no custom sessions or roll-your-own JWT verification. Roles live in `publicMetadata`: `{ role: 'platform_admin' | 'commissioner' | 'member' }` (commissioner league-scoping `{ role: 'commissioner', leagues: [...] }` is defined now, enforced in Phase 7). The single canonical predicate is `isPlatformAdminClaims(sessionClaims)` → `publicMetadata.role === 'platform_admin'` (`src/lib/auth/platformAdmin.ts`).
+Clerk is the sole user-identity and app-role provider — no custom sessions or roll-your-own JWT
+verification. The only role currently recognized for authorization is
+`publicMetadata.role === 'platform_admin'`, through the canonical
+`isPlatformAdminClaims(sessionClaims)` predicate (`src/lib/auth/platformAdmin.ts`). Tests explicitly
+reject `commissioner` as an authorizing role. “Commissioner” and “member” are product/persona terms
+today, not enforced Clerk roles; league-scoped commissioner identity would require a separate,
+explicitly reviewed authorization model.
 
 ## Platform-admin page gating (middleware)
 
@@ -36,7 +42,10 @@ Route-level auth lives in exactly one place — the Clerk middleware (`src/middl
 
 The game-stats data route **`/api/game-stats` is admin-only** (`src/lib/server/adminAuth`, authenticated BEFORE any query parsing or provider access, PLATFORM-086H3E). It is an operator/admin surface — cache-only projector reads unless an authorized `bypassCache=1` repair is requested — and is distinct from the QStash-triggered `/api/cron/game-stats` covered below.
 
-**`ADMIN_API_TOKEN` is a transitional fallback** (Auth Invariant #5), retained for backward compatibility until the Phase 8 multi-tenant commissioner signup replaces it with commissioner-scoped Clerk roles. Do not build new flows that depend on it. (Note: when no token is configured, non-production environments treat requests as authorized for local dev convenience — production must set real auth.)
+**`ADMIN_API_TOKEN` is a transitional fallback** (Auth Invariant #5), retained for backward
+compatibility. Do not build new flows that depend on it or claim a removal date before a reviewed
+replacement exists. When no token is configured, non-production environments treat requests as
+authorized for local development convenience; production must use real authentication.
 
 Never hardcode `publicMetadata.role` checks in components or handlers; all role assertions go through the middleware, `requireAdminAuth`, and `requireAdminAction`. Draft admin gates go through `src/lib/server/canAccessDraftBoard.ts`.
 
@@ -97,7 +106,19 @@ separate action surface and requires an explicit authorization decision.
 
 ## Cron auth (`CRON_SECRET`)
 
-Scheduled cron routes (`/api/cron/*`) authenticate separately via `verifyCronSecret(req)`: the request's `Authorization` header must equal `Bearer ${CRON_SECRET}`. This is independent of `requireAdminAuth`/`ADMIN_API_TOKEN`. The season-transition and season-rollover crons are Vercel-scheduled (`vercel.json`, daily 00:00 UTC). The **game-stats cron is triggered externally by the QStash schedule `turfwar-game-stats-15m`** (every 15 minutes), which forwards the same `Bearer ${CRON_SECRET}` header to the unchanged route — so route authentication is identical whether the trigger is Vercel or QStash — and `/api/cron/game-stats` is intentionally **absent from `vercel.json`** (Vercel Hobby rejects sub-daily crons; PLATFORM-086H3E). The cron routes **fail closed** — a missing/unset `CRON_SECRET` makes every scheduled run return `401`, silently stopping automated season transition, rollover, and game-stats ingestion.
+Scheduled cron routes (`/api/cron/*`) authenticate separately via `verifyCronSecret(req)`: the
+request's `Authorization` header must equal `Bearer ${CRON_SECRET}`. This is independent of
+`requireAdminAuth` and `ADMIN_API_TOKEN`.
+
+- Vercel Cron owns `/api/cron/season-transition` and `/api/cron/season-rollover`, both daily at
+  00:00 UTC through `vercel.json`.
+- QStash owns the five external schedules: game stats (15 minutes), live scores (3 minutes), Odds
+  (hourly), schedule maintenance (Tuesday 12:00 UTC), and rankings publication (04:00/22:00 UTC).
+  They forward the same bearer secret and remain intentionally absent from `vercel.json`.
+
+All seven routes fail closed. A missing or mismatched `CRON_SECRET` returns `401` and stops the
+corresponding lifecycle or provider job. Rotation therefore spans all five QStash schedules plus
+verification of the two Vercel lifecycle routes; the operator procedure is deployment-runbook §8k.
 
 ## League-password privacy gate (`LEAGUE_AUTH_SECRET`)
 
