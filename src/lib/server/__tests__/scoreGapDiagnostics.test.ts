@@ -5,7 +5,7 @@ import type { CanonicalGame } from '../../gameStats/canonicalSlate.ts';
 import type { LiveScoreContext, LiveScoreGame } from '../../liveScores/canonicalContext.ts';
 import type { ScorePack } from '../../scores/types.ts';
 import type { TeamIdentityResolver } from '../../teamIdentity.ts';
-import { deriveCompletedScoreCoverage } from '../scoreGapDiagnostics.ts';
+import { deriveCompletedScoreCoverage, describeScoreGapGame } from '../scoreGapDiagnostics.ts';
 
 const COMPLETED_SLATE = [{ week: 1, seasonType: 'regular' as const }];
 
@@ -145,4 +145,27 @@ test('a full placeholder shell never becomes a score gap', () => {
     completed: true,
   });
   assert.deepEqual(coverage([liveGame(placeholder, null)]), { expectedGameCount: 0, gaps: [] });
+});
+
+test('score-gap identities sanitize and bound untrusted canonical labels', () => {
+  const result = coverage([
+    liveGame(
+      canonical(101, {
+        home: { identityKey: 'home-101', canonicalName: '\u0000\n\t' },
+        away: {
+          identityKey: 'away-101',
+          canonicalName: `Away\t\u202e${'X'.repeat(200)}\u2028`,
+        },
+        kickoff: `2026-10-11T20:00:00.000Z${'X'.repeat(100)}`,
+      }),
+      null
+    ),
+  ]);
+
+  const gap = result.gaps[0]!;
+  assert.equal(gap.homeTeam, null);
+  assert.equal(Array.from(gap.awayTeam ?? '').length, 80);
+  assert.doesNotMatch(gap.awayTeam ?? '', /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u);
+  assert.equal(gap.kickoff, null);
+  assert.match(describeScoreGapGame(gap), /^CFBD game 101 /);
 });

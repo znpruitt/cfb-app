@@ -569,6 +569,41 @@ test('score-gap issues surface bounded structured game identities and preserve r
   assert.equal(issue!.repair?.href, '/admin/data/cache');
 });
 
+test('score-gap issue explanations bound and sanitize independently supplied labels', () => {
+  const issues = deriveSystemHealthIssues(
+    baseInputs({
+      diagnostics: {
+        state: 'available',
+        diagnostics: [
+          {
+            dataset: 'scores',
+            code: 'scores-terminal-coverage-partial',
+            severity: 'warning',
+            repair: 'data-maintenance',
+            gameRefs: [
+              {
+                providerGameId: 101,
+                week: 1,
+                seasonType: 'regular',
+                homeTeam: `Home\n${'H'.repeat(500)}`,
+                awayTeam: `Away\u0000\u202e${'A'.repeat(500)}`,
+                kickoff: null,
+                reason: 'score-absent',
+              },
+            ],
+            affectedGameCount: 1,
+          },
+        ],
+      },
+    })
+  );
+
+  const explanation = find(issues, 'scores-terminal-coverage-partial')!.explanation;
+  assert.ok(explanation.length < 400);
+  assert.doesNotMatch(explanation, /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u);
+  assert.match(explanation, /… at .*… \(id 101, week 1 regular\)/);
+});
+
 // A diagnostic whose repair surface is null (e.g. an unavailable read) has null repair.
 test('an unavailable-read diagnostic carries a null repair', () => {
   const issues = deriveSystemHealthIssues(

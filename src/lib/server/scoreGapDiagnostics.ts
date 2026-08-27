@@ -20,8 +20,41 @@ export type CompletedScoreCoverage = {
   gaps: ScoreGapGameRef[];
 };
 
+const MAX_DIAGNOSTIC_TEAM_LABEL_CODE_POINTS = 80;
+const MAX_DIAGNOSTIC_KICKOFF_LENGTH = 64;
+const DIAGNOSTIC_CONTROL_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu;
+
 function slateKey(week: number, seasonType: CfbdSeasonType): string {
   return `${week}:${seasonType}`;
+}
+
+/**
+ * Provider and durable labels are untrusted at the diagnostic boundary. Keep a
+ * useful human identity while preventing one malformed name from making the
+ * admin response/render unbounded or injecting control characters.
+ */
+function sanitizeDiagnosticTeamLabel(value: string | null | undefined): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value.replace(DIAGNOSTIC_CONTROL_CHARACTERS, ' ').replace(/\s+/g, ' ').trim();
+  if (!normalized) return null;
+
+  const codePoints = Array.from(normalized);
+  if (codePoints.length <= MAX_DIAGNOSTIC_TEAM_LABEL_CODE_POINTS) return normalized;
+  return `${codePoints.slice(0, MAX_DIAGNOSTIC_TEAM_LABEL_CODE_POINTS - 1).join('')}…`;
+}
+
+function normalizeDiagnosticKickoff(value: string | null): string | null {
+  if (!value || value.length > MAX_DIAGNOSTIC_KICKOFF_LENGTH) return null;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+function safeProviderGameId(value: number): string {
+  return Number.isSafeInteger(value) && value > 0 ? String(value) : 'unknown';
+}
+
+function safeProviderWeek(value: number): string {
+  return Number.isSafeInteger(value) && value >= 0 ? String(value) : 'unknown';
 }
 
 /**
@@ -85,9 +118,9 @@ export function deriveCompletedScoreCoverage(input: {
       providerGameId: canonical.providerGameId,
       week: canonical.providerWeek,
       seasonType: canonical.seasonType,
-      homeTeam: canonical.home?.canonicalName ?? null,
-      awayTeam: canonical.away?.canonicalName ?? null,
-      kickoff: canonical.kickoff,
+      homeTeam: sanitizeDiagnosticTeamLabel(canonical.home?.canonicalName),
+      awayTeam: sanitizeDiagnosticTeamLabel(canonical.away?.canonicalName),
+      kickoff: normalizeDiagnosticKickoff(canonical.kickoff),
       reason: !cachedScore
         ? 'score-absent'
         : isFinal
@@ -100,9 +133,15 @@ export function deriveCompletedScoreCoverage(input: {
 }
 
 export function describeScoreGapGame(game: ScoreGapGameRef): string {
+  // Defend the final presentation boundary too: System Health can receive a
+  // separately constructed diagnostics fact in tests or future integrations.
+  const homeTeam = sanitizeDiagnosticTeamLabel(game.homeTeam);
+  const awayTeam = sanitizeDiagnosticTeamLabel(game.awayTeam);
+  const providerGameId = safeProviderGameId(game.providerGameId);
+  const week = safeProviderWeek(game.week);
+  const seasonType =
+    game.seasonType === 'regular' || game.seasonType === 'postseason' ? game.seasonType : 'unknown';
   const matchup =
-    game.awayTeam && game.homeTeam
-      ? `${game.awayTeam} at ${game.homeTeam}`
-      : `CFBD game ${game.providerGameId}`;
-  return `${matchup} (id ${game.providerGameId}, week ${game.week} ${game.seasonType})`;
+    awayTeam && homeTeam ? `${awayTeam} at ${homeTeam}` : `CFBD game ${providerGameId}`;
+  return `${matchup} (id ${providerGameId}, week ${week} ${seasonType})`;
 }
