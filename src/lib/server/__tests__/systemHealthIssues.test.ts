@@ -636,6 +636,8 @@ test('elapsed-time conclusions surface as a repairable warning with affected gam
   const issue = find(issues, 'scores-elapsed-time-conclusions');
   assert.ok(issue);
   assert.equal(issue!.severity, 'warning');
+  assert.match(issue!.explanation, /^Canonical score diagnostics found/);
+  assert.doesNotMatch(issue!.explanation, /Season finality accepted/);
   assert.match(issue!.explanation, /eight-hour elapsed-time allowance/);
   assert.match(issue!.explanation, /Beta at Alpha \(id 101, week 1 regular\)/);
   assert.match(issue!.explanation, /\+1 more/);

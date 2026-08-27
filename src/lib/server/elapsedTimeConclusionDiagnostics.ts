@@ -13,12 +13,13 @@ export type ElapsedTimeConclusionCoverage = {
 };
 
 /**
- * PLATFORM-113 — project the request-time season-finality inference into the
- * cache-only operator diagnostics model.
+ * PLATFORM-113 — project the league-agnostic canonical pending-game inference
+ * into the cache-only operator diagnostics model.
  *
- * `pendingGames` is derived by the standings authority. The shared selector
- * then owns the eight-hour/all-pending gate. This adapter adds only canonical
- * provider identities; it does not reinterpret conclusion evidence or time.
+ * `pendingGames` is derived by the same authority used by standings. The shared
+ * selector then owns the eight-hour/all-pending gate. This adapter adds only
+ * canonical provider identities; it does not reinterpret conclusion evidence,
+ * time, or any league-scoped postseason override.
  */
 export function deriveElapsedTimeConclusionCoverage(input: {
   context: LiveScoreContext;

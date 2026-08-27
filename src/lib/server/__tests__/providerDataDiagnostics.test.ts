@@ -39,6 +39,17 @@ function participantIds(id: string): { homeId: number; awayId: number } {
   return { homeId: base + 1, awayId: base + 2 };
 }
 
+function scheduleWireItems(items: ScheduleItemSeed[]) {
+  return items.map((item) => ({
+    ...item,
+    neutralSite: false,
+    conferenceGame: false,
+    homeConference: 'SEC',
+    awayConference: 'Big Ten',
+    ...(Number.isFinite(Number(item.id)) ? participantIds(item.id) : {}),
+  }));
+}
+
 function seedScheduleItems(
   items: ScheduleItemSeed[],
   // PLATFORM-090 round 3 — a schedule KNOWN to be missing a partition.
@@ -55,14 +66,7 @@ function seedScheduleItems(
     // slate + evidence authorities, so seeds must be REAL canonical-build
     // inputs — FBS conferences (so games are tracked) and numeric participant
     // ids (so complete stored rows can participant-verify).
-    items: items.map((item) => ({
-      ...item,
-      neutralSite: false,
-      conferenceGame: false,
-      homeConference: 'SEC',
-      awayConference: 'Big Ten',
-      ...(Number.isFinite(Number(item.id)) ? participantIds(item.id) : {}),
-    })),
+    items: scheduleWireItems(items),
   });
 }
 
@@ -179,6 +183,8 @@ test('PLATFORM-113: season-finality elapsed-time conclusions are visible with ga
   assert.equal(elapsed!.severity, 'warning');
   assert.equal(elapsed!.repair, 'data-maintenance');
   assert.equal(elapsed!.affectedGameCount, 1);
+  assert.match(elapsed!.message, /^Canonical score diagnostics found/);
+  assert.doesNotMatch(elapsed!.message, /Season finality accepted/);
   assert.deepEqual(elapsed!.gameRefs, [
     {
       providerGameId: 101,
@@ -190,6 +196,31 @@ test('PLATFORM-113: season-finality elapsed-time conclusions are visible with ga
       reason: 'elapsed-time-conclusion',
     },
   ]);
+});
+
+test('PLATFORM-113: child schedule caches still surface elapsed-time conclusions', async () => {
+  await setAppState('schedule', `${YEAR}-all-regular`, {
+    at: NOW - 3 * 60 * 60 * 1000,
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: scheduleWireItems([
+      {
+        id: '101',
+        week: 1,
+        seasonType: 'regular',
+        startDate: COMPLETED_KICKOFF,
+        status: 'STATUS_SCHEDULED',
+        homeTeam: 'Alpha',
+        awayTeam: 'Beta',
+      },
+    ]),
+  });
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const elapsed = findByCode(diagnostics, 'scores-elapsed-time-conclusions');
+  assert.ok(elapsed, 'the supported child-cache shape must feed score diagnostics');
+  assert.equal(elapsed!.affectedGameCount, 1);
+  assert.equal(elapsed!.gameRefs?.[0]?.providerGameId, 101);
 });
 
 test('PLATFORM-113: no elapsed conclusion is surfaced until every pending game clears the gate', async () => {

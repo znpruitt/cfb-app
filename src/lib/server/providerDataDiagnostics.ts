@@ -203,7 +203,14 @@ type CompletedSlate = { week: number; seasonType: CfbdSeasonType; latestKickoff:
  * Saturday games are old, so it no longer raises false missing-score /
  * missing-game-stats warnings while the slate is still underway.
  */
-function deriveCompletedSlates(items: ScheduleCacheEntry['items'], now: number): CompletedSlate[] {
+function deriveCompletedSlates(
+  items: ReadonlyArray<{
+    startDate?: string | null;
+    week: number;
+    seasonType?: string | null;
+  }>,
+  now: number
+): CompletedSlate[] {
   // 1) Group EVERY game by slate; track each slate's max kickoff across all games.
   const latestByKey = new Map<SlateKey, CompletedSlate>();
   for (const item of items) {
@@ -535,22 +542,28 @@ export async function getProviderDataDiagnostics(
 
   // ---- Scores: game-granular terminal coverage for completed slates ----
   try {
-    if (completedSlates.length > 0) {
-      // Reuse the SAME aggregate schedule snapshot that established
-      // `completedSlates`. The live-score context still owns canonical identity,
-      // reconciled cache loading, and score attachment, but performs no second
-      // schedule read for this diagnostic.
+    // The aggregate is only the first supported canonical schedule shape. When
+    // it is absent/empty, use the same regular + postseason child fallback as
+    // canonical standings and the live-score context; otherwise conclusions
+    // accepted from that schedule would be invisible to System Health.
+    const scoreScheduleItems =
+      scheduleItems.length > 0 ? scheduleItems : await loadCachedScheduleItems(year);
+    const scoreCompletedSlates = deriveCompletedSlates(scoreScheduleItems, now);
+    if (scoreCompletedSlates.length > 0) {
+      // Supply the SAME schedule snapshot that established the completed slates.
+      // The live-score context still owns canonical identity, reconciled cache
+      // loading, and score attachment, with no third schedule read.
       const contextResult = await loadLiveScoreContext({
         year,
         now: new Date(now),
-        scheduleItems,
+        scheduleItems: scoreScheduleItems,
       });
       if (contextResult.status === 'unavailable') {
         throw new Error(`canonical score context unavailable (${contextResult.reason})`);
       }
       const scoreDiagnostics = deriveScoreHealthDiagnostics({
         context: contextResult.context,
-        completedSlates,
+        completedSlates: scoreCompletedSlates,
         now: new Date(now),
         maxGameRefs: MAX_LISTED_GAME_REFS,
       });

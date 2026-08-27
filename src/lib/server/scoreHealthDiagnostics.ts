@@ -72,7 +72,7 @@ export function deriveScoreHealthDiagnostics(input: {
     diagnostics.push({
       severity: 'warning',
       code: 'scores-elapsed-time-conclusions',
-      message: `Season finality accepted ${elapsed.affectedGameCount} unresolved game(s) through the eight-hour elapsed-time allowance${identities}. Review whether this reflects a genuine disruption or missing score evidence.`,
+      message: `Canonical score diagnostics found ${elapsed.affectedGameCount} unresolved game(s) where every pending canonical game clears the eight-hour elapsed-time allowance${identities}. Review whether this reflects a genuine disruption or missing score evidence.`,
       gameRefs: elapsedSummary.shown,
       affectedGameCount: elapsed.affectedGameCount,
     });

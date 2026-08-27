@@ -218,7 +218,7 @@ const DIAGNOSTIC_EXPLANATION: Record<ProviderDiagnosticCode, string> = {
   'scores-terminal-coverage-missing': 'Completed games have no usable terminal scores.',
   'scores-terminal-coverage-partial': 'Some completed games are missing usable terminal scores.',
   'scores-elapsed-time-conclusions':
-    'Season finality accepted unresolved games through the eight-hour elapsed-time allowance; review whether this is a genuine disruption or missing score evidence.',
+    'Canonical score diagnostics found unresolved games where every pending canonical game clears the same eight-hour elapsed-time allowance used by season finality; review whether this is a genuine disruption or missing score evidence.',
   'scores-diagnostics-unavailable': 'Score diagnostics could not be evaluated.',
   'game-stats-context-unavailable': 'The canonical game-stats context could not be loaded.',
   'game-stats-latest-slate-missing':

@@ -79,10 +79,11 @@ export type LiveScoreContext = {
   year: number;
   games: LiveScoreGame[];
   /**
-   * Every real canonical game still lacking positive conclusion evidence,
-   * including non-addressable games. Derived through the standings authority so
-   * request-time abandonment diagnostics use the exact season-finality
-   * population rather than rebuilding its rules from the addressable slate.
+   * Every real league-agnostic canonical game still lacking positive conclusion
+   * evidence, including non-addressable games. Derived through the standings
+   * pending-game authority so operator diagnostics reuse its rules rather than
+   * rebuilding them from the addressable slate. This context intentionally does
+   * not apply league-scoped postseason overrides.
    */
   pendingGames: PendingGame[];
   /** Shared identity resolver for scoreboard-label validation (legacy fallback). */
