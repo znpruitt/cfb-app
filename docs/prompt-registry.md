@@ -51,6 +51,24 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-113-ELAPSED-TIME-CONCLUSION-DIAGNOSTICS-v1
+
+- Purpose: make the elapsed-time allowance observable when canonical season finality accepts
+  unresolved games without positive result evidence.
+- Scope: the shared request-time pending-game finality selector, the cache-only canonical
+  live-score context, score-health and System Health diagnostics, bounded provider-addressable game
+  identities, focused regression coverage, and owning documentation. Score ingestion, attachment,
+  polling, lifecycle policy, and resolved-week selection are unchanged.
+- Outcome: System Health emits `scores-elapsed-time-conclusions` only when the complete canonical
+  pending population clears the eight-hour allowance. It retains the complete affected count,
+  exposes at most six sanitized game identities, supports aggregate and child schedule-cache
+  shapes, and evaluates elapsed conclusions independently from the six-hour completed-slate gate
+  that still governs terminal score-gap coverage.
+- Review / verification: exact code commit `21113f08` passed TypeScript, lint, the 4,316-test full
+  suite, and focused finality/diagnostics coverage including the mixed-timing regression. Independent
+  Codex and Claude reviews found no actionable P0/P1/P2 correctness issue.
+- Status: Implemented — PR #518 open.
+
 ### PLATFORM-112-GAME-SCORE-GAP-DIAGNOSTICS-v1
 
 - Purpose: stop one terminal score from hiding a missing completed-game result elsewhere in the

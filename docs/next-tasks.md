@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-08-26
+Last verified: 2026-08-27
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -29,7 +29,7 @@ Supersedes: (none)
 The 2026-08-26 roadmap audit recommends this season-reliability sequence; it is proposed ordering,
 not an owner-selected `NEXT` designation:
 
-1. Item 64(c/e) — align abandonment handling and surface elapsed-time conclusions.
+1. Item 64(c) — align abandonment handling in resolved-week selection.
 2. Item 63 — design delete-and-recreate reschedule reconciliation.
 3. Item 20 — bound database pool, lock, and statement waits.
 4. Item 46 — prevent past-season adoption from endangering a genuine archive.
@@ -68,16 +68,15 @@ id, so identity disappearance plus the replacement schedule record is the availa
 
 ### Item 64 — remaining week-resolution residue
 
-Only two PLATFORM-105 follow-ups remain:
+Only one PLATFORM-105 follow-up remains:
 
 - **(c) Abandonment is not applied to week resolution.** `selectSeasonContext` can accept an old
   pending game as abandoned, while `isResolvedWeek` still leaves that week unplayed forever. Apply
   the shared conclusion policy consistently so historical trends do not drop the affected week.
-- **(e) Elapsed-time conclusions are not surfaced.** Record which games were accepted without a
-  result. One may be a genuine disruption; many likely indicate a broken score feed.
 
-The prior `(a)`, `(b)`, and `(d)` work is complete and recorded in `docs/completed-work.md`; do not
-requeue it.
+The prior `(a)`, `(b)`, and `(d)` work is complete and recorded in `docs/completed-work.md`. Item
+`(e)` is implemented in PR #518 and awaiting merge; it is no longer remaining design or
+implementation work. Do not requeue those slices.
 
 - Backlog slug: `PLATFORM-WEEK-RESOLUTION-RESIDUE-v1`
 
