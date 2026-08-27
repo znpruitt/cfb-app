@@ -56,10 +56,10 @@ Rules:
 - Purpose: anchor the daily preseason-to-season transition and member-facing season-start date to a
   game a league can actually see, while keeping every consumer date-based and without filtering
   non-FBS rows out of the canonical schedule.
-- Scope: the shared schedule-probe authority; its four durable probe-writing call sites in the
-  manual schedule route, weekly schedule-refresh cron, and season-transition cron; the pure UTC-date
-  boundary shared by `StandingsPanel` and `CFBScheduleApp`; focused policy, route, selector, and
-  component tests; owning documentation.
+- Scope: the shared schedule-probe authority; the three live durable probe writers in the manual
+  schedule route, weekly schedule-refresh cron, and season-transition cron (plus the manual route's
+  pre-existing unreachable duplicate block); the pure UTC-date boundary shared by `StandingsPanel`
+  and `CFBScheduleApp`; focused policy, route, selector, and component tests; owning documentation.
 - Outcome: `firstGameDate` is now midnight UTC on the earliest date with an FBS participant resolved
   through the durable catalog and league-agnostic aliases. Provider-only observed names cannot
   self-resolve; exact kickoff time and TBD confidence are ignored; no eligible row falls back to the
@@ -79,7 +79,7 @@ Rules:
   suite passed 4,289/4,289. TypeScript, ESLint, Prettier, Markdown lint, diff checks, and the React
   review checklist passed. Tests used local provider stubs; no external provider request or
   production-state mutation occurred.
-- Status: Implemented on the feature branch; not yet committed or merged.
+- Status: Implemented and committed on the feature branch; not yet merged.
 
 ### DOCS-018-CURRENT-AUTHORITY-RECONCILIATION-v1
 

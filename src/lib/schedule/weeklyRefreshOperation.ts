@@ -9,10 +9,10 @@
  * boundary is lifecycle-critical and EXEMPT (exactly like the season-transition
  * and rollover crons themselves). The preseason ownership model (E1B1):
  *
- *   preseason, schedule/probe not armed        → daily season-transition owns discovery
- *   preseason, first game known and > 7d away  → weekly E1B ordinary maintenance
- *   preseason, within 7 days of first kickoff  → daily season-transition owns freshness + transition
- *   active season                              → weekly E1B (ordinary / sticky postseason-boundary)
+ *   preseason, schedule/probe not armed           → daily season-transition owns discovery
+ *   preseason, start-date anchor > 7d away        → weekly E1B ordinary maintenance
+ *   preseason, within 7d of start-date anchor     → daily transition owns freshness + transition
+ *   active season                                 → weekly E1B (ordinary / sticky postseason-boundary)
  *
  * This module is the single decision authority for those classifications. It is
  * PURE and deterministic: it consumes only the invocation time, the prior-good
@@ -62,13 +62,13 @@ export const POSTSEASON_BOUNDARY_LEAD_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * The preseason → season-transition freshness handoff opens 7 days before the
- * FIRST kickoff (PLATFORM-086E1B1). This mirrors the season-transition cron's
+ * UTC season-start date anchor (PLATFORM-086E1B1). This mirrors the season-transition cron's
  * `shouldFetch` policy EXACTLY (`now >= firstGameDate − 7d`, missing probe
  * fields included), so the daily transition cron and the weekly route neither
  * leave a freshness gap nor compete over the same window: E1B owns ordinary
- * weekly maintenance ONLY in cache-armed early preseason (first game known and
- * MORE than 7 days away); discovery and the final-seven-day freshness stay with
- * season-transition.
+ * weekly maintenance ONLY in cache-armed early preseason (the start-date anchor
+ * is MORE than 7 days away); discovery and the final-seven-day freshness stay
+ * with season-transition.
  */
 export const SEASON_TRANSITION_HANDOFF_LEAD_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -218,7 +218,7 @@ export function classifyWeeklyScheduleRefreshOperation(params: {
  * The durable schedule-probe state as the preseason classifier consumes it
  * (`schedule-probe/<year>`, written by the season-transition cron). Normalized
  * defensively: a missing/non-object record, a falsy `baseCachedAt`, or an
- * absent/unparseable `firstGameDate` all mirror the season-transition
+ * absent/unparseable `firstGameDate` anchor all mirror the season-transition
  * `shouldFetch` predicate's "fetch" side — the transition cron owns those years.
  */
 function normalizeProbe(value: unknown): { armed: boolean; firstGameMs: number | null } {
@@ -252,8 +252,8 @@ function normalizeProbe(value: unknown): { armed: boolean; firstGameMs: number |
  *     included) → `season-transition-owner` — the DAILY transition cron owns
  *     discovery and the final-seven-day freshness; the weekly route makes no
  *     provider work for the year (an intentional skip, never a failure);
- *   - otherwise (cache-armed EARLY preseason: first game known and more than 7
- *     days away) the canonical schedule entry must pass the SAME context checks
+ *   - otherwise (cache-armed EARLY preseason: the start-date anchor is more than
+ *     7 days away) the canonical schedule entry must pass the SAME context checks
  *     as the active-season classifier (populated, well-formed vocabulary, ≥1
  *     regular game with a valid kickoff) → `preseason-maintenance` — an
  *     ORDINARY/noncritical operation (honors the global pause + Schedule toggle;

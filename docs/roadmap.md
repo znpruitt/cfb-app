@@ -382,10 +382,10 @@ self-call) are recorded as provisional backlog items in `docs/next-tasks.md` →
 `{ state: 'preseason', year }` asserts both at once, and there is no way to say one without the
 other. A league that is calendar-active but setup-incomplete has nowhere to live.
 
-**Why it is worth separating.** The calendar half is already derivable — the app computes kickoff
-from the schedule (`getScheduleProbeState(year).firstGameDate`), which is how canonical standings
-produces `preseason-awaiting-kickoff` without consulting stored status. So the stored value is doing
-two jobs when only one of them needs storing.
+**Why it is worth separating.** The calendar half is already derivable — the app computes a UTC
+season-start date anchor from the schedule (`getScheduleProbeState(year).firstGameDate`), which is
+how canonical standings produces `preseason-awaiting-kickoff` without consulting stored status. So
+the stored value is doing two jobs when only one of them needs storing.
 
 **It is also the root of a run of shipped fixes.** PLATFORM-091 was `preseason` (a calendar claim)
 standing in as evidence for "draft scheduled" (a league-progress claim). PLATFORM-092 was the
