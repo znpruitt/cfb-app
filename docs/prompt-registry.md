@@ -67,7 +67,7 @@ Rules:
 - Review / verification: exact code commit `21113f08` passed TypeScript, lint, the 4,316-test full
   suite, and focused finality/diagnostics coverage including the mixed-timing regression. Independent
   Codex and Claude reviews found no actionable P0/P1/P2 correctness issue.
-- Status: Implemented — PR #518 open.
+- Status: Merged via PR #518 (merge commit `bc0e741f`), 2026-08-27.
 
 ### PLATFORM-112-GAME-SCORE-GAP-DIAGNOSTICS-v1
 

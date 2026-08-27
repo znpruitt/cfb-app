@@ -74,9 +74,8 @@ Only one PLATFORM-105 follow-up remains:
   pending game as abandoned, while `isResolvedWeek` still leaves that week unplayed forever. Apply
   the shared conclusion policy consistently so historical trends do not drop the affected week.
 
-The prior `(a)`, `(b)`, and `(d)` work is complete and recorded in `docs/completed-work.md`. Item
-`(e)` is implemented in PR #518 and awaiting merge; it is no longer remaining design or
-implementation work. Do not requeue those slices.
+The prior `(a)`, `(b)`, `(d)`, and `(e)` work is complete and recorded in
+`docs/completed-work.md`; do not requeue those slices.
 
 - Backlog slug: `PLATFORM-WEEK-RESOLUTION-RESIDUE-v1`
 

@@ -4113,6 +4113,21 @@ Key architectural decisions across Phase 5:
 - **Open follow-ups:** See evidence-gated item 81 and the remaining season-operations queue in
   `docs/next-tasks.md`.
 
+### PLATFORM-113 — Elapsed-Time Conclusion Diagnostics — Complete
+
+- **Status:** Merged via PR #518 (merge commit `bc0e741f`), 2026-08-27; production promotion not
+  yet verified.
+- **PROMPT_ID(s):** `PLATFORM-113-ELAPSED-TIME-CONCLUSION-DIAGNOSTICS-v1`.
+- **Outcome:** System Health now identifies unresolved canonical games accepted through the
+  eight-hour all-pending allowance, retaining the complete affected count and exposing at most six
+  sanitized provider identities. The warning supports aggregate and child schedule-cache shapes
+  and runs independently from the completed-slate timing gate that still governs terminal score
+  coverage.
+- **Verification:** Exact code commit `21113f08` passed TypeScript, lint, focused finality and
+  diagnostics coverage, and the 4,316-test full suite. Independent Codex and Claude reviews found
+  no actionable P0/P1/P2 correctness issue, including after the mixed-timing regression fix.
+- **Open follow-ups:** Item 64(c) remains in the canonical queue in `docs/next-tasks.md`.
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped
