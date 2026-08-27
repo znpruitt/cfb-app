@@ -4075,6 +4075,24 @@ Key architectural decisions across Phase 5:
 - **Open follow-ups:** Item 73 owns the archived season-arc axis domain and any later decision to
   adopt the origin outside Overview.
 
+### PLATFORM-111 — Visible Season Transition Anchor — Complete
+
+- **Status:** Complete — fast-forwarded into local `main` (`f9983473`, `6c24ec36`), 2026-08-26.
+  Not pushed or promoted at this closeout.
+- **PROMPT_ID(s):** `PLATFORM-111-TRANSITION-ANCHOR-v2`.
+- **Outcome:** The schedule probe now anchors the daily preseason-to-season transition and
+  member-facing season-start placeholder to the earliest UTC calendar date containing a participant
+  resolved through the durable team catalog and league-agnostic aliases. It retains the all-division
+  canonical schedule, falls back to the earliest parseable date when no row is catalog-backed, and
+  keeps exact kickoff time out of the lifecycle policy. Both member consumers share the same
+  through-opening-date boundary, and a post-commit probe derivation failure is reported as partial
+  work instead of denying the committed schedule refresh.
+- **Verification:** Independent Codex and Claude reviews closed without actionable correctness
+  findings after the post-commit classification remediation. The exact final code commit passed
+  TypeScript, ESLint, the 4,289-test full suite, and diff-integrity checks.
+- **Open follow-ups:** None specific to this milestone; remaining season-operations work stays in
+  `docs/next-tasks.md`.
+
 ### Template for future entries
 
 Use this structure for each new completed phase/milestone (DOCS-012). Entries describe shipped

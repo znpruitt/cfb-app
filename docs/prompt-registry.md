@@ -79,7 +79,8 @@ Rules:
   suite passed 4,289/4,289. TypeScript, ESLint, Prettier, Markdown lint, diff checks, and the React
   review checklist passed. Tests used local provider stubs; no external provider request or
   production-state mutation occurred.
-- Status: Implemented and committed on the feature branch; not yet merged.
+- Status: Merged to local `main` by fast-forward (`f9983473`, `6c24ec36`), 2026-08-26. Not pushed
+  or promoted at the recorded closeout.
 
 ### DOCS-018-CURRENT-AUTHORITY-RECONCILIATION-v1
 
