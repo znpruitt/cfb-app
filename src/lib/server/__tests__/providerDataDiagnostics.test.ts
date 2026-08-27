@@ -223,6 +223,40 @@ test('PLATFORM-113: child schedule caches still surface elapsed-time conclusions
   assert.equal(elapsed!.gameRefs?.[0]?.providerGameId, 101);
 });
 
+test('PLATFORM-113: a recent terminal sibling does not suppress an elapsed-time conclusion', async () => {
+  await seedScheduleItems([
+    {
+      id: '101',
+      week: 1,
+      seasonType: 'regular',
+      startDate: '2026-10-14T00:00:00.000Z',
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: '102',
+      week: 1,
+      seasonType: 'regular',
+      startDate: '2026-10-15T09:30:00.000Z',
+      status: 'STATUS_FINAL',
+      homeTeam: 'Gamma',
+      awayTeam: 'Delta',
+    },
+  ]);
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const elapsed = findByCode(diagnostics, 'scores-elapsed-time-conclusions');
+  assert.ok(
+    elapsed,
+    'elapsed finality must not wait for the separate six-hour whole-slate threshold'
+  );
+  assert.equal(elapsed!.affectedGameCount, 1);
+  assert.equal(elapsed!.gameRefs?.[0]?.providerGameId, 101);
+  assert.equal(findByCode(diagnostics, 'scores-terminal-coverage-missing'), undefined);
+  assert.equal(findByCode(diagnostics, 'scores-terminal-coverage-partial'), undefined);
+});
+
 test('PLATFORM-113: no elapsed conclusion is surfaced until every pending game clears the gate', async () => {
   await seedScheduleItems([
     {

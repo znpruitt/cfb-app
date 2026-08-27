@@ -546,13 +546,20 @@ export async function getProviderDataDiagnostics(
     // it is absent/empty, use the same regular + postseason child fallback as
     // canonical standings and the live-score context; otherwise conclusions
     // accepted from that schedule would be invisible to System Health.
-    const scoreScheduleItems =
-      scheduleItems.length > 0 ? scheduleItems : await loadCachedScheduleItems(year);
-    const scoreCompletedSlates = deriveCompletedSlates(scoreScheduleItems, now);
-    if (scoreCompletedSlates.length > 0) {
+    const usesAggregateSchedule = scheduleItems.length > 0;
+    const scoreScheduleItems = usesAggregateSchedule
+      ? scheduleItems
+      : await loadCachedScheduleItems(year);
+    const scoreCompletedSlates = usesAggregateSchedule
+      ? completedSlates
+      : deriveCompletedSlates(scoreScheduleItems, now);
+    if (scoreScheduleItems.length > 0) {
       // Supply the SAME schedule snapshot that established the completed slates.
       // The live-score context still owns canonical identity, reconciled cache
-      // loading, and score attachment, with no third schedule read.
+      // loading, and score attachment, with no third schedule read. Load it even
+      // when no whole slate is complete: the completed-slate list constrains
+      // terminal score-gap coverage only, while elapsed-time conclusions follow
+      // their independent all-pending finality gate.
       const contextResult = await loadLiveScoreContext({
         year,
         now: new Date(now),
