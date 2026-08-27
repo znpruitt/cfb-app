@@ -4077,8 +4077,8 @@ Key architectural decisions across Phase 5:
 
 ### PLATFORM-111 — Visible Season Transition Anchor — Complete
 
-- **Status:** Complete — fast-forwarded into local `main` (`f9983473`, `6c24ec36`), 2026-08-26.
-  Not pushed or promoted at this closeout.
+- **Status:** Complete — merged via PR #514 (merge commit `dc8b3528`), 2026-08-26. Promotion status
+  is not claimed at this closeout.
 - **PROMPT_ID(s):** `PLATFORM-111-TRANSITION-ANCHOR-v2`.
 - **Outcome:** The schedule probe now anchors the daily preseason-to-season transition and
   member-facing season-start placeholder to the earliest UTC calendar date containing a participant
