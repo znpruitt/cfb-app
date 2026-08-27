@@ -31,11 +31,8 @@ import { formatRelativeTimestamp } from '../freshness.ts';
 import { PROVIDER_DATASETS, type ProviderDataset } from '../providerDatasets.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
 import { loadLiveScoreContext } from '../liveScores/canonicalContext.ts';
-import {
-  deriveCompletedScoreCoverage,
-  describeScoreGapGame,
-  type ScoreGapGameRef,
-} from './scoreGapDiagnostics.ts';
+import type { ProviderDiagnosticGameRef } from './scoreGapDiagnostics.ts';
+import { deriveScoreHealthDiagnostics } from './scoreHealthDiagnostics.ts';
 
 /**
  * Minimal shape of a durable `odds-cache` entry — only its capture times matter
@@ -61,6 +58,7 @@ export type ProviderDiagnosticCode =
   | 'schedule-diagnostics-unavailable'
   | 'scores-terminal-coverage-missing'
   | 'scores-terminal-coverage-partial'
+  | 'scores-elapsed-time-conclusions'
   | 'scores-diagnostics-unavailable'
   | 'game-stats-context-unavailable'
   | 'game-stats-latest-slate-missing'
@@ -95,7 +93,7 @@ export type ProviderDiagnostic = {
   /** In-app repair surface hint, or `null` when no in-app repair applies. */
   repair: ProviderDiagnosticRepairSurface | null;
   /** Bounded canonical game identities for a game-granular diagnostic. */
-  gameRefs?: ScoreGapGameRef[];
+  gameRefs?: ProviderDiagnosticGameRef[];
   /** Total affected games when `gameRefs` is bounded. */
   affectedGameCount?: number;
 };
@@ -180,7 +178,7 @@ const STALE_SCHEDULE_AFTER_MS = 8 * DAY_MS;
 const STALE_RANKINGS_AFTER_MS = 8 * DAY_MS;
 const STALE_ODDS_AFTER_MS = 2 * DAY_MS;
 const MAX_LISTED_SLATES = 6;
-const MAX_LISTED_SCORE_GAPS = 6;
+const MAX_LISTED_GAME_REFS = 6;
 
 type SlateKey = string; // `${week}:${seasonType}`
 
@@ -550,32 +548,23 @@ export async function getProviderDataDiagnostics(
       if (contextResult.status === 'unavailable') {
         throw new Error(`canonical score context unavailable (${contextResult.reason})`);
       }
-      const coverage = deriveCompletedScoreCoverage({
+      const scoreDiagnostics = deriveScoreHealthDiagnostics({
         context: contextResult.context,
         completedSlates,
+        now: new Date(now),
+        maxGameRefs: MAX_LISTED_GAME_REFS,
       });
-      const affected = coverage.gaps.length;
-      const shown = coverage.gaps.slice(0, MAX_LISTED_SCORE_GAPS);
-      const summary = shown.map(describeScoreGapGame).join('; ');
-      const suffix = affected > shown.length ? `; +${affected - shown.length} more` : '';
-
-      if (affected > 0 && affected === coverage.expectedGameCount) {
+      for (const diagnostic of scoreDiagnostics) {
         push(
           'scores',
-          'error',
-          'scores-terminal-coverage-missing',
-          `No usable terminal score for any of ${affected} completed game(s): ${summary}${suffix}.`,
+          diagnostic.severity,
+          diagnostic.code,
+          diagnostic.message,
           'data-maintenance',
-          { gameRefs: shown, affectedGameCount: affected }
-        );
-      } else if (affected > 0) {
-        push(
-          'scores',
-          'warning',
-          'scores-terminal-coverage-partial',
-          `${affected} of ${coverage.expectedGameCount} completed game(s) lack a usable terminal score: ${summary}${suffix}.`,
-          'data-maintenance',
-          { gameRefs: shown, affectedGameCount: affected }
+          {
+            gameRefs: diagnostic.gameRefs,
+            affectedGameCount: diagnostic.affectedGameCount,
+          }
         );
       }
     }

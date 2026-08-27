@@ -604,6 +604,69 @@ test('score-gap issue explanations bound and sanitize independently supplied lab
   assert.match(explanation, /… at .*… \(id 101, week 1 regular\)/);
 });
 
+test('elapsed-time conclusions surface as a repairable warning with affected games', () => {
+  const issues = deriveSystemHealthIssues(
+    baseInputs({
+      diagnostics: {
+        state: 'available',
+        diagnostics: [
+          {
+            dataset: 'scores',
+            code: 'scores-elapsed-time-conclusions',
+            severity: 'warning',
+            repair: 'data-maintenance',
+            gameRefs: [
+              {
+                providerGameId: 101,
+                week: 1,
+                seasonType: 'regular',
+                homeTeam: 'Alpha',
+                awayTeam: 'Beta',
+                kickoff: '2026-10-11T20:00:00.000Z',
+                reason: 'elapsed-time-conclusion',
+              },
+            ],
+            affectedGameCount: 2,
+          },
+        ],
+      },
+    })
+  );
+
+  const issue = find(issues, 'scores-elapsed-time-conclusions');
+  assert.ok(issue);
+  assert.equal(issue!.severity, 'warning');
+  assert.match(issue!.explanation, /eight-hour elapsed-time allowance/);
+  assert.match(issue!.explanation, /Beta at Alpha \(id 101, week 1 regular\)/);
+  assert.match(issue!.explanation, /\+1 more/);
+  assert.equal(issue!.repair?.href, '/admin/data/cache');
+});
+
+test('elapsed-time conclusions retain their count when no provider identity is addressable', () => {
+  const issues = deriveSystemHealthIssues(
+    baseInputs({
+      diagnostics: {
+        state: 'available',
+        diagnostics: [
+          {
+            dataset: 'scores',
+            code: 'scores-elapsed-time-conclusions',
+            severity: 'warning',
+            repair: 'data-maintenance',
+            gameRefs: [],
+            affectedGameCount: 2,
+          },
+        ],
+      },
+    })
+  );
+
+  assert.match(
+    find(issues, 'scores-elapsed-time-conclusions')!.explanation,
+    /Affected game count: 2/
+  );
+});
+
 // A diagnostic whose repair surface is null (e.g. an unavailable read) has null repair.
 test('an unavailable-read diagnostic carries a null repair', () => {
   const issues = deriveSystemHealthIssues(

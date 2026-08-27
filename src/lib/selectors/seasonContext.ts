@@ -1,5 +1,6 @@
-import { hasGameBeenAbandoned, type StandingsHistory } from '../standingsHistory';
+import type { StandingsHistory } from '../standingsHistory';
 import { isPlayedWeek, selectPlayedWeeks } from './historyResolution';
+import { selectPendingGameFinality } from './pendingGameFinality';
 
 export type SeasonContext = 'in-season' | 'postseason' | 'final';
 
@@ -69,7 +70,8 @@ export function selectSeasonContext(args: {
     if (!snapshot) return false;
     return snapshot.pending !== undefined || isPlayedWeek(standingsHistory, week);
   });
-  if (gamesCanAnswer && unresolved.every((game) => hasGameBeenAbandoned(game, evaluatedAt))) {
+  const pendingFinality = selectPendingGameFinality({ pendingGames: unresolved, now: evaluatedAt });
+  if (gamesCanAnswer && pendingFinality.allPendingGamesConcluded) {
     return 'final';
   }
 

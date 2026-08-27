@@ -166,6 +166,24 @@ export type PendingGame = {
 };
 
 /**
+ * Preserve the one authoritative mapping from canonical game/score evidence to
+ * a request-time abandonment candidate. Consumers may decide WHEN to apply the
+ * clock, but they must not re-derive which games are real, concluded,
+ * disrupted, or planned.
+ */
+export function derivePendingGame(game: AppGame, score: ScorePack | undefined): PendingGame | null {
+  if (!isRealGame(game) || isConcludedByEvidence(game, score)) return null;
+
+  return {
+    key: game.key,
+    week: game.week,
+    // A disrupted game is still coming; its cached kickoff is the moment it no
+    // longer has. A TBD kickoff likewise gives the clock nothing to measure.
+    kickoff: isPlannedGame(game) && !isDisruptedGame(game, score) ? game.date : null,
+  };
+}
+
+/**
  * Was this pending game planned for a kickoff far enough in the past that
  * nothing will ever resolve it?
  *
@@ -240,23 +258,10 @@ export function deriveStandingsHistory(args: {
     // ended. Season-over is now a question about games (`selectSeasonContext`),
     // so an all-shell week simply contributes nothing.
     const realGames = weekGames.filter(isRealGame);
-    const pending: PendingGame[] = realGames
-      .filter((game) => {
-        const score = scoresByKey[game.key];
-        if (isConcludedByEvidence(game, score)) return false;
-        // A disrupted game is still coming, so it is pending with NO kickoff to
-        // measure against — its cached one is the kickoff it no longer has.
-        if (isDisruptedGame(game, score)) return true;
-        return true;
-      })
-      .map((game) => ({
-        key: game.key,
-        week: game.week,
-        // Null unless the game was PLANNED to a determined moment, and null for
-        // a disrupted game whose cached kickoff has been superseded.
-        kickoff:
-          isPlannedGame(game) && !isDisruptedGame(game, scoresByKey[game.key]) ? game.date : null,
-      }));
+    const pending: PendingGame[] = realGames.flatMap((game) => {
+      const pendingGame = derivePendingGame(game, scoresByKey[game.key]);
+      return pendingGame ? [pendingGame] : [];
+    });
 
     byWeek[week] = {
       week,

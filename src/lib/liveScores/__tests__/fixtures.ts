@@ -57,9 +57,18 @@ export const NOOP_RESOLVER = {} as TeamIdentityResolver;
 
 export function makeContext(
   games: LiveScoreGame[],
-  opts: { year?: number; resolver?: TeamIdentityResolver } = {}
+  opts: {
+    year?: number;
+    resolver?: TeamIdentityResolver;
+    pendingGames?: LiveScoreContext['pendingGames'];
+  } = {}
 ): LiveScoreContext {
-  return { year: opts.year ?? 2025, games, resolver: opts.resolver ?? NOOP_RESOLVER };
+  return {
+    year: opts.year ?? 2025,
+    games,
+    pendingGames: opts.pendingGames ?? [],
+    resolver: opts.resolver ?? NOOP_RESOLVER,
+  };
 }
 
 export function makeScoreboardRow(

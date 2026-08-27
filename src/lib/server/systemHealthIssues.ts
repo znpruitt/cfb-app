@@ -21,7 +21,10 @@ import type {
   ProviderDiagnosticRepairSurface,
 } from './providerDataDiagnostics.ts';
 import type { ProviderRefreshHealthSnapshot } from './providerRefreshHealth.ts';
-import { describeScoreGapGame, type ScoreGapGameRef } from './scoreGapDiagnostics.ts';
+import {
+  describeProviderDiagnosticGame,
+  type ProviderDiagnosticGameRef,
+} from './scoreGapDiagnostics.ts';
 import { INTERRUPTED_ATTEMPT_AFTER_MS } from '../providerRefreshConstants.ts';
 import type { SafeProviderRefreshStatus } from './providerRefreshHealth.ts';
 import type { SchedulerDeliveryHealthSnapshot } from './schedulerDeliveryHealth.ts';
@@ -122,7 +125,7 @@ export type SafeDiagnostic = {
   severity: DiagnosticSeverity;
   repair: ProviderDiagnosticRepairSurface | null;
   /** Bounded, structured identities safe to surface in operator diagnostics. */
-  gameRefs?: ScoreGapGameRef[];
+  gameRefs?: ProviderDiagnosticGameRef[];
   affectedGameCount?: number;
 };
 
@@ -214,6 +217,8 @@ const DIAGNOSTIC_EXPLANATION: Record<ProviderDiagnosticCode, string> = {
   'schedule-diagnostics-unavailable': 'Schedule diagnostics could not be evaluated.',
   'scores-terminal-coverage-missing': 'Completed games have no usable terminal scores.',
   'scores-terminal-coverage-partial': 'Some completed games are missing usable terminal scores.',
+  'scores-elapsed-time-conclusions':
+    'Season finality accepted unresolved games through the eight-hour elapsed-time allowance; review whether this is a genuine disruption or missing score evidence.',
   'scores-diagnostics-unavailable': 'Score diagnostics could not be evaluated.',
   'game-stats-context-unavailable': 'The canonical game-stats context could not be loaded.',
   'game-stats-latest-slate-missing':
@@ -682,12 +687,14 @@ function canonicalDataIssues(diagnostics: DiagnosticsFact): SystemHealthIssue[] 
     ];
   }
   return diagnostics.diagnostics.map((diag) => {
-    const gameSummary = diag.gameRefs?.map(describeScoreGapGame).join('; ');
+    const gameSummary = diag.gameRefs?.map(describeProviderDiagnosticGame).join('; ');
     const shown = diag.gameRefs?.length ?? 0;
     const omitted = Math.max(0, (diag.affectedGameCount ?? shown) - shown);
     const details = gameSummary
       ? ` Affected: ${gameSummary}${omitted > 0 ? `; +${omitted} more` : ''}.`
-      : '';
+      : (diag.affectedGameCount ?? 0) > 0
+        ? ` Affected game count: ${diag.affectedGameCount}.`
+        : '';
     return {
       code: diag.code,
       severity: diagnosticSeverityToIssue(diag.severity),
