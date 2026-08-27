@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-08-26
+Last verified: 2026-08-27
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -4055,8 +4055,8 @@ Key architectural decisions across Phase 5:
   collision defects; focused regression suites and the full project gates passed at each reviewed
   merge head. Detailed evidence remains in `docs/prompt-registry.md` and
   `docs/architecture/week-resolution.md`.
-- **Open follow-ups:** Items 60, 64(c/e), 67, and 68 retain the remaining rankings recovery,
-  disruption, diagnostics, and archive-policy work.
+- **Open follow-ups:** Items 60, 64(c/e), and 68 retain the remaining rankings recovery,
+  disruption, and archive-policy work.
 
 ### Trend Empty States and Preseason Origin — Complete
 
@@ -4091,6 +4091,23 @@ Key architectural decisions across Phase 5:
   findings after the post-commit classification remediation. The exact final code commit passed
   TypeScript, ESLint, the 4,289-test full suite, and diff-integrity checks.
 - **Open follow-ups:** None specific to this milestone; remaining season-operations work stays in
+  `docs/next-tasks.md`.
+
+### PLATFORM-112 — Game-Level Completed-Score Gap Diagnostics — Complete
+
+- **Status:** Complete — merged via PR #516 (merge commit `30bb515f`), 2026-08-27. Promotion status
+  is not claimed at this closeout.
+- **PROMPT_ID(s):** `PLATFORM-112-GAME-SCORE-GAP-DIAGNOSTICS-v1`.
+- **Outcome:** System Health now checks every addressable expected game in a completed provider
+  partition against its own canonically attached terminal score, so one final row cannot hide a
+  missing sibling. Canceled games resolve scorelessly, pending/disrupted/placeholder games retain
+  the shared conclusion policy, and operator output carries a complete gap count plus at most six
+  sanitized CFBD game and partition identities routed to the existing score-recovery surface.
+- **Verification:** Thirteen focused tests were added and one obsolete slate-granularity assertion
+  was replaced; label and kickoff bounds were mutation-proven. Independent Codex and Claude reviews
+  found no credible in-scope P0/P1/P2. Exact merged PR head `27151e9d` passed TypeScript, `lint:all`,
+  and the 4,301-test full suite.
+- **Open follow-ups:** See evidence-gated item 81 and the remaining season-operations queue in
   `docs/next-tasks.md`.
 
 ### Template for future entries
