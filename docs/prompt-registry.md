@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-08-26
+Last verified: 2026-08-27
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -71,7 +71,8 @@ Rules:
   mutation-proven. Exact code commit `b035d890` passed TypeScript, `lint:all`, and the 4,301-test full
   suite; independent Codex and Claude reviews found no credible in-scope P0/P1/P2. Their
   non-blocking observations are retained as evidence-gated queue item 81.
-- Status: Implemented — reviews complete; not yet merged.
+- Status: Merged via PR #516 (merge commit `30bb515f`), 2026-08-27. Promotion status is not
+  claimed at the recorded closeout.
 
 ### PLATFORM-111-TRANSITION-ANCHOR-v2
 
