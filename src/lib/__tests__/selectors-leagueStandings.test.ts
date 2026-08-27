@@ -755,7 +755,7 @@ async function seedScheduleProbe(year: number, firstGameDate: string | null): Pr
   await setAppState('schedule-probe', String(year), { year, baseCachedAt: null, firstGameDate });
 }
 
-test('season state + kickoff in future: returns preseason-awaiting-kickoff with inferredSeasonStart', async () => {
+test('season state + start date in future: returns preseason-awaiting-kickoff with inferredSeasonStart', async () => {
   const slug = 'p2-season-kickoff-future';
   const year = 2026;
   await seedLeague(makeLeague({ slug, year, status: { state: 'season', year } }));
@@ -774,13 +774,13 @@ test('season state + kickoff in future: returns preseason-awaiting-kickoff with 
   assert.equal(snapshot.standingsHistory, null);
 });
 
-test('season state + kickoff in past: still returns preseason-awaiting-kickoff (consumers do the time check at render)', async () => {
-  // Phase 2 Codex remediation: the selector no longer gates on `now > kickoff`
+test('season state + start date in past: still returns preseason-awaiting-kickoff (consumers apply the date boundary)', async () => {
+  // Phase 2 Codex remediation: the selector does not gate on the current clock
   // because it's wrapped in `unstable_cache` with tag-only invalidation.
   // Whenever a probe firstGameDate is cached, the selector returns
-  // `preseason-awaiting-kickoff` carrying the date; consumers (StandingsPanel,
-  // CFBScheduleApp) do `now > inferredSeasonStart` at render time and collapse
-  // the post-kickoff stale-cache case onto the same diagnostic copy as `empty`.
+  // `preseason-awaiting-kickoff` carrying the date; consumers apply the shared
+  // UTC end-of-date boundary at render time and later collapse the stale-cache
+  // case onto the same diagnostic copy as `empty`.
   const slug = 'p2-season-kickoff-past';
   const year = 2026;
   await seedLeague(makeLeague({ slug, year, status: { state: 'season', year } }));

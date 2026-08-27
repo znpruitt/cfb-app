@@ -882,7 +882,7 @@ export async function GET(req: Request) {
     if (bypassCache && result.status === 'success' && result.items.length > 0) {
       try {
         const existingProbe = await getScheduleProbeState(year);
-        const firstGameDate = deriveFirstGameDate(result.items);
+        const firstGameDate = await deriveFirstGameDate(year, result.items);
         await saveScheduleProbeState({
           year,
           baseCachedAt: existingProbe?.baseCachedAt ?? new Date(now).toISOString(),
@@ -1196,7 +1196,7 @@ export async function GET(req: Request) {
   if (bypassCache && week === null && requestedSeasonType === 'all' && items.length > 0) {
     try {
       const existingProbe = await getScheduleProbeState(year);
-      const firstGameDate = deriveFirstGameDate(items);
+      const firstGameDate = await deriveFirstGameDate(year, items);
       await saveScheduleProbeState({
         year,
         baseCachedAt: existingProbe?.baseCachedAt ?? new Date(now).toISOString(),

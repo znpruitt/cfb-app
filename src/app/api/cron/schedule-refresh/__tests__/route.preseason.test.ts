@@ -304,8 +304,29 @@ test('a successful preseason refresh re-derives the probe firstGameDate (preserv
   await seedPreseasonLeague(2031);
   await seedSchedule(2031, ORDINARY_KICKOFF);
   await seedProbe(2031, EARLY_FIRST_KICKOFF); // probe: 2099-08-28
-  // The committed refresh carries an EARLIER first game than the probe knows.
-  stubProvider({ 2031: { regular: gameBody(2031), postseason: '[]' } }); // 2031-09-01
+  // The committed refresh carries an EARLIER provider-only game and then the
+  // first league-visible game. Only the latter may anchor the probe.
+  stubProvider({
+    2031: {
+      regular: JSON.stringify([
+        {
+          id: 20310,
+          week: 0,
+          home_team: 'FCS Alpha',
+          away_team: 'FCS Beta',
+          start_date: '2031-08-20T00:00:00Z',
+        },
+        {
+          id: 20311,
+          week: 1,
+          home_team: 'Texas',
+          away_team: 'Rice',
+          start_date: '2031-09-01T18:30:00Z',
+        },
+      ]),
+      postseason: '[]',
+    },
+  });
   const { res } = await runRoute();
   assert.equal((await res.json()).result, 'success');
 
@@ -316,7 +337,7 @@ test('a successful preseason refresh re-derives the probe firstGameDate (preserv
   assert.equal(
     probe?.value?.firstGameDate,
     '2031-09-01T00:00:00.000Z',
-    'firstGameDate re-derived from the committed schedule'
+    'firstGameDate re-derived from the first league-visible game date'
   );
   assert.equal(probe?.value?.baseCachedAt, '2031-05-01T00:00:00.000Z', 'baseCachedAt preserved');
 });
@@ -350,7 +371,17 @@ test('an earlier committed kickoff crosses the handoff: the next run defers to s
   const first = await runRoute();
   assert.equal((await first.res.json()).result, 'success');
   const probe = await getAppState<{ firstGameDate: string }>('schedule-probe', '2031');
-  assert.equal(probe?.value?.firstGameDate, imminentKickoff, 'probe now knows the imminent game');
+  assert.equal(
+    probe?.value?.firstGameDate,
+    new Date(
+      Date.UTC(
+        new Date(imminentKickoff).getUTCFullYear(),
+        new Date(imminentKickoff).getUTCMonth(),
+        new Date(imminentKickoff).getUTCDate()
+      )
+    ).toISOString(),
+    'probe now knows the imminent UTC game date'
+  );
 
   // Run 2 — the re-derived probe puts the year inside the handoff window: the
   // DAILY season-transition cron owns it now (provider-free deferral).

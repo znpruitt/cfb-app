@@ -455,7 +455,10 @@ test('a complete transition fetch commits durable schedule and probe', async () 
   // Both partitions succeed: regular has a future game; postseason is legitimately
   // empty (valid absence before bowl season).
   stubFetchBySeasonType(
-    JSON.stringify([game(1, 'Texas', 'Rice', '2099-09-01T00:00:00Z')]),
+    JSON.stringify([
+      game(0, 'FCS Alpha', 'FCS Beta', '2099-08-20T00:00:00Z'),
+      game(1, 'Texas', 'Rice', '2099-09-01T18:30:00Z'),
+    ]),
     JSON.stringify([])
   );
 
@@ -469,7 +472,7 @@ test('a complete transition fetch commits durable schedule and probe', async () 
 
   // Durable schedule + probe written from the complete fetch.
   const stored = await getAppState<{ items: unknown[] }>('schedule', `${YEAR}-all-all`);
-  assert.equal(stored?.value?.items?.length, 1);
+  assert.equal(stored?.value?.items?.length, 2);
   const probe = await getAppState<{ firstGameDate: string | null }>('schedule-probe', String(YEAR));
   assert.equal(probe?.value?.firstGameDate, '2099-09-01T00:00:00.000Z');
 

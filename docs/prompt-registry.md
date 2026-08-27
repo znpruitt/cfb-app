@@ -51,6 +51,36 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-111-TRANSITION-ANCHOR-v2
+
+- Purpose: anchor the daily preseason-to-season transition and member-facing season-start date to a
+  game a league can actually see, while keeping every consumer date-based and without filtering
+  non-FBS rows out of the canonical schedule.
+- Scope: the shared schedule-probe authority; its four durable probe-writing call sites in the
+  manual schedule route, weekly schedule-refresh cron, and season-transition cron; the pure UTC-date
+  boundary shared by `StandingsPanel` and `CFBScheduleApp`; focused policy, route, selector, and
+  component tests; owning documentation.
+- Outcome: `firstGameDate` is now midnight UTC on the earliest date with an FBS participant resolved
+  through the durable catalog and league-agnostic aliases. Provider-only observed names cannot
+  self-resolve; exact kickoff time and TBD confidence are ignored; no eligible row falls back to the
+  earliest parseable UTC date and no parseable date returns `null`. The whole post-commit probe
+  update—identity reads plus durable write—shares one typed failure phase, so a derivation failure
+  preserves committed schedule work as `partial / probe-write-failed` in events and receipts.
+  Awaiting-season presentation remains active before and throughout the opening UTC date, then
+  expires at the following UTC midnight; legacy exact-kickoff probe values normalize to their UTC
+  date. A durable Southern Conference identity is explicitly pinned as FCS rather than
+  league-visible.
+- Review / verification: Claude confirmed one P2 in the initial diff: asynchronous identity reads
+  could throw after schedule commit while the route still classified the phase as `other`. The
+  first remediation is pinned through the event, receipt, committed schedule, and absent probe. A
+  later seam audit found that two member consumers still interpreted the new midnight anchor as an
+  exact kickoff; v2 centralizes their UTC end-of-date boundary without restoring kickoff-time state.
+  Expanded focused helper, probe, selector, and component suites passed 118/118; the mandatory full
+  suite passed 4,289/4,289. TypeScript, ESLint, Prettier, Markdown lint, diff checks, and the React
+  review checklist passed. Tests used local provider stubs; no external provider request or
+  production-state mutation occurred.
+- Status: Implemented on the feature branch; not yet committed or merged.
+
 ### DOCS-018-CURRENT-AUTHORITY-RECONCILIATION-v1
 
 - Purpose: remove completed rollout/migration history and stale provider/auth claims from documents

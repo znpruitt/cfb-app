@@ -569,6 +569,29 @@ function preseasonSnapshot(
   };
 }
 
+test('season-start presentation remains active throughout the opening UTC date', (t) => {
+  t.mock.method(Date, 'now', () => Date.UTC(2026, 7, 29, 12, 0, 0));
+  const snapshot: CanonicalStandings = {
+    ...canonicalStandings([]),
+    source: 'preseason-awaiting-kickoff',
+    lifecycle: 'early_season',
+    ownersRosterSource: 'none',
+    inferredSeasonStart: '2026-08-29T00:00:00.000Z',
+  };
+
+  const html = renderWithAppContext(
+    <CFBScheduleApp
+      leagueStatus={{ state: 'season', year: 2026 }}
+      canonicalStandings={snapshot}
+      initialGames={[]}
+      initialPreseasonOwners={['Alice', 'Bob']}
+    />
+  );
+
+  assert.match(html, /2026 season schedule not yet available/);
+  assert.doesNotMatch(html, /This league.{0,8}s schedule isn.{0,8}t available right now/);
+});
+
 test('preseason with no current-season roster states the real stage instead of claiming a scheduled draft', () => {
   const html = renderWithAppContext(
     <CFBScheduleApp

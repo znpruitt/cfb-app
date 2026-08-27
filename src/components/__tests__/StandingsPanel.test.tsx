@@ -893,6 +893,37 @@ const canonicalArchiveSnapshot: CanonicalStandings = {
   generatedAt: '2026-04-26T00:00:00.000Z',
 };
 
+test('standings remain in the season-start placeholder throughout the opening UTC date', (t) => {
+  t.mock.method(Date, 'now', () => Date.UTC(2026, 7, 29, 12, 0, 0));
+  const awaitingSnapshot: CanonicalStandings = {
+    ...canonicalArchiveSnapshot,
+    year: 2026,
+    source: 'preseason-awaiting-kickoff',
+    lifecycle: 'early_season',
+    rows: [],
+    noClaimRow: null,
+    ownerColorOrder: [],
+    standingsHistory: null,
+    coverage: { state: 'complete', message: null },
+    ownersRosterSource: 'none',
+    archiveYearResolved: null,
+    inferredSeasonStart: '2026-08-29T00:00:00.000Z',
+  };
+
+  const html = renderToStaticMarkup(
+    <StandingsPanel
+      ownerColorMap={{}}
+      season={2026}
+      coverage={{ state: 'complete', message: null }}
+      rows={[]}
+      canonicalStandings={awaitingSnapshot}
+    />
+  );
+
+  assert.match(html, /Season starts August 29, 2026/);
+  assert.doesNotMatch(html, /Standings unavailable/);
+});
+
 function makeLiveDelta(byOwner: Record<string, number[]>, isStale = false): LiveDelta {
   const ownerEntries = Object.entries(byOwner);
   return {

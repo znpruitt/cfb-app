@@ -11,6 +11,7 @@ import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
 import { selectFreshOwnerPendingDelta } from '../lib/selectors/liveDelta';
 import type { LiveDelta } from '../lib/selectors/liveDelta';
 import { resolveStandingsCanonicalInputs } from '../lib/selectors/standingsCanonicalInputs';
+import { isAwaitingSeasonStartDate } from '../lib/selectors/seasonStartDate';
 import type { SeasonContext } from '../lib/selectors/seasonContext';
 import { deriveStandingsMovementByOwner } from '../lib/selectors/standingsMovement';
 import { standingsCoverageNotice } from '../lib/standings';
@@ -298,15 +299,14 @@ export default function StandingsPanel({
               {(() => {
                 if (canonicalStandings?.source === 'preseason-awaiting-kickoff') {
                   // The selector is cached with tag-only invalidation, so the
-                  // past-vs-future check happens here at render time rather
-                  // than inside the cached snapshot. After kickoff the cached
-                  // snapshot collapses onto the same diagnostic copy as the
-                  // `empty` source until a mutation invalidates the tag.
+                  // date-boundary check happens here at render time rather than
+                  // inside the cached snapshot. The probe is a UTC calendar-date
+                  // anchor, so the awaiting state lasts through that whole date;
+                  // afterward the cached snapshot collapses onto the same
+                  // diagnostic copy as `source: 'empty'` until invalidation.
                   const inferredStart = canonicalStandings.inferredSeasonStart;
-                  const isStillBeforeKickoff = inferredStart
-                    ? new Date(inferredStart).getTime() > Date.now()
-                    : true;
-                  if (isStillBeforeKickoff) {
+                  const isAwaitingStartDate = isAwaitingSeasonStartDate(inferredStart, Date.now());
+                  if (isAwaitingStartDate) {
                     return (
                       <>
                         <p className="font-medium text-gray-700 dark:text-zinc-200">

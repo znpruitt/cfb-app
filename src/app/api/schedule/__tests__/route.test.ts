@@ -127,6 +127,56 @@ test('schedule route returns mapped items from CFBD upstream', async () => {
   assert.equal(json.meta.source, 'cfbd');
 });
 
+test('a full-year manual refresh writes the catalog-backed UTC date to the probe', async () => {
+  process.env.CFBD_API_KEY = 'test-cfbd-token';
+  process.env.ADMIN_API_TOKEN = 'admin-token';
+
+  setMockFetch(async (input: URL | string) => {
+    const requestUrl = new URL(typeof input === 'string' ? input : input.toString());
+    if (requestUrl.pathname !== '/games') {
+      return new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    const body =
+      requestUrl.searchParams.get('seasonType') === 'regular'
+        ? [
+            {
+              week: 0,
+              home_team: 'FCS Alpha',
+              away_team: 'FCS Beta',
+              id: 1,
+              start_date: '2027-08-20T18:00:00Z',
+            },
+            {
+              week: 1,
+              home_team: 'Texas',
+              away_team: 'Rice',
+              id: 2,
+              start_date: '2027-08-29T23:30:00-05:00',
+            },
+          ]
+        : [];
+
+    return new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+
+  const res = await GET(
+    new Request('http://localhost/api/schedule?year=2027&seasonType=all&bypassCache=1', {
+      headers: { 'x-admin-token': 'admin-token' },
+    })
+  );
+
+  assert.equal(res.status, 200, await res.text());
+  const probe = await getAppState<{ firstGameDate: string | null }>('schedule-probe', '2027');
+  assert.equal(probe?.value?.firstGameDate, '2027-08-30T00:00:00.000Z');
+});
+
 test('schedule route returns empty items when upstream array is empty', async () => {
   process.env.CFBD_API_KEY = 'test-cfbd-token';
 

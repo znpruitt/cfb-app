@@ -406,7 +406,8 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         // Fetch when:
         // 1. No cached data yet (baseCachedAt is null/missing), OR
         // 2. firstGameDate is still unknown (need to keep probing until CFBD publishes dates), OR
-        // 3. Within 7 days of first game (refresh for latest schedule updates)
+        // 3. Within 7 days of the first league-visible UTC game date (refresh for
+        //    latest schedule updates)
         const shouldFetch =
           !probeState?.baseCachedAt ||
           !probeState.firstGameDate ||
@@ -432,16 +433,18 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
 
           if (refresh.status === 'success' && refresh.items.length > 0) {
             // Complete refresh with data — the authority already committed durably.
-            // Derive first game date + save probe state.
+            // Derive first game date + save probe state. The entire probe update
+            // is one post-commit phase: either the identity reads or the durable
+            // write can throw after canonical schedule work already succeeded.
             yearResult.cached = true;
             yearEntry.cached = true;
-            const firstGameDate = deriveFirstGameDate(refresh.items);
+            phase = 'probe-write';
+            const firstGameDate = await deriveFirstGameDate(targetYear, refresh.items);
             const newProbeState: ScheduleProbeState = {
               year: targetYear,
               baseCachedAt: probeState?.baseCachedAt ?? now.toISOString(),
               firstGameDate,
             };
-            phase = 'probe-write';
             await saveScheduleProbeState(newProbeState);
             phase = 'other';
             probeState = newProbeState;
@@ -485,10 +488,12 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
 
         yearResult.firstGameDate = probeState?.firstGameDate ?? null;
 
-        // Season transition check — only for THIS year's leagues. Skipped when this
-        // run could not confirm a currently-valid schedule (transitionBlocked): a
-        // league flips only off a probe we can currently trust, never off a
-        // failed/stale/empty-provider run.
+        // Season transition check — only for THIS year's leagues. `firstGameDate`
+        // is a UTC-midnight calendar anchor, so subtracting one day means the
+        // transition becomes due at 00:00 UTC on the preceding date; exact kickoff
+        // time is deliberately irrelevant. Skipped when this run could not confirm
+        // a currently-valid schedule (transitionBlocked): a league flips only off
+        // a probe we can currently trust, never off a failed/stale/empty-provider run.
         if (probeState?.firstGameDate && !transitionBlocked) {
           const firstGameMs = new Date(probeState.firstGameDate).getTime();
           const oneDayBeforeMs = firstGameMs - 24 * 60 * 60 * 1000;
@@ -631,7 +636,7 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
         result.years.push(yearResult);
         entries.push(yearEntry);
       } catch (err) {
-        // A throwable operation (probe read/write or lifecycle write) failed. The
+        // A throwable operation (probe read/update or lifecycle write) failed. The
         // response is the SAME 500 the outer catch already produced; whether this
         // year appears in `result.years` depends on the lifecycle gate — see the
         // `lifecycleGateReached` push below. The event/receipt record the typed
@@ -642,8 +647,10 @@ export async function GET(req: Request): Promise<NextResponse<CronResult>> {
           yearEntry.result = 'failure';
           yearEntry.reason = 'probe-state-unavailable';
         } else if (phase === 'probe-write') {
-          // Canonical work was confirmed before the probe write — a truthful partial.
-          yearEntry.result = 'partial';
+          // The probe-update phase currently starts only after canonical work is
+          // confirmed. Still use the shared predicate so a future phase-boundary
+          // change cannot relabel a no-work failure as partial.
+          yearEntry.result = hasRecordedWork() ? 'partial' : 'failure';
           yearEntry.reason = 'probe-write-failed';
         } else if (phase === 'lifecycle-write') {
           yearEntry.result = hasRecordedWork() ? 'partial' : 'failure';

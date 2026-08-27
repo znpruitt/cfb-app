@@ -13,6 +13,7 @@ import {
   __resetAppStateForTests,
   __setAppStateReadFailureForTests,
   __setAppStateWriteFailureForTests,
+  getAppState,
   setAppState,
 } from '../../../../../lib/server/appStateStore.ts';
 import {
@@ -401,6 +402,33 @@ test('a probe-write failure is partial/probe-write-failed and preserves the 500 
     (await readSchedulerReceipt('season-transition'))?.value.reason,
     'probe-write-failed'
   );
+});
+
+test('a probe-derivation read failure preserves committed schedule work as partial', async () => {
+  await seedPreseason();
+  const farGame = JSON.stringify([game(1, 'Texas', 'Rice', '2099-09-01T18:30:00Z')]);
+  stubFetchBySeasonType(farGame, '[]');
+  __setAppStateReadFailureForTests(new Error('catalog read boom'), 'team-database');
+
+  const { res, event } = await runRoute();
+  __setAppStateReadFailureForTests(null);
+
+  assert.equal(res!.status, 500, 'the probe-update throw preserves the existing HTTP contract');
+  assert.equal(event.result, 'partial');
+  const year = event.years[0]!;
+  assert.equal(year.result, 'partial');
+  assert.equal(year.reason, 'probe-write-failed');
+  assert.equal(year.scheduleRefreshReason, 'written-clean');
+  assert.equal(year.cached, true);
+
+  const schedule = await getAppState<{ items: unknown[] }>('schedule', `${YEAR}-all-all`);
+  assert.equal(schedule?.value.items.length, 1, 'the canonical schedule commit is preserved');
+  assert.equal(await getAppState('schedule-probe', String(YEAR)), null, 'no probe was written');
+
+  await deferrer.flush();
+  const receipt = await readSchedulerReceipt('season-transition');
+  assert.equal(receipt?.value.result, 'partial');
+  assert.equal(receipt?.value.reason, 'probe-write-failed');
 });
 
 // 8b — a lifecycle-write failure with no prior success → failure/lifecycle-write-failed.

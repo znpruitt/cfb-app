@@ -24,18 +24,18 @@ Supersedes: (none)
 
 ## Current execution order
 
-`NEXT` is unassigned pending an owner decision.
+`CURRENT` is Item 75 (`PLATFORM-111-TRANSITION-ANCHOR-v2`), implemented on the feature branch and
+awaiting review/merge. `NEXT` is unassigned pending an owner decision.
 
 The 2026-08-26 roadmap audit recommends this season-reliability sequence; it is proposed ordering,
 not an owner-selected `NEXT` designation:
 
-1. Item 75 — correct the season-transition anchor.
-2. Item 63 — split reschedule handling into same-week correction and cross-week reconciliation.
-3. Items 64(c/e) and 67 — align disruption handling and add game-level completed-score diagnostics.
-4. Item 20 — bound database pool, lock, and statement waits.
-5. Item 46 — prevent past-season adoption from endangering a genuine archive.
-6. Items 76 and 55 — expose catalog freshness read-only and preserve structured schedule errors.
-7. Item 68 — settle archive behavior when cumulative score coverage is incomplete.
+1. Item 63 — split reschedule handling into same-week correction and cross-week reconciliation.
+2. Items 64(c/e) and 67 — align disruption handling and add game-level completed-score diagnostics.
+3. Item 20 — bound database pool, lock, and statement waits.
+4. Item 46 — prevent past-season adoption from endangering a genuine archive.
+5. Items 76 and 55 — expose catalog freshness read-only and preserve structured schedule errors.
+6. Item 68 — settle archive behavior when cumulative score coverage is incomplete.
 
 ## Open season-operations and provider reliability work
 
@@ -47,11 +47,20 @@ non-FBS rows precede the first FBS game, and the selected non-FBS row moved by 1
 placeholder firmed. That unstable timestamp controls the daily preseason→season transition and the
 empty-standings “Season starts” date.
 
-Fix the probe, not the provider fetch: derive the anchor from rows with at least one participant
-resolvable through the team catalog, prefer a non-TBD kickoff, and retain an explicit fallback. Do
-not add `division=fbs`; non-FBS rows remain intentionally useful downstream.
+Fix the probe, not the provider fetch. The settled policy is the earliest **UTC calendar date** with
+at least one FBS participant resolvable through the durable team catalog and league-agnostic alias
+map. Exact kickoff time and `startTimeTBD` do not affect this daily lifecycle policy. Persist midnight
+UTC for that date, so the existing one-day subtraction makes the transition due at 00:00 UTC on the
+preceding date. If no dated row is catalog-backed, fall back explicitly to the earliest parseable UTC
+calendar date across the payload; return `null` only when no date is parseable. Do not add
+`division=fbs`; non-FBS rows remain intentionally useful downstream.
 
-- Backlog slug: `PLATFORM-TRANSITION-ANCHOR-v1`
+Member-facing consumers treat that value as a date too: the awaiting-season placeholder remains
+active through the opening UTC date and expires at the following UTC midnight. It never reconstructs
+or stores an exact kickoff time.
+
+- Status: `CURRENT` — implemented on the feature branch; awaiting review/merge.
+- Formal prompt: `PLATFORM-111-TRANSITION-ANCHOR-v2`
 
 ### Item 63 — rescheduled kickoffs require two repairs
 
