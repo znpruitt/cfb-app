@@ -31,10 +31,9 @@ All foundational work is complete: architecture stabilization, production harden
 
 Active work is organized into named workstream campaigns (see below). Phase numbering is retired — existing `P{n}` prompt IDs are grandfathered; new prompts use `{CAMPAIGN}-{###}` format.
 
-The current near-term focus is season-operations reliability: truthful lifecycle timing,
-rescheduled-kickoff reconciliation, completed-score gap diagnostics, bounded database waits, and
-archive integrity. Exact ordering and open implementation slices live only in
-`docs/next-tasks.md`.
+The current near-term focus is season-operations reliability: rescheduled-game reconciliation,
+consistent abandonment handling, bounded database waits, and archive integrity. Exact ordering and
+open implementation slices live only in `docs/next-tasks.md`.
 
 ## Production data policy
 
@@ -278,11 +277,12 @@ database waits. See the grouped Draft and membership items in `docs/next-tasks.m
 
 #### Season Operations Reliability (active)
 
-Keep the season trustworthy after launch: lifecycle transitions must anchor to games a league can
-actually see; schedule corrections and delete/recreate reschedules must reach the canonical model in
-time; inferred disruptions and missing completed scores must be diagnosable; and archive publication
-must have an explicit incomplete-coverage policy. This is a sequence of small platform slices, not a
-single broad PR. `docs/next-tasks.md` owns the current order and acceptance context.
+Keep the season trustworthy after launch: lifecycle transitions anchor to games a league can
+actually see, and System Health identifies individual completed games whose own attached terminal
+score is absent or unusable. Remaining slices must make delete/recreate schedule corrections reach
+the canonical model in time, align elapsed-time abandonment with week resolution, and settle archive
+publication under incomplete coverage. This is a sequence of small platform slices, not a single
+broad PR. `docs/next-tasks.md` owns the current order and acceptance context.
 
 #### Provider Refresh Observability & Automation (PLATFORM-086)
 

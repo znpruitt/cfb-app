@@ -51,6 +51,28 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### PLATFORM-112-GAME-SCORE-GAP-DIAGNOSTICS-v1
+
+- Purpose: stop one terminal score from hiding a missing completed-game result elsewhere in the
+  same provider week and give the operator enough identity to run the existing recovery action.
+- Scope: cache-only score diagnostics, the shared canonical live-score context and conclusion
+  fields it consumes, bounded structured System Health identities, focused tests, and owning
+  documentation. Score ingestion, attachment precedence, refresh cadence, and repair actions are
+  unchanged.
+- Outcome: every addressable expected game in a completed `(providerWeek, seasonType)` partition is
+  checked against its own canonically attached score. Canceled games resolve scorelessly;
+  placeholder, pending, and disrupted games do not owe a final without stronger conclusion
+  evidence; a final requires both numeric scores. Diagnostics retain the complete affected count
+  while exposing at most six sanitized, bounded game identities with CFBD id and provider partition.
+- Review / verification: thirteen focused tests were added and the obsolete slate-granularity
+  assertion was replaced with the sibling-gap contract; coverage includes exact-snapshot use,
+  pending/disrupted/placeholder treatment, incomplete finals, bounded totals, identity sanitization,
+  System Health rendering, and repair routing. Sanitizer and kickoff-normalization protections were
+  mutation-proven. Exact code commit `b035d890` passed TypeScript, `lint:all`, and the 4,301-test full
+  suite; independent Codex and Claude reviews found no credible in-scope P0/P1/P2. Their
+  non-blocking observations are retained as evidence-gated queue item 81.
+- Status: Implemented — reviews complete; not yet merged.
+
 ### PLATFORM-111-TRANSITION-ANCHOR-v2
 
 - Purpose: anchor the daily preseason-to-season transition and member-facing season-start date to a

@@ -81,8 +81,10 @@ score attachment has an independent provider-id path. Without a provider id the 
 create a duplicate, and attachment can still report `ignored_score_row`; that case needs a separate
 identity repair. The weekly cadence means the backstop may take up to seven days. `PLATFORM-107`
 changes neither that cadence, the live polling window, nor the cumulative standings coverage gate.
-The System Health score check is still slate-granular, so a single missing game in an otherwise
-covered slate is not yet isolated there.
+`PLATFORM-112` closes the former slate-granular System Health gap: every expected canonical game in
+a completed provider partition is checked against its own attached terminal score, so one final row
+cannot hide a missing sibling. This diagnostic remains cache-only and routes the operator to the
+existing score-recovery action; it does not change polling or repair cadence.
 
 ## The predicate
 
