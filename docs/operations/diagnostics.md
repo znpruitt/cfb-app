@@ -108,8 +108,11 @@ success for a year-wide/canonical card. Legacy unscoped status remains deep-diag
 
 Important coverage rules:
 
-- **Scores:** completed-slate coverage requires a canonical terminal status (final or canceled). An
-  in-progress numeric score does not count as complete.
+- **Scores:** coverage is game-granular inside completed provider slates. Every expected canonical
+  game must have its own attached terminal evidence: canceled games resolve scorelessly, while a
+  final requires both numeric scores. An in-progress numeric row—or a terminal sibling in the same
+  slate—cannot cover the game. System Health includes at most six bounded game identities plus the
+  complete affected count and routes recovery to Data Maintenance.
 - **Game stats:** `evaluatePartitionCoverage` is authoritative. Only stat-producing canonical games
   are expected; disrupted games are excluded. Empty/all-dropped/mismatched rows do not count.
 - **Schedule:** a missing current schedule, incomplete refresh, rejected replacement, or active-season

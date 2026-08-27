@@ -29,8 +29,8 @@ Supersedes: (none)
 The 2026-08-26 roadmap audit recommends this season-reliability sequence; it is proposed ordering,
 not an owner-selected `NEXT` designation:
 
-1. Item 63 — split reschedule handling into same-week correction and cross-week reconciliation.
-2. Items 64(c/e) and 67 — align disruption handling and add game-level completed-score diagnostics.
+1. Item 64(c/e) — align abandonment handling and surface elapsed-time conclusions.
+2. Item 63 — design delete-and-recreate reschedule reconciliation.
 3. Item 20 — bound database pool, lock, and statement waits.
 4. Item 46 — prevent past-season adoption from endangering a genuine archive.
 5. Items 76 and 55 — expose catalog freshness read-only and preserve structured schedule errors.
@@ -38,20 +38,19 @@ not an owner-selected `NEXT` designation:
 
 ## Open season-operations and provider reliability work
 
-### Item 63 — rescheduled kickoffs require two repairs
+### Item 63 — delete-and-recreate reschedules need canonical reconciliation
 
 PLATFORM-110 makes delete-and-recreate reschedules observable after a successful full-season
-refresh, but it does not change schedule cadence or repair stale canonical kickoffs.
+refresh, but it does not change schedule cadence. A cached game therefore stays in its old canonical
+week until schedule maintenance observes the provider's replacement record. Design a targeted
+schedule refresh or a quota-measured in-season cadence ramp. Preserve vanished-id logging for delete
+and recreate; do not log ordinary same-id kickoff/team/venue rewrites.
 
-Split implementation into two independently testable tasks:
-
-1. **Same-week correction.** The scoreboard row already carries the provider's newer `startDate`,
-   but `buildScoreboardScorePack` overwrites it with `canonical.kickoff`. Preserve and reconcile the
-   provider value so elapsed-time abandonment does not run from a known-stale kickoff.
-2. **Cross-week or absent-game reconciliation.** A cached game stays in its old canonical week until
-   schedule maintenance observes the provider's replacement record. Design a targeted schedule
-   refresh or a quota-measured in-season cadence ramp. Preserve vanished-id logging for delete and
-   recreate; do not log ordinary same-id kickoff/team/venue rewrites.
+Do not try to repair the abandonment clock in `buildScoreboardScorePack`. `PendingGame.kickoff`
+comes from the canonical `AppGame`, and the attached score deliberately carries no provider
+`startDate`, so preserving that field in a score pack cannot reach `hasGameBeenAbandoned`. Same-id
+kickoff changes already self-correct when `refreshFullSeasonSchedule` updates the canonical
+schedule; the remaining exposure is the interval before that refresh and the replacement-id case.
 
 CFBD exposes no richer cancellation/postponement status through the football games API. The provider
 developer confirmed that a postponed/rescheduled game is normally deleted and recreated with a new
@@ -73,15 +72,6 @@ The prior `(a)`, `(b)`, and `(d)` work is complete and recorded in `docs/complet
 requeue it.
 
 - Backlog slug: `PLATFORM-WEEK-RESOLUTION-RESIDUE-v1`
-
-### Item 67 — game-level completed-score gap diagnostics
-
-System Health currently judges score coverage at slate granularity, so one missing completed game
-can hide behind another terminal row in the same week. Add a game-granular diagnostic using the
-shared conclusion, score-attachment, and identity authorities. Include enough game and partition
-identity for an operator to run the existing recovery path; do not duplicate matching logic.
-
-- Backlog slug: `PLATFORM-GAME-SCORE-GAP-DIAGNOSTICS-v1`
 
 ### Item 68 — archive integrity with incomplete cumulative coverage
 
@@ -136,6 +126,20 @@ Production behavior is accepted. Make no change unless real log triage demonstra
   same-id content rewrite, not numeric-id replacement.
 
 - Backlog slug: `PLATFORM-SCHEDULE-VANISH-OBSERVABILITY-FOLLOWUPS-v1`
+
+### Item 81 — score-gap diagnostic follow-ups are evidence-gated
+
+PLATFORM-112's production behavior and current single-producer boundary are accepted. Preserve
+these confirming-review observations without putting them into the active sequence:
+
+- independently cap `SafeDiagnostic.gameRefs` at the System Health presentation boundary if a
+  second producer is added; the current producer already caps it at six;
+- measure the diagnostics pass against its eight-second bound before deduplicating the canonical
+  schedule builds used by score and game-stats coverage;
+- change the shared fail-closed conclusion precedence only if real CFBD evidence shows a canceled
+  game with `completed: true`; today that contradictory combination deliberately requires a score.
+
+- Backlog slug: `PLATFORM-SCORE-GAP-DIAGNOSTIC-FOLLOWUPS-v1`
 
 ## Open league-setup, roster, and draft work
 
