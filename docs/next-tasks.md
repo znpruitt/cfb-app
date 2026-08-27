@@ -24,34 +24,19 @@ Supersedes: (none)
 
 ## Current execution order
 
-`NEXT` is unassigned pending an owner decision.
+`CURRENT` and `NEXT` are unassigned pending an owner decision.
 
 The 2026-08-26 roadmap audit recommends this season-reliability sequence; it is proposed ordering,
 not an owner-selected `NEXT` designation:
 
-1. Item 75 — correct the season-transition anchor.
-2. Item 63 — split reschedule handling into same-week correction and cross-week reconciliation.
-3. Items 64(c/e) and 67 — align disruption handling and add game-level completed-score diagnostics.
-4. Item 20 — bound database pool, lock, and statement waits.
-5. Item 46 — prevent past-season adoption from endangering a genuine archive.
-6. Items 76 and 55 — expose catalog freshness read-only and preserve structured schedule errors.
-7. Item 68 — settle archive behavior when cumulative score coverage is incomplete.
+1. Item 63 — split reschedule handling into same-week correction and cross-week reconciliation.
+2. Items 64(c/e) and 67 — align disruption handling and add game-level completed-score diagnostics.
+3. Item 20 — bound database pool, lock, and statement waits.
+4. Item 46 — prevent past-season adoption from endangering a genuine archive.
+5. Items 76 and 55 — expose catalog freshness read-only and preserve structured schedule errors.
+6. Item 68 — settle archive behavior when cumulative score coverage is incomplete.
 
 ## Open season-operations and provider reliability work
-
-### Item 75 — season transition is anchored to a game no league can see
-
-The full-season provider fetch intentionally caches all divisions, but `deriveFirstGameDate` takes
-the earliest parseable raw kickoff across that whole payload. In the measured 2026 schedule, 63
-non-FBS rows precede the first FBS game, and the selected non-FBS row moved by 18 hours as its TBD
-placeholder firmed. That unstable timestamp controls the daily preseason→season transition and the
-empty-standings “Season starts” date.
-
-Fix the probe, not the provider fetch: derive the anchor from rows with at least one participant
-resolvable through the team catalog, prefer a non-TBD kickoff, and retain an explicit fallback. Do
-not add `division=fbs`; non-FBS rows remain intentionally useful downstream.
-
-- Backlog slug: `PLATFORM-TRANSITION-ANCHOR-v1`
 
 ### Item 63 — rescheduled kickoffs require two repairs
 

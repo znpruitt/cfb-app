@@ -382,10 +382,10 @@ self-call) are recorded as provisional backlog items in `docs/next-tasks.md` →
 `{ state: 'preseason', year }` asserts both at once, and there is no way to say one without the
 other. A league that is calendar-active but setup-incomplete has nowhere to live.
 
-**Why it is worth separating.** The calendar half is already derivable — the app computes kickoff
-from the schedule (`getScheduleProbeState(year).firstGameDate`), which is how canonical standings
-produces `preseason-awaiting-kickoff` without consulting stored status. So the stored value is doing
-two jobs when only one of them needs storing.
+**Why it is worth separating.** The calendar half is already derivable — the app computes a UTC
+season-start date anchor from the schedule (`getScheduleProbeState(year).firstGameDate`), which is
+how canonical standings produces `preseason-awaiting-kickoff` without consulting stored status. So
+the stored value is doing two jobs when only one of them needs storing.
 
 **It is also the root of a run of shipped fixes.** PLATFORM-091 was `preseason` (a calendar claim)
 standing in as evidence for "draft scheduled" (a league-progress claim). PLATFORM-092 was the
@@ -468,7 +468,7 @@ Preseason content for the standings page. Three-state progression:
 - **Preseason:** owner rows when owner data is seeded (draft CSV or preseason owners); a "Season starts {date}" placeholder only when no owner data exists yet (the empty `preseason-awaiting-kickoff` path)
 - **Active season:** live data (existing behavior)
 
-Shipped in the Season Launch Hardening campaign (Phase 2, commits `88af434` + `43516b0`; see `docs/campaigns/season-launch-hardening.md`). The cold-cache safety net is in place: the standings selector emits a `preseason-awaiting-kickoff` source carrying an `inferredSeasonStart` (from the schedule probe), and consumers render an explicit placeholder instead of a silently-blank page. No `seasonStartDate` league-config field was required — season start is inferred from the schedule probe. Verified docs-stale and reconciled in DOCS-003.
+Shipped in the Season Launch Hardening campaign (Phase 2, commits `88af434` + `43516b0`; see `docs/campaigns/season-launch-hardening.md`). The cold-cache safety net is in place: the standings selector emits a `preseason-awaiting-kickoff` source carrying an `inferredSeasonStart` UTC calendar-date anchor (from the schedule probe), and consumers render an explicit placeholder instead of a silently-blank page. The placeholder remains active through the opening UTC date and expires at the following UTC midnight; it does not require an exact kickoff timestamp. No `seasonStartDate` league-config field was required — season start is inferred from the schedule probe. Verified docs-stale and reconciled in DOCS-003, with the date-only consumer boundary aligned by `PLATFORM-111-TRANSITION-ANCHOR-v2`.
 
 #### Standings Page — Lifecycle Labeling Sweep (planned)
 

@@ -352,11 +352,11 @@ npm run manage:schedule-refresh-schedule
 Ownership is determined by application state:
 
 ```text
-Preseason, schedule/probe not armed        -> daily season-transition discovery
-Preseason, first game known and >7d away   -> weekly preseason maintenance
-Preseason, within 7d of first kickoff      -> daily transition freshness/lifecycle
-Active season                              -> weekly ordinary maintenance
-Postseason boundary                        -> sticky lifecycle-critical maintenance
+Preseason, schedule/probe not armed             -> daily season-transition discovery
+Preseason, start-date anchor >7d away           -> weekly preseason maintenance
+Preseason, within 7d of start-date anchor       -> daily transition freshness/lifecycle
+Active season                                   -> weekly ordinary maintenance
+Postseason boundary                             -> sticky lifecycle-critical maintenance
 ```
 
 `preseason-maintenance` and `ordinary-maintenance` honor the Schedule toggle and global pause.

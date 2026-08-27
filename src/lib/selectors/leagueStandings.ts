@@ -93,7 +93,7 @@ export type CanonicalStandings = {
   ownersRosterSource: CanonicalStandingsRosterSource;
   archiveYearResolved: number | null;
   /**
-   * ISO date string of the inferred season kickoff. Populated only when
+   * ISO string carrying the inferred UTC season-start date anchor. Populated only when
    * `source === 'preseason-awaiting-kickoff'` and the schedule probe has been
    * cached; null otherwise. Consumers use this to render "Season starts {date}".
    */
@@ -553,12 +553,12 @@ async function resolveSeason(
     return snapshotFromLive({ slug, league, status, year, live, currentDate });
   }
 
-  // No data: surface the inferred kickoff date when the schedule probe is cached.
+  // No data: surface the inferred season-start date when the schedule probe is cached.
   // The selector is wrapped by `unstable_cache` with tag-only invalidation, so
   // any time-dependent classification baked in here would stick until something
-  // mutates the standings tag. Consumers do the `now > inferredSeasonStart`
-  // check at render time and collapse the post-kickoff stale-cache case onto
-  // the same diagnostic copy as `source: 'empty'`.
+  // mutates the standings tag. Consumers compare `now` with the end of the UTC
+  // start date at render time and collapse a later stale-cache case onto the
+  // same diagnostic copy as `source: 'empty'`.
   const probe = await getScheduleProbeState(year);
   if (probe?.firstGameDate) {
     return preseasonAwaitingKickoffSnapshot(slug, status, year, probe.firstGameDate, currentDate);
@@ -592,8 +592,8 @@ async function resolvePreseason(
     });
   }
 
-  // No owner data — preseason by definition means kickoff is in the future.
-  // Include the inferred kickoff date from the schedule probe when available.
+  // No owner data — preseason by definition precedes the active season.
+  // Include the inferred UTC start-date anchor from the schedule probe when available.
   const probe = await getScheduleProbeState(year);
   return preseasonAwaitingKickoffSnapshot(
     slug,
