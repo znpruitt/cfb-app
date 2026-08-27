@@ -30,12 +30,24 @@ type ScheduleItemSeed = {
   status: string;
   homeTeam: string;
   awayTeam: string;
+  startTimeTBD?: boolean;
 };
 
 /** Numeric CFBD participant ids derived from the seed's game id (home/away). */
 function participantIds(id: string): { homeId: number; awayId: number } {
   const base = Number(id) * 10;
   return { homeId: base + 1, awayId: base + 2 };
+}
+
+function scheduleWireItems(items: ScheduleItemSeed[]) {
+  return items.map((item) => ({
+    ...item,
+    neutralSite: false,
+    conferenceGame: false,
+    homeConference: 'SEC',
+    awayConference: 'Big Ten',
+    ...(Number.isFinite(Number(item.id)) ? participantIds(item.id) : {}),
+  }));
 }
 
 function seedScheduleItems(
@@ -54,14 +66,7 @@ function seedScheduleItems(
     // slate + evidence authorities, so seeds must be REAL canonical-build
     // inputs — FBS conferences (so games are tracked) and numeric participant
     // ids (so complete stored rows can participant-verify).
-    items: items.map((item) => ({
-      ...item,
-      neutralSite: false,
-      conferenceGame: false,
-      homeConference: 'SEC',
-      awayConference: 'Big Ten',
-      ...(Number.isFinite(Number(item.id)) ? participantIds(item.id) : {}),
-    })),
+    items: scheduleWireItems(items),
   });
 }
 
@@ -157,6 +162,164 @@ test('completed slate with no cached scores → scores warning/error', async () 
   const scoreIssue = diagnostics.find((d) => d.dataset === 'scores');
   assert.ok(scoreIssue, 'expected a scores diagnostic for the completed, unscored slate');
   assert.ok(['warning', 'error'].includes(scoreIssue!.severity));
+});
+
+test('PLATFORM-113: season-finality elapsed-time conclusions are visible with game identity', async () => {
+  await seedScheduleItems([
+    {
+      id: '101',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+  ]);
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const elapsed = findByCode(diagnostics, 'scores-elapsed-time-conclusions');
+  assert.ok(elapsed);
+  assert.equal(elapsed!.severity, 'warning');
+  assert.equal(elapsed!.repair, 'data-maintenance');
+  assert.equal(elapsed!.affectedGameCount, 1);
+  assert.match(elapsed!.message, /^Canonical score diagnostics found/);
+  assert.doesNotMatch(elapsed!.message, /Season finality accepted/);
+  assert.deepEqual(elapsed!.gameRefs, [
+    {
+      providerGameId: 101,
+      week: 1,
+      seasonType: 'regular',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+      kickoff: COMPLETED_KICKOFF,
+      reason: 'elapsed-time-conclusion',
+    },
+  ]);
+});
+
+test('PLATFORM-113: child schedule caches still surface elapsed-time conclusions', async () => {
+  await setAppState('schedule', `${YEAR}-all-regular`, {
+    at: NOW - 3 * 60 * 60 * 1000,
+    partialFailure: false,
+    failedSeasonTypes: [],
+    items: scheduleWireItems([
+      {
+        id: '101',
+        week: 1,
+        seasonType: 'regular',
+        startDate: COMPLETED_KICKOFF,
+        status: 'STATUS_SCHEDULED',
+        homeTeam: 'Alpha',
+        awayTeam: 'Beta',
+      },
+    ]),
+  });
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const elapsed = findByCode(diagnostics, 'scores-elapsed-time-conclusions');
+  assert.ok(elapsed, 'the supported child-cache shape must feed score diagnostics');
+  assert.equal(elapsed!.affectedGameCount, 1);
+  assert.equal(elapsed!.gameRefs?.[0]?.providerGameId, 101);
+});
+
+test('PLATFORM-113: a recent terminal sibling does not suppress an elapsed-time conclusion', async () => {
+  await seedScheduleItems([
+    {
+      id: '101',
+      week: 1,
+      seasonType: 'regular',
+      startDate: '2026-10-14T00:00:00.000Z',
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: '102',
+      week: 1,
+      seasonType: 'regular',
+      startDate: '2026-10-15T09:30:00.000Z',
+      status: 'STATUS_FINAL',
+      homeTeam: 'Gamma',
+      awayTeam: 'Delta',
+    },
+  ]);
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const elapsed = findByCode(diagnostics, 'scores-elapsed-time-conclusions');
+  assert.ok(
+    elapsed,
+    'elapsed finality must not wait for the separate six-hour whole-slate threshold'
+  );
+  assert.equal(elapsed!.affectedGameCount, 1);
+  assert.equal(elapsed!.gameRefs?.[0]?.providerGameId, 101);
+  assert.equal(findByCode(diagnostics, 'scores-terminal-coverage-missing'), undefined);
+  assert.equal(findByCode(diagnostics, 'scores-terminal-coverage-partial'), undefined);
+});
+
+test('PLATFORM-113: no elapsed conclusion is surfaced until every pending game clears the gate', async () => {
+  await seedScheduleItems([
+    {
+      id: '101',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: '102',
+      week: 2,
+      seasonType: 'regular',
+      startDate: FUTURE_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Gamma',
+      awayTeam: 'Delta',
+    },
+  ]);
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(findByCode(diagnostics, 'scores-elapsed-time-conclusions'), undefined);
+});
+
+test('PLATFORM-113: a TBD kickoff is never converted into an elapsed-time conclusion', async () => {
+  await seedScheduleItems([
+    {
+      id: '101',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      startTimeTBD: true,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+  ]);
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  assert.equal(findByCode(diagnostics, 'scores-elapsed-time-conclusions'), undefined);
+});
+
+test('PLATFORM-113: elapsed-time identities are bounded while the accepted count stays complete', async () => {
+  await seedScheduleItems(
+    Array.from({ length: 8 }, (_, index) => ({
+      id: String(201 + index),
+      week: 1,
+      seasonType: 'regular' as const,
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: `Home ${index + 1}`,
+      awayTeam: `Away ${index + 1}`,
+    }))
+  );
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const elapsed = findByCode(diagnostics, 'scores-elapsed-time-conclusions');
+  assert.ok(elapsed);
+  assert.equal(elapsed!.affectedGameCount, 8);
+  assert.equal(elapsed!.gameRefs?.length, 6);
+  assert.match(elapsed!.message, /\+2 more/);
 });
 
 test('completed slate with no cached game stats → game-stats warning', async () => {
@@ -851,6 +1014,7 @@ const F2F_CODES = new Set([
   'schedule-diagnostics-unavailable',
   'scores-terminal-coverage-missing',
   'scores-terminal-coverage-partial',
+  'scores-elapsed-time-conclusions',
   'scores-diagnostics-unavailable',
   'game-stats-context-unavailable',
   'game-stats-latest-slate-missing',

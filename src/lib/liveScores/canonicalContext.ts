@@ -12,6 +12,7 @@ import {
 } from '@/lib/scoreAttachment';
 import type { CacheEntry } from '@/lib/scores/cache';
 import type { ScorePack } from '@/lib/scores/types';
+import { derivePendingGame, type PendingGame } from '@/lib/standingsHistory';
 import { getAppStateEntries } from '@/lib/server/appStateStore';
 import { loadCachedScheduleItems } from '@/lib/server/canonicalScheduleCache';
 import { getScopedAliasMap } from '@/lib/server/globalAliasStore';
@@ -77,6 +78,14 @@ export type LiveScoreGame = {
 export type LiveScoreContext = {
   year: number;
   games: LiveScoreGame[];
+  /**
+   * Every real league-agnostic canonical game still lacking positive conclusion
+   * evidence, including non-addressable games. Derived through the standings
+   * pending-game authority so operator diagnostics reuse its rules rather than
+   * rebuilding them from the addressable slate. This context intentionally does
+   * not apply league-scoped postseason overrides.
+   */
+  pendingGames: PendingGame[];
   /** Shared identity resolver for scoreboard-label validation (legacy fallback). */
   resolver: TeamIdentityResolver;
 };
@@ -276,5 +285,10 @@ export async function loadLiveScoreContext(input: {
     };
   });
 
-  return { status: 'available', context: { year, games: liveGames, resolver } };
+  const pendingGames = games.flatMap((game) => {
+    const pending = derivePendingGame(game, attached.scoresByKey[game.key]);
+    return pending ? [pending] : [];
+  });
+
+  return { status: 'available', context: { year, games: liveGames, pendingGames, resolver } };
 }

@@ -1,7 +1,7 @@
 # Diagnostics & Debugging
 
 Status: Current
-Last verified: 2026-08-26
+Last verified: 2026-08-27
 Owner: Project documentation
 Canonical for: diagnostic surfaces, debug auth, structured observability, and upstream-first debugging order
 Supersedes: the PLATFORM-086 per-slice implementation narrative formerly maintained in this file
@@ -41,16 +41,16 @@ boundary.
 
 ## Diagnostic surface inventory
 
-| Surface | Purpose |
-| --- | --- |
-| `/admin/diagnostics` | System Health: scheduler delivery/execution, provider/cache health, automation gates, quota, storage, and prioritized issues. |
-| `/admin/data/cache` | Provider refresh, historical repair, rebuild, and emergency recovery actions with cost/mutation disclosure. |
-| `/debug/teams` | Interactive team-identity inspection. |
-| `/api/debug/schedule` / `schedule-eligibility` | Canonical schedule build and eligibility diagnostics. |
-| `/api/debug/scores` / `scores-attachment` / `postseason-score-attachment` | Authorized score fetch and attachment traces; potentially provider-spending and cache-mutating. |
-| `/api/debug/resolve-team` / `conference-diagnostics` | Team and conference identity diagnostics. |
-| `/api/debug/archive-audit` / `archive-integrity` | Archive comparison and integrity checks. |
-| `/api/debug/insights-career-diagnostic` / `insights/[slug]/suppression` | Insights career-input and legacy suppression diagnostics. |
+| Surface                                                                   | Purpose                                                                                                                       |
+| ------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `/admin/diagnostics`                                                      | System Health: scheduler delivery/execution, provider/cache health, automation gates, quota, storage, and prioritized issues. |
+| `/admin/data/cache`                                                       | Provider refresh, historical repair, rebuild, and emergency recovery actions with cost/mutation disclosure.                   |
+| `/debug/teams`                                                            | Interactive team-identity inspection.                                                                                         |
+| `/api/debug/schedule` / `schedule-eligibility`                            | Canonical schedule build and eligibility diagnostics.                                                                         |
+| `/api/debug/scores` / `scores-attachment` / `postseason-score-attachment` | Authorized score fetch and attachment traces; potentially provider-spending and cache-mutating.                               |
+| `/api/debug/resolve-team` / `conference-diagnostics`                      | Team and conference identity diagnostics.                                                                                     |
+| `/api/debug/archive-audit` / `archive-integrity`                          | Archive comparison and integrity checks.                                                                                      |
+| `/api/debug/insights-career-diagnostic` / `insights/[slug]/suppression`   | Insights career-input and legacy suppression diagnostics.                                                                     |
 
 ## What to inspect by layer
 
@@ -79,15 +79,15 @@ rebuilds the model.
 
 The model keeps independent facts separate:
 
-| Fact | Meaning |
-| --- | --- |
-| Scheduler delivery | Whether the latest authenticated invocation arrived for the expected fixed slot. |
-| Scheduler execution | The result/reason recorded by that invocation. A timely failure and a late success are different faults. |
-| Provider refresh | The explicit attempt/outcome for the dataset's canonical target scope. |
-| Canonical data health | Durable cache content, freshness, terminal-score coverage, or participant-verified evidence coverage. |
-| Automation | Global pause plus enabled state for the five setting-consuming datasets. |
-| Quota | One cached CFBD usage observation and the durable Odds usage snapshot, evaluated against the relevant reserves. |
-| Storage | Configuration/availability facts, never a claim inferred only from the configured mode. |
+| Fact                  | Meaning                                                                                                         |
+| --------------------- | --------------------------------------------------------------------------------------------------------------- |
+| Scheduler delivery    | Whether the latest authenticated invocation arrived for the expected fixed slot.                                |
+| Scheduler execution   | The result/reason recorded by that invocation. A timely failure and a late success are different faults.        |
+| Provider refresh      | The explicit attempt/outcome for the dataset's canonical target scope.                                          |
+| Canonical data health | Durable cache content, freshness, terminal-score coverage, or participant-verified evidence coverage.           |
+| Automation            | Global pause plus enabled state for the five setting-consuming datasets.                                        |
+| Quota                 | One cached CFBD usage observation and the durable Odds usage snapshot, evaluated against the relevant reserves. |
+| Storage               | Configuration/availability facts, never a claim inferred only from the configured mode.                         |
 
 The build writes nothing. All data-health inputs are durable/cache reads; the one deliberate provider
 contact is the CFBD `/info` usage observation through its ordinary 10-minute cache. Each loader is
@@ -112,7 +112,9 @@ Important coverage rules:
   game must have its own attached terminal evidence: canceled games resolve scorelessly, while a
   final requires both numeric scores. An in-progress numeric row—or a terminal sibling in the same
   slate—cannot cover the game. System Health includes at most six bounded game identities plus the
-  complete affected count and routes recovery to Data Maintenance.
+  complete affected count and routes recovery to Data Maintenance. A separate
+  `scores-elapsed-time-conclusions` warning identifies unresolved canonical games accepted through
+  the eight-hour all-pending allowance; this check does not wait for the completed-slate threshold.
 - **Game stats:** `evaluatePartitionCoverage` is authoritative. Only stat-producing canonical games
   are expected; disrupted games are excluded. Empty/all-dropped/mismatched rows do not count.
 - **Schedule:** a missing current schedule, incomplete refresh, rejected replacement, or active-season
@@ -131,15 +133,15 @@ data.
 Seven jobs emit one allowlisted runtime JSON event per invocation, including authentication failures
 and controlled skips:
 
-| Job | Event | Scheduler |
-| --- | --- | --- |
-| Live scores | `live-scores-cron` | QStash |
-| Game stats | `game-stats-cron` | QStash |
-| Odds | `odds-cron` | QStash |
-| Schedule maintenance | `schedule-refresh-cron` | QStash |
-| Rankings | `rankings-cron` | QStash |
-| Season transition | `season-transition-cron` | Vercel Cron |
-| Season rollover | `season-rollover-cron` | Vercel Cron |
+| Job                  | Event                    | Scheduler   |
+| -------------------- | ------------------------ | ----------- |
+| Live scores          | `live-scores-cron`       | QStash      |
+| Game stats           | `game-stats-cron`        | QStash      |
+| Odds                 | `odds-cron`              | QStash      |
+| Schedule maintenance | `schedule-refresh-cron`  | QStash      |
+| Rankings             | `rankings-cron`          | QStash      |
+| Season transition    | `season-transition-cron` | Vercel Cron |
+| Season rollover      | `season-rollover-cron`   | Vercel Cron |
 
 Runtime events are best-effort, single-line, secret-safe Vercel Runtime Log records. They contain a
 closed result/reason, bounded target/counts, whether provider work was attempted, and duration; they

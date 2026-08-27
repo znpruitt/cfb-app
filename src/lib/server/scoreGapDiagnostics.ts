@@ -1,17 +1,23 @@
 import type { CfbdSeasonType } from '../cfbd.ts';
+import type { CanonicalGame } from '../gameStats/canonicalSlate.ts';
 import { classifyGameConclusionEvidence, classifyScorePackStatus } from '../gameStatus.ts';
 import type { LiveScoreContext } from '../liveScores/canonicalContext.ts';
 
-/** A provider-addressable game whose completed-slate score evidence is incomplete. */
-export type ScoreGapGameRef = {
+export type ScoreGapReason = 'score-absent' | 'score-nonterminal' | 'final-score-incomplete';
+
+/** A bounded provider-addressable identity safe for operator diagnostics. */
+export type ProviderDiagnosticGameRef = {
   providerGameId: number;
   week: number;
   seasonType: CfbdSeasonType;
   homeTeam: string | null;
   awayTeam: string | null;
   kickoff: string | null;
-  reason: 'score-absent' | 'score-nonterminal' | 'final-score-incomplete';
+  reason: ScoreGapReason | 'elapsed-time-conclusion';
 };
+
+/** A provider-addressable game whose completed-slate score evidence is incomplete. */
+export type ScoreGapGameRef = ProviderDiagnosticGameRef & { reason: ScoreGapReason };
 
 export type CompletedScoreCoverage = {
   /** Games in completed slates that require a terminal numeric result. */
@@ -47,6 +53,21 @@ function normalizeDiagnosticKickoff(value: string | null): string | null {
   if (!value || value.length > MAX_DIAGNOSTIC_KICKOFF_LENGTH) return null;
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null;
+}
+
+export function buildProviderDiagnosticGameRef<Reason extends ProviderDiagnosticGameRef['reason']>(
+  canonical: CanonicalGame,
+  reason: Reason
+): ProviderDiagnosticGameRef & { reason: Reason } {
+  return {
+    providerGameId: canonical.providerGameId,
+    week: canonical.providerWeek,
+    seasonType: canonical.seasonType,
+    homeTeam: sanitizeDiagnosticTeamLabel(canonical.home?.canonicalName),
+    awayTeam: sanitizeDiagnosticTeamLabel(canonical.away?.canonicalName),
+    kickoff: normalizeDiagnosticKickoff(canonical.kickoff),
+    reason,
+  };
 }
 
 function safeProviderGameId(value: number): string {
@@ -114,25 +135,18 @@ export function deriveCompletedScoreCoverage(input: {
     const hasBothScores = cachedScore?.home.score != null && cachedScore.away.score != null;
     if (isFinal && hasBothScores) continue;
 
-    gaps.push({
-      providerGameId: canonical.providerGameId,
-      week: canonical.providerWeek,
-      seasonType: canonical.seasonType,
-      homeTeam: sanitizeDiagnosticTeamLabel(canonical.home?.canonicalName),
-      awayTeam: sanitizeDiagnosticTeamLabel(canonical.away?.canonicalName),
-      kickoff: normalizeDiagnosticKickoff(canonical.kickoff),
-      reason: !cachedScore
-        ? 'score-absent'
-        : isFinal
-          ? 'final-score-incomplete'
-          : 'score-nonterminal',
-    });
+    const reason: ScoreGapReason = !cachedScore
+      ? 'score-absent'
+      : isFinal
+        ? 'final-score-incomplete'
+        : 'score-nonterminal';
+    gaps.push(buildProviderDiagnosticGameRef(canonical, reason));
   }
 
   return { expectedGameCount, gaps };
 }
 
-export function describeScoreGapGame(game: ScoreGapGameRef): string {
+export function describeProviderDiagnosticGame(game: ProviderDiagnosticGameRef): string {
   // Defend the final presentation boundary too: System Health can receive a
   // separately constructed diagnostics fact in tests or future integrations.
   const homeTeam = sanitizeDiagnosticTeamLabel(game.homeTeam);

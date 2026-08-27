@@ -1,7 +1,7 @@
 # When a week is played, and when a season is over
 
 Status: Current
-Last verified: 2026-08-21
+Last verified: 2026-08-27
 Owner: Standings / lifecycle
 Canonical for: the predicate that decides a week has been played, and the predicate that decides a
 season has ended
@@ -209,21 +209,25 @@ its programme mid-2023, plus NESCAC Division III fixtures. The twelfth is
 `Liberty @ App State`: a real FBS game between two rostered teams, and the entire
 reason step 6 exists.
 
-## Surfacing what was inferred — NOT IMPLEMENTED
+## Surfacing what was inferred
 
-The rationale stands and the wiring does not exist. When `selectSeasonContext`
-accepts a season as over because every pending kickoff is more than eight hours
-past, it keeps no record of which games it accepted without a result. **One such
-game is a hurricane; twenty is a broken score feed**, and today those look
-identical to an operator.
+`PLATFORM-113` makes the last-resort inference visible without changing it. The shared
+`selectPendingGameFinality` applies the same request-time all-pending gate used by
+`selectSeasonContext`; its operator projection records the pending games accepted solely because
+every planned kickoff is more than eight hours old. An individually old game beside a future, TBD,
+or disrupted pending game is not reported as an accepted conclusion.
 
-Two earlier versions of this section asserted the opposite — first that such
-games "are reported, not silently absorbed", then that `deriveStandingsHistory`
-returns an `inferredConclusions` array. The first was intent stated as fact; the
-second described a design that was replaced by `PendingGame[]` and no longer
-exists anywhere in the code. Both reviewers flagged the section each time. It is
-queued as a follow-up, and stated here as absent rather than described as
-present.
+System Health surfaces the result as `scores-elapsed-time-conclusions`, retaining the complete
+affected count while exposing at most six sanitized, provider-addressable game identities. The
+cache-only diagnostic supports both aggregate and regular/postseason child schedule-cache shapes.
+It is independent from the six-hour whole-slate gate used for terminal score-gap coverage, so a
+recently concluded sibling cannot hide an older unresolved game that finality already accepted.
+
+This is observability only: it does not change score ingestion, polling, finality policy, or week
+resolution. The canonical diagnostic context is league-agnostic and does not apply per-league
+postseason overrides, so the warning states what canonical score diagnostics inferred rather than
+claiming a particular league season is final. **One accepted game may be a genuine disruption;
+many likely indicate missing score evidence.**
 
 ## A cached-clock residual, still open
 

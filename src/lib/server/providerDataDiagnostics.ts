@@ -31,11 +31,8 @@ import { formatRelativeTimestamp } from '../freshness.ts';
 import { PROVIDER_DATASETS, type ProviderDataset } from '../providerDatasets.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
 import { loadLiveScoreContext } from '../liveScores/canonicalContext.ts';
-import {
-  deriveCompletedScoreCoverage,
-  describeScoreGapGame,
-  type ScoreGapGameRef,
-} from './scoreGapDiagnostics.ts';
+import type { ProviderDiagnosticGameRef } from './scoreGapDiagnostics.ts';
+import { deriveScoreHealthDiagnostics } from './scoreHealthDiagnostics.ts';
 
 /**
  * Minimal shape of a durable `odds-cache` entry — only its capture times matter
@@ -61,6 +58,7 @@ export type ProviderDiagnosticCode =
   | 'schedule-diagnostics-unavailable'
   | 'scores-terminal-coverage-missing'
   | 'scores-terminal-coverage-partial'
+  | 'scores-elapsed-time-conclusions'
   | 'scores-diagnostics-unavailable'
   | 'game-stats-context-unavailable'
   | 'game-stats-latest-slate-missing'
@@ -95,7 +93,7 @@ export type ProviderDiagnostic = {
   /** In-app repair surface hint, or `null` when no in-app repair applies. */
   repair: ProviderDiagnosticRepairSurface | null;
   /** Bounded canonical game identities for a game-granular diagnostic. */
-  gameRefs?: ScoreGapGameRef[];
+  gameRefs?: ProviderDiagnosticGameRef[];
   /** Total affected games when `gameRefs` is bounded. */
   affectedGameCount?: number;
 };
@@ -180,7 +178,7 @@ const STALE_SCHEDULE_AFTER_MS = 8 * DAY_MS;
 const STALE_RANKINGS_AFTER_MS = 8 * DAY_MS;
 const STALE_ODDS_AFTER_MS = 2 * DAY_MS;
 const MAX_LISTED_SLATES = 6;
-const MAX_LISTED_SCORE_GAPS = 6;
+const MAX_LISTED_GAME_REFS = 6;
 
 type SlateKey = string; // `${week}:${seasonType}`
 
@@ -205,7 +203,14 @@ type CompletedSlate = { week: number; seasonType: CfbdSeasonType; latestKickoff:
  * Saturday games are old, so it no longer raises false missing-score /
  * missing-game-stats warnings while the slate is still underway.
  */
-function deriveCompletedSlates(items: ScheduleCacheEntry['items'], now: number): CompletedSlate[] {
+function deriveCompletedSlates(
+  items: ReadonlyArray<{
+    startDate?: string | null;
+    week: number;
+    seasonType?: string | null;
+  }>,
+  now: number
+): CompletedSlate[] {
   // 1) Group EVERY game by slate; track each slate's max kickoff across all games.
   const latestByKey = new Map<SlateKey, CompletedSlate>();
   for (const item of items) {
@@ -537,45 +542,49 @@ export async function getProviderDataDiagnostics(
 
   // ---- Scores: game-granular terminal coverage for completed slates ----
   try {
-    if (completedSlates.length > 0) {
-      // Reuse the SAME aggregate schedule snapshot that established
-      // `completedSlates`. The live-score context still owns canonical identity,
-      // reconciled cache loading, and score attachment, but performs no second
-      // schedule read for this diagnostic.
+    // The aggregate is only the first supported canonical schedule shape. When
+    // it is absent/empty, use the same regular + postseason child fallback as
+    // canonical standings and the live-score context; otherwise conclusions
+    // accepted from that schedule would be invisible to System Health.
+    const usesAggregateSchedule = scheduleItems.length > 0;
+    const scoreScheduleItems = usesAggregateSchedule
+      ? scheduleItems
+      : await loadCachedScheduleItems(year);
+    const scoreCompletedSlates = usesAggregateSchedule
+      ? completedSlates
+      : deriveCompletedSlates(scoreScheduleItems, now);
+    if (scoreScheduleItems.length > 0) {
+      // Supply the SAME schedule snapshot that established the completed slates.
+      // The live-score context still owns canonical identity, reconciled cache
+      // loading, and score attachment, with no third schedule read. Load it even
+      // when no whole slate is complete: the completed-slate list constrains
+      // terminal score-gap coverage only, while elapsed-time conclusions follow
+      // their independent all-pending finality gate.
       const contextResult = await loadLiveScoreContext({
         year,
         now: new Date(now),
-        scheduleItems,
+        scheduleItems: scoreScheduleItems,
       });
       if (contextResult.status === 'unavailable') {
         throw new Error(`canonical score context unavailable (${contextResult.reason})`);
       }
-      const coverage = deriveCompletedScoreCoverage({
+      const scoreDiagnostics = deriveScoreHealthDiagnostics({
         context: contextResult.context,
-        completedSlates,
+        completedSlates: scoreCompletedSlates,
+        now: new Date(now),
+        maxGameRefs: MAX_LISTED_GAME_REFS,
       });
-      const affected = coverage.gaps.length;
-      const shown = coverage.gaps.slice(0, MAX_LISTED_SCORE_GAPS);
-      const summary = shown.map(describeScoreGapGame).join('; ');
-      const suffix = affected > shown.length ? `; +${affected - shown.length} more` : '';
-
-      if (affected > 0 && affected === coverage.expectedGameCount) {
+      for (const diagnostic of scoreDiagnostics) {
         push(
           'scores',
-          'error',
-          'scores-terminal-coverage-missing',
-          `No usable terminal score for any of ${affected} completed game(s): ${summary}${suffix}.`,
+          diagnostic.severity,
+          diagnostic.code,
+          diagnostic.message,
           'data-maintenance',
-          { gameRefs: shown, affectedGameCount: affected }
-        );
-      } else if (affected > 0) {
-        push(
-          'scores',
-          'warning',
-          'scores-terminal-coverage-partial',
-          `${affected} of ${coverage.expectedGameCount} completed game(s) lack a usable terminal score: ${summary}${suffix}.`,
-          'data-maintenance',
-          { gameRefs: shown, affectedGameCount: affected }
+          {
+            gameRefs: diagnostic.gameRefs,
+            affectedGameCount: diagnostic.affectedGameCount,
+          }
         );
       }
     }

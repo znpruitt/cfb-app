@@ -5,7 +5,10 @@ import type { CanonicalGame } from '../../gameStats/canonicalSlate.ts';
 import type { LiveScoreContext, LiveScoreGame } from '../../liveScores/canonicalContext.ts';
 import type { ScorePack } from '../../scores/types.ts';
 import type { TeamIdentityResolver } from '../../teamIdentity.ts';
-import { deriveCompletedScoreCoverage, describeScoreGapGame } from '../scoreGapDiagnostics.ts';
+import {
+  deriveCompletedScoreCoverage,
+  describeProviderDiagnosticGame,
+} from '../scoreGapDiagnostics.ts';
 
 const COMPLETED_SLATE = [{ week: 1, seasonType: 'regular' as const }];
 
@@ -63,6 +66,7 @@ function coverage(games: LiveScoreGame[]) {
   const context: LiveScoreContext = {
     year: 2026,
     games,
+    pendingGames: [],
     resolver: {} as TeamIdentityResolver,
   };
   return deriveCompletedScoreCoverage({ context, completedSlates: COMPLETED_SLATE });
@@ -167,5 +171,5 @@ test('score-gap identities sanitize and bound untrusted canonical labels', () =>
   assert.equal(Array.from(gap.awayTeam ?? '').length, 80);
   assert.doesNotMatch(gap.awayTeam ?? '', /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u);
   assert.equal(gap.kickoff, null);
-  assert.match(describeScoreGapGame(gap), /^CFBD game 101 /);
+  assert.match(describeProviderDiagnosticGame(gap), /^CFBD game 101 /);
 });
