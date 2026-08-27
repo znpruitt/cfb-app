@@ -21,7 +21,7 @@ it is historical evidence, not a procedure to replay.
   `LEAGUE_AUTH_SECRET` gate.
 - CFBD supplies schedules, scores, rankings, conferences, and game statistics. The Odds API supplies
   betting lines.
-- Vercel Cron runs the two daily lifecycle jobs declared in `vercel.json`.
+- Vercel Cron owns the two daily lifecycle jobs declared in `vercel.json`.
 - QStash runs the five externally scheduled provider jobs in §8.
 
 | Scheduler | Route | Cadence (UTC) | Owner |
@@ -33,6 +33,12 @@ it is historical evidence, not a procedure to replay.
 | `turfwar-odds-hourly` | `/api/cron/odds` | hourly | QStash |
 | `turfwar-schedule-weekly` | `/api/cron/schedule-refresh` | Tuesdays 12:00 | QStash |
 | `turfwar-rankings-publication` | `/api/cron/rankings` | 04:00 and 22:00 daily | QStash |
+
+> **Temporary production hold (owner-confirmed 2026-08-27):** both Vercel lifecycle schedules are
+> disabled pending the planned 2026 roster publication on 2026-08-27. Re-enable both afterwards,
+> then verify the next authenticated `season-transition` and `season-rollover` System Health
+> receipts name the promoted production build. Their repository definitions, cadence, and
+> lifecycle-critical policy are unchanged.
 
 All seven routes require the same deployed `CRON_SECRET`. The five QStash schedules are intentionally
 absent from `vercel.json`.

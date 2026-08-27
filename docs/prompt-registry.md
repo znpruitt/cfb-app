@@ -70,9 +70,9 @@ Rules:
   System Health rendering, and repair routing. Sanitizer and kickoff-normalization protections were
   mutation-proven. Exact code commit `b035d890` passed TypeScript, `lint:all`, and the 4,301-test full
   suite; independent Codex and Claude reviews found no credible in-scope P0/P1/P2. Their
-  non-blocking observations are retained as evidence-gated queue item 81.
-- Status: Merged via PR #516 (merge commit `30bb515f`), 2026-08-27. Promotion status is not
-  claimed at the recorded closeout.
+  non-blocking observations are retained as evidence-gated queue item 81. Production was verified
+  serving `30bb515f` after its 13:44 CDT promotion on 2026-08-27.
+- Status: Merged via PR #516 (merge commit `30bb515f`), 2026-08-27.
 
 ### PLATFORM-111-TRANSITION-ANCHOR-v2
 
@@ -101,9 +101,10 @@ Rules:
   Expanded focused helper, probe, selector, and component suites passed 118/118; the mandatory full
   suite passed 4,289/4,289. TypeScript, ESLint, Prettier, Markdown lint, diff checks, and the React
   review checklist passed. Tests used local provider stubs; no external provider request or
-  production-state mutation occurred.
-- Status: Merged via PR #514 (merge commit `dc8b3528`), 2026-08-26. Promotion status is not claimed
-  at the recorded closeout.
+  production-state mutation occurred. After promotion, the QStash schedule-refresh job persisted
+  the corrected exact-midnight `2026-08-29T00:00:00.000Z` probe at 02:56 UTC on 2026-08-27 while
+  preserving `baseCachedAt`, verifying the production path end to end.
+- Status: Merged via PR #514 (merge commit `dc8b3528`), 2026-08-26.
 
 ### DOCS-018-CURRENT-AUTHORITY-RECONCILIATION-v1
 

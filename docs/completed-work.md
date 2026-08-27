@@ -4077,8 +4077,8 @@ Key architectural decisions across Phase 5:
 
 ### PLATFORM-111 — Visible Season Transition Anchor — Complete
 
-- **Status:** Complete — merged via PR #514 (merge commit `dc8b3528`), 2026-08-26. Promotion status
-  is not claimed at this closeout.
+- **Status:** Complete and active in production — merged via PR #514 (merge commit `dc8b3528`),
+  2026-08-26; promoted and verified live on 2026-08-27.
 - **PROMPT_ID(s):** `PLATFORM-111-TRANSITION-ANCHOR-v2`.
 - **Outcome:** The schedule probe now anchors the daily preseason-to-season transition and
   member-facing season-start placeholder to the earliest UTC calendar date containing a participant
@@ -4089,14 +4089,17 @@ Key architectural decisions across Phase 5:
   work instead of denying the committed schedule refresh.
 - **Verification:** Independent Codex and Claude reviews closed without actionable correctness
   findings after the post-commit classification remediation. The exact final code commit passed
-  TypeScript, ESLint, the 4,289-test full suite, and diff-integrity checks.
+  TypeScript, ESLint, the 4,289-test full suite, and diff-integrity checks. Production then persisted
+  `firstGameDate = 2026-08-29T00:00:00.000Z` at 02:56 UTC—exact UTC midnight, 21 minutes after
+  promotion—through the QStash schedule-refresh job while preserving `baseCachedAt`, confirming the
+  corrected derivation and durable probe path end to end.
 - **Open follow-ups:** None specific to this milestone; remaining season-operations work stays in
   `docs/next-tasks.md`.
 
 ### PLATFORM-112 — Game-Level Completed-Score Gap Diagnostics — Complete
 
-- **Status:** Complete — merged via PR #516 (merge commit `30bb515f`), 2026-08-27. Promotion status
-  is not claimed at this closeout.
+- **Status:** Complete and active in production — merged via PR #516 (merge commit `30bb515f`) and
+  promoted at 13:44 CDT on 2026-08-27; production was verified serving `30bb515f`.
 - **PROMPT_ID(s):** `PLATFORM-112-GAME-SCORE-GAP-DIAGNOSTICS-v1`.
 - **Outcome:** System Health now checks every addressable expected game in a completed provider
   partition against its own canonically attached terminal score, so one final row cannot hide a

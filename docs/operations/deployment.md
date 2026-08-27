@@ -43,7 +43,10 @@ security boundaries; see
 ## Scheduler ownership
 
 The scheduling boundary is external provider polling through QStash and internal lifecycle
-reconciliation through Vercel Cron.
+reconciliation through Vercel Cron. The two Vercel lifecycle schedules remain configured at the
+fixed triggers below but are temporarily disabled, owner-confirmed 2026-08-27, until the planned
+2026 roster publication is complete; re-enable both afterwards and verify their next authenticated
+System Health receipts against the promoted build.
 
 | Job | Scheduler | Fixed trigger |
 | --- | --- | --- |
