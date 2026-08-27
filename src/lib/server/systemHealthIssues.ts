@@ -9,9 +9,9 @@
  * demotes a missing/late delivery; informational gate context never degrades the
  * overall state.
  *
- * Every issue carries a stable code, a safe STATIC explanation (never a copied
- * diagnostic message or thrown-error string), and a nullable, truthful repair
- * destination.
+ * Every issue carries a stable code, a safe code-owned explanation (optionally
+ * extended with bounded structured identities, never a copied diagnostic
+ * message or thrown-error string), and a nullable, truthful repair destination.
  */
 
 import type { ProviderCacheStates } from './providerCacheState.ts';
@@ -21,6 +21,7 @@ import type {
   ProviderDiagnosticRepairSurface,
 } from './providerDataDiagnostics.ts';
 import type { ProviderRefreshHealthSnapshot } from './providerRefreshHealth.ts';
+import { describeScoreGapGame, type ScoreGapGameRef } from './scoreGapDiagnostics.ts';
 import { INTERRUPTED_ATTEMPT_AFTER_MS } from '../providerRefreshConstants.ts';
 import type { SafeProviderRefreshStatus } from './providerRefreshHealth.ts';
 import type { SchedulerDeliveryHealthSnapshot } from './schedulerDeliveryHealth.ts';
@@ -120,6 +121,9 @@ export type SafeDiagnostic = {
   code: ProviderDiagnosticCode;
   severity: DiagnosticSeverity;
   repair: ProviderDiagnosticRepairSurface | null;
+  /** Bounded, structured identities safe to surface in operator diagnostics. */
+  gameRefs?: ScoreGapGameRef[];
+  affectedGameCount?: number;
 };
 
 export type DiagnosticsFact =
@@ -201,15 +205,15 @@ function datasetLabel(dataset: ProviderDataset): string {
   return getProviderDatasetDescriptor(dataset).label;
 }
 
-/** Static per-code explanation for a canonical-data diagnostic (never the message). */
+/** Code-owned explanation for a canonical-data diagnostic (never the message). */
 const DIAGNOSTIC_EXPLANATION: Record<ProviderDiagnosticCode, string> = {
   'schedule-cache-missing': 'No current-season schedule is cached for the selected year.',
   'schedule-refresh-partial':
     'The last schedule refresh completed only partially; some partitions are uncertain.',
   'schedule-cache-stale': 'The cached schedule is older than the weekly refresh policy allows.',
   'schedule-diagnostics-unavailable': 'Schedule diagnostics could not be evaluated.',
-  'scores-terminal-coverage-missing': 'Completed slates have no cached terminal scores.',
-  'scores-terminal-coverage-partial': 'Some completed slates are missing cached terminal scores.',
+  'scores-terminal-coverage-missing': 'Completed games have no usable terminal scores.',
+  'scores-terminal-coverage-partial': 'Some completed games are missing usable terminal scores.',
   'scores-diagnostics-unavailable': 'Score diagnostics could not be evaluated.',
   'game-stats-context-unavailable': 'The canonical game-stats context could not be loaded.',
   'game-stats-latest-slate-missing':
@@ -677,14 +681,22 @@ function canonicalDataIssues(diagnostics: DiagnosticsFact): SystemHealthIssue[] 
       },
     ];
   }
-  return diagnostics.diagnostics.map((diag) => ({
-    code: diag.code,
-    severity: diagnosticSeverityToIssue(diag.severity),
-    subject: { axis: 'dataset', id: diag.dataset },
-    title: `${datasetLabel(diag.dataset)}: ${diag.code}`,
-    explanation: DIAGNOSTIC_EXPLANATION[diag.code],
-    repair: repairFor(diag.repair),
-  }));
+  return diagnostics.diagnostics.map((diag) => {
+    const gameSummary = diag.gameRefs?.map(describeScoreGapGame).join('; ');
+    const shown = diag.gameRefs?.length ?? 0;
+    const omitted = Math.max(0, (diag.affectedGameCount ?? shown) - shown);
+    const details = gameSummary
+      ? ` Affected: ${gameSummary}${omitted > 0 ? `; +${omitted} more` : ''}.`
+      : '';
+    return {
+      code: diag.code,
+      severity: diagnosticSeverityToIssue(diag.severity),
+      subject: { axis: 'dataset', id: diag.dataset },
+      title: `${datasetLabel(diag.dataset)}: ${diag.code}`,
+      explanation: `${DIAGNOSTIC_EXPLANATION[diag.code]}${details}`,
+      repair: repairFor(diag.repair),
+    };
+  });
 }
 
 function automationIssues(automation: AutomationHealth): SystemHealthIssue[] {

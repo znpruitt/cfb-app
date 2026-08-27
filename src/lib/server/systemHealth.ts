@@ -196,6 +196,8 @@ function toDiagnosticsFact(settled: Settled<ProviderDataDiagnosticsResult>): Dia
     code: diag.code,
     severity: diag.severity,
     repair: diag.repair,
+    gameRefs: diag.gameRefs,
+    affectedGameCount: diag.affectedGameCount,
   }));
   return { state: 'available', diagnostics };
 }

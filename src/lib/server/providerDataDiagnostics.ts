@@ -9,8 +9,7 @@
 
 import type { CacheEntry as ScheduleCacheEntry } from '@/app/api/schedule/cache';
 import { defaultOddsCacheKey } from '@/app/api/odds/routeInternals';
-import type { CacheEntry as ScoresCacheEntry } from '@/lib/scores/cache';
-import { getAppState, getAppStateEntries } from './appStateStore.ts';
+import { getAppState } from './appStateStore.ts';
 import { GAME_STATS_SCOPE, getGameStatsKey } from '../gameStats/cache.ts';
 import {
   loadCanonicalGameStatsSlate,
@@ -27,14 +26,16 @@ import {
   SCHEDULER_EXECUTION_STATUS_SCOPE,
 } from './schedulerExecutionStatus.ts';
 import { isWithinEarlyOddsPollingHorizon } from '../odds/pollingPolicy.ts';
-import {
-  classifyStatusLabel,
-  isCanceledStatusLabel,
-  isDisruptedStatusLabel,
-} from '../gameStatus.ts';
+import { isDisruptedStatusLabel } from '../gameStatus.ts';
 import { formatRelativeTimestamp } from '../freshness.ts';
 import { PROVIDER_DATASETS, type ProviderDataset } from '../providerDatasets.ts';
 import type { CfbdSeasonType } from '../cfbd.ts';
+import { loadLiveScoreContext } from '../liveScores/canonicalContext.ts';
+import {
+  deriveCompletedScoreCoverage,
+  describeScoreGapGame,
+  type ScoreGapGameRef,
+} from './scoreGapDiagnostics.ts';
 
 /**
  * Minimal shape of a durable `odds-cache` entry — only its capture times matter
@@ -93,6 +94,10 @@ export type ProviderDiagnostic = {
   code: ProviderDiagnosticCode;
   /** In-app repair surface hint, or `null` when no in-app repair applies. */
   repair: ProviderDiagnosticRepairSurface | null;
+  /** Bounded canonical game identities for a game-granular diagnostic. */
+  gameRefs?: ScoreGapGameRef[];
+  /** Total affected games when `gameRefs` is bounded. */
+  affectedGameCount?: number;
 };
 
 /**
@@ -175,6 +180,7 @@ const STALE_SCHEDULE_AFTER_MS = 8 * DAY_MS;
 const STALE_RANKINGS_AFTER_MS = 8 * DAY_MS;
 const STALE_ODDS_AFTER_MS = 2 * DAY_MS;
 const MAX_LISTED_SLATES = 6;
+const MAX_LISTED_SCORE_GAPS = 6;
 
 type SlateKey = string; // `${week}:${seasonType}`
 
@@ -444,9 +450,10 @@ export async function getProviderDataDiagnostics(
     severity: DiagnosticSeverity,
     code: ProviderDiagnosticCode,
     message: string,
-    repair: ProviderDiagnosticRepairSurface | null
+    repair: ProviderDiagnosticRepairSurface | null,
+    details?: Pick<ProviderDiagnostic, 'gameRefs' | 'affectedGameCount'>
   ) => {
-    diagnostics.push({ dataset, severity, code, message, repair });
+    diagnostics.push({ dataset, severity, code, message, repair, ...details });
   };
 
   // ---- Schedule (also the source of "completed slate" expectations) ----
@@ -528,50 +535,47 @@ export async function getProviderDataDiagnostics(
     ? 'unknown'
     : deriveGameStatsExpectation(slateResult, scheduleIncomplete);
 
-  // ---- Scores: completed slates lacking any cached TERMINAL score ----
+  // ---- Scores: game-granular terminal coverage for completed slates ----
   try {
     if (completedSlates.length > 0) {
-      const scoredSlates = new Set<SlateKey>();
-      const scoreEntries = await getAppStateEntries<ScoresCacheEntry>('scores', `${year}-`);
-      for (const entry of scoreEntries) {
-        for (const pack of entry.value.items ?? []) {
-          if (pack.week == null) continue;
-          // A completed slate is only "covered" by a TERMINAL cached row (4th-review
-          // finding #2). A mid-game refresh leaves numeric scores on an in-progress
-          // row; counting that as covered would suppress the missing-final warning
-          // forever if no later poll ever writes finals. Canonical status buckets
-          // (never raw-string matching) decide terminality:
-          //   - final  → covered (requires both numeric scores to be present)
-          //   - canceled → terminal; will never have a final score, so it resolves
-          //     the game without a numeric result (no impossible missing-final)
-          //   - in-progress / scheduled / postponed / suspended / delayed / unknown
-          //     → NOT terminal, does not satisfy coverage
-          const hasBothScores = pack.home.score != null && pack.away.score != null;
-          const isFinal = classifyStatusLabel(pack.status) === 'final' && hasBothScores;
-          const isCanceled = isCanceledStatusLabel(pack.status);
-          if (!isFinal && !isCanceled) continue;
-          scoredSlates.add(slateKey(pack.week, normalizeSeasonType(pack.seasonType)));
-        }
+      // Reuse the SAME aggregate schedule snapshot that established
+      // `completedSlates`. The live-score context still owns canonical identity,
+      // reconciled cache loading, and score attachment, but performs no second
+      // schedule read for this diagnostic.
+      const contextResult = await loadLiveScoreContext({
+        year,
+        now: new Date(now),
+        scheduleItems,
+      });
+      if (contextResult.status === 'unavailable') {
+        throw new Error(`canonical score context unavailable (${contextResult.reason})`);
       }
+      const coverage = deriveCompletedScoreCoverage({
+        context: contextResult.context,
+        completedSlates,
+      });
+      const affected = coverage.gaps.length;
+      const shown = coverage.gaps.slice(0, MAX_LISTED_SCORE_GAPS);
+      const summary = shown.map(describeScoreGapGame).join('; ');
+      const suffix = affected > shown.length ? `; +${affected - shown.length} more` : '';
 
-      const missingScoreSlates = completedSlates.filter(
-        (s) => !scoredSlates.has(slateKey(s.week, s.seasonType))
-      );
-      if (missingScoreSlates.length === completedSlates.length) {
+      if (affected > 0 && affected === coverage.expectedGameCount) {
         push(
           'scores',
           'error',
           'scores-terminal-coverage-missing',
-          `No cached scores for any of ${completedSlates.length} completed slate(s).`,
-          'data-maintenance'
+          `No usable terminal score for any of ${affected} completed game(s): ${summary}${suffix}.`,
+          'data-maintenance',
+          { gameRefs: shown, affectedGameCount: affected }
         );
-      } else if (missingScoreSlates.length > 0) {
+      } else if (affected > 0) {
         push(
           'scores',
           'warning',
           'scores-terminal-coverage-partial',
-          `${describeSlates(missingScoreSlates)} complete but missing cached scores.`,
-          'data-maintenance'
+          `${affected} of ${coverage.expectedGameCount} completed game(s) lack a usable terminal score: ${summary}${suffix}.`,
+          'data-maintenance',
+          { gameRefs: shown, affectedGameCount: affected }
         );
       }
     }

@@ -104,6 +104,10 @@ export type CanonicalGame = {
   kickoff: string | null;
   /** Original raw provider status label used for applicability. */
   rawStatus: string | null;
+  /** Canonical schedule status consumed by the shared conclusion classifier. */
+  status?: string;
+  /** Original CFBD completed flag retained by the canonical schedule build. */
+  completed?: boolean | null;
 };
 
 export type CanonicalSlate = {
@@ -386,6 +390,8 @@ export function deriveCanonicalGameStatsSlateFromBuild(input: {
       awayId: toParticipantId(item.awayId),
       kickoff,
       rawStatus,
+      status: game.status,
+      completed: game.completed ?? null,
     });
   }
 

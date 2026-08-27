@@ -26,7 +26,7 @@ type ScheduleItemSeed = {
   id: string;
   week: number;
   seasonType: 'regular' | 'postseason';
-  startDate: string;
+  startDate: string | null;
   status: string;
   homeTeam: string;
   awayTeam: string;
@@ -272,7 +272,7 @@ test('postponed / suspended / delayed / unknown score states remain unresolved',
   }
 });
 
-test('a mixed slate with at least one final row counts as covered (slate granularity)', async () => {
+test('a final row cannot hide an in-progress sibling in the same slate', async () => {
   await seedScheduleItems([
     {
       id: '101',
@@ -330,11 +330,66 @@ test('a mixed slate with at least one final row counts as covered (slate granula
     ],
   });
   const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const scoreIssue = diagnostics.find((d) => d.dataset === 'scores');
+  assert.ok(scoreIssue, 'the in-progress sibling still owes its own final');
+  assert.equal(scoreIssue!.code, 'scores-terminal-coverage-partial');
+  assert.equal(scoreIssue!.affectedGameCount, 1);
+  assert.deepEqual(
+    scoreIssue!.gameRefs?.map((game) => game.providerGameId),
+    [103]
+  );
+});
+
+test('an unparseable-kickoff sibling stays pending and does not manufacture a score gap', async () => {
+  await seedScheduleItems([
+    {
+      id: '101',
+      week: 1,
+      seasonType: 'regular',
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: 'Alpha',
+      awayTeam: 'Beta',
+    },
+    {
+      id: '103',
+      week: 1,
+      seasonType: 'regular',
+      startDate: null,
+      status: 'STATUS_SCHEDULED',
+      homeTeam: 'Echo',
+      awayTeam: 'Foxtrot',
+    },
+  ]);
+  await seedScores('STATUS_FINAL', 21, 14);
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
   assert.equal(
     diagnostics.find((d) => d.dataset === 'scores'),
     undefined,
-    'a slate with a cached final row is covered even alongside an in-progress row'
+    'canonical pending applicability means the undated sibling does not owe a final'
   );
+});
+
+test('game-level score-gap identities are bounded while the total remains truthful', async () => {
+  await seedScheduleItems(
+    Array.from({ length: 8 }, (_, index) => ({
+      id: String(201 + index),
+      week: 1,
+      seasonType: 'regular' as const,
+      startDate: COMPLETED_KICKOFF,
+      status: 'STATUS_FINAL',
+      homeTeam: `Home ${index + 1}`,
+      awayTeam: `Away ${index + 1}`,
+    }))
+  );
+
+  const { diagnostics } = await getProviderDataDiagnostics(YEAR, { now: NOW });
+  const scoreIssue = diagnostics.find((d) => d.dataset === 'scores');
+  assert.ok(scoreIssue);
+  assert.equal(scoreIssue!.affectedGameCount, 8);
+  assert.equal(scoreIssue!.gameRefs?.length, 6);
+  assert.match(scoreIssue!.message, /\+2 more/);
 });
 
 // ---------------------------------------------------------------------------
@@ -1826,6 +1881,10 @@ test('PLATFORM-090: an unavailable canonical context is UNKNOWN, with its warnin
   assert.ok(
     diagnostics.find((d) => d.code === 'game-stats-context-unavailable'),
     'positive control: this fixture really does make the canonical context unavailable'
+  );
+  assert.ok(
+    diagnostics.find((d) => d.code === 'scores-diagnostics-unavailable'),
+    'score coverage fails closed when the shared canonical context is unavailable'
   );
   assert.equal(expectations['game-stats'], 'unknown');
 });

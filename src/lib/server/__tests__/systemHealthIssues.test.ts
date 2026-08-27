@@ -534,6 +534,41 @@ test('diagnostic severity maps error→critical, warning→warning, info→info'
   assert.equal(summarizeSystemHealthIssues(issues).overallState, 'critical');
 });
 
+test('score-gap issues surface bounded structured game identities and preserve repair routing', () => {
+  const issues = deriveSystemHealthIssues(
+    baseInputs({
+      diagnostics: {
+        state: 'available',
+        diagnostics: [
+          {
+            dataset: 'scores',
+            code: 'scores-terminal-coverage-partial',
+            severity: 'warning',
+            repair: 'data-maintenance',
+            gameRefs: [
+              {
+                providerGameId: 101,
+                week: 1,
+                seasonType: 'regular',
+                homeTeam: 'Alpha',
+                awayTeam: 'Beta',
+                kickoff: '2026-10-11T20:00:00.000Z',
+                reason: 'score-absent',
+              },
+            ],
+            affectedGameCount: 3,
+          },
+        ],
+      },
+    })
+  );
+  const issue = find(issues, 'scores-terminal-coverage-partial');
+  assert.ok(issue);
+  assert.match(issue!.explanation, /Beta at Alpha \(id 101, week 1 regular\)/);
+  assert.match(issue!.explanation, /\+2 more/);
+  assert.equal(issue!.repair?.href, '/admin/data/cache');
+});
+
 // A diagnostic whose repair surface is null (e.g. an unavailable read) has null repair.
 test('an unavailable-read diagnostic carries a null repair', () => {
   const issues = deriveSystemHealthIssues(

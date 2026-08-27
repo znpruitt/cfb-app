@@ -128,20 +128,28 @@ async function loadPendingFinalConfirmationIds(year: number): Promise<Set<string
 
 /**
  * Load the cache-only canonical context. `now` is injected for deterministic
- * slate derivation. Loader/build failures map to `unavailable`; a genuinely
- * empty schedule yields an available, empty context.
+ * slate derivation. A caller that already owns a canonical schedule snapshot may
+ * supply `scheduleItems`; that exact snapshot then feeds both the canonical game
+ * list and score attachment, with no second schedule read. Loader/build failures
+ * map to `unavailable`; a genuinely empty schedule yields an available, empty
+ * context.
  */
 export async function loadLiveScoreContext(input: {
   year: number;
   now: Date;
+  scheduleItems?: ScheduleWireItem[];
 }): Promise<LiveScoreContextResult> {
   const { year, now } = input;
 
   let scheduleItems: ScheduleWireItem[];
-  try {
-    scheduleItems = await loadCachedScheduleItems(year);
-  } catch {
-    return { status: 'unavailable', reason: 'schedule-load-failed' };
+  if (input.scheduleItems !== undefined) {
+    scheduleItems = input.scheduleItems;
+  } else {
+    try {
+      scheduleItems = await loadCachedScheduleItems(year);
+    } catch {
+      return { status: 'unavailable', reason: 'schedule-load-failed' };
+    }
   }
 
   let teams;
