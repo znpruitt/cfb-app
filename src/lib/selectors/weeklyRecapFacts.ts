@@ -120,10 +120,7 @@ function isEligible(latestGameDate: string, now: EasternDateTime): boolean {
   return now.minutesAfterMidnight >= RECAP_ELIGIBILITY_HOUR * MINUTES_PER_HOUR;
 }
 
-/**
- * Select the most recent canonical week whose final ET game-date cleared the
- * next-day 06:00 ET request-time cutoff. Game status deliberately has no role.
- */
+/** Select the latest week past its next-day 06:00 ET cutoff, independent of game status. */
 export function selectWeeklyRecapTargetWeek(
   games: AppGame[],
   now: Date
