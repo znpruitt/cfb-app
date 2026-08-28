@@ -55,17 +55,12 @@ async function loadRecapContextUncached(
 /** Request-local memoization only; other Insights loaders keep their own build. */
 export const loadRecapContext = cache(loadRecapContextUncached);
 
-type RecapContextLoader = typeof loadRecapContext;
-
 /** Skip every recap-context read outside the league's exact active season. */
-export async function loadRecapContextForSeasonScope(
-  args: {
-    leagueSlug: string;
-    seasonYear: number;
-    leagueStatus: LeagueStatus | undefined;
-  },
-  loadContext: RecapContextLoader = loadRecapContext
-): Promise<WeeklyRecapContextResult | null> {
+export async function loadRecapContextForSeasonScope(args: {
+  leagueSlug: string;
+  seasonYear: number;
+  leagueStatus: LeagueStatus | undefined;
+}): Promise<WeeklyRecapContextResult | null> {
   if (!isWeeklyRecapActiveSeason(args)) return null;
-  return loadContext(args.leagueSlug, args.seasonYear);
+  return loadRecapContext(args.leagueSlug, args.seasonYear);
 }

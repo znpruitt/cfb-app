@@ -164,37 +164,25 @@ test('loader assembles games, roster, and scores from one cache-only context', a
 });
 
 test('inactive lifecycle skips recap context loading, with an active-season positive control', async () => {
-  let calls = 0;
-  const loadContext = async () => {
-    calls += 1;
-    return { status: 'unavailable' as const };
-  };
+  __setAppStateReadFailureForTests(new Error('the active observer must see this'), 'schedule');
 
   assert.equal(
-    await loadRecapContextForSeasonScope(
-      {
-        leagueSlug: 'inactive-recap',
-        seasonYear: YEAR,
-        leagueStatus: { state: 'offseason' },
-      },
-      loadContext
-    ),
+    await loadRecapContextForSeasonScope({
+      leagueSlug: 'inactive-recap',
+      seasonYear: YEAR,
+      leagueStatus: { state: 'offseason' },
+    }),
     null
   );
-  assert.equal(calls, 0);
 
   assert.deepEqual(
-    await loadRecapContextForSeasonScope(
-      {
-        leagueSlug: 'active-recap',
-        seasonYear: YEAR,
-        leagueStatus: { state: 'season', year: YEAR },
-      },
-      loadContext
-    ),
+    await loadRecapContextForSeasonScope({
+      leagueSlug: 'active-recap',
+      seasonYear: YEAR,
+      leagueStatus: { state: 'season', year: YEAR },
+    }),
     { status: 'unavailable' }
   );
-  assert.equal(calls, 1, 'the observer must detect a real active-season load');
 });
 
 test('composer turns completed owner results into the minimal recap view model', () => {
@@ -288,7 +276,7 @@ test('composer surfaces a concluded game that is missing a usable result', () =>
 
   assert.equal(recap.status, 'available');
   if (recap.status !== 'available') return;
-  assert.equal(recap.missingResultMessage, '1 game is waiting on complete results.');
+  assert.equal(recap.missingResultMessage, '1 game — waiting on complete results.');
 });
 
 test('composer keeps context failure separate from genuine absence', () => {

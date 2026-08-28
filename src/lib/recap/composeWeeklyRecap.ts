@@ -3,6 +3,7 @@ import {
   isWeeklyRecapActiveSeason,
   selectWeeklyRecapFacts,
 } from '../selectors/weeklyRecapFacts.ts';
+import { standingsCoverageNotice } from '../standings.ts';
 import { buildWeekLabelMap, formatWeekLabel } from '../weekLabel.ts';
 import type { WeeklyRecapContextResult } from './loadRecapContext.ts';
 
@@ -34,6 +35,14 @@ export type WeeklyRecapSeasonScope = {
 function countMessage(count: number, singular: string, plural: string): string | null {
   if (count === 0) return null;
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+function incompleteResultsMessage(count: number): string | null {
+  if (count === 0) return null;
+  const claim = standingsCoverageNotice({ state: 'partial', message: null });
+  if (!claim) return null;
+  const sentenceClaim = `${claim.charAt(0).toLowerCase()}${claim.slice(1)}`;
+  return `${count} ${count === 1 ? 'game' : 'games'} — ${sentenceClaim}.`;
 }
 
 export function composeWeeklyRecap(
@@ -79,10 +88,6 @@ export function composeWeeklyRecap(
       'game has no recorded result.',
       'games have no recorded result.'
     ),
-    missingResultMessage: countMessage(
-      facts.missingResultCount,
-      'game is waiting on complete results.',
-      'games are waiting on complete results.'
-    ),
+    missingResultMessage: incompleteResultsMessage(facts.missingResultCount),
   };
 }

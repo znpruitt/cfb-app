@@ -389,6 +389,31 @@ test('a concluded real-owner game without a usable score is reported outside the
   assert.equal(facts.missingResultCount, 1);
 });
 
+test('an unexpected tied final is not mislabeled as missing score coverage', () => {
+  const tied = game({
+    key: 'tied-final',
+    week: 1,
+    date: '2026-09-06T00:00:00.000Z',
+    away: 'Alpha',
+    home: 'Beta',
+  });
+  const facts = selectWeeklyRecapFacts({
+    games: [tied],
+    rosterByTeam: new Map([
+      ['Alpha', 'Alice'],
+      ['Beta', 'Bob'],
+    ]),
+    scoresByKey: { 'tied-final': finalScore(24, 24) },
+    now: new Date('2026-09-07T16:00:00.000Z'),
+  });
+
+  assert.ok(facts);
+  assert.deepEqual(facts.ownerResults, []);
+  assert.equal(facts.unresolvedCount, 0);
+  assert.equal(facts.abandonedCount, 0);
+  assert.equal(facts.missingResultCount, 0);
+});
+
 test('one unresolved sibling keeps every pending league game outside the abandonment allowance', () => {
   const games = [
     game({
