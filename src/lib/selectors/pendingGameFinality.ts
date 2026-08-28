@@ -1,19 +1,20 @@
 import { hasGameBeenAbandoned, type PendingGame } from '../standingsHistory';
 
 export type PendingGameFinality = {
-  /** Vacuously true when there are no pending games, matching season finality. */
+  /** Vacuously true when the caller-defined pending population is empty. */
   allPendingGamesConcluded: boolean;
   /** Games accepted without positive result evidence by the elapsed-time rule. */
   acceptedWithoutResult: PendingGame[];
 };
 
 /**
- * Apply the request-time abandonment allowance once for every consumer.
+ * Apply the request-time abandonment allowance to a caller-defined population.
  *
  * A game is surfaced as accepted without a result only when the complete
- * pending population clears the season-finality gate. An individually old game
- * beside a future, TBD, or disrupted game has not yet made the season final and
- * therefore is not reported as an accepted conclusion.
+ * input population clears the gate. An individually old game beside a future,
+ * TBD, or disrupted sibling is therefore not reported as an accepted conclusion.
+ * The caller owns the population boundary; this result alone does not imply that
+ * an entire week or season is final.
  */
 export function selectPendingGameFinality(input: {
   pendingGames: readonly PendingGame[];
