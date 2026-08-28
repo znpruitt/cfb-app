@@ -36,14 +36,6 @@ not an owner-selected `NEXT` designation:
 5. Items 76 and 55 — expose catalog freshness read-only and preserve structured schedule errors.
 6. Item 68 — settle archive behavior when cumulative score coverage is incomplete.
 
-### Temporary production-operations hold — Vercel lifecycle crons
-
-Owner-confirmed on 2026-08-27: the Vercel-native `season-transition` and `season-rollover` schedules
-are temporarily disabled. Re-enable both after the planned 2026 roster publication on 2026-08-27,
-then confirm their next authenticated System Health receipts name the promoted production build.
-This is an operator action, not an implementation task; it does not change their `vercel.json`
-ownership or lifecycle-critical policy.
-
 ## Open season-operations and provider reliability work
 
 ### Item 63 — delete-and-recreate reschedules need canonical reconciliation
