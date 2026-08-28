@@ -1,9 +1,11 @@
 import { cache } from 'react';
 
+import type { LeagueStatus } from '../league.ts';
 import { parseOwnersCsv } from '../parseOwnersCsv.ts';
 import type { ScorePack } from '../scores.ts';
 import type { AppGame } from '../schedule.ts';
 import { assembleSeasonScoredBuild, SeasonScheduleCacheUnavailableError } from '../seasonBuild.ts';
+import { isWeeklyRecapActiveSeason } from '../selectors/weeklyRecapFacts.ts';
 import { readConfirmedRosterInputs } from '../server/confirmedRosterStore.ts';
 
 export type WeeklyRecapContext = {
@@ -52,3 +54,18 @@ async function loadRecapContextUncached(
 
 /** Request-local memoization only; other Insights loaders keep their own build. */
 export const loadRecapContext = cache(loadRecapContextUncached);
+
+type RecapContextLoader = typeof loadRecapContext;
+
+/** Skip every recap-context read outside the league's exact active season. */
+export async function loadRecapContextForSeasonScope(
+  args: {
+    leagueSlug: string;
+    seasonYear: number;
+    leagueStatus: LeagueStatus | undefined;
+  },
+  loadContext: RecapContextLoader = loadRecapContext
+): Promise<WeeklyRecapContextResult | null> {
+  if (!isWeeklyRecapActiveSeason(args)) return null;
+  return loadContext(args.leagueSlug, args.seasonYear);
+}

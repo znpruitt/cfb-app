@@ -276,6 +276,15 @@ test('owner facts exclude NoClaim while uncertainty stays scoped to real-owner g
       home: 'Delta',
     }),
     game({
+      key: 'no-claim-missing',
+      week: 1,
+      date: '2026-09-06T00:45:00.000Z',
+      status: 'final',
+      completed: true,
+      away: 'Gamma',
+      home: 'Delta',
+    }),
+    game({
       key: 'unrelated-pending',
       week: 1,
       date: '2026-09-06T01:00:00.000Z',
@@ -380,7 +389,7 @@ test('a concluded real-owner game without a usable score is reported outside the
   assert.equal(facts.missingResultCount, 1);
 });
 
-test('unresolved and abandoned games are reported separately from an empty results state', () => {
+test('one unresolved sibling keeps every pending league game outside the abandonment allowance', () => {
   const games = [
     game({
       key: 'unresolved',
@@ -406,7 +415,37 @@ test('unresolved and abandoned games are reported separately from an empty resul
 
   assert.ok(facts);
   assert.deepEqual(facts.ownerResults, []);
-  assert.equal(facts.unresolvedCount, 1);
-  assert.equal(facts.abandonedCount, 1);
+  assert.equal(facts.unresolvedCount, 2);
+  assert.equal(facts.abandonedCount, 0);
+  assert.equal(facts.missingResultCount, 0);
+});
+
+test('pending league games are abandoned only when the complete pending population clears the gate', () => {
+  const games = [
+    game({
+      key: 'abandoned-one',
+      week: 1,
+      date: '2026-09-06T00:00:00.000Z',
+    }),
+    game({
+      key: 'abandoned-two',
+      week: 1,
+      date: '2026-09-06T01:00:00.000Z',
+    }),
+  ];
+  const facts = selectWeeklyRecapFacts({
+    games,
+    rosterByTeam: new Map([
+      ['abandoned-one-away', 'Alice'],
+      ['abandoned-two-home', 'Bob'],
+    ]),
+    scoresByKey: {},
+    now: new Date('2026-09-07T16:00:00.000Z'),
+  });
+
+  assert.ok(facts);
+  assert.deepEqual(facts.ownerResults, []);
+  assert.equal(facts.unresolvedCount, 0);
+  assert.equal(facts.abandonedCount, 2);
   assert.equal(facts.missingResultCount, 0);
 });

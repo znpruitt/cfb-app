@@ -37,12 +37,11 @@ function countMessage(count: number, singular: string, plural: string): string |
 }
 
 export function composeWeeklyRecap(
-  contextResult: WeeklyRecapContextResult | null,
+  contextResult: WeeklyRecapContextResult,
   now: Date,
   scope: WeeklyRecapSeasonScope
 ): WeeklyRecapViewModel {
   if (!isWeeklyRecapActiveSeason(scope)) return { status: 'inactive' };
-  if (!contextResult) return { status: 'unavailable' };
   if (contextResult.status === 'unavailable') return { status: 'unavailable' };
   if (contextResult.status === 'absent') return { status: 'absent' };
   if (contextResult.context.seasonYear !== scope.seasonYear) return { status: 'unavailable' };
@@ -55,13 +54,11 @@ export function composeWeeklyRecap(
   });
   if (!facts) return { status: 'absent' };
 
-  const compactWeekLabel = formatWeekLabel(
-    facts.targetWeek.week,
-    buildWeekLabelMap(contextResult.context.games)
-  );
-  const weekLabel = compactWeekLabel.startsWith('W')
-    ? `Week ${facts.targetWeek.week}`
-    : compactWeekLabel;
+  const weekLabelMap = buildWeekLabelMap(contextResult.context.games);
+  const compactWeekLabel = formatWeekLabel(facts.targetWeek.week, weekLabelMap);
+  const weekLabel = weekLabelMap.has(facts.targetWeek.week)
+    ? compactWeekLabel
+    : `Week ${facts.targetWeek.week}`;
 
   return {
     status: 'available',
@@ -84,8 +81,8 @@ export function composeWeeklyRecap(
     ),
     missingResultMessage: countMessage(
       facts.missingResultCount,
-      'completed game is not reflected in these totals.',
-      'completed games are not reflected in these totals.'
+      'game is waiting on complete results.',
+      'games are waiting on complete results.'
     ),
   };
 }

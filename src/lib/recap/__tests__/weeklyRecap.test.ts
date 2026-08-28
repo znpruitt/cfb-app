@@ -11,7 +11,11 @@ import {
 } from '../../server/appStateStore.ts';
 import { __resetTeamDatabaseStoreForTests } from '../../server/teamDatabaseStore.ts';
 import { composeWeeklyRecap } from '../composeWeeklyRecap.ts';
-import { loadRecapContext, type WeeklyRecapContext } from '../loadRecapContext.ts';
+import {
+  loadRecapContext,
+  loadRecapContextForSeasonScope,
+  type WeeklyRecapContext,
+} from '../loadRecapContext.ts';
 
 const YEAR = 2026;
 const ACTIVE_SCOPE = {
@@ -159,6 +163,40 @@ test('loader assembles games, roster, and scores from one cache-only context', a
   assert.equal(Object.keys(result.context.scoresByKey).length, 1);
 });
 
+test('inactive lifecycle skips recap context loading, with an active-season positive control', async () => {
+  let calls = 0;
+  const loadContext = async () => {
+    calls += 1;
+    return { status: 'unavailable' as const };
+  };
+
+  assert.equal(
+    await loadRecapContextForSeasonScope(
+      {
+        leagueSlug: 'inactive-recap',
+        seasonYear: YEAR,
+        leagueStatus: { state: 'offseason' },
+      },
+      loadContext
+    ),
+    null
+  );
+  assert.equal(calls, 0);
+
+  assert.deepEqual(
+    await loadRecapContextForSeasonScope(
+      {
+        leagueSlug: 'active-recap',
+        seasonYear: YEAR,
+        leagueStatus: { state: 'season', year: YEAR },
+      },
+      loadContext
+    ),
+    { status: 'unavailable' }
+  );
+  assert.equal(calls, 1, 'the observer must detect a real active-season load');
+});
+
 test('composer turns completed owner results into the minimal recap view model', () => {
   const recapGame = game();
   const scoresByKey: Record<string, ScorePack> = {
@@ -188,7 +226,7 @@ test('composer turns completed owner results into the minimal recap view model',
   assert.equal(recap.missingResultMessage, null);
 });
 
-test('composer preserves a visible no-results state and both uncertainty messages', () => {
+test('composer preserves a visible no-results state while one sibling keeps the slate unresolved', () => {
   const recapGame = game();
   const abandonedGame = game({
     key: 'abandoned',
@@ -204,9 +242,35 @@ test('composer preserves a visible no-results state and both uncertainty message
   assert.equal(recap.status, 'available');
   if (recap.status !== 'available') return;
   assert.deepEqual(recap.ownerLines, []);
-  assert.equal(recap.unresolvedMessage, '1 game remains unresolved.');
-  assert.equal(recap.abandonedMessage, '1 game has no recorded result.');
+  assert.equal(recap.unresolvedMessage, '2 games remain unresolved.');
+  assert.equal(recap.abandonedMessage, null);
   assert.equal(recap.missingResultMessage, null);
+});
+
+test('composer reports games without results only after every pending sibling clears the gate', () => {
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: context(
+        [
+          game({ key: 'abandoned-one', startTimeTBD: false }),
+          game({
+            key: 'abandoned-two',
+            date: '2026-09-06T01:00:00.000Z',
+            startTimeTBD: false,
+          }),
+        ],
+        {}
+      ),
+    },
+    new Date('2026-09-07T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  assert.equal(recap.unresolvedMessage, null);
+  assert.equal(recap.abandonedMessage, '2 games have no recorded result.');
 });
 
 test('composer surfaces a concluded game that is missing a usable result', () => {
@@ -224,7 +288,7 @@ test('composer surfaces a concluded game that is missing a usable result', () =>
 
   assert.equal(recap.status, 'available');
   if (recap.status !== 'available') return;
-  assert.equal(recap.missingResultMessage, '1 completed game is not reflected in these totals.');
+  assert.equal(recap.missingResultMessage, '1 game is waiting on complete results.');
 });
 
 test('composer keeps context failure separate from genuine absence', () => {
@@ -241,25 +305,39 @@ test('composer keeps context failure separate from genuine absence', () => {
 
 test('composer suppresses request-time recaps outside the matching active season', () => {
   assert.deepEqual(
-    composeWeeklyRecap(null, new Date(), {
+    composeWeeklyRecap({ status: 'unavailable' }, new Date(), {
       leagueStatus: { state: 'preseason', year: YEAR },
       seasonYear: YEAR,
     }),
     { status: 'inactive' }
   );
   assert.deepEqual(
-    composeWeeklyRecap(null, new Date(), {
+    composeWeeklyRecap({ status: 'unavailable' }, new Date(), {
       leagueStatus: { state: 'offseason' },
       seasonYear: YEAR,
     }),
     { status: 'inactive' }
   );
   assert.deepEqual(
-    composeWeeklyRecap(null, new Date(), {
+    composeWeeklyRecap({ status: 'unavailable' }, new Date(), {
       leagueStatus: { state: 'season', year: YEAR - 1 },
       seasonYear: YEAR,
     }),
     { status: 'inactive' }
+  );
+});
+
+test('composer refuses an available context from a different season', () => {
+  assert.deepEqual(
+    composeWeeklyRecap(
+      {
+        status: 'available',
+        context: { ...context([game()], {}), seasonYear: YEAR - 1 },
+      },
+      new Date('2026-09-07T16:00:00.000Z'),
+      ACTIVE_SCOPE
+    ),
+    { status: 'unavailable' }
   );
 });
 

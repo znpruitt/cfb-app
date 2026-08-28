@@ -7,12 +7,11 @@ import {
   composeWeeklyRecap,
   type WeeklyRecapViewModel,
 } from '../../../../lib/recap/composeWeeklyRecap';
-import { loadRecapContext } from '../../../../lib/recap/loadRecapContext';
+import { loadRecapContextForSeasonScope } from '../../../../lib/recap/loadRecapContext';
 import {
   resolveDisplayLeagueStatus,
   resolveLeagueOperatingYear,
 } from '../../../../lib/selectors/leagueLifecycle';
-import { isWeeklyRecapActiveSeason } from '../../../../lib/selectors/weeklyRecapFacts';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 import AllInsightsRow from './AllInsightsRow';
 
@@ -115,12 +114,13 @@ export default async function LeagueInsightsPage({
   const now = new Date();
   const leagueStatus = resolveDisplayLeagueStatus(league);
   const seasonYear = resolveLeagueOperatingYear(league);
-  const recapIsActive = isWeeklyRecapActiveSeason({ leagueStatus, seasonYear });
   const [response, recapContext] = await Promise.all([
     loadInsightsForLeague(slug, seasonYear),
-    recapIsActive ? loadRecapContext(slug, seasonYear) : Promise.resolve(null),
+    loadRecapContextForSeasonScope({ leagueSlug: slug, seasonYear, leagueStatus }),
   ]);
-  const recap = composeWeeklyRecap(recapContext, now, { leagueStatus, seasonYear });
+  const recap: WeeklyRecapViewModel = recapContext
+    ? composeWeeklyRecap(recapContext, now, { leagueStatus, seasonYear })
+    : { status: 'inactive' };
   const insights = response.insights.slice().sort((a, b) => b.priorityScore - a.priorityScore);
 
   return (

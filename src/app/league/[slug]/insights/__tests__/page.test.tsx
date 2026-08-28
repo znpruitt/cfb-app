@@ -150,7 +150,7 @@ test('Insights page surfaces a completed league game whose result is unavailable
   const html = await renderPageContent(slug);
 
   assert.match(html, /No completed results were recorded for Week 1\./);
-  assert.match(html, /1 completed game is not reflected in these totals\./);
+  assert.match(html, /1 game is waiting on complete results\./);
 });
 
 test('Insights page hides the request-time recap outside the active season', async () => {

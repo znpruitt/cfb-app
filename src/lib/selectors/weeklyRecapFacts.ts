@@ -1,10 +1,14 @@
 import { getGameOwners } from '../gameOwnership.ts';
 import type { LeagueStatus } from '../league.ts';
-import { classifyGameConclusionEvidence } from '../gameStatus.ts';
 import type { ScorePack } from '../scores.ts';
 import type { AppGame } from '../schedule.ts';
-import { deriveFinalOwnedParticipations, NO_CLAIM_OWNER } from '../standings.ts';
-import { derivePendingGame, hasGameBeenAbandoned } from '../standingsHistory.ts';
+import {
+  deriveFinalOwnedParticipations,
+  deriveStandingsCoverage,
+  NO_CLAIM_OWNER,
+} from '../standings.ts';
+import { derivePendingGame, type PendingGame } from '../standingsHistory.ts';
+import { selectPendingGameFinality } from './pendingGameFinality.ts';
 
 const RECAP_TIME_ZONE = 'America/New_York';
 const RECAP_ELIGIBILITY_HOUR = 6;
@@ -191,8 +195,7 @@ export function selectWeeklyRecapFacts(args: {
     totalsByOwner.set(participation.owner, current);
   }
 
-  let unresolvedCount = 0;
-  let abandonedCount = 0;
+  const pendingGames: PendingGame[] = [];
   let missingResultCount = 0;
   for (const game of leagueGames) {
     if (countedGameKeys.has(game.key)) continue;
@@ -200,17 +203,16 @@ export function selectWeeklyRecapFacts(args: {
     const score = scoresByKey[game.key];
     const pending = derivePendingGame(game, score);
     if (!pending) {
-      if (classifyGameConclusionEvidence(game, score) === 'score-required') {
+      if (deriveStandingsCoverage([game], rosterByTeam, scoresByKey).state === 'partial') {
         missingResultCount += 1;
       }
       continue;
     }
-    if (hasGameBeenAbandoned(pending, now)) {
-      abandonedCount += 1;
-    } else {
-      unresolvedCount += 1;
-    }
+    pendingGames.push(pending);
   }
+  const pendingFinality = selectPendingGameFinality({ pendingGames, now });
+  const abandonedCount = pendingFinality.acceptedWithoutResult.length;
+  const unresolvedCount = abandonedCount === 0 ? pendingGames.length : 0;
 
   return {
     targetWeek,
