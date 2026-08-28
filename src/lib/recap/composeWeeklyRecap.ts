@@ -3,7 +3,7 @@ import {
   isWeeklyRecapActiveSeason,
   selectWeeklyRecapFacts,
 } from '../selectors/weeklyRecapFacts.ts';
-import { standingsCoverageNotice } from '../standings.ts';
+import { standingsIncompleteResultsNotice } from '../standings.ts';
 import { buildWeekLabelMap, formatWeekLabel } from '../weekLabel.ts';
 import type { WeeklyRecapContextResult } from './loadRecapContext.ts';
 
@@ -39,10 +39,7 @@ function countMessage(count: number, singular: string, plural: string): string |
 
 function incompleteResultsMessage(count: number): string | null {
   if (count === 0) return null;
-  const claim = standingsCoverageNotice({ state: 'partial', message: null });
-  if (!claim) return null;
-  const sentenceClaim = `${claim.charAt(0).toLowerCase()}${claim.slice(1)}`;
-  return `${count} ${count === 1 ? 'game' : 'games'} — ${sentenceClaim}.`;
+  return `${count} ${count === 1 ? 'game' : 'games'}. ${standingsIncompleteResultsNotice()}.`;
 }
 
 export function composeWeeklyRecap(

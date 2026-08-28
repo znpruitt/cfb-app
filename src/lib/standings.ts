@@ -50,6 +50,11 @@ const COVERAGE_INCOMPLETE = 'Waiting on complete results';
 /** The same claim for surfaces with no standings heading to supply the subject. */
 const COVERAGE_INCOMPLETE_WITH_SUBJECT = 'Standings — waiting on complete results';
 
+/** Canonical member-facing claim for a known partial result population. */
+export function standingsIncompleteResultsNotice(): string {
+  return COVERAGE_INCOMPLETE;
+}
+
 /**
  * Splits a sorted list of owner standings into real-owner rows and the NoClaim
  * aggregate (when present). Mirrors the canonical selector's filter so every

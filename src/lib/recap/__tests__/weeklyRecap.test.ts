@@ -166,6 +166,9 @@ test('loader assembles games, roster, and scores from one cache-only context', a
 test('inactive lifecycle skips recap context loading, with an active-season positive control', async () => {
   __setAppStateReadFailureForTests(new Error('the active observer must see this'), 'schedule');
 
+  // `null` is outside the real loader's return type, so it proves the lifecycle
+  // guard answered. App-state exposes no read-count observer; the active positive
+  // control below separately proves this wrapper is bound to the real loader.
   assert.equal(
     await loadRecapContextForSeasonScope({
       leagueSlug: 'inactive-recap',
@@ -276,7 +279,7 @@ test('composer surfaces a concluded game that is missing a usable result', () =>
 
   assert.equal(recap.status, 'available');
   if (recap.status !== 'available') return;
-  assert.equal(recap.missingResultMessage, '1 game — waiting on complete results.');
+  assert.equal(recap.missingResultMessage, '1 game. Waiting on complete results.');
 });
 
 test('composer keeps context failure separate from genuine absence', () => {
