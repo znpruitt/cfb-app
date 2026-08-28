@@ -587,6 +587,17 @@ These are valid future campaigns but are not activated implementation work:
   activate individually.
 - **History Phase 3** — career stats surface, record scoring, Stats/Rivalries/Archive wiring, and
   insight-link retargeting. Sparse-data layout and dynamic tiling remain evidence-gated design work.
+  Archive wiring carries a known, owner-observed defect (2026-08-27, `/league/tsc/history/2025`):
+  the season-arc chart renders `MiniTrendsGrid`, whose `CONTENDERS = 5` **excludes** every owner
+  outside the top five, undisclosed, directly beneath the complete final standings table — so the
+  chart and the table under one heading describe different populations, and the axis maximum
+  reflects only the retained subset. The standings page's `TrendsDetailSurface` answers the same
+  question correctly: its `TOP_FOCUS_COUNT = 5` governs emphasis, not membership, and it draws every
+  owner. Owner direction: the archive should reuse that surface, with its Games Back / Win % tabs,
+  rather than keeping a second capped implementation. Treat item 73's axis-domain work as LIKELY
+  ABSORBED by the swap — `TrendsDetailSurface` derives its domain from resolved weeks instead of the
+  raw history — but verify rather than assume, because the archive still supplies the history and the
+  leading/trailing week problem may survive the change.
 - **Homepage brand identity** — trigger near public launch after surfaces stabilize.
 - **Orphaned `/rankings` route** — owner decision required before retiring a potentially bookmarked
   single-tenant route.
