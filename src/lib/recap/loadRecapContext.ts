@@ -5,13 +5,12 @@ import type { ScorePack } from '../scores.ts';
 import type { AppGame } from '../schedule.ts';
 import { assembleSeasonScoredBuild, SeasonScheduleCacheUnavailableError } from '../seasonBuild.ts';
 import { readConfirmedRosterInputs } from '../server/confirmedRosterStore.ts';
-import { deriveStandingsHistory, type StandingsHistory } from '../standingsHistory.ts';
 
 export type WeeklyRecapContext = {
+  seasonYear: number;
   games: AppGame[];
   rosterByTeam: Map<string, string>;
   scoresByKey: Record<string, ScorePack>;
-  standingsHistory: StandingsHistory;
 };
 
 export type WeeklyRecapContextResult =
@@ -36,14 +35,10 @@ async function loadRecapContextUncached(
     return {
       status: 'available',
       context: {
+        seasonYear: year,
         games: build.games,
         rosterByTeam,
         scoresByKey: build.scoresByKey,
-        standingsHistory: deriveStandingsHistory({
-          games: build.games,
-          rosterByTeam,
-          scoresByKey: build.scoresByKey,
-        }),
       },
     };
   } catch (error) {

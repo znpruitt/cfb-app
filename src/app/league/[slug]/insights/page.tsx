@@ -8,12 +8,19 @@ import {
   type WeeklyRecapViewModel,
 } from '../../../../lib/recap/composeWeeklyRecap';
 import { loadRecapContext } from '../../../../lib/recap/loadRecapContext';
+import {
+  resolveDisplayLeagueStatus,
+  resolveLeagueOperatingYear,
+} from '../../../../lib/selectors/leagueLifecycle';
+import { isWeeklyRecapActiveSeason } from '../../../../lib/selectors/weeklyRecapFacts';
 import { renderLeagueGateIfBlocked } from '../leagueGate';
 import AllInsightsRow from './AllInsightsRow';
 
 export const dynamic = 'force-dynamic';
 
-function WeeklyRecapSection({ recap }: { recap: WeeklyRecapViewModel }): React.ReactElement {
+function WeeklyRecapSection({ recap }: { recap: WeeklyRecapViewModel }): React.ReactElement | null {
+  if (recap.status === 'inactive') return null;
+
   return (
     <section
       aria-labelledby="weekly-recap-heading"
@@ -65,10 +72,11 @@ function WeeklyRecapSection({ recap }: { recap: WeeklyRecapViewModel }): React.R
             </ul>
           )}
 
-          {recap.unresolvedMessage || recap.abandonedMessage ? (
+          {recap.unresolvedMessage || recap.abandonedMessage || recap.missingResultMessage ? (
             <div className="mt-3 space-y-1 text-xs text-gray-500 dark:text-zinc-500">
               {recap.unresolvedMessage ? <p>{recap.unresolvedMessage}</p> : null}
               {recap.abandonedMessage ? <p>{recap.abandonedMessage}</p> : null}
+              {recap.missingResultMessage ? <p>{recap.missingResultMessage}</p> : null}
             </div>
           ) : null}
         </>
@@ -105,11 +113,14 @@ export default async function LeagueInsightsPage({
   // under a heading that claims completeness. Recorded on docs/next-tasks.md
   // the INSIGHTS-029 item; pagination or an explicit count belongs with that work.
   const now = new Date();
+  const leagueStatus = resolveDisplayLeagueStatus(league);
+  const seasonYear = resolveLeagueOperatingYear(league);
+  const recapIsActive = isWeeklyRecapActiveSeason({ leagueStatus, seasonYear });
   const [response, recapContext] = await Promise.all([
-    loadInsightsForLeague(slug, league.year),
-    loadRecapContext(slug, league.year),
+    loadInsightsForLeague(slug, seasonYear),
+    recapIsActive ? loadRecapContext(slug, seasonYear) : Promise.resolve(null),
   ]);
-  const recap = composeWeeklyRecap(recapContext, now);
+  const recap = composeWeeklyRecap(recapContext, now, { leagueStatus, seasonYear });
   const insights = response.insights.slice().sort((a, b) => b.priorityScore - a.priorityScore);
 
   return (
@@ -117,7 +128,7 @@ export default async function LeagueInsightsPage({
       <LeaguePageShell
         leagueSlug={slug}
         leagueDisplayName={league.displayName}
-        leagueYear={league.year}
+        leagueYear={seasonYear}
         foundedYear={league.foundedYear}
         isAdmin={isAdmin}
         activeTab="insights"
@@ -138,7 +149,7 @@ export default async function LeagueInsightsPage({
                   key={insight.id}
                   insight={insight}
                   leagueSlug={slug}
-                  panelYear={league.year}
+                  panelYear={seasonYear}
                 />
               ))}
             </div>

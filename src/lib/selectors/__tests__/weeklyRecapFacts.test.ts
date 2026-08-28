@@ -3,7 +3,11 @@ import test from 'node:test';
 
 import type { ScorePack } from '../../scores.ts';
 import type { AppGame } from '../../schedule.ts';
-import { selectWeeklyRecapFacts, selectWeeklyRecapTargetWeek } from '../weeklyRecapFacts.ts';
+import {
+  isWeeklyRecapActiveSeason,
+  selectWeeklyRecapFacts,
+  selectWeeklyRecapTargetWeek,
+} from '../weeklyRecapFacts.ts';
 
 function game(args: {
   key: string;
@@ -12,6 +16,7 @@ function game(args: {
   providerWeek?: number;
   stage?: AppGame['stage'];
   status?: AppGame['status'];
+  completed?: boolean;
   startTimeTBD?: boolean;
   away?: string;
   home?: string;
@@ -32,6 +37,7 @@ function game(args: {
     date: args.date,
     status: args.status ?? 'scheduled',
     rawStatus: args.status ?? 'scheduled',
+    completed: args.completed,
     startTimeTBD: args.startTimeTBD,
     label: null,
     conference: null,
@@ -76,6 +82,34 @@ function finalScore(away: number, home: number): ScorePack {
     time: null,
   };
 }
+
+test('request-time recaps exist only for the matching active season', () => {
+  assert.equal(
+    isWeeklyRecapActiveSeason({
+      leagueStatus: { state: 'season', year: 2026 },
+      seasonYear: 2026,
+    }),
+    true
+  );
+  assert.equal(
+    isWeeklyRecapActiveSeason({
+      leagueStatus: { state: 'season', year: 2025 },
+      seasonYear: 2026,
+    }),
+    false
+  );
+  assert.equal(
+    isWeeklyRecapActiveSeason({
+      leagueStatus: { state: 'preseason', year: 2026 },
+      seasonYear: 2026,
+    }),
+    false
+  );
+  assert.equal(
+    isWeeklyRecapActiveSeason({ leagueStatus: { state: 'offseason' }, seasonYear: 2026 }),
+    false
+  );
+});
 
 test('target week stays on the previous slate after an early current-week final', () => {
   const games = [
@@ -225,6 +259,127 @@ test('weekly owner results aggregate multiple teams with distinct PF and PA', ()
   ]);
 });
 
+test('owner facts exclude NoClaim while uncertainty stays scoped to real-owner games', () => {
+  const games = [
+    game({
+      key: 'owned-final',
+      week: 1,
+      date: '2026-09-06T00:00:00.000Z',
+      away: 'Alpha',
+      home: 'Beta',
+    }),
+    game({
+      key: 'no-claim-final',
+      week: 1,
+      date: '2026-09-06T00:30:00.000Z',
+      away: 'Gamma',
+      home: 'Delta',
+    }),
+    game({
+      key: 'unrelated-pending',
+      week: 1,
+      date: '2026-09-06T01:00:00.000Z',
+      startTimeTBD: true,
+      away: 'Epsilon',
+      home: 'Zeta',
+    }),
+    game({
+      key: 'owned-pending',
+      week: 1,
+      date: '2026-09-06T01:30:00.000Z',
+      startTimeTBD: true,
+      away: 'Alpha',
+      home: 'Gamma',
+    }),
+  ];
+  const facts = selectWeeklyRecapFacts({
+    games,
+    rosterByTeam: new Map([
+      ['Alpha', 'Alice'],
+      ['Beta', 'Bob'],
+      ['Gamma', 'NoClaim'],
+      ['Delta', 'NoClaim'],
+    ]),
+    scoresByKey: {
+      'owned-final': finalScore(31, 17),
+      'no-claim-final': finalScore(24, 10),
+    },
+    now: new Date('2026-09-07T16:00:00.000Z'),
+  });
+
+  assert.ok(facts);
+  assert.deepEqual(
+    facts.ownerResults.map(({ owner }) => owner),
+    ['Alice', 'Bob']
+  );
+  assert.equal(facts.unresolvedCount, 1, 'the real-owner pending game remains visible');
+  assert.equal(facts.abandonedCount, 0, 'the unrelated national game contributes no count');
+  assert.equal(facts.missingResultCount, 0);
+});
+
+test('the calendar-wide target still advances across a week with no real-owner games', () => {
+  const facts = selectWeeklyRecapFacts({
+    games: [
+      game({
+        key: 'owned-week-one',
+        week: 1,
+        date: '2026-08-30T00:00:00.000Z',
+        away: 'Alpha',
+        home: 'Beta',
+      }),
+      game({
+        key: 'national-week-two',
+        week: 2,
+        date: '2026-09-06T00:00:00.000Z',
+        away: 'Gamma',
+        home: 'Delta',
+      }),
+    ],
+    rosterByTeam: new Map([
+      ['Alpha', 'Alice'],
+      ['Beta', 'Bob'],
+    ]),
+    scoresByKey: {
+      'owned-week-one': finalScore(31, 17),
+    },
+    now: new Date('2026-09-07T16:00:00.000Z'),
+  });
+
+  assert.ok(facts);
+  assert.equal(facts.targetWeek.week, 2);
+  assert.deepEqual(facts.ownerResults, []);
+  assert.equal(facts.unresolvedCount, 0);
+  assert.equal(facts.abandonedCount, 0);
+  assert.equal(facts.missingResultCount, 0);
+});
+
+test('a concluded real-owner game without a usable score is reported outside the totals', () => {
+  const concluded = game({
+    key: 'missing-result',
+    week: 1,
+    date: '2026-09-06T00:00:00.000Z',
+    status: 'final',
+    completed: true,
+    away: 'Alpha',
+    home: 'Beta',
+  });
+  const facts = selectWeeklyRecapFacts({
+    games: [concluded],
+    rosterByTeam: new Map([
+      ['Alpha', 'Alice'],
+      ['Beta', 'Bob'],
+    ]),
+    scoresByKey: {},
+    now: new Date('2026-09-07T16:00:00.000Z'),
+  });
+
+  assert.ok(facts);
+  assert.deepEqual(facts.ownerResults, []);
+  assert.equal(facts.unresolvedCount, 0);
+  assert.equal(facts.abandonedCount, 0);
+  assert.equal(facts.missingResultCount, 1);
+});
+
 test('unresolved and abandoned games are reported separately from an empty results state', () => {
   const games = [
     game({
@@ -253,4 +408,5 @@ test('unresolved and abandoned games are reported separately from an empty resul
   assert.deepEqual(facts.ownerResults, []);
   assert.equal(facts.unresolvedCount, 1);
   assert.equal(facts.abandonedCount, 1);
+  assert.equal(facts.missingResultCount, 0);
 });

@@ -117,3 +117,87 @@ test('Insights page renders the eligible week when it has no completed results',
   assert.match(html, /No completed results were recorded for Week 1\./);
   assert.match(html, /1 game remains unresolved\./);
 });
+
+test('Insights page surfaces a completed league game whose result is unavailable', async () => {
+  const slug = 'weekly-recap-missing-result';
+  await addLeague({
+    slug,
+    displayName: 'Incomplete Weekly Recap League',
+    year: YEAR,
+    createdAt: '2024-01-01T00:00:00.000Z',
+    status: { state: 'season', year: YEAR },
+  });
+  await setAppState(`owners:${slug}:${YEAR}`, 'csv', 'team,owner\nTexas,Alice\nGeorgia,Bob\n');
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    items: [
+      {
+        id: '401000779',
+        week: 1,
+        seasonType: 'regular',
+        startDate: '2024-08-25T00:00:00.000Z',
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Texas',
+        awayTeam: 'Georgia',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'STATUS_FINAL',
+        completed: true,
+      },
+    ],
+  });
+
+  const html = await renderPageContent(slug);
+
+  assert.match(html, /No completed results were recorded for Week 1\./);
+  assert.match(html, /1 completed game is not reflected in these totals\./);
+});
+
+test('Insights page hides the request-time recap outside the active season', async () => {
+  const slug = 'weekly-recap-offseason';
+  await addLeague({
+    slug,
+    displayName: 'Offseason Weekly Recap League',
+    year: YEAR,
+    createdAt: '2024-01-01T00:00:00.000Z',
+    status: { state: 'offseason' },
+  });
+  await setAppState(`owners:${slug}:${YEAR}`, 'csv', 'team,owner\nTexas,Alice\nGeorgia,Bob\n');
+  await setAppState('schedule', `${YEAR}-all-all`, {
+    items: [
+      {
+        id: '401000780',
+        week: 1,
+        seasonType: 'regular',
+        startDate: '2024-08-25T00:00:00.000Z',
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Texas',
+        awayTeam: 'Georgia',
+        homeConference: 'SEC',
+        awayConference: 'SEC',
+        status: 'STATUS_FINAL',
+        completed: true,
+      },
+    ],
+  });
+  await setAppState('scores', `${YEAR}-all-regular`, {
+    items: [
+      {
+        id: '401000780',
+        week: 1,
+        seasonType: 'regular',
+        startDate: '2024-08-25T00:00:00.000Z',
+        status: 'final',
+        home: { team: 'Texas', score: 31 },
+        away: { team: 'Georgia', score: 17 },
+        time: null,
+      },
+    ],
+  });
+
+  const html = await renderPageContent(slug);
+
+  assert.doesNotMatch(html, /Weekly recap/);
+  assert.match(html, /All Insights/);
+});

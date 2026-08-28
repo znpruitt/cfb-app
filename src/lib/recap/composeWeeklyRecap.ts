@@ -1,4 +1,8 @@
-import { selectWeeklyRecapFacts } from '../selectors/weeklyRecapFacts.ts';
+import type { LeagueStatus } from '../league.ts';
+import {
+  isWeeklyRecapActiveSeason,
+  selectWeeklyRecapFacts,
+} from '../selectors/weeklyRecapFacts.ts';
 import { buildWeekLabelMap, formatWeekLabel } from '../weekLabel.ts';
 import type { WeeklyRecapContextResult } from './loadRecapContext.ts';
 
@@ -9,6 +13,7 @@ export type WeeklyRecapOwnerLine = {
 };
 
 export type WeeklyRecapViewModel =
+  | { status: 'inactive' }
   | { status: 'absent' }
   | { status: 'unavailable' }
   | {
@@ -18,7 +23,13 @@ export type WeeklyRecapViewModel =
       ownerLines: WeeklyRecapOwnerLine[];
       unresolvedMessage: string | null;
       abandonedMessage: string | null;
+      missingResultMessage: string | null;
     };
+
+export type WeeklyRecapSeasonScope = {
+  leagueStatus: LeagueStatus | undefined;
+  seasonYear: number;
+};
 
 function countMessage(count: number, singular: string, plural: string): string | null {
   if (count === 0) return null;
@@ -26,11 +37,15 @@ function countMessage(count: number, singular: string, plural: string): string |
 }
 
 export function composeWeeklyRecap(
-  contextResult: WeeklyRecapContextResult,
-  now: Date
+  contextResult: WeeklyRecapContextResult | null,
+  now: Date,
+  scope: WeeklyRecapSeasonScope
 ): WeeklyRecapViewModel {
+  if (!isWeeklyRecapActiveSeason(scope)) return { status: 'inactive' };
+  if (!contextResult) return { status: 'unavailable' };
   if (contextResult.status === 'unavailable') return { status: 'unavailable' };
   if (contextResult.status === 'absent') return { status: 'absent' };
+  if (contextResult.context.seasonYear !== scope.seasonYear) return { status: 'unavailable' };
 
   const facts = selectWeeklyRecapFacts({
     games: contextResult.context.games,
@@ -46,7 +61,7 @@ export function composeWeeklyRecap(
   );
   const weekLabel = compactWeekLabel.startsWith('W')
     ? `Week ${facts.targetWeek.week}`
-    : `${compactWeekLabel} · Week ${facts.targetWeek.week}`;
+    : compactWeekLabel;
 
   return {
     status: 'available',
@@ -66,6 +81,11 @@ export function composeWeeklyRecap(
       facts.abandonedCount,
       'game has no recorded result.',
       'games have no recorded result.'
+    ),
+    missingResultMessage: countMessage(
+      facts.missingResultCount,
+      'completed game is not reflected in these totals.',
+      'completed games are not reflected in these totals.'
     ),
   };
 }

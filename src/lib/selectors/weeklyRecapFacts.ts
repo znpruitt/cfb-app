@@ -1,6 +1,9 @@
+import { getGameOwners } from '../gameOwnership.ts';
+import type { LeagueStatus } from '../league.ts';
+import { classifyGameConclusionEvidence } from '../gameStatus.ts';
 import type { ScorePack } from '../scores.ts';
 import type { AppGame } from '../schedule.ts';
-import { deriveFinalOwnedParticipations } from '../standings.ts';
+import { deriveFinalOwnedParticipations, NO_CLAIM_OWNER } from '../standings.ts';
 import { derivePendingGame, hasGameBeenAbandoned } from '../standingsHistory.ts';
 
 const RECAP_TIME_ZONE = 'America/New_York';
@@ -41,7 +44,15 @@ export type WeeklyRecapFacts = {
   ownerResults: WeeklyOwnerResult[];
   unresolvedCount: number;
   abandonedCount: number;
+  missingResultCount: number;
 };
+
+export function isWeeklyRecapActiveSeason(args: {
+  leagueStatus: LeagueStatus | undefined;
+  seasonYear: number;
+}): boolean {
+  return args.leagueStatus?.state === 'season' && args.leagueStatus.year === args.seasonYear;
+}
 
 function easternDateTime(value: Date): EasternDateTime | null {
   if (!Number.isFinite(value.getTime())) return null;
@@ -147,10 +158,20 @@ export function selectWeeklyRecapFacts(args: {
   if (!targetWeek) return null;
 
   const targetGames = games.filter((game) => game.canonicalWeek === targetWeek.week);
+  const leagueGames = targetGames.filter((game) => {
+    const { awayOwner, homeOwner } = getGameOwners(game, rosterByTeam);
+    return (
+      (awayOwner != null && awayOwner !== NO_CLAIM_OWNER) ||
+      (homeOwner != null && homeOwner !== NO_CLAIM_OWNER)
+    );
+  });
   const totalsByOwner = new Map<string, WeeklyOwnerResult>();
-  const participations = deriveFinalOwnedParticipations(targetGames, rosterByTeam, scoresByKey);
+  const participations = deriveFinalOwnedParticipations(leagueGames, rosterByTeam, scoresByKey);
+  const countedGameKeys = new Set<string>();
 
   for (const participation of participations) {
+    if (participation.owner === NO_CLAIM_OWNER) continue;
+    countedGameKeys.add(participation.game.key);
     const current = totalsByOwner.get(participation.owner) ?? {
       owner: participation.owner,
       wins: 0,
@@ -172,9 +193,18 @@ export function selectWeeklyRecapFacts(args: {
 
   let unresolvedCount = 0;
   let abandonedCount = 0;
-  for (const game of targetGames) {
-    const pending = derivePendingGame(game, scoresByKey[game.key]);
-    if (!pending) continue;
+  let missingResultCount = 0;
+  for (const game of leagueGames) {
+    if (countedGameKeys.has(game.key)) continue;
+
+    const score = scoresByKey[game.key];
+    const pending = derivePendingGame(game, score);
+    if (!pending) {
+      if (classifyGameConclusionEvidence(game, score) === 'score-required') {
+        missingResultCount += 1;
+      }
+      continue;
+    }
     if (hasGameBeenAbandoned(pending, now)) {
       abandonedCount += 1;
     } else {
@@ -189,5 +219,6 @@ export function selectWeeklyRecapFacts(args: {
     ),
     unresolvedCount,
     abandonedCount,
+    missingResultCount,
   };
 }
