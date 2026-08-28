@@ -1,7 +1,7 @@
 # Completed Work Log
 
 Status: Historical (append-only ledger)
-Last verified: 2026-08-27
+Last verified: 2026-08-28
 Owner: Project documentation
 Canonical for: append-only record of shipped phases/milestones (outcomes) — historical, not current implementation authority
 Supersedes: (none)
@@ -4127,6 +4127,22 @@ Key architectural decisions across Phase 5:
   diagnostics coverage, and the 4,316-test full suite. Independent Codex and Claude reviews found
   no actionable P0/P1/P2 correctness issue, including after the mixed-timing regression fix.
 - **Open follow-ups:** Item 64(c) remains in the canonical queue in `docs/next-tasks.md`.
+
+### INSIGHTS-026a — Request-Time Weekly Recap Skeleton — Complete
+
+- **Status:** Merged via PR #519 (merge commit `68d7f792`), 2026-08-28; production promotion not
+  yet verified.
+- **PROMPT_ID(s):** `INSIGHTS-026a-RECAP-SKELETON-v1`.
+- **Outcome:** The existing Insights page now leads with an exact-active-season weekly recap for the
+  immediately preceding eligible canonical week. Its pure selector and cache-only loader produce
+  per-owner W-L/PF/PA and distinguish unresolved, abandoned, missing-result, absent, and unavailable
+  states while the standing Insights feed remains independent.
+- **Verification:** Thirty-one focused tests were added across selectors, loader/composer, and the
+  RSC page. TypeScript and lint passed; the full 4,347-test suite passed at one file worker after
+  host-constrained four-worker attempts timed out without assertion failures. Independent Codex and
+  Claude review left no open P0/P1/P2 finding.
+- **Open follow-ups:** Item 42 remains in `docs/next-tasks.md` for recap details, record changes, odds
+  upsets, Overview rendering, Forward Look, and the stored event-source artifact.
 
 ### Template for future entries
 

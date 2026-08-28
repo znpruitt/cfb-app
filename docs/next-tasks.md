@@ -1,7 +1,7 @@
 # Next Tasks (Active Queue)
 
 Status: Current
-Last verified: 2026-08-27
+Last verified: 2026-08-28
 Owner: Project documentation
 Canonical for: current execution order, planned/parked work, blockers, and the one canonical list of
 unresolved decisions and known deferrals
@@ -24,10 +24,11 @@ Supersedes: (none)
 
 ## Current execution order
 
-`CURRENT` and `NEXT` are unassigned pending an owner decision.
+`CURRENT`: Item 42 — INSIGHTS-026 weekly recap, Slice 2
+(`INSIGHTS-026b-RECAP-DETAILS-v1`). `NEXT` is unassigned beyond that slice.
 
-The 2026-08-26 roadmap audit recommends this season-reliability sequence; it is proposed ordering,
-not an owner-selected `NEXT` designation:
+The 2026-08-26 roadmap audit recommends this season-reliability sequence after the current slice;
+it is proposed ordering, not an owner-selected `NEXT` designation:
 
 1. Item 64(c) — align abandonment handling in resolved-week selection.
 2. Item 63 — design delete-and-recreate reschedule reconciliation.
@@ -383,23 +384,29 @@ already displayed independently. Move `resolveLeagueMembers`, `resolveSuperlativ
 exception. Audit the remaining `selectAllRecords` roster-as-membership derivation and decide how its
 record eligibility converges with generator-specific rules.
 
-### Item 42 — INSIGHTS-026 weekly pulse and event source
+### Item 42 — INSIGHTS-026 weekly recap and event source (In progress)
 
-Build one stored digest with a compact Overview rendering and a full dedicated rendering. It is also
-the event producer for the insight stream; request-time generators currently produce standing facts
-only.
+The request-time Look Back skeleton is complete. It is scoped to the league's exact active season,
+selects the immediately preceding eligible canonical week after the next-day 06:00 ET cutoff, and
+renders at the top of the existing Insights page. Standing/durable insights remain independent and
+are inherited alongside the recap rather than replaced by it.
 
-Settle before implementation:
+Continue the request-time portion vertically:
 
-- fixed-period versus since-last-success windows;
-- idempotency and catch-up after a missed run;
-- immutable stored artifacts rather than request-time recomputation;
-- year validity, demo exclusion, and scheduler receipts;
-- ET cadence without hardcoding the wrong UTC hour across daylight time.
+- **CURRENT — Slice 2 (`INSIGHTS-026b-RECAP-DETAILS-v1`):** add week-explicit movement,
+  owner-vs-owner detail, and weekly accolades to the proven pipeline.
+- Slice 3: add the allowlisted partial-season record-change projection.
+- Slice 4: add odds upsets through a shared odds-upset policy helper.
+- Slice 5: add the compact Overview rendering and remove the dead prior pulse view-model fields.
 
-Monday Look Back composes standings movement, upsets, head-to-head changes, record changes, and
-weekly accolades. Thursday Forward Look is a schedule/rankings preview. INSIGHTS-020 record-change
-work is a contributor to this campaign, not a standalone predecessor.
+This request-time campaign does not close item 42. A later stored artifact must add immutability and
+become the event producer that can unblock item 30's NEW tag. Before that work, settle fixed-period
+versus since-last-success windows, idempotency/catch-up, year validity, demo exclusion, scheduler
+receipts, and DST-correct ET cadence.
+
+Thursday Forward Look is separate future work. It targets the immediate upcoming canonical week of
+games and needs schedule/rankings inputs not gathered by the Look Back loader. INSIGHTS-020
+record-change work contributes to this campaign rather than preceding it as a standalone feature.
 
 ### Item 43 — new preseason generators
 

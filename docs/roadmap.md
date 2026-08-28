@@ -1,7 +1,7 @@
 # CFB App Roadmap
 
 Status: Current
-Last verified: 2026-08-26
+Last verified: 2026-08-28
 Owner: Project documentation
 Canonical for: high-level product/platform roadmap and development philosophy only
 Supersedes: (none)
@@ -180,7 +180,7 @@ shows.
 
 Full-page view of all insights for a league, accessible via "See all →" from the overview panel. Grouped by category, full descriptions, lifecycle filtering.
 
-#### Insights Engine — Two Weekly In-Season Pulses (planned — INSIGHTS-026)
+#### Insights Engine — Two Weekly In-Season Pulses (in progress — INSIGHTS-026)
 
 > **ID note (2026-08-14):** this campaign was filed under `INSIGHTS-018`, which the backlog also used
 > for the NEW-tag mechanism. Split to `INSIGHTS-026` so a content campaign stops hiding behind a
@@ -195,23 +195,35 @@ Full-page view of all insights for a league, accessible via "See all →" from t
 > (11am UTC)" below is wrong for most of the season** — football runs mostly in EDT, where 6am ET is
 > 10am UTC. Express the intent in ET. See `docs/next-tasks.md` INSIGHTS-026 for the framework's open
 > questions.
+>
+> **Delivery decision 2026-08-28 (owner):** build the Look Back request-time first, in vertical
+> slices. Slice 1 is merged: the full recap begins at the top of the existing Insights page and is
+> scoped to the league's exact active season and immediately preceding eligible week. Existing
+> standing/durable insights remain independent. The compact Overview rendering is a later slice;
+> the immutable artifact/event-source portion remains open. Forward Look will target the immediate
+> upcoming canonical week and needs its own schedule/rankings inputs.
 
 Enrich the existing insights panel on the overview page with contextual, data-driven narrative content. The panel structure is already built — this campaign populates it with meaningful insights that adapt automatically based on lifecycle state (offseason / preseason / in-season / postseason).
 
 **Core principle:** Every insight must tell the user something they couldn't figure out just by reading the table. No restating visible data without a compelling angle.
 
-**Placement:** 2–3 highlight insights on overview page (existing panel); full pulse on dedicated tab.
+**Placement:** compact recap on Overview (existing panel); full recap at the top of the existing
+Insights page. No dedicated pulse route or navigation entry.
 
 **Content adapts by lifecycle state:**
 
 - **Offseason / Preseason:** History-based insights (defending champion, drought, collapse), draft-based insights (conference concentration, diversity, AP poll rankings per owner), schedule strength projections
-- **In-season:** Two weekly pulses — Look Back (Monday 6am ET) and Forward Look (Thursday 6am ET)
+- **In-season:** Look Back for the immediately preceding eligible week; Forward Look for the
+  immediate upcoming week
 - **Postseason:** Championship race narrative, bracket implications, owner vs owner outcomes
 
 **Two weekly in-season pulses:**
 
-- **Monday 6am ET — Look Back:** Weekend recap, notable results, standings movement, trash-talk fodder, owner vs owner outcomes, surprising performances
-- **Thursday 6am ET — Forward Look:** Games to watch this weekend, owner vs owner collision preview, rivalry implications, who needs a win
+- **Look Back:** Request-time weekend recap after the previous week's next-day 06:00 ET eligibility
+  cutoff — notable results, standings movement, trash-talk fodder, owner-vs-owner outcomes, and
+  surprising performances
+- **Forward Look:** Future schedule/rankings preview for the immediate upcoming canonical week —
+  games to watch, owner-vs-owner collision previews, rivalry implications, and who needs a win
 
 **Data sources (tiered by availability):**
 

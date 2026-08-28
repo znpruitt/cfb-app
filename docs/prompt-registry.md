@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-08-27
+Last verified: 2026-08-28
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -50,6 +50,24 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### INSIGHTS-026a-RECAP-SKELETON-v1
+
+- Purpose: establish the request-time weekly Look Back pipeline before adding the remaining recap
+  fact families, Overview rendering, or durable event-source delivery.
+- Scope: pure target-week and weekly-result selectors, cache-only recap context loading, recap view
+  model composition, the existing Insights RSC lead section, and focused regression coverage. No
+  cron, scheduler registration, durable recap artifact, Overview wiring, odds, or record projection.
+- Outcome: an exact-active-season recap now selects the immediately preceding eligible canonical
+  week after its next-day 06:00 ET cutoff and renders per-owner W-L/PF/PA plus truthful unresolved,
+  abandoned, missing-result, and no-result states without coupling standing insights to recap
+  availability.
+- Review / verification: 31 focused tests were added for lifecycle, calendar boundaries, canonical
+  ownership, finality, loader failure, composition, and RSC rendering. TypeScript and lint passed;
+  the full 4,347-test suite passed with one file worker after the host-starved four-worker runs
+  produced only top-level timeout cancellations. Independent Codex review found no actionable
+  P0-P3; Claude found no P0-P2, and its actionable P3 copy findings were remediated.
+- Status: Merged via PR #519 (merge commit `68d7f792`), 2026-08-28.
 
 ### PLATFORM-113-ELAPSED-TIME-CONCLUSION-DIAGNOSTICS-v1
 
