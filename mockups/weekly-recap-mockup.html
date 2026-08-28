@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weekly Recap — Final Mockup</title>
+<style>
+  :root {
+    --bg: #161616;
+    --tile: #1e1e1e;
+    --text: #ececec;
+    --text-secondary: #8f8f8f;
+    --text-tertiary: #6b6b6b;
+    --hairline: rgba(255,255,255,0.09);
+    --green: #4ade80;
+    --red: #f87171;
+    --blue: #60a5fa;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.4;
+  }
+  .page { max-width: 1120px; margin: 0 auto; padding: 64px 32px 96px; }
+  .num { font-variant-numeric: tabular-nums; }
+  a, .linkbtn {
+    color: var(--blue); text-decoration: none; font-size: 13px;
+    background: none; border: none; cursor: pointer; font-family: inherit; padding: 0;
+  }
+  a:hover, .linkbtn:hover { text-decoration: underline; }
+
+  /* ---------- Standard row anatomy ---------- */
+  .row { padding: 8px 0; border-bottom: 0.5px solid var(--hairline); }
+  .row:last-child { border-bottom: none; }
+  .row .line1 {
+    display: flex; align-items: baseline; justify-content: space-between;
+    font-size: 14.5px; font-weight: 500;
+  }
+  .row .line1 span:first-child {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 12px;
+  }
+  .row .line2 { margin-top: 2px; font-size: 12px; color: var(--text-tertiary); }
+  .row.compact { padding: 6px 0; }
+  .row.compact .line1 { font-size: 13.5px; }
+  .delta-up { color: var(--green); font-weight: 500; }
+  .delta-down { color: var(--red); font-weight: 500; }
+
+  h3.section-label {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-tertiary); margin-bottom: 12px;
+  }
+  .eyebrow-label {
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-secondary);
+  }
+  .eyebrow-dim { color: var(--text-tertiary); }
+
+  .tag {
+    font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    margin-right: 8px;
+  }
+  /* Game-tag color family — same eyebrow visual language as insight categories,
+     grouped into three hues so the combined page palette stays legible:
+     upset / margin (blowout, shutout) / drama (nailbiter, shootout).
+     Hues are PLACEHOLDERS — final values assigned against the full category
+     token registry in the enrichment stage. */
+  .tag-upset { color: #e879f9; }           /* fuchsia — clear of all known tokens */
+  .tag-blowout, .tag-shutout { color: #a3e635; }    /* lime — nearest neighbor is delta green; judge in strip */
+  .tag-nailbiter, .tag-shootout { color: #2dd4bf; } /* teal — clear of all known tokens */
+
+  /* ---------- Mini scoreboard (notable results) ---------- */
+  .scoreboard { padding: 10px 0; border-bottom: 0.5px solid var(--hairline); }
+  .scoreboard:last-child { border-bottom: none; }
+  .sb-tag { margin-bottom: 6px; font-size: 12px; color: var(--text-tertiary); }
+  .sb-tag .tag { margin-right: 6px; }
+  .sb-line {
+    display: flex; align-items: baseline; justify-content: space-between;
+    font-size: 14px; padding: 1px 0;
+  }
+  .sb-line .who { display: flex; align-items: baseline; gap: 6px; overflow: hidden; white-space: nowrap; margin-right: 12px; }
+  .sb-line .who > span { overflow: hidden; text-overflow: ellipsis; }
+  /* Team leads the line (logo slot reserved at line start); owner is the secondary attribute */
+  .sb-line .owner { color: var(--text-tertiary); font-size: 12.5px; }
+  .sb-line.loser .owner { color: var(--text-tertiary); }
+  .sb-line.winner { font-weight: 550; }
+  .sb-line.winner .score { font-weight: 600; }
+  .sb-line.loser { color: var(--text-secondary); }
+  .sb-line.loser .team { color: var(--text-tertiary); }
+  .notables-grid { display: grid; grid-template-columns: 1fr 1fr; column-gap: 48px; }
+  .tile .scoreboard { padding: 8px 0; }
+  .tile .sb-line { font-size: 13.5px; }
+
+  /* ---------- Variant A: Insights full recap ---------- */
+  .recap-eyebrow { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 18px; }
+  .recap-headline { font-size: 28px; font-weight: 650; letter-spacing: -0.015em; line-height: 1.15; max-width: 640px; }
+  .recap-dek { margin-top: 8px; font-size: 15px; color: var(--text-secondary); max-width: 620px; }
+  .leaders {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 48px;
+    margin-top: 40px; padding: 24px 0;
+    border-top: 0.5px solid var(--hairline); border-bottom: 0.5px solid var(--hairline);
+  }
+  .stat-label {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--text-tertiary);
+  }
+  .stat-value { margin-top: 8px; font-size: 26px; font-weight: 650; letter-spacing: -0.01em; }
+  .stat-context { margin-top: 4px; font-size: 12px; color: var(--text-secondary); }
+  .records-section { margin-top: 44px; }
+  .records-grid { display: grid; grid-template-columns: repeat(4, 1fr); column-gap: 40px; }
+  .mid { display: grid; grid-template-columns: 5fr 7fr; gap: 64px; margin-top: 44px; }
+
+  /* ---------- Variant B: Overview tile (Option 3, editorial split) ---------- */
+  .tile { background: var(--tile); border-radius: 8px; padding: 24px 28px; }
+  .tile-footer { margin-top: 16px; }
+  .expanded { border-top: 0.5px solid var(--hairline); margin-top: 20px; padding-top: 20px; }
+  .expanded .records-grid { column-gap: 32px; }
+  .expanded .mid { gap: 48px; margin-top: 36px; }
+  .expanded .records-section { margin-top: 0; }
+  .opt3-grid { display: grid; grid-template-columns: 7fr 5fr; gap: 56px; }
+  .opt3-grid .headline { font-size: 21px; font-weight: 650; letter-spacing: -0.01em; line-height: 1.2; margin-top: 10px; }
+  .opt3-grid .dek { margin-top: 6px; font-size: 13px; color: var(--text-secondary); }
+  .opt3-notables { margin-top: 16px; }
+
+  /* ---------- Mockup scaffolding (not part of design) ---------- */
+  .variant-label {
+    margin: 0 0 28px; padding-bottom: 8px; border-bottom: 1px dashed #4a4a4a;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: #7a7a7a;
+  }
+  .variant-divider { margin-top: 96px; }
+  .context-placeholder { margin-top: 20px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .context-placeholder .ph {
+    height: 72px; border: 1px dashed #3d3d3d; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: #5f5f5f; font-style: italic;
+  }
+  .mockup-notes {
+    margin-top: 96px; padding: 24px; border: 1px dashed #4a4a4a; border-radius: 6px;
+    font-size: 13px; color: #a8a8a8; line-height: 1.7;
+  }
+  .mockup-notes strong { color: #d8d8d8; }
+  .mockup-notes ul { margin: 8px 0 0 18px; }
+
+  @media (max-width: 820px) {
+    .leaders, .opt3-grid { grid-template-columns: 1fr; gap: 20px; }
+    .mid { grid-template-columns: 1fr; gap: 40px; }
+    .records-grid { grid-template-columns: 1fr 1fr; column-gap: 32px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="variant-label">Variant A &mdash; Insights page, top of page (full recap)</div>
+
+  <div class="recap-eyebrow">
+    <span class="eyebrow-label">Weekly recap</span>
+    <span class="eyebrow-label eyebrow-dim">CFP</span>
+  </div>
+  <div class="recap-headline">Owner A takes the week at 6&ndash;1</div>
+  <div class="recap-dek">Owner J's 251 leads the scoreboard, a two-point escape decides the closest game, and five owners are on the move.</div>
+
+  <div class="leaders">
+    <div><div class="stat-label">Best record</div><div class="stat-value num">6&ndash;1</div><div class="stat-context">Owner A &middot; 180 PF</div></div>
+    <div><div class="stat-label">High score</div><div class="stat-value num">251</div><div class="stat-context">Owner J &middot; 5&ndash;4 on the week</div></div>
+    <div><div class="stat-label">Closest game</div><div class="stat-value num">49&ndash;47</div><div class="stat-context">Owner D over Owner J &middot; 2-point margin</div></div>
+  </div>
+
+  <div class="records-section">
+    <h3 class="section-label">Week records</h3>
+    <div class="records-grid" id="records-a"></div>
+  </div>
+
+  <div class="mid">
+    <div>
+      <h3 class="section-label">Movement</h3>
+      <div id="movement-a"></div>
+    </div>
+    <div>
+      <h3 class="section-label">Notable results</h3>
+      <div class="notables-grid" id="notables-a"></div>
+    </div>
+  </div>
+
+  <!-- ================= Variant B: Overview tile ================= -->
+  <div class="variant-divider">
+    <div class="variant-label">Variant B &mdash; Overview tile above the podium (editorial split) &middot; expandable in place</div>
+
+    <div class="tile">
+      <div class="opt3-grid">
+        <div>
+          <div><span class="eyebrow-label">Weekly recap</span> &nbsp;<span class="eyebrow-label eyebrow-dim">CFP</span></div>
+          <div class="headline">Owner A takes the week at 6&ndash;1</div>
+          <div class="dek">Owner J's 251 leads the scoreboard; five owners on the move.</div>
+          <div class="opt3-notables">
+            <div class="scoreboard">
+              <div class="sb-tag"><span class="tag tag-upset">Upset</span>Won as +9.5 underdog</div>
+              <div class="sb-line winner"><span class="who"><span class="team">Washington</span><span class="owner">Owner E</span></span><span class="score num">38</span></div>
+              <div class="sb-line loser"><span class="who"><span class="team">Boise State</span><span class="owner">Owner J</span></span><span class="score num">10</span></div>
+            </div>
+            <div class="scoreboard">
+              <div class="sb-tag"><span class="tag tag-blowout">Blowout</span>35-point margin</div>
+              <div class="sb-line winner"><span class="who"><span class="team">Indiana</span><span class="owner">Owner J</span></span><span class="score num">38</span></div>
+              <div class="sb-line loser"><span class="who"><span class="team">Alabama</span><span class="owner">Owner N</span></span><span class="score num">3</span></div>
+            </div>
+            <div class="scoreboard">
+              <div class="sb-tag"><span class="tag tag-nailbiter">Nailbiter</span>2-point margin</div>
+              <div class="sb-line winner"><span class="who"><span class="team">Illinois</span><span class="owner">Owner H</span></span><span class="score num">30</span></div>
+              <div class="sb-line loser"><span class="who"><span class="team">Tennessee</span><span class="owner">Owner L</span></span><span class="score num">28</span></div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <h3 class="section-label">Week leaders</h3>
+          <div class="row compact"><div class="line1"><span>Best record</span><span class="num">6&ndash;1</span></div><div class="line2">Owner A &middot; 180 PF</div></div>
+          <div class="row compact"><div class="line1"><span>High score</span><span class="num">251</span></div><div class="line2">Owner J &middot; 5&ndash;4 on the week</div></div>
+          <div class="row compact"><div class="line1"><span>Closest game</span><span class="num">49&ndash;47</span></div><div class="line2">Owner D over Owner J</div></div>
+          <div class="row compact"><div class="line1"><span>Owner I</span><span class="delta-up num">&#9650; 2</span></div><div class="line2 num">Biggest riser &middot; #5 &rarr; #3</div></div>
+        </div>
+      </div>
+      <div class="expanded" id="exp-1" style="display:none;"></div>
+      <div class="tile-footer"><button class="linkbtn" onclick="toggleRecap(1, this)">View full recap &rarr;</button></div>
+    </div>
+    <div class="context-placeholder"><div class="ph">#1 podium card</div><div class="ph">#2 podium card</div><div class="ph">#3 podium card</div></div>
+
+  </div>
+
+  <!-- Palette comparison strip (annotation, not design) -->
+  <div class="mockup-notes" style="margin-top:48px;">
+    <strong>Palette strip &mdash; eyeball all families side by side</strong>
+    <div style="display:flex; flex-wrap:wrap; gap:24px; margin-top:14px; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; font-weight:600;">
+      <div><div style="margin-bottom:6px; color:#7a7a7a;">Reserved</div>
+        <span style="color:#4ade80;">&#9632; delta up</span> &nbsp;<span style="color:#f87171;">&#9632; delta down</span> &nbsp;<span style="color:#60a5fa;">&#9632; interactive</span> &nbsp;<span style="color:#BA7517;">&#9632; champion</span></div>
+      <div><div style="margin-bottom:6px; color:#7a7a7a;">Insight tokens</div>
+        <span style="color:#F0997B;">&#9632; rivalry</span> &nbsp;<span style="color:#ED93B1;">&#9632; trajectory</span> &nbsp;<span style="color:#AFA9EC;">&#9632; historical</span> &nbsp;<span style="border:1px dashed #555; padding:0 4px;">career ?</span> &nbsp;<span style="border:1px dashed #555; padding:0 4px;">stats ?</span></div>
+      <div><div style="margin-bottom:6px; color:#7a7a7a;">Tag candidates</div>
+        <span style="color:#e879f9;">&#9632; upset</span> &nbsp;<span style="color:#a3e635;">&#9632; margin</span> &nbsp;<span style="color:#2dd4bf;">&#9632; drama</span></div>
+      <div><div style="margin-bottom:6px; color:#7a7a7a;">Two-hue fallback</div>
+        <span style="color:#e879f9;">&#9632; upset</span> &nbsp;<span style="color:#2dd4bf;">&#9632; extreme game</span></div>
+    </div>
+    <div style="margin-top:12px; font-size:12px; text-transform:none; font-weight:400; letter-spacing:0;">Only two hue regions are cleanly distant from every known token (fuchsia, teal). Margin lime's nearest neighbor is delta green at rendered size &mdash; judge whether it holds. If it doesn't, or CAREER/STATS occupy fuchsia or teal space, fall back to the two-hue grouping (upset vs. statistically extreme game).</div>
+  </div>
+
+  <!-- Annotations — not part of the design -->
+  <div class="mockup-notes">
+    <strong>Mockup notes (not part of the design) &mdash; layout-stage final</strong>
+    <ul>
+      <li><strong>Decided &mdash; Overview zone:</strong> full-width tile above the podium accepted; DESIGN.md amendment to document the elevated timely-content zone (draft banner + recap tile). Podium displacement is bounded by the visibility window.</li>
+      <li><strong>Tag color &mdash; final assignment folds into INSIGHTS-017-PALETTE:</strong> the rendered registry is 8 categories over 5 distinct dark hexes with two collisions already queued for rationalization (HISTORICAL/STANDINGS/SEASON share #AFA9EC; STATS/LEAGUE/fallback share #B4B2A9), and CAREER's #5DCAA5 is allocated but unreachable from the insights path. Assigning tag hues against a palette flagged for rework would be building on sand &mdash; instead, 017's scope expands to cover the three game-tag families alongside the insight categories, rationalized as one palette. Sequencing: 017 lands before (or with) the recap enrichment stage; enrichment consumes its tokens. The hues in this mockup (fuchsia/lime/teal) are visual placeholders only. Caution for 017: reclaiming #5DCAA5 sits near delta green #4ade80.</li>
+      <li><strong>Notable results are mini scoreboards</strong> (replacing sentence rows): a tag eyebrow with the qualifying stat, then winner and loser lines &mdash; team primary, owner as tertiary suffix, score right-anchored, winner weighted, loser dimmed. The layout replaces the "over" sentence, disambiguates repeat meetings, and aligns scores for scanning. This is a new micro-component for CLI blessing alongside the compact row; each line keeps the right-edge-anchor rule. Full recap renders them in a two-column grid; the tile stacks the top three.</li>
+      <li><strong>Staged rollout:</strong> this mockup is the layout target. Stage mapping &mdash; layout stage: recap structure, tile + expand-in-place, headline + week records (slice-1 data), sections absent (not placeholdered) until their data slice lands. Wiring stage: leaders, movement, odds-based upsets from existing derivations. Enrichment stage: notable tagging via gameTags.ts extension, threshold constants (BLOWOUT_MARGIN 30, NAILBITER_MARGIN 3, SHOOTOUT_COMBINED 85 &mdash; approved), tag color tokens, headline dek richness.</li>
+      <li><strong>Week records line 2 is PF &middot; PA (win% considered and rejected):</strong> weekly win% is derived directly from the W&ndash;L on line 1, failing DESIGN.md's rule that line-2 metadata be at least as informative as the primary value; and "Win% &middot; Diff" is season-standings vocabulary, inviting a weekly .857 to be read as a season figure. PF &middot; PA is genuinely new information at that position. Comparability across unequal game counts is carried by the comparator-sorted order itself.</li>
+      <li><strong>Zero-results state preserved, restyled:</strong> an eligible week with no completed results keeps the shipped state as a single secondary-text line under the recap header ("No completed results were recorded for this week.") &mdash; factual, past-tense, no counters, no promise.</li>
+      <li><strong>Thursday cutoff is deliberate:</strong> midweek (Tue/Wed) games can start the next week while the recap is still displayed through Wednesday; accepted trade for a fixed calendar rule with no game-data dependency.</li>
+      <li><strong>Resolved earlier:</strong> headline leads with best weekly record (league ranks on wins); tie rule reuses the standings comparator (wins &rarr; win% &rarr; point differential); strongest-tag-wins via existing prioritizeGameTags; week eligibility is calendar-only (06:00 ET the day after the week's last game-date, regardless of game resolution); movement uses poll delta language; compact row proposed as dense sibling token; expansion is client-side, collapsed by default, no duplicated sections in implementation; notables exclude strip-featured games, cap at ~7, render nothing on a quiet week.</li>
+      <li><strong>Decided &mdash; scoreboard emphasis is team-primary:</strong> team leads the line (primary weight), owner is the tertiary suffix. Rationale: de-conflicts repeat matchups between the same owners, reads as a true scoreboard, and reserves the line-start slot for future team logos &mdash; the markup orders team first so the logo insertion point is structural. Logos themselves are out of scope for this campaign.</li>
+      <li><strong>Decided &mdash; tile lifecycle (two-state persistent slot):</strong> the tile always occupies the elevated zone during the season. State 1, recap: from a week's eligibility (06:00 ET after its last game-date) until Thursday 06:00 ET. State 2, upcoming weekend: Thursday 06:00 ET until the next week's eligibility. One fixed calendar rule, no game-data dependency; state resolved at render. The upcoming-weekend view is NEW SCOPE requiring its own mockup cycle &mdash; not designed here, not in this campaign. Until it ships, the tile hides during its window (podium tops the page Thursday&ndash;weekend), and likewise at season start before the first eligible week. The incomplete-week impact statement is retired &mdash; its window no longer exists.</li>
+      <li><strong>Decided &mdash; notable-results scope:</strong> all owned-team games qualify for tagging; owner-vs-owner games take selection priority. Concretely: qualifying owner-vs-owner games fill the list first (strongest-tag ordering), then qualifying non-H2H owned games fill remaining slots up to the cap. The scoreboard component renders an unowned opponent as team-only (no owner suffix) &mdash; see the Purdue example in the expanded notables.</li>
+      <li><strong>Dek is templated multi-fact prose, specced as such:</strong> the enrichment-stage spec must define the composition template and degradation rules (no close game, no movers, single dominant owner) &mdash; not "richness" hand-waving. The upset detail requires spread magnitude, which the shared gameTags.ts helper already returns.</li>
+      <li><strong>DESIGN.md amendments, staged with the work:</strong> layout stage carries three &mdash; the containerization exception, the elevated timely-content zone documented retroactively (covers the existing draft banner, which DESIGN.md never mentions) then extended to the recap tile, and the compact row token with the 13.5px exception to the 14&ndash;15px line-1 rule stated explicitly. The mini scoreboard doc (including the tag-eyebrow-above-lines inversion as deliberate) lands with the enrichment stage that ships the component; the game-tag hue registry entries land with INSIGHTS-017-PALETTE.</li>
+    </ul>
+  </div>
+
+<script>
+  const RECORDS = [
+    ["Owner A","6\u20131","180 PF \u00b7 114 PA"],["Owner J","5\u20134","251 PF \u00b7 231 PA"],
+    ["Owner I","5\u20134","244 PF \u00b7 256 PA"],["Owner D","4\u20134","208 PF \u00b7 199 PA"],
+    ["Owner G","4\u20135","152 PF \u00b7 184 PA"],["Owner L","3\u20131","116 PF \u00b7 81 PA"],
+    ["Owner C","3\u20132","131 PF \u00b7 84 PA"],["Owner M","3\u20132","127 PF \u00b7 111 PA"],
+    ["Owner N","3\u20132","105 PF \u00b7 125 PA"],["Owner H","3\u20133","186 PF \u00b7 178 PA"],
+    ["Owner F","3\u20134","193 PF \u00b7 200 PA"],["Owner B","2\u20132","129 PF \u00b7 133 PA"],
+    ["Owner E","1\u20132","78 PF \u00b7 86 PA"],["Owner K","1\u20136","147 PF \u00b7 208 PA"]
+  ];
+  const MOVEMENT = [
+    ["Owner I","up","2","#5 \u2192 #3"],["Owner A","up","2","#9 \u2192 #7"],
+    ["Owner K","down","2","#3 \u2192 #5"],["Owner H","down","1","#7 \u2192 #8"],["Owner L","down","1","#8 \u2192 #9"]
+  ];
+  const NOTABLES = [
+    ["upset","Upset","Won as +9.5 underdog","Owner E","Washington",38,"Owner J","Boise State",10],
+    ["blowout","Blowout","37-point margin","Owner H","UTSA",57,"Owner I","Florida International",20],
+    ["blowout","Blowout","35-point margin","Owner J","Indiana",38,"Owner N","Alabama",3],
+    ["blowout","Blowout","39-point margin","Owner A","Penn State",45,"","Purdue",6],
+    ["shutout","Shutout","Zero points allowed","Owner I","Oregon",23,"Owner K","Texas Tech",0],
+    ["shootout","Shootout","85 combined points","Owner I","Oregon",51,"Owner H","James Madison",34],
+    ["nailbiter","Nailbiter","2-point margin","Owner H","Illinois",30,"Owner L","Tennessee",28]
+  ];
+  function recordRow([n,wl,pfpa]){
+    return `<div class="row"><div class="line1"><span>${n}</span><span class="num">${wl}</span></div><div class="line2 num">${pfpa}</div></div>`;
+  }
+  function movementRow([n,dir,pl,shift]){
+    const cls = dir==="up" ? "delta-up" : "delta-down";
+    const arrow = dir==="up" ? "\u25b2" : "\u25bc";
+    return `<div class="row"><div class="line1"><span>${n}</span><span class="${cls} num">${arrow} ${pl}</span></div><div class="line2 num">${shift}</div></div>`;
+  }
+  function scoreboard([cls,label,detail,wo,wt,ws,lo,lt,ls]){
+    const who = (team, owner) => `<span class="who"><span class="team">${team}</span>${owner ? `<span class="owner">${owner}</span>` : ``}</span>`;
+    return `<div class="scoreboard">
+      <div class="sb-tag"><span class="tag tag-${cls}">${label}</span>${detail}</div>
+      <div class="sb-line winner">${who(wt,wo)}<span class="score num">${ws}</span></div>
+      <div class="sb-line loser">${who(lt,lo)}<span class="score num">${ls}</span></div>
+    </div>`;
+  }
+  function expandedHTML(){
+    return `
+      <div class="records-section"><h3 class="section-label">Week records</h3>
+        <div class="records-grid">${RECORDS.map(recordRow).join("")}</div></div>
+      <div class="mid">
+        <div><h3 class="section-label">Movement</h3>${MOVEMENT.map(movementRow).join("")}</div>
+        <div><h3 class="section-label">Notable results</h3><div class="notables-grid">${NOTABLES.map(scoreboard).join("")}</div></div>
+      </div>`;
+  }
+  document.getElementById("records-a").innerHTML = RECORDS.map(recordRow).join("");
+  document.getElementById("movement-a").innerHTML = MOVEMENT.map(movementRow).join("");
+  document.getElementById("notables-a").innerHTML = NOTABLES.map(scoreboard).join("");
+  function toggleRecap(n, btn){
+    const el = document.getElementById("exp-"+n);
+    if (el.style.display === "none") {
+      if (!el.innerHTML) el.innerHTML = expandedHTML();
+      el.style.display = "block";
+      btn.innerHTML = "Collapse \u2191";
+    } else {
+      el.style.display = "none";
+      btn.innerHTML = "View full recap \u2192";
+    }
+  }
+</script>
+
+</div>
+</body>
+</html>
