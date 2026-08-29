@@ -797,6 +797,7 @@ current form is not.
 Acceptance boundary: the integrity line reports a pass on all six existing archives, and fails when a
 game is injected, dropped, or duplicated in a test fixture. A replacement that cannot be shown to
 fail on corruption is the same defect wearing a passing badge.
+
 ## Planned and parked campaigns
 
 These are valid future campaigns but are not activated implementation work:
