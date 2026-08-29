@@ -64,6 +64,7 @@ async function seedAvailableContext(slug: string): Promise<void> {
 function game(
   args: {
     key?: string;
+    week?: number;
     date?: string;
     startTimeTBD?: boolean;
     away?: string;
@@ -71,15 +72,16 @@ function game(
   } = {}
 ): AppGame {
   const key = args.key ?? 'quiet';
+  const week = args.week ?? 1;
   const away = args.away ?? 'Georgia';
   const home = args.home ?? 'Texas';
   return {
     key,
     eventId: key,
     eventKey: key,
-    week: 1,
-    canonicalWeek: 1,
-    providerWeek: 1,
+    week,
+    canonicalWeek: week,
+    providerWeek: week,
     stage: 'regular',
     stageOrder: 1,
     slotOrder: 0,
@@ -232,6 +234,157 @@ test('composer turns completed owner results into the minimal recap view model',
     { owner: 'Alice', recordLabel: '1–0', pointsLabel: '31 PF · 17 PA' },
     { owner: 'Bob', recordLabel: '0–1', pointsLabel: '17 PF · 31 PA' },
   ]);
+  assert.deepEqual(recap.leaderLines, [
+    {
+      id: 'best-record',
+      label: 'Best record',
+      value: '1–0',
+      context: 'Alice · 31 PF',
+    },
+    {
+      id: 'high-score',
+      label: 'High score',
+      value: '31',
+      context: 'Alice · 1–0 on the week',
+    },
+    {
+      id: 'closest-game',
+      label: 'Closest game',
+      value: '31–17',
+      context: 'Alice over Bob · 14-point margin',
+    },
+  ]);
+  assert.deepEqual(recap.tileLeaderLines, recap.leaderLines);
+  assert.deepEqual(recap.movementLines, []);
+});
+
+test('composer exposes approved movement rows and the compact biggest-riser summary', () => {
+  const games = [
+    game({ key: 'week-one', week: 1, date: '2026-09-06T00:00:00.000Z' }),
+    game({ key: 'week-two', week: 2, date: '2026-09-13T00:00:00.000Z' }),
+  ];
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: context(games, {
+        'week-one': finalScore(31, 10),
+        'week-two': finalScore(0, 50),
+      }),
+    },
+    new Date('2026-09-14T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  assert.deepEqual(recap.movementLines, [
+    { owner: 'Alice', direction: 'up', deltaLabel: '▲ 1', shiftLabel: '#2 → #1' },
+    { owner: 'Bob', direction: 'down', deltaLabel: '▼ 1', shiftLabel: '#1 → #2' },
+  ]);
+  assert.deepEqual(recap.tileLeaderLines.at(-1), {
+    id: 'biggest-riser',
+    label: 'Alice',
+    value: '▲ 1',
+    context: 'Biggest riser · #2 → #1',
+    tone: 'positive',
+  });
+});
+
+test('composer names every owner tied for biggest riser', () => {
+  const games = [
+    game({ key: 'alice-one', week: 1, home: 'Texas', away: 'Purdue' }),
+    game({ key: 'bob-one', week: 1, home: 'Georgia', away: 'Rutgers' }),
+    game({ key: 'carol-one', week: 1, home: 'Miami', away: 'Florida State' }),
+    game({ key: 'dave-one', week: 1, home: 'Clemson', away: 'UCF' }),
+    game({ key: 'eve-one', week: 1, home: 'Oregon', away: 'Washington' }),
+    game({ key: 'frank-one', week: 1, home: 'Ohio State', away: 'Michigan' }),
+    game({
+      key: 'alice-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Texas',
+      away: 'Purdue',
+    }),
+    game({
+      key: 'bob-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Georgia',
+      away: 'Rutgers',
+    }),
+    game({
+      key: 'carol-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Miami',
+      away: 'Florida State',
+    }),
+    game({
+      key: 'dave-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Clemson',
+      away: 'UCF',
+    }),
+    game({
+      key: 'eve-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Oregon',
+      away: 'Washington',
+    }),
+    game({
+      key: 'frank-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Ohio State',
+      away: 'Michigan',
+    }),
+  ];
+  const rosterByTeam = new Map([
+    ['Texas', 'Alice'],
+    ['Georgia', 'Bob'],
+    ['Miami', 'Carol'],
+    ['Clemson', 'Dave'],
+    ['Oregon', 'Eve'],
+    ['Ohio State', 'Frank'],
+  ]);
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: {
+        seasonYear: YEAR,
+        games,
+        rosterByTeam,
+        scoresByKey: {
+          'alice-one': finalScore(10, 70),
+          'bob-one': finalScore(10, 60),
+          'carol-one': finalScore(10, 50),
+          'dave-one': finalScore(50, 10),
+          'eve-one': finalScore(60, 10),
+          'frank-one': finalScore(70, 10),
+          'alice-two': finalScore(110, 10),
+          'bob-two': finalScore(110, 10),
+          'carol-two': finalScore(110, 10),
+          'dave-two': finalScore(10, 110),
+          'eve-two': finalScore(10, 110),
+          'frank-two': finalScore(10, 110),
+        },
+      },
+    },
+    new Date('2026-09-14T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  assert.deepEqual(recap.tileLeaderLines.at(-1), {
+    id: 'biggest-riser',
+    label: 'Biggest risers',
+    value: '▲ 3',
+    context: 'Dave, Eve & Frank',
+    tone: 'positive',
+  });
 });
 
 test('composer uses count copy when three owners share the exact weekly lead', () => {
@@ -339,6 +492,11 @@ test('composer gives a fully resolved winless owner week a factual fallback head
   assert.deepEqual(recap.ownerLines, [
     { owner: 'Alice', recordLabel: '0–1', pointsLabel: '17 PF · 31 PA' },
   ]);
+  assert.equal(
+    recap.leaderLines.some((line) => line.id === 'best-record'),
+    false,
+    'a winless week has no best-record leader'
+  );
 });
 
 test('composer reports games without results only after every pending sibling clears the gate', () => {

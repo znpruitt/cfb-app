@@ -3,7 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { LeagueStatus } from '../../lib/league.ts';
-import type { WeeklyRecapViewModel } from '../../lib/recap/composeWeeklyRecap.ts';
+import type {
+  WeeklyRecapLeaderLine,
+  WeeklyRecapMovementLine,
+  WeeklyRecapViewModel,
+} from '../../lib/recap/composeWeeklyRecap.ts';
 import type { AppGame } from '../../lib/schedule.ts';
 import type { Insight } from '../../lib/selectors/insights.ts';
 import { selectWeeklyRecapEligibilityBoundaryKey } from '../../lib/selectors/weeklyRecapFacts.ts';
@@ -31,6 +35,41 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+const WEEKLY_RECAP_LEADER_IDS = new Set<WeeklyRecapLeaderLine['id']>([
+  'best-record',
+  'high-score',
+  'closest-game',
+  'biggest-riser',
+]);
+
+function parseLeaderLines(value: unknown): WeeklyRecapLeaderLine[] | null {
+  if (!Array.isArray(value)) return null;
+  const lines = value.filter(
+    (line): line is WeeklyRecapLeaderLine =>
+      isRecord(line) &&
+      typeof line.id === 'string' &&
+      WEEKLY_RECAP_LEADER_IDS.has(line.id as WeeklyRecapLeaderLine['id']) &&
+      typeof line.label === 'string' &&
+      typeof line.value === 'string' &&
+      typeof line.context === 'string' &&
+      (line.tone === undefined || line.tone === 'positive')
+  );
+  return lines.length === value.length ? lines : null;
+}
+
+function parseMovementLines(value: unknown): WeeklyRecapMovementLine[] | null {
+  if (!Array.isArray(value)) return null;
+  const lines = value.filter(
+    (line): line is WeeklyRecapMovementLine =>
+      isRecord(line) &&
+      typeof line.owner === 'string' &&
+      (line.direction === 'up' || line.direction === 'down') &&
+      typeof line.deltaLabel === 'string' &&
+      typeof line.shiftLabel === 'string'
+  );
+  return lines.length === value.length ? lines : null;
+}
+
 function parseWeeklyRecap(value: unknown): WeeklyRecapViewModel {
   if (!isRecord(value) || typeof value.status !== 'string') return UNAVAILABLE_RECAP;
   if (value.status === 'inactive' || value.status === 'absent' || value.status === 'unavailable') {
@@ -56,6 +95,15 @@ function parseWeeklyRecap(value: unknown): WeeklyRecapViewModel {
       typeof line.pointsLabel === 'string'
   );
   if (ownerLines.length !== value.ownerLines.length) return UNAVAILABLE_RECAP;
+  // These Slice 2 fields are additive. During a rolling deploy, an older API
+  // response remains a valid Slice 1 recap; malformed fields that are present
+  // still fail the recap closed without affecting the standing Insights feed.
+  const leaderLines = value.leaderLines === undefined ? [] : parseLeaderLines(value.leaderLines);
+  const tileLeaderLines =
+    value.tileLeaderLines === undefined ? [] : parseLeaderLines(value.tileLeaderLines);
+  const movementLines =
+    value.movementLines === undefined ? [] : parseMovementLines(value.movementLines);
+  if (!leaderLines || !tileLeaderLines || !movementLines) return UNAVAILABLE_RECAP;
 
   return {
     status: 'available',
@@ -65,6 +113,9 @@ function parseWeeklyRecap(value: unknown): WeeklyRecapViewModel {
     headline: value.headline,
     isIncomplete: value.isIncomplete,
     ownerLines,
+    leaderLines,
+    tileLeaderLines,
+    movementLines,
   };
 }
 

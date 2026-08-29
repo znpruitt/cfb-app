@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test, { afterEach } from 'node:test';
 import React from 'react';
 import { JSDOM } from 'jsdom';
-import { cleanup, fireEvent, render } from '@testing-library/react';
+import { cleanup, fireEvent, render, within } from '@testing-library/react';
 
 import type { AvailableWeeklyRecapViewModel } from '@/lib/recap/composeWeeklyRecap';
 import RecapTile from '../RecapTile';
@@ -32,6 +32,57 @@ const recap: AvailableWeeklyRecapViewModel = {
     { owner: 'Alice', recordLabel: '2–0', pointsLabel: '55 PF · 38 PA' },
     { owner: 'Bob', recordLabel: '0–1', pointsLabel: '10 PF · 24 PA' },
   ],
+  leaderLines: [
+    {
+      id: 'best-record',
+      label: 'Best record',
+      value: '2–0',
+      context: 'Alice · 55 PF',
+    },
+    {
+      id: 'high-score',
+      label: 'High score',
+      value: '55',
+      context: 'Alice · 2–0 on the week',
+    },
+    {
+      id: 'closest-game',
+      label: 'Closest game',
+      value: '24–10',
+      context: 'Alice over Bob · 14-point margin',
+    },
+  ],
+  tileLeaderLines: [
+    {
+      id: 'best-record',
+      label: 'Best record',
+      value: '2–0',
+      context: 'Alice · 55 PF',
+    },
+    {
+      id: 'high-score',
+      label: 'High score',
+      value: '55',
+      context: 'Alice · 2–0 on the week',
+    },
+    {
+      id: 'closest-game',
+      label: 'Closest game',
+      value: '24–10',
+      context: 'Alice over Bob · 14-point margin',
+    },
+    {
+      id: 'biggest-riser',
+      label: 'Alice',
+      value: '▲ 1',
+      context: 'Biggest riser · #2 → #1',
+      tone: 'positive',
+    },
+  ],
+  movementLines: [
+    { owner: 'Alice', direction: 'up', deltaLabel: '▲ 1', shiftLabel: '#2 → #1' },
+    { owner: 'Bob', direction: 'down', deltaLabel: '▼ 1', shiftLabel: '#1 → #2' },
+  ],
 };
 
 test('recap tile expands its compact week-record grid in normal flow and collapses again', () => {
@@ -43,7 +94,10 @@ test('recap tile expands its compact week-record grid in normal flow and collaps
   assert.match(tile.className, /bg-zinc-900/);
   assert.match(rendered.getByText('Week 1').className, /text-zinc-400/);
   assert.equal(rendered.getByText('Weekly recap').getAttribute('aria-hidden'), null);
+  assert.ok(rendered.getByRole('heading', { name: 'Week leaders' }));
+  assert.ok(rendered.getByText('Biggest riser · #2 → #1'));
   assert.equal(rendered.queryByRole('heading', { name: 'Week records' }), null);
+  assert.equal(rendered.queryByRole('heading', { name: 'Movement' }), null);
 
   const expand = rendered.getByRole('button', { name: 'View full recap' });
   assert.equal(expand.getAttribute('aria-expanded'), 'false');
@@ -56,6 +110,9 @@ test('recap tile expands its compact week-record grid in normal flow and collaps
   fireEvent.click(expand);
 
   assert.ok(rendered.getByRole('heading', { name: 'Week records' }));
+  assert.ok(rendered.getByRole('heading', { name: 'Week 1 movement' }));
+  assert.ok(rendered.getByText('#2 → #1'));
+  assert.ok(rendered.getByLabelText('Moved up in standings'));
   assert.match(rendered.getByText('55 PF · 38 PA').className, /text-zinc-400/);
   assert.equal(panel.hidden, false);
   const collapse = rendered.getByRole('button', { name: 'Collapse' });
@@ -65,7 +122,15 @@ test('recap tile expands its compact week-record grid in normal flow and collaps
   assert.doesNotMatch(rendered.container.innerHTML, /sm:grid-cols-4/);
   assert.match(rendered.container.innerHTML, /text-\[13\.5px\]/);
   assert.match(rendered.container.innerHTML, /py-\[6px\]/);
-  assert.match(rendered.getByText('2–0').className, /shrink-0/);
+  const recordsSection = rendered.getByRole('heading', { name: 'Week records' }).closest('section');
+  assert.ok(recordsSection);
+  assert.match(within(recordsSection).getByText('2–0').className, /shrink-0/);
+  assert.equal(rendered.queryByText('Notable results'), null);
+  assert.equal(rendered.queryByText('Head-to-head'), null);
+
+  const leadersHeading = rendered.getByRole('heading', { name: 'Week leaders' });
+  const movementHeading = rendered.getByRole('heading', { name: 'Week 1 movement' });
+  assert.notEqual(leadersHeading.id, movementHeading.id);
 
   fireEvent.click(collapse);
   assert.equal(panel.hidden, true);
@@ -90,7 +155,9 @@ test('record dividers stop at the final responsive grid row', () => {
   const rendered = render(<RecapTile recap={{ ...recap, ownerLines }} />);
   fireEvent.click(rendered.getByRole('button', { name: 'View full recap' }));
 
-  const rows = rendered.getAllByRole('listitem');
+  const recordsSection = rendered.getByRole('heading', { name: 'Week records' }).closest('section');
+  assert.ok(recordsSection);
+  const rows = within(recordsSection).getAllByRole('listitem');
   assert.match(rows[3]!.className, /border-b-\[0\.5px\]/);
   assert.match(rows[3]!.className, /min-\[821px\]:border-b-\[0\.5px\]/);
   assert.match(rows[4]!.className, /border-b-\[0\.5px\]/);

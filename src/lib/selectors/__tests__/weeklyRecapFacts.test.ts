@@ -574,3 +574,132 @@ test('pending league games are abandoned only when the complete pending populati
   assert.equal(facts.abandonedCount, 2);
   assert.equal(facts.missingResultCount, 0);
 });
+
+test('rank movement compares the explicit target week with known finals immediately before it', () => {
+  const games = [
+    game({
+      key: 'week-one',
+      week: 1,
+      date: '2026-09-06T00:00:00.000Z',
+      away: 'Alpha',
+      home: 'Beta',
+    }),
+    game({
+      key: 'week-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      away: 'Alpha',
+      home: 'Gamma',
+    }),
+    game({
+      key: 'week-two-extra',
+      week: 2,
+      date: '2026-09-13T01:00:00.000Z',
+      away: 'Delta',
+      home: 'Epsilon',
+    }),
+    game({
+      key: 'week-two-pending',
+      week: 2,
+      date: '2026-09-13T02:00:00.000Z',
+      startTimeTBD: true,
+      away: 'Beta',
+      home: 'Zeta',
+    }),
+  ];
+  const facts = selectWeeklyRecapFacts({
+    games,
+    rosterByTeam: new Map([
+      ['Alpha', 'Alice'],
+      ['Delta', 'Alice'],
+      ['Beta', 'Bob'],
+    ]),
+    scoresByKey: {
+      'week-one': finalScore(10, 30),
+      'week-two': finalScore(50, 0),
+      'week-two-extra': finalScore(20, 0),
+    },
+    now: new Date('2026-09-14T16:00:00.000Z'),
+  });
+
+  assert.ok(facts);
+  assert.equal(facts.unresolvedCount, 1, 'the target week is deliberately not resolution-gated');
+  assert.deepEqual(facts.rankMovement, [
+    { owner: 'Alice', previousRank: 2, currentRank: 1, rankDelta: 1 },
+    { owner: 'Bob', previousRank: 1, currentRank: 2, rankDelta: -1 },
+  ]);
+});
+
+test('the first completed owner week does not present alphabetical preseason order as movement', () => {
+  const facts = selectWeeklyRecapFacts({
+    games: [
+      game({
+        key: 'first-final',
+        week: 0,
+        date: '2026-08-30T00:00:00.000Z',
+        away: 'Alpha',
+        home: 'Beta',
+      }),
+    ],
+    rosterByTeam: new Map([
+      ['Alpha', 'Alice'],
+      ['Beta', 'Bob'],
+    ]),
+    scoresByKey: { 'first-final': finalScore(10, 30) },
+    now: new Date('2026-08-31T16:00:00.000Z'),
+  });
+
+  assert.ok(facts);
+  assert.deepEqual(facts.rankMovement, []);
+});
+
+test('weekly accolades aggregate owner totals while per-game facts deduplicate head-to-head rows', () => {
+  const games = [
+    game({
+      key: 'alice-bob',
+      week: 1,
+      date: '2026-09-06T00:00:00.000Z',
+      away: 'Alpha',
+      home: 'Beta',
+    }),
+    game({
+      key: 'alice-carol',
+      week: 1,
+      date: '2026-09-06T01:00:00.000Z',
+      away: 'Gamma',
+      home: 'Delta',
+    }),
+  ];
+  const facts = selectWeeklyRecapFacts({
+    games,
+    rosterByTeam: new Map([
+      ['Alpha', 'Alice'],
+      ['Beta', 'Bob'],
+      ['Gamma', 'Alice'],
+      ['Delta', 'Carol'],
+    ]),
+    scoresByKey: {
+      'alice-bob': finalScore(42, 10),
+      'alice-carol': finalScore(21, 24),
+    },
+    now: new Date('2026-09-07T16:00:00.000Z'),
+  });
+
+  assert.ok(facts);
+  assert.equal(facts.accolades.highScores.length, 1);
+  assert.equal(facts.accolades.highScores[0]?.owner, 'Alice');
+  assert.equal(facts.accolades.highScores[0]?.pointsFor, 63);
+  assert.deepEqual(
+    facts.ownerMatchups.map((result) => result.gameKey),
+    ['alice-bob', 'alice-carol'],
+    'two owned-vs-owned games produce two details, not four participation rows'
+  );
+  assert.deepEqual(
+    facts.accolades.closestGames.map((result) => [result.gameKey, result.margin]),
+    [['alice-carol', 3]]
+  );
+  assert.deepEqual(
+    facts.accolades.biggestBlowouts.map((result) => [result.gameKey, result.margin]),
+    [['alice-bob', 32]]
+  );
+});

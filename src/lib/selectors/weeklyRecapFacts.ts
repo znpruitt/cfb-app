@@ -5,8 +5,10 @@ import type { AppGame } from '../schedule.ts';
 import {
   compareStandingsRows,
   deriveFinalOwnedParticipations,
+  deriveStandings,
   deriveStandingsCoverage,
   NO_CLAIM_OWNER,
+  type OwnedFinalParticipation,
 } from '../standings.ts';
 import { derivePendingGame, type PendingGame } from '../standingsHistory.ts';
 import { selectPendingGameFinality } from './pendingGameFinality.ts';
@@ -44,9 +46,37 @@ export type WeeklyOwnerResult = {
   pointDifferential: number;
 };
 
+export type WeeklyRankMovement = {
+  owner: string;
+  previousRank: number;
+  currentRank: number;
+  rankDelta: number;
+};
+
+export type WeeklyOwnedGameResult = {
+  gameKey: string;
+  week: number;
+  winnerTeam: string;
+  loserTeam: string;
+  winnerOwner: string | null;
+  loserOwner: string | null;
+  winnerScore: number;
+  loserScore: number;
+  margin: number;
+};
+
+export type WeeklyRecapAccolades = {
+  highScores: WeeklyOwnerResult[];
+  closestGames: WeeklyOwnedGameResult[];
+  biggestBlowouts: WeeklyOwnedGameResult[];
+};
+
 export type WeeklyRecapFacts = {
   targetWeek: WeeklyRecapTargetWeek;
   ownerResults: WeeklyOwnerResult[];
+  rankMovement: WeeklyRankMovement[];
+  ownerMatchups: WeeklyOwnedGameResult[];
+  accolades: WeeklyRecapAccolades;
   unresolvedCount: number;
   abandonedCount: number;
   missingResultCount: number;
@@ -176,6 +206,116 @@ export function selectWeeklyRecapLeaders(ownerResults: WeeklyOwnerResult[]): Wee
   return ordered.filter((result) => haveEqualCompetitiveRecord(result, leader));
 }
 
+function isRealOwner(owner: string | undefined): owner is string {
+  return owner != null && owner !== NO_CLAIM_OWNER;
+}
+
+/** Compare cumulative known-final standings immediately before and through one canonical week. */
+export function selectWeeklyRankMovement(args: {
+  games: AppGame[];
+  rosterByTeam: Map<string, string>;
+  scoresByKey: Record<string, ScorePack>;
+  week: number;
+}): WeeklyRankMovement[] {
+  const before = deriveStandings(
+    args.games.filter((game) => game.canonicalWeek < args.week),
+    args.rosterByTeam,
+    args.scoresByKey
+  );
+  if (!before.participations.some((participation) => isRealOwner(participation.owner))) return [];
+
+  const through = deriveStandings(
+    args.games.filter((game) => game.canonicalWeek <= args.week),
+    args.rosterByTeam,
+    args.scoresByKey
+  );
+  const previousRankByOwner = new Map(
+    before.rows.map((standing, index) => [standing.owner, index + 1] as const)
+  );
+
+  return through.rows
+    .flatMap((standing, index): WeeklyRankMovement[] => {
+      if (!isRealOwner(standing.owner)) return [];
+      const previousRank = previousRankByOwner.get(standing.owner);
+      if (previousRank == null) return [];
+      const currentRank = index + 1;
+      const rankDelta = previousRank - currentRank;
+      return rankDelta === 0
+        ? []
+        : [{ owner: standing.owner, previousRank, currentRank, rankDelta }];
+    })
+    .sort((left, right) => {
+      const leftDirection = left.rankDelta > 0 ? 0 : 1;
+      const rightDirection = right.rankDelta > 0 ? 0 : 1;
+      if (leftDirection !== rightDirection) return leftDirection - rightDirection;
+      if (Math.abs(left.rankDelta) !== Math.abs(right.rankDelta)) {
+        return Math.abs(right.rankDelta) - Math.abs(left.rankDelta);
+      }
+      if (left.currentRank !== right.currentRank) return left.currentRank - right.currentRank;
+      return left.owner.localeCompare(right.owner);
+    });
+}
+
+function selectWeeklyOwnedGameResults(
+  participations: OwnedFinalParticipation[]
+): WeeklyOwnedGameResult[] {
+  const byGame = new Map<string, WeeklyOwnedGameResult>();
+
+  for (const participation of participations) {
+    if (!isRealOwner(participation.owner) || byGame.has(participation.game.key)) continue;
+    const ownerWon = participation.result === 'win';
+    const winnerScore = ownerWon ? participation.pointsFor : participation.pointsAgainst;
+    const loserScore = ownerWon ? participation.pointsAgainst : participation.pointsFor;
+    byGame.set(participation.game.key, {
+      gameKey: participation.game.key,
+      week: participation.game.canonicalWeek,
+      winnerTeam: ownerWon ? participation.teamName : participation.opponentTeamName,
+      loserTeam: ownerWon ? participation.opponentTeamName : participation.teamName,
+      winnerOwner: ownerWon
+        ? participation.owner
+        : isRealOwner(participation.opponentOwner)
+          ? participation.opponentOwner
+          : null,
+      loserOwner: ownerWon
+        ? isRealOwner(participation.opponentOwner)
+          ? participation.opponentOwner
+          : null
+        : participation.owner,
+      winnerScore,
+      loserScore,
+      margin: winnerScore - loserScore,
+    });
+  }
+
+  return Array.from(byGame.values()).sort((left, right) =>
+    left.gameKey.localeCompare(right.gameKey)
+  );
+}
+
+function selectWeeklyAccolades(
+  ownerResults: WeeklyOwnerResult[],
+  gameResults: WeeklyOwnedGameResult[]
+): WeeklyRecapAccolades {
+  const highScore = ownerResults.reduce(
+    (highest, result) => Math.max(highest, result.pointsFor),
+    Number.NEGATIVE_INFINITY
+  );
+  const closestMargin = gameResults.reduce(
+    (closest, result) => Math.min(closest, result.margin),
+    Number.POSITIVE_INFINITY
+  );
+  const biggestMargin = gameResults.reduce(
+    (biggest, result) => Math.max(biggest, result.margin),
+    Number.NEGATIVE_INFINITY
+  );
+
+  return {
+    highScores: ownerResults.filter((result) => result.pointsFor === highScore),
+    closestGames: gameResults.filter((result) => result.margin === closestMargin),
+    biggestBlowouts: gameResults.filter((result) => result.margin === biggestMargin),
+  };
+}
+
 /**
  * Resolve the Overview tile's render-time phase from calendar facts only.
  * The recap window is [next-day 06:00 ET, Thursday 06:00 ET).
@@ -301,10 +441,25 @@ export function selectWeeklyRecapFacts(args: {
   const pendingFinality = selectPendingGameFinality({ pendingGames, now });
   const abandonedCount = pendingFinality.acceptedWithoutResult.length;
   const unresolvedCount = abandonedCount === 0 ? pendingGames.length : 0;
+  const ownerResults = Array.from(totalsByOwner.values()).sort(compareWeeklyOwnerResults);
+  const gameResults = selectWeeklyOwnedGameResults(participations);
 
   return {
     targetWeek,
-    ownerResults: Array.from(totalsByOwner.values()).sort(compareWeeklyOwnerResults),
+    ownerResults,
+    rankMovement: selectWeeklyRankMovement({
+      games,
+      rosterByTeam,
+      scoresByKey,
+      week: targetWeek.week,
+    }),
+    ownerMatchups: gameResults.filter(
+      (result) =>
+        result.winnerOwner != null &&
+        result.loserOwner != null &&
+        result.winnerOwner !== result.loserOwner
+    ),
+    accolades: selectWeeklyAccolades(ownerResults, gameResults),
     unresolvedCount,
     abandonedCount,
     missingResultCount,

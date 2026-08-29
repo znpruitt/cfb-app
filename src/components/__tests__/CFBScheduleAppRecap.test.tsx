@@ -41,6 +41,23 @@ const recapPayload = {
     headline: 'Alice takes the week at 1–0',
     isIncomplete: false,
     ownerLines: [{ owner: 'Alice', recordLabel: '1–0', pointsLabel: '31 PF · 17 PA' }],
+    leaderLines: [
+      {
+        id: 'best-record',
+        label: 'Best record',
+        value: '1–0',
+        context: 'Alice · 31 PF',
+      },
+    ],
+    tileLeaderLines: [
+      {
+        id: 'best-record',
+        label: 'Best record',
+        value: '1–0',
+        context: 'Alice · 31 PF',
+      },
+    ],
+    movementLines: [],
   },
 };
 

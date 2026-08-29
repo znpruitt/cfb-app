@@ -4,7 +4,7 @@ import { useId, useState } from 'react';
 
 import type { AvailableWeeklyRecapViewModel } from '@/lib/recap/composeWeeklyRecap';
 
-import { RecapHeader, WeekRecordsGrid } from './RecapPrimitives';
+import { MovementList, RecapHeader, WeekLeadersList, WeekRecordsGrid } from './RecapPrimitives';
 
 export default function RecapTile({
   recap,
@@ -18,12 +18,26 @@ export default function RecapTile({
 
   return (
     <section aria-labelledby={headingId} className="rounded-lg bg-zinc-900 px-6 py-6 sm:px-7">
-      <RecapHeader
-        headingId={headingId}
-        headline={recap.headline}
-        weekLabel={recap.weekLabel}
-        compact
-      />
+      <div
+        className={
+          hasResults && recap.tileLeaderLines.length > 0
+            ? 'grid gap-5 min-[821px]:grid-cols-[7fr_5fr] min-[821px]:gap-14'
+            : undefined
+        }
+      >
+        <RecapHeader
+          headingId={headingId}
+          headline={recap.headline}
+          weekLabel={recap.weekLabel}
+          compact
+        />
+        {hasResults ? (
+          <WeekLeadersList
+            headingId={`${headingId}-week-leaders-heading`}
+            lines={recap.tileLeaderLines}
+          />
+        ) : null}
+      </div>
 
       {!hasResults ? (
         <p className="mt-2 text-[13px] text-zinc-400">
@@ -37,6 +51,16 @@ export default function RecapTile({
               ownerLines={recap.ownerLines}
               compact
             />
+            {recap.movementLines.length > 0 ? (
+              <div className="mt-9 max-w-md">
+                <MovementList
+                  heading={`${recap.weekLabel} movement`}
+                  headingId={`${panelId}-movement-heading`}
+                  lines={recap.movementLines}
+                  compact
+                />
+              </div>
+            ) : null}
             {recap.isIncomplete ? (
               <p className="mt-4 text-[13px] text-zinc-400">
                 This recap reflects the completed results currently available.

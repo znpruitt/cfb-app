@@ -99,3 +99,120 @@ export function WeekRecordsGrid({
     </section>
   );
 }
+
+export function WeekLeadersStrip({
+  lines,
+}: {
+  lines: AvailableWeeklyRecapViewModel['leaderLines'];
+}): React.ReactElement | null {
+  if (lines.length === 0) return null;
+
+  return (
+    <section aria-label="Week leaders" className="mt-10 border-y border-zinc-800 py-6">
+      <ul className="grid gap-5 min-[821px]:grid-cols-3 min-[821px]:gap-12">
+        {lines.map((line) => (
+          <li key={line.id}>
+            <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400">
+              {line.label}
+            </p>
+            <p className="mt-1 text-[26px] font-semibold leading-tight tabular-nums text-zinc-100">
+              {line.value}
+            </p>
+            <p className="mt-1 text-xs text-zinc-400">{line.context}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+export function WeekLeadersList({
+  lines,
+  headingId,
+}: {
+  lines: AvailableWeeklyRecapViewModel['tileLeaderLines'];
+  headingId: string;
+}): React.ReactElement | null {
+  if (lines.length === 0) return null;
+
+  return (
+    <section aria-labelledby={headingId}>
+      <h3
+        id={headingId}
+        className="mb-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400"
+      >
+        Week leaders
+      </h3>
+      <ul>
+        {lines.map((line) => (
+          <li
+            key={line.id}
+            className="border-b-[0.5px] border-zinc-800/80 py-[6px] last:border-b-0"
+          >
+            <div className="flex items-baseline justify-between gap-3 text-[13.5px] font-medium text-zinc-100">
+              <span className="min-w-0 truncate">{line.label}</span>
+              <span
+                className={`shrink-0 tabular-nums ${line.tone === 'positive' ? 'text-green-400' : ''}`}
+              >
+                {line.value}
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs text-zinc-400">{line.context}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+export function MovementList({
+  lines,
+  heading,
+  headingId,
+  compact = false,
+}: {
+  lines: AvailableWeeklyRecapViewModel['movementLines'];
+  heading: string;
+  headingId: string;
+  compact?: boolean;
+}): React.ReactElement | null {
+  if (lines.length === 0) return null;
+
+  return (
+    <section aria-labelledby={headingId}>
+      <h3
+        id={headingId}
+        className="mb-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-zinc-400"
+      >
+        {heading}
+      </h3>
+      <ul>
+        {lines.map((line) => (
+          <li
+            key={line.owner}
+            className={`${compact ? 'py-[6px]' : 'py-2'} border-b-[0.5px] border-zinc-800/80 last:border-b-0`}
+          >
+            <div
+              className={`flex items-baseline justify-between gap-3 font-medium text-zinc-100 ${
+                compact ? 'text-[13.5px]' : 'text-[14.5px]'
+              }`}
+            >
+              <span className="min-w-0 truncate">{line.owner}</span>
+              <span
+                aria-label={
+                  line.direction === 'up' ? 'Moved up in standings' : 'Dropped in standings'
+                }
+                className={`shrink-0 tabular-nums ${
+                  line.direction === 'up' ? 'text-green-400' : 'text-red-400'
+                }`}
+              >
+                {line.deltaLabel}
+              </span>
+            </div>
+            <p className="mt-0.5 text-xs tabular-nums text-zinc-400">{line.shiftLabel}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}

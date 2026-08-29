@@ -51,6 +51,26 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-026c-RECAP-DETAILS-v1
+
+- Purpose: add week-explicit movement, owner matchup detail, and weekly accolades to the proven
+  request-time recap pipeline without advancing the record-change or odds slices.
+- Scope: pure current-season facts derived from canonical owned final participations, recap view
+  model composition, the approved Week leaders and Movement renderings, guarded additive payload
+  parsing, and focused selector/composer/RSC/client coverage. Owner matchup and biggest-blowout
+  facts remain derived but intentionally unwired until the notable-results stage.
+- Outcome: each eligible recap now carries cumulative rank movement for known finals in that exact
+  week, distinct-owner per-game matchup facts, aggregate owner high scores, and deduplicated closest
+  game/biggest blowout facts. Insights renders the qualified week movement and leader strip;
+  Overview adds the same facts to its compact/expanded tile without coupling recap failure to the
+  standing feed.
+- Review / verification: eight test declarations were added for explicit-week movement, first-week
+  suppression, multi-team/cardinality handling, tied risers, additive payload compatibility, and
+  full-page rendering/accessibility. Exact commit `7cdfaa48` passed TypeScript, `lint:all`, the
+  4,378-test full suite, and production build; final independent Claude and Codex confirmations
+  reported no remaining findings.
+- Status: Implemented and review-complete; merge pending.
+
 ### INSIGHTS-026b-RECAP-LAYOUT-v3
 
 - Purpose: preserve the approved weekly-recap layout while rebuilding only the Overview data seam

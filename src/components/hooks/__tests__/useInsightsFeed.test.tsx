@@ -71,21 +71,42 @@ function game(key: string, week: number, date: string): AppGame {
   };
 }
 
+function availableRecapPayload(week: number, owner = `Owner ${week}`) {
+  return {
+    status: 'available',
+    week,
+    weekLabel: `Week ${week}`,
+    latestGameDate: week === 1 ? '2026-08-30' : '2026-09-06',
+    headline: `${owner} takes the week at 1–0`,
+    isIncomplete: false,
+    ownerLines: [{ owner, recordLabel: '1–0', pointsLabel: '31 PF · 17 PA' }],
+    leaderLines: [
+      {
+        id: 'best-record',
+        label: 'Best record',
+        value: '1–0',
+        context: `${owner} · 31 PF`,
+      },
+    ],
+    tileLeaderLines: [
+      {
+        id: 'best-record',
+        label: 'Best record',
+        value: '1–0',
+        context: `${owner} · 31 PF`,
+      },
+    ],
+    movementLines: [],
+  };
+}
+
 function recapResponse(week: number, owner = `Owner ${week}`): Response {
   return new Response(
     JSON.stringify({
       insights: [{ id: `insight-${week}` }],
       lifecycleState: 'mid_season',
       generatedAt: '2026-09-01T00:00:00.000Z',
-      weeklyRecap: {
-        status: 'available',
-        week,
-        weekLabel: `Week ${week}`,
-        latestGameDate: week === 1 ? '2026-08-30' : '2026-09-06',
-        headline: `${owner} takes the week at 1–0`,
-        isIncomplete: false,
-        ownerLines: [{ owner, recordLabel: '1–0', pointsLabel: '31 PF · 17 PA' }],
-      },
+      weeklyRecap: availableRecapPayload(week, owner),
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } }
   );
@@ -123,6 +144,40 @@ test('invalid recap data cannot empty an otherwise healthy insights payload', ()
   assert.equal(parsed.insights.length, 1);
   assert.equal(parsed.lifecycleState, 'mid_season');
   assert.deepEqual(parsed.weeklyRecap, { status: 'unavailable' });
+});
+
+test('an older Slice 1 recap remains available when additive Slice 2 fields are absent', () => {
+  const recap = availableRecapPayload(1, 'Alice');
+  Reflect.deleteProperty(recap, 'leaderLines');
+  Reflect.deleteProperty(recap, 'tileLeaderLines');
+  Reflect.deleteProperty(recap, 'movementLines');
+  const parsed = parseInsightsPayload({
+    insights: [{ id: 'healthy-insight' }],
+    weeklyRecap: recap,
+  });
+
+  assert.equal(parsed.weeklyRecap.status, 'available');
+  if (parsed.weeklyRecap.status !== 'available') return;
+  assert.deepEqual(parsed.weeklyRecap.leaderLines, []);
+  assert.deepEqual(parsed.weeklyRecap.tileLeaderLines, []);
+  assert.deepEqual(parsed.weeklyRecap.movementLines, []);
+});
+
+test('malformed present Slice 2 fields fail only the recap', () => {
+  for (const [field, malformed] of [
+    ['leaderLines', [{ id: 'best-record' }]],
+    ['tileLeaderLines', 'not-an-array'],
+    ['movementLines', [{ owner: 'Alice', direction: 'sideways' }]],
+  ] as const) {
+    const parsed = parseInsightsPayload({
+      insights: [{ id: 'healthy-insight' }],
+      lifecycleState: 'mid_season',
+      weeklyRecap: { ...availableRecapPayload(1, 'Alice'), [field]: malformed },
+    });
+
+    assert.equal(parsed.insights.length, 1, `${field} must not empty the feed`);
+    assert.deepEqual(parsed.weeklyRecap, { status: 'unavailable' });
+  }
 });
 
 test('a stale response cannot overwrite a newer league request', async () => {

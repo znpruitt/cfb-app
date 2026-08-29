@@ -3,6 +3,8 @@ import {
   isWeeklyRecapActiveSeason,
   selectWeeklyRecapLeaders,
   selectWeeklyRecapFacts,
+  type WeeklyOwnedGameResult,
+  type WeeklyOwnerResult,
 } from '../selectors/weeklyRecapFacts.ts';
 import { buildWeekLabelMap, formatWeekLabel } from '../weekLabel.ts';
 import type { WeeklyRecapContextResult } from './loadRecapContext.ts';
@@ -11,6 +13,21 @@ export type WeeklyRecapOwnerLine = {
   owner: string;
   recordLabel: string;
   pointsLabel: string;
+};
+
+export type WeeklyRecapLeaderLine = {
+  id: 'best-record' | 'high-score' | 'closest-game' | 'biggest-riser';
+  label: string;
+  value: string;
+  context: string;
+  tone?: 'positive';
+};
+
+export type WeeklyRecapMovementLine = {
+  owner: string;
+  direction: 'up' | 'down';
+  deltaLabel: string;
+  shiftLabel: string;
 };
 
 export type WeeklyRecapViewModel =
@@ -25,6 +42,9 @@ export type WeeklyRecapViewModel =
       headline: string | null;
       isIncomplete: boolean;
       ownerLines: WeeklyRecapOwnerLine[];
+      leaderLines: WeeklyRecapLeaderLine[];
+      tileLeaderLines: WeeklyRecapLeaderLine[];
+      movementLines: WeeklyRecapMovementLine[];
     };
 
 export type AvailableWeeklyRecapViewModel = Extract<WeeklyRecapViewModel, { status: 'available' }>;
@@ -77,6 +97,74 @@ function weeklyHeadline(facts: ReturnType<typeof selectWeeklyRecapFacts>): strin
   return `${count} owners share the week at ${record}`;
 }
 
+function ownerNames(results: WeeklyOwnerResult[]): string {
+  return formatOwnerNames(results.map((result) => result.owner));
+}
+
+function formatOwnerNames(owners: string[]): string {
+  if (owners.length === 1) return owners[0]!;
+  if (owners.length === 2) return `${owners[0]} & ${owners[1]}`;
+  return `${owners.length} owners tied`;
+}
+
+function formatAllOwnerNames(owners: string[]): string {
+  if (owners.length <= 2) return formatOwnerNames(owners);
+  return `${owners.slice(0, -1).join(', ')} & ${owners.at(-1)}`;
+}
+
+function gameResultContext(result: WeeklyOwnedGameResult): string {
+  const sameOwner = result.winnerOwner != null && result.winnerOwner === result.loserOwner;
+  const winner = sameOwner ? result.winnerTeam : (result.winnerOwner ?? result.winnerTeam);
+  const loser = sameOwner ? result.loserTeam : (result.loserOwner ?? result.loserTeam);
+  const margin = `${result.margin}-point margin`;
+  return `${winner} over ${loser} · ${margin}`;
+}
+
+function composeLeaderLines(
+  facts: NonNullable<ReturnType<typeof selectWeeklyRecapFacts>>
+): WeeklyRecapLeaderLine[] {
+  const lines: WeeklyRecapLeaderLine[] = [];
+  const recordLeaders = selectWeeklyRecapLeaders(facts.ownerResults);
+  const firstRecordLeader = recordLeaders[0];
+  if (firstRecordLeader) {
+    lines.push({
+      id: 'best-record',
+      label: 'Best record',
+      value: `${firstRecordLeader.wins}–${firstRecordLeader.losses}`,
+      context:
+        recordLeaders.length === 1
+          ? `${firstRecordLeader.owner} · ${firstRecordLeader.pointsFor} PF`
+          : ownerNames(recordLeaders),
+    });
+  }
+
+  const highScores = facts.accolades.highScores;
+  const highScore = highScores[0];
+  if (highScore) {
+    lines.push({
+      id: 'high-score',
+      label: 'High score',
+      value: String(highScore.pointsFor),
+      context:
+        highScores.length === 1
+          ? `${highScore.owner} · ${highScore.wins}–${highScore.losses} on the week`
+          : ownerNames(highScores),
+    });
+  }
+
+  const closestGame = facts.accolades.closestGames[0];
+  if (closestGame) {
+    lines.push({
+      id: 'closest-game',
+      label: 'Closest game',
+      value: `${closestGame.winnerScore}–${closestGame.loserScore}`,
+      context: gameResultContext(closestGame),
+    });
+  }
+
+  return lines;
+}
+
 export function composeWeeklyRecap(
   contextResult: WeeklyRecapContextResult,
   now: Date,
@@ -107,6 +195,32 @@ export function composeWeeklyRecap(
   }));
   const isIncomplete =
     facts.unresolvedCount > 0 || facts.abandonedCount > 0 || facts.missingResultCount > 0;
+  const leaderLines = composeLeaderLines(facts);
+  const movementLines: WeeklyRecapMovementLine[] = facts.rankMovement.map((movement) => ({
+    owner: movement.owner,
+    direction: movement.rankDelta > 0 ? 'up' : 'down',
+    deltaLabel: `${movement.rankDelta > 0 ? '▲' : '▼'} ${Math.abs(movement.rankDelta)}`,
+    shiftLabel: `#${movement.previousRank} → #${movement.currentRank}`,
+  }));
+  const biggestRiser = facts.rankMovement.find((movement) => movement.rankDelta > 0);
+  const biggestRisers = biggestRiser
+    ? facts.rankMovement.filter((movement) => movement.rankDelta === biggestRiser.rankDelta)
+    : [];
+  const hasTiedBiggestRisers = biggestRisers.length > 1;
+  const tileLeaderLines = biggestRiser
+    ? [
+        ...leaderLines,
+        {
+          id: 'biggest-riser' as const,
+          label: hasTiedBiggestRisers ? 'Biggest risers' : biggestRiser.owner,
+          value: `▲ ${biggestRiser.rankDelta}`,
+          context: hasTiedBiggestRisers
+            ? formatAllOwnerNames(biggestRisers.map((movement) => movement.owner))
+            : `Biggest riser · #${biggestRiser.previousRank} → #${biggestRiser.currentRank}`,
+          tone: 'positive' as const,
+        },
+      ]
+    : leaderLines;
 
   return {
     status: 'available',
@@ -116,5 +230,8 @@ export function composeWeeklyRecap(
     headline: weeklyHeadline(facts) ?? (ownerLines.length > 0 ? `${weekLabel} results` : null),
     isIncomplete,
     ownerLines,
+    leaderLines,
+    tileLeaderLines,
+    movementLines,
   };
 }
