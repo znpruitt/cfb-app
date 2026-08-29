@@ -631,16 +631,46 @@ model; a rename-only reading of that flag is wrong.
 `normalizeTeamName` expands `&` to " and " and then strips the standalone "and", so `Missouri S&T`
 collapses to `missourist` — the key `Missouri State` already claims through its `missouri st` alt.
 `resolveName` therefore returns a resolved, ownable FBS identity for a Division II school, and the
-observed-name registration loop skips the real school because the key is taken.
+observed-name registration loop skips the real school because the key is taken. The elision is
+load-bearing elsewhere: it is what makes `Texas A&M` match its ampersand-free alts, so it cannot
+simply be removed.
+
+The identity key is a lossy function of the name and nothing asserts it is injective. The registry
+resolves a conflict by silent first-write-wins (`if (!registry.has(aliasId))`, and the observed-name
+loop skips a taken key), so a collision is structurally unobservable. A catalog sweep found no key
+claimed by two catalog schools, but 31 keys sit in the overloaded `st` class (`ohiost`, `pennst`,
+`missourist`, …) where any outside `<X> S&T` or `<X> St.` school lands on a real ownable identity.
+CFBD already supplies exact numeric participant ids that disambiguate these schools; the app
+persists them and forbids their use for identity.
 
 PLATFORM-114 stopped this reaching eligibility by classifying from the provider's division label, so
-the collision now degrades to diagnostic noise rather than tracked phantom games. It is still the
-root cause and still reaches `buildPairKey` and score-attachment identity.
+new seasons no longer track phantom games. It is forward-only: it does not repair archives, and the
+collision still reaches `buildPairKey`, score attachment, and roster/owner mapping.
+
+**Confirmed historical impact (2025).** The archive audit reports Missouri State at 13-11 — 24 games
+in a 12-game season, i.e. Missouri State's real slate merged with Missouri S&T's Division II slate.
+Impact is contained because Missouri State was a no-claim team that season: no owner record, win
+percentage, or championship is affected, and the residue is an inflated 2025 no-claim aggregate row
+plus phantom rows in the archived game list. Earlier backfilled seasons (2018-2024) carry the same
+pollution for the same reason and are safe for a structural one — Missouri State was not FBS before
+July 2025, so it could not appear on any historical roster.
+
+**Governing decision:** do not re-derive the 2025 archive. Re-deriving a completed championship
+season to remove rows that affect no owner is a destructive operation on historical truth with worse
+downside than the defect. The corruption is documented here and left in place.
 
 Unresolved: whether to fix at normalization (widest blast radius — every `&` key changes, including
-`texasam`, against alts already stored in their current form), at the catalog seed, or by making
-resolution refuse a key claimed by a different school. Acceptance boundary: two distinct schools must
-never share a normalized identity key, proven by a catalog-wide collision sweep.
+`texasam`, against alts already stored in their current form), at the catalog seed, by keying
+identity on the provider id, or by making resolution refuse a key already claimed by a different
+school.
+
+Acceptance boundary, both required:
+
+- Two distinct schools never share a normalized identity key, proven by a catalog-wide collision
+  sweep, and a conflict fails loudly instead of resolving by first-write-wins.
+- A per-team season game-count invariant rejects an impossible schedule. This is the broader net: it
+  catches the *consequence* of any future collision regardless of cause, and 24 games in a 12-game
+  season went undetected for a full season without it.
 
 ### Item 84 — an overriding provider classification records no diagnostic
 
