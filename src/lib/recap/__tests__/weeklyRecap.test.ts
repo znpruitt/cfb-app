@@ -296,6 +296,8 @@ test('composer names every owner tied for biggest riser', () => {
     game({ key: 'bob-one', week: 1, home: 'Georgia', away: 'Rutgers' }),
     game({ key: 'carol-one', week: 1, home: 'Miami', away: 'Florida State' }),
     game({ key: 'dave-one', week: 1, home: 'Clemson', away: 'UCF' }),
+    game({ key: 'eve-one', week: 1, home: 'Oregon', away: 'Washington' }),
+    game({ key: 'frank-one', week: 1, home: 'Ohio State', away: 'Michigan' }),
     game({
       key: 'alice-two',
       week: 2,
@@ -324,12 +326,28 @@ test('composer names every owner tied for biggest riser', () => {
       home: 'Clemson',
       away: 'UCF',
     }),
+    game({
+      key: 'eve-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Oregon',
+      away: 'Washington',
+    }),
+    game({
+      key: 'frank-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Ohio State',
+      away: 'Michigan',
+    }),
   ];
   const rosterByTeam = new Map([
     ['Texas', 'Alice'],
     ['Georgia', 'Bob'],
     ['Miami', 'Carol'],
     ['Clemson', 'Dave'],
+    ['Oregon', 'Eve'],
+    ['Ohio State', 'Frank'],
   ]);
   const recap = composeWeeklyRecap(
     {
@@ -339,14 +357,18 @@ test('composer names every owner tied for biggest riser', () => {
         games,
         rosterByTeam,
         scoresByKey: {
-          'alice-one': finalScore(10, 40),
-          'bob-one': finalScore(15, 35),
-          'carol-one': finalScore(35, 15),
-          'dave-one': finalScore(40, 10),
-          'alice-two': finalScore(60, 10),
-          'bob-two': finalScore(55, 10),
-          'carol-two': finalScore(15, 65),
-          'dave-two': finalScore(10, 55),
+          'alice-one': finalScore(10, 70),
+          'bob-one': finalScore(10, 60),
+          'carol-one': finalScore(10, 50),
+          'dave-one': finalScore(50, 10),
+          'eve-one': finalScore(60, 10),
+          'frank-one': finalScore(70, 10),
+          'alice-two': finalScore(110, 10),
+          'bob-two': finalScore(110, 10),
+          'carol-two': finalScore(110, 10),
+          'dave-two': finalScore(10, 110),
+          'eve-two': finalScore(10, 110),
+          'frank-two': finalScore(10, 110),
         },
       },
     },
@@ -358,8 +380,8 @@ test('composer names every owner tied for biggest riser', () => {
   if (recap.status !== 'available') return;
   assert.deepEqual(recap.tileLeaderLines.at(-1), {
     id: 'biggest-riser',
-    label: 'Carol & Dave',
-    value: '▲ 2',
+    label: 'Dave, Eve & Frank',
+    value: '▲ 3',
     context: 'Biggest risers',
     tone: 'positive',
   });

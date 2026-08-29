@@ -107,6 +107,11 @@ function formatOwnerNames(owners: string[]): string {
   return `${owners.length} owners tied`;
 }
 
+function formatAllOwnerNames(owners: string[]): string {
+  if (owners.length <= 2) return formatOwnerNames(owners);
+  return `${owners.slice(0, -1).join(', ')} & ${owners.at(-1)}`;
+}
+
 function gameResultContext(result: WeeklyOwnedGameResult): string {
   const sameOwner = result.winnerOwner != null && result.winnerOwner === result.loserOwner;
   const winner = sameOwner ? result.winnerTeam : (result.winnerOwner ?? result.winnerTeam);
@@ -206,7 +211,7 @@ export function composeWeeklyRecap(
         ...leaderLines,
         {
           id: 'biggest-riser' as const,
-          label: formatOwnerNames(biggestRisers.map((movement) => movement.owner)),
+          label: formatAllOwnerNames(biggestRisers.map((movement) => movement.owner)),
           value: `▲ ${biggestRiser.rankDelta}`,
           context:
             biggestRisers.length === 1
