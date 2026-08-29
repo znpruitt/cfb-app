@@ -152,9 +152,9 @@ function ownerContext(owners: string[]): string {
 function recordSubject(
   change: WeeklyRecordChange,
   record: NonNullable<WeeklyRecordChange['current']>
-): string | null {
+): string {
   if (change.id === 'lopsided_rivalry' || change.id === 'dominance_streak') {
-    return record.contextString ?? null;
+    return record.contextString ?? 'Multiple rivalries tied';
   }
   return ownerContext(record.holders);
 }
@@ -168,26 +168,33 @@ function composeRecordChangeLine(
 
   if (!change.current) {
     const previous = change.previous;
-    const previousSubject = previous ? recordSubject(change, previous) : null;
-    return previous && previousSubject
+    return previous
       ? {
           kind: 'record-change',
           id: `record-${change.id}`,
           label,
           value: 'No longer current',
-          context: `Previous: ${previous.formattedValue} · ${previousSubject}`,
+          context: `Previous: ${previous.formattedValue} · ${recordSubject(change, previous)}`,
         }
       : null;
   }
 
   const holder = recordSubject(change, change.current);
-  if (!holder) return null;
   const previous = change.previous;
   const previousSubject = previous ? recordSubject(change, previous) : null;
-  const previousContext =
-    previous && previousSubject
-      ? `Previous: ${previous.formattedValue} · ${previousSubject}`
-      : 'New league record';
+  if (
+    previous &&
+    change.current.formattedValue === previous.formattedValue &&
+    holder === previousSubject
+  ) {
+    // The selector also observes latest-game context changes. If that detail is
+    // not safe to attribute in this compact line, do not manufacture a visible
+    // change from identical value/subject copy.
+    return null;
+  }
+  const previousContext = previous
+    ? `Previous: ${previous.formattedValue} · ${previousSubject}`
+    : 'New league record';
   return {
     kind: 'record-change',
     id: `record-${change.id}`,

@@ -303,7 +303,7 @@ function GameScoreboard({
   );
 
   return (
-    <article className={`${compact ? 'py-2' : 'py-2.5'} border-b-[0.5px] border-zinc-800/80`}>
+    <article className={compact ? 'py-2' : 'py-2.5'}>
       <p className="mb-1.5 text-xs text-zinc-400">
         <span className="mr-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-zinc-300">
           {line.label}

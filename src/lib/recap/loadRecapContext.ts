@@ -1,7 +1,7 @@
 import { cache } from 'react';
 
 import type { LeagueStatus } from '../league.ts';
-import { selectOddsForGame, type CombinedOdds } from '../odds.ts';
+import { selectOddsForGame, type CombinedOdds, type OddsLineSourceStatus } from '../odds.ts';
 import { parseOwnersCsv } from '../parseOwnersCsv.ts';
 import type { ScorePack } from '../scores.ts';
 import type { AppGame } from '../schedule.ts';
@@ -70,6 +70,12 @@ function isNullableFiniteNumber(value: unknown): value is number | null {
   return value === null || (typeof value === 'number' && Number.isFinite(value));
 }
 
+const VALID_ODDS_LINE_SOURCES = new Set<OddsLineSourceStatus>([
+  'latest',
+  'closing',
+  'fallback-latest-for-completed',
+]);
+
 function isCombinedOdds(value: unknown): value is CombinedOdds {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   const odds = value as Record<string, unknown>;
@@ -86,13 +92,11 @@ function isCombinedOdds(value: unknown): value is CombinedOdds {
     'overPrice',
     'underPrice',
   ] as const;
-  const validLineSources = new Set(['latest', 'closing', 'fallback-latest-for-completed']);
-
   return (
     stringFields.every((field) => isNullableString(odds[field])) &&
     numberFields.every((field) => isNullableFiniteNumber(odds[field])) &&
     typeof odds.lineSourceStatus === 'string' &&
-    validLineSources.has(odds.lineSourceStatus)
+    VALID_ODDS_LINE_SOURCES.has(odds.lineSourceStatus as OddsLineSourceStatus)
   );
 }
 

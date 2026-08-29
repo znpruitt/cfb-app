@@ -140,6 +140,7 @@ test('recap tile expands its compact week-record grid in normal flow and collaps
   assert.ok(rendered.getByText('Beat a 7.5-point favorite'));
   assert.match(rendered.getByText('55 PF · 38 PA').className, /text-zinc-400/);
   assert.match(rendered.getByText('Georgia').className, /text-zinc-400/);
+  assert.doesNotMatch(rendered.getByText('Georgia').closest('article')?.className ?? '', /border/);
   assert.equal(panel.hidden, false);
   const collapse = rendered.getByRole('button', { name: 'Collapse' });
   assert.equal(collapse.getAttribute('aria-expanded'), 'true');

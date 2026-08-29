@@ -636,6 +636,167 @@ test('composer names the directed rivalry when a prior record is no longer curre
   assert.ok(endedRivalries.every((line) => !/Broad tie/.test(line.value)));
 });
 
+test('composer carries a truthful tied-rivalry predecessor into a sole record', () => {
+  const games = [
+    game({ key: 'alice-one', week: 1, home: 'Texas', away: 'Georgia' }),
+    game({
+      key: 'alice-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Texas',
+      away: 'Georgia',
+    }),
+    game({
+      key: 'alice-three',
+      week: 3,
+      date: '2026-09-20T00:00:00.000Z',
+      home: 'Texas',
+      away: 'Georgia',
+    }),
+    game({ key: 'carol-one', week: 1, home: 'Miami', away: 'Clemson' }),
+    game({
+      key: 'carol-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Miami',
+      away: 'Clemson',
+    }),
+  ];
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: {
+        seasonYear: YEAR,
+        games,
+        rosterByTeam: new Map([
+          ['Texas', 'Alice'],
+          ['Georgia', 'Bob'],
+          ['Miami', 'Carol'],
+          ['Clemson', 'Dan'],
+        ]),
+        scoresByKey: Object.fromEntries(games.map(({ key }) => [key, finalScore(10, 20)])),
+        records: { status: 'available', archives: [], historicalRosters: {} },
+        odds: { status: 'available', byGameKey: {} },
+      },
+    },
+    new Date('2026-09-21T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  const rivalryLines = recap.recordChangeLines.filter(
+    (line) => line.id === 'record-lopsided_rivalry' || line.id === 'record-dominance_streak'
+  );
+  assert.equal(rivalryLines.length, 2);
+  assert.ok(rivalryLines.every((line) => /Alice over Bob/.test(line.context)));
+  assert.ok(rivalryLines.every((line) => /Multiple rivalries tied/.test(line.context)));
+  assert.ok(rivalryLines.every((line) => !/New league record/.test(line.context)));
+});
+
+test('composer preserves unique-to-tied rivalry changes with neutral pair copy', () => {
+  const games = [
+    game({ key: 'alice-one', week: 1, home: 'Texas', away: 'Georgia' }),
+    game({
+      key: 'alice-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Texas',
+      away: 'Georgia',
+    }),
+    game({
+      key: 'alice-three',
+      week: 3,
+      date: '2026-09-20T00:00:00.000Z',
+      home: 'Texas',
+      away: 'Georgia',
+    }),
+    game({ key: 'carol-one', week: 1, home: 'Miami', away: 'Clemson' }),
+    game({
+      key: 'carol-two',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Miami',
+      away: 'Clemson',
+    }),
+    game({
+      key: 'carol-three',
+      week: 4,
+      date: '2026-09-27T00:00:00.000Z',
+      home: 'Miami',
+      away: 'Clemson',
+    }),
+  ];
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: {
+        seasonYear: YEAR,
+        games,
+        rosterByTeam: new Map([
+          ['Texas', 'Alice'],
+          ['Georgia', 'Bob'],
+          ['Miami', 'Carol'],
+          ['Clemson', 'Dan'],
+        ]),
+        scoresByKey: Object.fromEntries(games.map(({ key }) => [key, finalScore(10, 20)])),
+        records: { status: 'available', archives: [], historicalRosters: {} },
+        odds: { status: 'available', byGameKey: {} },
+      },
+    },
+    new Date('2026-09-28T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  const rivalryLines = recap.recordChangeLines.filter(
+    (line) => line.id === 'record-lopsided_rivalry' || line.id === 'record-dominance_streak'
+  );
+  assert.equal(rivalryLines.length, 2);
+  assert.ok(rivalryLines.every((line) => /Multiple rivalries tied/.test(line.context)));
+  assert.ok(rivalryLines.every((line) => /Previous: .*Alice over Bob/.test(line.context)));
+});
+
+test('composer suppresses a record delta whose displayed value and subject did not change', () => {
+  const games = [
+    game({ key: 'alice-first', week: 1, home: 'Texas', away: 'Purdue' }),
+    game({ key: 'carol-first', week: 1, home: 'Miami', away: 'UCF' }),
+    game({
+      key: 'alice-latest',
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: 'Texas',
+      away: 'Rutgers',
+    }),
+  ];
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: {
+        seasonYear: YEAR,
+        games,
+        rosterByTeam: new Map([
+          ['Texas', 'Alice'],
+          ['Miami', 'Carol'],
+        ]),
+        scoresByKey: Object.fromEntries(games.map(({ key }) => [key, finalScore(10, 20)])),
+        records: { status: 'available', archives: [], historicalRosters: {} },
+        odds: { status: 'available', byGameKey: {} },
+      },
+    },
+    new Date('2026-09-14T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  assert.equal(
+    recap.recordChangeLines.some((line) => line.id === 'record-single_season_blowout'),
+    false
+  );
+});
+
 test('composer exposes approved movement rows and the compact biggest-riser summary', () => {
   const games = [
     game({ key: 'week-one', week: 1, date: '2026-09-06T00:00:00.000Z' }),
