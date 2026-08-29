@@ -18,7 +18,7 @@ function game(key: string, week: number): AppGame {
     stage: 'regular',
     stageOrder: 1,
     slotOrder: 0,
-    date: `2026-09-${String(week * 7).padStart(2, '0')}T16:00:00.000Z`,
+    date: `2026-09-${String(week).padStart(2, '0')}T16:00:00.000Z`,
     status: 'final',
     rawStatus: 'final',
     completed: true,
@@ -68,6 +68,40 @@ function participation(owner: string, week: number, pointsFor: number): OwnedFin
     pointsAgainst: Math.max(0, pointsFor - 7),
     result: 'win',
   };
+}
+
+function ownedMatchup(
+  winner: string,
+  loser: string,
+  week: number,
+  winnerPoints = 30,
+  loserPoints = 0
+): OwnedFinalParticipation[] {
+  const matchupGame = game(`${winner}-${loser}-${week}`, week);
+  return [
+    {
+      owner: winner,
+      opponentOwner: loser,
+      game: matchupGame,
+      teamSide: 'home',
+      teamName: `${winner} Team`,
+      opponentTeamName: `${loser} Team`,
+      pointsFor: winnerPoints,
+      pointsAgainst: loserPoints,
+      result: 'win',
+    },
+    {
+      owner: loser,
+      opponentOwner: winner,
+      game: matchupGame,
+      teamSide: 'away',
+      teamName: `${loser} Team`,
+      opponentTeamName: `${winner} Team`,
+      pointsFor: loserPoints,
+      pointsAgainst: winnerPoints,
+      result: 'loss',
+    },
+  ];
 }
 
 function point(week: number, pointsFor: number, pointsAgainst: number): OwnerStandingsSeriesPoint {
@@ -174,4 +208,80 @@ test('record diff observes context movement even when holder and value stay fixe
   assert.deepEqual(change?.current?.holders, ['Alice']);
   assert.equal(change?.current?.value, 50);
   assert.equal(change?.current?.contextString, '2026 season');
+});
+
+test('a target-week tie by the existing holder retains the newest high-score context', () => {
+  const result = changes({
+    historicalPoints: 50,
+    targetWeek: 1,
+    participations: [participation('Alice', 1, 50)],
+  });
+  const change = result.find((entry) => entry.id === 'single_season_high_score');
+
+  assert.deepEqual(change?.previous?.holders, ['Alice']);
+  assert.equal(change?.previous?.contextString, '2025 · Week 1');
+  assert.deepEqual(change?.current?.holders, ['Alice']);
+  assert.equal(change?.current?.contextString, '2026 · Week 1');
+});
+
+test('latest high-score context follows week chronology rather than owner grouping order', () => {
+  const result = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 3,
+    participations: [
+      participation('Alice', 1, 50),
+      participation('Bob', 2, 50),
+      participation('Alice', 3, 50),
+    ],
+  });
+  const change = result.find((entry) => entry.id === 'single_season_high_score');
+
+  assert.deepEqual(change?.previous?.holders, ['Alice', 'Bob']);
+  assert.equal(change?.previous?.contextString, '2026 · Week 2');
+  assert.deepEqual(change?.current?.holders, ['Alice', 'Bob']);
+  assert.equal(change?.current?.contextString, '2026 · Week 3');
+});
+
+test('a target-week blowout tie retains the newest opponent context', () => {
+  const result = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 2,
+    participations: [...ownedMatchup('Alice', 'Bob', 1), ...ownedMatchup('Alice', 'Carol', 2)],
+  });
+  const change = result.find((entry) => entry.id === 'single_season_blowout');
+
+  assert.equal(change?.previous?.contextString, 'over Bob · 2026');
+  assert.equal(change?.current?.contextString, 'over Carol · 2026');
+});
+
+test('target-week reversal diffs all three live rivalry records in chronological order', () => {
+  const result = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 3,
+    participations: [
+      ...ownedMatchup('Alice', 'Bob', 1),
+      ...ownedMatchup('Alice', 'Bob', 2),
+      ...ownedMatchup('Bob', 'Alice', 3),
+    ],
+  });
+  const rivalryChanges = result.filter((entry) =>
+    ['lopsided_rivalry', 'even_rivalry', 'dominance_streak'].includes(entry.id)
+  );
+
+  assert.deepEqual(
+    rivalryChanges.map((entry) => entry.id),
+    ['lopsided_rivalry', 'even_rivalry', 'dominance_streak']
+  );
+  assert.equal(rivalryChanges[0]?.previous?.value, 2);
+  assert.equal(rivalryChanges[0]?.current, null);
+  assert.equal(rivalryChanges[1]?.previous?.value, 2);
+  assert.equal(rivalryChanges[1]?.current?.value, 3);
+  assert.equal(rivalryChanges[2]?.previous?.value, 2);
+  assert.equal(rivalryChanges[2]?.current, null);
 });

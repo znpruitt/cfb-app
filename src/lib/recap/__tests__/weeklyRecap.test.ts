@@ -207,6 +207,30 @@ test('loader assembles games, roster, and scores from one cache-only context', a
   assert.equal(result.context.historicalRosters[YEAR - 1]?.get('Texas'), 'Prior Alice');
 });
 
+test('loader treats a genuinely empty archive history as available context', async () => {
+  await seedAvailableContext('recap-empty-history');
+
+  const result = await loadRecapContext('recap-empty-history', YEAR);
+
+  assert.equal(result.status, 'available');
+  if (result.status !== 'available') return;
+  assert.deepEqual(result.context.archives, []);
+  assert.deepEqual(result.context.historicalRosters, {});
+});
+
+test('loader treats a listed null archive as uncertainty rather than empty history', async () => {
+  await seedAvailableContext('recap-null-archive');
+  await setAppState<SeasonArchive | null>(
+    'standings-archive:recap-null-archive',
+    String(YEAR - 1),
+    null
+  );
+
+  assert.deepEqual(await loadRecapContext('recap-null-archive', YEAR), {
+    status: 'unavailable',
+  });
+});
+
 test('loader keeps archive uncertainty distinct from a genuine empty history', async () => {
   await seedAvailableContext('recap-archive-failure');
   await seedPriorArchive('recap-archive-failure');

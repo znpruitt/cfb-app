@@ -111,6 +111,11 @@ export type InSeasonRecordEvidence = {
 
 export type InSeasonRecordProjection = Record<InSeasonRecordId, RecordEntry | null>;
 
+export type InSeasonRecordProjectionOptions = {
+  /** Preserve legacy archive context by default; weekly diffs prefer the newest tying occurrence. */
+  tiedContext?: 'legacy-first' | 'latest';
+};
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -329,7 +334,7 @@ function collectAllTimeH2H(
 
       const winner = homeScore > awayScore ? homeOwner : awayOwner;
       const loser = homeScore > awayScore ? awayOwner : homeOwner;
-      const key = homeOwner < awayOwner ? `${homeOwner}|${awayOwner}` : `${awayOwner}|${homeOwner}`;
+      const key = rivalryPairKey(homeOwner, awayOwner);
 
       const list = pairs.get(key) ?? [];
       list.push({
@@ -483,7 +488,7 @@ export function projectLiveInSeasonRecordEvidence(args: {
   const ordered = [...args.participations].sort(compareLiveParticipations);
 
   for (const participation of ordered) {
-    if (!isEligibleOwner(participation.owner)) continue;
+    if (participation.game.isPlaceholder || !isEligibleOwner(participation.owner)) continue;
 
     seasonPointsByOwner.set(
       participation.owner,
@@ -561,14 +566,16 @@ function groupRivalryResults(results: InSeasonOwnedFinal[]): Map<string, H2HResu
  * selector by construction.
  */
 export function selectInSeasonRecordProjection(
-  sources: readonly InSeasonRecordEvidence[]
+  sources: readonly InSeasonRecordEvidence[],
+  options: InSeasonRecordProjectionOptions = {}
 ): InSeasonRecordProjection {
   const evidence = mergeInSeasonRecordEvidence(sources);
   const h2hPairs = groupRivalryResults(evidence.rivalryResults);
+  const tiedContext = options.tiedContext ?? 'legacy-first';
 
   return {
-    single_season_high_score: selectSingleSeasonHighScoreRecord(evidence.weeklyScores),
-    single_season_blowout: selectSingleSeasonBlowoutRecord(evidence.blowouts),
+    single_season_high_score: selectSingleSeasonHighScoreRecord(evidence.weeklyScores, tiedContext),
+    single_season_blowout: selectSingleSeasonBlowoutRecord(evidence.blowouts, tiedContext),
     single_season_points_high: selectSingleSeasonPointsHighRecord(evidence.seasonPoints),
     lopsided_rivalry: selectLopsidedRivalryRecord(h2hPairs),
     even_rivalry: selectEvenRivalryRecord(h2hPairs),
@@ -806,6 +813,17 @@ function selectCareerDynastyRecord(
 // Season record selectors
 // ---------------------------------------------------------------------------
 
+function latestSeasonWeekEntry<T extends { year: number; week: number }>(
+  entries: T[],
+  stableKey: (entry: T) => string
+): T {
+  return entries.reduce((latest, candidate) => {
+    if (candidate.year !== latest.year) return candidate.year > latest.year ? candidate : latest;
+    if (candidate.week !== latest.week) return candidate.week > latest.week ? candidate : latest;
+    return stableKey(candidate).localeCompare(stableKey(latest)) > 0 ? candidate : latest;
+  });
+}
+
 function selectSingleSeasonPointsHighRecord(
   entries: InSeasonRecordEvidence['seasonPoints']
 ): RecordEntry | null {
@@ -879,7 +897,8 @@ function selectSingleSeasonPointsLowRecord(sortedArchives: SeasonArchive[]): Rec
 }
 
 function selectSingleSeasonHighScoreRecord(
-  entries: InSeasonRecordEvidence['weeklyScores']
+  entries: InSeasonRecordEvidence['weeklyScores'],
+  tiedContext: NonNullable<InSeasonRecordProjectionOptions['tiedContext']> = 'legacy-first'
 ): RecordEntry | null {
   if (entries.length === 0) return null;
 
@@ -888,7 +907,10 @@ function selectSingleSeasonHighScoreRecord(
   const holders = [...new Set(topEntries.map((e) => e.owner))].sort();
   if (holders.length > RECORDS_TIE_SUPPRESSION_THRESHOLD) return null;
 
-  const top = topEntries[0]!;
+  const top =
+    tiedContext === 'latest'
+      ? latestSeasonWeekEntry(topEntries, (entry) => entry.owner)
+      : topEntries[0]!;
   const secondMax = Math.max(...entries.filter((e) => e.score < maxScore).map((e) => e.score));
   const gap = Number.isFinite(secondMax) ? maxScore - secondMax : null;
   const secondOwners = Number.isFinite(secondMax)
@@ -908,7 +930,10 @@ function selectSingleSeasonHighScoreRecord(
   };
 }
 
-function selectSingleSeasonBlowoutRecord(all: InSeasonOwnedFinal[]): RecordEntry | null {
+function selectSingleSeasonBlowoutRecord(
+  all: InSeasonOwnedFinal[],
+  tiedContext: NonNullable<InSeasonRecordProjectionOptions['tiedContext']> = 'legacy-first'
+): RecordEntry | null {
   if (all.length === 0) return null;
 
   const maxMargin = Math.max(...all.map((m) => m.margin));
@@ -916,7 +941,10 @@ function selectSingleSeasonBlowoutRecord(all: InSeasonOwnedFinal[]): RecordEntry
   const winners = [...new Set(topMatchups.map((m) => m.winner))].sort();
   if (winners.length > RECORDS_TIE_SUPPRESSION_THRESHOLD) return null;
 
-  const top = topMatchups[0]!;
+  const top =
+    tiedContext === 'latest'
+      ? latestSeasonWeekEntry(topMatchups, (entry) => entry.gameKey)
+      : topMatchups[0]!;
   const secondMax = Math.max(...all.filter((m) => m.margin < maxMargin).map((m) => m.margin));
   const gap = Number.isFinite(secondMax) ? maxMargin - secondMax : null;
   const secondWinners = Number.isFinite(secondMax)

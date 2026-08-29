@@ -59,8 +59,12 @@ export function selectWeeklyRecordChanges(args: {
       (participation) => participation.game.canonicalWeek <= args.targetWeek
     ),
   });
-  const previous = selectInSeasonRecordProjection([historicalEvidence, beforeEvidence]);
-  const current = selectInSeasonRecordProjection([historicalEvidence, currentEvidence]);
+  const previous = selectInSeasonRecordProjection([historicalEvidence, beforeEvidence], {
+    tiedContext: 'latest',
+  });
+  const current = selectInSeasonRecordProjection([historicalEvidence, currentEvidence], {
+    tiedContext: 'latest',
+  });
 
   return IN_SEASON_RECORD_IDS.flatMap((id): WeeklyRecordChange[] => {
     const previousRecord = previous[id];

@@ -5,10 +5,7 @@ import type { AppGame } from '../../schedule.ts';
 import type { ScorePack } from '../../scores.ts';
 import type { SeasonArchive } from '../../seasonArchive.ts';
 import { deriveFinalOwnedParticipations } from '../../standings.ts';
-import type {
-  OwnerStandingsSeriesPoint,
-  StandingsHistoryStandingRow,
-} from '../../standingsHistory.ts';
+import { deriveStandingsHistory } from '../../standingsHistory.ts';
 import {
   IN_SEASON_RECORD_IDS,
   projectHistoricalInSeasonRecordEvidence,
@@ -16,47 +13,6 @@ import {
   selectAllRecords,
   selectInSeasonRecordProjection,
 } from '../leagueRecords.ts';
-
-function standing(
-  owner: string,
-  wins: number,
-  losses: number,
-  pointsFor: number,
-  pointsAgainst: number
-): StandingsHistoryStandingRow {
-  return {
-    owner,
-    wins,
-    losses,
-    ties: 0,
-    winPct: wins + losses > 0 ? wins / (wins + losses) : 0,
-    pointsFor,
-    pointsAgainst,
-    pointDifferential: pointsFor - pointsAgainst,
-    gamesBack: 0,
-    finalGames: wins + losses,
-  };
-}
-
-function seriesPoint(
-  week: number,
-  wins: number,
-  losses: number,
-  pointsFor: number,
-  pointsAgainst: number
-): OwnerStandingsSeriesPoint {
-  return {
-    week,
-    wins,
-    losses,
-    ties: 0,
-    winPct: wins + losses > 0 ? wins / (wins + losses) : 0,
-    pointsFor,
-    pointsAgainst,
-    pointDifferential: pointsFor - pointsAgainst,
-    gamesBack: 0,
-  };
-}
 
 function game(key: string, week: number, away: string, home: string): AppGame {
   return {
@@ -69,7 +25,7 @@ function game(key: string, week: number, away: string, home: string): AppGame {
     stage: 'regular',
     stageOrder: 1,
     slotOrder: 0,
-    date: `2025-09-${String(week * 7).padStart(2, '0')}T16:00:00.000Z`,
+    date: `2025-09-${String(week).padStart(2, '0')}T16:00:00.000Z`,
     status: 'final',
     rawStatus: 'final',
     completed: true,
@@ -130,6 +86,7 @@ function completedArchive(): {
     ['Alpha', 'Alice'],
     ['Beta', 'Bob'],
   ]);
+  const standingsHistory = deriveStandingsHistory({ games, rosterByTeam: roster, scoresByKey });
   return {
     roster,
     archive: {
@@ -137,15 +94,8 @@ function completedArchive(): {
       year: 2025,
       archivedAt: '2025-12-01T00:00:00.000Z',
       ownerRosterSnapshot: 'team,owner\nAlpha,Alice\nBeta,Bob\n',
-      standingsHistory: {
-        weeks: [],
-        byWeek: {},
-        byOwner: {
-          Alice: [seriesPoint(1, 1, 0, 40, 20), seriesPoint(2, 1, 1, 68, 55)],
-          Bob: [seriesPoint(1, 0, 1, 20, 40), seriesPoint(2, 1, 1, 55, 68)],
-        },
-      },
-      finalStandings: [standing('Alice', 1, 1, 68, 55), standing('Bob', 1, 1, 55, 68)],
+      standingsHistory,
+      finalStandings: standingsHistory.byWeek[2]!.standings,
       games,
       scoresByKey,
     },
@@ -222,4 +172,24 @@ test('historical and canonical-live projections agree on the completed owned-fin
   for (const id of IN_SEASON_RECORD_IDS) {
     assert.deepEqual(recordById(legacy, id) ?? null, projected[id]);
   }
+});
+
+test('live projection rejects a placeholder participation even when canonical ownership resolves it', () => {
+  const placeholder = game('placeholder-final', 3, 'Beta', 'Alpha');
+  placeholder.isPlaceholder = true;
+  const roster = new Map([
+    ['Alpha', 'Alice'],
+    ['Beta', 'Bob'],
+  ]);
+  const participations = deriveFinalOwnedParticipations([placeholder], roster, {
+    'placeholder-final': score(10, 30),
+  });
+
+  assert.equal(participations.length, 2, 'positive control: the upstream derivation sees the game');
+  assert.deepEqual(projectLiveInSeasonRecordEvidence({ seasonYear: 2025, participations }), {
+    seasonPoints: [],
+    weeklyScores: [],
+    blowouts: [],
+    rivalryResults: [],
+  });
 });
