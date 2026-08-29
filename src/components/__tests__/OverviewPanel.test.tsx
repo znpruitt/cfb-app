@@ -790,7 +790,7 @@ test('overview panel keeps standings as the only condensed ranking table', () =>
   assert.ok(html.indexOf('>Standings<') < html.indexOf('Featured games'));
 });
 
-test('overview panel hides watchlist when highlight cards already summarize the slate', () => {
+test('overview panel shows watchlist alongside results when highlight cards exist', () => {
   const finals = [1, 2, 3, 4].map((value) =>
     itemWithScore(
       game({
@@ -834,8 +834,12 @@ test('overview panel hides watchlist when highlight cards already summarize the 
     />
   );
 
-  assert.doesNotMatch(html, /Upcoming watchlist/);
-  // The completed games are summarized in the Featured games (results) section.
+  // Retargeted: this fixture produces highlight cards, which used to suppress
+  // the watchlist. That either/or guarded a highlights section that is no
+  // longer rendered, so a slate with upcoming games showed none of them. Both
+  // sections must now appear together — the completed games in Featured games,
+  // the scheduled one in the watchlist.
+  assert.match(html, /Upcoming watchlist/);
   assert.match(html, /Featured games/);
 });
 

@@ -399,7 +399,7 @@ test('selectOverviewViewModel shows featured matchups when no highlight cards ar
   assert.equal(model.shouldShowFeaturedMatchups, true);
 });
 
-test('selectOverviewViewModel hides featured matchups when highlight cards exist', () => {
+test('selectOverviewViewModel shows featured matchups even when highlight cards exist', () => {
   const model = selectOverviewViewModel({
     standingsLeaders: [
       {
@@ -449,8 +449,14 @@ test('selectOverviewViewModel hides featured matchups when highlight cards exist
     rankingsByTeamId: new Map(),
   });
 
+  // Retargeted: this fixture produces highlight cards, which previously
+  // suppressed the watchlist. That either/or was a gate against a highlights
+  // section no longer rendered anywhere, so a populated slate showed nothing.
+  // The watchlist now shows whenever it has matchups — the presence of
+  // highlights must NOT hide it. Both original assertions are preserved; only
+  // the expected visibility flipped, which is the behavior change itself.
   assert.equal(model.featuredMatchups.length, 1);
-  assert.equal(model.shouldShowFeaturedMatchups, false);
+  assert.equal(model.shouldShowFeaturedMatchups, true);
 });
 
 test('selectOverviewViewModel hides featured matchups when slate only has finals', () => {

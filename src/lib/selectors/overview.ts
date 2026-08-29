@@ -89,12 +89,24 @@ type LeagueHighlightEntry = {
   drilldownTarget: HighlightDrilldownTarget;
 };
 
+/**
+ * The Upcoming watchlist shows whenever it has matchups.
+ *
+ * This previously also required `leagueHighlights.length === 0`, an either/or
+ * with a highlights section that rendered above it. That section no longer
+ * exists — `leagueHighlights` is not on the view model and no component reads
+ * it — so the condition suppressed the watchlist in favour of nothing. The
+ * visible effect was an Overview whose entire games region was one empty
+ * "No recent results yet" box while a full slate sat minutes from kickoff.
+ *
+ * `leagueHighlights` now has one remaining consumer, `deriveLeaguePulse`, whose
+ * output is also unread; both are scheduled for deletion with `leaguePulse`,
+ * `shouldShowLeaguePulse` and `keyMovements`.
+ */
 function deriveShouldShowFeaturedMatchups(params: {
   featuredMatchups: PrioritizedOverviewItem[];
-  leagueHighlights: LeagueHighlightEntry[];
 }): boolean {
-  if (params.featuredMatchups.length === 0) return false;
-  return params.leagueHighlights.length === 0;
+  return params.featuredMatchups.length > 0;
 }
 
 export const OVERVIEW_STANDINGS_LIMIT = 5;
@@ -1094,10 +1106,7 @@ export function selectOverviewViewModel(params: {
     leaguePulse,
     shouldShowLeaguePulse: deriveShouldShowLeaguePulse({ championSummary, leaguePulse }),
     featuredMatchups,
-    shouldShowFeaturedMatchups: deriveShouldShowFeaturedMatchups({
-      featuredMatchups,
-      leagueHighlights,
-    }),
+    shouldShowFeaturedMatchups: deriveShouldShowFeaturedMatchups({ featuredMatchups }),
     recentResults,
     gamesBackTrend,
     winPctTrend,
