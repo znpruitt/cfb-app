@@ -114,6 +114,12 @@ export type InSeasonRecordProjection = Record<InSeasonRecordId, RecordEntry | nu
 export type InSeasonRecordProjectionOptions = {
   /** Preserve legacy archive context by default; weekly diffs prefer the newest tying occurrence. */
   tiedContext?: 'legacy-first' | 'latest';
+  /**
+   * Expose otherwise-suppressed broad ties so a temporal diff can distinguish
+   * "shared too broadly to display" from "the record no longer exists."
+   * Ordinary record surfaces keep the suppression policy enabled.
+   */
+  includeBroadTies?: boolean;
 };
 
 // ---------------------------------------------------------------------------
@@ -126,6 +132,10 @@ export type InSeasonRecordProjectionOptions = {
  * are displayed as facts, not curated narratives.
  */
 export const RECORDS_TIE_SUPPRESSION_THRESHOLD = 6;
+
+function suppressesBroadTie(holderCount: number, includeBroadTies: boolean): boolean {
+  return !includeBroadTies && holderCount > RECORDS_TIE_SUPPRESSION_THRESHOLD;
+}
 
 const NO_CLAIM_OWNER = 'NoClaim';
 const MIN_CAREER_SEASONS = 3;
@@ -572,14 +582,26 @@ export function selectInSeasonRecordProjection(
   const evidence = mergeInSeasonRecordEvidence(sources);
   const h2hPairs = groupRivalryResults(evidence.rivalryResults);
   const tiedContext = options.tiedContext ?? 'legacy-first';
+  const includeBroadTies = options.includeBroadTies ?? false;
 
   return {
-    single_season_high_score: selectSingleSeasonHighScoreRecord(evidence.weeklyScores, tiedContext),
-    single_season_blowout: selectSingleSeasonBlowoutRecord(evidence.blowouts, tiedContext),
-    single_season_points_high: selectSingleSeasonPointsHighRecord(evidence.seasonPoints),
-    lopsided_rivalry: selectLopsidedRivalryRecord(h2hPairs),
-    even_rivalry: selectEvenRivalryRecord(h2hPairs),
-    dominance_streak: selectDominanceStreakRecord(h2hPairs),
+    single_season_high_score: selectSingleSeasonHighScoreRecord(
+      evidence.weeklyScores,
+      tiedContext,
+      includeBroadTies
+    ),
+    single_season_blowout: selectSingleSeasonBlowoutRecord(
+      evidence.blowouts,
+      tiedContext,
+      includeBroadTies
+    ),
+    single_season_points_high: selectSingleSeasonPointsHighRecord(
+      evidence.seasonPoints,
+      includeBroadTies
+    ),
+    lopsided_rivalry: selectLopsidedRivalryRecord(h2hPairs, includeBroadTies),
+    even_rivalry: selectEvenRivalryRecord(h2hPairs, includeBroadTies),
+    dominance_streak: selectDominanceStreakRecord(h2hPairs, includeBroadTies),
   };
 }
 
@@ -825,14 +847,15 @@ function latestSeasonWeekEntry<T extends { year: number; week: number }>(
 }
 
 function selectSingleSeasonPointsHighRecord(
-  entries: InSeasonRecordEvidence['seasonPoints']
+  entries: InSeasonRecordEvidence['seasonPoints'],
+  includeBroadTies = false
 ): RecordEntry | null {
   if (entries.length === 0) return null;
 
   const maxValue = Math.max(...entries.map((e) => e.value));
   const topEntries = entries.filter((e) => e.value === maxValue);
   const holders = [...new Set(topEntries.map((e) => e.owner))].sort();
-  if (holders.length > RECORDS_TIE_SUPPRESSION_THRESHOLD) return null;
+  if (suppressesBroadTie(holders.length, includeBroadTies)) return null;
 
   // Year context: most recent archive among the top entries
   const topYear = Math.max(...topEntries.map((e) => e.year));
@@ -898,14 +921,15 @@ function selectSingleSeasonPointsLowRecord(sortedArchives: SeasonArchive[]): Rec
 
 function selectSingleSeasonHighScoreRecord(
   entries: InSeasonRecordEvidence['weeklyScores'],
-  tiedContext: NonNullable<InSeasonRecordProjectionOptions['tiedContext']> = 'legacy-first'
+  tiedContext: NonNullable<InSeasonRecordProjectionOptions['tiedContext']> = 'legacy-first',
+  includeBroadTies = false
 ): RecordEntry | null {
   if (entries.length === 0) return null;
 
   const maxScore = Math.max(...entries.map((e) => e.score));
   const topEntries = entries.filter((e) => e.score === maxScore);
   const holders = [...new Set(topEntries.map((e) => e.owner))].sort();
-  if (holders.length > RECORDS_TIE_SUPPRESSION_THRESHOLD) return null;
+  if (suppressesBroadTie(holders.length, includeBroadTies)) return null;
 
   const top =
     tiedContext === 'latest'
@@ -932,14 +956,15 @@ function selectSingleSeasonHighScoreRecord(
 
 function selectSingleSeasonBlowoutRecord(
   all: InSeasonOwnedFinal[],
-  tiedContext: NonNullable<InSeasonRecordProjectionOptions['tiedContext']> = 'legacy-first'
+  tiedContext: NonNullable<InSeasonRecordProjectionOptions['tiedContext']> = 'legacy-first',
+  includeBroadTies = false
 ): RecordEntry | null {
   if (all.length === 0) return null;
 
   const maxMargin = Math.max(...all.map((m) => m.margin));
   const topMatchups = all.filter((m) => m.margin === maxMargin);
   const winners = [...new Set(topMatchups.map((m) => m.winner))].sort();
-  if (winners.length > RECORDS_TIE_SUPPRESSION_THRESHOLD) return null;
+  if (suppressesBroadTie(winners.length, includeBroadTies)) return null;
 
   const top =
     tiedContext === 'latest'
@@ -968,7 +993,10 @@ function selectSingleSeasonBlowoutRecord(
 // Rivalry record selectors
 // ---------------------------------------------------------------------------
 
-function selectLopsidedRivalryRecord(h2hPairs: Map<string, H2HResult[]>): RecordEntry | null {
+function selectLopsidedRivalryRecord(
+  h2hPairs: Map<string, H2HResult[]>,
+  includeBroadTies = false
+): RecordEntry | null {
   type Entry = {
     dominant: string;
     loser: string;
@@ -1002,7 +1030,7 @@ function selectLopsidedRivalryRecord(h2hPairs: Map<string, H2HResult[]>): Record
   const maxDiff = Math.max(...entries.map((e) => e.diff));
   const topEntries = entries.filter((e) => e.diff === maxDiff);
   const holders = [...new Set(topEntries.flatMap((e) => [e.dominant, e.loser]))].sort();
-  if (holders.length > RECORDS_TIE_SUPPRESSION_THRESHOLD) return null;
+  if (suppressesBroadTie(holders.length, includeBroadTies)) return null;
 
   const top = topEntries[0]!;
   const secondMax = Math.max(...entries.filter((e) => e.diff < maxDiff).map((e) => e.diff));
@@ -1030,7 +1058,10 @@ function selectLopsidedRivalryRecord(h2hPairs: Map<string, H2HResult[]>): Record
   };
 }
 
-function selectEvenRivalryRecord(h2hPairs: Map<string, H2HResult[]>): RecordEntry | null {
+function selectEvenRivalryRecord(
+  h2hPairs: Map<string, H2HResult[]>,
+  includeBroadTies = false
+): RecordEntry | null {
   type Entry = {
     ownerA: string;
     ownerB: string;
@@ -1062,7 +1093,7 @@ function selectEvenRivalryRecord(h2hPairs: Map<string, H2HResult[]>): RecordEntr
   const topEntries = evenEntries.filter((e) => e.meetings === maxMeetings);
 
   const holders = [...new Set(topEntries.flatMap((e) => [e.ownerA, e.ownerB]))].sort();
-  if (holders.length > RECORDS_TIE_SUPPRESSION_THRESHOLD) return null;
+  if (suppressesBroadTie(holders.length, includeBroadTies)) return null;
 
   const top = topEntries[0]!;
   return {
@@ -1072,12 +1103,16 @@ function selectEvenRivalryRecord(h2hPairs: Map<string, H2HResult[]>): RecordEntr
     holders,
     value: top.meetings,
     formattedValue: `${top.winsA}–${top.winsB} (${top.meetings} games)`,
+    ...(topEntries.length === 1 ? { contextString: `${top.ownerA} & ${top.ownerB}` } : {}),
     gapToSecond: null,
     secondPlace: null,
   };
 }
 
-function selectDominanceStreakRecord(h2hPairs: Map<string, H2HResult[]>): RecordEntry | null {
+function selectDominanceStreakRecord(
+  h2hPairs: Map<string, H2HResult[]>,
+  includeBroadTies = false
+): RecordEntry | null {
   type Entry = { winner: string; loser: string; streak: number };
   const entries: Entry[] = [];
 
@@ -1109,7 +1144,7 @@ function selectDominanceStreakRecord(h2hPairs: Map<string, H2HResult[]>): Record
   const maxStreak = Math.max(...entries.map((e) => e.streak));
   const topEntries = entries.filter((e) => e.streak === maxStreak);
   const holders = [...new Set(topEntries.flatMap((e) => [e.winner, e.loser]))].sort();
-  if (holders.length > RECORDS_TIE_SUPPRESSION_THRESHOLD) return null;
+  if (suppressesBroadTie(holders.length, includeBroadTies)) return null;
   const top = topEntries[0]!;
 
   const secondMax = Math.max(...entries.filter((e) => e.streak < maxStreak).map((e) => e.streak));

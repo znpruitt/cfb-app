@@ -258,6 +258,24 @@ test('a target-week blowout tie retains the newest opponent context', () => {
   assert.equal(change?.current?.contextString, 'over Carol · 2026');
 });
 
+test('record diff distinguishes a newly suppressed broad tie from a vanished record', () => {
+  const owners = ['Alice', 'Bob', 'Carol', 'Dan', 'Erin', 'Frank', 'Grace'];
+  const result = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 2,
+    participations: owners.map((owner, index) =>
+      participation(owner, index === owners.length - 1 ? 2 : 1, 50)
+    ),
+  });
+  const change = result.find((entry) => entry.id === 'single_season_high_score');
+
+  assert.equal(change?.current, null);
+  assert.deepEqual(change?.suppressedCurrent?.holders, owners);
+  assert.equal(change?.suppressedCurrent?.value, 50);
+});
+
 test('target-week reversal diffs all three live rivalry records in chronological order', () => {
   const result = selectWeeklyRecordChanges({
     archives: [],

@@ -153,10 +153,18 @@ function recordSubject(
   change: WeeklyRecordChange,
   record: NonNullable<WeeklyRecordChange['current']>
 ): string {
-  if (change.id === 'lopsided_rivalry' || change.id === 'dominance_streak') {
+  if (
+    change.id === 'lopsided_rivalry' ||
+    change.id === 'even_rivalry' ||
+    change.id === 'dominance_streak'
+  ) {
     return record.contextString ?? 'Multiple rivalries tied';
   }
   return ownerContext(record.holders);
+}
+
+function sameRecordHolders(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((holder, index) => holder === right[index]);
 }
 
 function composeRecordChangeLine(
@@ -168,6 +176,16 @@ function composeRecordChangeLine(
 
   if (!change.current) {
     const previous = change.previous;
+    const suppressed = change.suppressedCurrent;
+    if (suppressed) {
+      return {
+        kind: 'record-change',
+        id: `record-${change.id}`,
+        label,
+        value: 'Broad tie',
+        context: `${suppressed.formattedValue} · Through ${weekLabel}`,
+      };
+    }
     return previous
       ? {
           kind: 'record-change',
@@ -185,7 +203,8 @@ function composeRecordChangeLine(
   if (
     previous &&
     change.current.formattedValue === previous.formattedValue &&
-    holder === previousSubject
+    holder === previousSubject &&
+    sameRecordHolders(change.current.holders, previous.holders)
   ) {
     // The selector also observes latest-game context changes. If that detail is
     // not safe to attribute in this compact line, do not manufacture a visible
@@ -315,9 +334,7 @@ function composeGameLines(facts: NonNullable<ReturnType<typeof selectWeeklyRecap
       `${result.margin}-point margin`
     );
   }
-  const closestGameKeys = new Set(facts.accolades.closestGames.map((result) => result.gameKey));
   for (const result of facts.accolades.biggestBlowouts) {
-    if (closestGameKeys.has(result.gameKey)) continue;
     addGameQualifier(
       lines,
       result.gameKey,
