@@ -51,6 +51,23 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-026e-RECAP-ODDS-UPSETS-v1
+
+- Purpose: add odds-vs-result upset facts to the request-time weekly recap without exposing an
+  interim member-facing rendering.
+- Scope: one shared odds-upset policy for game-card tags and recap facts, cache-only durable odds
+  loading, canonical week/ownership/finality selection, structured favorite/winner/line provenance,
+  owned-v-owned deduplication, deterministic ordering, and focused boundary/failure-path coverage.
+- Outcome: each eligible recap now derives structured odds upsets from the season-scoped durable
+  odds store using the same six-point pregame-spread policy as game badges. Asymmetric book rows use
+  the resolved favorite side's own spread; genuine odds absence yields no facts while read
+  uncertainty remains distinct.
+- Review / verification: exact commit `3d1ed850` passed TypeScript, `lint:all`, the 4,416-test full
+  suite, and production build. One remediation round fixed asymmetric-line threshold selection and
+  pinned ordering/ownership/week edges; final independent Codex and Claude reviews found no
+  remaining P0/P1/P2 issue. Non-blocking follow-ups remain recorded with item 42.
+- Status: Implemented — pre-merge closeout complete; not yet merged.
+
 ### INSIGHTS-026d-RECAP-RECORD-CHANGES-v1
 
 - Purpose: add the allowlisted partial-season record-change projection to the request-time weekly
