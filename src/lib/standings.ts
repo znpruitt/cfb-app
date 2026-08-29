@@ -27,6 +27,22 @@ export type OwnerStandingsRow = {
   finalGames: number;
 };
 
+export type StandingsOrderRow = Pick<
+  OwnerStandingsRow,
+  'owner' | 'wins' | 'winPct' | 'pointDifferential' | 'pointsFor'
+>;
+
+/** Canonical league-record order. Keep every standings-like surface on this comparator. */
+export function compareStandingsRows(left: StandingsOrderRow, right: StandingsOrderRow): number {
+  if (right.wins !== left.wins) return right.wins - left.wins;
+  if (right.winPct !== left.winPct) return right.winPct - left.winPct;
+  if (right.pointDifferential !== left.pointDifferential) {
+    return right.pointDifferential - left.pointDifferential;
+  }
+  if (right.pointsFor !== left.pointsFor) return right.pointsFor - left.pointsFor;
+  return left.owner.localeCompare(right.owner);
+}
+
 export type StandingsSnapshot = {
   /** Primary rows, sorted canonically; NoClaim is excluded. */
   rows: OwnerStandingsRow[];
@@ -49,11 +65,6 @@ export const NO_CLAIM_OWNER = 'NoClaim';
 const COVERAGE_INCOMPLETE = 'Waiting on complete results';
 /** The same claim for surfaces with no standings heading to supply the subject. */
 const COVERAGE_INCOMPLETE_WITH_SUBJECT = 'Standings — waiting on complete results';
-
-/** Canonical member-facing claim for a known partial result population. */
-export function standingsIncompleteResultsNotice(): string {
-  return COVERAGE_INCOMPLETE;
-}
 
 /**
  * Splits a sorted list of owner standings into real-owner rows and the NoClaim
@@ -312,15 +323,7 @@ export function deriveStandings(
         gamesBack: 0,
       };
     })
-    .sort((a, b) => {
-      if (b.wins !== a.wins) return b.wins - a.wins;
-      if (b.winPct !== a.winPct) return b.winPct - a.winPct;
-      if (b.pointDifferential !== a.pointDifferential) {
-        return b.pointDifferential - a.pointDifferential;
-      }
-      if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor;
-      return a.owner.localeCompare(b.owner);
-    });
+    .sort(compareStandingsRows);
 
   const { rows: realRows, noClaimRow: rawNoClaimRow } = splitOutNoClaim(sortedAllRows);
   const leaderWins = realRows.reduce((best, row) => Math.max(best, row.wins), 0);

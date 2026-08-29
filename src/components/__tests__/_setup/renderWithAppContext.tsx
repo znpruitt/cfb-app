@@ -49,16 +49,20 @@ type ClerkInstanceProviderValue = React.ComponentProps<
 >['value'];
 type InitialState = React.ComponentProps<typeof InitialStateProvider>['initialState'];
 
-export function renderWithAppContext(element: React.ReactElement): string {
-  return renderToStaticMarkup(
+export function AppContextProviders({ children }: React.PropsWithChildren): React.ReactElement {
+  return (
     <AppRouterContext.Provider value={mockAppRouter}>
       <ClerkInstanceContext.Provider
         value={{ value: mockClerkInstance } as unknown as ClerkInstanceProviderValue}
       >
         <InitialStateProvider initialState={{ user: null } as unknown as InitialState}>
-          {element}
+          {children}
         </InitialStateProvider>
       </ClerkInstanceContext.Provider>
     </AppRouterContext.Provider>
   );
+}
+
+export function renderWithAppContext(element: React.ReactElement): string {
+  return renderToStaticMarkup(<AppContextProviders>{element}</AppContextProviders>);
 }

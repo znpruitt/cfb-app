@@ -1,7 +1,7 @@
 # Prompt Registry
 
 Status: Current ledger
-Last verified: 2026-08-28
+Last verified: 2026-08-29
 Owner: Project documentation
 Canonical for: prompt ledger / historical implementation record (not an active backlog)
 Supersedes: (none)
@@ -50,6 +50,64 @@ Rules:
 ---
 
 ## Prompt ledger (most recent first)
+
+### INSIGHTS-026b-RECAP-LAYOUT-v3
+
+- Purpose: preserve the approved weekly-recap layout while rebuilding only the Overview data seam
+  around one server-coherent request-time recap payload.
+- Scope: attach an independently failing recap view model to the existing authenticated Insights
+  response after its cross-request cache; consume it through guarded client fetching with one
+  eligibility-boundary refresh; remove v2's recap-specific score-hydration coupling; retain the
+  Slice 1 selectors, Insights lead section, shared layout components, and design amendments.
+- Outcome: the approved Insights lead and expandable Overview tile now share the same recap layout
+  and server-coherent view model. The Overview client fetch is enabled only on that surface,
+  reevaluates at the schedule-independent 06:00 ET boundary, preserves healthy standing insights
+  when recap refresh fails, and renders the tile outside the schedule-success gate while keeping it
+  immediately above the podium in normal flow.
+- Review / verification: the v2 seam audit selected the existing authenticated Insights route as
+  the bounded replacement and preserved Slice 1. The v3 review cycle then closed lifecycle-year,
+  cache-placement, refresh-race, request-cost, and degraded-schedule seams. Exact code commit
+  `2176e7c2` passed TypeScript, `lint:all`, the 4,370-test full suite, and production build; final
+  independent Claude and Codex confirmations reported no actionable findings.
+- Status: Implemented — awaiting merge.
+
+### INSIGHTS-026b-RECAP-LAYOUT-v2
+
+- Purpose: rebuild the weekly recap's approved layout and Overview tile on the proven Slice 1 facts
+  without changing the remaining vertical content slices.
+- Scope: shared recap header and weekly-record grid, the Insights lead section, a request-time
+  Overview tile derived from already-hydrated app data, calendar-only tile phase selection, focused
+  rendering/selector coverage, and the three owning design-system amendments. No new endpoint,
+  durable artifact, scheduler, record projection, odds policy, or unwired content placeholder.
+- Outcome: the Insights recap now uses the mockup's headline and four-column weekly-record layout;
+  Overview gets a normal-flow, collapsed-by-default recap tile during the eligible-to-Thursday
+  window, with expansion revealing the compact shared rows. Schedule rebuilds now clear stale
+  identity-bound scores and re-arm hydration, while regular/postseason cleanliness gates the exact
+  recap week independently. Recap context uncertainty remains independent from standing insights,
+  and the mounted tile reevaluates the 06:00 ET boundaries.
+- Review / verification: the first independent Claude/Codex review round found lifecycle,
+  incomplete-copy, accessibility, and mockup-fidelity seams; remediation cycle 1 addresses them
+  with focused hook, selector, composer, RSC, and component coverage. The independent rereview found
+  two remaining hydration seams: cross-phase failures were aggregated, and an older in-flight build
+  could suppress the replacement generation's bootstrap. Remediation cycle 2 makes hydration
+  phase-specific and generation-aware, restores the two member-facing uncertainty notices, moves
+  Overview applicability into a tested selector, and applies the final row-hairline correction.
+  Full gates and the final independent rereview are required before merge and are reported with the
+  implementation handoff.
+- Status: Superseded/unmerged by `INSIGHTS-026b-RECAP-LAYOUT-v3` after final review found a
+  server/client roster-generation seam in the Overview data path.
+
+### INSIGHTS-026b-RECAP-LAYOUT-v1
+
+- Purpose: apply the approved weekly-recap mockup as a layout stage between the walking skeleton and
+  the remaining fact-family slices.
+- Scope: the same member surfaces and design-system amendments later retained by v2.
+- Outcome: stopped after two remediation rounds exposed an unstable seam: the mounted Overview tile
+  could miss its request-time 06:00 ET transitions, and extending the insights response added an
+  uncached season build to the existing endpoint. No v1 implementation was merged.
+- Review / verification: the seam assessment required clean reconstruction from `origin/main`
+  instead of a third patch to the stopped branch.
+- Status: Superseded/unimplemented by `INSIGHTS-026b-RECAP-LAYOUT-v2`.
 
 ### INSIGHTS-026a-RECAP-SKELETON-v1
 

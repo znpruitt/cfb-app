@@ -37,12 +37,18 @@ import { selectSeasonContext } from '@/lib/selectors/seasonContext';
 import type { Insight } from '@/lib/selectors/insights';
 import type { InsightContext } from '@/lib/insights/types';
 import type { LifecycleState } from '@/lib/insights/types';
+import type { WeeklyRecapViewModel } from '@/lib/recap/composeWeeklyRecap';
 
-export type InsightsResponse = {
+export type InsightsFeedResponse = {
   insights: Insight[];
   lifecycleState: LifecycleState;
   generatedAt: string;
   error?: string;
+};
+
+/** Authenticated API payload. The recap is composed per request after the raw-insights cache. */
+export type InsightsResponse = InsightsFeedResponse & {
+  weeklyRecap: WeeklyRecapViewModel;
 };
 
 export type LoadInsightsOptions = {
@@ -70,7 +76,7 @@ const INSIGHTS_CACHE_TTL_SECONDS = 300;
 function emptyResponse(
   lifecycleState: LifecycleState = 'offseason',
   error?: string
-): InsightsResponse {
+): InsightsFeedResponse {
   return {
     insights: [],
     lifecycleState,
@@ -426,7 +432,7 @@ export async function loadInsightsForLeague(
   slug: string,
   year?: number,
   options: LoadInsightsOptions = {}
-): Promise<InsightsResponse> {
+): Promise<InsightsFeedResponse> {
   const currentDate = new Date();
   const league = await getLeague(slug);
   if (!league) {

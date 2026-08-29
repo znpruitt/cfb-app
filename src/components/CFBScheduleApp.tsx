@@ -13,6 +13,7 @@ import MatchupsWeekPanel from './MatchupsWeekPanel';
 import WeekViewTabs, { type WeekViewMode } from './WeekViewTabs';
 import PostseasonPanel from './PostseasonPanel';
 import RankingsPageContent from './RankingsPageContent';
+import RecapTile from './recap/RecapTile';
 import StandingsPanel from './StandingsPanel';
 import OverviewPanel from './OverviewPanel';
 import OwnerPanel from './OwnerPanel';
@@ -82,6 +83,7 @@ import {
 import { createRankingsRequestGuard } from '../lib/rankingsRequestGuard';
 import { buildOwnerColorMap, isDarkTheme } from '../lib/ownerColors';
 import { useScheduleBootstrap } from './hooks/useScheduleBootstrap';
+import { useInsightsFeed } from './hooks/useInsightsFeed';
 import { useLiveRefresh } from './hooks/useLiveRefresh';
 import { useOddsHydration } from './hooks/useOddsHydration';
 import { useLiveDelta } from './hooks/useLiveDelta';
@@ -89,8 +91,11 @@ import type { DraftPhase } from '../lib/draft';
 import type { LeagueStatus } from '../lib/league';
 import { resolveLeagueSeason } from '../lib/leagueSeason';
 import type { CanonicalStandings } from '../lib/selectors/leagueStandings';
-import type { Insight as EngineInsight } from '../lib/selectors/insights';
-import type { LifecycleState } from '../lib/insights/types';
+import {
+  isWeeklyRecapActiveSeason,
+  selectWeeklyRecapTileState,
+} from '../lib/selectors/weeklyRecapFacts';
+import type { AvailableWeeklyRecapViewModel } from '../lib/recap/composeWeeklyRecap';
 
 const IS_DEBUG = process.env.NEXT_PUBLIC_DEBUG === '1';
 const EXPLICIT_SEASON = Number.parseInt(process.env.NEXT_PUBLIC_SEASON ?? '', 10);
@@ -372,11 +377,6 @@ export default function CFBScheduleApp({
   const [draftPhase, setDraftPhase] = useState<DraftPhase | null>(null);
   const [draftScheduledAt, setDraftScheduledAt] = useState<string | null>(null);
   const [draftCurrentRound, setDraftCurrentRound] = useState<number | null>(null);
-
-  const [engineInsights, setEngineInsights] = useState<EngineInsight[]>([]);
-  const [insightsLifecycleState, setInsightsLifecycleState] = useState<LifecycleState | undefined>(
-    undefined
-  );
 
   const scheduleRefreshInFlightRef = useRef<boolean>(false);
   const rankingsRequestGuardRef = useRef(createRankingsRequestGuard());
@@ -818,13 +818,15 @@ export default function CFBScheduleApp({
   // scores/inputs are static — e.g. a network outage that stops updating
   // `scoresObservedAt` must still let `isStale` flip after the threshold, not
   // leave the overlay marked fresh forever (PLATFORM-086B2B). Client-only; armed
-  // once per loaded schedule; `0` until then so useLiveDelta uses Date.now().
+  // once per mounted league surface; `0` until then so useLiveDelta uses Date.now().
+  // The recap response is server-derived and can render even if the client
+  // schedule bootstrap fails, so this request-time display clock is not gated
+  // by schedule readiness.
   useEffect(() => {
-    if (!scheduleLoaded) return;
     setLiveStaleClock(Date.now());
     const id = window.setInterval(() => setLiveStaleClock(Date.now()), 60_000);
     return () => window.clearInterval(id);
-  }, [scheduleLoaded]);
+  }, []);
 
   const liveDeltaWeekKey = `${selectedSeason}:${selectedWeek ?? 'all'}`;
   const liveDelta = useLiveDelta({
@@ -1037,6 +1039,21 @@ export default function CFBScheduleApp({
     });
   }, [games, hasActiveViewFilters, selectedTab, selectedWeek, visibleGames]);
 
+  const {
+    insights: engineInsights,
+    lifecycleState: insightsLifecycleState,
+    weeklyRecap: weeklyRecapResponse,
+    refreshInsights,
+  } = useInsightsFeed({
+    leagueSlug,
+    seasonYear: selectedSeason,
+    leagueStatus,
+    games,
+    scheduleLoaded,
+    nowTick: liveStaleClock,
+    enabled: primarySurfaceKind === 'overview',
+  });
+
   // PLATFORM-080: recompute server canonicalStandings after an in-session game
   // finalization. router.refresh() re-runs the RSC tree; the /api/scores write
   // path already invalidated the standings cache tag, so canonical recomputes
@@ -1044,7 +1061,8 @@ export default function CFBScheduleApp({
   // derivation and no upstream provider fetch (PLATFORM-075 preserved).
   const handleGamesFinalized = useCallback(() => {
     router.refresh();
-  }, [router]);
+    refreshInsights();
+  }, [refreshInsights, router]);
 
   const { liveScoreObservation } = useLiveRefresh({
     selectedSeason,
@@ -1078,6 +1096,25 @@ export default function CFBScheduleApp({
     // standings would stay tied to the render-time snapshot until navigation.
     onGamesFinalized: handleGamesFinalized,
   });
+
+  const weeklyRecap = useMemo<AvailableWeeklyRecapViewModel | null>(() => {
+    if (
+      liveStaleClock === 0 ||
+      weeklyRecapResponse.status !== 'available' ||
+      !isWeeklyRecapActiveSeason({ leagueStatus, seasonYear: selectedSeason })
+    ) {
+      return null;
+    }
+
+    const state = selectWeeklyRecapTileState(
+      {
+        week: weeklyRecapResponse.week,
+        latestGameDate: weeklyRecapResponse.latestGameDate,
+      },
+      new Date(liveStaleClock)
+    );
+    return state === 'recap' ? weeklyRecapResponse : null;
+  }, [leagueStatus, liveStaleClock, selectedSeason, weeklyRecapResponse]);
 
   const gameDayConfidence = useMemo(
     () =>
@@ -1146,40 +1183,6 @@ export default function CFBScheduleApp({
       })
       .catch(() => {}); // non-fatal
   }, [leagueSlug, draftLookupYear]);
-
-  useEffect(() => {
-    if (!leagueSlug) {
-      setEngineInsights([]);
-      setInsightsLifecycleState(undefined);
-      return;
-    }
-    let cancelled = false;
-    fetch(`/api/insights/${encodeURIComponent(leagueSlug)}?year=${selectedSeason}`, {
-      cache: 'no-store',
-    })
-      .then((res) =>
-        res.ok
-          ? (res.json() as Promise<{
-              insights?: EngineInsight[];
-              lifecycleState?: LifecycleState;
-            }>)
-          : null
-      )
-      .then((data) => {
-        if (cancelled) return;
-        setEngineInsights(Array.isArray(data?.insights) ? data!.insights! : []);
-        setInsightsLifecycleState(data?.lifecycleState);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setEngineInsights([]);
-          setInsightsLifecycleState(undefined);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [leagueSlug, selectedSeason]);
 
   const savePostseasonOverride = useCallback(
     (eventId: string, patch: Partial<AppGame>) => {
@@ -1685,6 +1688,12 @@ export default function CFBScheduleApp({
           Loading schedule&hellip;
         </section>
       ) : null}
+
+      {/* The recap is server-derived and remains useful when the client schedule
+          bootstrap is unavailable. Keep this timely-content slot outside the
+          schedule-dependent primary-surface gate; when Overview can render it
+          still precedes the podium in normal flow. */}
+      {primarySurfaceKind === 'overview' && weeklyRecap ? <RecapTile recap={weeklyRecap} /> : null}
 
       {canRenderPrimarySurface && (
         <>

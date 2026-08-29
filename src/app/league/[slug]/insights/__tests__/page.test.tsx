@@ -10,6 +10,7 @@ import {
   setAppState,
 } from '@/lib/server/appStateStore';
 import { __resetTeamDatabaseStoreForTests } from '@/lib/server/teamDatabaseStore';
+import WeeklyRecapSection from '@/components/recap/WeeklyRecapSection';
 
 import LeagueInsightsPage from '../page';
 
@@ -26,6 +27,19 @@ test.beforeEach(async () => {
   await __deleteAppStateFileForTests();
   __resetAppStateForTests();
   __resetTeamDatabaseStoreForTests();
+});
+
+test('Insights recap keeps context uncertainty distinct from genuine absence', () => {
+  const unavailable = renderToStaticMarkup(
+    <WeeklyRecapSection recap={{ status: 'unavailable' }} />
+  );
+  const absent = renderToStaticMarkup(<WeeklyRecapSection recap={{ status: 'absent' }} />);
+
+  assert.match(
+    unavailable,
+    /This week&#x27;s recap isn&#x27;t available right now\. Please check back shortly\./
+  );
+  assert.equal(absent, '');
 });
 
 test('Insights page renders the request-time recap above the standing insight list', async () => {
@@ -73,6 +87,8 @@ test('Insights page renders the request-time recap above the standing insight li
   const html = await renderPageContent(SLUG);
 
   assert.match(html, /Weekly recap/);
+  assert.match(html, /Alice takes the week at 1–0/);
+  assert.match(html, /Week records/);
   assert.match(html, /Alice/);
   assert.match(html, /31 PF · 17 PA/);
   assert.match(html, /1–0/);
@@ -114,8 +130,9 @@ test('Insights page renders the eligible week when it has no completed results',
 
   const html = await renderPageContent(slug);
 
-  assert.match(html, /No completed results were recorded for Week 1\./);
-  assert.match(html, /1 game remains unresolved\./);
+  assert.match(html, /No completed results were recorded for this week\./);
+  assert.doesNotMatch(html, /game remains unresolved/);
+  assert.doesNotMatch(html, /Week records/);
 });
 
 test('Insights page surfaces a completed league game whose result is unavailable', async () => {
@@ -127,11 +144,15 @@ test('Insights page surfaces a completed league game whose result is unavailable
     createdAt: '2024-01-01T00:00:00.000Z',
     status: { state: 'season', year: YEAR },
   });
-  await setAppState(`owners:${slug}:${YEAR}`, 'csv', 'team,owner\nTexas,Alice\nGeorgia,Bob\n');
+  await setAppState(
+    `owners:${slug}:${YEAR}`,
+    'csv',
+    'team,owner\nTexas,Alice\nGeorgia,Bob\nClemson,Carol\nFlorida,Dave\n'
+  );
   await setAppState('schedule', `${YEAR}-all-all`, {
     items: [
       {
-        id: '401000779',
+        id: '401000778',
         week: 1,
         seasonType: 'regular',
         startDate: '2024-08-25T00:00:00.000Z',
@@ -144,13 +165,44 @@ test('Insights page surfaces a completed league game whose result is unavailable
         status: 'STATUS_FINAL',
         completed: true,
       },
+      {
+        id: '401000779',
+        week: 1,
+        seasonType: 'regular',
+        startDate: '2024-08-25T00:00:00.000Z',
+        neutralSite: false,
+        conferenceGame: true,
+        homeTeam: 'Clemson',
+        awayTeam: 'Florida',
+        homeConference: 'ACC',
+        awayConference: 'SEC',
+        status: 'STATUS_FINAL',
+        completed: true,
+      },
+    ],
+  });
+  await setAppState('scores', `${YEAR}-all-regular`, {
+    items: [
+      {
+        id: '401000778',
+        week: 1,
+        seasonType: 'regular',
+        startDate: '2024-08-25T00:00:00.000Z',
+        status: 'final',
+        home: { team: 'Texas', score: 31 },
+        away: { team: 'Georgia', score: 17 },
+        time: null,
+      },
     ],
   });
 
   const html = await renderPageContent(slug);
 
-  assert.match(html, /No completed results were recorded for Week 1\./);
-  assert.match(html, /1 game\. Waiting on complete results\./);
+  assert.match(html, /Week 1 results/);
+  assert.match(html, /31 PF · 17 PA/);
+  assert.match(html, /This recap reflects the completed results currently available\./);
+  assert.doesNotMatch(html, /Waiting on complete results/);
+  assert.doesNotMatch(html, /coverage|cache|CFBD/i);
 });
 
 test('Insights page hides the request-time recap outside the active season', async () => {

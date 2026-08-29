@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server';
 
 import { loadInsightsForLeague, type InsightsResponse } from '@/lib/insights/loadInsights';
 import { isAuthorizedForLeague } from '@/lib/leagueAuth';
+import { getLeague } from '@/lib/leagueRegistry';
+import { loadWeeklyRecap } from '@/lib/recap/loadWeeklyRecap';
+import {
+  resolveDisplayLeagueStatus,
+  resolveLeagueOperatingYear,
+} from '@/lib/selectors/leagueLifecycle';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,8 +33,22 @@ export async function GET(
   const url = new URL(req.url);
   const year = parseYear(url.searchParams.get('year'));
   const bypassSuppression = url.searchParams.get('bypassSuppression') === '1';
+  const now = new Date();
+  const league = await getLeague(slug);
+  const resolvedYear = year ?? (league ? resolveLeagueOperatingYear(league) : undefined);
 
-  const response = await loadInsightsForLeague(slug, year, { bypassSuppression });
+  const [feed, weeklyRecap] = await Promise.all([
+    loadInsightsForLeague(slug, resolvedYear, { bypassSuppression }),
+    league && resolvedYear
+      ? loadWeeklyRecap({
+          leagueSlug: slug,
+          seasonYear: resolvedYear,
+          leagueStatus: resolveDisplayLeagueStatus(league),
+          now,
+        })
+      : Promise.resolve({ status: 'inactive' } as const),
+  ]);
+  const response: InsightsResponse = { ...feed, weeklyRecap };
   return NextResponse.json<InsightsResponse>(response, {
     headers: { 'Content-Type': 'application/json; charset=utf-8' },
   });

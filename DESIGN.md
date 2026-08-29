@@ -64,6 +64,16 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Remove section headers that restate what the nav tab already communicates
 - Tighten padding aggressively — default spacing assumptions are usually too generous for a data-dense app
 
+### Elevated timely-content zone
+
+- Overview reserves one full-width zone above the season podium for timely content that temporarily
+  outranks the standing dashboard hierarchy. The existing draft-status banner established this zone;
+  the request-time weekly recap tile is its second approved occupant.
+- Content in this zone stays in normal flow. When it expands, it pushes the podium down rather than
+  overlaying, clipping, or independently scrolling the dashboard beneath it.
+- Occupancy is lifecycle- and time-bounded. An inapplicable state renders nothing so the podium
+  returns to the top of Overview; the zone is not a permanent home for general announcements.
+
 ## Multi-line row pattern
 
 - Line 1: primary identifier + right-anchored value (rank, score, count, delta) — body size (14–15px), weight 500, primary text color
@@ -72,6 +82,9 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Trailing-whitespace test: if a single-line row ends with notable whitespace before the right-anchored value, restructure to multi-line — the line-2 metadata must add context the user would want to see anyway
 - Applied on the main Overview standings rows; History Overview Championships, Top rivalries, Title droughts, and Movers sections
 - Not appropriate when line-2 content adds no information (basic to-do lists, link lists) — the pattern earns its place when line-2 metadata is at least as informative as the primary value
+- **Compact row token:** dense disclosures may use 6px vertical padding and a 13.5px line 1 while
+  retaining the same weight, two-line hierarchy, and right-edge anchor. This is the explicit
+  exception to the standard 14–15px line-1 rule; it is not a new default row size.
 
 ## List row width discipline
 
@@ -151,6 +164,10 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 ## Containerization
 
 - Outer card containers are removed from all Overview sections except the season podium
+- The weekly recap tile is the one timely-content exception: its full-width dark surface and 8px
+  radius bind a collapsed editorial headline to its expand-in-place disclosure. It carries no
+  decorative border or accent color, and this exception does not authorize card chrome for ordinary
+  Overview sections.
 - Individual game cards retain borders — they are discrete objects
 - Major sections may be separated by either generous whitespace alone (minimum 40px between sections) or a horizontal divider (0.5px, `var(--color-border-tertiary)`)
 - Whitespace separation is preferred for dashboard-style pages where sections share a visual rhythm and column structure (History Overview, main Overview)

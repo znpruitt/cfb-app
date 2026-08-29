@@ -1,9 +1,9 @@
 import type { LeagueStatus } from '../league.ts';
 import {
   isWeeklyRecapActiveSeason,
+  selectWeeklyRecapLeaders,
   selectWeeklyRecapFacts,
 } from '../selectors/weeklyRecapFacts.ts';
-import { standingsIncompleteResultsNotice } from '../standings.ts';
 import { buildWeekLabelMap, formatWeekLabel } from '../weekLabel.ts';
 import type { WeeklyRecapContextResult } from './loadRecapContext.ts';
 
@@ -21,25 +21,60 @@ export type WeeklyRecapViewModel =
       status: 'available';
       week: number;
       weekLabel: string;
+      latestGameDate: string;
+      headline: string | null;
+      isIncomplete: boolean;
       ownerLines: WeeklyRecapOwnerLine[];
-      unresolvedMessage: string | null;
-      abandonedMessage: string | null;
-      missingResultMessage: string | null;
     };
+
+export type AvailableWeeklyRecapViewModel = Extract<WeeklyRecapViewModel, { status: 'available' }>;
 
 export type WeeklyRecapSeasonScope = {
   leagueStatus: LeagueStatus | undefined;
   seasonYear: number;
 };
 
-function countMessage(count: number, singular: string, plural: string): string | null {
-  if (count === 0) return null;
-  return `${count} ${count === 1 ? singular : plural}`;
-}
+const SMALL_COUNT_WORDS = [
+  'Zero',
+  'One',
+  'Two',
+  'Three',
+  'Four',
+  'Five',
+  'Six',
+  'Seven',
+  'Eight',
+  'Nine',
+  'Ten',
+  'Eleven',
+  'Twelve',
+  'Thirteen',
+  'Fourteen',
+  'Fifteen',
+  'Sixteen',
+  'Seventeen',
+  'Eighteen',
+  'Nineteen',
+  'Twenty',
+] as const;
 
-function incompleteResultsMessage(count: number): string | null {
-  if (count === 0) return null;
-  return `${count} ${count === 1 ? 'game' : 'games'}. ${standingsIncompleteResultsNotice()}.`;
+function weeklyHeadline(facts: ReturnType<typeof selectWeeklyRecapFacts>): string | null {
+  if (!facts) return null;
+  if (facts.unresolvedCount > 0 || facts.abandonedCount > 0 || facts.missingResultCount > 0) {
+    return null;
+  }
+
+  const leaders = selectWeeklyRecapLeaders(facts.ownerResults);
+  const first = leaders[0];
+  if (!first) return null;
+  const record = `${first.wins}–${first.losses}`;
+  if (leaders.length === 1) return `${first.owner} takes the week at ${record}`;
+  if (leaders.length === 2) {
+    return `${leaders[0].owner} and ${leaders[1].owner} share the week at ${record}`;
+  }
+
+  const count = SMALL_COUNT_WORDS[leaders.length] ?? String(leaders.length);
+  return `${count} owners share the week at ${record}`;
 }
 
 export function composeWeeklyRecap(
@@ -65,26 +100,21 @@ export function composeWeeklyRecap(
   const weekLabel = weekLabelMap.has(facts.targetWeek.week)
     ? compactWeekLabel
     : `Week ${facts.targetWeek.week}`;
+  const ownerLines = facts.ownerResults.map((result) => ({
+    owner: result.owner,
+    recordLabel: `${result.wins}–${result.losses}`,
+    pointsLabel: `${result.pointsFor} PF · ${result.pointsAgainst} PA`,
+  }));
+  const isIncomplete =
+    facts.unresolvedCount > 0 || facts.abandonedCount > 0 || facts.missingResultCount > 0;
 
   return {
     status: 'available',
     week: facts.targetWeek.week,
     weekLabel,
-    ownerLines: facts.ownerResults.map((result) => ({
-      owner: result.owner,
-      recordLabel: `${result.wins}–${result.losses}`,
-      pointsLabel: `${result.pointsFor} PF · ${result.pointsAgainst} PA`,
-    })),
-    unresolvedMessage: countMessage(
-      facts.unresolvedCount,
-      'game remains unresolved.',
-      'games remain unresolved.'
-    ),
-    abandonedMessage: countMessage(
-      facts.abandonedCount,
-      'game has no recorded result.',
-      'games have no recorded result.'
-    ),
-    missingResultMessage: incompleteResultsMessage(facts.missingResultCount),
+    latestGameDate: facts.targetWeek.latestGameDate,
+    headline: weeklyHeadline(facts) ?? (ownerLines.length > 0 ? `${weekLabel} results` : null),
+    isIncomplete,
+    ownerLines,
   };
 }
