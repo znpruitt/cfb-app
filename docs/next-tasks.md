@@ -686,10 +686,33 @@ Sequence, and the ordering is the load-bearing part:
 4. Make the id authoritative wherever it exists; names become display, search, and provider-variant
    alias matching only.
 
+**Store the id AND the name on durable records — the redundancy is the drift detector.** Ids are only
+as stable as the provider. Persist ids alone and a re-keyed or reassigned id is undetectable: the
+join still resolves, silently, to the wrong school, and archives keyed by that id become
+retroactively wrong with no tell. Persist the name alongside as a witness of what the id meant when
+the row was written, and any later disagreement is observable. This does not restore the name to an
+identity role; it makes provider drift falsifiable.
+
+**Drift detection.** Every `/games` row carries `home_id` with `home_team`, so the provider
+re-asserts the id-to-name binding on every row of every fetch. Validating that pair at ingest gives
+continuous detection on live data with no extra provider call and no scheduled job; a catalog diff at
+`fetch:teams` time covers teams that appear in no game. Classify the outcomes, because they are not
+equally serious:
+
+- same id, different school — REASSIGNMENT. The dangerous case: silently rebinds history. Must fail
+  loudly.
+- same school, different id — re-keying. Needs a mapping decision before any further write.
+- id no longer present — ordinarily conference realignment leaving FBS; informational.
+
+`src/lib/conferenceDiagnostics.ts` and its debug route are the idiomatic precedent for recording and
+surfacing this.
+
 Acceptance boundary, both required:
 
 - Two distinct schools never share a normalized identity key, proven by a catalog-wide collision
   sweep, and a conflict fails loudly instead of resolving by first-write-wins.
+- Provider identity drift is detected and surfaced, with id reassignment failing loudly rather than
+  being absorbed silently.
 - A per-team season game-count invariant rejects an impossible schedule. The FBS ceiling is **17**
   — 12 regular-season games, plus a conference championship, plus four College Football Playoff
   rounds under the 12-team format — so the threshold must accommodate a full title run or it will
