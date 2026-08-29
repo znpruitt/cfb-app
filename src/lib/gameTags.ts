@@ -1,12 +1,12 @@
 import { gameStateFromScore } from './gameUi.ts';
+import { DEFAULT_ODDS_UPSET_SPREAD_THRESHOLD, evaluateOddsUpset } from './oddsUpsetPolicy.ts';
 import type { OverviewGameItem } from './overview.ts';
 import type { TeamRankingEnrichment } from './rankings.ts';
 import { getGameParticipantTeamId, type AppGame } from './schedule.ts';
 import type { ScorePack } from './scores.ts';
 import type { CombinedOdds } from './odds.ts';
 import type { OwnerStandingsRow } from './standings.ts';
-import { hasEquivalentTeamName } from './teamIdentity.ts';
-import { getGameOwners as ownerTeamSides, sideIdentityCandidates } from './gameOwnership.ts';
+import { getGameOwners as ownerTeamSides } from './gameOwnership.ts';
 
 export type Insight = {
   id: string;
@@ -482,31 +482,6 @@ function getState(score?: ScorePack): 'scheduled' | 'inprogress' | 'final' | 'un
   return gameStateFromScore(score);
 }
 
-function spreadMagnitude(odds?: CombinedOdds): number | null {
-  if (!odds) return null;
-  if (typeof odds.spread === 'number') return Math.abs(odds.spread);
-  if (typeof odds.homeSpread === 'number') return Math.abs(odds.homeSpread);
-  if (typeof odds.awaySpread === 'number') return Math.abs(odds.awaySpread);
-  return null;
-}
-
-function favoriteSideFromOdds(game: AppGame, odds?: CombinedOdds): 'away' | 'home' | null {
-  if (!odds) return null;
-
-  if (typeof odds.homeSpread === 'number' && typeof odds.awaySpread === 'number') {
-    if (odds.homeSpread < odds.awaySpread) return 'home';
-    if (odds.awaySpread < odds.homeSpread) return 'away';
-    return null;
-  }
-
-  if (odds.favorite) {
-    if (hasEquivalentTeamName(odds.favorite, sideIdentityCandidates(game, 'home'))) return 'home';
-    if (hasEquivalentTeamName(odds.favorite, sideIdentityCandidates(game, 'away'))) return 'away';
-  }
-
-  return null;
-}
-
 export function computeStandings(
   games: AppGame[],
   scores: Record<string, ScorePack>,
@@ -602,7 +577,7 @@ export function computeGameTags(
   odds: CombinedOdds | undefined,
   ownershipMap: Map<string, string>,
   rankingsByTeamId?: Map<string, TeamRankingEnrichment>,
-  upsetSpreadThreshold = 6
+  upsetSpreadThreshold = DEFAULT_ODDS_UPSET_SPREAD_THRESHOLD
 ): LeagueGameTag[] {
   const tags: LeagueGameTag[] = [];
 
@@ -611,23 +586,22 @@ export function computeGameTags(
   const hasTop25Matchup = isRankedTop25(awayRank) && isRankedTop25(homeRank);
 
   const state = getState(score);
-  const favoriteSide = favoriteSideFromOdds(game, odds);
-  const spread = spreadMagnitude(odds);
+  const finalWinnerSide = score && state === 'final' ? winnerSide(score) : null;
+  const oddsUpset = evaluateOddsUpset({
+    game,
+    odds,
+    winnerSide: finalWinnerSide,
+    spreadThreshold: upsetSpreadThreshold,
+  });
 
   if (score && state === 'final') {
-    const winningSide = winnerSide(score);
+    const winningSide = finalWinnerSide;
     if (winningSide) {
       const losingSide = winningSide === 'away' ? 'home' : 'away';
       const winningRank = winningSide === 'away' ? awayRank : homeRank;
       const losingRank = losingSide === 'away' ? awayRank : homeRank;
       const rankUpset = isRankUpset({ winnerRank: winningRank, loserRank: losingRank });
-      const oddsUpset =
-        favoriteSide != null &&
-        favoriteSide !== winningSide &&
-        spread != null &&
-        spread >= upsetSpreadThreshold;
-
-      if (rankUpset || oddsUpset) {
+      if (rankUpset || oddsUpset.isUpset) {
         tags.push('upset');
       }
     }
@@ -635,11 +609,12 @@ export function computeGameTags(
 
   if (
     state !== 'final' &&
-    favoriteSide != null &&
-    spread != null &&
-    spread >= upsetSpreadThreshold
+    oddsUpset.favoriteSide != null &&
+    oddsUpset.underdogSide != null &&
+    oddsUpset.meetsSpreadThreshold
   ) {
-    const underdogSide = favoriteSide === 'away' ? 'home' : 'away';
+    const favoriteSide = oddsUpset.favoriteSide;
+    const underdogSide = oddsUpset.underdogSide;
     const favoriteRank = favoriteSide === 'away' ? awayRank : homeRank;
     const underdogRank = underdogSide === 'away' ? awayRank : homeRank;
 

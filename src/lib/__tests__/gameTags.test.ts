@@ -9,6 +9,7 @@ import {
   deriveGameMovementInsights,
   deriveOverviewHighlightSignals,
 } from '../gameTags.ts';
+import { evaluateOddsUpset } from '../oddsUpsetPolicy.ts';
 import type { OverviewGameItem } from '../overview.ts';
 import type { TeamRankingEnrichment } from '../rankings.ts';
 import type { AppGame } from '../schedule.ts';
@@ -735,6 +736,49 @@ test('computeGameTags marks upset for final underdog win', () => {
   };
 
   assert.deepEqual(computeGameTags(taggedGame, score, odds, ownership), ['upset']);
+});
+
+test('shared odds-upset policy keeps game tags on the six-point spread boundary', () => {
+  const taggedGame = game({ key: 'upset-threshold', csvAway: 'Underdog', csvHome: 'Favorite' });
+  const ownership = new Map<string, string>();
+  const score = {
+    status: 'Final',
+    away: { team: 'Underdog', score: 31 },
+    home: { team: 'Favorite', score: 24 },
+    time: null,
+  };
+  const line = (spread: number) => ({
+    favorite: 'Favorite',
+    spread: -spread,
+    homeSpread: -spread,
+    awaySpread: spread,
+    spreadPriceHome: -110,
+    spreadPriceAway: -110,
+    total: 49.5,
+    mlHome: -220,
+    mlAway: 180,
+    overPrice: -110,
+    underPrice: -110,
+    source: 'DraftKings',
+    bookmakerKey: 'draftkings',
+    capturedAt: '2026-09-01T17:00:00.000Z',
+    lineSourceStatus: 'closing' as const,
+  });
+
+  assert.deepEqual(evaluateOddsUpset({ game: taggedGame, odds: line(6), winnerSide: 'away' }), {
+    favoriteSide: 'home',
+    underdogSide: 'away',
+    winnerSide: 'away',
+    spreadMagnitude: 6,
+    spreadThreshold: 6,
+    meetsSpreadThreshold: true,
+    isUpset: true,
+    source: 'DraftKings',
+    bookmakerKey: 'draftkings',
+    lineSourceStatus: 'closing',
+  });
+  assert.deepEqual(computeGameTags(taggedGame, score, line(6), ownership), ['upset']);
+  assert.deepEqual(computeGameTags(taggedGame, score, line(5.5), ownership), []);
 });
 
 test('computeGameTags applies priority ordering when multiple tags apply', () => {

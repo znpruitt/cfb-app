@@ -1,5 +1,6 @@
 import { getGameOwners } from '../gameOwnership.ts';
 import type { LeagueStatus } from '../league.ts';
+import type { CombinedOdds } from '../odds.ts';
 import type { SeasonArchive } from '../seasonArchive.ts';
 import type { ScorePack } from '../scores.ts';
 import type { AppGame } from '../schedule.ts';
@@ -13,6 +14,7 @@ import {
 } from '../standings.ts';
 import { derivePendingGame, type PendingGame } from '../standingsHistory.ts';
 import { selectPendingGameFinality } from './pendingGameFinality.ts';
+import { selectWeeklyOddsUpsets, type WeeklyOddsUpset } from './weeklyOddsUpsets.ts';
 import { selectWeeklyRecordChanges, type WeeklyRecordChange } from './weeklyRecordChanges.ts';
 
 const RECAP_TIME_ZONE = 'America/New_York';
@@ -80,6 +82,7 @@ export type WeeklyRecapFacts = {
   ownerMatchups: WeeklyOwnedGameResult[];
   accolades: WeeklyRecapAccolades;
   recordChanges: WeeklyRecordChange[];
+  oddsUpsets: WeeklyOddsUpset[];
   unresolvedCount: number;
   abandonedCount: number;
   missingResultCount: number;
@@ -386,6 +389,7 @@ export function selectWeeklyRecapFacts(args: {
   games: AppGame[];
   rosterByTeam: Map<string, string>;
   scoresByKey: Record<string, ScorePack>;
+  oddsByGameKey: Readonly<Record<string, CombinedOdds>>;
   archives: SeasonArchive[];
   historicalRosters: Record<number, Map<string, string>>;
   seasonYear: number;
@@ -479,6 +483,11 @@ export function selectWeeklyRecapFacts(args: {
       seasonYear: args.seasonYear,
       targetWeek: targetWeek.week,
       participations: seasonParticipations,
+    }),
+    oddsUpsets: selectWeeklyOddsUpsets({
+      participations,
+      week: targetWeek.week,
+      oddsByGameKey: args.oddsByGameKey,
     }),
     unresolvedCount,
     abandonedCount,

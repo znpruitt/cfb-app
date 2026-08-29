@@ -179,6 +179,7 @@ export function composeWeeklyRecap(
     games: contextResult.context.games,
     rosterByTeam: contextResult.context.rosterByTeam,
     scoresByKey: contextResult.context.scoresByKey,
+    oddsByGameKey: contextResult.context.oddsByGameKey,
     archives: contextResult.context.archives,
     historicalRosters: contextResult.context.historicalRosters,
     seasonYear: contextResult.context.seasonYear,
