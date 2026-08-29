@@ -647,8 +647,9 @@ PLATFORM-114 stopped this reaching eligibility by classifying from the provider'
 new seasons no longer track phantom games. It is forward-only: it does not repair archives, and the
 collision still reaches `buildPairKey`, score attachment, and roster/owner mapping.
 
-**Confirmed historical impact (2025).** The archive audit reports Missouri State at 13-11 — 24 games
-in a 12-game season, i.e. Missouri State's real slate merged with Missouri S&T's Division II slate.
+**Confirmed historical impact (2025).** The archive audit reports Missouri State at 13-11 — 24 games,
+seven beyond the 17-game FBS ceiling, i.e. Missouri State's real slate merged with Missouri S&T's
+Division II slate.
 Impact is contained because Missouri State was a no-claim team that season: no owner record, win
 percentage, or championship is affected, and the residue is an inflated 2025 no-claim aggregate row
 plus phantom rows in the archived game list. Earlier backfilled seasons (2018-2024) carry the same
@@ -668,9 +669,11 @@ Acceptance boundary, both required:
 
 - Two distinct schools never share a normalized identity key, proven by a catalog-wide collision
   sweep, and a conflict fails loudly instead of resolving by first-write-wins.
-- A per-team season game-count invariant rejects an impossible schedule. This is the broader net: it
-  catches the *consequence* of any future collision regardless of cause, and 24 games in a 12-game
-  season went undetected for a full season without it.
+- A per-team season game-count invariant rejects an impossible schedule. The FBS ceiling is **17**
+  — 12 regular-season games, plus a conference championship, plus four College Football Playoff
+  rounds under the 12-team format — so the threshold must accommodate a full title run or it will
+  reject legitimate seasons. This is the broader net: it catches the *consequence* of any future
+  collision regardless of cause, and a 24-game season went undetected for a full year without it.
 
 ### Item 84 — an overriding provider classification records no diagnostic
 
