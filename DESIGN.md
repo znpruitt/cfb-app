@@ -157,7 +157,22 @@ read this rule as a promise that anything logs them; wiring that is separate wor
 - Conference championship badges include the conference name — "SEC Champ"
 - Regular bowl games carry no badge — rankings tell the story
 - Winner score is full opacity/weight, loser score is muted
-- "Top matchup" and "Close" are internal selection signals only — never user-facing labels
+- **Game markers are user-facing.** This reverses the earlier rule that treated "Top matchup" and
+  "Close" as internal selection signals never to be shown (owner decision, 2026-08-29). Chips aid
+  scanning: a chip is wayfinding, inline text is detail, and a chip that restates inline content is
+  legitimate when it lets the reader find the row without reading it
+- A chip must be TRUE, name a CATEGORY rather than an instance, mean exactly what it says, and have
+  something to show when its row is expanded. A chip with no payload behind it is not carrying
+  information
+- Chips are not capped. As many as are true — several ranked matchups on one slate all carry the chip
+- Rankings appear inline in team names per CFB convention; the chip names the category ("Top 25
+  Matchup") rather than repeating the numbers
+- Owner standing appears inline beside the owner name, never as a chip — it is true on every row, so
+  as a marker it would carry no signal
+- "Close" applies to live and final games only. On a scheduled game it is a projection, not a fact
+- A single-game editorial designation (the best game on a slate) uses vocabulary distinct from the
+  category chips, so the two can never be read as the same claim
+- Chips use neutral slate — blue remains interactivity-only, amber remains champion/podium
 - Game selection is context-aware: postseason surfaces playoff/bowl games, in-season surfaces current week
 - First Round CFP games are identified by neutral site = false (campus games)
 
@@ -169,6 +184,11 @@ read this rule as a promise that anything logs them; wiring that is separate wor
   decorative border or accent color, and this exception does not authorize card chrome for ordinary
   Overview sections.
 - Individual game cards retain borders — they are discrete objects
+- Overview game rows may expand in place to a detail disclosure (odds, broadcast, venue, owner
+  head-to-head). This is a ROW-level disclosure, not card chrome: the collapsed row keeps its
+  section's borderless treatment, and expanding pushes subsequent content down rather than
+  overlaying. Tapping a row discloses; it does not navigate — the section's "All matchups" link
+  already serves the go-to-the-full-view intent (owner decision, 2026-08-29)
 - Major sections may be separated by either generous whitespace alone (minimum 40px between sections) or a horizontal divider (0.5px, `var(--color-border-tertiary)`)
 - Whitespace separation is preferred for dashboard-style pages where sections share a visual rhythm and column structure (History Overview, main Overview)
 - Dividers are appropriate when adjacent sections have different visual weights or structural patterns and need explicit visual separation

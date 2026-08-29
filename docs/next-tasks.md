@@ -798,6 +798,62 @@ Acceptance boundary: the integrity line reports a pass on all six existing archi
 game is injected, dropped, or duplicated in a test fixture. A replacement that cannot be shown to
 fail on corruption is the same defect wearing a passing badge.
 
+### Item 87 — rework Overview game listings as a scoreboard
+
+Presentation and information-architecture half of the Overview games region. Item 82 is the
+correctness and copy half on the same surface; they share a component, so sequence them deliberately
+rather than in parallel. `AGENTS.md` forbids folding IA work into a correctness slice, which is why
+these are separate items rather than one.
+
+**Problem observed on `/league/tsc` during the 2026 opening slate (2026-08-29).** One game appeared
+twice on a single screen — in "Upcoming watchlist" and again in the "Live" tile — and the Live card
+printed its own matchup name twice. Four cards filled the viewport, most of the vertical space going
+to chrome: three of four carried a `Top matchup` chip, ranks were rendered inline AND as a chip AND
+as a section eyebrow, and scheduled rows ended in an empty `———` box.
+
+Root causes, both structural:
+
+- `src/lib/selectors/overview.ts:1009` filters featured candidates with `!== 'final'`, which admits
+  `inprogress`. A live game is therefore eligible for the watchlist while also feeding the Live tile,
+  and "Upcoming watchlist" renders a game at `Q2 0:00`.
+- The same conceptual object has four renderers: `GameSummaryList` and `GameCardList` on Overview,
+  `GameScoreboard` on Matchups, and the recap primitives. The two Overview renderers are the weakest,
+  which is why this surface reads worst.
+
+**Settled decisions (owner, 2026-08-29).** The governing criterion for any marker is that it be
+TRUE and VALUABLE to the reader; scarcity is not the test, and chips are not capped. See `DESIGN.md`
+→ Cards and game results for the rules these produced.
+
+- One chronological scoreboard list. Live and scheduled are the same row type distinguished by status
+  chip, so the duplication has nothing to filter — it cannot occur. This also delivers Item 82(a)'s
+  ordering fix, so land these together or sequence 82 first.
+- Right-edge anchor is the score, or the kickoff time when there is no score. The `———` placeholder
+  violates the trailing-whitespace rule and carries no information.
+- Rows expand in place; tapping discloses rather than navigating.
+- Chips get category names ("Top 25 Matchup"), which also resolves the overload below.
+
+**The `Top matchup` label is currently false, and that is the substantive defect here, not density.**
+`gameTags.ts:441` fires the chip from `isTopOwnerGame`, true when EITHER participant's owner is in the
+top three — it means "a contender is playing," not matchup quality. Separately,
+`deriveOverviewHighlightSignals` picks ONE game per slate by a composite of owned-vs-owned, margin,
+live state, and rank bonus, and renders the same words as an eyebrow. The two disagree in production:
+the game designated `TOP MATCHUP` by eyebrow carried no chip (neither owner was top-three), while a
+game carrying the `Top matchup` chip was designated `RANKED SPOTLIGHT`. Fixing this means renaming
+both to what each measures, not restyling either.
+
+L1 disclosure content already flows to this surface and is currently discarded: schedule rows carry
+`media` (broadcast outlet) and full venue, `CombinedOdds` is already threaded into `GameScoreboard`,
+and `historySelectors` computes owner head-to-head records.
+
+Acceptance boundary:
+
+- No game appears in more than one place on Overview, enforced structurally rather than by a filter.
+- Every chip rendered is true by its own definition, and opening its row shows the detail that
+  justifies it.
+- No scheduled row terminates in an empty value.
+- Ranked information appears once as inline detail and once as a scannable category chip — not three
+  times.
+
 ## Planned and parked campaigns
 
 These are valid future campaigns but are not activated implementation work:
