@@ -876,12 +876,14 @@ Both observable symptoms are consequences of that one mismatch:
   days old. No fixed threshold can be right here: a two-day gap is correct in the offseason and
   catastrophic mid-slate.
 
-Consequence: during a live slate the Scores row carries two signals and neither can see a scoring
-outage. If the live-scores cron stopped mid-game the row would read `Current · No refresh history`
-until the 48-hour window elapsed. Severity is bounded — Scheduler delivery does surface the truth
-(`Live scores · On time · Success · 2m ago`), so an outage is detectable — but Provider data is the
-row an operator checks first when asking whether scores are updating, and it is the one dataset where
-the answer matters minute to minute.
+**Severity corrected 2026-08-29 by live observation, having first been overstated here.** A real
+CFBD degradation later the same afternoon failed both live-scores and game-stats, and the platform
+DID surface it: Prioritized issues raised `JOB - LIVE-SCORES`, `JOB - GAME-STATS`, and
+`DATASET - SCORES  Scores refresh failed`. The week-partition failure write feeds the dataset-level
+warning, so a scores outage is not invisible. What remains true is narrower: the Provider data ROW
+SUMMARY still reads `Current` with `No refresh history` while that warning is active, so the row
+contradicts the issue list directly above it. This is a legibility defect in one column, not a
+detection gap.
 
 **Do not fix by writing a synthetic year-scope record.** That populates the row while still answering
 the wrong question. The health model needs to express EXPECTATION for schedule-armed datasets, which
@@ -896,6 +898,37 @@ Acceptance boundary:
 - With games in the kickoff window, the row stops reading healthy within one polling window of live
   scoring stopping — proven by suppressing the writer in a test, not by reasoning about thresholds.
 - Outside the kickoff window, a multi-day gap does not raise an issue.
+- The row never reads healthy while an active issue names that same dataset.
+
+### Item 89 — CFBD request timeout is too tight for peak-Saturday provider latency
+
+Observed live on 2026-08-29 during the opening slate. Both CFBD-consuming jobs failed repeatedly with
+`provider-fetch-failed` while odds polling, which uses a different provider, kept succeeding.
+
+Measured directly against CFBD with the production key at the time of failure:
+
+- `/scoreboard` — one attempt exceeded 30s and aborted, then 16.0s, then 8.2s
+- `/games/teams` — 21.5s
+
+Every CFBD call site uses `timeoutMs: 12_000` (`cron/live-scores` x2, `cron/game-stats`,
+`api/scores`). Only one of those four measured responses would have completed inside it. CFBD was
+healthy — HTTP 200 with correct live data throughout — just slow under opening-weekend load.
+
+Retries do cover timeouts (`fetchUpstream.ts:158` retries `timeout` and `network` kinds), but three
+attempts against a provider consistently answering in 16-21s simply burn all three. The timeout is
+the binding constraint, not the attempt count.
+
+**No user impact occurred and none was at risk.** The 3-minute live-scores cadence absorbed the
+failures: a run succeeded at 19:09 immediately after the 19:06 failure, and served scores matched
+CFBD exactly. Treat this as tuning, not an outage — and do not raise the timeout during a slate.
+
+The constraint that makes this non-trivial: the live-scores contract is at most ONE billed CFBD
+request per run. Before raising the timeout or the retry count, establish whether a timed-out request
+still counts against CFBD quota — if it does, retrying a slow provider silently multiplies billed
+calls against the 1,000-call monthly reserve. That question governs the fix.
+
+Acceptance boundary: sustained provider latency in the 8-25s band does not fail a run, and the number
+of billed CFBD requests per run is unchanged and proven so.
 
 ## Planned and parked campaigns
 
