@@ -729,6 +729,71 @@ test('composer carries a truthful tied-rivalry predecessor into a sole record', 
   assert.ok(rivalryLines.every((line) => !/New league record/.test(line.context)));
 });
 
+test('composer names a suppressed broad tie instead of claiming the surviving pair is new', () => {
+  const rivalries = [
+    ['Alice', 'Bob', 'Texas', 'Georgia'],
+    ['Carol', 'Dan', 'Miami', 'Clemson'],
+    ['Erin', 'Frank', 'Ohio State', 'Michigan'],
+    ['Grace', 'Heidi', 'Oregon', 'Washington'],
+  ] as const;
+  const games = rivalries.flatMap(([, , winnerTeam, loserTeam], index) => [
+    game({
+      key: `broad-${index}-one`,
+      week: 1,
+      date: '2026-09-06T00:00:00.000Z',
+      home: winnerTeam,
+      away: loserTeam,
+    }),
+    game({
+      key: `broad-${index}-two`,
+      week: 2,
+      date: '2026-09-13T00:00:00.000Z',
+      home: winnerTeam,
+      away: loserTeam,
+    }),
+    ...(index === 0
+      ? []
+      : [
+          game({
+            key: `broad-${index}-reverse`,
+            week: 3,
+            date: '2026-09-20T00:00:00.000Z',
+            home: loserTeam,
+            away: winnerTeam,
+          }),
+        ]),
+  ]);
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: {
+        seasonYear: YEAR,
+        games,
+        rosterByTeam: new Map(
+          rivalries.flatMap(([winner, loser, winnerTeam, loserTeam]) => [
+            [winnerTeam, winner] as const,
+            [loserTeam, loser] as const,
+          ])
+        ),
+        scoresByKey: Object.fromEntries(games.map(({ key }) => [key, finalScore(10, 20)])),
+        records: { status: 'available', archives: [], historicalRosters: {} },
+        odds: { status: 'available', byGameKey: {} },
+      },
+    },
+    new Date('2026-09-21T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  const rivalryLines = recap.recordChangeLines.filter(
+    (line) => line.id === 'record-lopsided_rivalry' || line.id === 'record-dominance_streak'
+  );
+  assert.equal(rivalryLines.length, 2);
+  assert.ok(rivalryLines.every((line) => /Previous: .*Broad tie/.test(line.context)));
+  assert.ok(rivalryLines.every((line) => !/New league record/.test(line.context)));
+});
+
 test('composer preserves unique-to-tied rivalry changes with neutral pair copy', () => {
   const games = [
     game({ key: 'alice-one', week: 1, home: 'Texas', away: 'Georgia' }),
@@ -863,6 +928,51 @@ test('composer keeps overlapping tied-pair changes visible when the owner union 
   assert.ok(rivalryLines.every((line) => /Bob over Carol joined/.test(line.context)));
   assert.ok(rivalryLines.every((line) => /Alice over Bob dropped out/.test(line.context)));
   assert.ok(rivalryLines.every((line) => !/Previous:/.test(line.context)));
+});
+
+test('composer omits a sampled previous score when tied rivalry constituents swap', () => {
+  const specs = [
+    ['ab-one', 1, '2026-09-06T00:00:00.000Z', 'Texas', 'Georgia'],
+    ['ab-two', 2, '2026-09-13T00:00:00.000Z', 'Texas', 'Georgia'],
+    ['ab-three', 3, '2026-09-20T00:00:00.000Z', 'Texas', 'Georgia'],
+    ['ab-four', 4, '2026-09-27T00:00:00.000Z', 'Georgia', 'Texas'],
+    ['cd-one', 1, '2026-09-06T01:00:00.000Z', 'Miami', 'Clemson'],
+    ['cd-two', 2, '2026-09-13T01:00:00.000Z', 'Miami', 'Clemson'],
+    ['ef-one', 1, '2026-09-06T02:00:00.000Z', 'Ohio State', 'Michigan'],
+    ['ab-five', 5, '2026-10-04T00:00:00.000Z', 'Georgia', 'Texas'],
+    ['ef-five', 5, '2026-10-04T01:00:00.000Z', 'Ohio State', 'Michigan'],
+  ] as const;
+  const games = specs.map(([key, week, date, home, away]) => game({ key, week, date, home, away }));
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: {
+        seasonYear: YEAR,
+        games,
+        rosterByTeam: new Map([
+          ['Texas', 'Alice'],
+          ['Georgia', 'Bob'],
+          ['Miami', 'Carol'],
+          ['Clemson', 'Dan'],
+          ['Ohio State', 'Erin'],
+          ['Michigan', 'Frank'],
+        ]),
+        scoresByKey: Object.fromEntries(games.map(({ key }) => [key, finalScore(10, 20)])),
+        records: { status: 'available', archives: [], historicalRosters: {} },
+        odds: { status: 'available', byGameKey: {} },
+      },
+    },
+    new Date('2026-10-05T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  const lopsided = recap.recordChangeLines.find((line) => line.id === 'record-lopsided_rivalry');
+  assert.equal(lopsided?.value, '2-game lead');
+  assert.match(lopsided?.context ?? '', /Erin over Frank joined/);
+  assert.match(lopsided?.context ?? '', /Alice over Bob dropped out/);
+  assert.doesNotMatch(lopsided?.context ?? '', /Previous:/);
 });
 
 test('composer does not duplicate pair names when one sole rivalry replaces another', () => {

@@ -276,6 +276,59 @@ test('record diff distinguishes a newly suppressed broad tie from a vanished rec
   assert.equal(change?.suppressedCurrent?.value, 50);
 });
 
+test('record diff preserves a broad-tie predecessor when the record becomes displayable', () => {
+  const rivalries = [
+    ['Alice', 'Bob'],
+    ['Carol', 'Dan'],
+    ['Erin', 'Frank'],
+    ['Grace', 'Heidi'],
+  ] as const;
+  const result = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 3,
+    participations: [
+      ...rivalries.flatMap(([winner, loser]) => [
+        ...ownedMatchup(winner, loser, 1),
+        ...ownedMatchup(winner, loser, 2),
+      ]),
+      ...rivalries.slice(1).flatMap(([winner, loser]) => ownedMatchup(loser, winner, 3)),
+    ],
+  });
+  const change = result.find((entry) => entry.id === 'lopsided_rivalry');
+
+  assert.equal(change?.previous, null);
+  assert.equal(change?.suppressedPrevious?.constituentKeys?.length, 4);
+  assert.equal(change?.suppressedPrevious?.formattedValue, '2-game lead');
+  assert.equal(change?.current?.contextString, 'Alice over Bob');
+});
+
+test('tied rivalry projection uses the record metric instead of one sampled pair score', () => {
+  const result = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 5,
+    participations: [
+      ...ownedMatchup('Alice', 'Bob', 1),
+      ...ownedMatchup('Alice', 'Bob', 2),
+      ...ownedMatchup('Alice', 'Bob', 3),
+      ...ownedMatchup('Bob', 'Alice', 4),
+      ...ownedMatchup('Carol', 'Dan', 1),
+      ...ownedMatchup('Carol', 'Dan', 2),
+      ...ownedMatchup('Erin', 'Frank', 1),
+      ...ownedMatchup('Bob', 'Alice', 5),
+      ...ownedMatchup('Erin', 'Frank', 5),
+    ],
+  });
+  const change = result.find((entry) => entry.id === 'lopsided_rivalry');
+
+  assert.equal(change?.previous?.formattedValue, '2-game lead');
+  assert.equal(change?.current?.formattedValue, '2-game lead');
+  assert.notDeepEqual(change?.previous?.constituentKeys, change?.current?.constituentKeys);
+});
+
 test('record diff compares rivalry constituents when tied pairs share the same owner union', () => {
   const lopsided = selectWeeklyRecordChanges({
     archives: [],

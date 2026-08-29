@@ -1048,7 +1048,10 @@ function selectLopsidedRivalryRecord(
     label: 'Most Lopsided Rivalry',
     holders,
     value: maxDiff,
-    formattedValue: `${top.dominantWins}–${top.loserWins}`,
+    formattedValue:
+      topEntries.length === 1
+        ? `${top.dominantWins}–${top.loserWins}`
+        : `${formatNum(maxDiff)}-game lead`,
     constituentKeys: topEntries
       .map((entry) => JSON.stringify([entry.dominant, entry.loser]))
       .sort(),
@@ -1111,7 +1114,12 @@ function selectEvenRivalryRecord(
     label: 'Most Even Rivalry',
     holders,
     value: top.meetings,
-    formattedValue: `${top.winsA}–${top.winsB} (${top.meetings} games)`,
+    formattedValue:
+      topEntries.length === 1
+        ? `${top.winsA}–${top.winsB} (${top.meetings} games)`
+        : minDiff === 0
+          ? `Even after ${formatNum(maxMeetings)} games`
+          : `${formatNum(minDiff)}-game gap after ${formatNum(maxMeetings)} games`,
     constituentKeys: topEntries.map((entry) => JSON.stringify([entry.ownerA, entry.ownerB])).sort(),
     ...(topEntries.length === 1 ? { contextString: `${top.ownerA} & ${top.ownerB}` } : {}),
     gapToSecond: null,

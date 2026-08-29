@@ -256,7 +256,9 @@ function composeRecordChangeLine(
   const constituentDelta = rivalryConstituentDelta(change);
   const previousContext = previous
     ? `Previous: ${previous.formattedValue} · ${previousSubject}`
-    : 'New league record';
+    : change.suppressedPrevious
+      ? `Previous: ${change.suppressedPrevious.formattedValue} · Broad tie`
+      : 'New league record';
   const previousAddsInformation =
     !previous ||
     !constituentDelta ||
