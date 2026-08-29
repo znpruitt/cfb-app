@@ -31,7 +31,8 @@ The 2026-08-26 roadmap audit recommends this season-reliability sequence after t
 it is proposed ordering, not an owner-selected `NEXT` designation:
 
 1. Item 64(c) — align abandonment handling in resolved-week selection.
-2. Item 63 — design delete-and-recreate reschedule reconciliation.
+2. Item 63 — design delete-and-recreate reschedule reconciliation; also the main lever on
+   score-repair latency.
 3. Item 20 — bound database pool, lock, and statement waits.
 4. Item 46 — prevent past-season adoption from endangering a genuine archive.
 5. Items 76 and 55 — expose catalog freshness read-only and preserve structured schedule errors.
@@ -39,7 +40,7 @@ it is proposed ordering, not an owner-selected `NEXT` designation:
 
 ## Open season-operations and provider reliability work
 
-### Item 63 — delete-and-recreate reschedules need canonical reconciliation
+### Item 63 — delete-and-recreate reschedules need canonical reconciliation, and gate score-repair latency
 
 PLATFORM-110 makes delete-and-recreate reschedules observable after a successful full-season
 refresh, but it does not change schedule cadence. A cached game therefore stays in its old canonical
@@ -56,6 +57,27 @@ schedule; the remaining exposure is the interval before that refresh and the rep
 CFBD exposes no richer cancellation/postponement status through the football games API. The provider
 developer confirmed that a postponed/rescheduled game is normally deleted and recreated with a new
 id, so identity disappearance plus the replacement schedule record is the available evidence.
+
+**Second driver: score-repair latency.** Do not size this as reschedule reconciliation alone. Live
+score polling arms on a window anchored to CANONICAL kickoff —
+`POLLING_WINDOW_BEFORE_KICKOFF_MS` 15 minutes, `POLLING_WINDOW_AFTER_KICKOFF_MS` 24 hours
+(`src/lib/liveScores/pollingTarget.ts`). A delete-and-recreate reschedule defeats both ends of that:
+the retired id arms around a kickoff that never happens, and the replacement id is absent from
+canonical, so it is never armed at all. Neither game gets a score until the weekly schedule refresh
+observes the replacement, and the PLATFORM-107 final-score sweeper — which rides that same weekly
+cron, `0 12 * * 2` — then fills it.
+
+The 24-hour polling tail means an ordinary game has ample opportunity to be caught live, so a
+rescheduled game is plausibly the dominant cause of a final arriving days late rather than minutes
+late. Schedule cadence is therefore the main lever on score-repair latency, not only on week
+placement. This matters to the weekly recap, whose Overview window opens 06:00 ET the day after a
+slate and closes Thursday 06:00 ET: a Tuesday sweeper repair lands inside that window, so records,
+points, movement, and accolades can shift under a reader who already saw them.
+
+Frequency is UNMEASURED. PLATFORM-112's game-level score-gap diagnostics and PLATFORM-113's
+elapsed-time conclusion diagnostics are the instruments; both are merged but were unpromoted as of
+2026-08-29, so no production rate exists yet. Measure before choosing a cadence — the quota cost of a
+ramp should be justified by an observed repair rate, not by this mechanism's existence.
 
 - Backlog slug: `PLATFORM-RESCHEDULE-DETECTION-v1`
 
