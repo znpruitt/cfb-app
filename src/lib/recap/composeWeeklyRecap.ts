@@ -149,6 +149,16 @@ function ownerContext(owners: string[]): string {
   return owners.length > 0 ? formatAllOwnerNames(owners) : 'League record';
 }
 
+function recordSubject(
+  change: WeeklyRecordChange,
+  record: NonNullable<WeeklyRecordChange['current']>
+): string | null {
+  if (change.id === 'lopsided_rivalry' || change.id === 'dominance_streak') {
+    return record.contextString ?? null;
+  }
+  return ownerContext(record.holders);
+}
+
 function composeRecordChangeLine(
   change: WeeklyRecordChange,
   weekLabel: string
@@ -158,22 +168,26 @@ function composeRecordChangeLine(
 
   if (!change.current) {
     const previous = change.previous;
-    return previous
+    const previousSubject = previous ? recordSubject(change, previous) : null;
+    return previous && previousSubject
       ? {
           kind: 'record-change',
           id: `record-${change.id}`,
           label,
-          value: 'Broad tie',
-          context: `Previously ${previous.formattedValue} · ${ownerContext(previous.holders)}`,
+          value: 'No longer current',
+          context: `Previous: ${previous.formattedValue} · ${previousSubject}`,
         }
       : null;
   }
 
-  const holder = ownerContext(change.current.holders);
+  const holder = recordSubject(change, change.current);
+  if (!holder) return null;
   const previous = change.previous;
-  const previousContext = previous
-    ? `Previous: ${previous.formattedValue} · ${ownerContext(previous.holders)}`
-    : 'New league record';
+  const previousSubject = previous ? recordSubject(change, previous) : null;
+  const previousContext =
+    previous && previousSubject
+      ? `Previous: ${previous.formattedValue} · ${previousSubject}`
+      : 'New league record';
   return {
     kind: 'record-change',
     id: `record-${change.id}`,
@@ -282,7 +296,7 @@ function composeGameLines(facts: NonNullable<ReturnType<typeof selectWeeklyRecap
       result.gameKey,
       oddsUpsetSides(result),
       'Odds upset',
-      `Won as a +${result.spreadMagnitude}-point underdog`
+      `Beat a ${result.spreadMagnitude}-point favorite`
     );
   }
   for (const result of facts.accolades.closestGames) {
@@ -294,7 +308,9 @@ function composeGameLines(facts: NonNullable<ReturnType<typeof selectWeeklyRecap
       `${result.margin}-point margin`
     );
   }
+  const closestGameKeys = new Set(facts.accolades.closestGames.map((result) => result.gameKey));
   for (const result of facts.accolades.biggestBlowouts) {
+    if (closestGameKeys.has(result.gameKey)) continue;
     addGameQualifier(
       lines,
       result.gameKey,

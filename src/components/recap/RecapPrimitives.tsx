@@ -291,9 +291,9 @@ function GameScoreboard({
       } ${winner ? 'font-medium text-zinc-100' : 'text-zinc-400'}`}
     >
       <span className="flex min-w-0 items-baseline gap-2">
-        <span className={`truncate ${winner ? '' : 'text-zinc-500'}`}>{entry.team}</span>
+        <span className={`truncate ${winner ? '' : 'text-zinc-400'}`}>{entry.team}</span>
         {entry.owner ? (
-          <span className="shrink-0 text-[12.5px] font-normal text-zinc-500">{entry.owner}</span>
+          <span className="shrink-0 text-[12.5px] font-normal text-zinc-400">{entry.owner}</span>
         ) : null}
       </span>
       <span className={`shrink-0 tabular-nums ${winner ? 'font-semibold' : ''}`}>

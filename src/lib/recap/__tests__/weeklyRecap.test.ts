@@ -318,19 +318,46 @@ test('loader isolates odds-store uncertainty from the core recap', async () => {
 test('loader isolates malformed durable odds rows from the core recap', async () => {
   const slug = 'recap-malformed-odds';
   await seedAvailableContext(slug);
-  const record = emptyDurableOddsRecord(CANONICAL_GAME_KEY);
-  await setDurableOddsStore(YEAR, { [CANONICAL_GAME_KEY]: record });
-  Object.defineProperty(record, 'closingSnapshot', {
-    get() {
-      throw new Error('malformed closing line');
+  await setAppState(`durable-odds:${YEAR}`, 'store', {
+    [CANONICAL_GAME_KEY]: {
+      ...emptyDurableOddsRecord(CANONICAL_GAME_KEY),
+      closingSnapshot: {
+        ...closingOddsSnapshot(),
+        spread: 'not-a-number',
+      },
+      closingFrozenAt: '2026-09-06T00:00:00.000Z',
     },
   });
+  __resetDurableOddsStoreForTests();
 
   const result = await loadRecapContext(slug, YEAR, REQUEST_NOW.toISOString());
 
   assert.equal(result.status, 'available');
   if (result.status !== 'available') return;
   assert.deepEqual(result.context.odds, { status: 'unavailable' });
+});
+
+test('loader isolates malformed archive projections from the core recap', async () => {
+  const slug = 'recap-malformed-archive';
+  await seedAvailableContext(slug);
+  await setAppState(`standings-archive:${slug}`, String(YEAR - 1), {
+    leagueSlug: slug,
+    year: YEAR - 1,
+    archivedAt: `${YEAR - 1}-12-01T00:00:00.000Z`,
+    ownerRosterSnapshot: 'team,owner\nTexas,Prior Alice\nGeorgia,Prior Bob\n',
+    standingsHistory: { weeks: [], byWeek: {}, byOwner: {} },
+    finalStandings: null,
+    games: [],
+    scoresByKey: {},
+  });
+
+  const result = await loadRecapContext(slug, YEAR, REQUEST_NOW.toISOString());
+
+  assert.equal(result.status, 'available');
+  if (result.status !== 'available') return;
+  assert.deepEqual(result.context.records, { status: 'unavailable' });
+  assert.equal(result.context.games.length, 1);
+  assert.equal(result.context.rosterByTeam.get('Texas'), 'Alice');
 });
 
 test('loader treats a genuinely empty archive history as available context', async () => {
@@ -547,8 +574,66 @@ test('composer renders an odds upset from resolved sides even when stored favori
   assert.match(recap.headToHeadLines[0]?.label ?? '', /Odds upset/);
   assert.equal(recap.headToHeadLines[0]?.winner.team, 'Georgia');
   assert.equal(recap.headToHeadLines[0]?.loser.team, 'Texas');
+  assert.equal(recap.headToHeadLines[0]?.detail, 'Beat a 7.5-point favorite · 14-point margin');
   assert.equal(recap.tileHighlights.length, 1);
   assert.equal(recap.tileHighlights[0]?.kind, 'game');
+});
+
+test('composer emits one truthful notable result for a non-head-to-head game', () => {
+  const notableGame = game({ key: 'notable', away: 'Purdue', home: 'Texas' });
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: context([notableGame], {
+        notable: {
+          status: 'final',
+          away: { team: 'Purdue', score: 27 },
+          home: { team: 'Texas', score: 31 },
+          time: null,
+        },
+      }),
+    },
+    REQUEST_NOW,
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  assert.deepEqual(recap.headToHeadLines, []);
+  assert.equal(recap.notableResultLines.length, 1);
+  assert.equal(recap.notableResultLines[0]?.label, 'Closest game');
+  assert.doesNotMatch(recap.notableResultLines[0]?.label ?? '', /Biggest margin/);
+  assert.equal(recap.notableResultLines[0]?.winner.team, 'Texas');
+});
+
+test('composer names the directed rivalry when a prior record is no longer current', () => {
+  const rivalryGames = [
+    game({ key: 'rivalry-one', week: 1, date: '2026-09-06T00:00:00.000Z' }),
+    game({ key: 'rivalry-two', week: 2, date: '2026-09-13T00:00:00.000Z' }),
+    game({ key: 'rivalry-three', week: 3, date: '2026-09-20T00:00:00.000Z' }),
+  ];
+  const recap = composeWeeklyRecap(
+    {
+      status: 'available',
+      context: context(rivalryGames, {
+        'rivalry-one': finalScore(10, 20),
+        'rivalry-two': finalScore(10, 20),
+        'rivalry-three': finalScore(20, 10),
+      }),
+    },
+    new Date('2026-09-21T16:00:00.000Z'),
+    ACTIVE_SCOPE
+  );
+
+  assert.equal(recap.status, 'available');
+  if (recap.status !== 'available') return;
+  const endedRivalries = recap.recordChangeLines.filter(
+    (line) => line.id === 'record-lopsided_rivalry' || line.id === 'record-dominance_streak'
+  );
+  assert.equal(endedRivalries.length, 2);
+  assert.ok(endedRivalries.every((line) => line.value === 'No longer current'));
+  assert.ok(endedRivalries.every((line) => /Alice over Bob/.test(line.context)));
+  assert.ok(endedRivalries.every((line) => !/Broad tie/.test(line.value)));
 });
 
 test('composer exposes approved movement rows and the compact biggest-riser summary', () => {

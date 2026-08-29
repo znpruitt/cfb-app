@@ -60,7 +60,16 @@ test('full recap qualifies and renders non-compact movement accessibly', () => {
         ],
         recordChangeLines: [],
         headToHeadLines: [],
-        notableResultLines: [],
+        notableResultLines: [
+          {
+            kind: 'game',
+            id: 'game-notable',
+            label: 'Closest game',
+            detail: '4-point margin',
+            winner: { team: 'Texas', owner: 'Alice', score: '31' },
+            loser: { team: 'Purdue', owner: null, score: '27' },
+          },
+        ],
         tileHighlights: [],
       }}
     />
@@ -69,6 +78,9 @@ test('full recap qualifies and renders non-compact movement accessibly', () => {
   assert.match(html, /Week 2 movement/);
   assert.match(html, /aria-label="Moved up in standings"/);
   assert.match(html, /text-\[14\.5px\]/);
+  assert.match(html, /Notable results/);
+  assert.match(html, /Closest game/);
+  assert.match(html, /Purdue/);
   assert.doesNotMatch(html, /recap-tile-movement-heading/);
 });
 

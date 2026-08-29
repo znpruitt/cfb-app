@@ -7,6 +7,7 @@ import type { ScorePack } from '../scores.ts';
 import type { AppGame } from '../schedule.ts';
 import { getSeasonArchive, listSeasonArchives, type SeasonArchive } from '../seasonArchive.ts';
 import { assembleSeasonScoredBuild, SeasonScheduleCacheUnavailableError } from '../seasonBuild.ts';
+import { projectHistoricalInSeasonRecordEvidence } from '../selectors/leagueRecords.ts';
 import { isWeeklyRecapActiveSeason } from '../selectors/weeklyRecapFacts.ts';
 import { readConfirmedRosterInputs } from '../server/confirmedRosterStore.ts';
 import { getDurableOddsStore } from '../server/durableOddsStore.ts';
@@ -53,7 +54,46 @@ async function loadHistoricalRecordContext(
       parseOwnersCsv(archive.ownerRosterSnapshot).map(({ team, owner }) => [team, owner] as const)
     );
   }
+
+  // Validate the exact projection the composer will consume while this family
+  // is still isolated. A structurally malformed archive must not survive the
+  // loader and turn a healthy core recap into a request-wide failure later.
+  projectHistoricalInSeasonRecordEvidence({ archives, historicalRosters });
   return { archives, historicalRosters };
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+
+function isNullableFiniteNumber(value: unknown): value is number | null {
+  return value === null || (typeof value === 'number' && Number.isFinite(value));
+}
+
+function isCombinedOdds(value: unknown): value is CombinedOdds {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const odds = value as Record<string, unknown>;
+  const stringFields = ['favorite', 'source', 'bookmakerKey', 'capturedAt'] as const;
+  const numberFields = [
+    'spread',
+    'homeSpread',
+    'awaySpread',
+    'spreadPriceHome',
+    'spreadPriceAway',
+    'total',
+    'mlHome',
+    'mlAway',
+    'overPrice',
+    'underPrice',
+  ] as const;
+  const validLineSources = new Set(['latest', 'closing', 'fallback-latest-for-completed']);
+
+  return (
+    stringFields.every((field) => isNullableString(odds[field])) &&
+    numberFields.every((field) => isNullableFiniteNumber(odds[field])) &&
+    typeof odds.lineSourceStatus === 'string' &&
+    validLineSources.has(odds.lineSourceStatus)
+  );
 }
 
 async function loadRecapContextUncached(
@@ -99,6 +139,9 @@ async function loadRecapContextUncached(
           record: oddsResult.value[game.key],
           now: nowIso,
         });
+        if (selected && !isCombinedOdds(selected)) {
+          throw new Error('Malformed durable odds row selected for weekly recap.');
+        }
         if (selected) byGameKey[game.key] = selected;
       }
       odds = { status: 'available', byGameKey };

@@ -98,7 +98,7 @@ const recap: AvailableWeeklyRecapViewModel = {
       kind: 'game',
       id: 'game-upset',
       label: 'Odds upset',
-      detail: 'Won as a +7.5-point underdog',
+      detail: 'Beat a 7.5-point favorite',
       winner: { team: 'Texas', owner: 'Alice', score: '31' },
       loser: { team: 'Georgia', owner: 'Bob', score: '17' },
     },
@@ -137,8 +137,9 @@ test('recap tile expands its compact week-record grid in normal flow and collaps
   assert.ok(rendered.getByLabelText('Moved up in standings'));
   assert.ok(rendered.getByRole('heading', { name: 'Week highlights' }));
   assert.ok(rendered.getByText('Highest Single-Week Score'));
-  assert.ok(rendered.getByText('Won as a +7.5-point underdog'));
+  assert.ok(rendered.getByText('Beat a 7.5-point favorite'));
   assert.match(rendered.getByText('55 PF · 38 PA').className, /text-zinc-400/);
+  assert.match(rendered.getByText('Georgia').className, /text-zinc-400/);
   assert.equal(panel.hidden, false);
   const collapse = rendered.getByRole('button', { name: 'Collapse' });
   assert.equal(collapse.getAttribute('aria-expanded'), 'true');

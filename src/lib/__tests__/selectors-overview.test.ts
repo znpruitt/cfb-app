@@ -1798,6 +1798,20 @@ test('selectOverviewViewModel keeps retired movement output absent with unresolv
   });
 
   assert.equal('keyMovements' in model, false);
+  assert.deepEqual(
+    model.previousStandingsLeaders.map(({ owner, wins, losses }) => ({ owner, wins, losses })),
+    [
+      { owner: 'Alex', wins: 4, losses: 2 },
+      { owner: 'Blake', wins: 4, losses: 2 },
+    ]
+  );
+  assert.deepEqual(
+    model.standingsTopN.map(({ owner, wins, losses }) => ({ owner, wins, losses })),
+    [
+      { owner: 'Alex', wins: 6, losses: 2 },
+      { owner: 'Blake', wins: 4, losses: 4 },
+    ]
+  );
 });
 
 test('selectOverviewViewModel includes winPctTrend derived from resolved standings history', () => {

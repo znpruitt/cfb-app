@@ -1015,6 +1015,7 @@ function selectLopsidedRivalryRecord(h2hPairs: Map<string, H2HResult[]>): Record
     holders,
     value: maxDiff,
     formattedValue: `${top.dominantWins}–${top.loserWins}`,
+    ...(topEntries.length === 1 ? { contextString: `${top.dominant} over ${top.loser}` } : {}),
     gapToSecond: gap,
     secondPlace: Number.isFinite(secondMax)
       ? {
@@ -1109,6 +1110,7 @@ function selectDominanceStreakRecord(h2hPairs: Map<string, H2HResult[]>): Record
   const topEntries = entries.filter((e) => e.streak === maxStreak);
   const holders = [...new Set(topEntries.flatMap((e) => [e.winner, e.loser]))].sort();
   if (holders.length > RECORDS_TIE_SUPPRESSION_THRESHOLD) return null;
+  const top = topEntries[0]!;
 
   const secondMax = Math.max(...entries.filter((e) => e.streak < maxStreak).map((e) => e.streak));
   const gap = Number.isFinite(secondMax) ? maxStreak - secondMax : null;
@@ -1120,6 +1122,7 @@ function selectDominanceStreakRecord(h2hPairs: Map<string, H2HResult[]>): Record
     holders,
     value: maxStreak,
     formattedValue: `${maxStreak} straight`,
+    ...(topEntries.length === 1 ? { contextString: `${top.winner} over ${top.loser}` } : {}),
     gapToSecond: gap,
     secondPlace: Number.isFinite(secondMax)
       ? {

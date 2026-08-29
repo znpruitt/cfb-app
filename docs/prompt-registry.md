@@ -51,19 +51,6 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
-### INSIGHTS-026f-RECAP-FINAL-WIRING-v1
-
-- Purpose: complete the request-time weekly recap by wiring the finished record-change, matchup,
-  accolade, and odds-upset facts into the approved Insights and Overview layouts.
-- Scope: family-isolated recap context loading, serializable presentation lines, full-page result
-  scoreboards, a three-item prioritized Overview disclosure, guarded additive payload parsing, the
-  dead pre-recap Overview pulse removal, and the remaining Slice 3/4 regression pins.
-- Outcome: implementation in progress on `insights/026f-recap-final-wiring`; no scheduler, durable
-  recap artifact, lifecycle policy, or future-week view enters this pass.
-- Review / verification: full gates and independent Codex/Claude reviews are pending against the
-  implementation commit.
-- Status: Claimed — implementation in progress.
-
 ### INSIGHTS-026e-RECAP-ODDS-UPSETS-v1
 
 - Purpose: add odds-vs-result upset facts to the request-time weekly recap without exposing an
