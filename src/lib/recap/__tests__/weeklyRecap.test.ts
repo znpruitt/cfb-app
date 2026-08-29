@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import type { AppGame, ScheduleWireItem } from '../../schedule.ts';
 import type { ScorePack } from '../../scores.ts';
+import type { SeasonArchive } from '../../seasonArchive.ts';
 import {
   __deleteAppStateFileForTests,
   __resetAppStateForTests,
@@ -59,6 +60,20 @@ async function seedAvailableContext(slug: string): Promise<void> {
   await setAppState('scores', `${YEAR}-all-regular`, {
     items: [scoreItem('401000001')],
   });
+}
+
+async function seedPriorArchive(slug: string): Promise<void> {
+  const archive: SeasonArchive = {
+    leagueSlug: slug,
+    year: YEAR - 1,
+    archivedAt: `${YEAR - 1}-12-01T00:00:00.000Z`,
+    ownerRosterSnapshot: 'team,owner\nTexas,Prior Alice\nGeorgia,Prior Bob\n',
+    standingsHistory: { weeks: [], byWeek: {}, byOwner: {} },
+    finalStandings: [],
+    games: [],
+    scoresByKey: {},
+  };
+  await setAppState(`standings-archive:${slug}`, String(YEAR - 1), archive);
 }
 
 function game(
@@ -134,6 +149,8 @@ function context(games: AppGame[], scoresByKey: Record<string, ScorePack>): Week
     games,
     rosterByTeam,
     scoresByKey,
+    archives: [],
+    historicalRosters: {},
   };
 }
 
@@ -173,6 +190,7 @@ test('loader surfaces a durable read failure as unavailable rather than empty', 
 
 test('loader assembles games, roster, and scores from one cache-only context', async () => {
   await seedAvailableContext('recap-available');
+  await seedPriorArchive('recap-available');
 
   const result = await loadRecapContext('recap-available', YEAR);
 
@@ -182,6 +200,48 @@ test('loader assembles games, roster, and scores from one cache-only context', a
   assert.equal(result.context.games.length, 1);
   assert.equal(result.context.rosterByTeam.get('Texas'), 'Alice');
   assert.equal(Object.keys(result.context.scoresByKey).length, 1);
+  assert.deepEqual(
+    result.context.archives.map((archive) => archive.year),
+    [YEAR - 1]
+  );
+  assert.equal(result.context.historicalRosters[YEAR - 1]?.get('Texas'), 'Prior Alice');
+});
+
+test('loader treats a genuinely empty archive history as available context', async () => {
+  await seedAvailableContext('recap-empty-history');
+
+  const result = await loadRecapContext('recap-empty-history', YEAR);
+
+  assert.equal(result.status, 'available');
+  if (result.status !== 'available') return;
+  assert.deepEqual(result.context.archives, []);
+  assert.deepEqual(result.context.historicalRosters, {});
+});
+
+test('loader treats a listed null archive as uncertainty rather than empty history', async () => {
+  await seedAvailableContext('recap-null-archive');
+  await setAppState<SeasonArchive | null>(
+    'standings-archive:recap-null-archive',
+    String(YEAR - 1),
+    null
+  );
+
+  assert.deepEqual(await loadRecapContext('recap-null-archive', YEAR), {
+    status: 'unavailable',
+  });
+});
+
+test('loader keeps archive uncertainty distinct from a genuine empty history', async () => {
+  await seedAvailableContext('recap-archive-failure');
+  await seedPriorArchive('recap-archive-failure');
+  __setAppStateReadFailureForTests(
+    new Error('archive history read failed'),
+    'standings-archive:recap-archive-failure'
+  );
+
+  assert.deepEqual(await loadRecapContext('recap-archive-failure', YEAR), {
+    status: 'unavailable',
+  });
 });
 
 test('inactive lifecycle skips recap context loading, with an active-season positive control', async () => {
@@ -356,6 +416,8 @@ test('composer names every owner tied for biggest riser', () => {
         seasonYear: YEAR,
         games,
         rosterByTeam,
+        archives: [],
+        historicalRosters: {},
         scoresByKey: {
           'alice-one': finalScore(10, 70),
           'bob-one': finalScore(10, 60),
@@ -407,7 +469,14 @@ test('composer uses count copy when three owners share the exact weekly lead', (
   const recap = composeWeeklyRecap(
     {
       status: 'available',
-      context: { seasonYear: YEAR, games: tiedGames, rosterByTeam, scoresByKey },
+      context: {
+        seasonYear: YEAR,
+        games: tiedGames,
+        rosterByTeam,
+        scoresByKey,
+        archives: [],
+        historicalRosters: {},
+      },
     },
     new Date('2026-09-07T16:00:00.000Z'),
     ACTIVE_SCOPE

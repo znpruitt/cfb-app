@@ -1,5 +1,6 @@
 import { getGameOwners } from '../gameOwnership.ts';
 import type { LeagueStatus } from '../league.ts';
+import type { SeasonArchive } from '../seasonArchive.ts';
 import type { ScorePack } from '../scores.ts';
 import type { AppGame } from '../schedule.ts';
 import {
@@ -12,6 +13,7 @@ import {
 } from '../standings.ts';
 import { derivePendingGame, type PendingGame } from '../standingsHistory.ts';
 import { selectPendingGameFinality } from './pendingGameFinality.ts';
+import { selectWeeklyRecordChanges, type WeeklyRecordChange } from './weeklyRecordChanges.ts';
 
 const RECAP_TIME_ZONE = 'America/New_York';
 const RECAP_ELIGIBILITY_HOUR = 6;
@@ -77,6 +79,7 @@ export type WeeklyRecapFacts = {
   rankMovement: WeeklyRankMovement[];
   ownerMatchups: WeeklyOwnedGameResult[];
   accolades: WeeklyRecapAccolades;
+  recordChanges: WeeklyRecordChange[];
   unresolvedCount: number;
   abandonedCount: number;
   missingResultCount: number;
@@ -383,6 +386,9 @@ export function selectWeeklyRecapFacts(args: {
   games: AppGame[];
   rosterByTeam: Map<string, string>;
   scoresByKey: Record<string, ScorePack>;
+  archives: SeasonArchive[];
+  historicalRosters: Record<number, Map<string, string>>;
+  seasonYear: number;
   now: Date;
 }): WeeklyRecapFacts | null {
   const { games, rosterByTeam, scoresByKey, now } = args;
@@ -398,7 +404,14 @@ export function selectWeeklyRecapFacts(args: {
     );
   });
   const totalsByOwner = new Map<string, WeeklyOwnerResult>();
-  const participations = deriveFinalOwnedParticipations(leagueGames, rosterByTeam, scoresByKey);
+  const seasonParticipations = deriveFinalOwnedParticipations(
+    games.filter((game) => game.canonicalWeek <= targetWeek.week),
+    rosterByTeam,
+    scoresByKey
+  );
+  const participations = seasonParticipations.filter(
+    (participation) => participation.game.canonicalWeek === targetWeek.week
+  );
   const countedGameKeys = new Set<string>();
 
   for (const participation of participations) {
@@ -460,6 +473,13 @@ export function selectWeeklyRecapFacts(args: {
         result.winnerOwner !== result.loserOwner
     ),
     accolades: selectWeeklyAccolades(ownerResults, gameResults),
+    recordChanges: selectWeeklyRecordChanges({
+      archives: args.archives,
+      historicalRosters: args.historicalRosters,
+      seasonYear: args.seasonYear,
+      targetWeek: targetWeek.week,
+      participations: seasonParticipations,
+    }),
     unresolvedCount,
     abandonedCount,
     missingResultCount,

@@ -179,6 +179,9 @@ export function composeWeeklyRecap(
     games: contextResult.context.games,
     rosterByTeam: contextResult.context.rosterByTeam,
     scoresByKey: contextResult.context.scoresByKey,
+    archives: contextResult.context.archives,
+    historicalRosters: contextResult.context.historicalRosters,
+    seasonYear: contextResult.context.seasonYear,
     now,
   });
   if (!facts) return { status: 'absent' };

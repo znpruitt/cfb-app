@@ -51,6 +51,24 @@ Rules:
 
 ## Prompt ledger (most recent first)
 
+### INSIGHTS-026d-RECAP-RECORD-CHANGES-v1
+
+- Purpose: add the allowlisted partial-season record-change projection to the request-time weekly
+  recap pipeline without exposing an interim member-facing rendering.
+- Scope: historical and live evidence projection for the six active-season-safe record ids,
+  week-explicit before/current diffing, cache-only archive and roster context loading, raw recap
+  facts, and focused parity, tie, rivalry, ownership, and failure-path coverage.
+- Outcome: each eligible recap now derives record changes against prior completed-season history
+  without feeding a partial season into the career accumulator. Live evidence uses canonical
+  ownership/finality, deduplicates owned-v-owned games, excludes placeholder owners, and preserves
+  the newest tied occurrence for weekly change context while legacy Records behavior stays
+  unchanged by default.
+- Review / verification: exact commit `52895e79` passed TypeScript, `lint:all`, the 4,402-test full
+  suite, and production build. One remediation round closed tied-context, placeholder, parity-fixture,
+  archive-absence, and rivalry-coverage findings; final independent Codex and Claude reviews found
+  no remaining P0/P1/P2 issue. Non-blocking follow-ups remain recorded with item 42.
+- Status: Implemented — pre-merge closeout complete; not yet merged.
+
 ### PLATFORM-114-SCHEDULE-PROVIDER-CLASSIFICATION-v1
 
 - Purpose: stop schedule eligibility reconstructing a participant's division when CFBD already

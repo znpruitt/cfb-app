@@ -7,7 +7,7 @@ import {
   compareWeeklyOwnerResults,
   isWeeklyRecapActiveSeason,
   selectWeeklyRecapEligibilityBoundaryKey,
-  selectWeeklyRecapFacts,
+  selectWeeklyRecapFacts as selectWeeklyRecapFactsBase,
   selectWeeklyRecapLeaders,
   selectWeeklyRecapTargetWeek,
   selectWeeklyRecapTileState,
@@ -104,6 +104,20 @@ function ownerResult(
     pointsAgainst: pointsFor - pointDifferential,
     pointDifferential,
   };
+}
+
+function selectWeeklyRecapFacts(
+  args: Omit<
+    Parameters<typeof selectWeeklyRecapFactsBase>[0],
+    'archives' | 'historicalRosters' | 'seasonYear'
+  >
+) {
+  return selectWeeklyRecapFactsBase({
+    ...args,
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+  });
 }
 
 test('request-time recaps exist only for the matching active season', () => {
@@ -357,6 +371,10 @@ test('weekly owner results aggregate multiple teams with distinct PF and PA', ()
       pointDifferential: -14,
     },
   ]);
+  assert.deepEqual(
+    facts.recordChanges.map((change) => change.id),
+    ['single_season_high_score', 'single_season_blowout', 'single_season_points_high']
+  );
 });
 
 test('owner facts exclude NoClaim while uncertainty stays scoped to real-owner games', () => {

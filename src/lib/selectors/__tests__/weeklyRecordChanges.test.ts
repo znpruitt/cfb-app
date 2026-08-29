@@ -1,0 +1,287 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import type { AppGame } from '../../schedule.ts';
+import type { SeasonArchive } from '../../seasonArchive.ts';
+import type { OwnedFinalParticipation } from '../../standings.ts';
+import type { OwnerStandingsSeriesPoint } from '../../standingsHistory.ts';
+import { selectWeeklyRecordChanges } from '../weeklyRecordChanges.ts';
+
+function game(key: string, week: number): AppGame {
+  return {
+    key,
+    eventId: key,
+    eventKey: key,
+    week,
+    canonicalWeek: week,
+    providerWeek: week,
+    stage: 'regular',
+    stageOrder: 1,
+    slotOrder: 0,
+    date: `2026-09-${String(week).padStart(2, '0')}T16:00:00.000Z`,
+    status: 'final',
+    rawStatus: 'final',
+    completed: true,
+    label: null,
+    conference: null,
+    bowlName: null,
+    playoffRound: null,
+    postseasonRole: null,
+    providerGameId: key,
+    neutral: false,
+    neutralDisplay: 'home_away',
+    venue: null,
+    isPlaceholder: false,
+    participants: {
+      away: {
+        kind: 'team',
+        teamId: `${key}-away`,
+        displayName: `${key}-away`,
+        canonicalName: `${key}-away`,
+        rawName: `${key}-away`,
+      },
+      home: {
+        kind: 'team',
+        teamId: `${key}-home`,
+        displayName: `${key}-home`,
+        canonicalName: `${key}-home`,
+        rawName: `${key}-home`,
+      },
+    },
+    csvAway: `${key}-away`,
+    csvHome: `${key}-home`,
+    canAway: `${key}-away`,
+    canHome: `${key}-home`,
+    awayConf: 'SEC',
+    homeConf: 'SEC',
+  };
+}
+
+function participation(owner: string, week: number, pointsFor: number): OwnedFinalParticipation {
+  return {
+    owner,
+    game: game(`${owner}-${week}`, week),
+    teamSide: 'home',
+    teamName: `${owner} Team`,
+    opponentTeamName: `Opponent ${week}`,
+    pointsFor,
+    pointsAgainst: Math.max(0, pointsFor - 7),
+    result: 'win',
+  };
+}
+
+function ownedMatchup(
+  winner: string,
+  loser: string,
+  week: number,
+  winnerPoints = 30,
+  loserPoints = 0
+): OwnedFinalParticipation[] {
+  const matchupGame = game(`${winner}-${loser}-${week}`, week);
+  return [
+    {
+      owner: winner,
+      opponentOwner: loser,
+      game: matchupGame,
+      teamSide: 'home',
+      teamName: `${winner} Team`,
+      opponentTeamName: `${loser} Team`,
+      pointsFor: winnerPoints,
+      pointsAgainst: loserPoints,
+      result: 'win',
+    },
+    {
+      owner: loser,
+      opponentOwner: winner,
+      game: matchupGame,
+      teamSide: 'away',
+      teamName: `${loser} Team`,
+      opponentTeamName: `${winner} Team`,
+      pointsFor: loserPoints,
+      pointsAgainst: winnerPoints,
+      result: 'loss',
+    },
+  ];
+}
+
+function point(week: number, pointsFor: number, pointsAgainst: number): OwnerStandingsSeriesPoint {
+  return {
+    week,
+    wins: 1,
+    losses: 0,
+    ties: 0,
+    winPct: 1,
+    pointsFor,
+    pointsAgainst,
+    pointDifferential: pointsFor - pointsAgainst,
+    gamesBack: 0,
+  };
+}
+
+function archive(points: number): SeasonArchive {
+  return {
+    leagueSlug: 'record-changes',
+    year: 2025,
+    archivedAt: '2025-12-01T00:00:00.000Z',
+    ownerRosterSnapshot: 'team,owner\nAlice Team,Alice\n',
+    standingsHistory: {
+      weeks: [],
+      byWeek: {},
+      byOwner: { Alice: [point(1, points, Math.max(0, points - 7))] },
+    },
+    finalStandings: [
+      {
+        ...point(1, points, Math.max(0, points - 7)),
+        owner: 'Alice',
+        finalGames: 1,
+      },
+    ],
+    games: [],
+    scoresByKey: {},
+  };
+}
+
+function changes(args: {
+  historicalPoints: number;
+  targetWeek: number;
+  participations: OwnedFinalParticipation[];
+}) {
+  return selectWeeklyRecordChanges({
+    archives: [archive(args.historicalPoints)],
+    historicalRosters: { 2025: new Map([['Alice Team', 'Alice']]) },
+    seasonYear: 2026,
+    targetWeek: args.targetWeek,
+    participations: args.participations,
+  });
+}
+
+test('record diff reports a holder and value change caused by the explicit target week', () => {
+  const result = changes({
+    historicalPoints: 50,
+    targetWeek: 2,
+    participations: [participation('Bob', 1, 40), participation('Bob', 2, 20)],
+  });
+  const change = result.find((entry) => entry.id === 'single_season_points_high');
+
+  assert.deepEqual(change?.previous?.holders, ['Alice']);
+  assert.equal(change?.previous?.value, 50);
+  assert.deepEqual(change?.current?.holders, ['Bob']);
+  assert.equal(change?.current?.value, 60);
+});
+
+test('record diff reports a newly tied holder when the value is unchanged', () => {
+  const result = changes({
+    historicalPoints: 50,
+    targetWeek: 1,
+    participations: [participation('Bob', 1, 50)],
+  });
+  const change = result.find((entry) => entry.id === 'single_season_high_score');
+
+  assert.equal(change?.previous?.value, 50);
+  assert.deepEqual(change?.previous?.holders, ['Alice']);
+  assert.equal(change?.current?.value, 50);
+  assert.deepEqual(change?.current?.holders, ['Alice', 'Bob']);
+});
+
+test('record diff reports no movement when the target week changes no safe record', () => {
+  assert.deepEqual(
+    changes({
+      historicalPoints: 100,
+      targetWeek: 1,
+      participations: [participation('Bob', 1, 40)],
+    }),
+    []
+  );
+});
+
+test('record diff observes context movement even when holder and value stay fixed', () => {
+  const result = changes({
+    historicalPoints: 50,
+    targetWeek: 1,
+    participations: [participation('Alice', 1, 50)],
+  });
+  const change = result.find((entry) => entry.id === 'single_season_points_high');
+
+  assert.deepEqual(change?.previous?.holders, ['Alice']);
+  assert.equal(change?.previous?.value, 50);
+  assert.equal(change?.previous?.contextString, '2025 season');
+  assert.deepEqual(change?.current?.holders, ['Alice']);
+  assert.equal(change?.current?.value, 50);
+  assert.equal(change?.current?.contextString, '2026 season');
+});
+
+test('a target-week tie by the existing holder retains the newest high-score context', () => {
+  const result = changes({
+    historicalPoints: 50,
+    targetWeek: 1,
+    participations: [participation('Alice', 1, 50)],
+  });
+  const change = result.find((entry) => entry.id === 'single_season_high_score');
+
+  assert.deepEqual(change?.previous?.holders, ['Alice']);
+  assert.equal(change?.previous?.contextString, '2025 · Week 1');
+  assert.deepEqual(change?.current?.holders, ['Alice']);
+  assert.equal(change?.current?.contextString, '2026 · Week 1');
+});
+
+test('latest high-score context follows week chronology rather than owner grouping order', () => {
+  const result = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 3,
+    participations: [
+      participation('Alice', 1, 50),
+      participation('Bob', 2, 50),
+      participation('Alice', 3, 50),
+    ],
+  });
+  const change = result.find((entry) => entry.id === 'single_season_high_score');
+
+  assert.deepEqual(change?.previous?.holders, ['Alice', 'Bob']);
+  assert.equal(change?.previous?.contextString, '2026 · Week 2');
+  assert.deepEqual(change?.current?.holders, ['Alice', 'Bob']);
+  assert.equal(change?.current?.contextString, '2026 · Week 3');
+});
+
+test('a target-week blowout tie retains the newest opponent context', () => {
+  const result = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 2,
+    participations: [...ownedMatchup('Alice', 'Bob', 1), ...ownedMatchup('Alice', 'Carol', 2)],
+  });
+  const change = result.find((entry) => entry.id === 'single_season_blowout');
+
+  assert.equal(change?.previous?.contextString, 'over Bob · 2026');
+  assert.equal(change?.current?.contextString, 'over Carol · 2026');
+});
+
+test('target-week reversal diffs all three live rivalry records in chronological order', () => {
+  const result = selectWeeklyRecordChanges({
+    archives: [],
+    historicalRosters: {},
+    seasonYear: 2026,
+    targetWeek: 3,
+    participations: [
+      ...ownedMatchup('Alice', 'Bob', 1),
+      ...ownedMatchup('Alice', 'Bob', 2),
+      ...ownedMatchup('Bob', 'Alice', 3),
+    ],
+  });
+  const rivalryChanges = result.filter((entry) =>
+    ['lopsided_rivalry', 'even_rivalry', 'dominance_streak'].includes(entry.id)
+  );
+
+  assert.deepEqual(
+    rivalryChanges.map((entry) => entry.id),
+    ['lopsided_rivalry', 'even_rivalry', 'dominance_streak']
+  );
+  assert.equal(rivalryChanges[0]?.previous?.value, 2);
+  assert.equal(rivalryChanges[0]?.current, null);
+  assert.equal(rivalryChanges[1]?.previous?.value, 2);
+  assert.equal(rivalryChanges[1]?.current?.value, 3);
+  assert.equal(rivalryChanges[2]?.previous?.value, 2);
+  assert.equal(rivalryChanges[2]?.current, null);
+});
